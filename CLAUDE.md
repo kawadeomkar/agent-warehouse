@@ -281,12 +281,16 @@ token; `github_auth_method: token` still fails. The status JSON carries
   that runs the role installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the
   Vagrantfile is keyless with logs off, and a guard holds each - and the role's scenario to `scenario_roles` and
   CI's matrix. The template is never signed in to anything.
-- **The project writes exactly two things outside the repo on the controller:** `~/.ssh/known_hosts`
-  and the managed SSH config `~/.ssh/claude-on-proxmox.conf`, plus one `Include` line at the top of
-  `~/.ssh/config` that is added once and never removed. Nothing else in `~/.ssh` is ever edited.
-  (The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
-  unless the user points `destroy_sessions_dir` elsewhere.)
-  Everything goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
+- **The project writes exactly three things outside the repo on the controller:** `~/.ssh/known_hosts`,
+  the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include` line at the top of
+  `~/.ssh/config` that is added once and never removed), and the checkout's own folder. Nothing else in
+  `~/.ssh` is ever edited. (The Claude Code sessions `just destroy` saves go into the checkout's
+  `.sessions/`, inside the repo, unless the user points `destroy_sessions_dir` elsewhere.) The checkout's
+  folder is `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+  (`tools/env-run --data`): `just install` puts the Galaxy collections there, and the Python environment
+  when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
+  `just clean env` deletes that folder and nothing beside it.
+  Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
   `ssh -G`, refuses an alias the user's own config already names, and refuses a name or address that
   is not one plain word. A VM's address is whatever its guest agent reports, which the VM chooses:
   `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a
