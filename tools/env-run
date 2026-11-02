@@ -17,7 +17,10 @@
 #   tools/env-run --data          this checkout's folder outside it
 #   tools/env-run --collections   the Galaxy collections' folder in it
 set -eu
-here=$(cd "$(dirname "$0")/.." && pwd -P)
+# Never by CDPATH: just and the hooks run this as tools/env-run, a relative
+# path, which an exported CDPATH would send to another directory's tools/, or
+# have cd print, into $here.
+here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 # One folder per checkout, named for it and told apart by a checksum of its
 # path, so a worktree or a second clone never shares another's environment or
 # collections: a sync from one would change the tools every other one runs.

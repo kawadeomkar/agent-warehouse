@@ -17,6 +17,7 @@ justfile                          every entry point: few recipes, each narrowed 
 tools/docs.py                     just docs: the generated reference sections; templates/role.md.j2 for docsible
 tools/env-run                     run a tool from the project's environment (the git hooks) - yours, or the checkout's own - or --bin: its bin (the justfile); --data, --collections: the checkout's folder
 tools/check                       the justfile's checks: the checkout, the vault, the collections, names, a project
+tools/git-hook                    the pre-commit git hook just init installs: pre-commit from the committing checkout's environment
 tools/run-logged                  run a command with its Ansible output logged to .logs/ (every recipe that runs Ansible)
 tools/live                        a recipe's command drawn as a part of one run, or passed through as it ran; the run's end
                                   from the recipe's trap (§7.8)

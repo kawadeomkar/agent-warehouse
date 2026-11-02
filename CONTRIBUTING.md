@@ -16,7 +16,8 @@ just init     # just install (the locked packages, the Galaxy collections), git 
 just test     # lint (syntax and hooks included), unit tests, every Molecule scenario
 ```
 
-`just init` runs `just install`, installs the pre-commit hooks, copies `inventory/hosts.yml.example`
+`just init` runs `just install`, installs the git hook (`tools/git-hook`, which runs the pre-commit hooks
+from the environment of the checkout being committed in), copies `inventory/hosts.yml.example`
 and the two `group_vars` examples into place where they are missing, and asks for the values a first
 deploy needs (`just init --no-prompt` asks nothing; a checkout that only runs the tests needs none).
 `just install` puts the versions locked in `uv.lock` into the project's environment, which

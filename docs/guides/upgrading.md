@@ -18,8 +18,11 @@ is still used whenever `PYTHON=` names it or `python3` is one here - pyenv's, as
 suggest, included - so an install that has one goes on using it. The Galaxy collections move, for every
 checkout, from `~/.ansible/collections` into that folder: the first recipe after pulling stops, naming
 `just install`, which fetches them there. `~/.ansible/collections` can then go, unless another project of
-yours uses it. To move from your own virtualenv to the checkout's own, deactivate it (or drop the
-`.python-version` that `pyenv local` wrote, and unset `PYTHON`) and run `just install`.
+yours uses it. `just init` now installs a git hook of the project's own, which runs pre-commit from the
+environment of the checkout being committed in; the one `pre-commit install` wrote names your virtualenv's
+Python, and goes on working while that virtualenv is there. To move from your own virtualenv to the
+checkout's own, deactivate it (or drop the `.python-version` that `pyenv local` wrote, and unset
+`PYTHON`) and run `just init`, which installs into the checkout's own and replaces that hook.
 
 ## Names 1.0 changed
 

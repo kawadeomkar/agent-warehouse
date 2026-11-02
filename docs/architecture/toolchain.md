@@ -19,7 +19,9 @@ Python outside the environment's `bin` - by a `.venv` link into it, as `make ven
 sync reinstalls those, then checks that none is left. Every recipe runs the tools from that
 environment's `bin`, never from `PATH`, and refuses a Python that is not a virtualenv (`tools/env-run
 --bin`), whose scripts directory would be a system-wide one; the git hooks and the Vagrantfile find it the
-same way, through `tools/env-run`. The playbooks' own pins are `[project]`'s dependencies, the
+same way, through `tools/env-run`. The git hook `just init` installs is `tools/git-hook`, never the one
+`pre-commit install` writes, which names the Python that installed it in the hooks folder every worktree of
+a clone shares: `tools/git-hook` names none, so each checkout commits through its own environment. The playbooks' own pins are `[project]`'s dependencies, the
 linters' and tests' the `dev` group, and the wiki's the `docs` group; `just install` installs all three. The versions are the ones
 `pyproject.toml` pins - this page names what each tool is for, so that a bump cannot leave it stale:
 

@@ -1,5 +1,6 @@
 ---
-# Install once with:  just init   (or: pre-commit install, from the project's environment)
+# Install once with:  just init, which puts tools/git-hook in git's hooks folder
+# (never pre-commit install, whose hook names one worktree's Python for all of them)
 # The linters run from the project's Python environment, through tools/env-run,
 # which finds it the way the justfile does - never by name from PATH - so their
 # versions are pinned in exactly one place (pyproject.toml, locked in uv.lock),
