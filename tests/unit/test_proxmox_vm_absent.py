@@ -41,7 +41,8 @@ def _forget(tmp_path: Path, **extra) -> set[str]:
     vars_files = [str(ROLE / "vars" / "main.yml")]
     play = {"hosts": "localhost", "gather_facts": False, "vars_files": vars_files, "tasks": [task]}
     playbook.write_text(yaml.safe_dump([play]))
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     # The module expands ~/.ssh/known_hosts from HOME: the scratch one.
     env.update(HOME=str(home), ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_NOCOLOR="1")
     result = subprocess.run(
