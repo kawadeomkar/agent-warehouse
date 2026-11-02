@@ -15,7 +15,8 @@
 
 `.github/actions/setup` is a composite action installing Python 3.12 and uv (at the version
 `uv.lock` pins), making a virtualenv first on `PATH` (`activate-environment`), restoring the uv and Galaxy caches, and
-running `just install`. The Galaxy cache key hashes
+running `just install`, which installs into that virtualenv as into any of a user's. The Galaxy cache holds the
+checkout's own collections folder (`tools/env-run --collections`), and its key hashes
 `requirements.yml`, which is only correct because those versions are exact. Third-party actions are
 pinned to commit SHAs, and Dependabot updates them along with the uv lock every week. Each of its pull
 requests asks the repository's owner for a review through `.github/CODEOWNERS`, which names the files

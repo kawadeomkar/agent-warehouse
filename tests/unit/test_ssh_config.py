@@ -61,7 +61,8 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
     )
     # No project config or inventory: a developer's own inventory would bring
     # in a vault this cannot open, and the defaults under test are passed here.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     # HOME is the temporary one too: the task file recognises the ~/... and
     # ${HOME}/... spellings of the Include by it.
     env.update(ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_NOCOLOR="1", HOME=str(tmp_path / "home"))

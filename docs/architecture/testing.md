@@ -422,8 +422,9 @@ pytest over `tests/unit/`: 2244 tests. By file:
   off, and Ctrl-C that the playbook survives ending the run well, `init`'s first playbook included, on
   the five recipes whose playbooks prompt, which carry `[continue]` (and the control: without it, just exits
   130); `vault`, `install` (the lock into
-  `PYTHON`'s environment, `--lock` alone, the stale-script repair, and a Python that is no virtualenv
-  refused by every recipe), and `init` from the questions to the checks - the `.vault_pass` its questions
+  `PYTHON`'s environment, or the checkout's own made with uv when none is brought, `--lock` alone, the
+  stale-script repair, a Python that is no virtualenv refused by every recipe, the collections in the
+  checkout's own folder, and `just clean env` deleting only that folder), and `init` from the questions to the checks - the `.vault_pass` its questions
   just made found, the values given as one JSON extra-var, a relative secret file where `just` was
   started, and the token secret refused in every spelling without being said; an exported name changing
   nothing; `tools/env-run`, which every local hook runs through, and its `--bin`; `vagrant`, `lint` (its

@@ -622,7 +622,8 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
     for name in ("tasks", "library", "templates"):
         (root / name).symlink_to(REPO / "playbooks" / name)
 
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     env.update(
         ANSIBLE_CONFIG=ansible_config(root),
         ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),

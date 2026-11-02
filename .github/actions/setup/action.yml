@@ -46,11 +46,17 @@ runs:
         tar -xzf "$dir/$archive" -C "$dir" just
         echo "$dir" >> "$GITHUB_PATH"
 
+    # The checkout's own folder for its Galaxy collections, which just install
+    # fills and every recipe reads (tools/env-run --collections).
+    - name: Find the collections' folder
+      id: collections
+      shell: bash
+      run: echo "path=$(tools/env-run --collections)" >> "$GITHUB_OUTPUT"
     # ansible-galaxy skips collections that are already installed, so a cache
     # hit turns `just install` into a no-op for the Galaxy half.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
       with:
-        path: ~/.ansible/collections
+        path: ${{ steps.collections.outputs.path }}
         # Correct only because requirements.yml pins exact versions. With
         # ranges the hash never changed when the resolved version did, and
         # ansible-galaxy skips collections already present, so CI could keep

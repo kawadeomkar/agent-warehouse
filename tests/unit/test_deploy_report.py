@@ -67,7 +67,8 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         "deploy_code": True,
         **extra,
     }
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     # The template role's comparison, which the play includes, and its filter.
     env.update(
         ANSIBLE_CONFIG=ansible_config(tmp_path),

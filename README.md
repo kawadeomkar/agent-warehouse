@@ -46,10 +46,10 @@ a first deploy.
 
 - **A Proxmox VE 9.x host** that already runs VMs: `apt` working, a bridge with a DHCP server on
   it, and a storage for VM disks ([what the project assumes](docs/getting-started/requirements.md)).
-- **On your machine** (macOS or Linux): Python 3.12+ in a virtualenv of its own for this project (pyenv's,
-  or any other: `PYTHON=` names it), [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12+,
-  [just](https://github.com/casey/just) 1.59+ (`brew install just`, or `cargo install just`), an SSH key at
-  `~/.ssh/id_ed25519.pub`, and VS Code with the `code` command (optional).
+- **On your machine** (macOS or Linux): [just](https://github.com/casey/just) 1.59+ and
+  [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12+ (`brew install just uv`, or each one's
+  installer), an SSH key at `~/.ssh/id_ed25519.pub`, and VS Code with the `code` command (optional). No
+  Python of your own: uv downloads the one the project runs on.
 - **Accounts:** a Claude Pro, Max, Team or Enterprise login, which Remote Control needs - on Team and
   Enterprise an Owner turns Remote Control on for the organisation first - or an Anthropic API key, with
   Remote Control off; GitHub; and Tailscale, which is optional: `just init` asks whether to use it, and
@@ -76,14 +76,13 @@ certificate.
 
 ```bash
 git clone https://github.com/kawadeomkar/claude-on-proxmox.git && cd claude-on-proxmox
-pyenv virtualenv 3.12 claude-on-proxmox && pyenv local claude-on-proxmox   # a Python environment of its own
 just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
 ```
 
-pyenv, with its pyenv-virtualenv plugin, is the suggestion: `pyenv local` makes that environment this
-directory's `python3` from then on. Any other virtualenv of Python 3.12 or later works -
-`python3 -m venv ~/.virtualenvs/claude-on-proxmox`, then activate it in each shell, or export
-`PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python`.
+`just init` first makes the project's Python environment with uv - a Python uv downloads, and the locked
+tools - in a folder of this checkout's own outside it (`~/.local/share/claude-on-proxmox/`), with the
+Galaxy collections beside it. To use a virtualenv of your own instead (Python 3.12 or later), activate it,
+or name its Python with `PYTHON=`, before `just init`.
 
 Enter at a question leaves it for the next `just init`. What you answer goes into three git-ignored files,
 the vault encrypted, with its password in `.vault_pass`: keep that file.

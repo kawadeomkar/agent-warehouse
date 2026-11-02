@@ -9,16 +9,23 @@ get wrong.
 ## Always run tooling through the project's Python environment
 
 Every tool is pinned in `pyproject.toml`, locked with all it pulls in in `uv.lock`, and `just install`
-puts it into the user's own virtualenv for the project - the one `python3` resolves to here or `PYTHON=`
-names, made with whatever tool they like. The project keeps no environment of its own, never assumes a
-`.venv`, and never assumes pyenv: the README suggests it, but no code, message or test may call it or
-depend on it. Use `just`, whose every recipe asks `tools/env-run --bin` for that environment's `bin`
-(refused, with how to make one, for a Python that is no virtualenv's), or `tools/env-run <tool>`, which
-finds it the same way; the git hooks and the Vagrantfile use that. Never a system-wide `ansible`,
+puts it into the project's environment, which `tools/env-run` alone decides: the user's own virtualenv when
+they bring one - the one `PYTHON=` names, or `python3` here when it is a virtualenv, made with whatever tool
+they like - and otherwise the checkout's own, which `just install` makes with uv on a Python uv downloads
+(`managed_python`), in the checkout's folder outside it (`tools/env-run --data`:
+`${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`), never a `.venv`
+in the checkout. The Galaxy collections live in that folder too (`tools/env-run --collections`), for every
+checkout whichever environment it runs: every recipe exports them as `ANSIBLE_COLLECTIONS_PATH` (`find_bin`),
+and `tools/env-run <tool>` does the same. Never assume pyenv: no code, message or test may call it or depend
+on it. Use `just`, whose every recipe asks `tools/env-run --bin` for that environment's `bin` (refused, with
+how to make one, for a Python that is no virtualenv's, or with `just install` for a checkout whose own is
+not made yet), or `tools/env-run <tool>`, which finds it the same way; the git hooks and the Vagrantfile use
+that. Never a system-wide `ansible`,
 `ansible-lint` or `molecule`: a non-virtualenv Python's scripts directory is `/usr/local/bin` and the
 like, which is why `BIN` is never taken from one. uv and just are the two tools on `PATH` by design, both
-the user's to install: uv only installs into that environment (`just install`: `uv sync --locked
---inexact`, the locked versions in and nothing else of the user's removed) and writes the lock (`just
+the user's to install: uv installs into that environment (`just install`: into one of the user's, `uv sync
+--locked --inexact` with Python downloads off, the locked versions in and nothing else of the user's removed;
+into the checkout's own, `uv sync --locked --managed-python`, exactly the lock's) and writes the lock (`just
 install --lock`, after editing a pin; never edit `uv.lock` by hand); just is 1.59.0 or later, the version
 the justfile's `set minimum-version` and `just_pin` and CI's `.github/actions/setup` pin
 (`test_justfile.py` holds the three to one), and CI's comes from upstream's release, checked by SHA256.
@@ -28,7 +35,7 @@ Molecule resolves `ansible-playbook` from `PATH` and only *appends* the virtuale
 a hand-rolled `molecule test` will not.
 
 ```
-just install                         # sync your virtualenv to uv.lock (uv sync --locked) + the Galaxy collections; --lock after editing a pin
+just install                         # sync the environment (yours, or this checkout's own, made with uv) to uv.lock + the Galaxy collections; --lock after editing a pin
 just init                            # once: just install + the git hook + the local config, asking for what a first deploy needs
 just vault                           # encrypt the vault while it is plaintext, edit it once it is encrypted
 just lint                            # uv lock --check, yamllint --strict, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks
@@ -274,12 +281,16 @@ token; `github_auth_method: token` still fails. The status JSON carries
   that runs the role installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the
   Vagrantfile is keyless with logs off, and a guard holds each - and the role's scenario to `scenario_roles` and
   CI's matrix. The template is never signed in to anything.
-- **The project writes exactly two things outside the repo on the controller:** `~/.ssh/known_hosts`
-  and the managed SSH config `~/.ssh/claude-on-proxmox.conf`, plus one `Include` line at the top of
-  `~/.ssh/config` that is added once and never removed. Nothing else in `~/.ssh` is ever edited.
-  (The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
-  unless the user points `destroy_sessions_dir` elsewhere.)
-  Everything goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
+- **The project writes exactly three things outside the repo on the controller:** `~/.ssh/known_hosts`,
+  the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include` line at the top of
+  `~/.ssh/config` that is added once and never removed), and the checkout's own folder. Nothing else in
+  `~/.ssh` is ever edited. (The Claude Code sessions `just destroy` saves go into the checkout's
+  `.sessions/`, inside the repo, unless the user points `destroy_sessions_dir` elsewhere.) The checkout's
+  folder is `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+  (`tools/env-run --data`): `just install` puts the Galaxy collections there, and the Python environment
+  when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
+  `just clean env` deletes that folder and nothing beside it.
+  Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
   `ssh -G`, refuses an alias the user's own config already names, and refuses a name or address that
   is not one plain word. A VM's address is whatever its guest agent reports, which the VM chooses:
   `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a
@@ -696,11 +707,11 @@ the error text and `VM 4013 is not running` otherwise reads as a 401.
   `ansible.cfg` a unit test writes (`harness.ansible_config`) already set `inject_facts_as_vars = false`, so
   the top-level name is undefined here. The first `just deploy` of a new VM printed a deprecation per read
   until they moved; `tests/unit/test_gathered_facts.py` scans for one and holds all three settings.
-- **Every checkout on a machine shares `~/.ansible/collections`.** `make deps` in a worktree that still
-  pinned ansible.posix 2.1.0 put it back under every other checkout, whose runs went on without a word.
-  Every recipe that runs Ansible now runs `tools/check collections` first (`ansible-galaxy collection install --offline`
-  against `requirements.yml`), and refuses, naming `just install`, while a collection differs
-  from its pin.
+- **Every checkout on a machine shared `~/.ansible/collections`.** `make deps` in a worktree that still
+  pinned ansible.posix 2.1.0 put it back under every other checkout, whose runs went on without a word. Each
+  checkout now has its own (`tools/env-run --collections`), and every recipe that runs Ansible still runs
+  `tools/check collections` first (`ansible-galaxy collection install --offline` against `requirements.yml`),
+  refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one.
 - **uv writes the environment's path, as it was given, into every command it installs.** `make venv`
   synced through the checkout's `.venv` link to the environment, so 31 commands started their Python by
   that link and would have broken with it, and a sync that finds every package current rewrites none.

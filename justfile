@@ -42,16 +42,20 @@ set script-interpreter := ['bash', '-eu']
 # written here too, and tests/unit/test_justfile.py holds the three to one.
 just_pin := '1.59.0'
 
-# The Python of that environment: a virtualenv of your own, wherever it lives
-# and whatever made it - python3 as this directory's shell finds it (one you
-# activated, or one a version manager picks here), or PYTHON=/path/to/python,
-# exported or before the recipe (just PYTHON=... install). The project keeps
-# no environment of its own, and calls no tool to make or choose one.
-PYTHON := env('PYTHON', 'python3')
-# uv installs the locked packages into that environment. Install it yourself
-# (https://docs.astral.sh/uv/getting-started/installation/, e.g. `brew install
-# uv`). It never downloads a Python of its own here.
+# The Python of that environment (tools/env-run decides): a virtualenv of your
+# own when you bring one - PYTHON=/path/to/python, exported or before the
+# recipe (just PYTHON=... install), or python3 as this directory's shell finds
+# it, when that is a virtualenv (one you activated, or one a version manager
+# picks here) - and otherwise this checkout's own, which just install makes
+# with uv in its folder outside the checkout (tools/env-run --data).
+PYTHON := env('PYTHON', '')
+# uv installs the locked packages into that environment, and for this
+# checkout's own downloads the Python it runs on (managed_python). Install it
+# yourself (https://docs.astral.sh/uv/getting-started/installation/, e.g.
+# `brew install uv`); it never downloads a Python for an environment of yours.
 UV := env('UV', 'uv')
+# The Python version this checkout's own environment runs on.
+managed_python := '3.13'
 # Anything else for ansible-playbook, as the shell words they are, exported
 # or before the recipe: just ANSIBLE_ARGS='-vvv -f 30' deploy alpha.
 ANSIBLE_ARGS := env('ANSIBLE_ARGS', '')
@@ -77,6 +81,10 @@ VAULT_PASS := '.vault_pass'
 SETTINGS_FILES := 'inventory/hosts.yml inventory/group_vars/all/local.yml'
 # What `just init` copies from its .example beside it, where it is missing.
 INIT_FILES := 'inventory/hosts.yml inventory/group_vars/all/local.yml ' + VAULT_FILE
+# From the command line only, as BIN: where just init puts the git hook,
+# tools/git-hook, which the unit tests point into a folder of their own. Empty
+# is git's own place for it, the hooks folder every worktree of a clone shares.
+GIT_HOOK := ''
 
 # One run, one moment: every log of the run is named after it.
 stamp := datetime('%Y%m%d-%H%M%S')
@@ -88,15 +96,16 @@ live_run := ''
 # recipe that includes another's work (test lints, init installs) runs it by.
 # A recursive just would otherwise start without the command line's BIN= and
 # the rest; tests/unit/test_justfile.py holds this to every setting above.
-self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
+self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
 # The first line of every recipe but help.
 guard := quote(justfile_directory() / 'tools/check') + ' checkout ' + quote(invocation_directory())
-# The scripts directory of PYTHON's environment, or BIN: refused, with how to
-# make one, for a Python that is no virtualenv's.
 # A VM name with an underscore, which Proxmox refuses in a name, is taken with a hyphen in its place, and said.
 # The names are held to their pattern, which has no space or wildcard, so splitting $names on , is safe.
 hyphenate_names := 'for name in $(printf %s "$names" | tr , " "); do case "$name" in *_*) echo "warning: Proxmox does not allow underscores in VM names, so $name was changed to $(printf %s "$name" | tr _ -)" >&2 ;; esac; done; names=$(printf %s "$names" | tr _ -)'
-find_bin := 'bin=' + quote(BIN) + '; [ -n "$bin" ] || bin=$(PYTHON=' + quote(PYTHON) + ' tools/env-run --bin)'
+# The scripts directory of the environment tools/env-run finds, or BIN: refused, with how to make one, for a Python
+# that is no virtualenv's; and this checkout's own Galaxy collections, which every Ansible the recipe runs is
+# pointed at, so no other checkout's just install can change them.
+find_bin := 'bin=' + quote(BIN) + '; [ -n "$bin" ] || bin=$(PYTHON=' + quote(PYTHON) + ' tools/env-run --bin); ANSIBLE_COLLECTIONS_PATH=$(tools/env-run --collections); export ANSIBLE_COLLECTIONS_PATH'
 # tools/run-logged with the run's logging settings; its first argument is the
 # log's name.
 run_logged := 'env LOG_DIR=' + quote(if LOG_DIR == '' { '' } else { absolute_path(LOG_DIR) }) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' CLAUDE_ON_PROXMOX_LOG_STAMP=' + quote(stamp) + ' ' + quote(justfile_directory() / 'tools/run-logged')
@@ -222,7 +231,28 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     [ "$prompt" = no ] || ! [ -t 0 ] || set -- -e '{"init_ask":true}' "$@"
     {{ self }} install
     {{ find_bin }}
-    "$bin/pre-commit" install >/dev/null
+    # The git hook names no environment (tools/git-hook), so each worktree commits through its own: pre-commit install
+    # would name this one's Python in the hooks folder they share. Another tool's hook moves aside to pre-commit.legacy,
+    # which the hook runs first, as pre-commit install does; a core.hooksPath folder, which may be every repository's,
+    # is left alone.
+    hook={{ quote(GIT_HOOK) }}
+    if [ -z "$hook" ] && git config core.hooksPath >/dev/null; then
+      echo "warning: git's core.hooksPath is set, so just init put no git hook there: copy tools/git-hook into that folder as pre-commit to have one" >&2
+    else
+      [ -n "$hook" ] || hook=$(git rev-parse --git-path hooks/pre-commit)
+      if ! cmp -s tools/git-hook "$hook" || ! [ -x "$hook" ]; then
+        if [ -e "$hook" ] || [ -L "$hook" ]; then
+          if grep -q -e 'File generated by pre-commit' -e "claude-on-proxmox's pre-commit hook" "$hook" 2>/dev/null; then
+            rm -f "$hook"
+          else
+            mv "$hook" "$hook.legacy"
+          fi
+        fi
+        mkdir -p "$(dirname "$hook")"
+        cp tools/git-hook "$hook"
+        chmod 755 "$hook"
+      fi
+    fi
     copied=
     for file in {{ INIT_FILES }}; do
       test -f "$file" || { cp "$file.example" "$file"; copied="$copied $file"; }
@@ -250,36 +280,48 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     [ ! -f {{ quote(VAULT_PASS) }} ] || set -- --vault-password-file {{ quote(VAULT_PASS) }} "$@"
     {{ run_logged }} init "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/init_check.yml
 
-# uv's sync installs the versions the lock pins into PYTHON's environment,
-# after checking the lock still matches pyproject.toml. --inexact: the
-# environment is the user's, and a package the lock does not list - theirs, or
-# another project's in an environment that serves both - stays where it is.
-# --python names that environment's interpreter, so uv never swaps it for
-# another. Before the sync, tools/stale_scripts.py names each locked package
+# uv's sync installs the versions the lock pins into the environment
+# tools/env-run finds, after checking the lock still matches pyproject.toml.
+# This checkout's own it makes the first time, on a Python uv downloads
+# (managed_python), and keeps exactly the lock's. One of yours it syncs
+# --inexact: a package the lock does not list - yours, or another project's in
+# an environment that serves both - stays where it is; --python names its
+# interpreter, so uv never swaps it for another, and downloads none. Before the sync, tools/stale_scripts.py names each locked package
 # with a command that starts a Python outside the environment's bin - uv
 # writes the path the environment was synced by into every command, so a sync
 # through a link into it (the .venv make venv once made) left them naming the
 # link, and a sync that installs nothing rewrites none - and the sync
 # reinstalls those, then checks that none is left. ansible-galaxy installs the
-# collections requirements.yml pins. Both change nothing when they are
+# collections requirements.yml pins, into this checkout's own folder for them. Both change nothing when they are
 # current, so this is also the command to run after a pull, and what CI runs.
 [arg('LOCK', long='lock', value='lock', help='Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH)')]
-[doc('Install the locked Python packages and the Galaxy collections into your environment')]
+[doc("Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own")]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
 install LOCK='':
     {{ guard }}
-    export UV_PYTHON_DOWNLOADS=never
-    if [ -n "$1" ]; then exec {{ quote(UV) }} lock; fi
-    {{ find_bin }}
-    python=$({{ quote(PYTHON) }} -c 'import sys; print(sys.executable)')
-    prefix=$({{ quote(PYTHON) }} -c 'import sys; print(sys.prefix)')
-    reinstall=$("$python" -I tools/stale_scripts.py)
-    UV_PROJECT_ENVIRONMENT="$prefix" {{ quote(UV) }} sync --locked --inexact --python "$python" $reinstall
-    [ -z "$reinstall" ] || "$python" -I tools/stale_scripts.py --check
-    exec "$bin/ansible-galaxy" collection install -r requirements.yml
+    if [ -n "$1" ]; then UV_PYTHON_DOWNLOADS=never exec {{ quote(UV) }} lock; fi
+    which=$(PYTHON={{ quote(PYTHON) }} tools/env-run --which)
+    case "$which" in
+    own\ *)
+      {{ find_bin }}
+      python=$("${which#own }" -c 'import sys; print(sys.executable)')
+      prefix=$("$python" -c 'import sys; print(sys.prefix)')
+      reinstall=$("$python" -I tools/stale_scripts.py)
+      UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT="$prefix" {{ quote(UV) }} sync --locked --inexact --python "$python" $reinstall
+      [ -z "$reinstall" ] || "$python" -I tools/stale_scripts.py --check
+      ;;
+    *)
+      venv=${which#managed }
+      venv=${venv%/bin/python}
+      echo "Installing into this checkout's own environment, $venv: PYTHON is unset and python3 is no virtualenv."
+      UV_PYTHON_DOWNLOADS=automatic UV_PROJECT_ENVIRONMENT="$venv" {{ quote(UV) }} sync --locked --managed-python --python {{ managed_python }}
+      {{ find_bin }}
+      ;;
+    esac
+    exec "$bin/ansible-galaxy" collection install -r requirements.yml -p "$ANSIBLE_COLLECTIONS_PATH"
 
 # A plaintext vault can only be encrypted and an encrypted one only edited, so
 # the file says which: the first `just vault` after editing the example
@@ -669,6 +711,9 @@ lint ALL_HOOKS='' *PARTS:
     parts=" $* "
     runs() { [ "$parts" = "  " ] || case "$parts" in *" $1 "*) ;; *) return 1 ;; esac; }
     {{ find_bin }}
+    # The parts that load the playbooks, ansible-lint among the hooks under --all-hooks: without the collections the
+    # pins name they fail on a module they cannot resolve, rather than naming just install.
+    if runs ansible || runs syntax || { runs hooks && [ -n "$all_hooks" ]; }; then tools/check collections "$bin"; fi
     # Drawn live, as a run in parts (tools/live), unless it is a stage of another recipe's run (live_run): its title,
     # the state its checks share, and a trap that says the run's end however it ends, so no check is exec'd. Each
     # check is a command through tools/live, which passes it through unchanged where nothing is drawn.
@@ -854,12 +899,13 @@ vagrant *PART:
     [ "$#" -le 1 ] || { echo "error: just vagrant takes one part, destroy (got: [$*])" >&2; exit 1; }
     if [ "${1:-}" = destroy ]; then exec vagrant destroy -f; fi
     {{ find_bin }}
+    tools/check collections "$bin"
     export ANSIBLE_PLAYBOOK="$bin/ansible-playbook"
     exec {{ run_logged }} vagrant vagrant up --provision
 
 # Only files named the way tools/run-logged names its logs, and only in
 # LOG_DIR.
-[arg('PART', pattern='logs', help='logs: delete only the run logs in LOG_DIR')]
+[arg('PART', pattern='logs|env', help="logs: delete only the run logs in LOG_DIR; env: delete only this checkout's own environment and collections, which just install makes again")]
 [doc('Remove caches, the run logs and the built site (never your Python environment)')]
 [group('develop')]
 [no-exit-message]
@@ -867,8 +913,20 @@ vagrant *PART:
 [script]
 clean *PART:
     {{ guard }}
-    [ "$#" -le 1 ] || { echo "error: just clean takes one part, logs (got: [$*])" >&2; exit 1; }
+    [ "$#" -le 1 ] || { echo "error: just clean takes one part, logs or env (got: [$*])" >&2; exit 1; }
     part=${1:-}
+    if [ "$part" = env ]; then
+      # Only this checkout's own folder outside it, as tools/env-run names it: never a virtualenv of yours.
+      data=$(tools/env-run --data)
+      case "$data" in */claude-on-proxmox/checkouts/?*) ;; *) echo "error: not this checkout's own folder: [$data]" >&2; exit 1 ;; esac
+      if [ -d "$data" ]; then
+        rm -rf "$data"
+        echo "Deleted this checkout's own environment and collections, $data. just install makes them again."
+      else
+        echo "This checkout has no environment of its own, in $data."
+      fi
+      exit 0
+    fi
     dir={{ quote(LOG_DIR) }}
     if [ -n "$dir" ]; then
       set -- "$dir"/[0-9]*-*.log

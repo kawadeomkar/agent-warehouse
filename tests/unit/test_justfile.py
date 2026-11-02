@@ -90,6 +90,16 @@ def _bash_dir() -> str | None:
     return _BASH_DIR
 
 
+def _hooks_dir() -> str:
+    """A folder of this module's own for the git hook, which every run puts there unless a setting names another: just
+    init would otherwise replace the one in git's hooks folder, which this checkout shares with every worktree."""
+    global _HOOKS_DIR
+    if "_HOOKS_DIR" not in globals():
+        _HOOKS_DIR = tempfile.mkdtemp(prefix="just-hooks-")
+        atexit.register(shutil.rmtree, _HOOKS_DIR, ignore_errors=True)
+    return _HOOKS_DIR
+
+
 def _env(extra: dict[str, str] | None = None) -> dict[str, str]:
     # A clean environment: a developer's own VM_NAME, TAGS or JUST_NO_DEPS never
     # reaches a run, and the locale is fixed. extra adds to it.
@@ -108,9 +118,16 @@ def _merged(settings) -> list[str]:
 
 
 def _just(*args: str, settings=(), env=None, stdin=subprocess.DEVNULL, cwd=REPO) -> subprocess.CompletedProcess[str]:
-    """just with its settings (NAME=value, before the recipe) and then the recipe's arguments."""
+    """just with its settings (NAME=value, before the recipe) and then the recipe's arguments; GIT_HOOK in a folder
+    of the module's own (_hooks_dir) unless one of them names it. Options lead the arguments, each one word
+    (--justfile=<path>), since just takes them only before a setting."""
+    options = []
+    for arg in args:
+        if not arg.startswith("-"):
+            break
+        options.append(arg)
     return subprocess.run(
-        [JUST, *_merged(settings), *args],
+        [JUST, *options, *_merged([f"GIT_HOOK={_hooks_dir()}/pre-commit", *settings]), *args[len(options) :]],
         cwd=cwd,
         env=_env(env),
         stdin=stdin,
@@ -335,16 +352,40 @@ def test_the_collections_check_asks_galaxy_offline_whether_the_pins_are_installe
 
 @pytest.mark.parametrize(
     "args",
-    [["deploy"], ["code", "alpha"], ["login"], ["status"], ["destroy"], ["test", "unit"], ["settings", "tailscale"]],
+    [
+        ["deploy"],
+        ["code", "alpha"],
+        ["login"],
+        ["status"],
+        ["destroy"],
+        ["test", "unit"],
+        ["settings", "tailscale"],
+        ["lint"],
+        ["lint", "syntax"],
+        ["lint", "ansible"],
+        ["lint", "hooks", "--all-hooks"],
+        ["vagrant"],
+    ],
 )
 def test_every_recipe_that_runs_ansible_stops_at_collections_that_are_not_the_pins(tmp_path: Path, args) -> None:
-    settings = _safe(tmp_path, galaxy_rc=1)
-    _stand_in(tmp_path / "bin", "ansible-playbook")
+    # lint's syntax part failed on a module it could not resolve, never naming just install, once the collections
+    # moved into each checkout's own folder.
+    settings = [*_linters(tmp_path, galaxy_rc=1), *_safe(tmp_path, galaxy_rc=1)]
     _stand_in(tmp_path / "bin", "pytest")
-    result = _just(*args, settings=settings)
+    _stand_in(tmp_path / "stand-ins", "vagrant")
+    result = _just(*args, settings=settings, env={"PATH": f"{tmp_path / 'stand-ins'}:{_env()['PATH']}"})
     assert result.returncode != 0
     assert "are not the ones requirements.yml pins. Run: just install" in _output(result)
-    assert _runs(tmp_path, "ansible-playbook") == [] and _runs(tmp_path, "pytest") == []
+    for tool in ("ansible-playbook", "ansible-lint", "pre-commit", "pytest"):
+        assert _runs(tmp_path, tool) == [], tool
+    assert _runs(tmp_path, "vagrant") == []
+
+
+@pytest.mark.parametrize("args", [["lint", "yaml"], ["lint", "python"], ["lint", "lock"], ["lint", "hooks"]])
+def test_lint_s_parts_that_load_no_playbook_need_no_collections(tmp_path: Path, args) -> None:
+    result = _just(*args, settings=_linters(tmp_path, galaxy_rc=1))
+    assert result.returncode == 0, _output(result)
+    assert _runs(tmp_path, "ansible-galaxy") == []
 
 
 def test_a_recipe_without_the_tools_says_just_install(tmp_path: Path) -> None:
@@ -374,7 +415,7 @@ def test_a_run_from_another_checkout_is_refused(tmp_path: Path) -> None:
     other = tmp_path / "other"
     other.mkdir()
     subprocess.run(["git", "init", "-q", str(other)], check=True)
-    result = _just("--justfile", str(JUSTFILE), *_recording(tmp_path), "status", cwd=other)
+    result = _just(f"--justfile={JUSTFILE}", *_recording(tmp_path), "status", cwd=other)
     assert result.returncode != 0
     assert f"in the checkout {other.resolve()}" in result.stderr or f"in the checkout {other}" in result.stderr
     assert _runs(tmp_path, "ansible-playbook") == []
@@ -987,8 +1028,12 @@ def test_logs_lists_and_clean_logs_deletes_only_run_logs(tmp_path: Path) -> None
 
 
 def test_clean_never_touches_the_python_environment() -> None:
+    # Never one of yours; this checkout's own only as just clean env, the folder tools/env-run names.
     body = json.dumps(_json()["recipes"]["clean"]["body"])
     assert ".venv" not in body and "PYTHON" not in body and "bin" not in body
+    assert (
+        'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/claude-on-proxmox/checkouts/?*" in body
+    )
 
 
 # ---------------------------------------------------------------- --project ----
@@ -1228,15 +1273,18 @@ def test_vault_names_just_init_when_the_vault_is_missing(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------- install ----
-# The locked packages into PYTHON's own environment, then the collections;
-# --lock the lock alone. The project keeps no environment of its own.
+# The locked packages into a virtualenv of the user's, or the checkout's own made with uv when none is brought,
+# then the collections into the checkout's own folder; --lock the lock alone.
 ENVIRONMENT = sysconfig.get_path("scripts")
 
 
 def _uv(tmp_path: Path) -> Path:
     """A uv that records its arguments and the environment it was given to sync."""
     _stand_in(
-        tmp_path / "uv-bin", "uv", f'echo "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT" >> "{tmp_path / "uv-env"}"'
+        tmp_path / "uv-bin",
+        "uv",
+        f'echo "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT" >> "{tmp_path / "uv-env"}"\n'
+        f'echo "UV_PYTHON_DOWNLOADS=${{UV_PYTHON_DOWNLOADS:-}}" >> "{tmp_path / "uv-env"}"',
     )
     return tmp_path / "uv-bin" / "uv"
 
@@ -1246,10 +1294,16 @@ def test_install_syncs_the_lock_into_python_s_own_environment(tmp_path: Path) ->
     _stand_in(tmp_path / "bin", "ansible-galaxy")
     result = _just("install", settings=[f"PYTHON={sys.executable}", f"UV={uv}", f"BIN={tmp_path / 'bin'}"])
     assert result.returncode == 0, _output(result)
-    # --inexact: the environment is the user's, and nothing in it the lock does not list is removed.
+    # --inexact: the environment is the user's, and nothing in it the lock does not list is removed; and uv
+    # downloads no Python for it.
     assert _runs(tmp_path, "uv")[0][:5] == ["sync", "--locked", "--inexact", "--python", sys.executable]
-    assert (tmp_path / "uv-env").read_text().strip() == f"UV_PROJECT_ENVIRONMENT={sys.prefix}"
-    assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml"]]
+    assert (tmp_path / "uv-env").read_text().splitlines() == [
+        f"UV_PROJECT_ENVIRONMENT={sys.prefix}",
+        "UV_PYTHON_DOWNLOADS=never",
+    ]
+    # The collections into this checkout's own folder for them, whichever environment.
+    collections = _env_run("--collections", python=sys.executable).stdout.strip()
+    assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml", "-p", collections]]
 
 
 def test_install_lock_only_writes_the_lock(tmp_path: Path) -> None:
@@ -1498,9 +1552,9 @@ def test_install_fails_when_the_reinstall_left_a_command_starting_another_python
 
 # ---------------------------------------------------------------- init ----
 # init runs for real here, every tool a stand-in: uv (through just install),
-# pre-commit, ansible-galaxy and ansible-playbook, which runs twice - the
-# questions, then the checks. INIT_FILES, VAULT_FILE and VAULT_PASS are files in
-# tmp_path, never the checkout's.
+# ansible-galaxy and ansible-playbook, which runs twice - the questions, then
+# the checks - and a pre-commit it must never run. INIT_FILES, VAULT_FILE,
+# VAULT_PASS and GIT_HOOK are files in tmp_path, never the checkout's.
 ASK = '{"init_ask":true}'
 SECRET = "11111111-2222-3333-4444-555555555555"
 
@@ -1523,6 +1577,7 @@ def _init_settings(tmp_path: Path, settings_body: str = "") -> list[str]:
         (tmp_path / f"{name}.example").write_text(f"# {name}\n")
         copies.append(str(tmp_path / name))
     settings = [f"BIN={bin_dir}", f"UV={bin_dir / 'uv'}", f"INIT_FILES={' '.join(copies)}"]
+    settings.append(f"GIT_HOOK={tmp_path / 'hooks' / 'pre-commit'}")
     # Not the copies: tools/check settings reads its files with the environment's Python, which a stand-in has not.
     settings.append(_settings_files(tmp_path / "settings"))
     settings += [
@@ -1565,13 +1620,114 @@ def test_ctrl_c_that_init_s_questions_survive_goes_on_to_the_checks(tmp_path: Pa
 
 
 def test_init_installs_first_then_the_hook_the_config_and_the_questions(tmp_path: Path) -> None:
-    result, runs = _init(tmp_path)
+    hook, hooked = tmp_path / "hooks" / "pre-commit", tmp_path / "hooked"
+    result, runs = _init(tmp_path, settings_body=f'[ ! -x "{hook}" ] || touch "{hooked}"')
     assert result.returncode == 0, _output(result)
     order = (tmp_path / "order").read_text().split()
-    # The galaxy's install, then the hook, then the questions (and the copies before them).
-    assert order.index("uv") < order.index("pre-commit") < order.index("ansible-playbook"), order
+    # The install, then the hook, then the questions (and the copies before them).
+    assert order.index("uv") < order.index("ansible-playbook"), order
+    assert hooked.exists() and hook.read_bytes() == HOOK.read_bytes() and os.access(hook, os.X_OK)
+    # Never pre-commit install, whose hook names this checkout's Python in the folder every worktree shares.
+    assert _runs(tmp_path, "pre-commit") == []
     assert "Created" in result.stdout and (tmp_path / "hosts.yml").exists()
     assert runs[0][:2] == ["-i", "playbooks/inventory/init.yml"] and runs[0][-1] == "playbooks/init_settings.yml"
+
+
+PRE_COMMIT_S_HOOK = (
+    "#!/usr/bin/env bash\n# File generated by pre-commit: https://pre-commit.com\nINSTALL_PYTHON=/a/venv/bin/python\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("before", "aside"),
+    [
+        (PRE_COMMIT_S_HOOK, False),
+        ("#!/bin/sh\n# claude-on-proxmox's pre-commit hook, as an earlier version wrote it\n", False),
+        ("#!/bin/sh\necho a hook of another tool's\n", True),
+    ],
+    ids=["pre-commit-s", "an-earlier-one", "another-tool-s"],
+)
+def test_init_replaces_pre_commit_s_hook_and_moves_another_tool_s_aside(
+    tmp_path: Path, before: str, aside: bool
+) -> None:
+    # Another tool's hook goes on running: tools/git-hook runs pre-commit.legacy first, as pre-commit's own does.
+    hook = tmp_path / "hooks" / "pre-commit"
+    hook.parent.mkdir()
+    hook.write_text(before)
+    result, _ = _init(tmp_path)
+    assert result.returncode == 0, _output(result)
+    assert hook.read_bytes() == HOOK.read_bytes()
+    legacy = hook.with_name("pre-commit.legacy")
+    assert (legacy.read_text() if legacy.exists() else None) == (before if aside else None)
+
+
+def test_init_leaves_its_hook_as_it_is(tmp_path: Path) -> None:
+    hook = tmp_path / "hooks" / "pre-commit"
+    assert _init(tmp_path)[0].returncode == 0
+    os.utime(hook, (1, 1))
+    result, _ = _init(tmp_path)
+    assert result.returncode == 0, _output(result)
+    assert hook.stat().st_mtime == 1 and not hook.with_name("pre-commit.legacy").exists()
+
+
+def test_init_puts_no_hook_in_a_core_hooks_path_of_yours(tmp_path: Path) -> None:
+    # A core.hooksPath folder may be every repository's. GIT_HOOK empty is git's own place, which the variables
+    # point into tmp_path, so even a hook put there reaches no folder of the developer's.
+    yours = tmp_path / "your-hooks"
+    yours.mkdir()
+    env = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath", "GIT_CONFIG_VALUE_0": str(yours)}
+    result = _just("init", settings=[*_init_settings(tmp_path), "GIT_HOOK="], env=env)
+    assert result.returncode == 0, _output(result)
+    assert "warning: git's core.hooksPath is set, so just init put no git hook there" in result.stderr
+    assert list(yours.iterdir()) == []
+
+
+def test_an_init_run_here_that_names_no_hook_puts_it_in_a_folder_of_the_module_s(tmp_path: Path) -> None:
+    hook = Path(_hooks_dir()) / "pre-commit"
+    hook.unlink(missing_ok=True)
+    settings = [setting for setting in _init_settings(tmp_path) if not setting.startswith("GIT_HOOK=")]
+    result = _just("init", settings=settings)
+    assert result.returncode == 0, _output(result)
+    assert hook.read_bytes() == HOOK.read_bytes()
+
+
+def test_a_commit_runs_the_hooks_from_the_environment_of_the_checkout_it_is_made_in(tmp_path: Path) -> None:
+    # As git runs it, in a clone and in a worktree of it, through the pinned pre-commit's hook-impl: each commit from
+    # the top of its own checkout, whose tools/env-run finds its environment.
+    clone, worktree, seen = tmp_path / "clone", tmp_path / "worktree", tmp_path / "seen"
+    (clone / "tools").mkdir(parents=True)
+    shutil.copy(ENV_RUN, clone / "tools" / "env-run")
+    (clone / ".pre-commit-config.yaml").write_text(
+        "repos:\n- repo: local\n  hooks:\n  - id: where\n    name: where\n    language: system\n"
+        f"    entry: sh -c 'pwd -P >> {seen}'\n    always_run: true\n    pass_filenames: false\n"
+    )
+    env = _env(
+        {
+            "PYTHON": sys.executable,
+            "PRE_COMMIT_HOME": str(tmp_path / "pre-commit-home"),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }
+    )
+
+    def git(*args: str, cwd: Path = clone) -> None:
+        result = subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=120)
+        assert result.returncode == 0, result.stdout + result.stderr
+
+    git("init", "--quiet")
+    (clone / ".git" / "hooks").mkdir(exist_ok=True)
+    shutil.copy(HOOK, clone / ".git" / "hooks" / "pre-commit")
+    git("add", ".")
+    git("commit", "--quiet", "-m", "first")
+    git("worktree", "add", "--quiet", str(worktree))
+    (worktree / "file").write_text("x\n")
+    git("add", "file", cwd=worktree)
+    git("commit", "--quiet", "-m", "second", cwd=worktree)
+    assert seen.read_text().split() == [str(clone.resolve()), str(worktree.resolve())]
 
 
 def test_init_checks_proxmox_after_its_questions(tmp_path: Path) -> None:
@@ -1763,6 +1919,7 @@ def test_an_exported_name_changes_nothing(tmp_path: Path, args, env, never) -> N
 
 # ---------------------------------------------------------------- tools/env-run ----
 ENV_RUN = REPO / "tools" / "env-run"
+HOOK = REPO / "tools" / "git-hook"
 
 
 def _env_run(*args: str, python: str) -> subprocess.CompletedProcess[str]:
@@ -1796,6 +1953,139 @@ def test_env_run_names_a_tool_the_environment_lacks() -> None:
     assert f"error: no no-such-tool in [{ENVIRONMENT}]. Run: just install" in result.stderr
 
 
+def _no_virtualenv(tmp_path: Path) -> dict[str, str]:
+    """An environment where python3 is no virtualenv and PYTHON is unset, with a data folder of the test's own."""
+    stand_in = tmp_path / "plain"
+    stand_in.mkdir(exist_ok=True)
+    _not_a_virtualenv(stand_in)
+    return {
+        "PATH": f"{stand_in}{os.pathsep}{os.environ['PATH']}",
+        "HOME": os.environ.get("HOME", "/"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+
+
+def _env_run_in(env: dict[str, str], *args: str, env_run: Path = ENV_RUN) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(env_run), *args], env=env, capture_output=True, text=True, check=False, timeout=60)
+
+
+def _checksum(path: Path) -> str:
+    return subprocess.run(["cksum"], input=str(path), capture_output=True, text=True, check=True).stdout.split()[0]
+
+
+def test_env_run_keeps_one_folder_per_checkout_outside_it(tmp_path: Path) -> None:
+    # Named for the checkout and told apart by its path: a worktree or a second clone shares nothing with another.
+    env = _no_virtualenv(tmp_path)
+    data = _env_run_in(env, "--data").stdout.strip()
+    assert data == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", data
+    assert not data.startswith(str(REPO))
+    assert _env_run_in(env, "--collections").stdout.strip() == f"{data}/collections"
+    other = tmp_path / "other" / REPO.name
+    (other / "tools").mkdir(parents=True)
+    shutil.copy(ENV_RUN, other / "tools" / "env-run")
+    assert _env_run_in(env, "--data", env_run=other / "tools" / "env-run").stdout.strip() != data
+
+
+@pytest.mark.parametrize("cdpath", ["said", "another"])
+def test_env_run_finds_its_own_checkout_whatever_cdpath_says(tmp_path: Path, cdpath: str) -> None:
+    # just and the hooks run tools/env-run by a relative path, which cd looks up in an exported CDPATH: found there,
+    # cd says the folder into the checkout's path, or goes to another folder's tools/.
+    another = tmp_path / "another"
+    (another / "tools").mkdir(parents=True)
+    env = _no_virtualenv(tmp_path)
+    data = _env_run_in(env, "--data").stdout.strip()
+    env["CDPATH"] = f".{os.pathsep}{tmp_path / 'none'}" if cdpath == "said" else str(another)
+    result = subprocess.run(
+        ["tools/env-run", "--data"], cwd=REPO, env=env, capture_output=True, text=True, check=False, timeout=60
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == f"{data}\n"
+
+
+def test_env_run_without_a_virtualenv_uses_this_checkout_s_own(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    venv = Path(_env_run_in(env, "--data").stdout.strip()) / "venv"
+    assert _env_run_in(env, "--which").stdout.strip() == f"managed {venv}/bin/python"
+    missing = _env_run_in(env, "--bin")
+    assert missing.returncode != 0 and missing.stdout == ""
+    assert "error: this checkout has no Python environment yet. Run: just install" in missing.stderr
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    assert _env_run_in(env, "--bin").stdout.strip() == f"{venv}/bin"
+
+
+def test_env_run_prefers_a_virtualenv_of_the_user_s() -> None:
+    # PYTHON, or python3 when it is a virtualenv - as before this checkout had an environment of its own.
+    assert _env_run("--which", python=sys.executable).stdout.strip() == f"own {sys.executable}"
+
+
+def test_env_run_points_every_tool_at_this_checkout_s_collections() -> None:
+    printed = _env_run(
+        "python", "-c", "import os; print(os.environ['ANSIBLE_COLLECTIONS_PATH'])", python=sys.executable
+    )
+    assert printed.returncode == 0, printed.stderr
+    assert printed.stdout.strip() == _env_run("--collections", python=sys.executable).stdout.strip()
+
+
+def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_none_of_yours(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    # A uv that records what it was asked, and makes the environment's python and ansible-galaxy as a sync would.
+    galaxy = tmp_path / "galaxy"
+    galaxy.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{tmp_path / "galaxy.args"}"\n')
+    galaxy.chmod(0o755)
+    record = _stand_in(
+        tmp_path / "uv-bin",
+        "uv",
+        f'printf "%s\\n" "$UV_PROJECT_ENVIRONMENT" "$UV_PYTHON_DOWNLOADS" > "{tmp_path / "uv-env"}"\n'
+        'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
+        f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
+        f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
+    )
+    result = _just("install", settings=[f"UV={tmp_path / 'uv-bin' / 'uv'}"], env=env)
+    assert result.returncode == 0, _output(result)
+    assert f"Installing into this checkout's own environment, {data}/venv" in result.stdout
+    # Exactly the lock's, on a Python uv downloads, never one of the machine's.
+    assert record.read_text().split("--end--")[0].split() == [
+        "sync",
+        "--locked",
+        "--managed-python",
+        "--python",
+        "3.13",
+    ]
+    assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv", "automatic"]
+    assert (tmp_path / "galaxy.args").read_text().split() == [
+        "collection",
+        "install",
+        "-r",
+        "requirements.yml",
+        "-p",
+        f"{data}/collections",
+    ]
+
+
+def test_every_recipe_points_ansible_at_this_checkout_s_collections(tmp_path: Path) -> None:
+    seen = tmp_path / "collections"
+    result = _just("status", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
+    assert result.returncode == 0, _output(result)
+    assert seen.read_text() == _env_run("--collections", python=sys.executable).stdout.strip()
+
+
+def test_clean_env_deletes_this_checkout_s_own_folder_and_nothing_else(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    (data / "venv" / "bin").mkdir(parents=True)
+    (data / "collections").mkdir()
+    neighbour = data.parent / "another-checkout-1"
+    neighbour.mkdir()
+    cleaned = _just("clean", "env", env=env)
+    assert cleaned.returncode == 0, _output(cleaned)
+    assert f"Deleted this checkout's own environment and collections, {data}" in cleaned.stdout
+    assert not data.exists() and neighbour.exists()
+    again = _just("clean", "env", env=env)
+    assert again.returncode == 0 and f"This checkout has no environment of its own, in {data}" in again.stdout
+
+
 def test_every_local_hook_runs_through_env_run() -> None:
     config = yaml.safe_load((REPO / ".pre-commit-config.yaml").read_text())
     local = [hook for repo in config["repos"] if repo["repo"] == "local" for hook in repo["hooks"]]
@@ -1804,7 +2094,7 @@ def test_every_local_hook_runs_through_env_run() -> None:
     assert os.access(ENV_RUN, os.X_OK)
 
 
-@pytest.mark.parametrize("helper", ["env-run", "check", "run-logged"])
+@pytest.mark.parametrize("helper", ["env-run", "check", "run-logged", "git-hook"])
 def test_the_helpers_are_executable(helper: str) -> None:
     assert os.access(REPO / "tools" / helper, os.X_OK)
 
@@ -1815,7 +2105,8 @@ def test_the_helpers_are_executable(helper: str) -> None:
 def test_the_vagrantfile_never_falls_back_to_path_s_ansible_playbook() -> None:
     text = (REPO / "Vagrantfile").read_text()
     assert 'ENV.fetch("ANSIBLE_PLAYBOOK") do' in text
-    assert "sys.prefix != sys.base_prefix" in text
+    # The environment tools/env-run finds, and its checkout's collections.
+    assert "`tools/env-run --bin 2>/dev/null`" in text and "`tools/env-run --collections`" in text
     assert 'ENV.fetch("ANSIBLE_PLAYBOOK", "ansible-playbook")' not in text
 
 
@@ -1825,6 +2116,7 @@ def test_vagrant_brings_the_vm_up_with_the_environment_s_ansible_playbook_or_des
 ) -> None:
     stand_ins = tmp_path / "stand-ins"
     _stand_in(stand_ins, "vagrant", f'echo "$ANSIBLE_PLAYBOOK|${{ANSIBLE_LOG_PATH:-}}" > "{tmp_path / "seen"}"')
+    _stand_in(tmp_path / "env" / "bin", "ansible-galaxy")
     result = _just(
         "vagrant",
         *args,
@@ -1851,9 +2143,11 @@ LINTERS = {
 }
 
 
-def _linters(tmp_path: Path) -> list[str]:
+def _linters(tmp_path: Path, galaxy_rc: int = 0) -> list[str]:
     for tool in ("yamllint", "ansible-lint", "ruff", "ansible-playbook", "pre-commit"):
         _stand_in(tmp_path / "bin", tool, f'[ "{tool}" != pre-commit ] || printf "%s" "$SKIP" > "{tmp_path / "skip"}"')
+    # tools/check collections, before the parts that load the playbooks.
+    _stand_in(tmp_path / "bin", "ansible-galaxy", rc=galaxy_rc)
     _stand_in(tmp_path / "uv-bin", "uv")
     # The environment's Python, which runs tools/live in front of every check.
     if not (tmp_path / "bin" / "python").exists():
@@ -1923,7 +2217,6 @@ def test_lint_s_hooks_skip_what_lint_runs_itself(tmp_path: Path, given, env, ski
 
 def _testing(tmp_path: Path) -> list[str]:
     settings = _linters(tmp_path)
-    _stand_in(tmp_path / "bin", "ansible-galaxy")
     _stand_in(tmp_path / "bin", "pytest")
     _stand_in(tmp_path / "bin", "molecule", f'pwd >> "{tmp_path / "molecule-dirs"}"')
     return [*settings, f"LOG_DIR={tmp_path / 'logs'}"]

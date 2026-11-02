@@ -1,0 +1,12 @@
+#!/bin/sh
+# claude-on-proxmox's pre-commit hook, which just init copies into git's hooks
+# folder. Every worktree of a clone shares that folder, so the hook names no
+# Python: pre-commit's own names the one that installed it, which the last
+# just init in any worktree would choose for all of them, and which a removed
+# worktree or `just clean env` takes away from all of them. Git runs a hook at
+# the top of the checkout being committed in, whose tools/env-run finds that
+# checkout's environment; its pre-commit runs the hooks .pre-commit-config.yaml
+# lists, after a pre-commit.legacy beside this file, as pre-commit's own would.
+set -eu
+here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+exec tools/env-run pre-commit hook-impl --config=.pre-commit-config.yaml --hook-type=pre-commit --hook-dir "$here" -- "$@"

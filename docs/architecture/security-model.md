@@ -69,8 +69,8 @@ Two independent mechanisms:
 
 Galaxy collections are pinned to exact versions (a range means every run silently
 picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
-reads `requirements.yml`, and every checkout on a machine shares `~/.ansible/collections`, so every
-recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
+reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
+`just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
 is not. pre-commit hooks are pinned to commit SHAs, not tags, because a tag can be moved. apt signing
 keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
@@ -134,9 +134,12 @@ name, so one `just test` is one file.
 
 ## On the controller
 
-The project writes exactly two things outside the repository,
+The project writes exactly three things outside the repository:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
-`~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)) - and,
+`~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
+checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum>`
+(`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you bring no
+virtualenv, the Python environment ([§13](toolchain.md)), and which `just clean env` deletes - and,
 only where you point `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves
 ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)), which otherwise go into the
 checkout's git-ignored `.sessions/`. Those are the VM's writing and are unpacked as plain files and

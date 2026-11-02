@@ -27,7 +27,8 @@ def _listed_tasks(tmp_path: Path, *args: str) -> dict[str, list[str]]:
     """The tasks `ansible-playbook --list-tasks` selects from configure.yml, by play name."""
     # No project config or inventory: nothing here needs them, and a
     # developer's own inventory would bring in a vault this cannot open.
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_")}
+    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     env.update(ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_ROLES_PATH=str(REPO / "roles"), ANSIBLE_NOCOLOR="1")
     result = subprocess.run(
         [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "--list-tasks", *args, str(REPO / "playbooks" / "configure.yml")],
