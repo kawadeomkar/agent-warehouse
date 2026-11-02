@@ -7,11 +7,15 @@ otherwise the checkout's own. `just install` runs `uv sync --locked`, which refu
 matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads off, so the versions the lock
 pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
 makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.
-That one lives in the checkout's folder outside it, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/
-checkouts/<folder>-<cksum of its path>` (`tools/env-run --data`), never a `.venv` in the checkout, so a
-worktree or a second clone has its own; and the Galaxy collections live in the same folder for every
-checkout (`tools/env-run --collections`, exported as `ANSIBLE_COLLECTIONS_PATH` by every recipe), so one
-checkout's `just install` never changes another's. `just clean env` deletes that folder. Dependabot's uv
+That one lives in the checkout's folder outside it,
+`${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+(`tools/env-run --data`), never a `.venv` in the checkout, so a worktree or a second clone has its own; and
+the Galaxy collections live in the same folder for every checkout (`tools/env-run --collections`, exported
+as `ANSIBLE_COLLECTIONS_PATH` by every recipe), so one checkout's `just install` never changes another's.
+`just clean env` deletes that folder. `just install` runs `ansible-galaxy` with `--no-cache`: its response
+cache writes an empty entry before each request to Galaxy, and the retry after one that failed (a 502, a
+timeout) reads that entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core
+2.21), so one bad answer from Galaxy failed the install. Dependabot's uv
 ecosystem moves the pins and the lock. uv writes the path the environment was
 synced by into the first line of every command it installs, and a sync that installs nothing rewrites
 none, so before the sync `tools/stale_scripts.py` names each locked package with a command that starts a

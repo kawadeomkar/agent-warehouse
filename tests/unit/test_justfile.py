@@ -1301,9 +1301,12 @@ def test_install_syncs_the_lock_into_python_s_own_environment(tmp_path: Path) ->
         f"UV_PROJECT_ENVIRONMENT={sys.prefix}",
         "UV_PYTHON_DOWNLOADS=never",
     ]
-    # The collections into this checkout's own folder for them, whichever environment.
+    # The collections into this checkout's own folder for them, whichever environment, with ansible-galaxy's response
+    # cache off: it turns one failed request to Galaxy into a failed install (test_galaxy_install.py).
     collections = _env_run("--collections", python=sys.executable).stdout.strip()
-    assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml", "-p", collections]]
+    assert _runs(tmp_path, "ansible-galaxy") == [
+        ["collection", "install", "-r", "requirements.yml", "-p", collections, "--no-cache"]
+    ]
 
 
 def test_install_lock_only_writes_the_lock(tmp_path: Path) -> None:
@@ -2061,6 +2064,7 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
         "requirements.yml",
         "-p",
         f"{data}/collections",
+        "--no-cache",
     ]
 
 
