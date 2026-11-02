@@ -15,7 +15,7 @@ docs/                             the wiki (docs/development/docs.md): getting-s
 zensical.toml                     the wiki as a site: navigation, theme, GitHub-style anchors
 justfile                          every entry point: few recipes, each narrowed by an option or a word (just help)
 tools/docs.py                     just docs: the generated reference sections; templates/role.md.j2 for docsible
-tools/env-run                     run a tool from the project's virtualenv (the git hooks), or --bin: its bin (the justfile)
+tools/env-run                     run a tool from the project's environment (the git hooks) - yours, or the checkout's own - or --bin: its bin (the justfile); --data, --collections: the checkout's folder
 tools/check                       the justfile's checks: the checkout, the vault, the collections, names, a project
 tools/run-logged                  run a command with its Ansible output logged to .logs/ (every recipe that runs Ansible)
 tools/live                        a recipe's command drawn as a part of one run, or passed through as it ran; the run's end

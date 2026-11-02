@@ -6,13 +6,12 @@ git-ignored file, never in a commit.
 
 ## Setup
 
-You need Python 3.12+ (the pinned ansible-core requires it) in a virtualenv of its own for this project,
-[uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12 or newer (`brew install uv`, or its
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12 or newer (`brew install uv`, or its
 standalone installer), [just](https://github.com/casey/just) 1.59 or newer (`brew install just`, or `cargo install
-just`, from its own releases), and Docker Engine for the tests.
+just`, from its own releases), and Docker Engine for the tests. Python comes with uv, or bring a virtualenv of
+Python 3.12+ of your own (`PYTHON=`).
 
 ```bash
-pyenv virtualenv 3.12 claude-on-proxmox && pyenv local claude-on-proxmox   # or any virtualenv: PYTHON=<its python>
 just init     # just install (the locked packages, the Galaxy collections), git hooks, the config, asked for
 just test     # lint (syntax and hooks included), unit tests, every Molecule scenario
 ```
@@ -20,14 +19,17 @@ just test     # lint (syntax and hooks included), unit tests, every Molecule sce
 `just init` runs `just install`, installs the pre-commit hooks, copies `inventory/hosts.yml.example`
 and the two `group_vars` examples into place where they are missing, and asks for the values a first
 deploy needs (`just init --no-prompt` asks nothing; a checkout that only runs the tests needs none).
-`just install` puts the versions locked in `uv.lock` into your environment - the Python `python3` is
-here (the one you activated, or the one `pyenv local` chose), or `PYTHON=/path/to/python` - leaving the
-rest of it alone, and refuses a Python that is not a virtualenv; it changes nothing that is current, so
-it is also the command to run after a pull. The project keeps no `.venv`. Please run the tools through
-`just`, or `tools/env-run <tool>` as the git hooks do, which run them from that environment rather than
-whatever is first on `PATH`, and refuse a Python that is not a virtualenv - Molecule in particular
-resolves `ansible-playbook` from `PATH` and will silently use a different ansible-core if the
-environment is not first.
+`just install` puts the versions locked in `uv.lock` into the project's environment, which
+`tools/env-run` finds: a virtualenv of yours - `PYTHON=/path/to/python`, or the Python `python3` is here
+when it is one (the one you activated, or one a version manager chose) - whose other packages it leaves
+alone, or else the checkout's own, which it makes with uv on a Python uv downloads, in the checkout's folder
+outside it (`tools/env-run --data`; never a `.venv` in the checkout). The Galaxy collections go into that
+folder too, so a worktree on another branch never changes the main checkout's. It changes nothing that is
+current, so it is also the command to run after a pull; `just clean env` deletes the checkout's own
+environment and collections. Please run the tools through `just`, or `tools/env-run <tool>` as the git hooks
+do, which run them from that environment, with those collections, rather than whatever is first on `PATH`,
+and refuse a Python that is not a virtualenv - Molecule in particular resolves `ansible-playbook` from
+`PATH` and will silently use a different ansible-core if the environment is not first.
 
 The pins live in `pyproject.toml`: the playbooks' own in `[project]`, the linters' and tests' in the
 `dev` group. After changing one, run `just install --lock` and commit `uv.lock` with it; `just lint` fails on a

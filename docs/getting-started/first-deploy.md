@@ -8,18 +8,18 @@ the host.
 
 ```bash
 git clone https://github.com/kawadeomkar/claude-on-proxmox.git && cd claude-on-proxmox
-pyenv virtualenv 3.12 claude-on-proxmox && pyenv local claude-on-proxmox   # a Python environment of its own
 just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
 ```
 
-The project keeps no environment of its own, and needs no particular tool to make one: pyenv, above, is a
-suggestion. Any virtualenv of Python 3.12 or later works -
-`python3 -m venv ~/.virtualenvs/claude-on-proxmox`, then activate it in each shell before `just`, or export
-its Python as `PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python`. `just install`, which
-`just init` runs first, installs the locked tools into the Python that `python3` is in this directory, or
-into the one `PYTHON=` names, and every recipe runs them from there - never from a Python that is not a
-virtualenv, which they refuse. It installs the versions `uv.lock` pins and removes nothing else. Run
-`just install` again after a pull.
+You need no Python of your own. `just install`, which `just init` runs first, makes the project's
+environment with uv: a Python uv downloads (3.13), and the versions `uv.lock` pins, in a folder of this
+checkout's own outside it - `~/.local/share/claude-on-proxmox/checkouts/<folder>-<number>/`, which
+`tools/env-run --data` names - with the Galaxy collections beside it, so no other checkout's tools or
+collections can change this one's. Every recipe runs its tools from there. To use a virtualenv of your own
+instead, of Python 3.12 or later and made with any tool (`python3 -m venv ~/.virtualenvs/claude-on-proxmox`),
+activate it, or export its Python as `PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python`: `just install`
+then installs into it, and removes nothing else there; a Python that is not a virtualenv is refused. Run
+`just install` again after a pull; `just clean env` deletes the checkout's own environment and collections.
 
 `just init` then copies the three git-ignored files below from their examples and asks, at the terminal,
 for each value a first deploy needs that is still the example's:

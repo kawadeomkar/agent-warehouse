@@ -59,7 +59,7 @@ environment where `python3` is not it.
 | &emsp;`--bridge BRIDGE` | The bridge the template is built on, for local.yml (before the template exists) |
 | &emsp;`--tailscale TAILSCALE` | Answers init's Tailscale question: on, each VM joins your tailnet; off, no Tailscale, for a setup without an account (tailscale_enabled in local.yml) |
 | &emsp;`--no-prompt` | Ask nothing, even at a terminal |
-| `just install` | Install the locked Python packages and the Galaxy collections into your environment |
+| `just install` | Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own |
 | &emsp;`--lock` | Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH) |
 | `just vault` | Encrypt the vault, or edit it once it is encrypted |
 | `just deploy [<name>...]` | Create, configure and sign in the VM(s), then open VS Code |
@@ -106,6 +106,6 @@ environment where `python3` is not it.
 | `just vagrant [<part>]` | End-to-end test of configure.yml on a VirtualBox VM |
 | &emsp;`<part>` | destroy: destroy the Vagrant test VM |
 | `just clean [<part>]` | Remove caches, the run logs and the built site (never your Python environment) |
-| &emsp;`<part>` | logs: delete only the run logs in LOG_DIR |
+| &emsp;`<part>` | logs: delete only the run logs in LOG_DIR; env: delete only this checkout's own environment and collections, which just install makes again |
 
 <!-- END_GENERATED: commands -->

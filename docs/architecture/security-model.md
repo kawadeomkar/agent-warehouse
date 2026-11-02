@@ -69,8 +69,8 @@ Two independent mechanisms:
 
 Galaxy collections are pinned to exact versions (a range means every run silently
 picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
-reads `requirements.yml`, and every checkout on a machine shares `~/.ansible/collections`, so every
-recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
+reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
+`just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
 is not. pre-commit hooks are pinned to commit SHAs, not tags, because a tag can be moved. apt signing
 keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored

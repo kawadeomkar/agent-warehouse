@@ -1,36 +1,83 @@
 #!/bin/sh
-# Run one of the project's tools from its Python environment - the virtualenv
-# ${PYTHON:-python3} is - and never from PATH or a Python that is no
-# virtualenv's. The git hooks and the Vagrantfile run the linters through
-# this, so a commit made from any shell or editor uses the versions uv.lock
-# pins, or stops and says why. --bin prints that environment's scripts
-# directory instead, which is how every recipe of the justfile finds its tools.
+# Run one of the project's tools from its Python environment, and never from
+# PATH or a Python that is no virtualenv's. The environment is, in order:
+#   - the virtualenv PYTHON names, when it is set;
+#   - the one python3 is, when it is a virtualenv - one you activated, or one a
+#     version manager picks in this directory;
+#   - otherwise this checkout's own, which just install makes with uv: a Python
+#     uv downloads, in this checkout's folder outside it (--data), never in it.
+# The git hooks and the Vagrantfile run the linters through this, so a commit
+# made from any shell or editor uses the versions uv.lock pins, or stops and
+# says why. The Galaxy collections are this checkout's own too, in the same
+# folder (--collections), and every tool run here is pointed at them.
 #
 #   tools/env-run yamllint --strict inventory/group_vars/all/defaults.yml
-#   tools/env-run --bin
+#   tools/env-run --bin           that environment's scripts directory, for the justfile's recipes
+#   tools/env-run --which         own <python> or managed <python>, for just install
+#   tools/env-run --data          this checkout's folder outside it
+#   tools/env-run --collections   the Galaxy collections' folder in it
 set -eu
-python=${PYTHON:-python3}
-bin=$("$python" -c 'import sys, sysconfig; print(sysconfig.get_path("scripts") if sys.prefix != sys.base_prefix else "")' 2>/dev/null) || bin=
-if [ "${1:-}" = --bin ]; then
-  if [ -z "$bin" ]; then
-    # The scripts directory of a Python that is no virtualenv's would be
-    # /usr/local/bin or the like, where a system-wide Ansible lives.
-    echo "error: [$python] is not the Python of a virtualenv, and this project runs its tools only from" >&2
-    echo "one of its own, never from a system-wide install. Make one of Python 3.12 or later with any tool, e.g." >&2
-    echo "  python3 -m venv ~/.virtualenvs/claude-on-proxmox" >&2
-    echo "then activate it, or export PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python, and run just install." >&2
+here=$(cd "$(dirname "$0")/.." && pwd -P)
+# One folder per checkout, named for it and told apart by a checksum of its
+# path, so a worktree or a second clone never shares another's environment or
+# collections: a sync from one would change the tools every other one runs.
+data=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/$(basename "$here")-$(printf %s "$here" | cksum | cut -d ' ' -f 1)
+managed=$data/venv
+collections=$data/collections
+case "${1:-}" in
+--data) printf '%s\n' "$data"; exit 0 ;;
+--collections) printf '%s\n' "$collections"; exit 0 ;;
+esac
+
+# The scripts directory of a virtualenv's Python, or nothing for any other.
+scripts() {
+  "$1" -c 'import sys, sysconfig; print(sysconfig.get_path("scripts") if sys.prefix != sys.base_prefix else "")' 2>/dev/null || true
+}
+if [ -n "${PYTHON:-}" ]; then
+  kind=own python=$PYTHON bin=$(scripts "$PYTHON")
+elif command -v python3 >/dev/null 2>&1 && bin=$(scripts python3) && [ -n "$bin" ]; then
+  kind=own python=python3
+else
+  kind=managed python=$managed/bin/python bin=
+  [ ! -x "$python" ] || bin=$managed/bin
+fi
+
+case "${1:-}" in
+--which)
+  printf '%s %s\n' "$kind" "$python"
+  exit 0
+  ;;
+--bin)
+  if [ -n "$bin" ]; then
+    printf '%s\n' "$bin"
+    exit 0
+  fi
+  if [ "$kind" = managed ]; then
+    echo "error: this checkout has no Python environment yet. Run: just install" >&2
+    echo "(it makes one with uv, in $managed; or set PYTHON to a virtualenv of your own)" >&2
     exit 1
   fi
-  printf '%s\n' "$bin"
-  exit 0
-fi
+  # The scripts directory of a Python that is no virtualenv's would be
+  # /usr/local/bin or the like, where a system-wide Ansible lives.
+  echo "error: [$python] is not the Python of a virtualenv, and this project runs its tools only from" >&2
+  echo "one of its own, never from a system-wide install. Leave PYTHON unset, and just install makes this" >&2
+  echo "checkout's own with uv; or make one of Python 3.12 or later with any tool, e.g." >&2
+  echo "  python3 -m venv ~/.virtualenvs/claude-on-proxmox" >&2
+  echo "then activate it, or export PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python, and run just install." >&2
+  exit 1
+  ;;
+esac
 if [ -z "$bin" ]; then
-  echo "error: [$python] is not the Python of a virtualenv, and this project runs its tools only from one of its" >&2
-  echo "own. Commit from a shell where python3 is that environment's (activate it first), or set PYTHON." >&2
+  if [ "$kind" = managed ]; then
+    echo "error: this checkout has no Python environment yet. Run: just install" >&2
+  else
+    echo "error: [$python] is not the Python of a virtualenv, and this project runs its tools only from one of its" >&2
+    echo "own. Commit from a shell where python3 is that environment's (activate it first), or set PYTHON." >&2
+  fi
   exit 1
 fi
 if [ "$#" -eq 0 ]; then
-  echo "usage: tools/env-run <tool> [argument...] | --bin" >&2
+  echo "usage: tools/env-run <tool> [argument...] | --bin | --which | --data | --collections" >&2
   exit 2
 fi
 tool=$1
@@ -39,4 +86,6 @@ if [ ! -x "$bin/$tool" ]; then
   echo "error: no $tool in [$bin]. Run: just install" >&2
   exit 1
 fi
+ANSIBLE_COLLECTIONS_PATH=$collections
+export ANSIBLE_COLLECTIONS_PATH
 exec "$bin/$tool" "$@"

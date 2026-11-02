@@ -987,8 +987,12 @@ def test_logs_lists_and_clean_logs_deletes_only_run_logs(tmp_path: Path) -> None
 
 
 def test_clean_never_touches_the_python_environment() -> None:
+    # Never one of yours; this checkout's own only as just clean env, the folder tools/env-run names.
     body = json.dumps(_json()["recipes"]["clean"]["body"])
     assert ".venv" not in body and "PYTHON" not in body and "bin" not in body
+    assert (
+        'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/claude-on-proxmox/checkouts/?*" in body
+    )
 
 
 # ---------------------------------------------------------------- --project ----
@@ -1228,15 +1232,18 @@ def test_vault_names_just_init_when_the_vault_is_missing(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------- install ----
-# The locked packages into PYTHON's own environment, then the collections;
-# --lock the lock alone. The project keeps no environment of its own.
+# The locked packages into a virtualenv of the user's, or the checkout's own made with uv when none is brought,
+# then the collections into the checkout's own folder; --lock the lock alone.
 ENVIRONMENT = sysconfig.get_path("scripts")
 
 
 def _uv(tmp_path: Path) -> Path:
     """A uv that records its arguments and the environment it was given to sync."""
     _stand_in(
-        tmp_path / "uv-bin", "uv", f'echo "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT" >> "{tmp_path / "uv-env"}"'
+        tmp_path / "uv-bin",
+        "uv",
+        f'echo "UV_PROJECT_ENVIRONMENT=$UV_PROJECT_ENVIRONMENT" >> "{tmp_path / "uv-env"}"\n'
+        f'echo "UV_PYTHON_DOWNLOADS=${{UV_PYTHON_DOWNLOADS:-}}" >> "{tmp_path / "uv-env"}"',
     )
     return tmp_path / "uv-bin" / "uv"
 
@@ -1246,10 +1253,16 @@ def test_install_syncs_the_lock_into_python_s_own_environment(tmp_path: Path) ->
     _stand_in(tmp_path / "bin", "ansible-galaxy")
     result = _just("install", settings=[f"PYTHON={sys.executable}", f"UV={uv}", f"BIN={tmp_path / 'bin'}"])
     assert result.returncode == 0, _output(result)
-    # --inexact: the environment is the user's, and nothing in it the lock does not list is removed.
+    # --inexact: the environment is the user's, and nothing in it the lock does not list is removed; and uv
+    # downloads no Python for it.
     assert _runs(tmp_path, "uv")[0][:5] == ["sync", "--locked", "--inexact", "--python", sys.executable]
-    assert (tmp_path / "uv-env").read_text().strip() == f"UV_PROJECT_ENVIRONMENT={sys.prefix}"
-    assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml"]]
+    assert (tmp_path / "uv-env").read_text().splitlines() == [
+        f"UV_PROJECT_ENVIRONMENT={sys.prefix}",
+        "UV_PYTHON_DOWNLOADS=never",
+    ]
+    # The collections into this checkout's own folder for them, whichever environment.
+    collections = _env_run("--collections", python=sys.executable).stdout.strip()
+    assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml", "-p", collections]]
 
 
 def test_install_lock_only_writes_the_lock(tmp_path: Path) -> None:
@@ -1796,6 +1809,123 @@ def test_env_run_names_a_tool_the_environment_lacks() -> None:
     assert f"error: no no-such-tool in [{ENVIRONMENT}]. Run: just install" in result.stderr
 
 
+def _no_virtualenv(tmp_path: Path) -> dict[str, str]:
+    """An environment where python3 is no virtualenv and PYTHON is unset, with a data folder of the test's own."""
+    stand_in = tmp_path / "plain"
+    stand_in.mkdir(exist_ok=True)
+    _not_a_virtualenv(stand_in)
+    return {
+        "PATH": f"{stand_in}{os.pathsep}{os.environ['PATH']}",
+        "HOME": os.environ.get("HOME", "/"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+
+
+def _env_run_in(env: dict[str, str], *args: str, env_run: Path = ENV_RUN) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([str(env_run), *args], env=env, capture_output=True, text=True, check=False, timeout=60)
+
+
+def _checksum(path: Path) -> str:
+    return subprocess.run(["cksum"], input=str(path), capture_output=True, text=True, check=True).stdout.split()[0]
+
+
+def test_env_run_keeps_one_folder_per_checkout_outside_it(tmp_path: Path) -> None:
+    # Named for the checkout and told apart by its path: a worktree or a second clone shares nothing with another.
+    env = _no_virtualenv(tmp_path)
+    data = _env_run_in(env, "--data").stdout.strip()
+    assert data == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", data
+    assert not data.startswith(str(REPO))
+    assert _env_run_in(env, "--collections").stdout.strip() == f"{data}/collections"
+    other = tmp_path / "other" / REPO.name
+    (other / "tools").mkdir(parents=True)
+    shutil.copy(ENV_RUN, other / "tools" / "env-run")
+    assert _env_run_in(env, "--data", env_run=other / "tools" / "env-run").stdout.strip() != data
+
+
+def test_env_run_without_a_virtualenv_uses_this_checkout_s_own(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    venv = Path(_env_run_in(env, "--data").stdout.strip()) / "venv"
+    assert _env_run_in(env, "--which").stdout.strip() == f"managed {venv}/bin/python"
+    missing = _env_run_in(env, "--bin")
+    assert missing.returncode != 0 and missing.stdout == ""
+    assert "error: this checkout has no Python environment yet. Run: just install" in missing.stderr
+    (venv / "bin").mkdir(parents=True)
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    assert _env_run_in(env, "--bin").stdout.strip() == f"{venv}/bin"
+
+
+def test_env_run_prefers_a_virtualenv_of_the_user_s() -> None:
+    # PYTHON, or python3 when it is a virtualenv - as before this checkout had an environment of its own.
+    assert _env_run("--which", python=sys.executable).stdout.strip() == f"own {sys.executable}"
+
+
+def test_env_run_points_every_tool_at_this_checkout_s_collections() -> None:
+    printed = _env_run(
+        "python", "-c", "import os; print(os.environ['ANSIBLE_COLLECTIONS_PATH'])", python=sys.executable
+    )
+    assert printed.returncode == 0, printed.stderr
+    assert printed.stdout.strip() == _env_run("--collections", python=sys.executable).stdout.strip()
+
+
+def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_none_of_yours(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    # A uv that records what it was asked, and makes the environment's python and ansible-galaxy as a sync would.
+    galaxy = tmp_path / "galaxy"
+    galaxy.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{tmp_path / "galaxy.args"}"\n')
+    galaxy.chmod(0o755)
+    record = _stand_in(
+        tmp_path / "uv-bin",
+        "uv",
+        f'printf "%s\\n" "$UV_PROJECT_ENVIRONMENT" "$UV_PYTHON_DOWNLOADS" > "{tmp_path / "uv-env"}"\n'
+        'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
+        f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
+        f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
+    )
+    result = _just("install", settings=[f"UV={tmp_path / 'uv-bin' / 'uv'}"], env=env)
+    assert result.returncode == 0, _output(result)
+    assert f"Installing into this checkout's own environment, {data}/venv" in result.stdout
+    # Exactly the lock's, on a Python uv downloads, never one of the machine's.
+    assert record.read_text().split("--end--")[0].split() == [
+        "sync",
+        "--locked",
+        "--managed-python",
+        "--python",
+        "3.13",
+    ]
+    assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv", "automatic"]
+    assert (tmp_path / "galaxy.args").read_text().split() == [
+        "collection",
+        "install",
+        "-r",
+        "requirements.yml",
+        "-p",
+        f"{data}/collections",
+    ]
+
+
+def test_every_recipe_points_ansible_at_this_checkout_s_collections(tmp_path: Path) -> None:
+    seen = tmp_path / "collections"
+    result = _just("status", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
+    assert result.returncode == 0, _output(result)
+    assert seen.read_text() == _env_run("--collections", python=sys.executable).stdout.strip()
+
+
+def test_clean_env_deletes_this_checkout_s_own_folder_and_nothing_else(tmp_path: Path) -> None:
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    (data / "venv" / "bin").mkdir(parents=True)
+    (data / "collections").mkdir()
+    neighbour = data.parent / "another-checkout-1"
+    neighbour.mkdir()
+    cleaned = _just("clean", "env", env=env)
+    assert cleaned.returncode == 0, _output(cleaned)
+    assert f"Deleted this checkout's own environment and collections, {data}" in cleaned.stdout
+    assert not data.exists() and neighbour.exists()
+    again = _just("clean", "env", env=env)
+    assert again.returncode == 0 and f"This checkout has no environment of its own, in {data}" in again.stdout
+
+
 def test_every_local_hook_runs_through_env_run() -> None:
     config = yaml.safe_load((REPO / ".pre-commit-config.yaml").read_text())
     local = [hook for repo in config["repos"] if repo["repo"] == "local" for hook in repo["hooks"]]
@@ -1815,7 +1945,8 @@ def test_the_helpers_are_executable(helper: str) -> None:
 def test_the_vagrantfile_never_falls_back_to_path_s_ansible_playbook() -> None:
     text = (REPO / "Vagrantfile").read_text()
     assert 'ENV.fetch("ANSIBLE_PLAYBOOK") do' in text
-    assert "sys.prefix != sys.base_prefix" in text
+    # The environment tools/env-run finds, and its checkout's collections.
+    assert "`tools/env-run --bin 2>/dev/null`" in text and "`tools/env-run --collections`" in text
     assert 'ENV.fetch("ANSIBLE_PLAYBOOK", "ansible-playbook")' not in text
 
 

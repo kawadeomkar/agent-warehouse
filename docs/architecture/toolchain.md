@@ -1,11 +1,18 @@
 # 13. Toolchain
 
 Everything is pinned in `pyproject.toml`, locked with every package it pulls in (version and hash) in
-`uv.lock`, and lives in your own virtualenv for the project: the project keeps none. `just install` runs
-`uv sync --locked` into the environment of `PYTHON` (`python3` as the shell finds it in the
-checkout, unless `PYTHON=` names another), which refuses a lock that no longer matches
-`pyproject.toml`, and `--inexact`, so the versions the lock pins go in and nothing else of the environment
-is removed; Dependabot's uv ecosystem moves the pins and the lock. uv writes the path the environment was
+`uv.lock`, and lives in the project's environment, which `tools/env-run` decides: a virtualenv of yours when
+you bring one (`PYTHON=`, or `python3` as the shell finds it in the checkout when that is a virtualenv), and
+otherwise the checkout's own. `just install` runs `uv sync --locked`, which refuses a lock that no longer
+matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads off, so the versions the lock
+pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
+makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.
+That one lives in the checkout's folder outside it, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/
+checkouts/<folder>-<cksum of its path>` (`tools/env-run --data`), never a `.venv` in the checkout, so a
+worktree or a second clone has its own; and the Galaxy collections live in the same folder for every
+checkout (`tools/env-run --collections`, exported as `ANSIBLE_COLLECTIONS_PATH` by every recipe), so one
+checkout's `just install` never changes another's. `just clean env` deletes that folder. Dependabot's uv
+ecosystem moves the pins and the lock. uv writes the path the environment was
 synced by into the first line of every command it installs, and a sync that installs nothing rewrites
 none, so before the sync `tools/stale_scripts.py` names each locked package with a command that starts a
 Python outside the environment's `bin` - by a `.venv` link into it, as `make venv` left them - and the

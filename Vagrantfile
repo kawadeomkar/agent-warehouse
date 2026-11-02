@@ -29,14 +29,15 @@ Vagrant.configure("2") do |config|
 
   config.vm.provision "ansible" do |ansible|
     ansible.compatibility_mode = "2.0"
-    # The project's own, which just vagrant passes; run without it, the one of
-    # the virtualenv python3 is, found as tools/env-run finds it - never one
-    # merely first on PATH. With no virtualenv, a path that says what is missing,
-    # so a provision fails on it rather than on another Ansible.
+    # The project's own, which just vagrant passes; run without it, the one
+    # tools/env-run finds - never one merely first on PATH - with this
+    # checkout's own collections. With no environment, a path that says what is
+    # missing, so a provision fails on it rather than on another Ansible.
     ansible.playbook_command = ENV.fetch("ANSIBLE_PLAYBOOK") do
-      bin = `#{ENV.fetch("PYTHON", "python3")} -c 'import sys, sysconfig; print(sysconfig.get_path("scripts") if sys.prefix != sys.base_prefix else "")' 2>/dev/null`.strip
-      File.join(bin.empty? ? "/no-virtualenv-for-claude-on-proxmox-run-just-install" : bin, "ansible-playbook")
+      bin = `tools/env-run --bin 2>/dev/null`.strip
+      File.join(bin.empty? ? "/no-environment-for-claude-on-proxmox-run-just-install" : bin, "ansible-playbook")
     end
+    ENV["ANSIBLE_COLLECTIONS_PATH"] ||= `tools/env-run --collections`.strip
     ansible.playbook = "playbooks/configure.yml"
     ansible.groups = { "claude_vms" => ["default"] }
     ansible.extra_vars = {

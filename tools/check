@@ -42,12 +42,12 @@ vault)
   head -c 14 "$2" | grep -q '^\$ANSIBLE_VAULT' || { echo "error: $2 is not encrypted. Run: just vault" >&2; exit 1; }
   ;;
 collections)
-  # Every checkout on a machine - a worktree, an older clone - shares
-  # ~/.ansible/collections, so a pull that bumped a pin, or just install in a
-  # checkout pinning an older one, would leave the runs on another version
-  # without a word. --offline resolves against what is installed and contacts
-  # nothing: with every pin installed it changes nothing, and otherwise fails.
-  test -x "$2/ansible-galaxy" || { echo "error: no ansible-galaxy in [$2], the bin of PYTHON's environment. Run: just install" >&2; exit 1; }
+  # Each checkout has its own collections (tools/env-run --collections, which
+  # the recipe exports as ANSIBLE_COLLECTIONS_PATH), but a pull that bumped a
+  # pin would leave the runs on the version installed before it, without a
+  # word. --offline resolves against what is installed and contacts nothing:
+  # with every pin installed it changes nothing, and otherwise fails.
+  test -x "$2/ansible-galaxy" || { echo "error: no ansible-galaxy in [$2], the bin of the project's Python environment. Run: just install" >&2; exit 1; }
   "$2/ansible-galaxy" collection install -r requirements.yml --offline </dev/null >/dev/null 2>&1 \
     || { echo "error: the installed Galaxy collections are not the ones requirements.yml pins. Run: just install" >&2; exit 1; }
   ;;

@@ -4,12 +4,22 @@ What to do when you update an install made by an earlier version of this project
 release, or before the first release the pull request, that brought the change; an install made after it needs
 nothing.
 
-After pulling a new version, run `just install` before anything else. It syncs your environment to
+After pulling a new version, run `just install` before anything else. It syncs the project's environment to
 `uv.lock` and installs the Galaxy collections `requirements.yml` pins, and a pull changes neither.
 Every target that runs Ansible compares the installed collections with those pins first and stops,
-naming `just install`, while one differs. They live in `~/.ansible/collections`, which every checkout
-on the machine shares, so another clone or worktree on a different version needs `just install` again
-when you go back to it.
+naming `just install`, while one differs. They live in the checkout's own folder
+(`tools/env-run --collections`), so another clone or worktree keeps its own, on its own versions.
+
+## An environment and collections of the checkout's own
+
+From 1.0, `just install` makes the project's Python environment itself, with uv, when you bring none: a
+Python uv downloads, in the checkout's folder outside it (`tools/env-run --data`). A virtualenv of yours
+is still used whenever `PYTHON=` names it or `python3` is one here - pyenv's, as `README.md` used to
+suggest, included - so an install that has one goes on using it. The Galaxy collections move, for every
+checkout, from `~/.ansible/collections` into that folder: the first recipe after pulling stops, naming
+`just install`, which fetches them there. `~/.ansible/collections` can then go, unless another project of
+yours uses it. To move from your own virtualenv to the checkout's own, deactivate it (or drop the
+`.python-version` that `pyenv local` wrote, and unset `PYTHON`) and run `just install`.
 
 ## Names 1.0 changed
 
@@ -200,7 +210,7 @@ The targets of the version before, thirty-six of them:
 
 | Before | Now |
 |---|---|
-| `make venv`, `make deps` | `just install`, into your own virtualenv: see below |
+| `make venv`, `make deps` | `just install`: see below |
 | `make lock` | `just install --lock` |
 | `make vault-encrypt`, `make vault-edit` | `just vault`, which encrypts a plaintext vault and edits an encrypted one |
 | `make template`, `make provision` | `just deploy --only template`, `just deploy --only provision` |
@@ -215,9 +225,8 @@ The targets of the version before, thirty-six of them:
 | `make vagrant-up`, `make vagrant-destroy` | `just vagrant`, `just vagrant destroy` |
 | `make logs-clean` | `just clean logs` |
 
-The project keeps no `.venv` either. Make a virtualenv of its own for it, with any tool - `README.md`
-suggests pyenv's, and `python3 -m venv <dir>`, activated or named with `PYTHON=<dir>/bin/python`, does as
-well - and run `just install`. If `.venv` was a link to that environment, `just install` also reinstalls,
+The project keeps no `.venv` either: `just install` makes the checkout's own environment outside it, or
+installs into a virtualenv of yours - activated, or named with `PYTHON=<dir>/bin/python`. If `.venv` was a link to that environment, `just install` also reinstalls,
 once, each package whose commands still start their Python by the link - uv wrote it into every one when
 `make venv` synced through it - so run it first; the old `.venv` can then go - `rm .venv` if it is that
 link, which leaves the environment itself alone - and `just clean` never deletes it. The VMs keep nothing
