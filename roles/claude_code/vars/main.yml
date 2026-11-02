@@ -86,6 +86,11 @@ claude_code_remote_control_status: >-
         and (claude_code_remote_control_auth.stdout | trim | length > 0)
      else {} }}
 
+# Internal: whether claude is on the login shell's PATH at all, for login.yml.
+# 127 is bash's own "command not found": a VM the role never configured, which
+# `just login` used to call "not signed in" and send to a sign-in that cannot run.
+claude_code_login_installed: "{{ claude_code_remote_control_auth.rc | default(0) != 127 }}"
+
 # Internal: whether this VM holds a credential Remote Control can actually use.
 # Only a claude.ai login qualifies. An API key, a Console login and the
 # long-lived token from `claude setup-token` can all make model requests, and

@@ -101,7 +101,7 @@ Also takes, as described under `main`: `claude_code_user`, `claude_code_install_
 
 ## Internal values
 
-Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 43 of the 49 are computed during a run, from earlier tasks' results.
+Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 44 of the 50 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -113,6 +113,7 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_remote_control_settings_blockers` | <code>{{ (claude_code_remote_control_settings_env.keys() &#124; list &#124; intersect(claude_code_remote_control_blocking_env)) + (['apiKeyHelper'] if 'apiKeyHelper' in claude_code_remote_control_settings_on_disk else []) + (['ANTHROPIC_BASE_URL'] if not (claude_code_remote_control_base_url_ok &#124; bool) else []) }}</code> |
 | `claude_code_remote_control_wanted` | <code>{{ claude_code_remote_control &#124; bool and claude_code_anthropic_api_key &#124; length == 0 }}</code> |
 | `claude_code_remote_control_status` | <code>{{ (claude_code_remote_control_auth.stdout &#124; from_json) if claude_code_remote_control_auth.rc == 0 and (claude_code_remote_control_auth.stdout &#124; trim &#124; length > 0) else {} }}</code> |
+| `claude_code_login_installed` | <code>{{ claude_code_remote_control_auth.rc &#124; default(0) != 127 }}</code> |
 | `claude_code_remote_control_eligible` | <code>{{ (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool and (claude_code_remote_control_status.authMethod &#124; default('')) == 'claude.ai' and (claude_code_remote_control_status.apiKeySource &#124; default('', true)) &#124; length == 0 and claude_code_remote_control_settings_blockers &#124; length == 0 }}</code> |
 | `claude_code_remote_control_blocker` | <code>{{ '~/.claude/settings.json for ' ~ claude_code_user ~ ' on it disables Remote Control through ' ~ (claude_code_remote_control_settings_blockers &#124; join(', ')) ~ '. Each switches off the' ~ ' feature-flag evaluation Remote Control depends on, or routes the client away from the' ~ ' claude.ai login it needs. Remove it from claude_code_settings and from the file on the' ~ ' VM, or set claude_code_remote_control: false to leave Remote Control off.' if claude_code_remote_control_settings_blockers &#124; length > 0 else 'no Claude Code login is stored for ' ~ claude_code_user ~ ' on it.' if not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool else 'Claude Code on it uses an API key from "' ~ claude_code_remote_control_status.apiKeySource ~ '", which outranks the claude.ai login Remote Control needs.' ~ ' Remove it wherever it is set (the shell environment, an env block' ~ ' in a settings file, apiKeyHelper), or run "claude auth logout" if' ~ ' it came from a Console login.' if (claude_code_remote_control_status.apiKeySource &#124; default('', true)) &#124; length > 0 else 'it is signed in through "' ~ (claude_code_remote_control_status.authMethod &#124; default('unknown')) ~ '", but Remote Control needs a claude.ai login on a Pro, Max, Team' ~ ' or Enterprise plan. Remove what selects that method wherever it is' ~ ' set - CLAUDE_CODE_OAUTH_TOKEN for a token from "claude setup-token",' ~ ' or a CLAUDE_CODE_USE_* setting that routes it to Bedrock, Vertex AI' ~ ' or another provider - or run "claude auth logout" for a stored login.' }}</code> |
 | `claude_code_remote_control_login_command` | <code>ssh -t {{ claude_code_user }}@{{ ansible_host &#124; default(inventory_hostname) }} "bash -lc 'claude auth login'"</code> |
@@ -409,7 +410,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Record where the user's files are | `ansible.builtin.set_fact` | <code>claude_code_home is not defined</code> |
 | Check whether this VM is logged in | `ansible.builtin.command` |  |
 | Read the settings Claude Code will start with | `ansible.builtin.slurp` |  |
-| Sign Claude Code in by the browser | `ansible.builtin.include_tasks` | <code>claude_code_login_interactive &#124; bool and claude_code_anthropic_api_key &#124; length == 0 and not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool</code> |
+| Sign Claude Code in by the browser | `ansible.builtin.include_tasks` | <code>claude_code_login_interactive &#124; bool and claude_code_login_installed &#124; bool and claude_code_anthropic_api_key &#124; length == 0 and not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool</code> |
 | Report the login state and what to do about it | `ansible.builtin.debug` |  |
 | Keep what is left to do for the end of the run | `ansible.builtin.set_stats` |  |
 
@@ -429,7 +430,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   login___Look_up_home_directory_of_claude_code_user0-->|Task| login___Record_where_the_user_s_files_are1[login   record where the user s files are<br>When: **claude code home is not defined**]:::task
   login___Record_where_the_user_s_files_are1-->|Task| login___Check_whether_this_VM_is_logged_in2[login   check whether this vm is logged in]:::task
   login___Check_whether_this_VM_is_logged_in2-->|Task| login___Read_the_settings_Claude_Code_will_start_with3[login   read the settings claude code will start<br>with]:::task
-  login___Read_the_settings_Claude_Code_will_start_with3-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code anthropic api key   length    0 and not <br>claude code remote control status loggedin  <br>default false     bool**<br>include_task: browser login yml]:::includeTasks
+  login___Read_the_settings_Claude_Code_will_start_with3-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code login installed   bool and claude code<br>anthropic api key   length    0 and not  claude<br>code remote control status loggedin   default<br>false     bool**<br>include_task: browser login yml]:::includeTasks
   login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4-->|Task| login___Report_the_login_state_and_what_to_do_about_it5[login   report the login state and what to do<br>about it]:::task
   login___Report_the_login_state_and_what_to_do_about_it5-->|Task| login___Keep_what_is_left_to_do_for_the_end_of_the_run6[login   keep what is left to do for the end of the<br>run]:::task
   login___Keep_what_is_left_to_do_for_the_end_of_the_run6-->End

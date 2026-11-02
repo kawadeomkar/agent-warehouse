@@ -47,7 +47,9 @@ through the forward, and the run carries on by itself, waiting up to `claude_cod
 work is in [the browser sign-in](../architecture/roles.md#the-browser-sign-in).
 
 Once every VM named has had its turn, the run starts the service on each one signed in, in the same run.
-Given several names it signs them in one after another; given none it only reports each VM's state. At a
+Given several names it signs them in one after another; given none it only reports each VM's state. A VM
+without Claude Code - one only ever provisioned - is never sent to a sign-in: the run names
+`just deploy <vm> --tags claude_code`, which installs it. At a
 terminal the run is drawn live, a row per sign-in with each VM's state and whose turn it is
 ([During a run](runs.md)); its prompts and browser blocks print above it whole.
 
