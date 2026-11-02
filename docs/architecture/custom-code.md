@@ -451,7 +451,7 @@ The region is taken when the callback is made, so a warning before the first fra
 spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
 printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
 since `Display` logs the text it is given; under `--json` (`STATUS_QUIET`) nothing is
-printed. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
+printed, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
 stdout callback of one's own otherwise drops, and a task's failure on stderr only when the run ends
 without a report.
 

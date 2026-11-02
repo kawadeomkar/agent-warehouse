@@ -431,6 +431,39 @@ def test_every_line_of_the_report_fits_100_columns() -> None:
     assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
 
 
+def test_the_access_columns_line_up_whatever_the_names() -> None:
+    # An alias padded to 12 and never cut ran into the tailnet column: "sigint-repronot installed".
+    def vm(name: str, alias: bool = True, tailscale: dict | None = None) -> dict:
+        ssh = {"tailscale": tailscale} if tailscale else {}
+        return {
+            "name": name,
+            "address": "192.0.2.10",
+            "alias": alias,
+            "needs_ssh": True,
+            "state": "running",
+            "ssh": ssh,
+        }
+
+    running = {"backend": "Running", "dns_name": "duscope-1.tail0000.ts.net", "ipv4": "100.64.0.1"}
+    model = {
+        "vms": [
+            vm("duscope-1", tailscale=running),
+            vm("sigint-repro"),
+            vm("homeserver-test-13f1a98e"),
+            vm("nl1", alias=False),
+            vm("a-name-longer-than-any-alias-column"),
+        ],
+        "settings": {"aliases_enabled": True, "tailscale_enabled": True},
+    }
+    lines = [S.plain(line) for line in S._access_lines(model)]
+    column = lines[0].index("TAILNET")
+    for line in lines[1:-1]:
+        assert line[column - 2 : column] == "  " and line[column] != " ", line
+    # Whole up to 24 characters, which ssh takes as they are; a longer one cut as the name column cuts.
+    assert lines[3].split()[2] == "homeserver-test-13f1a98e"
+    assert lines[5].split()[2] == "a-name-longer-than-any-…"
+
+
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
     fleet = _fleet()
     found = {"localhost": {"fleet": fleet}}
@@ -943,13 +976,18 @@ def test_the_callback_writes_no_other_escape_than_its_own(callback) -> None:
     }
 
 
-def test_under_json_nothing_is_drawn(callback) -> None:
+def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callback, monkeypatch) -> None:
+    # The log of a just status --json was an empty file, which read as a run that failed before it began.
     cb, terminal = callback(quiet=True)
+    shown = []
+    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append((msg, kw)))
     fleet = _fleet()
     cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
     cb.v2_runner_on_ok(_ok("localhost", {"status_report": S.status_report({"localhost": {"fleet": fleet}}, "now")}))
     cb.v2_playbook_on_stats(None)
     assert terminal.getvalue() == ""
+    assert len(shown) == 1 and shown[0][1] == {"log_only": True}, shown
+    assert shown[0][0].startswith("claude-on-proxmox") and "VMS" in shown[0][0], shown[0][0]
 
 
 # ------------------------------------------------------------------------------------- every state at once ----

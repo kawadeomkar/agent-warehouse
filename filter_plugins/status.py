@@ -1266,7 +1266,10 @@ def _access_lines(model):
     nw = _name_width(vms)
     # The tailnet column, from the Tailscale role's read: whenever the VMs are read over SSH, or Tailscale is off.
     show_tailnet = any(vm.get("needs_ssh") for vm in vms) or not model["settings"].get("tailscale_enabled")
-    head = "LAN           " + ("SSH ALIAS   " if aliases else "") + ("TAILNET" if show_tailnet else "")
+    # The alias is what ssh takes, so whole up to 24 characters, the column as wide as the longest and two spaces:
+    # one padded to 12 alone ran a 12-character alias into the tailnet column.
+    alias_width = min(26, max([12] + [len(vm["name"]) + 2 for vm in vms if vm.get("alias")]))
+    head = "LAN           " + (f"{'SSH ALIAS':<{alias_width}}" if aliases else "") + ("TAILNET" if show_tailnet else "")
     # The tailnet names padded to the longest, so their addresses line up.
     dns_width = max([0] + [len(((vm.get("ssh") or {}).get("tailscale") or {}).get("dns_name") or "") for vm in vms])
     lines = [[seg("ACCESS", "h"), seg(" " * max(1, nw + 4 - len("ACCESS")) + head, "d")]]
@@ -1276,7 +1279,9 @@ def _access_lines(model):
         name = vm["name"] if len(vm["name"]) <= nw else vm["name"][: nw - 1] + "…"
         row = [seg(f" {name:<{nw}}   "), seg(f"{lan:<14}", "d" if not vm.get("address") else "")]
         if aliases:
-            row.append(seg(f"{vm['name'] if vm.get('alias') else 'none':<12}", "" if vm.get("alias") else "y"))
+            # A cell one short and a space: two spaces before the tailnet column, an alias cut or not.
+            alias = _cell(vm["name"] if vm.get("alias") else "none", alias_width - 1, "" if vm.get("alias") else "y")
+            row += [*alias, seg(" ")]
         if show_tailnet:
             row += _tailnet_cells(vm, model, dns_width)
         lines.append(row)
