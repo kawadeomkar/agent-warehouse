@@ -162,17 +162,25 @@ def test_init_candidates_says_what_the_token_lacks_on_each() -> None:
         _read("gone", {"Datastore.Audit": 1}, status=403, type="nfs"),
     ]
     assert init_candidates(reads, "storage", "/storage/", STORAGE) == [
-        {"name": "local-zfs", "type": "zfspool", "free": "412 GiB free", "lacks": [], "inactive": False},
+        {
+            "name": "local-zfs",
+            "type": "zfspool",
+            "free": "412 GiB free",
+            "lacks": [],
+            "inactive": False,
+            "refused": False,
+        },
         {
             "name": "local",
             "type": "dir",
             "free": "5.0 GiB free",
             "lacks": ["Datastore.AllocateSpace"],
             "inactive": False,
+            "refused": False,
         },
-        {"name": "tank", "type": "nfs", "free": "", "lacks": STORAGE, "inactive": False},
+        {"name": "tank", "type": "nfs", "free": "", "lacks": STORAGE, "inactive": False, "refused": False},
         # A read that failed holds nothing.
-        {"name": "gone", "type": "nfs", "free": "", "lacks": STORAGE, "inactive": False},
+        {"name": "gone", "type": "nfs", "free": "", "lacks": STORAGE, "inactive": False, "refused": False},
     ]
     down = _read("nas", {"Datastore.AllocateSpace": 1, "Datastore.Audit": 1}, type="nfs", active=0)
     assert init_candidates([down], "storage", "/storage/", STORAGE)[0]["inactive"] is True

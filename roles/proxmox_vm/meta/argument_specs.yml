@@ -110,6 +110,14 @@ argument_specs:
           - The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain).
             state=absent forgets the host key recorded under <name>.<domain> too, besides the one under the address. Set
             through claude_ssh_host_domain in local.yml.
+      proxmox_vm_known_hosts_kept:
+        type: list
+        elements: str
+        default: []
+        description:
+          - Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported - the
+            inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host) is never forgotten either way. Wired
+            from the inventory's hosts in group_vars/all.
       proxmox_vm_name:
         type: str
         description: VM name in Proxmox. Defaults to the inventory hostname.

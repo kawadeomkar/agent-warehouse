@@ -126,7 +126,14 @@ Finds VMs by tag so `configure.yml` works standalone, not only straight after pr
 2. `claude_vm_tagged` (a lazily-evaluated group var) filters to the tagged QEMU VMs. Proxmox omits
    `tags` for an untagged guest, hence its `selectattr('tags', 'defined')`.
 3. `claude_vm_discovered` is `claude_vm_requested`: narrowed to the names given (`vm_name`), else the whole
-   fleet. `status.yml` narrows through the same group var.
+   fleet. `status.yml` narrows through the same group var. Never a VM named after a host of the inventory
+   (`claude_vm_inventory_hosts`: `localhost`, and the Proxmox host's name, `pve` in `hosts.yml.example`):
+   `add_host` merges a VM into the host of its name, so a VM named `pve` would give the Proxmox host the
+   address its own agent reported, and the API token would go there; one named `localhost` would make the
+   controller a VM to configure. On a Proxmox others use too, anyone can tag a VM so. Such a VM is left
+   out and said; a name given that is one is refused before the cluster is listed
+   (`tasks/vm_names.yml`, which provision, destroy, code and `--only ssh-config` import too), and
+   `just status` shows such a VM from the listing alone.
 4. Assert no duplicate names — Proxmox permits them, and the second `add_host` would silently
    overwrite the first, so `just deploy --only configure` would report success having touched one of two,
    unpredictably.
@@ -553,7 +560,14 @@ silently override the user's entry); every write is validated by the real client
 <alias>`, so a malformed option fails the task instead of every `ssh` on the machine; and a block is
 only ever written for a VM the caller found by its tag. Before any of them, a name or address that is
 not one plain word is refused: `ssh -G` accepts a well-formed `ProxyCommand`, so it cannot be the
-check for a value the VM chose (see `guest_ipv4`, section 7).
+check for a value the VM chose (see `guest_ipv4`, section 7). So is a name ssh would take for another
+host (`ssh_alias_refusal`): one with a dot, a number ssh reads as an address (`3232235777`,
+`0x7f000001`), or a host of the inventory. The managed file is included ahead of the user's own
+config, so a VM named `github.com` would get the controller's own `git push`, and one named after the
+Proxmox host its root SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others
+use too is not always the user. With names given it is refused, and `just deploy` refuses it before it
+creates anything; fleet-wide (no names) such a VM is left out, said, and the rest written, so someone
+else's tagged VM named `github.com` cannot stop every alias refresh of the user's own fleet.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
 (§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
@@ -977,6 +991,10 @@ every task a read (held by `tests/unit/test_init_check.py`):
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
    question, since there is nothing to choose - and set there, a node that differs is a problem naming both.
    A node SSH named that the cluster does not list, or several nodes and no SSH, is a problem too.
+   Only a name Proxmox gives a node counts (the `proxmox_name` filter, `filter_plugins/settings.py`):
+   `local.yml` is read as a template by every later run, and with the certificate not checked and the host key
+   taken on first contact, the answer is whoever's sits in the path, so `{{ ... }}` in a name there would run on
+   the controller. A reported name that is no node's is said, as JSON, and never written.
 8. **The storage and the bridge**, on that node, through `tasks/init_choose.yml`: the storages for VM disks
    (`GET /nodes/<node>/storage?content=images&enabled=1`) and, while there is no template, the bridges
    (`GET /nodes/<node>/network?type=any_local_bridge`), both filtered by Proxmox to what the token may see,
@@ -991,7 +1009,10 @@ every task a read (held by `tests/unit/test_init_check.py`):
    is known, nothing is listed, asked or written for either, and each is noted as not checked; a listing
    Proxmox refuses is a problem. `--storage` and `--bridge` given are held to the same lists before anything is
    written, written whenever the token can use them, and refused while they cannot be checked; `--bridge` beside
-   a template is nothing to do when it is the template's own, and refused otherwise.
+   a template is nothing to do when it is the template's own, and refused otherwise. A listed name that is no
+   storage's (`pve-storage-id`) or bridge's is shown as JSON and never offered, and the root-SSH listing of
+   `init_access.yml` is held the same way; `tasks/init_local_setting.yml`, which every write of `local.yml` goes
+   through, refuses a value that opens a template whatever its source.
 9. **A key for the VMs**: `vm_ssh_public_keys`. `vault_vm_password` alone is a problem - it is for the Proxmox
    console, and deploy configures the VMs over SSH, which takes a key; with neither, the public keys in
    `~/.ssh` are listed and the `local.yml` line suggested. A `vm_password` that holds a password, its name

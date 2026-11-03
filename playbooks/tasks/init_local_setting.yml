@@ -16,6 +16,18 @@
     src: "{{ init_local_file }}"
   register: init_local_setting_read
 
+# Every later run reads local.yml as a template, so {{ }}, {% %} or {# #} in a
+# value would run there. just init writes only what it asked for or worked
+# out, each held to its kind already; this is the last check before the file.
+# The pattern is spelt so that it holds none of those itself.
+- name: init_local_setting | Refuse a value that would be a template
+  ansible.builtin.assert:
+    that: init_setting_value | to_json is not search('[{]([{]|%|#)')
+    fail_msg: >-
+      Not writing {{ init_setting_key }} into {{ init_local_file }}: its value opens a template (two braces, or a
+      brace and a % or #), which every later run would read as one.
+    quiet: true
+
 - name: init_local_setting | Refuse a setting local.yml already has
   ansible.builtin.assert:
     that: init_setting_key not in ((init_local_setting_read.content | b64decode | from_yaml) or {})

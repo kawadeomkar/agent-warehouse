@@ -656,6 +656,22 @@ def test_an_expression_or_a_control_character_is_refused(scenarios, tmp_path) ->
     assert _local(inventory).read_bytes() == before and not ran.exists()
 
 
+def test_an_expression_or_a_secret_spelt_with_yaml_s_escapes_is_refused(scenarios, tmp_path) -> None:
+    # A list is parsed as YAML, which decodes \x7b to {: the text holds no {{, the value written would.
+    inventory = _writable(scenarios, tmp_path)
+    before = _local(inventory).read_bytes()
+    ran = tmp_path / "ran"
+    escaped = "[\"\\x7b{ lookup('pipe', 'touch " + str(ran) + "') }}\"]"
+    expression = _set(scenarios, inventory, "tailscale_advertise_tags", escaped)
+    assert expression.returncode == 1 and "never an expression" in expression.stderr, expression.stderr[-500:]
+    token = FAKE["vault_github_token"]
+    spelt = '["\\x' + format(ord(token[0]), "02x") + token[1:] + '"]'
+    secret = _set(scenarios, inventory, "tailscale_advertise_tags", spelt)
+    assert secret.returncode == 1 and "a secret the vault holds" in secret.stderr, secret.stderr[-500:]
+    assert token[1:] not in secret.stdout + secret.stderr
+    assert _local(inventory).read_bytes() == before and not ran.exists()
+
+
 def test_a_vault_secret_given_as_a_plain_value_is_refused_unsaid(scenarios, tmp_path) -> None:
     inventory = _writable(scenarios, tmp_path)
     before = _local(inventory).read_bytes()
