@@ -15,7 +15,9 @@ as `ANSIBLE_COLLECTIONS_PATH` by every recipe), so one checkout's `just install`
 `just clean env` deletes that folder. `just install` runs `ansible-galaxy` with `--no-cache`: its response
 cache writes an empty entry before each request to Galaxy, and the retry after one that failed (a 502, a
 timeout) reads that entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core
-2.21), so one bad answer from Galaxy failed the install. Dependabot's uv
+2.21), so one bad answer from Galaxy failed the install. It installs only when `tools/check collections` finds a
+collection not at its pin: for collections that all are, ansible-galaxy says `Nothing to do` and advises a
+`--force` of its own, which `just install` does not take, so the recipe says they are current instead. Dependabot's uv
 ecosystem moves the pins and the lock. uv writes the path the environment was
 synced by into the first line of every command it installs, and a sync that installs nothing rewrites
 none, so before the sync `tools/stale_scripts.py` names each locked package with a command that starts a

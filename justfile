@@ -325,6 +325,13 @@ install LOCK='':
       {{ find_bin }}
       ;;
     esac
+    # Collections already at their pins are said here: ansible-galaxy's own "Nothing to do" for them advises --force,
+    # an option of its own that just install does not take. tools/check collections asks it offline, as every recipe
+    # that runs Ansible does, and it installs only when one is not.
+    if tools/check collections "$bin" 2>/dev/null; then
+      echo "The Galaxy collections are already the ones requirements.yml pins: nothing to install."
+      exit 0
+    fi
     exec "$bin/ansible-galaxy" collection install -r requirements.yml -p "$ANSIBLE_COLLECTIONS_PATH" --no-cache
 
 # A plaintext vault can only be encrypted and an encrypted one only edited, so

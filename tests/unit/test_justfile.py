@@ -1289,9 +1289,14 @@ def _uv(tmp_path: Path) -> Path:
     return tmp_path / "uv-bin" / "uv"
 
 
+# The offline check first, then the install: an ansible-galaxy that finds a collection not at its pin offline.
+NOT_THE_PINS = 'case "$*" in *--offline*) exit 1 ;; esac'
+OFFLINE_CHECK = ["collection", "install", "-r", "requirements.yml", "--offline"]
+
+
 def test_install_syncs_the_lock_into_python_s_own_environment(tmp_path: Path) -> None:
     uv = _uv(tmp_path)
-    _stand_in(tmp_path / "bin", "ansible-galaxy")
+    _stand_in(tmp_path / "bin", "ansible-galaxy", NOT_THE_PINS)
     result = _just("install", settings=[f"PYTHON={sys.executable}", f"UV={uv}", f"BIN={tmp_path / 'bin'}"])
     assert result.returncode == 0, _output(result)
     # --inexact: the environment is the user's, and nothing in it the lock does not list is removed; and uv
@@ -1305,8 +1310,21 @@ def test_install_syncs_the_lock_into_python_s_own_environment(tmp_path: Path) ->
     # cache off: it turns one failed request to Galaxy into a failed install (test_galaxy_install.py).
     collections = _env_run("--collections", python=sys.executable).stdout.strip()
     assert _runs(tmp_path, "ansible-galaxy") == [
-        ["collection", "install", "-r", "requirements.yml", "-p", collections, "--no-cache"]
+        OFFLINE_CHECK,
+        ["collection", "install", "-r", "requirements.yml", "-p", collections, "--no-cache"],
     ]
+
+
+def test_install_says_collections_already_at_their_pins_without_ansible_galaxy_s_advice(tmp_path: Path) -> None:
+    # ansible-galaxy's "Nothing to do" for them advises its own --force, which just install refuses as an option it
+    # does not have: the offline check says so instead, and ansible-galaxy never installs.
+    advice = 'case "$*" in *--offline*) ;; *) echo "consider using --force" ;; esac'
+    _stand_in(tmp_path / "bin", "ansible-galaxy", advice)
+    result = _just("install", settings=[f"PYTHON={sys.executable}", f"UV={_uv(tmp_path)}", f"BIN={tmp_path / 'bin'}"])
+    assert result.returncode == 0, _output(result)
+    assert "The Galaxy collections are already the ones requirements.yml pins: nothing to install." in result.stdout
+    assert "--force" not in _output(result)
+    assert _runs(tmp_path, "ansible-galaxy") == [OFFLINE_CHECK]
 
 
 def test_install_lock_only_writes_the_lock(tmp_path: Path) -> None:
@@ -2035,7 +2053,7 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
     data = Path(_env_run_in(env, "--data").stdout.strip())
     # A uv that records what it was asked, and makes the environment's python and ansible-galaxy as a sync would.
     galaxy = tmp_path / "galaxy"
-    galaxy.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{tmp_path / "galaxy.args"}"\n')
+    galaxy.write_text(f'#!/bin/sh\n{NOT_THE_PINS}\nprintf "%s\\n" "$@" > "{tmp_path / "galaxy.args"}"\n')
     galaxy.chmod(0o755)
     record = _stand_in(
         tmp_path / "uv-bin",
