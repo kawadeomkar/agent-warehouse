@@ -288,7 +288,8 @@ compared as owner and repository with the origin of each checkout in `~/projects
 clone or a session started in a subfolder still matches, another owner's repository of the same name
 does not. On the VM only a GitHub origin counts, as `just deploy` clones one, so a checkout there with a
 local path or another host's URL for its origin is given none of this machine's sessions; here any form
-does, an SSH alias of yours for GitHub included. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
+does, an SSH alias of yours for GitHub included. So a VM that names a GitHub repository gets the sessions of
+a checkout here of that owner and name on any host, a GitLab or company server's too. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
 goes by its checkout, and one of a clone that is gone by the `githubRepoPaths` Claude Code keeps in
 `~/.claude.json`. Left here: sessions without a message, and sessions written by a Claude Code newer
 than the VM's - which installs the stable channel - named in the run's message until the VM's catches

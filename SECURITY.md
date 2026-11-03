@@ -162,9 +162,12 @@ restate them are not treated as vulnerabilities:
   continued on the VM is never overwritten. `--session <id>` moves the VM's checkout of that session's
   repository to the commit it is pushed at, by fast-forward only: never over changes of the VM's own, an
   ignored file the commit would replace, or commits a detached `HEAD` alone holds, and never while a
-  `claude` works in it. A VM chooses which of this machine's sessions it gets only through the GitHub
-  origins of its checkouts: a local path or another host's URL there matches none. Claude Code's question whether to trust that folder is
-  left for you to answer.
+  `claude` works in it. A VM chooses which of this machine's sessions it gets through the GitHub origins
+  of its checkouts, and only those: a local path or another host's URL there matches none. Here, though, a
+  checkout's origin counts by its owner and name whatever its host, so a VM whose checkout names
+  `github.com/team/internal` also gets the sessions of a checkout here of `team/internal` on GitLab or a
+  server of your own, and a VM whose root is not yours can name every repository your GitHub token lists.
+  Claude Code's question whether to trust that folder is left for you to answer.
 - `just destroy` saves the Claude Code sessions and auto memory that exist only on a VM into
   `.sessions/` in your checkout before deleting it (`destroy_save_sessions`, on by default): plaintext
   transcripts holding whatever their tools printed, in 0600 files and 0700 folders readable by you alone,
