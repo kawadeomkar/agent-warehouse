@@ -128,6 +128,19 @@ claude_vm_tagged: >-
      | list }}
 claude_vm_names: >-
   {{ (vm_name | default(vm_default_name, true)) | split(',') | map('trim') | select | list }}
+# The hosts of the inventory itself - this machine (localhost) and the Proxmox
+# host (pve, in hosts.yml.example) - whose names no VM may take. A VM's name
+# from Proxmox becomes a host through add_host, which merges it into a host of
+# that name: a VM named pve would give the Proxmox host the address that VM
+# reports, and the API token would go there; one named localhost would make
+# this machine a VM to configure. Every host but those the runs add VMs to, so
+# it reads the same before and after they are added. playbooks/tasks/vm_names.yml
+# refuses such a name given, and discovery and just status leave out such a VM.
+claude_vm_inventory_hosts: >-
+  {{ (groups['all'] + ['localhost'])
+     | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
+                    + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])))
+     | unique | list }}
 # The tagged VMs a fleet-wide recipe acts on: the ones named (vm_name), or all of
 # them without it. discover.yml and status.yml both narrow through this, so
 # `just deploy --only configure` and `just status` cannot disagree on what the names select.
@@ -441,6 +454,9 @@ proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
 proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
+proxmox_vm_known_hosts_kept: >-
+  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
+     | map(attribute='ansible_host', default='') | select | list }}
 
 proxmox_template_bridge: "{{ proxmox_bridge }}"
 proxmox_template_storage: "{{ proxmox_storage }}"

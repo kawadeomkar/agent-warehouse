@@ -77,6 +77,9 @@
         - destroy_save_sessions | default(true) | bool
         - destroy_sessions_dir | default('', true) | length > 0
 
+    - name: Refuse a VM named after a host of the inventory
+      ansible.builtin.import_tasks: tasks/vm_names.yml
+
     - name: List every VM in the cluster
       ansible.builtin.import_tasks: tasks/cluster_vms.yml
 

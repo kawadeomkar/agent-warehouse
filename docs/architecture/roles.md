@@ -87,8 +87,8 @@ apt deletes each package it downloads once installed → apt cache refresh → o
 baseline packages (~26, including `qemu-guest-agent` and `python3-debian`) → empty apt's download
 cache of what was left → timezone → hostname → user, groups and passwordless sudo → authorised keys
 → sshd hardening → `~/.local/bin` on PATH for login shells → the same directories on PATH for ssh
-commands, through an sshd drop-in checked with `sshd -T -C` → enable and start services → mask the
-units a headless VM has no use for.
+commands, through an sshd drop-in checked with `sshd -T -C` → tmux's settings in `/etc/tmux.conf` →
+enable and start services → mask the units a headless VM has no use for.
 
 Notable choices:
 
@@ -146,6 +146,16 @@ Notable choices:
   applies to the user's connection, as `vscode_server` does ([§5.7](#57-vscode_server--what-vs-codes-remote---ssh-needs-on-the-host)),
   and fails naming the file that sets another. `~/.cargo/bin` is listed whether or not `dev_tools` installs
   Rust.
+- **tmux gets Claude Code's settings system-wide** (`common_tmux_settings`, a block of `/etc/tmux.conf`).
+  Inside tmux, Claude Code's notifications and progress bar never reach the outer terminal and Shift+Enter
+  submits, unless tmux passes escape sequences through and has extended keys on, as Claude Code's
+  [terminal documentation](https://code.claude.com/docs/en/terminal-config#configure-tmux) asks. Ubuntu's
+  tmux ships no `/etc/tmux.conf`, and tmux reads it before `~/.tmux.conf`, so a setting the user makes in
+  their own file still wins and no file of theirs is touched; `blockinfile` leaves any other line of
+  `/etc/tmux.conf` alone, and the mode of a file that was there. The `just code` window does not run Claude
+  in tmux: Claude Code's `--continue` and `--resume` can exit at startup in a fresh tmux pane, an open bug
+  ([anthropics/claude-code#91530](https://github.com/anthropics/claude-code/issues/91530)), and a window's
+  reload is already answered by `--continue`.
 - **Ansible's modules run with the VM's `/usr/bin/python3`** (`claude_vm_python`, given to each VM by the
   `add_host` that publishes it), never a discovered interpreter. Discovery runs `command -v python3.14`,
   `python3.13` and so on over the connection and takes the first hit, and with `~/.local/bin` first on that

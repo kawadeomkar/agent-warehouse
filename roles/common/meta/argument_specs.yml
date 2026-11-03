@@ -49,6 +49,20 @@ argument_specs:
             included, which reads no profile. Written as an sshd drop-in (Match User, SetEnv) holding the whole PATH, the
             rest being /etc/environment's, and checked with sshd -T. Login shells get ~/.local/bin from /etc/profile.d,
             and ~/.cargo/bin there too where dev_tools installs Rust. [] removes the drop-in.
+      common_tmux_settings:
+        type: list
+        elements: str
+        default:
+          - set -g allow-passthrough on
+          - set -g focus-events on
+          - set -s extended-keys on
+          - set -as terminal-features 'xterm*:extkeys'
+        description:
+          - tmux commands written as one block of /etc/tmux.conf, which tmux reads before ~/.tmux.conf, so a setting of the
+            user's own wins; lines of the file outside the block are left as they are. The default is what Claude Code's
+            terminal documentation asks for inside tmux - notifications and the progress bar passed through to the outer
+            terminal, Shift+Enter told from Enter. allow-passthrough lets a program in a pane write escape sequences to
+            the terminal you attach from, as it could without tmux. [] takes the block out.
       common_apt_upgrade:
         type: bool
         default: true

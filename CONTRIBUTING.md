@@ -122,8 +122,10 @@ CI runs lint, unit tests, every Molecule scenario and the integration scenario o
 dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
 it that way and do not add a job that needs one.
 
-Before opening a PR, run `just test` locally, and check that nothing environment-specific slipped in: CI
-fails if a `hosts.yml`, `local.yml`, `vault.yml` or `.vault_pass` is ever committed.
+Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,
+since its scenarios run what they download as root in privileged containers
+([Testing](docs/development/testing.md)) - and check that nothing environment-specific slipped in: CI fails if a
+`hosts.yml`, `local.yml`, `vault.yml` or `.vault_pass` is ever committed.
 
 **PR titles** start with a bracketed tag that says what kind of change the PR is, then a short
 imperative summary: `[feat] create VMs by name, find them by tag, and let DHCP address them`,

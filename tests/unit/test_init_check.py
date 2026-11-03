@@ -514,6 +514,32 @@ def test_two_nodes_and_no_ssh_cannot_tell_the_node_and_nothing_is_asked_for_stor
     assert asked == []
 
 
+def test_a_node_named_otherwise_than_proxmox_names_one_is_never_written(tmp_path: Path, fake_pve: str) -> None:
+    # local.yml is read as a template by every later run: a name the API's and root SSH's answers chose, {{ }} in
+    # it, would run here, and with the certificate not checked and the host key taken on first contact, those
+    # answers are whoever's sits in the path. The node root SSH names, when the API lists it, is written unasked.
+    _pve(fake_pve, "PUT", "fake/nodes/%7B%7B%207%20*%207%20%7D%7D", status="online")
+    root = tmp_path / "run"
+    _inventory_of(root, fake_pve, "local", NO_TEMPLATE, VAULT_HEADER, "127.0.0.1")
+    (root / "bin" / "hostname-is").write_text("{{ 7 * 7 }}\n")
+    report = _check(root, fake_pve, "local", extra={"init_ask": True})
+    assert report["rc"] != 0
+    said = _said(report)
+    assert '!!   the host reported a node named "{{ 7 * 7 }}", which is not a name Proxmox gives a node' in said
+    assert "7 * 7" not in _local(root) and "proxmox_node:" not in _local(root).replace("# proxmox_node:", "")
+
+
+def test_a_storage_named_otherwise_than_proxmox_names_one_is_shown_and_never_offered(
+    tmp_path: Path, fake_pve: str
+) -> None:
+    _pve(fake_pve, "PUT", "fake/storages", node="pve", storages="local-zfs:zfspool,{{7*7}}:dir")
+    root = tmp_path / "run"
+    rc, output, _ = _check_at_a_terminal(root, fake_pve, "ssh", None, [(b"Use local-zfs? y or n", b"y\n")])
+    assert rc == 0, output
+    assert '-  "{{7*7}}"' in output and "not a name Proxmox gives one, so never used" in output
+    assert '\nproxmox_storage: "local-zfs"\n' in _local(root) and "7*7" not in _local(root)
+
+
 def test_a_storage_is_chosen_among_those_the_token_can_use(tmp_path: Path, fake_pve: str) -> None:
     _pve(fake_pve, "PUT", "fake/storages", node="pve", storages="local-zfs:zfspool,tank-vms:nfs,local:dir")
     _pve(fake_pve, "PUT", "fake/privileges", token="ansible", path="/storage/local", privs="Datastore.Audit")

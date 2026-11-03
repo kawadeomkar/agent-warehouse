@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import socket
 from urllib.parse import unquote
 
 from ansible.errors import AnsibleFilterError
@@ -50,8 +51,10 @@ def guest_ipv4(interfaces, mac=None):
     ``interfaces`` is what the QEMU guest agent reports. When ``mac`` is given,
     only the matching interface is considered, which keeps later bridges the
     guest may grow (docker0, podman, virbr0) from being picked up on a re-run.
-    Loopback and link-local addresses are never returned. Returns ``None`` when
-    no address is available yet, so a wait loop can poll on it.
+    Loopback and link-local addresses are never returned, nor any a VM can
+    have no NIC answer at: 0.0.0.0, which reaches this machine itself as a
+    destination, multicast, broadcast and the reserved 240.0.0.0/4. Returns
+    ``None`` when no address is available yet, so a wait loop can poll on it.
 
     The agent runs inside the guest, so whatever it reports is the VM's to
     choose, and the result becomes ``ansible_host`` and the ``HostName`` of an
@@ -77,7 +80,9 @@ def guest_ipv4(interfaces, mac=None):
             if address.get("ip-address-type") != "ipv4":
                 continue
             ip = _ipv4(address.get("ip-address"))
-            if ip is None or ip.is_loopback or ip.is_link_local:
+            if ip is None or ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast:
+                continue
+            if ip.is_reserved:  # 240.0.0.0/4, 255.255.255.255 among them
                 continue
             return str(ip)
     return None
@@ -237,6 +242,54 @@ def ssh_config_prune(blocks, resources, tag_pattern):
         else:
             result["prune"].append(name)
     return result
+
+
+def vms_not_named(vms, names):
+    """The entries of ``vms`` (the cluster listing's) whose name is none of ``names``, in their order.
+
+    An entry without a name - a VM on a node that is down - is kept: it can never
+    be taken for a host by its name, and the listing still shows it.
+    """
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise AnsibleFilterError(f"vms_not_named expects a list, got {type(vms).__name__}")
+    taken = set(names or [])
+    return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
+
+
+def ssh_alias_refusal(name, hosts=None):
+    """Why ``name`` cannot be the alias of a VM in this machine's ssh config, or ``""`` when it can.
+
+    The managed file is included at the top of ``~/.ssh/config``, so an alias wins
+    over every other way ssh reaches that name: one named like a real host
+    (``github.com``), an address, or a host of the inventory (``hosts``: the
+    Proxmox host's name) would send this machine's own connections to it - and
+    where the VM's name comes from a shared Proxmox, someone else chose it.
+    """
+    name = str(name)
+    if "." in name:
+        return "it has a dot, so it could be a host's own name (github.com), and ssh would take it for that host"
+    try:
+        socket.inet_aton(name)
+    except OSError:
+        pass
+    else:
+        return "ssh reads it as an address (as it reads 3232235777 or 0x7f000001)"
+    if name in set(hosts or []):
+        return "it is the name of a host in the inventory, which ssh would then reach at the VM's address"
+    return ""
+
+
+def ssh_alias_refusals(vms, hosts=None):
+    """The entries of ``vms`` (``{name, ...}``) whose name cannot be an alias, each as ``{name, why}``, in order."""
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise AnsibleFilterError(f"ssh_alias_refusals expects a list, got {type(vms).__name__}")
+    refused = []
+    for vm in vms:
+        name = vm.get("name", "") if isinstance(vm, dict) else ""
+        why = ssh_alias_refusal(name, hosts)
+        if why:
+            refused.append({"name": str(name), "why": why})
+    return refused
 
 
 _SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)
@@ -415,6 +468,9 @@ class FilterModule:
             "proxmox_vm_drift": proxmox_vm_drift,
             "ssh_config_blocks": ssh_config_blocks,
             "ssh_config_prune": ssh_config_prune,
+            "ssh_alias_refusal": ssh_alias_refusal,
+            "ssh_alias_refusals": ssh_alias_refusals,
+            "vms_not_named": vms_not_named,
             "net_mac": net_mac,
             "guest_ipv4": guest_ipv4,
             "tailnet_ipv4": tailnet_ipv4,
