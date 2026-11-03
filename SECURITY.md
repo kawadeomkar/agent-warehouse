@@ -58,7 +58,11 @@ what it stores:
   address in it is what the VM's own guest agent reported, so the VM chooses it: the `guest_ipv4`
   filter takes only a string that parses as one IPv4 address, and the task file refuses a name or
   address that is not one plain word, since a newline in either would add a directive (`ProxyCommand`
-  runs on this machine).
+  runs on this machine). The VM's name is Proxmox's, chosen by whoever made it, and the managed file is
+  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (a dot, as in
+  `github.com`; a number it reads as an address; a host of the inventory) is refused, and so is a VM
+  named after a host of the inventory everywhere a name becomes a host (`localhost`, or the Proxmox
+  host's, which would hand the VM the API token).
   Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there
   as on screen, but the files name hosts and addresses, so the directory is git-ignored, blocked by
   `tests/check_no_local_files.sh`, created `0700`, and pruned after `LOG_RETENTION_DAYS`. A secret

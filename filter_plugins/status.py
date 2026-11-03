@@ -165,6 +165,7 @@ def status_fleet(
     aliases=None,
     settings=None,
     unread="",
+    hosts=None,
 ):
     """Play 1's findings, as one value: Proxmox, the VMs this project created (with what the listing, their config
     and their agent's address say), the other VMs as totals, the storages, the template and the SSH aliases.
@@ -177,7 +178,8 @@ def status_fleet(
     of reading the template's config, and ``template_drift`` how it differs from what its settings would build
     (roles/proxmox_template's drift entry point), which the next just deploy rebuilds; ``aliases`` the names the
     managed SSH config holds, or None with the aliases off; ``settings`` what the inventory says; ``unread`` why
-    Proxmox could not be read, if it could not.
+    Proxmox could not be read, if it could not; ``hosts`` the inventory's own hosts (claude_vm_inventory_hosts),
+    whose names a VM is never read under, since add_host would merge it into that host.
     """
     settings = dict(settings or {})
     if not settings.get("discovery", True):
@@ -256,7 +258,7 @@ def status_fleet(
             reason = "nameless"
         elif counts.get(name, 0) > 1:
             reason = "duplicate"
-        elif not NAME_RE.match(name) or name == "localhost":
+        elif not NAME_RE.match(name) or name in (hosts or ["localhost"]):
             reason = "name"
         config = found.get("config", {})
         vms.append(

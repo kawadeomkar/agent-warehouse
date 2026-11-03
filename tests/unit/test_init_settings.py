@@ -885,6 +885,25 @@ def test_a_host_without_the_default_storage_asks_which_and_writes_it(tmp_path: P
     assert SECRET_LINE in _decrypt(files)
 
 
+def test_a_storage_the_host_lists_under_no_name_proxmox_gives_one_is_never_offered(tmp_path: Path) -> None:
+    # What root SSH lists - whatever answered on that address, on first contact - goes into local.yml, which every
+    # later run reads as a template: {{ }} in a name there would run on this machine.
+    files = _files(tmp_path)
+    storages = [
+        {"storage": "local-zfs", "type": "zfspool", "content": "images"},
+        {"storage": "{{7*7}}", "type": "dir", "content": "images"},
+    ]
+    host = _stand_in_proxmox(tmp_path, files, {"storages": storages})
+    steps = [*BEFORE_THE_OFFER, (b"Use local-zfs? y or n", b"y\n"), (ACCESS_PROMPT, b"y\n")]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    # The run's message, as the default callback prints it: JSON, its quotes escaped.
+    assert 'listed \\"{{7*7}}\\", which is not a name Proxmox gives a storage or a bridge' in output
+    local = Path(files["init_local_file"]).read_text()
+    assert '\nproxmox_storage: "local-zfs"\n' in local and "7*7" not in local
+    assert not any("7*7" in acl["path"] for acl in _pve_cli_state(host)["acls"])
+
+
 def test_a_storage_left_undecided_says_how_to_do_it_by_hand(tmp_path: Path) -> None:
     files = _files(tmp_path)
     host = _stand_in_proxmox(

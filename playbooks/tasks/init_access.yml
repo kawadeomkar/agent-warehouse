@@ -44,16 +44,18 @@
   failed_when: false
   ignore_unreachable: true
 
+# Only names Proxmox gives a storage or a bridge are kept (proxmox_names): the
+# one chosen is written into local.yml, which every later run reads as a
+# template, and the answer is whatever answered root SSH on this address.
 - name: init_access | Record what the host has
   ansible.builtin.set_fact:
     init_access_reached: >-
       {{ not (init_access_listed.unreachable | default(false)) and init_access_listed.rc | default(1) == 0 }}
-    init_access_storages: >-
-      {{ init_access_listed.stdout_lines | default([]) | select('match', 'storage ') | map('regex_replace', '^storage ', '')
-         | list }}
-    init_access_bridges: >-
-      {{ init_access_listed.stdout_lines | default([]) | select('match', 'bridge ') | map('regex_replace', '^bridge ', '')
-         | list }}
+    init_access_storages: "{{ init_access_storages_listed | proxmox_names('storage') }}"
+    init_access_bridges: "{{ init_access_bridges_listed | proxmox_names('bridge') }}"
+    init_access_refused: >-
+      {{ init_access_storages_listed | proxmox_names_refused('storage')
+         + init_access_bridges_listed | proxmox_names_refused('bridge') }}
     init_access_why: >-
       {{ 'root SSH to ' ~ init_access_address ~ ' failed (' ~ init_access_listed.msg | default('') | plain_text
          | trim | truncate(300) ~ '): install your key with ssh-copy-id root@' ~ init_access_address
@@ -63,6 +65,21 @@
          ~ (init_access_listed.stderr | default(init_access_listed.msg | default('')) | plain_text | trim
             | truncate(300))
          if init_access_listed.rc | default(1) != 0 else '' }}
+  vars:
+    init_access_storages_listed: >-
+      {{ init_access_listed.stdout_lines | default([]) | select('match', 'storage ') | map('regex_replace', '^storage ', '')
+         | list }}
+    init_access_bridges_listed: >-
+      {{ init_access_listed.stdout_lines | default([]) | select('match', 'bridge ') | map('regex_replace', '^bridge ', '')
+         | list }}
+
+- name: init_access | Say what the host listed that is no storage's or bridge's name
+  ansible.builtin.debug:
+    msg: >-
+      NOTICE  {{ init_access_address }} listed {{ init_access_refused | map('plain_text') | join(', ') }}, which
+      {{ 'is not a name' if init_access_refused | length == 1 else 'are not names' }} Proxmox gives a storage or a
+      bridge, so just init offers and writes none of {{ 'it' if init_access_refused | length == 1 else 'them' }}.
+  when: init_access_refused | length > 0
 
 # ---------------------------------------------------- the storage and bridge ---
 # Each: the value in effect, when the host has it; one local.yml sets that the

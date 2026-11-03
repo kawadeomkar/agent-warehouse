@@ -31,16 +31,22 @@
       ansible.builtin.meta: end_play
       when: not claude_ssh_config | default(true) | bool
 
+    - name: Refuse a VM named after a host of the inventory
+      ansible.builtin.import_tasks: tasks/vm_names.yml
+      when: vm_name is defined
+
     - name: List every VM in the cluster
       ansible.builtin.import_tasks: tasks/cluster_vms.yml
 
     # claude_vm_requested (group_vars/all) keeps the VMs carrying this
     # project's tag, narrowed to vm_name when given, exactly as discovery and
-    # the listing do. A tagged VM without a name (a node that is down) cannot
-    # be asked for an address and cannot be an alias; it matters below.
+    # the listing do, and never one named after a host of the inventory, as
+    # discovery leaves it out. A tagged VM without a name (a node that is
+    # down) cannot be asked for an address and cannot be an alias; it matters below.
     - name: Narrow to the requested VMs
       ansible.builtin.set_fact:
-        claude_ssh_requested: "{{ claude_vm_requested | selectattr('name', 'defined') | list }}"
+        claude_ssh_requested: >-
+          {{ claude_vm_requested | selectattr('name', 'defined') | vms_not_named(claude_vm_inventory_hosts) }}
 
     # Proxmox permits duplicate names, and an alias is a name: two tagged VMs
     # called twin would leave `ssh twin` pointing at whichever was written

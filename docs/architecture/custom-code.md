@@ -13,7 +13,9 @@ everyone else. The sentinel object distinguishes "no default given" from "defaul
 
 **`guest_ipv4(interfaces, mac=None)`** — reads `network-get-interfaces` output. With a MAC, only the
 matching interface is considered, which is what keeps bridges the guest grew later (`docker0`,
-`podman`, `virbr0`) from being picked up on a re-run. Loopback and link-local are never returned.
+`podman`, `virbr0`) from being picked up on a re-run. Loopback and link-local are never returned,
+nor an address no NIC answers at: `0.0.0.0`, which as a destination is the controller itself,
+multicast, and the reserved `240.0.0.0/4` with the broadcast address in it.
 Returns `None` when nothing is available yet, so a `until:` loop can poll on it. The agent runs in
 the guest, so the VM chooses what it reports, and the result becomes `ansible_host` and an alias's
 `HostName` on the controller: only a string that `ipaddress.IPv4Address` parses counts, and
@@ -42,6 +44,15 @@ name anywhere), `untagged` (a VM of that name exists without the tag; left alone
 (tagged VMs the listing shows without a name, a node that is down), which when non-empty empties
 `prune` into `held`. Pure, so every rule is a unit test rather than a fake-API fixture.
 
+**`ssh_alias_refusal(name, hosts)`** — why a VM's name cannot be its alias, or `""`: a dot (it could be a
+host's own name, `github.com`), a number ssh reads as an address (`3232235777`, `0x7f000001`, as
+`inet_aton` does), or one of `hosts`, the inventory's own (`claude_vm_inventory_hosts`). The managed file
+is included ahead of the user's own config, so such an alias would take this machine's own connections to
+that host ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
+**`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
+without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
+inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).
+
 **`proxmox_vm_drift(config, wanted)`** — what of a VM's settings differs from what `just deploy` would
 send, from its config as Proxmox reads it and the settings the role works out (`settings_drift.yml`):
 `hardware`, each `{setting, wanted, has}` (cores, memory, the balloon minimum, start at boot, and the
@@ -50,7 +61,7 @@ and `cloud_init`, the names of the cloud-init settings that differ (user, SSH ke
 config not read has none. `just status` says each as a thing to do, with the `proxmox_vm_force_update`
 run that sends them and what else it does ([§4.6](lifecycle.md#46-playbooksstatusyml--read-only-drawn-live)).
 
-Covered by 58 unit tests in `tests/unit/test_filters.py`, and `proxmox_vm_drift` by
+Covered by the unit tests in `tests/unit/test_filters.py`, and `proxmox_vm_drift` by
 `tests/unit/test_status.py`.
 
 ## 7.2 `roles/github_projects/library/github_repos.py`
@@ -712,7 +723,9 @@ history keeps it - a value vaulted inline in `local.yml`, a name made from each 
 every VM the same), what a run sets for itself and no example names, the Proxmox host's address (`hosts.yml`),
 anything internal to the project, and a value equal to a secret the vault holds. The value is free text on the
 `just` line but for a control character, so just never says it back; the tool refuses an expression (`{{ }}`,
-`{% %}`, `{# #}`, which Ansible would template and a lookup run) and holds the rest to the type the role's
+`{% %}`, `{# #}`, which Ansible would template and a lookup run) - in the text given, and in the value it parses
+to, since YAML decodes escapes and `["\x7b{ ... }}"]` is a list holding `{{ ... }}`; a vault secret is looked for
+in both the same way - and holds the rest to the type the role's
 `argument_specs` give, through Ansible's own `ArgumentSpecValidator`, as the role checks its arguments - a list as
 `a,b` or YAML, a path kept as typed, `~` and all. It is written as `just init` writes: JSON on one line, in place of
 the line that set it (with its value's further lines), else of its example's commented line, else at the end. The

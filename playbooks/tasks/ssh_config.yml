@@ -57,6 +57,28 @@
     quiet: true
   when: claude_ssh_state | default('present') == 'present'
 
+# The managed file is included ahead of everything in the user's config, so an
+# alias is taken for every connection to its name: a VM named github.com would
+# get this machine's git pushes, and one named after an address, or after the
+# Proxmox host, its root SSH. A VM's name is Proxmox's, and on a Proxmox others
+# use too, anyone's to choose. Only a name that can be nothing else is written.
+- name: ssh_config | Refuse a name ssh would take for another host
+  vars:
+    claude_ssh_names: "{{ claude_ssh_vms | map(attribute='name') | list }}"
+    claude_ssh_refused: >-
+      {{ dict(claude_ssh_names | zip(claude_ssh_names
+                                     | map('ssh_alias_refusal', claude_vm_inventory_hosts | default(['localhost']))))
+         | dict2items | selectattr('value') | list }}
+  ansible.builtin.assert:
+    that: claude_ssh_refused | length == 0
+    fail_msg: >-
+      Not writing an alias for {{ claude_ssh_refused | map(attribute='key') | join(', ') }}: an alias is the VM's
+      name, and ssh would take it for another host
+      ({% for claude_ssh_why in claude_ssh_refused %}{{ claude_ssh_why.key }}: {{ claude_ssh_why.value
+      }}{{ '; ' if not loop.last else '' }}{% endfor %}). Rename the VM in Proxmox to letters, digits and hyphens.
+    quiet: true
+  when: claude_ssh_state | default('present') == 'present'
+
 - name: ssh_config | Stat the managed file
   ansible.builtin.stat:
     path: "{{ claude_ssh_config_file }}"

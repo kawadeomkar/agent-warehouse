@@ -65,7 +65,12 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
     env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     # HOME is the temporary one too: the task file recognises the ~/... and
     # ${HOME}/... spellings of the Include by it.
-    env.update(ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_NOCOLOR="1", HOME=str(tmp_path / "home"))
+    # The project's filters, as ansible.cfg loads them: ssh_alias_refusal decides which names may be an alias.
+    env.update(
+        ANSIBLE_CONFIG=ansible_config(tmp_path, f"filter_plugins = {REPO / 'filter_plugins'}\n"),
+        ANSIBLE_NOCOLOR="1",
+        HOME=str(tmp_path / "home"),
+    )
     # The project default for the options, from inventory/group_vars, which
     # the wrapper does not load; the task file itself defaults to none.
     extra_vars = {
@@ -403,6 +408,31 @@ def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_writte
     assert _managed(tmp_path) == before
     assert "ProxyCommand" not in _managed(tmp_path)
     assert not (tmp_path / "owned").exists()
+
+
+@pytest.mark.parametrize(
+    ("name", "said"),
+    [
+        # The managed file is included ahead of the user's own config: this
+        # machine's git over ssh would go to the address the VM reported.
+        ("github.com", "it has a dot"),
+        ("192.0.2.10", "it has a dot"),
+        ("3232235777", "ssh reads it as an address"),
+        ("0x7f000001", "ssh reads it as an address"),
+        ("pve", "the name of a host in the inventory"),
+    ],
+)
+def test_a_name_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
+    tmp_path: Path, name: str, said: str
+) -> None:
+    # A VM's name is Proxmox's, and on a Proxmox others use too, anyone's.
+    hosts = {"claude_vm_inventory_hosts": ["pve", "localhost"]}
+    assert _run(tmp_path, [ALPHA], **hosts).returncode == 0
+    before = _managed(tmp_path)
+    result = _run(tmp_path, [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}], **hosts)
+    assert result.returncode != 0
+    assert "Not writing an alias for " + name in result.stdout and said in result.stdout
+    assert _managed(tmp_path) == before
 
 
 # ---------------------------------------------------------------- guards ---
