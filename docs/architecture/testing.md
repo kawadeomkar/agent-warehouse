@@ -13,8 +13,8 @@ other modules go test by test to whichever worker is free. Whole modules, since 
 through `request.getfixturevalue`, which no static look finds; and `tryfirst`, since xdist's own hook turns the
 marks into groups and, run first, would see none and rebuild the fixtures test by test. Plain `pytest` runs one
 test at a time, for one test or one file. `just test unit --shard <i>/<n>` runs one of n shards, each such module
-whole in one, balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs three, `CI result` fails
-unless all three passed, and `test_shards.py` holds that the shards together collect every test exactly once.
+whole in one, balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs four, `CI result` fails
+unless all four passed, and `test_shards.py` holds that the shards together collect every test exactly once.
 Every child a test signals or types Ctrl-C at starts with SIGINT,
 SIGQUIT and SIGHUP at their defaults (`harness._default_signals`), since a suite started with `&` or under
 nohup has them ignored; and a pseudo-terminal's reader reads to its end after the run exits
