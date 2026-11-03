@@ -109,11 +109,12 @@ jobs:
 
   # The unit suite runs real playbooks: 44 minutes on a hosted runner one test
   # at a time, 16-22 on one runner's four vCPUs (two cores, two threads each)
-  # with a worker on each, and 8.4-9.8 for the slowest of three shards. Four:
-  # test_github_auth.py and test_tailscale.py each run as one block of about
-  # ten minutes on one worker, and with three shards each shares its runner
-  # with other long modules, whose workers slow it down. Each shard keeps
-  # every module that shares a fixture whole, and the shards are balanced by
+  # with a worker on each, and 8.4-9.8 for the slowest of three shards; 8.2-8.6
+  # for the slowest of four (three runs each, 2026-11). test_github_auth.py
+  # and test_tailscale.py each run as one block on one worker, which takes
+  # about five minutes alone and twice that beside other long modules, so the
+  # slowest shard is the one that crowds them most. Each shard keeps every
+  # module that shares a fixture whole, and the shards are balanced by
   # tests/unit/durations.json; test_shards.py holds that they run every test
   # exactly once.
   unit:
