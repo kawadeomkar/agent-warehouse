@@ -102,9 +102,10 @@ One datacenter setting can also block provisioning: if **Datacenter → Options 
 (a separate option from Tag Style) is set to `list` or `existing` rather than the default `free`, a
 non-root token cannot apply the `claude-on-proxmox` tag. Since that tag is how this project recognises its own
 VMs, provisioning fails or the VMs are created untagged and `just deploy --only configure` then finds nothing.
-Either leave the setting at `free`, or add both `claude-on-proxmox` and
-`claude-on-proxmox-unfinished` to the allowed list. The second marks a VM whose first run has not
-finished yet, and is removed once it has started.
+Either leave the setting at `free`, or add `claude-on-proxmox`, `claude-on-proxmox-unfinished` and
+`claude-on-proxmox-tailscale` to the allowed list. The second marks a VM whose first run has not
+finished yet, and is removed once it has started. The third records that a VM has joined Tailscale, so
+the vault's auth key is never sent to it again; without it, configure says it could not write the record.
 
 ### What `just init` checks
 
