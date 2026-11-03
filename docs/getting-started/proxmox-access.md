@@ -101,7 +101,7 @@ Until tokens can be scoped to a Proxmox pool of each person's own, which a later
 
 - give each person a tag of their own, `claude_vm_tag: <tag>` in their `local.yml`, before their first deploy
   (VMs made under one tag are not found under another, and [User Tag Access](#user-tag-access) must allow the
-  tag and its `-unfinished` form);
+  tag and its `-unfinished` and `-tailscale` forms);
 - name the VMs a run is for rather than running fleet-wide.
 
 That keeps each person's runs off the others' VMs by accident, but it does not stop someone who copies your tag

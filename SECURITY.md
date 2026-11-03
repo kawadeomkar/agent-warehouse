@@ -123,7 +123,7 @@ restate them are not treated as vulnerabilities:
   On a shared host, give each person a tag of their own in `local.yml` (`claude_vm_tag`) before their
   first deploy - VMs made under one tag are not found under another, and a Proxmox
   [User Tag Access](docs/getting-started/proxmox-access.md#user-tag-access) list must allow it and its
-  `-unfinished` form - and name the VMs a run is for. That keeps each person's runs off the others' VMs by
+  `-unfinished` and `-tailscale` forms - and name the VMs a run is for. That keeps each person's runs off the others' VMs by
   accident, but not off a VM someone made to look like yours. A token scoped to a Proxmox pool of each
   person's own, which cannot list the others' VMs at all, is planned.
 - The VM's user gets passwordless sudo and docker group membership by default; both are toggles, and
