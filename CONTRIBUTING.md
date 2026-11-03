@@ -6,7 +6,7 @@ git-ignored file, never in a commit.
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12 or newer (`brew install uv`, or its
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4 or newer (`brew install uv`, or its
 standalone installer), [just](https://github.com/casey/just) 1.59 or newer (`brew install just`, or `cargo install
 just`, from its own releases), and Docker Engine for the tests. Python comes with uv, or bring a virtualenv of
 Python 3.12+ of your own (`PYTHON=`).
