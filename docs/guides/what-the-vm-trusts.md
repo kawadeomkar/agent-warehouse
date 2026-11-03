@@ -18,12 +18,19 @@ and the [security model](../architecture/security-model.md) is how each is enfor
 - The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
   is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
   VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI.
-- Downloads are verified where the vendor makes that possible: the uv release by a pinned SHA256, the
-  Ubuntu cloud image against Ubuntu's `SHA256SUMS`, apt repositories by vendored signing keys. The Claude
-  Code installer script is fetched over TLS from `claude.ai` and itself verifies the binary against a
-  release manifest; there is no independently signed artifact to pin. With `dev_tools_install_rust` on,
+- Downloads are verified, though not yet everywhere the vendor makes it possible: the uv release by a
+  pinned SHA256 and apt repositories by vendored signing keys, but the Ubuntu cloud image only against the
+  `SHA256SUMS` from the same server, whose signature (`SHA256SUMS.gpg`) is not checked. The Claude Code
+  installer script is fetched over TLS from `claude.ai` and checks the binary against a release manifest from
+  the same place; Anthropic signs that manifest (from 2.1.89) and publishes a signed apt repository, but this
+  project verifies neither yet, so whoever can serve those addresses can serve the VMs another Claude Code.
+  With `dev_tools_install_rust` on,
   rustup comes from Ubuntu's archive, and the Rust toolchain it installs is fetched over TLS from `static.rust-lang.org` and checked against
   the hashes in the channel manifest, which comes from the same place.
+- Security updates arrive by two roads. `unattended-upgrades` installs Ubuntu's own security updates every
+  day, from Ubuntu's archive only. The packages from the vendors' repositories - Docker, Node.js, the GitHub CLI and
+  Tailscale - are upgraded only when a run upgrades packages (`common_apt_upgrade`, on by default: each
+  `just deploy` of the VM) or by hand (`sudo apt upgrade`).
 - sshd is restricted to key-based logins (`common_harden_ssh`), even if `vault_vm_password` is set.
 - tmux on the VM passes escape sequences through to the terminal you attach from (`allow-passthrough`, one
   of the `common_tmux_settings` Claude Code asks for), so a program in a pane can do to that terminal what it
