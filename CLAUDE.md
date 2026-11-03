@@ -697,7 +697,8 @@ taken from those tasks' own results, never the run's custom stats, to which any 
 message is built from: the line while something is left, `''` once nothing is, the last record of a VM and
 matter winning across plays. Do not decide from a message's text: a stopped Tailscale names no `just`
 command, and "just deploy signs it in next" names one with nothing to do. A new report needs its record, and
-`tests/unit/test_attention_callback.py` fails without it. Tests never load the callback (an
+`tests/unit/test_attention_callback.py` fails without it - or with a record under `no_log`, its own or one from
+above it, since `no_log` censors the result the record is read from. Tests never load the callback (an
 `ansible.cfg` holding only `inject_facts_as_vars = false`, and the JSON callback); the harness shows custom stats, and `_left_to_do` reads the records.
 
 **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open: the plugin

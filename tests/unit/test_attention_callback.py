@@ -488,3 +488,76 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     ]
     assert len(stats) == sum(len(names) for names in REPORTS.values()) == 30
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
+
+
+def _hidden(node) -> bool:
+    """Whether a task, block or play sets no_log: anything but false, a template included, since it may be true."""
+    value = node.get("no_log", False)
+    return value is not False and str(value).strip().lower() not in ("false", "no", "0")
+
+
+def _records_under_no_log():
+    """Every set_stats task that runs under no_log - its own, or a block's, play's, import's, include's or role's
+    above it - followed from each playbook through every task file and role it reaches."""
+    found, walked = set(), set()
+
+    def walk_file(path: Path, hidden: bool) -> None:
+        assert path.is_file(), path
+        if (path, hidden) not in walked:
+            walked.add((path, hidden))
+            walk_tasks(path, yaml.safe_load(path.read_text()) or [], hidden)
+
+    def walk_tasks(path: Path, tasks: list, hidden: bool) -> None:
+        for task in tasks:
+            here = hidden or _hidden(task)
+            for key in ("block", "rescue", "always"):
+                walk_tasks(path, task.get(key) or [], here)
+            if "ansible.builtin.set_stats" in task and here:
+                found.add((str(path.relative_to(REPO)), task.get("name")))
+            for module in ("ansible.builtin.import_tasks", "ansible.builtin.include_tasks"):
+                if module in task:
+                    target = task[module]
+                    walk_file(path.parent / (target["file"] if isinstance(target, dict) else target), here)
+            for module in ("ansible.builtin.import_role", "ansible.builtin.include_role"):
+                if module in task:
+                    role = task[module]
+                    entry = role.get("tasks_from", "main")
+                    walk_file(REPO / "roles" / role["name"] / "tasks" / f"{entry}.yml", here)
+
+    for playbook in [REPO / "deploy.yml", *REPO.glob("playbooks/*.yml")]:
+        for play in yaml.safe_load(playbook.read_text()) or []:
+            if "ansible.builtin.import_playbook" in play:
+                continue  # its plays are walked from their own file
+            hidden = _hidden(play)
+            for key in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                walk_tasks(playbook, play.get(key) or [], hidden)
+            for role in play.get("roles") or []:
+                if isinstance(role, str):
+                    walk_file(REPO / "roles" / role / "tasks" / "main.yml", hidden)
+                else:
+                    name = role.get("role", role.get("name"))
+                    walk_file(REPO / "roles" / name / "tasks" / "main.yml", hidden or _hidden(role))
+    for path in _files():
+        walk_file(path, False)
+    return found
+
+
+def test_no_record_runs_under_no_log():
+    # The callback reads a record from its set_stats task's own result, which no_log censors: under it, the record
+    # is still in the run's custom stats, but its NEXT STEPS line is gone without a word.
+    assert _records_under_no_log() == set()
+
+
+def test_the_no_log_walk_finds_a_record_hidden_from_above(tmp_path, monkeypatch):
+    tasks = tmp_path / "playbooks" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "report.yml").write_text(
+        "- name: report | Record it\n  ansible.builtin.set_stats:\n    data: {claude_code_next: {}}\n"
+    )
+    (tmp_path / "playbooks" / "hidden.yml").write_text(
+        "- hosts: localhost\n  tasks:\n    - name: A block\n      no_log: true\n      block:\n"
+        "        - name: Import\n          ansible.builtin.import_tasks: tasks/report.yml\n"
+    )
+    (tmp_path / "deploy.yml").write_text("[]\n")
+    monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
+    assert _records_under_no_log() == {("playbooks/tasks/report.yml", "report | Record it")}

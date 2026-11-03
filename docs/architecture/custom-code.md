@@ -188,7 +188,8 @@ A run waits for the person in three ways, and each is set apart:
   still the example's - and nothing at all when it ends before checking, a value still the example's.
   The callback keeps them from those tasks' own results, merged as Ansible merges custom stats, never from
   the run's custom stats themselves: ansible-core adds any module result's `ansible_stats` to those, so a
-  module on a VM could write another VM's line, or blank one.
+  module on a VM could write another VM's line, or blank one. So no record runs under `no_log`, its own or
+  one from above it: `no_log` censors the result the record is read from, and its line would go unsaid.
   `aggregate` merges the records, so the last one of a VM and matter wins across plays: configure's "not
   signed in" is cleared by the sign-in's own report later in the same `just deploy`. The sign-in playbooks
   record what their own plays say, under the role's stat and the sign-in's matter: a VM that could not be
