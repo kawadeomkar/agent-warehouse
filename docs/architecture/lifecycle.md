@@ -858,7 +858,8 @@ not set, so GitHub's follow-on play runs the whole `github_projects` role for ea
 
 ## 4.12 `playbooks/init_settings.yml`
 
-`just init`'s questions, after `just install`, the git hook and the copies of the three example files: one
+`just init`'s questions, after `just install`, the git hook and the copies of the three example files - `0600`,
+since the vault is plaintext until it is encrypted and the guide has you fill it in by hand first: one
 play on `localhost`, run with an inventory of its own, `playbooks/inventory/init.yml` - the controller,
 as `inventory/controller.yml` has it, with pipelining on, and a run that keeps the modules' files
 (`ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off) refused - so no `group_vars` load. It runs before the

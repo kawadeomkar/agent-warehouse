@@ -36,6 +36,7 @@ import pty
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -1652,6 +1653,14 @@ def test_init_installs_first_then_the_hook_the_config_and_the_questions(tmp_path
     assert _runs(tmp_path, "pre-commit") == []
     assert "Created" in result.stdout and (tmp_path / "hosts.yml").exists()
     assert runs[0][:2] == ["-i", "playbooks/inventory/init.yml"] and runs[0][-1] == "playbooks/init_settings.yml"
+
+
+def test_init_s_copies_are_readable_by_you_alone(tmp_path: Path) -> None:
+    # The vault is plaintext until just vault encrypts it, and the guide has you fill it in by hand first.
+    result, _ = _init(tmp_path)
+    assert result.returncode == 0, _output(result)
+    for name in ("hosts.yml", "local.yml", "vault.yml"):
+        assert stat.S_IMODE((tmp_path / name).stat().st_mode) == 0o600, name
 
 
 PRE_COMMIT_S_HOOK = (
