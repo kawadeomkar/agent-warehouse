@@ -9,9 +9,11 @@ Using it: [VS Code](../../guides/vscode.md#what-the-vm-gets). How it works: [§5
 
 ## Entry point `main`
 
-**Make a VM ready for VS Code's Remote - SSH extension**
+**Make a VM ready for a remote editor, VS Code's Remote - SSH first**
 
 Writes an sshd drop-in that keeps the port forwarding VS Code Server is reached through enabled and adds keepalives, asserts the values sshd actually runs with, and raises the inotify watch limit VS Code's file watcher needs. Disabled, it removes both files.
+
+It runs whichever editor just code opens - Claude's sign-in in the browser and Zed's port forwards use the same forwarding, and any editor's file watcher the same limit - and keeps VS Code's name through 1.x, the --tags name 1.0 promised.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
