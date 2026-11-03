@@ -38,9 +38,10 @@ fake and stand-in in [§11.4](../architecture/testing.md#114-the-fakes--testsmol
 install packages download them, so they need internet access
 ([§11.6](../architecture/testing.md#116-which-scenarios-need-the-network)). They also run what they
 download as root - the real installers and apt repositories the roles use - inside containers that are
-`privileged: true` with the host's cgroups, which systemd in them needs. A privileged container is no boundary, so an upstream that served something malicious would reach
-the machine running Docker - on macOS, Docker Desktop's VM, which mounts your home folder. Run `just test`
-in full on a throwaway VM rather than on the machine that holds your vault and keys.
+`privileged: true` with the host's cgroups, which systemd in them needs. A privileged container is no
+boundary, so an upstream that served something malicious would reach the machine running Docker - on
+macOS, Docker Desktop's VM, which mounts your home folder. Run `just test` in full on a throwaway VM rather
+than on the machine that holds your vault and keys.
 
 Not covered by Molecule: the npm install method for Claude Code, reinstalling on an exact-version bump,
 and `common_user_passwordless_sudo: false`. `just vagrant` exercises `configure.yml` on a real VM

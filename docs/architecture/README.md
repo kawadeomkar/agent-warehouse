@@ -124,8 +124,8 @@ cannot prove this project created something. Every VM the `proxmox_vm` role crea
 after which deletion would accept it too. It guards the project's own runs against mistakes, not against
 another user of the host: anyone who can create a VM can tag it, and the token can list every VM, so on a
 shared host every tagged VM a token lists is treated as its holder's
-([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)). Matching is anchored via `claude_vm_tag_pattern` so
-`claude-on-proxmox-staging` and `not-claude-on-proxmox` are never claimed:
+([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)). Matching is anchored via
+`claude_vm_tag_pattern` so `claude-on-proxmox-staging` and `not-claude-on-proxmox` are never claimed:
 
 ```
 (?i)(^|[;,])claude\-on\-proxmox([;,]|$)
