@@ -113,6 +113,8 @@ CASES = {
     "liar": {"node": "nLAPTOP", "api": "token"},
     # A VM reporting an ID that is a path: it never reaches the API.
     "traversal": {"node": "../../tailnet/-/keys", "api": "token"},
+    # The same, as long as the VM likes: said cut, as other text a VM chose is.
+    "long-id": {"node": "n" * 150 + "/" + "n" * 300, "api": "token"},
     # A VM whose marker claims the vault token: it is every VM's, never taken for this project's sign-in.
     "marked-vault": {"gh": VAULT_TOKEN, "vault": True, "device_marker": True},
     # Two accounts in gh: with no terminal, its logout will not choose one.
@@ -492,6 +494,13 @@ def test_a_node_id_that_is_not_one_tailscale_gives_never_reaches_the_api(release
     )
     asked = _get(f"{fake_tailscale}/fake/asked")
     assert asked and not [path for path in asked if "tailnet" in path or ".." in path or "%2F" in path], asked
+
+
+def test_a_refused_node_id_is_said_cut_to_200_characters(released):
+    _, report, _, _ = released
+    said = _said(report)["long-id"]
+    assert ('the node ID it reported, "' + "n" * 150 + "/" + "n" * 49 + '", is not one') in said, said
+    assert "n" * 50 + '"' not in said
 
 
 def test_a_credential_in_the_vault_is_enough_and_none_keeps_it_unused(released):

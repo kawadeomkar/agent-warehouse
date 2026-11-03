@@ -272,7 +272,7 @@ tailscale_api_last: >-
 # reach a device without them, such as one joined by the web login: a 403 says
 # so.
 tailscale_api_refused_why: >-
-  {{ ('the node ID it reported, ' ~ (tailscale_api_refused_node | plain_text | to_json)
+  {{ ('the node ID it reported, ' ~ ((tailscale_api_refused_node | plain_text)[:200] | to_json)
       ~ ", is not one Tailscale gives, so Tailscale's API was not asked")
      if tailscale_api_refused_node | default('') | length > 0
      else 'the OAuth client needs both tailscale_oauth_client_id and tailscale_oauth_client_secret'

@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2527 tests. By file:
+pytest over `tests/unit/`: 2528 tests. By file:
 
 - **Filters** (`test_filters.py` 84, `test_vscode_filters.py` 41, `test_desktop_filter.py` 24,
   `test_text_filter.py` 33): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -253,7 +253,7 @@ pytest over `tests/unit/`: 2527 tests. By file:
   first with `tailscale_login_auto_start: false`, and NEXT STEPS keeping the role's line for a refused key or a
   page still waiting where Claude's sign-in was skipped; `configure.yml`'s rescue and last play; and the guards
   that keep every scenario, the Vagrantfile and this harness off Tailscale, and the role in the justfile's `scenario_roles` and CI.
-- **Destroy's release** (`test_release.py` 50): `destroy.yml`'s release play and report against the
+- **Destroy's release** (`test_release.py` 51): `destroy.yml`'s release play and report against the
   stand-in `claude`, `gh` and `tailscale`, the fake GitHub API's credential revocation and the fake
   Tailscale API: a VM released from everything, with no token revoked at GitHub; the vault token and one
   pasted by hand signed out and told apart, the vault token even under a marker claiming it, and a logout
