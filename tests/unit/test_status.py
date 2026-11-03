@@ -641,6 +641,15 @@ def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve)
     assert "proxmox_api_token_id" in item["command"]
 
 
+def test_a_token_secret_ending_in_a_newline_is_sent_without_it_and_never_said(tmp_path, fake_pve) -> None:
+    # A vault edited by hand: both HTTP clients refuse a header with a newline, quoting it whole - escaped, so
+    # no_log's masking missed the secret in it.
+    report, model = _status_run(tmp_path, fake_pve, settings={"vault_proxmox_api_token_secret": PVE_SECRET + "\n"})
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert model["vms"][0]["api"]["read"]
+    assert PVE_SECRET not in json.dumps(report)
+
+
 def test_a_proxmox_that_does_not_answer_is_said_not_failed(tmp_path) -> None:
     report, model = _status_run(tmp_path, "https://127.0.0.1:9", settings={"status_api_timeout": 2})
     assert report["rc"] == 0, report["stderr"][-2000:]

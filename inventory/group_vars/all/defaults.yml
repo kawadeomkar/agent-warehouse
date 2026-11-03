@@ -13,7 +13,10 @@ proxmox_api_port: 8006
 # (docs/getting-started/proxmox-access.md).
 proxmox_api_user: ansible@pve
 proxmox_api_token_id: ansible
-proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+# Trimmed: a vault edited by hand can end the secret with a newline, which both
+# HTTP clients refuse in a header with the whole header, secret included, in
+# their error - escaped, so no_log's masking missed it.
+proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | trim }}"
 # Proxmox ships a self-signed certificate. Set to true once the PVE CA is
 # trusted on the controller (docs/getting-started/proxmox-access.md).
 proxmox_validate_certs: false
