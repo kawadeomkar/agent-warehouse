@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2603 tests. By file:
+pytest over `tests/unit/`: 2613 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 45,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -408,7 +408,10 @@ pytest over `tests/unit/`: 2603 tests. By file:
   Proxmox is asked), `test_ansible_config.py` 3 (pipelining for the local connection too, and no inventory
   plugin that runs code), `test_galaxy_install.py` 2 (a failed Galaxy request is retried, and every dependency of
   a pinned collection is pinned), `test_pins.py` 1 (the VM's uv never older than the controller's) and
-  `test_init_local_setting.py` 1 (`just init` refuses a value that holds a template delimiter).
+  `test_init_local_setting.py` 1 (`just init` refuses a value that holds a template delimiter), and
+  `test_sudo.py` 10 (passwordless sudo off takes away cloud-init's rule as well as the role's, keeps a new
+  cloud-init instance from writing it again, takes the user out of the groups that reach root, and every play
+  becomes root through `/usr/bin/sudo` with the VM's password).
 - **The justfile** (`test_justfile.py` 544): the real `just`, at least the pinned version, run against
   stand-ins - on macOS under `/bin/bash`, 3.2, so the scripts keep to what it has. Statically, over `just
   --json`: no recipe has a dependency (which `JUST_NO_DEPS` would skip), no assignment starts a program,
