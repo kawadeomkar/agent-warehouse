@@ -279,6 +279,19 @@ def ssh_alias_refusal(name, hosts=None):
     return ""
 
 
+def ssh_alias_refusals(vms, hosts=None):
+    """The entries of ``vms`` (``{name, ...}``) whose name cannot be an alias, each as ``{name, why}``, in order."""
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise AnsibleFilterError(f"ssh_alias_refusals expects a list, got {type(vms).__name__}")
+    refused = []
+    for vm in vms:
+        name = vm.get("name", "") if isinstance(vm, dict) else ""
+        why = ssh_alias_refusal(name, hosts)
+        if why:
+            refused.append({"name": str(name), "why": why})
+    return refused
+
+
 _SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)
 
 
@@ -456,6 +469,7 @@ class FilterModule:
             "ssh_config_blocks": ssh_config_blocks,
             "ssh_config_prune": ssh_config_prune,
             "ssh_alias_refusal": ssh_alias_refusal,
+            "ssh_alias_refusals": ssh_alias_refusals,
             "vms_not_named": vms_not_named,
             "net_mac": net_mac,
             "guest_ipv4": guest_ipv4,

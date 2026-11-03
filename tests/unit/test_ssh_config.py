@@ -422,17 +422,29 @@ def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_writte
         ("pve", "the name of a host in the inventory"),
     ],
 )
-def test_a_name_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
+def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
     tmp_path: Path, name: str, said: str
 ) -> None:
-    # A VM's name is Proxmox's, and on a Proxmox others use too, anyone's.
+    # A VM's name is Proxmox's, and on a Proxmox others use too, anyone's. Named on the just line, it is refused.
     hosts = {"claude_vm_inventory_hosts": ["pve", "localhost"]}
     assert _run(tmp_path, [ALPHA], **hosts).returncode == 0
     before = _managed(tmp_path)
-    result = _run(tmp_path, [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}], **hosts)
+    vms = [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}]
+    result = _run(tmp_path, vms, **hosts, vm_name=f"alpha,{name}")
     assert result.returncode != 0
     assert "Not writing an alias for " + name in result.stdout and said in result.stdout
     assert _managed(tmp_path) == before
+
+
+def test_fleet_wide_a_name_ssh_would_take_for_another_host_is_left_out_and_the_rest_written(tmp_path: Path) -> None:
+    # Anyone's tagged VM named github.com must not stop every alias refresh of the user's own fleet.
+    result = _run(tmp_path, [ALPHA, {"name": "github.com", "address": "192.0.2.66", "user": "dev"}])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _blocks(_managed(tmp_path)) == ["alpha"]
+    assert "No alias for github.com (it has a dot" in result.stdout
+    assert "alpha: ssh alpha" in result.stdout and "github.com: ssh github.com" not in result.stdout
+    # The Include is added for the alias written: ssh is asked about alpha, never github.com.
+    assert _resolve(tmp_path, "alpha")["hostname"] == "192.0.2.51"
 
 
 # ---------------------------------------------------------------- guards ---

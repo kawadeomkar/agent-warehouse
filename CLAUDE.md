@@ -295,8 +295,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   is not one plain word, and refuses a name ssh would take for another host (`ssh_alias_refusal`: a dot,
   as in `github.com`; a number ssh reads as an address, `3232235777` or `0x7f000001`; a host of the
   inventory): the managed file is included ahead of everything in the user's config, and a tagged VM's
-  name is whoever made it's to choose - on a shared Proxmox, not only the user. `just deploy` refuses such a
-  name before it creates anything. A VM's address is whatever its guest agent reports, which the VM chooses:
+  name is whoever made it's to choose - on a shared Proxmox, not only the user. With names given it is
+  refused (`just deploy` before it creates anything); fleet-wide it is left out, said, and the rest
+  written, so someone else's tagged `github.com` cannot stop every alias refresh. A VM's address is whatever its guest agent reports, which the VM chooses:
   `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a
   `ProxyCommand` after a valid address pass `ssh -G` and run on this machine, and never `0.0.0.0` (this
   machine, as a destination), multicast or the reserved range; deleting a VM never forgets the Proxmox

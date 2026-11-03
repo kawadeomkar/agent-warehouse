@@ -49,6 +49,8 @@ host's own name, `github.com`), a number ssh reads as an address (`3232235777`, 
 `inet_aton` does), or one of `hosts`, the inventory's own (`claude_vm_inventory_hosts`). The managed file
 is included ahead of the user's own config, so such an alias would take this machine's own connections to
 that host ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
+**`ssh_alias_refusals(vms, hosts)`** is the same over a list, each refused VM as `{name, why}`: what a
+fleet-wide refresh leaves out and says.
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
 without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
 inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).

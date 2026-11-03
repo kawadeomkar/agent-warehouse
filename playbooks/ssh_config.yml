@@ -120,9 +120,13 @@
           {{ claude_vm_addressed | selectattr('address', 'equalto', '')
              | map(attribute='name') | list
              if claude_ssh_host_domain | default('') | length == 0 else [] }}
+        # Fleet-wide, the task file leaves out a VM whose name cannot be an alias, and says which.
+        claude_ssh_unaliased: >-
+          {{ claude_ssh_refresh | default([]) | ssh_alias_refusals(claude_vm_inventory_hosts)
+             if vm_name is not defined else [] }}
       ansible.builtin.debug:
         msg: |-
-          {% set claude_ssh_count = claude_ssh_refresh | default([]) | length %}
+          {% set claude_ssh_count = (claude_ssh_refresh | default([]) | length) - (claude_ssh_unaliased | length) %}
           {{ claude_ssh_count }} alias{{ 'es' if claude_ssh_count != 1 else '' }} refreshed in {{ claude_ssh_config_file }}.
           {% if claude_ssh_unaddressed | length > 0 %}
           Not refreshed, no address (stopped, booting, or without the agent): {{ claude_ssh_unaddressed | join(', ') }}.

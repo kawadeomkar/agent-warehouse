@@ -444,6 +444,15 @@ class TestSshAliasRefusal:
     def test_a_name_ssh_would_take_for_another_host(self, name, said):
         assert said in proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"])
 
+    def test_a_list_gives_each_refused_name_with_why_in_order(self):
+        vms = [{"name": "alpha"}, {"name": "github.com"}, {"name": "pve"}, {"name": "beta"}]
+        refused = proxmox_filters.ssh_alias_refusals(vms, ["pve"])
+        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"]) for r in refused] == [
+            ("github.com", True),
+            ("pve", True),
+        ]
+        assert proxmox_filters.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
+
 
 class TestSshConfigBlocks:
     def test_reads_every_block_in_file_order(self):

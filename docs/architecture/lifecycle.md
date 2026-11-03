@@ -562,7 +562,9 @@ host (`ssh_alias_refusal`): one with a dot, a number ssh reads as an address (`3
 `0x7f000001`), or a host of the inventory. The managed file is included ahead of the user's own
 config, so a VM named `github.com` would get the controller's own `git push`, and one named after the
 Proxmox host its root SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others
-use too is not always the user. `just deploy` refuses such a name before it creates anything.
+use too is not always the user. With names given it is refused, and `just deploy` refuses it before it
+creates anything; fleet-wide (no names) such a VM is left out, said, and the rest written, so someone
+else's tagged VM named `github.com` cannot stop every alias refresh of the user's own fleet.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
 (§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
