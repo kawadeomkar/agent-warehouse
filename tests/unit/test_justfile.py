@@ -2132,6 +2132,13 @@ def test_the_vagrantfile_never_falls_back_to_path_s_ansible_playbook() -> None:
     assert 'ENV.fetch("ANSIBLE_PLAYBOOK", "ansible-playbook")' not in text
 
 
+def test_the_vagrant_vm_gets_no_share_of_the_checkout_and_a_pinned_box() -> None:
+    text = (REPO / "Vagrantfile").read_text()
+    # Vagrant's default share would hand the VM .vault_pass and the vault, read-write.
+    assert re.search(r'^\s*config\.vm\.synced_folder "\.", "/vagrant", disabled: true$', text, flags=re.M)
+    assert re.search(r'^\s*config\.vm\.box_version = "[0-9]+\.[0-9]+\.[0-9]+"$', text, flags=re.M)
+
+
 @pytest.mark.parametrize(("args", "command"), [([], ["up", "--provision"]), (["destroy"], ["destroy", "-f"])])
 def test_vagrant_brings_the_vm_up_with_the_environment_s_ansible_playbook_or_destroys_it(
     tmp_path: Path, args, command

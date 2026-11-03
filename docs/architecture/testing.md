@@ -659,7 +659,10 @@ browser or touches its clipboard.
 
 ## 11.5 Vagrant — `just vagrant`
 
-`configure.yml` against a real VirtualBox VM, with `claude_vm_discovery: false`. Not part of CI.
+`configure.yml` against a real VirtualBox VM, with `claude_vm_discovery: false`. Not part of CI. The box is
+pinned to one version (`config.vm.box_version`), and Vagrant's share of the project folder at `/vagrant` is off: in a
+checkout it would hand the VM, which runs an agent with sudo, `.vault_pass` and the vault, and the files this machine
+runs next. `test_justfile.py` holds both.
 
 ## 11.6 Which scenarios need the network
 
