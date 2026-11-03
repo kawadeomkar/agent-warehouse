@@ -57,7 +57,8 @@ the archive's line of the new release's `SHA256SUMS` as `JUST_SHA256`. The justf
 (`just lint just`) only by the pinned version, which `just lint` says when it skips it.
 
 Collections: `community.proxmox`, `community.general`, `community.docker` and `ansible.posix`, pinned
-to exact versions in `requirements.yml`.
+to exact versions in `requirements.yml`, with `community.library_inventory_filtering_v1`, which
+`community.docker` depends on with a range: unlisted, it would install whatever Galaxy published last.
 
 > **Molecule resolves `ansible-playbook` from `PATH` and only appends the virtualenv**, so the
 > environment's `bin` must be **prepended** or a different ansible-core is silently used. `just test`
