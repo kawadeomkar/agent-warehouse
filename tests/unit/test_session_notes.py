@@ -111,6 +111,21 @@ def test_the_sections_in_order_with_the_placeholder_until_the_window_has_opened(
     assert text.startswith("# alpha\n\nVM 101 on Proxmox node **pve** · written by `just code` on your machine")
 
 
+def test_in_an_editor_whose_window_runs_no_task_the_notes_say_what_to_do_instead(tmp_path):
+    # Zed runs nothing as its window opens: no Claude terminal below, no Session notes task to refresh the live
+    # section or to run by hand, and none of VS Code's own fixes.
+    zed = _render(tmp_path, code_editor_name="Zed", code_editor_tasks=False)
+    live = zed[zed.index(START) : zed.index(END) + len(END)]
+    placeholder = "Zed does not fill this in: `just status alpha` on your machine says what is signed in."
+    assert live == f"{START}\n## Signed in\n\n{placeholder}\n{END}"
+    assert "| Zed | `just code alpha`, or one repository: `just code alpha --project <repo>` |" in zed
+    assert "- Run `claude` in Zed's terminal, which is this VM's:" in zed
+    for vs_code in ("Tasks:", "VS Code", "The terminal below", "Restricted Mode", "Session notes**"):
+        assert vs_code not in zed, vs_code
+    # VS Code's notes, as before, whether the editor is said or left to the template's default.
+    assert _render(tmp_path, code_editor_name="VS Code", code_editor_tasks=True) == _render(tmp_path)
+
+
 def test_what_the_window_wrote_is_carried_over_as_it_is(tmp_path):
     text = _render(tmp_path, code_notes_live=LIVE)
     assert LIVE in text and text.count(START) == 1

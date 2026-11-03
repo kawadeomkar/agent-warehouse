@@ -169,7 +169,19 @@ restate them are not treated as vulnerabilities:
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
   them in `just code`'s own directory there (`<projects>/.claude-on-proxmox/claude-sessions/`, 0700);
   `false` keeps them here from then on, and leaves what is on the VM already - mirror and copies - for you
-  to delete, or for `just destroy` to take with the VM.
+  to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
+  it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
+  (`docs/guides/zed.md`).
+- With `editor: zed`, `just code` runs `zed ssh://<alias><folder>` and writes nothing for Zed, nor any Zed
+  setting of yours: no task starts on its own, and you run `claude` in Zed's terminal, which is the VM's. It
+  runs only a `zeditor` or `zed` that says it is Zed when asked its version, so ZFS's event daemon, also
+  named `zed`, is never handed the VM. Zed's Agent Panel runs its Claude Agent on the VM as well: Zed's
+  remote server installs it there and starts it as the VM's user, with the VM's `~/.claude` and claude.ai
+  login, so its tools have the VM's files in reach and not this machine's (seen on Zed 1.26; Zed's
+  documentation does not say). Its Claude Code is the one its npm package bundles, at the version Zed's
+  registry installs, not the one `just deploy` keeps current. Zed's remote server, in the VM's
+  `~/.zed_server`, and that agent, in `~/.local/share/zed/`, are the VM user's to replace, as VS Code
+  Server's is.
   `just code` copies nothing back, the copy's own tasks print nothing a transcript holds, and a session
   continued on the VM is never overwritten. `--session <id>` moves the VM's checkout of that session's
   repository to the commit it is pushed at, by fast-forward only: never over changes of the VM's own, an

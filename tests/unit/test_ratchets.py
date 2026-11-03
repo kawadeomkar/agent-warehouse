@@ -58,20 +58,23 @@ VSCODE_ELSEWHERE = {
     "deploy.yml": 5,
     "filter_plugins/live_ansible.py": 1,
     "filter_plugins/live_recipes.py": 2,
-    "filter_plugins/status.py": 3,
-    "inventory/group_vars/all/defaults.yml": 20,
-    "inventory/group_vars/all/local.yml.example": 10,
+    "filter_plugins/status.py": 1,
+    "inventory/group_vars/all/defaults.yml": 22,
+    "inventory/group_vars/all/local.yml.example": 11,
     "justfile": 2,
-    "playbooks/code.yml": 29,
+    "playbooks/code.yml": 28,
     "playbooks/configure.yml": 5,
     "playbooks/destroy.yml": 1,
     "playbooks/files/claude-terminal.sh": 2,
     "playbooks/files/session-notes.sh": 3,
     "playbooks/init_settings.yml": 1,
     "playbooks/library/vm_status_info.py": 5,
+    "playbooks/status.yml": 1,
+    "playbooks/tasks/session_read.yml": 1,
     "playbooks/tasks/session_write.yml": 1,
     "playbooks/tasks/ssh_config.yml": 2,
-    "playbooks/templates/vm_session.md.j2": 5,
+    "playbooks/tasks/zed_check.yml": 2,
+    "playbooks/templates/vm_session.md.j2": 6,
     "roles/github_projects/vars/main.yml": 1,
     "roles/tailscale/tasks/main.yml": 1,
 }
@@ -130,3 +133,23 @@ PROXMOX_TERMS = r"proxmox_api_|community\.proxmox|claude_vm_all|proxmox_vm_id|/c
 
 def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
     _held(_lines_naming(PROXMOX_TERMS, PROXMOX_OWN), PROXMOX_ELSEWHERE, "Proxmox's API")
+
+
+# Zed's own: its two task files of just code's. Elsewhere, a line that names it.
+ZED_OWN = re.compile(r"^playbooks/tasks/zed_[a-z_]+\.yml$")
+ZED_ELSEWHERE = {
+    "filter_plugins/live_recipes.py": 2,
+    "filter_plugins/status.py": 1,
+    "inventory/group_vars/all/defaults.yml": 5,
+    "inventory/group_vars/all/local.yml.example": 3,
+    "justfile": 1,
+    "playbooks/code.yml": 4,
+    "playbooks/library/vm_status_info.py": 9,
+    "playbooks/tasks/session_read.yml": 2,
+    "roles/vscode_server/meta/argument_specs.yml": 1,
+    "roles/vscode_server/tasks/main.yml": 1,
+}
+
+
+def test_zed_is_named_outside_its_own_files_no_more_than_it_is_now() -> None:
+    _held(_lines_naming(r"\bzed\b|zeditor", ZED_OWN), ZED_ELSEWHERE, "Zed")

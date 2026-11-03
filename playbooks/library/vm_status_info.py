@@ -93,8 +93,12 @@ vscode_windows:
   description: How many VS Code extension hosts the user runs, one per window.
   returned: always
   type: int
+zed_windows:
+  description: How many projects Zed's remote server serves the user, one per Zed window.
+  returned: always
+  type: int
 editor_windows:
-  description: How many windows of any editor this project opens the user has, VS Code's among them.
+  description: How many windows of any editor this project opens the user has, VS Code's and Zed's together.
   returned: always
   type: int
 unread:
@@ -187,10 +191,13 @@ def upgrades(timeout):
 
 
 def processes(root):
-    """This user's claude processes, and each editor's windows - VS Code's extension hosts, one per window - from
-    /proc; editor_windows is every editor's together."""
+    """This user's claude processes, and each editor's windows - VS Code's extension hosts, one per window, and the
+    daemons of Zed's remote server, one per project it opens - from /proc; editor_windows is every editor's together.
+
+    Zed's is as Zed starts it (~/.zed_server/zed-remote-server-<channel>-<version> run ...), its proxies beside it
+    not counted; from Zed's source, and seen on Zed 1.26, a window's daemon ending with it (docs/guides/zed.md)."""
     proc = os.path.join(root, "proc")
-    claude = windows = 0
+    claude = windows = zed = 0
     uid = os.getuid()
     try:
         names = os.listdir(proc)
@@ -212,7 +219,9 @@ def processes(root):
             claude += 1
         elif ".vscode-server" in argv[0] and "--type=extensionHost" in argv:
             windows += 1
-    return {"claude": claude, "vscode_windows": windows, "editor_windows": windows}
+        elif os.path.basename(argv[0]).startswith("zed-remote-server") and argv[1:2] == ["run"]:
+            zed += 1
+    return {"claude": claude, "vscode_windows": windows, "zed_windows": zed, "editor_windows": windows + zed}
 
 
 def run_all(reads, timeout):
@@ -274,6 +283,7 @@ def main():
         "security": None,
         "claude": 0,
         "vscode_windows": 0,
+        "zed_windows": 0,
         "editor_windows": 0,
     }
     results, unread = run_all(reads, timeout)

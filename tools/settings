@@ -77,6 +77,9 @@ TEMPLATE = re.compile(r"\{\{|\{%|\{#")
 # A default that is another setting's value and nothing else, as a setting's name from 1.1 is fed its name from 1.0
 # (editor_claude_terminal: "{{ vscode_claude_terminal }}"): it takes that setting's type.
 ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$")
+# A setting that names one entry of an internal list of the inventory defaults takes that list's names as its
+# choices: the editor setting, one of claude_editors (what just code has files for).
+CHOICES_FROM = {"editor": "claude_editors"}
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # The roles configure.yml runs, which just deploy --only configure --tags <role> applies.
 CONFIGURED = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
@@ -480,6 +483,9 @@ class Settings:
                     if key in ("type", "elements", "choices")
                 }
         default = self.defaults.get(target)
+        listed = self.defaults.get(CHOICES_FROM.get(target, ""))
+        if isinstance(listed, dict) and listed:
+            return {"type": "str", "choices": sorted(listed)}
         alias = ALIAS.match(default) if isinstance(default, str) else None
         if alias and alias.group(1) in self.defaults and alias.group(1) not in seen | {target}:
             return self.spec_for(alias.group(1), alias.group(1), seen | {target})

@@ -198,7 +198,7 @@ Rust: rustup, and a stable toolchain with clippy and rustfmt for vm_user. Off by
 
 ### Editor and SSH
 
-The editor just code opens, and just deploy at its end: one at a time, vscode by default ([docs/guides/vscode.md](../guides/vscode.md)). For one run: just code alpha --editor &lt;editor&gt;.
+The editor just code opens, and just deploy at its end: one at a time, vscode by default ([docs/guides/vscode.md](../guides/vscode.md)), or zed ([docs/guides/zed.md](../guides/zed.md)). For one run: just code alpha --editor &lt;editor&gt;.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -247,7 +247,7 @@ Where the code lives on the VM: cloned into, opened by Remote Control, and what 
 |---|---|---|
 | `vm_projects_dir` | `""` | Sets `claude_code_remote_control_dir` ([`claude_code`](roles/claude_code.md)): Directory the sessions open in. Sets `github_projects_dir` ([`github_projects`](roles/github_projects.md)): Destination directory. |
 
-`just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. Set false to open the bare folder and write nothing on the VM; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha.
+In VS Code, `just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. Set false to open the bare folder and write nothing on the VM; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha. Zed starts no terminal by itself, so in Zed this changes nothing.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -259,7 +259,7 @@ Where those files go on the VM, as an absolute path of its own. Empty: .claude-o
 |---|---|---|
 | `editor_files_dir` | same as `vscode_workspaces_dir` |  |
 
-A page about the VM - addresses, what is signed in, the just commands - opened beside the Claude terminal each time the window opens, its sign-in status read from the VM then. Needs editor_claude_terminal.
+A page about the VM - addresses, what is signed in, the just commands - opened beside the Claude terminal each time the window opens, its sign-in status read from the VM then. In VS Code it needs editor_claude_terminal; in Zed it is written without that refresh.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -346,7 +346,7 @@ just deploy ends with the VM signed in to Claude, GitHub and Tailscale and open 
 |---|---|---|
 | `deploy_sign_in` | `true` |  |
 
-Open the VM in VS Code at the end of a one-VM just deploy.
+Open the VM in the editor (editor, above) at the end of a one-VM just deploy.
 
 | Setting | Default | Notes |
 |---|---|---|

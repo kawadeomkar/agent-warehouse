@@ -639,12 +639,20 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    terminal, not in a VS Code window opened on a folder that does not exist.
 7. Check the editor on this machine - each editor's own file, imported for it alone
    (`tasks/vscode_check.yml`): `code` on `PATH`, and `ms-vscode-remote.remote-ssh` installed if
-   `code --list-extensions` lacks it. Then the session handoff's writes (`tasks/session_write.yml`), the
-   first on the VM, and the session notes (below).
+   `code --list-extensions` lacks it; for Zed (`tasks/zed_check.yml`), every `zeditor` and `zed` on `PATH`
+   (`which -a`), `zeditor`s first, asked `--version`, and the first that says Zed taken: ZFS's event daemon is
+   `zed` too, and is never handed the VM. Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM,
+   and the session notes (below).
 8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
-   `playbooks/vars/vscode.yml`; every name either sets starts with `code_<editor>_`, since a skipped
-   task still overwrites its register). With `editor_claude_terminal` (the default), write a workspace
-   file on the VM and open that:
+   `playbooks/vars/vscode.yml`; every name an editor's file registers starts with `code_<editor>_`, since
+   a skipped task still overwrites its register). The editors are one list, `claude_editors` in the
+   inventory defaults: how each is said, and whether its window runs just code's tasks as it opens. Where it
+   runs none (Zed), the notes are written without the Claude terminal, worded for it, and `--session` needs no
+   terminal: the report says the `claude --resume` to run, with the cautions every editor's report says. Zed's (`tasks/zed_open.yml`) writes nothing for Zed and runs
+   `zed ssh://<alias><folder>`, Zed reading the alias from `~/.ssh/config`; Zed runs no task when a
+   window opens, so its report says to run `claude` (or `claude --resume <id>`) in Zed's terminal, which is
+   the VM's; Zed's Agent Panel runs Claude Agent on the VM too, said as a Claude Code of its own. For VS Code, with
+   `editor_claude_terminal` (the default), write a workspace file on the VM and open that:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
    `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`

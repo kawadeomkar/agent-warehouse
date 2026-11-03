@@ -154,7 +154,12 @@ def _vars() -> dict:
 
 
 # Each editor's task files, as code.yml imports them: for that editor alone.
-EDITOR_FILES = {"tasks/vscode_check.yml": "vscode", "tasks/vscode_open.yml": "vscode"}
+EDITOR_FILES = {
+    "tasks/vscode_check.yml": "vscode",
+    "tasks/vscode_open.yml": "vscode",
+    "tasks/zed_check.yml": "zed",
+    "tasks/zed_open.yml": "zed",
+}
 
 
 def _inlined(block: list) -> list:
@@ -516,7 +521,7 @@ def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
 
 # just code's switches as code.yml reads them, through the inventory defaults: each by its name from 1.1, or its
 # name in 1.0 where the new one is not set; the new one wins where both are (and over -e of the old, which every
-# window run is given for the sessions: vscode_claude_sessions false).
+# window run is given for the sessions: vscode_claude_sessions false). Zed's notes do not need the terminal.
 SWITCHES = "[code_terminal, code_notes, code_sessions]"
 SWITCH_CASES = {
     "1.0's names": ({"vscode_claude_terminal": False, "vscode_session_notes": False}, [False, False, False]),
@@ -528,6 +533,7 @@ SWITCH_CASES = {
         {"vscode_claude_terminal": True, "editor_claude_terminal": False, "editor_session_notes": True},
         [False, False, False],
     ),
+    "zed, notes without the terminal": ({"editor": "zed", "editor_claude_terminal": False}, [False, True, False]),
 }
 # just code's own directory on the VM, by editor_files_dir, vscode_workspaces_dir where it is not set at all, else
 # the default: an empty new name is the default, never the old name's.
@@ -557,6 +563,21 @@ EXTENSION = [
 ]
 # VS Code's report of the window it opened.
 OPENED_REPORT = "vscode_open | Say what was opened"
+ZED = [
+    "zed_check | Look for Zed's commands on this machine",
+    "zed_check | Ask each whether it is Zed",
+    "zed_check | Keep Zed's command",
+    "zed_check | Fail when Zed's command is not on PATH",
+]
+# Zed's last check, of the folder the window step settled: run where a case gives it one.
+ZED_URL = "zed_check | Refuse a folder an ssh URL cannot carry as it is"
+ZED_OPENED = [
+    *ZED,
+    ZED_URL,
+    "zed_open | Open the folder in Zed",
+    "zed_open | Say what was opened",
+    "zed_open | Keep what is left to do for the end of the run",
+]
 STOPPED = [{"name": "beta", "vmid": 9004, "node": "pve", "status": "stopped", "address": ""}]
 NO_ADDRESS = [{"name": "alpha", "vmid": 9001, "node": "pve", "status": "running", "address": ""}]
 REFUSED = {
@@ -645,7 +666,9 @@ def _window_extra(root: Path) -> dict:
     }
 
 
-def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, local=None, show=None, **extra) -> dict:
+def _window(
+    root: Path, keep: list[str], *, in_deploy: bool, code_here=False, zed_here=None, local=None, show=None, **extra
+) -> dict:
     """Run the tasks of code.yml's window step named in `keep` as code.yml runs them, and say what came of it.
 
     In code.yml's order, inside its block and with its rescue, after its
@@ -673,8 +696,24 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
         "  exit 1\n"
         "fi\n"
     )
+    # `zed_here` names the commands on PATH as Zed's (zed, zeditor) or ZFS's event daemon's (zfs), which shares
+    # the name zed: Zed's says it is Zed when asked its version and records anything else it is asked; ZFS's records
+    # everything it is asked and knows no --version. which answers as which does: each name it finds, in the order
+    # asked, -a for every one, and a failure when any is missing.
+    zed_here = zed_here or {}
+    stand_ins = {
+        "zed": 'if [ "$1" = --version ]; then echo "Zed 0.230.1 – /Applications/Zed.app"; exit 0; fi\n'
+        'echo "$(basename "$0") $*" >> "{log}"\n',
+        "zfs": 'echo "zfs-zed $*" >> "{log}"\necho "zed: unrecognized option \'$1\'" >&2\nexit 1\n',
+    }
+    for name, kind in zed_here.items():
+        (bin_dir / name).write_text("#!/bin/sh\n" + stand_ins[kind].format(log=root / "code.log"))
+        (bin_dir / name).chmod(0o755)
+    found = (["code"] if code_here else []) + list(zed_here)
     (bin_dir / "which").write_text(
-        "#!/bin/sh\n" + (f'[ "$1" = code ] && echo "{bin_dir}/code" && exit 0\n' if code_here else "") + "exit 1\n"
+        '#!/bin/sh\n[ "$1" = -a ] && shift\nmissing=0\nfor name; do\n  case "$name" in\n'
+        + "".join(f'    {name}) echo "{bin_dir}/{name}" ;;\n' for name in found)
+        + "    *) missing=1 ;;\n  esac\ndone\nexit $missing\n"
     )
     for name in ("code", "which"):
         (bin_dir / name).chmod(0o755)
@@ -746,6 +785,45 @@ WINDOWS = {
     # An editor the setting or --editor names that code.yml cannot open, said first; the setting itself, by name.
     "just code, another editor": {"keep": EDITOR, "in_deploy": False, "vm_name": "alpha", "vm_editor": "emacs"},
     "deploy, editor setting": {"keep": EDITOR, "in_deploy": True, "vm_name": "alpha", "local": {"editor": "nano"}},
+    "just code, zed here": {
+        "keep": ONE_VM + ZED,
+        "in_deploy": False,
+        "zed_here": {"zed": "zed"},
+        "vm_name": "alpha",
+        "vm_editor": "zed",
+    },
+    "deploy, no zed": {"keep": ONE_VM + ZED, "in_deploy": True, "vm_name": "alpha", "local": {"editor": "zed"}},
+    "deploy, ZFS's zed alone": {
+        "keep": ONE_VM + ZED,
+        "in_deploy": True,
+        "zed_here": {"zed": "zfs"},
+        "vm_name": "alpha",
+        "local": {"editor": "zed"},
+    },
+    "zed, a folder its URL cannot carry": {
+        "keep": [*ZED, ZED_URL],
+        "in_deploy": False,
+        "zed_here": {"zed": "zed"},
+        "vm_name": "alpha",
+        "vm_editor": "zed",
+        "code_target": "/home/dev/my projects",
+    },
+    "zed, opened": {
+        "keep": ZED_OPENED,
+        "in_deploy": False,
+        "zed_here": {"zed": "zed"},
+        "vm_name": "alpha",
+        "vm_editor": "zed",
+        **OPENED,
+    },
+    "zed, zeditor beside ZFS's zed": {
+        "keep": ZED_OPENED,
+        "in_deploy": False,
+        "zed_here": {"zeditor": "zed", "zed": "zfs"},
+        "vm_name": "alpha",
+        "vm_editor": "zed",
+        **OPENED,
+    },
     "just code, the setting's editor": {
         "keep": EDITOR,
         "in_deploy": False,
@@ -1032,12 +1110,56 @@ def test_an_editor_just_code_cannot_open_is_refused_first_and_said_by_name(windo
     # --editor beats the setting for one run, and either way an editor code.yml has no files for is said, never opened.
     other, setting = windows["just code, another editor"], windows["deploy, editor setting"]
     assert other["rc"] != 0 and not other["reached"]
-    assert '--editor is "emacs", which just code cannot open: it opens vscode.' in other["output"], other["output"]
+    said = '--editor is "emacs", which just code cannot open: it opens vscode or zed.'
+    assert said in other["output"], other["output"]
     assert not setting["reached"] and setting["later"].startswith(
         'The editor setting is "nano" (just settings editor says where it is set), which just code cannot open'
     ), setting
     assert windows["just code, the setting's editor"]["reached"]
     assert other["code"] == [] == setting["code"]
+
+
+def test_zed_is_looked_for_as_zed_or_zeditor_and_named_when_neither_is_there(windows):
+    here, missing = windows["just code, zed here"], windows["deploy, no zed"]
+    assert here["reached"], here["output"]
+    assert not missing["reached"]
+    assert missing["later"].startswith("Neither `zed` nor `zeditor` is on this machine's PATH."), missing["later"]
+    assert missing["later"].endswith(" Zed was not opened; to open it later: just code alpha"), missing["later"]
+    assert here["code"] == [] == missing["code"]
+
+
+def test_zed_is_never_handed_a_folder_its_url_cannot_carry_as_it_is(windows):
+    run = windows["zed, a folder its URL cannot carry"]
+    assert not run["reached"] and run["code"] == []
+    assert (
+        "Zed is handed the folder in an ssh:// URL, which cannot carry /home/dev/my projects as it is" in run["output"]
+    )
+
+
+def test_zfs_s_event_daemon_is_asked_its_version_and_never_handed_the_vm(windows):
+    # ZFS's zed shares Zed's name (Ubuntu's /usr/sbin/zed, Arch's /usr/bin/zed): only a command that says it is Zed
+    # runs, zeditor before zed; ZFS's is asked nothing but --version.
+    alone, beside = windows["deploy, ZFS's zed alone"], windows["zed, zeditor beside ZFS's zed"]
+    assert not alone["reached"]
+    assert alone["later"].startswith("No `zed` or `zeditor` on this machine's PATH is Zed: "), alone["later"]
+    assert alone["code"] == ["zfs-zed --version"]
+    assert beside["reached"], beside["output"]
+    assert beside["code"] == ["zfs-zed --version", "zeditor ssh://alpha/home/dev/projects"]
+
+
+def test_zed_opens_the_folder_through_the_alias_and_claude_is_left_to_its_terminal(windows):
+    run = windows["zed, opened"]
+    assert run["reached"], run["output"]
+    # Over the alias, which Zed reads from ~/.ssh/config, at the folder's absolute path: nothing written for Zed.
+    assert run["code"] == ["zed ssh://alpha/home/dev/projects"]
+    said = _said(run["output"], "zed_open | Say what was opened")
+    assert said.startswith("Zed is opening /home/dev/projects on alpha (192.0.2.51)."), said
+    assert "run claude: the terminal is the VM's" in said
+    # The panel's agent runs on the VM too (seen on Zed 1.26), and Zed asks nothing about trust: its title bar says it.
+    assert "Claude Agent in Zed's Agent Panel runs on the VM as well" in said
+    assert "in Restricted Mode, said at the top left of the window, and asks nothing" in said
+    assert "workspace" not in said.lower()
+    assert run["left"] == {"alpha": {"editor": ""}}
 
 
 def test_a_real_duplicate_or_a_missing_vm_is_still_refused(windows):
@@ -1123,6 +1245,10 @@ COMMANDS_HERE = {
     ("code", "--list-extensions"),
     ("code", "--install-extension"),
     ("code", "--remote"),
+    # Zed: its command as which found it, given the alias and the folder, and nothing else.
+    ("which", "-a"),
+    ("{{ code_zed_candidate }}", "--version"),
+    ("{{ code_zed_command }}", "ssh://{{ claude_vm_names[0] }}{{ code_target }}"),
     # The sessions, sent to the VM's mirror: read here, written there.
     ("rsync", "-az"),
 }
@@ -1136,6 +1262,7 @@ WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions
 # switch; the sessions' directory when there is a session to copy, and the copies with the sync or --session.
 WRITERS_WHEN = (
     "code_terminal",
+    "code_writes_its_directory | bool",
     "code_notes | bool",
     "code_session_plan.sessions | default([]) | length > 0",
     "code_session_on | bool",
@@ -1191,6 +1318,21 @@ def test_code_yml_imports_its_own_task_files_and_the_shared_ones_alone():
         if "ansible.builtin.import_tasks" in task
     }
     assert imported == SHARED | {"tasks/session_read.yml", "tasks/session_write.yml"} | set(EDITOR_FILES)
+
+
+def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
+    # claude_editors (the inventory defaults) is what code.yml opens and deploy.yml says: each editor in it has its
+    # two task files, every task file is an editor's, and --editor takes exactly its names.
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    editors = defaults["claude_editors"]
+    assert set(editors) == set(EDITOR_FILES.values())
+    assert {f"tasks/{editor}_{part}.yml" for editor in editors for part in ("check", "open")} == set(EDITOR_FILES)
+    assert all(set(entry) == {"name", "window_tasks"} for entry in editors.values()), editors
+    pattern = re.search(r"\[arg\('IDE', long='editor', pattern='\(([a-z|]+)\)\?'", (REPO / "justfile").read_text())
+    assert pattern and set(pattern.group(1).split("|")) == set(editors), pattern
+    assert defaults["editor"] in editors
+    # deploy.yml says the editor by the list, never by a name of its own.
+    assert "claude_editors[" in (REPO / "deploy.yml").read_text()
 
 
 def test_each_editor_s_files_are_imported_for_that_editor_alone():
@@ -1294,6 +1436,7 @@ def test_the_helpers_copied_are_the_files_of_playbooks_files_by_their_names():
 def test_just_code_writes_exactly_the_directory_and_the_file():
     # The allowlist must not pass by finding no writer.
     assert [t["name"] for t in _every_task() if _action(t) in WRITES_ON_VM] == [
+        "Make just code's own directory on the VM",
         "session_write | Make the directory for the sessions on the VM",
         "session_write | Write the copies the VM resumes",
         "Make the directory for the session notes on the VM",
@@ -1306,7 +1449,7 @@ def test_just_code_writes_exactly_the_directory_and_the_file():
 
 
 def test_the_session_s_checkout_folder_is_held_to_what_project_takes():
-    # The VM names it, and it becomes the window's folder in VS Code's workspace and tasks: the same rule as
+    # The VM names it, and it becomes the window's folder in an editor's task or Zed's URL: the same rule as
     # --project, a GitHub repository's name, before anything is handed over.
     read = yaml.safe_load((CODE.parent / "tasks" / "session_read.yml").read_text())
     check = next(
@@ -1958,6 +2101,8 @@ SESSION_KEEP = [
     "Reach the VM the way just deploy --only configure does",
     "Read the sessions to carry to the VM",
     "Settle the folder to open",
+    "Look for just code's own directory on the VM",
+    "Make just code's own directory on the VM",
     "Carry the sessions to the VM",
     OPENED_REPORT,
 ]
@@ -2298,6 +2443,8 @@ def _every_handoff(root: Path) -> dict:
 def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoffs):
     world, run = handoffs["sync"]["world"], handoffs["sync"]["first"]
     assert run["reached"] and run["rc"] == 0, run["output"]
+    # just code's own directory, made before the sessions' 0700 one inside it, is 0755, not that one's mode.
+    assert stat.S_IMODE((world["vm"] / "projects" / ".claude-on-proxmox").stat().st_mode) == 0o755
     folder = world["folder"].name
     copies = world["vm"] / ".claude" / "projects"
     # The session of the VM's repository, under the folder it has here; not the other repository's, nor the stub.

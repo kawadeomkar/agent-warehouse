@@ -604,6 +604,8 @@ def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, valu
         ),
         ("tailscale_ssh", "maybe", "tailscale_ssh takes true or false"),
         ("claude_sessions_sync", "maybe", "claude_sessions_sync takes true or false"),
+        # The editors just code has files for, and no other.
+        ("editor", "emacs", "editor takes one of vscode, zed: the value given is not one"),
         ("tailscale_advertise_tags", "[unclosed", "is not YAML"),
     ],
 )

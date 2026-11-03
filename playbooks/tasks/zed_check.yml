@@ -1,0 +1,69 @@
+---
+# Zed on this machine, for playbooks/code.yml's window step, before anything
+# is written on the VM: its command, `zeditor` as some Linux distributions name
+# it or `zed`. Neither name is Zed's alone - ZFS's event daemon is `zed` too,
+# in /usr/sbin or, on Arch, /usr/bin, which is why Arch names Zed `zeditor` -
+# so every command of either name on PATH is asked its version, `zeditor`s
+# first, and the first that says it is Zed is the one run: an ssh:// URL is
+# never handed to a daemon. Zed needs no extension for SSH, and installs its
+# own server on the VM (~/.zed_server) the first time it connects. Imported
+# only when the editor is Zed; every name starts with code_zed_, since a
+# skipped task still overwrites its register and another editor's file is
+# imported beside this one.
+- name: zed_check | Look for Zed's commands on this machine
+  ansible.builtin.command:
+    argv: [which, -a, zeditor, zed]
+  register: code_zed_which
+  changed_when: false
+  failed_when: false
+
+# `zed --version` prints "Zed <version> - <where it is>" (Zed Preview's too);
+# ZFS's daemon prints its usage or its own version, never that.
+- name: zed_check | Ask each whether it is Zed
+  ansible.builtin.command:
+    argv: ["{{ code_zed_candidate }}", --version]
+  register: code_zed_versions
+  changed_when: false
+  failed_when: false
+  loop: "{{ code_zed_which.stdout_lines | default([]) | select | unique | list }}"
+  loop_control:
+    loop_var: code_zed_candidate
+
+- name: zed_check | Keep Zed's command
+  ansible.builtin.set_fact:
+    code_zed_command: >-
+      {{ code_zed_versions.results | default([])
+         | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0)
+         | selectattr('stdout', 'match', '^Zed ')
+         | map(attribute='code_zed_candidate') | first | default('') }}
+
+# One line of Jinja per line of text: a more-indented line in a folded scalar
+# keeps its line break.
+- name: zed_check | Fail when Zed's command is not on PATH
+  vars:
+    code_zed_found: "{{ code_zed_which.stdout_lines | default([]) | select | list }}"
+    code_zed_missing: >-
+      {{ "Neither `zed` nor `zeditor` is on this machine's PATH." if code_zed_found | length == 0
+         else "No `zed` or `zeditor` on this machine's PATH is Zed: " ~ code_zed_found | join(', ')
+              ~ " said otherwise when asked its version (ZFS's event daemon is `zed` too)." }}
+  ansible.builtin.assert:
+    that: code_zed_command | length > 0
+    fail_msg: >-
+      {{ code_zed_missing }}
+      In Zed, run "cli: install cli binary" ("cli: install" in earlier versions) from the command palette (macOS),
+      or install Zed's package (Linux); then run this again. The alias is in place either way: ssh {{ claude_vm_names[0] }}.
+    quiet: true
+
+# The folder goes into Zed's ssh:// URL as it is. A character a URL's path
+# carries only percent-encoded - a space, #, ?, %, and the like - would have
+# Zed open another path or none, and how Zed reads an encoded one is not
+# known, so such a folder is said rather than opened. --project names are held
+# to safe characters already; vm_projects_dir is free text.
+- name: zed_check | Refuse a folder an ssh URL cannot carry as it is
+  ansible.builtin.assert:
+    that: code_target is match('^/[A-Za-z0-9._~+,=:@/-]*$')
+    fail_msg: >-
+      Zed is handed the folder in an ssh:// URL, which cannot carry {{ code_target }} as it is: a URL takes letters,
+      digits, "/" and . _ ~ + , = : @ - there. Set vm_projects_dir to a path of only those, or open it in VS Code:
+      just code {{ claude_vm_names[0] }} --editor vscode.
+    quiet: true

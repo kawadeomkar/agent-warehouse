@@ -31,9 +31,12 @@
     quiet: true
   when: code_session_id | length > 0
 
+# Only where the window runs just code's tasks: there, the Claude terminal is
+# what resumes the session. In an editor whose window runs none (Zed), the
+# person runs claude --resume in its terminal, as just code says.
 - name: session_read | Refuse --session without the Claude terminal
   ansible.builtin.assert:
-    that: code_terminal | bool
+    that: code_terminal | bool or not code_editor_tasks | bool
     fail_msg: >-
       --session opens the session in the window's Claude terminal, which editor_claude_terminal: false turns
       off. Without it, run `claude --resume {{ code_session_id }}` in the project's folder on {{ claude_vm_names[0] }}.
@@ -192,9 +195,9 @@
   when: code_session_id | length > 0
 
 # The checkout's folder name is the VM's to choose, and it is handed to the
-# editor as the window's folder: into the workspace's folders and its tasks'
-# options, where ${...} is resolved. So it is held to what --project takes, a
-# GitHub repository's name, and never said back as it is.
+# editor as the window's folder: into VS Code's task options, where VS Code
+# resolves ${...}, and into Zed's ssh:// URL. So it is held to what --project
+# takes, a GitHub repository's name, and never said back as it is.
 - name: session_read | Refuse a checkout folder an editor cannot be handed as it is
   ansible.builtin.assert:
     that:

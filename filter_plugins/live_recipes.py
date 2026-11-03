@@ -186,10 +186,11 @@ WINDOW = (
     Step("read the sessions", files=["tasks/session_read.yml"]),
     Step("the folder", starts=["Settle the folder to open", "Look for the folder on the VM"]),
     Step("alias", files=["tasks/ssh_config.yml"]),
-    Step("the editor here", starts=["Look for VS Code on this machine"]),
+    Step("the editor here", starts=["Look for VS Code on this machine", "Look for Zed's commands on this machine"]),
+    Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),
     Step("the notes", starts=["Read the session notes already on the VM"]),
-    Step("window", starts=["Look for the directory for the helpers on the VM"]),
+    Step("window", starts=["Look for the directory for the helpers on the VM", "Open the folder in Zed"]),
 )
 # just init's questions, each a step from the include that asks it, and the vault the answers go into.
 INIT_QUESTIONS = (

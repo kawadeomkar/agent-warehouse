@@ -1749,7 +1749,7 @@
           - expect: '--project names one project folder on the VM.*"\.\." is not one'
             vars: {vm_project: ".."}
           # The workspace files' own directory, though a valid name.
-          - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its VS Code workspace files, not a project\.'
+          - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its own files, not a project\.'
             vars: {vm_project: .claude-on-proxmox}
           - expect: 'editor_files_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
             vars: {vscode_workspaces_dir: relative/files}

@@ -168,7 +168,9 @@
                  else claude_deploy_pages | join))
              if claude_deploy_pages | length > 0 else '' }}
         claude_deploy_window: >-
-          {{ (', and opening VS Code on ' ~ claude_vm_names[0]) if deploy_code | bool and claude_vm_names | length == 1 else '' }}
+          {{ (', and opening ' ~ claude_vm_names[0] ~ ' in '
+              ~ (claude_editors[editor | default('vscode', true)] | default({})).name | default(editor | default('vscode', true)))
+             if deploy_code | bool and claude_vm_names | length == 1 else '' }}
         claude_deploy_wait: >-
           {{ ('' if claude_deploy_pages | length == 0
               else ' Each sign-in' if (claude_deploy_pages | length) * (claude_vm_names | length) > 1

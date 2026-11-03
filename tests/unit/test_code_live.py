@@ -34,6 +34,7 @@ STEPS = (
     "the folder",
     "alias",
     "the editor here",
+    "the directory",
     "copy the sessions",
     "the notes",
     "window",
@@ -125,7 +126,7 @@ def test_a_window_is_drawn_by_its_steps_with_its_vm_in_the_header_and_opens(open
     opened.assert_drawn_and_gone()
     frames = "\n".join(opened.frames)
     assert re.search(rf"code alpha · started \d\d:\d\d +VM {VMID} · \d+\.\d+\.\d+\.\d+", frames), frames
-    assert re.search(r"step \d of 9", frames), "the footer counts the steps"
+    assert re.search(rf"step \d+ of {len(STEPS)}", frames), "the footer counts the steps"
     assert any(line.startswith("code --remote ssh-remote+") for line in opened.code), opened.code
 
 

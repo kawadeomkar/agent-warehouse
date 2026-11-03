@@ -45,6 +45,7 @@ nav = [
     { "Remote Control" = "guides/remote-control.md" },
     { "Tailscale" = "guides/tailscale.md" },
     { "VS Code" = "guides/vscode.md" },
+    { "Zed" = "guides/zed.md" },
     { "During a run" = "guides/runs.md" },
     { "Tearing down" = "guides/destroy.md" },
     { "What the VM trusts" = "guides/what-the-vm-trusts.md" },

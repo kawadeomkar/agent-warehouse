@@ -8,7 +8,8 @@ does not have is a name that follows the address DHCP gave the VM, and that is w
 keeps for you.
 
 VS Code is the editor `just code` and `just deploy` open by default. The `editor` setting picks the one they
-open, one at a time (`just settings editor`), and `just code alpha --editor <editor>` picks it for one run.
+open, one at a time (`just settings editor`), and `just code alpha --editor <editor>` picks it for one run;
+the other is [Zed](zed.md).
 
 ## Opening a VM
 

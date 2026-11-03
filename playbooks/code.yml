@@ -70,12 +70,14 @@
     - vars/vscode.yml
   vars:
     # The editor whose task files open the window: the editor setting, or
-    # --editor for one run (vm_editor), each name one this play can open, as
-    # it is said.
-    code_editors:
-      vscode: VS Code
+    # --editor for one run (vm_editor), among the editors the inventory
+    # defaults list (claude_editors): how each is said, and whether its window
+    # runs just code's tasks when it opens, which is what the Claude terminal,
+    # the notes' refresh and --session's terminal take.
+    code_editors: "{{ claude_editors }}"
     code_editor: "{{ vm_editor | default(editor | default('vscode', true), true) | string }}"
-    code_editor_name: "{{ code_editors[code_editor] | default(code_editor) }}"
+    code_editor_name: "{{ (code_editors[code_editor] | default({})).name | default(code_editor) }}"
+    code_editor_tasks: "{{ (code_editors[code_editor] | default({})).window_tasks | default(false) | bool }}"
     # code_ssh is the result of whichever task connected. ssh's error can hold
     # line breaks, and text the VM sent before the login: said on one line,
     # with no control character reaching this terminal.
@@ -87,8 +89,18 @@
     # Each setting by its name from 1.1, else by its name in 1.0, which the
     # inventory defaults feed it from - and a run without them, from -e.
     code_terminal: "{{ editor_claude_terminal | default(vscode_claude_terminal | default(true)) | bool }}"
-    # The session notes need the workspace file's tasks: they come with the terminal.
-    code_notes: "{{ code_terminal and editor_session_notes | default(vscode_session_notes | default(true)) | bool }}"
+    # The session notes: where the window runs just code's tasks, they need
+    # the workspace file's, and come with the terminal; elsewhere they are a
+    # page just code writes, and nothing more.
+    code_notes: >-
+      {{ (code_terminal or not code_editor_tasks)
+         and editor_session_notes | default(vscode_session_notes | default(true)) | bool }}
+
+    # Whether anything goes into just code's own directory on the VM: the
+    # workspace file and VS Code's helpers, the notes, or session copies.
+    code_writes_its_directory: >-
+      {{ (code_terminal and code_editor_tasks) or code_notes | bool
+         or code_session_plan.sessions | default([]) | length > 0 }}
 
     # The session handoff (tasks/session_read.yml, tasks/session_write.yml):
     # the sync, on unless claude_sessions_sync is false, and --session, which
@@ -192,6 +204,20 @@
     code_session_moved: >-
       {{ code_session_id | length > 0
          and code_session_git_there.checkouts[0].head != code_session_commit }}
+    # --session, whichever editor's terminal resumes it: what just code did to
+    # the checkout, and what to know before claude continues there. Each
+    # editor's report says how the session is resumed in it, then these.
+    code_session_moved_said: "{{ ', where just code moved it' if code_session_moved | bool else '' }}"
+    code_session_cautions: >-
+      {{ '' if code_session_id | length == 0
+         else ' The first time claude opens there it asks whether you trust the folder, and its first answer'
+              ~ " reads the whole conversation again, uncached: its recorded prompt now names the VM's memory folder."
+              ~ (' Remote Control runs on ' ~ claude_vm_names[0] ~ ': a session it started works from ' ~ code_root
+                 ~ ', where just code cannot see it, so make sure none was editing ' ~ code_target ~ '.'
+                 if code_session_remote_control.rc | default(1) == 0 else '')
+              ~ (' github_projects_update_existing is on, so the next just deploy ' ~ claude_vm_names[0]
+                 ~ ' --only configure switches ' ~ code_target ~ ' back to its default branch.'
+                 if github_projects_update_existing | default(false) | bool else '') }}
     # The one VM this play opens, among the tagged ones: claude_vm_names[0].
     # Not claude_vm_requested, which narrows by name only when vm_name is
     # defined and is the whole tagged fleet otherwise - as in a bare just
@@ -467,7 +493,7 @@
                       ~ ', whose folders are the projects; name a directory of its own.'
                  if code_ws_dir == code_root
                  else code_ws_dir ~ ' on ' ~ claude_vm_names[0]
-                      ~ ' is where just code keeps its VS Code workspace files, not a project.' }}
+                      ~ ' is where just code keeps its own files, not a project.' }}
             quiet: true
           when: code_terminal or code_session_on | bool
 
@@ -553,8 +579,34 @@
           ansible.builtin.import_tasks: tasks/vscode_check.yml
           when: code_editor == 'vscode'
 
-        # The first writes on the VM, after every refusal above: the session
-        # copies, and with --session the checkout's fast-forward.
+        - name: Check Zed on this machine
+          ansible.builtin.import_tasks: tasks/zed_check.yml
+          when: code_editor == 'zed'
+
+        # The first writes on the VM, after every refusal above. just code's
+        # own directory first, wherever anything goes into it: 0755 where it is
+        # new - the session copies' and the notes' own directories, 0700, would
+        # otherwise give it theirs as they were made - and one that exists keeps
+        # its mode, since editor_files_dir may name one of the user's own, the
+        # home directory included.
+        - name: Look for just code's own directory on the VM
+          ansible.builtin.stat:
+            path: "{{ code_ws_dir }}"
+            get_checksum: false
+          delegate_to: "{{ claude_vm_names[0] }}"
+          register: code_ws_dir_found
+          when: code_writes_its_directory | bool
+
+        - name: Make just code's own directory on the VM
+          ansible.builtin.file:
+            path: "{{ code_ws_dir }}"
+            state: directory
+            mode: "{{ omit if code_ws_dir_found.stat.exists | default(false) else '0755' }}"
+          delegate_to: "{{ claude_vm_names[0] }}"
+          when: code_writes_its_directory | bool
+
+        # Then the session copies, and with --session the checkout's
+        # fast-forward.
         - name: Carry the sessions to the VM
           ansible.builtin.import_tasks: tasks/session_write.yml
 
@@ -603,6 +655,10 @@
         - name: Open the window in VS Code
           ansible.builtin.import_tasks: tasks/vscode_open.yml
           when: code_editor == 'vscode'
+
+        - name: Open the window in Zed
+          ansible.builtin.import_tasks: tasks/zed_open.yml
+          when: code_editor == 'zed'
 
       rescue:
         # Outside just deploy the failure stands, said once more: for a

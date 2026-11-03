@@ -74,6 +74,9 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
             ["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"],
             ["/home/dev/.vscode-server/cli/servers/Stable-abc/server/node", "--type=extensionHost"],
             ["/home/dev/.vscode-server/cli/servers/Stable-abc/server/node", "out/server-main.js"],
+            # Zed's remote server: a daemon per project, and the proxy each connection runs, which is not a window.
+            ["/home/dev/.zed_server/zed-remote-server-stable-0.230.1", "run", "--log-file", "x"],
+            ["/home/dev/.zed_server/zed-remote-server-stable-0.230.1", "proxy", "--identifier", "y"],
             ["bash"],
         ),
     )
@@ -90,7 +93,7 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
         "uptime": 187200,
     }
     # The native install's binary is named by its version; claude itself, and the npm package under node.
-    assert M.processes(str(root)) == {"claude": 2, "vscode_windows": 1, "editor_windows": 1}
+    assert M.processes(str(root)) == {"claude": 2, "vscode_windows": 1, "zed_windows": 1, "editor_windows": 2}
 
 
 def test_a_read_that_hangs_is_said_and_the_others_still_land() -> None:

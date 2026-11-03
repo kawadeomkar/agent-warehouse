@@ -81,8 +81,9 @@ VS Code's helpers beside them (`helpers/` in just code's directory there), each 
 VS Code's recent list before that still runs 1.0's workspace file, which works as it did.
 
 The live output says the window's stage as "editor", where it said "VS Code", and two of its steps as "the editor
-here" and "the notes" ("VS Code here" and "workspace" before). Wording, which the promise leaves free, but a script
-that read the line-per-step output by those names must follow them.
+here" and "the notes" ("VS Code here" and "workspace" before); `just deploy`'s first line says "opening alpha in VS
+Code". Wording, which the promise leaves free, but a script that read the line-per-step output by those names must
+follow them.
 
 ## A template built before its record
 

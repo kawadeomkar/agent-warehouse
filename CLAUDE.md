@@ -366,7 +366,15 @@ token; `github_auth_method: token` still fails. The status JSON carries
   VS Code runs that task only in a trusted window and once the user has allowed automatic tasks;
   `code.yml` reads `task.allowAutomaticTasks` from the user's VS Code settings to say which to
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
-  `terminal.integrated.allowInUntrustedWorkspace`. VS Code's tasks run its helpers by path: fixed files in
+  `terminal.integrated.allowInUntrustedWorkspace`. The editors are one internal list, `claude_editors` in the
+  inventory defaults (each one's name and whether its window runs just code's tasks), held by
+  `test_code_session.py` to the editors' task files and to `--editor`'s pattern. With `editor: zed` (or
+  `--editor zed`) nothing of VS Code's is written and `tasks/zed_open.yml` runs `zed ssh://<alias><folder>` with
+  the first `zeditor` or `zed` on PATH whose `--version` says Zed - ZFS's event daemon is `zed` too, and is asked
+  nothing else; it writes no Zed config - not a repository's `.zed/`, not the user's settings - never sets
+  `trust_all_worktrees`, and points at Zed's terminal first: Zed's Agent Panel runs Claude Agent on the VM too
+  (seen on Zed 1.26), but with a Claude Code of its own, outside `claude_code_version`
+  (docs/architecture/decisions.md §15.4). VS Code's tasks run its helpers by path: fixed files in
   `playbooks/files/` (`claude-terminal.sh`, `session-notes.sh`, `session_notes.py`), VS Code's alone (their
   variables are in `playbooks/vars/vscode.yml`), copied unchanged into `helpers/` of that directory; anything
   variable reaches them as an argument, and the workspace file carries no script text. The allowlist holds a
@@ -382,9 +390,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   every task in `code.yml`, and in the task files it imports, followed all the way down, to an
   allowlist: read-only on this machine (plus `which`/`code`, the session handoff's `rsync` to the VM and
   the alias through `tasks/ssh_config.yml`), the handoff's readers (`claude_sessions_info`,
-  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the eight
-  writes (the workspace and its directory, the helpers and theirs, the notes and theirs, the sessions'
-  directory and their copies) delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
+  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the nine
+  writes (just code's own directory, made first and 0755 where new; the workspace and its directory, the helpers
+  and theirs, the notes and theirs, the sessions' directory and their copies) delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
   on PATH: never a login shell there, which would put this machine's own `code` and `tailscale` back. The `provision`
   scenario, which runs `code.yml`, points `vscode_user_settings_file` into the ephemeral directory,
   since the message depends on it, and asserts that file's bytes and mtime after every run.

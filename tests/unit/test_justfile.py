@@ -1096,6 +1096,8 @@ def test_code_passes_an_editor_as_its_own_json_extra_var(tmp_path: Path) -> None
     ], run
     (tmp_path / "none").mkdir()
     assert not any("vm_editor" in arg for arg in _playbook(tmp_path / "none", "code", "alpha"))
+    (tmp_path / "zed").mkdir()
+    assert '{"vm_editor": "zed"}' in _playbook(tmp_path / "zed", "code", "alpha", "--editor", "zed")
 
 
 @pytest.mark.parametrize("value", ["emacs", "VSCode", "vscode,zed", '"}', "$(x)", "-e"])

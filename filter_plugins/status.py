@@ -439,6 +439,7 @@ SYSTEM_KEYS = (
     "security",
     "claude",
     "vscode_windows",
+    "zed_windows",
     "editor_windows",
     "unread",
 )
@@ -819,6 +820,8 @@ def _ssh_items(vm, settings, live, now):
                 busy.append(plural(system["claude"], "claude process", "claude processes"))
             if system.get("vscode_windows"):
                 busy.append(plural(system["vscode_windows"], "VS Code window"))
+            if system.get("zed_windows"):
+                busy.append(plural(system["zed_windows"], "Zed window"))
             text = f"waits for a reboot: {why}" + (
                 f"; {_and(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
                 if busy
@@ -974,6 +977,10 @@ def status_report(found, read_at="", now=None, live=False):
     read_at = one_line(str(read_at or ""), FIELD_LIMIT)
     fleet = (found.get("localhost") or {}).get("fleet") or {}
     settings = dict(fleet.get("settings") or {})
+    # status.yml names the editor set, resolved, for the line under ACCESS: a fleet without its name is a bug to
+    # fail on, never a line that says "None". Before the fleet is found there is no line to say it on.
+    if fleet and not settings.get("editor_name"):
+        raise AnsibleFilterError("the fleet's settings name no editor: status.yml gives editor_name")
     sections = status_sections(settings.get("sections"))
     aliases = fleet.get("aliases")
     settings["aliases_enabled"] = aliases is not None
@@ -1103,7 +1110,8 @@ def status_report(found, read_at="", now=None, live=False):
         "attention": items,
         "counts": counts,
         "settings": {
-            k: settings.get(k) for k in ("names", "tag", "tailscale_enabled", "nic", "aliases_enabled", "vm_user")
+            k: settings.get(k)
+            for k in ("names", "tag", "tailscale_enabled", "nic", "aliases_enabled", "vm_user", "editor", "editor_name")
         },
         "now": now,
     }
@@ -1288,7 +1296,8 @@ def _access_lines(model):
         if show_tailnet:
             row += _tailnet_cells(vm, model, dns_width)
         lines.append(row)
-    lines.append([seg(" VS Code: just code <name> [--project <repo>] [--session <id>]", "d")])
+    editor = model["settings"]["editor_name"]
+    lines.append([seg(f" {editor}: just code <name> [--project <repo>] [--session <id>]", "d")])
     return lines
 
 
@@ -1495,7 +1504,8 @@ def _work_lines(model):
         return []
     nw = _name_width(vms)
     first = max(nw + 3, 10)
-    widths = (24, 48, 9)
+    # Narrow enough that the last column's "10 windows" still fits 100 columns after a name of 13: 16 + 73 + 10.
+    widths = (24, 40, 9)
     directory = next(
         (((vm.get("ssh") or {}).get("work") or {}).get("dir") for vm in vms if (vm.get("ssh") or {}).get("work")),
         "~/projects",
@@ -1508,7 +1518,7 @@ def _work_lines(model):
                 + "CHECKED".ljust(widths[0])
                 + "NOT ON ANY REMOTE, OR NOT COMMITTED".ljust(widths[1])
                 + "CLAUDE".ljust(widths[2])
-                + "VS CODE",
+                + "EDITOR",
                 "d",
             )
         ],
@@ -1527,7 +1537,7 @@ def _work_lines(model):
         said = " · ".join(s for s in (_work_said(r) for r in work.get("repositories") or []) if s) or "nothing"
         wrapped = textwrap.wrap(said, widths[1] - 2, break_on_hyphens=False) or [""]
         claude = system.get("claude") if system else None
-        windows = system.get("vscode_windows") if system else None
+        windows = (system.get("editor_windows", system.get("vscode_windows")) if system else None) or None
         row += _cell(checked, widths[0]) + _cell(wrapped[0], widths[1], "y" if said != "nothing" else "")
         row += _cell(str(claude) if claude else "—", widths[2])
         row.append(seg(plural(windows, "window") if windows else "—"))

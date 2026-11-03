@@ -139,7 +139,19 @@ user's choice. What was decided, and why:
   anything is written on the VM, `tasks/vscode_open.yml` after), imported statically for that editor alone, with its
   variables in a vars file (`playbooks/vars/vscode.yml`). Static, so `--tags` reaches them and the allowlist in
   `tests/unit/test_code_session.py` follows them; every name an editor's file registers starts with `code_<editor>_`,
-  since a skipped task still overwrites its register.
+  since a skipped task still overwrites its register. The editors are one internal list, `claude_editors` in the
+  inventory defaults - each one's name, and whether its window runs just code's tasks as it opens - which
+  `code.yml`, `deploy.yml` and the notes read, and a test holds to the editors' files and to `--editor`'s pattern.
+  VS Code's helpers (`playbooks/files/`) are VS Code's: they take what only its tasks carry. Making them any
+  editor's would need a notes refresh `just code` runs on the VM, a new command there, worth it once a second editor
+  can run them.
+- **Zed opens the folder, and Claude runs in its terminal.** `just code` runs `zed ssh://<alias><folder>` and
+  writes nothing for Zed: Zed runs no task when a window opens, its tasks live in a repository's `.zed/` or in the
+  user's own settings, and the project writes in neither. Its Agent Panel can host Claude (Claude Agent, over ACP).
+  Run on this machine, that agent would have this machine's files and logins in reach rather than the VM's, so the
+  panel was to be named only once it was seen to run on the VM, and it was (Zed 1.26): Zed's remote server installs
+  the agent there and starts it with the VM's `~/.claude` and claude.ai login. The terminal still comes first, since
+  the agent's Claude Code is its npm package's own, at the version Zed's registry installs.
 - **Every VM is made ready for any editor alike.** What `vscode_server` sets up is not VS Code's alone: Claude's
   sign-in in the browser forwards its callback to the VM over `ssh -L` whichever editor is chosen, and the role's
   `sshd -T` check is what says when forwarding is off; Zed's port forwards are `ssh -L` too. It keeps its name and its

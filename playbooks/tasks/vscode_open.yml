@@ -151,18 +151,9 @@
     code_session_said: >-
       {{ '' if code_session_id | length == 0
          else 'The Claude terminal resumes session ' ~ code_session_id ~ ' in ' ~ code_target ~ ', on '
-              ~ code_session_plan.session.branch ~ ' at ' ~ code_session_commit[:12]
-              ~ (', where just code moved it' if code_session_moved | bool else '') ~ '.'
-              ~ ' The first time claude opens there it asks whether you trust the folder, and its first answer'
-              ~ " reads the whole conversation again, uncached: its recorded prompt now names the VM's memory folder."
+              ~ code_session_plan.session.branch ~ ' at ' ~ code_session_commit[:12] ~ code_session_moved_said ~ '.'
               ~ ' If that window is open already, VS Code only brings it to the front: reload it'
-              ~ ' ("Developer: Reload Window") to resume the session.'
-              ~ (' Remote Control runs on ' ~ claude_vm_names[0] ~ ': a session it started works from ' ~ code_root
-                 ~ ', where just code cannot see it, so make sure none was editing ' ~ code_target ~ '.'
-                 if code_session_remote_control.rc | default(1) == 0 else '')
-              ~ (' github_projects_update_existing is on, so the next just deploy ' ~ claude_vm_names[0]
-                 ~ ' --only configure switches ' ~ code_target ~ ' back to its default branch.'
-                 if github_projects_update_existing | default(false) | bool else '') }}
+              ~ ' ("Developer: Reload Window") to resume the session.' ~ code_session_cautions }}
   ansible.builtin.debug:
     msg: "{{ code_said | select | join(' ') | trim }}"
 

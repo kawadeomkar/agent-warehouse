@@ -210,3 +210,13 @@ can supply: the file lives beside the repositories, never in one, and a reposito
 the task runs is fixed: VS Code's helpers, files of `playbooks/files/` that `just code` copies to the VM
 unchanged and the task runs by path, with the VM name and every other value passed as an argument rather
 than spliced into a script, and the copy held by `tests/unit/test_code_session.py` to those files alone.
+
+Zed runs no task as its window opens, so with `editor: zed` nothing of the kind exists: `just code` runs
+`zed ssh://<alias><folder>` - only a `zeditor` or `zed` that says it is Zed, never ZFS's daemon of the same
+name - writes no Zed setting and never `trust_all_worktrees`, and says to run `claude` in Zed's terminal,
+which is the VM's. Zed's Agent Panel runs its Claude Agent on the VM as well, with its tools, the VM's `~/.claude`
+and its claude.ai login, as seen on Zed 1.26; the terminal still comes first, since that agent's Claude Code is
+its own ([§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time)).
+Zed shows just code's own directory on the VM, the copied sessions' mirror in it, where VS Code's window
+hides it: its project panel, search and its own AI features can read the transcripts unless the user
+excludes the directory in their Zed settings.

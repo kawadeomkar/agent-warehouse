@@ -61,6 +61,8 @@ playbooks/
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
   tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
                                   what VS Code will ask
+  tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
+  tasks/zed_open.yml              just code's Zed window: zed ssh://<alias><folder>, and claude in Zed's terminal
   files/                          VS Code's helpers, copied to the VM unchanged and run there by the window's
                                   tasks: claude-terminal.sh (the Claude terminal), session-notes.sh and
                                   session_notes.py (the notes' live section)
