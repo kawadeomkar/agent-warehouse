@@ -2,7 +2,12 @@
 # The first join with the vault key, from a settled NeedsLogin with no node key
 # only (main.yml). Sent again to a node that is signed in, a key Tailscale no
 # longer accepts - expired, spent, revoked - logs the node out
-# (tailscale#19501), so a node that has joined is never handed it again.
+# (tailscale#19501), so a node that has joined is never handed it again. Nor is
+# a VM that held a login of this role's before and has none now
+# (tailscale_joined_before, which Proxmox records): only something on the VM
+# logs it out, and its root could do that, or make tailscale report it, to be
+# handed the fleet's key - a reusable one, which joins devices of its own long
+# after the VM is gone.
 #
 # The key goes in on standard input, read by tailscale's own file: handling
 # (os.ReadFile of /dev/stdin): nothing on argv, where every local user could
@@ -28,6 +33,22 @@
 - name: connect | Read what this role has made, now that it has recorded the login
   ansible.builtin.include_tasks: ownership.yml
   when: tailscale_adopted is not skipped
+
+# Under auto the web login signs such a VM in (just login, or just deploy's
+# step); under key there is no other way in, so the run says why it stops.
+- name: connect | Fail when the key would go to a VM that joined before
+  ansible.builtin.assert:
+    that: not (tailscale_key_held_back | bool)
+    fail_msg: >-
+      {{ inventory_hostname }} joined Tailscale through this project before, as its tag in Proxmox records
+      ({{ claude_vm_tailscale_tag | default('claude-on-proxmox-tailscale') }}), and has no login now: something on the
+      VM logged it out. vault_tailscale_auth_key is not sent to a VM again, and tailscale_auth_method key signs none
+      in by the browser. Set tailscale_auth_method to auto and run {{ tailscale_login_command }}; or, if you logged it
+      out yourself, remove that tag from the VM in Proxmox and run {{ tailscale_configure_command }}.
+    quiet: true
+  when:
+    - tailscale_ours | bool
+    - tailscale_auth_method == 'key'
 
 # What tailscaled said before this join. A login error stays in its Health
 # until an attempt after it ends, so the one an earlier refused key left is
@@ -113,3 +134,12 @@
   when:
     - tailscale_join is not skipped
     - tailscale_signed_in | bool
+
+# Whether the VM holds a login of this role's - the join above, or one an
+# earlier run recorded, which also covers a VM that joined before Proxmox kept
+# the record - for configure.yml's next play to record in Proxmox, where the VM
+# cannot change it (claude_vm_tailscale_tag). Set on every run of this file, so
+# that it is never an earlier run's.
+- name: connect | Say whether the VM holds a login of this role's, for Proxmox to record
+  ansible.builtin.set_fact:
+    tailscale_login_to_record: "{{ tailscale_login_ours | bool }}"

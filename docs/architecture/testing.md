@@ -229,11 +229,14 @@ pytest over `tests/unit/`: 2244 tests. By file:
   no report, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
   and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
-- **Tailscale** (`test_tailscale.py` 70): the role's files from `ownership.yml` on, and
+- **Tailscale** (`test_tailscale.py` 77): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and
   `getent`: a first join once, with the key on stdin and in no report, argument or file; no key for a node
-  whose key expired, and a node logged out by hand joined again; a refused key and an OAuth secret without
-  tags as reports; one `set` for drift; a login or a Tailscale made by hand only read; tags compared only
+  whose key expired, and a node logged out by hand joined again - unless Proxmox records the VM as having
+  joined (`tailscale_joined_before`), when the key is held back, under `key` by name; `configure.yml`'s
+  play that records a join, against the fake Proxmox, tagging only the VM of that name and VMID that is
+  the project's, keeping its tags, never in check mode, and saying a record it could not write; a refused
+  key and an OAuth secret without tags as reports; one `set` for drift; a login or a Tailscale made by hand only read; tags compared only
   when configured; `NoState` reads, `Starting` and a silent daemon; check mode; the web login's one `up`,
   its page said before the wait and opened only when it is Tailscale's, an approval after `up` exited, one
   that waits for an admin ending the wait at once, a login already waiting for one shown no page, a wait that
@@ -247,7 +250,7 @@ pytest over `tests/unit/`: 2244 tests. By file:
   first with `tailscale_login_auto_start: false`, and NEXT STEPS keeping the role's line for a refused key or a
   page still waiting where Claude's sign-in was skipped; `configure.yml`'s rescue and last play; and the guards
   that keep every scenario, the Vagrantfile and this harness off Tailscale, and the role in the justfile's `scenario_roles` and CI.
-- **Destroy's release** (`test_release.py` 49): `destroy.yml`'s release play and report against the
+- **Destroy's release** (`test_release.py` 50): `destroy.yml`'s release play and report against the
   stand-in `claude`, `gh` and `tailscale`, the fake GitHub API's credential revocation and the fake
   Tailscale API: a VM released from everything, with no token revoked at GitHub; the vault token and one
   pasted by hand signed out and told apart, the vault token even under a marker claiming it, and a logout

@@ -690,7 +690,19 @@ plan's research record.
   never from human output.
 - **The key.** Used from a settled `NeedsLogin` with no `HaveNodeKey` only - a node that never joined, or
   one logged out by hand, which reads the same - because a key Tailscale no longer accepts, sent to a node
-  with a login, logs it out (tailscale#19501). It goes in as `--auth-key=file:/dev/stdin`, the key as the
+  with a login, logs it out (tailscale#19501). And only on a VM that never held a login of the role's: a VM
+  logged out from inside, as its root can - or one whose `tailscale` says it was - would otherwise be handed
+  the fleet's key, a reusable one that joins devices of the VM's own long after it is gone. Whether it held
+  one is kept in Proxmox, where the VM cannot change it: `connect.yml` ends by setting
+  `tailscale_login_to_record` (a login of the role's, the join just made or one an earlier run recorded),
+  `configure.yml`'s next play tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
+  through the API - reading its tags first and keeping them, on the VM of that name and VMID that carries
+  the ownership tag, never in check mode - and discovery, provisioning's publish (from the role's lookup) and
+  `just status` hand the tag to the role as `tailscale_joined_before` (`tailscale_first_join`,
+  `tailscale_key_held_back`). Such a VM is left for the web login under `auto`, and fails under `key`,
+  naming the tag to remove for one more join with the key; `proxmox_vm` keeps the tag whenever it replaces
+  a VM's tags (`proxmox_vm_kept_tags`). Without a Proxmox VM - Vagrant, the scenarios - nothing is
+  recorded, and a VM logged out reads as one that never joined, as before. It goes in as `--auth-key=file:/dev/stdin`, the key as the
   `command` module's stdin under `no_log`: nothing on argv, no file - `copy` would stage one in
   `~/.ansible/tmp` - and with pipelining never on the VM's disk. The flags are every managed setting
   after `--reset`, so tailscale's "requires mentioning all non-default flags" never fires. A refusal is a
@@ -730,8 +742,9 @@ plan's research record.
 - **The join method** (`tailscale_auth_method`): `auto` joins with the key when there is one and leaves the
   VM for the web login otherwise; `key` is the key only - an empty one fails at the role's first task by
   name, the web login is never offered or started (`tailscale_login_possible`), and an expired node is told
-  to be logged out by hand, since the key is never sent to a node that had a login; `web` leaves the key
-  unused (`tailscale_key_wanted`).
+  to be logged out by hand - and its tag in Proxmox removed, where it has one - since the key is never sent
+  to a node that had a login, or to a VM that held one of the role's; `web` leaves the key unused
+  (`tailscale_key_wanted`).
 - **Deleting the device** (`api_delete.yml`), from the controller with `tailscale_api_credential`, which
   `tailscale_api_auth_method` decides: `auto`, the default, takes whatever the vault holds - a credential
   there is the opt-in, as the auth key is for the join - so `token` when there is an API access token (it
@@ -740,7 +753,8 @@ plan's research record.
   `token` is an API access token, `oauth` an OAuth client, exchanged at `/api/v2/oauth/token` for a
   one-hour token (it needs `devices:core`). `GET /api/v2/device/<Self.ID>` first, then `DELETE` only when
   the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`: the VM reports the ID,
-  and the credential can delete any device. A 404 is a device already gone. Every call is `no_log` and
+  and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
+  one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
   is an earlier run's. Run by the off path after its logout, and by the `release` entry point, which
   `destroy.yml` runs before deleting a VM: start a stopped `tailscaled`, read the node's ID, log it out,

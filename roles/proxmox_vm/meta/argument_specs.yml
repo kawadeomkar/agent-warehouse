@@ -219,8 +219,9 @@ argument_specs:
           - Re-apply the hardware and cloud-init settings to a VM that exists.
             Off by default because Proxmox reports every update as a change.
           - On, every VM the run covers has its settings re-applied, its tag list
-            replaced with proxmox_vm_tags (tags added by hand are dropped), and
-            is started, whether or not it was shut down on purpose.
+            replaced with proxmox_vm_tags (tags added by hand are dropped; the
+            record that it joined Tailscale is kept), and is started, whether or
+            not it was shut down on purpose.
 
   # tasks_from: settings_drift, which playbooks/status.yml runs for each VM.
   settings_drift:

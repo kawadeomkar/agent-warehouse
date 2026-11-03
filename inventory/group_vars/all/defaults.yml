@@ -105,6 +105,14 @@ claude_vm_tag: claude-on-proxmox
 # "claude-on-proxmox", and matched as typed it would never be found again.
 # The proxmox_vm role lowercases both sides of its own comparison the same way.
 claude_vm_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tag | lower | regex_escape }}([;,]|$)"
+# The tag a VM carries once it has held a Tailscale login of the tailscale
+# role's own, written by configure.yml after the role and read back by
+# discovery, provisioning and just status as tailscale_joined_before: kept in
+# Proxmox, where the VM cannot change it, so that a VM logged out from inside is
+# never handed vault_tailscale_auth_key again. Remove it in Proxmox to let the
+# key join that VM once more. Like the ownership tag, matched whole.
+claude_vm_tailscale_tag: "{{ claude_vm_tag | lower }}-tailscale"
+claude_vm_tailscale_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tailscale_tag | regex_escape }}([;,]|$)"
 # The VMs this project owns, filtered out of the cluster's VM list. Defined
 # here, not in each playbook, so discover.yml, status.yml and destroy.yml cannot
 # drift on what "ours" means. Evaluated lazily: any play that uses it must have

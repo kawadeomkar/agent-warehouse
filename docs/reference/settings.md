@@ -482,7 +482,7 @@ Optional: skip interactive `claude` login on the VM. Billing for Claude Code on 
 
 ### Secrets: Tailscale
 
-Optional: a Tailscale auth key, so each new VM joins your tailnet during configuration with nothing to click; just init asks for it after a y to Tailscale. Make it reusable (one key for the whole fleet) or one-off, pre-approved and tagged - never ephemeral, since Tailscale removes an ephemeral node within the hour of it going offline, and a VM left stopped would be. Leave it empty to sign each VM in by Tailscale's web login instead (just login &lt;name&gt; --only tailscale), with no secret here. Only ever used for a VM's first join. [docs/guides/tailscale.md](../guides/tailscale.md).
+Optional: a Tailscale auth key, so each new VM joins your tailnet during configuration with nothing to click; just init asks for it after a y to Tailscale. Make it reusable (one key for the whole fleet) or one-off, pre-approved and tagged - never ephemeral, since Tailscale removes an ephemeral node within the hour of it going offline, and a VM left stopped would be. Leave it empty to sign each VM in by Tailscale's web login instead (just login &lt;name&gt; --only tailscale), with no secret here. Only ever used for a VM's first join: a tag in Proxmox records it, and a VM logged out later is never sent the key again. [docs/guides/tailscale.md](../guides/tailscale.md).
 
 | Secret, in `vault.yml` | Notes |
 |---|---|

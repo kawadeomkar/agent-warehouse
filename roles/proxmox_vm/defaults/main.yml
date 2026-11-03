@@ -96,7 +96,8 @@ proxmox_vm_start_existing: false
 # because Proxmox reports every update as a change, breaking idempotence.
 # On, every VM the run covers is treated as unfinished: its settings are
 # re-applied, its tag list is replaced with proxmox_vm_tags (tags added by
-# hand are dropped), and it is started, stopped or not.
+# hand are dropped; the record that it joined Tailscale is kept), and it is
+# started, stopped or not.
 proxmox_vm_force_update: false
 
 # The settings_drift entry point's input (`just status`): a VM's config as Proxmox gives it.

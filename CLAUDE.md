@@ -244,8 +244,15 @@ token; `github_auth_method: token` still fails. The status JSON carries
   Headscale run recorded it). Extend a fake rather than reaching for the network.
 - **Tailscale's auth key joins a VM once, and the role touches only the Tailscale it installed.** The key
   is used from a settled `NeedsLogin` with no `HaveNodeKey` only - a node that never joined, or one logged
-  out by hand, which reads the same - and never sent to a node that has a login: one Tailscale no longer
-  accepts logs the node out (tailscale#19501). It goes in as `--auth-key=file:/dev/stdin` with the key as
+  out by hand, which reads the same - on a VM that never held a login of the role's, and never sent to a
+  node that has a login: one Tailscale no longer accepts logs the node out (tailscale#19501). That a VM held
+  one is kept in Proxmox, where the VM cannot change it: configure.yml's play after the role tags the VM
+  `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever the role found a login of its own
+  (`tailscale_login_to_record`), and discovery, provisioning's publish and `just status` pass the tag to the
+  role as `tailscale_joined_before`, read from the listing or the role's lookup, never from the VM - whose
+  root can log the node out, or make `tailscale` say anything, to be handed the fleet's reusable key. Such a
+  VM goes to the web login under `auto` and fails under `key`, and `proxmox_vm` keeps the tag whenever it
+  replaces a VM's tags (`proxmox_vm_kept_tags`). It goes in as `--auth-key=file:/dev/stdin` with the key as
   the `command` module's `stdin`, under `no_log` - nothing on argv, no file, never `copy` (which stages
   its content in `~/.ansible/tmp`); only that task renders the key, and `tests/unit/test_tailscale.py`
   holds it so. Every decision comes from `tailscale status --json`, read until it is neither `NoState`
@@ -577,7 +584,8 @@ and what that does (the digest in `~/.config/claude-on-proxmox/gh-device-login` 
 the vault's and from one pasted by hand). Tailscale's device
 is deleted with the API credential the vault holds (`tailscale_api_auth_method` `auto`: the token, else an
 OAuth client with `devices:core`; a credential's presence is the opt-in, so no flag must be set beside it)
-from the controller, by the node's `Self.ID`, read before the logout. Another play then runs the role with
+from the controller, by the node's `Self.ID`, read before the logout and held to letters and digits
+(`tailscale_node_id_pattern`) before it goes into the API's path. Another play then runs the role with
 `proxmox_vm_state: absent` across them, so VMs are stopped and deleted in parallel. It used to loop `include_role` on
 localhost: against the fake, 20 VMs took 168 s that way and take 41 s now. The pre-check honours
 `proxmox_vm_allow_untagged_delete` but never admits a template. Deleting in parallel is why
@@ -662,8 +670,9 @@ so every `add_host` that publishes a VM gives it `ansible_python_interpreter: "{
 discovery would take a `python3.13` that `uv python install` put there, and run it as root.
 
 **The alias play reads a fact the configure play set last.** `configure.yml`'s second play ends
-with a `getent` of `vm_user` and a `claude_vm_workspace` fact, both tagged `always`; the third play
-writes an alias only for hosts that have that fact, so a host that failed a role never gets one, and
+with a `getent` of `vm_user` and a `claude_vm_workspace` fact, both tagged `always`; the alias play
+after it (after the play that records a Tailscale join in Proxmox) writes an alias only for hosts that have
+that fact, so a host that failed a role never gets one, and
 the workspace is the VM user's real home rather than a guess from the controller (Ansible's own
 `user_dir` fact is the *connecting* user's home, which under Molecule is root's).
 

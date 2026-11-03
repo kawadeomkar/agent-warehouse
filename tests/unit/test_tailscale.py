@@ -53,15 +53,20 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import (
+    FAKES,
     GUARDED_TOOLS,
+    PVE_SECRET,
     STAND_INS,
+    _certificate,
     _env,
     _failures,
     _left_to_do,
     _messages,
+    _pve,
     _results,
     _run,
     _run_at_a_terminal,
+    _serve,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -127,6 +132,15 @@ CASES = {
     # A login made by hand on the role's Tailscale, whose key expired.
     "expired-by-hand": {"key": "good", "ts": {"expired": "f" * 64}, "marker": NODE},
     "logged-out-key": {"key": "good", "ts": {"prefs-loggedout": "true"}},
+    # The same node on a VM Proxmox records as having joined before: logged out
+    # from inside, as only the VM's root can, to be handed the key again.
+    "joined-before": {"key": "good", "ts": {"prefs-loggedout": "true"}, "tailscale_joined_before": True},
+    "joined-before-key": {
+        "key": "good",
+        "ts": {"prefs-loggedout": "true"},
+        "tailscale_joined_before": True,
+        "tailscale_auth_method": "key",
+    },
     "refused": {"key": "expired"},
     "slow": {"key": "slow"},
     "late": {"key": "late"},
@@ -146,6 +160,13 @@ CASES = {
     "web-with-key": {"key": "good", "tailscale_auth_method": "web"},
     "key-method": {"key": "good", "tailscale_auth_method": "key"},
     "key-method-expired": {"key": "good", "ts": {"expired": NODE}, "marker": NODE, "tailscale_auth_method": "key"},
+    "key-method-expired-recorded": {
+        "key": "good",
+        "ts": {"expired": NODE},
+        "marker": NODE,
+        "tailscale_auth_method": "key",
+        "tailscale_joined_before": True,
+    },
     "page-waiting-expired": {
         "ts": {"expired": "", "authurl": "https://login.tailscale.com/a/0123456789abcd"},
         "marker": "pending",
@@ -339,6 +360,46 @@ def test_a_node_logged_out_by_hand_is_joined_again(configured):
     root, first, first_calls, second = configured
     assert len(_ups(first_calls["logged-out-key"])) == 1
     assert _said(first)["logged-out-key"].startswith("logged-out-key: joined Tailscale ")
+
+
+def test_a_vm_that_joined_before_is_never_handed_the_key_again(configured):
+    # Logged out from inside - its root can, or can make tailscale say so - a VM
+    # reads like one that never joined. Proxmox's record of the join, which the
+    # VM cannot change, keeps the fleet's key from it: under auto the web login
+    # signs it in, under key the run stops for it, naming why.
+    root, first, first_calls, second = configured
+    for host in ("joined-before", "joined-before-key"):
+        assert _ups(_calls(root, host)) == [], host
+        assert "[key on stdin]" not in _calls(root, host), host
+    assert _said(first)["joined-before"] == (
+        "joined-before: Tailscale is installed but not signed in. just login joined-before --only tailscale signs it"
+        " in from your browser; vault_tailscale_auth_key is not sent again to a VM that joined before."
+    )
+    assert _failures(first)["joined-before-key"] == (
+        "tailscale : connect | Fail when the key would go to a VM that joined before: joined-before-key joined"
+        " Tailscale through this project before, as its tag in Proxmox records (claude-on-proxmox-tailscale), and"
+        " has no login now: something on the VM logged it out. vault_tailscale_auth_key is not sent to a VM again,"
+        " and tailscale_auth_method key signs none in by the browser. Set tailscale_auth_method to auto and run just"
+        " login joined-before-key --only tailscale; or, if you logged it out yourself, remove that tag from the VM in"
+        " Proxmox and run just deploy joined-before-key --tags tailscale."
+    )
+
+
+def test_a_login_of_the_role_s_own_is_for_proxmox_to_record_and_no_other(configured):
+    # What configure.yml's next play tags in Proxmox: a join this run made, and
+    # one an earlier run made - the fleet that joined before the record existed.
+    # Never a login made by hand, a Tailscale the role did not install, a node
+    # with no login, or a join still under way.
+    root, first, first_calls, second = configured
+    recorded = {
+        host: result["ansible_facts"]["tailscale_login_to_record"]
+        for name, host, result in _results(first)
+        if name.endswith("connect | Say whether the VM holds a login of this role's, for Proxmox to record")
+    }
+    for host in ("fresh-key", "logged-out-key", "drift", "expired-key-set", "tagged-key"):
+        assert recorded[host] is True, host
+    for host in ("fresh-no-key", "joined-before", "by-hand-login", "expired-by-hand", "refused", "slow", "not-ours"):
+        assert recorded[host] is False, host
 
 
 def test_a_refused_key_is_a_report_naming_tailscale_s_reason(configured):
@@ -553,6 +614,14 @@ def test_tailscale_auth_method_decides_whether_the_key_is_used(configured):
         "key-method-expired: signed out of Tailscale (its key expired), and tailscale_auth_method key never signs a"
         " VM in by the browser nor sends the key to a node that had a login: run sudo tailscale logout on it, then"
         " just deploy key-method-expired --tags tailscale joins it with the key."
+    )
+    # Recorded in Proxmox as having joined, the key comes back only once the record is gone too.
+    assert _ups(_calls(root, "key-method-expired-recorded")) == []
+    assert _said(first)["key-method-expired-recorded"] == (
+        "key-method-expired-recorded: signed out of Tailscale (its key expired), and tailscale_auth_method key never"
+        " signs a VM in by the browser nor sends the key to a node that had a login: run sudo tailscale logout on it,"
+        " remove its claude-on-proxmox-tailscale tag in Proxmox, then just deploy key-method-expired-recorded --tags"
+        " tailscale joins it with the key."
     )
 
 
@@ -1152,6 +1221,157 @@ def test_under_deploy_the_failure_waits_for_deploy_s_own_last_play(tmp_path):
         if name.endswith("Remember that Tailscale failed, for the end of the run")
     ]
     assert len(recorded) == 1 and recorded[0][0].startswith('badname: Tailscale failed at "'), recorded
+
+
+# ----------------------------------------- Proxmox's record of a VM's join ---
+RECORD_PLAY = "Record in Proxmox each VM that has joined Tailscale through this project"
+# The fake's VMs: a VMID, the name Proxmox has for it, and its tags.
+TO_RECORD = (
+    (9101, "fresh", "claude-on-proxmox;keepme"),
+    (9102, "recorded", "claude-on-proxmox;claude-on-proxmox-tailscale"),
+    (9103, "nologin", "claude-on-proxmox"),
+    (9104, "renamed-since", "claude-on-proxmox"),
+    (9105, "stranger", ""),
+)
+# Each host as the role and discovery leave it: the VMID discovery read, whether
+# Proxmox recorded a join, and whether the role found a login of its own.
+RECORD_HOSTS = {
+    "fresh": {"proxmox_vm_id": 9101, "tailscale_joined_before": False, "tailscale_login_to_record": True},
+    "recorded": {"proxmox_vm_id": 9102, "tailscale_joined_before": True, "tailscale_login_to_record": True},
+    "nologin": {"proxmox_vm_id": 9103, "tailscale_joined_before": False, "tailscale_login_to_record": False},
+    # A VMID that is another VM's now: never tagged.
+    "renamed": {"proxmox_vm_id": 9104, "tailscale_joined_before": False, "tailscale_login_to_record": True},
+    # Not this project's: never tagged, whatever its VM says.
+    "stranger": {"proxmox_vm_id": 9105, "tailscale_joined_before": False, "tailscale_login_to_record": True},
+    # Vagrant, the scenarios: no Proxmox VM at all.
+    "no-proxmox": {"tailscale_login_to_record": True},
+}
+
+
+@pytest.fixture
+def recording(tmp_path):
+    """The fake Proxmox holding TO_RECORD, and configure.yml's record play in a directory set up to run against it."""
+    cert, key = _certificate(tmp_path)
+    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
+        base = base.replace("http://", "https://")
+        for vmid, name, tags in TO_RECORD:
+            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
+            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **({"tags": tags} if tags else {"delete": "tags"}))
+        root = tmp_path / "run"
+        (root / "group_vars" / "all").mkdir(parents=True)
+        (root / "group_vars" / "all" / "defaults.yml").symlink_to(
+            REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
+        )
+        (root / "group_vars" / "all" / "fake_api.yml").write_text(
+            yaml.safe_dump(
+                {
+                    "proxmox_api_host": "127.0.0.1",
+                    "proxmox_api_port": int(base.rsplit(":", 1)[1]),
+                    "vault_proxmox_api_token_secret": PVE_SECRET,
+                }
+            )
+        )
+        plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+        playbook = root / "record.yml"
+        playbook.write_text(yaml.safe_dump([next(play for play in plays if play["name"] == RECORD_PLAY)]))
+        yield base, root, playbook
+
+
+def _tags(base: str) -> dict:
+    listed = _pve(base, "GET", "cluster/resources")["data"]
+    return {vm["vmid"]: vm.get("tags", "") for vm in listed if vm["vmid"] in {vmid for vmid, _, _ in TO_RECORD}}
+
+
+def _config_writes(root: Path) -> list:
+    calls = [json.loads(line) for line in (root.parent / "pve" / "calls.log").read_text().splitlines()]
+    return [call["path"] for call in calls if call["method"] in ("PUT", "POST") and call["path"].endswith("/config")]
+
+
+def test_a_join_is_recorded_in_proxmox_keeping_the_vm_s_other_tags(recording):
+    base, root, playbook = recording
+    before = _tags(base)
+    writes = len(_config_writes(root))
+    report = _run(root, playbook, RECORD_HOSTS, timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    after = _tags(base)
+    # Only the VM of that name and VMID, carrying the ownership tag, with a login of the role's and no record yet.
+    assert after[9101] == "claude-on-proxmox;claude-on-proxmox-tailscale;keepme"
+    assert {vmid: tags for vmid, tags in after.items() if vmid != 9101} == {
+        vmid: tags for vmid, tags in before.items() if vmid != 9101
+    }
+    assert _config_writes(root)[writes:] == ["/api2/json/nodes/pve/qemu/9101/config"]
+    # Recorded, the next run finds the tag and writes nothing.
+    hosts = {**RECORD_HOSTS, "fresh": {**RECORD_HOSTS["fresh"], "tailscale_joined_before": True}}
+    again = _run(root, playbook, hosts, timeout=120)
+    assert again["rc"] == 0, _failures(again)
+    assert _config_writes(root)[writes + 1 :] == []
+
+
+def test_check_mode_records_nothing(recording):
+    base, root, playbook = recording
+    before = _tags(base)
+    writes = len(_config_writes(root))
+    report = _run(root, playbook, RECORD_HOSTS, "--check", timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    assert _tags(base) == before
+    assert _config_writes(root)[writes:] == []
+
+
+def test_a_record_proxmox_cannot_write_is_said_and_the_run_goes_on(recording):
+    base, root, playbook = recording
+    # The VM's node went down: Proxmox cannot answer for it.
+    _pve(base, "PUT", "fake/vm-node", vmid=9101, node="pve2")
+    report = _run(root, playbook, RECORD_HOSTS, timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    said = [
+        item["msg"]
+        for name, host, result in _results(report)
+        if name.endswith("Say each VM whose record could not be written")
+        for item in result.get("results", [])
+        if "msg" in item
+    ]
+    assert len(said) == 1, said
+    assert said[0].startswith("fresh: Proxmox could not record that it joined Tailscale ("), said
+    assert said[0].endswith(
+        "), so vault_tailscale_auth_key could be sent to it again if it is logged out. The next just deploy fresh"
+        " --only configure records it."
+    ), said
+    assert "claude-on-proxmox-tailscale" not in _tags(base)[9101]
+
+
+def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
+    # discover.yml (configure, login), provision.yml's publish (deploy) and just
+    # status read the record from Proxmox - the listing, or the role's own lookup
+    # - and never from the VM.
+    def add_hosts(playbook: str) -> list:
+        tasks = []
+        for play in yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text()):
+            tasks += _all_tasks(play.get("tasks", []))
+        return [task["ansible.builtin.add_host"] for task in tasks if "ansible.builtin.add_host" in task]
+
+    # Only reads them: no run of status's here (test_status.py holds every one to status_root).
+    for playbook, groups in (("discover", "claude_vms"), ("provision", "claude_vms"), ("status", "status_vms")):
+        (added,) = [args for args in add_hosts(playbook) if args.get("groups") == groups and "ansible_host" in args]
+        assert "claude_vm_tailscale_tag_pattern" in added["tailscale_joined_before"], playbook
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    assert defaults["claude_vm_tailscale_tag"] == "{{ claude_vm_tag | lower }}-tailscale"
+
+
+def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():
+    # A VM repaired, or force-updated, has its tag list replaced: without the
+    # record in it, it would be handed the key again.
+    tasks = yaml.safe_load((REPO / "roles" / "proxmox_vm" / "tasks" / "present.yml").read_text())
+    writes = {
+        task["name"]: task["community.proxmox.proxmox_kvm"]["tags"]
+        for task in tasks
+        if "tags" in task.get("community.proxmox.proxmox_kvm", {})
+    }
+    for name, tags in writes.items():
+        # Only the first tagging of a VM this run cloned may leave it out: that VM never joined.
+        if name != "present | Tag the new VM as created by this project":
+            assert "proxmox_vm_kept_tags" in tags, name
+    role_vars = yaml.safe_load((REPO / "roles" / "proxmox_vm" / "vars" / "main.yml").read_text())
+    assert role_vars["proxmox_vm_tailscale_tag"] == "{{ proxmox_vm_sent_tags[0] }}-tailscale"
 
 
 # ------------------------------------------------------------ static guards ---

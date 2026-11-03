@@ -64,6 +64,13 @@ proxmox_vm_sent_tags: "{{ proxmox_vm_tags | map('lower') | list }}"
 # follows it has succeeded. See proxmox_vm_needs_configuration.
 proxmox_vm_unfinished_tag: "{{ proxmox_vm_sent_tags[0] }}-unfinished"
 
+# Internal: the tag configure.yml writes once the VM has held a Tailscale login
+# of the tailscale role's (claude_vm_tailscale_tag), kept by every call below
+# that replaces the tag list. A VM repaired, or force-updated, would otherwise
+# lose the record, and be handed the vault's Tailscale key again.
+proxmox_vm_tailscale_tag: "{{ proxmox_vm_sent_tags[0] }}-tailscale"
+proxmox_vm_kept_tags: "{{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}"
+
 # Internal: whether the VM still needs its settings applied, its disk resized
 # and a start. Existence alone is not convergence - if a run died between the
 # clone and the settings call, the VM exists but has no cloud-init user, no SSH

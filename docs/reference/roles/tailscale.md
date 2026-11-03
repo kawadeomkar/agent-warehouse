@@ -18,6 +18,7 @@ Installs Tailscale from its apt repository, joins the tailnet with tailscale_aut
 | `tailscale_enabled` | bool | `true` | Install and join; false logs out and removes what this role installed. |
 | `tailscale_auth_key` | str | `""` | A key for the first join only (tskey-auth-..., or a tskey-client-... OAuth secret, which needs tailscale_advertise_tags). Empty leaves the VM for the web login. Set through vault_tailscale_auth_key in vault.yml. A secret: never logged. |
 | `tailscale_auth_method` | str | `auto` | auto joins with tailscale_auth_key when there is one and leaves the VM for the web login otherwise; key joins with the key only, and an empty one fails by name; web leaves every VM for the web login. One of `auto`, `key`, `web`. |
+| `tailscale_joined_before` | bool | `false` | Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox (claude_vm_tailscale_tag), which the VM cannot change. Such a VM is never sent the key again; under auto it is left for the web login, under key it fails. |
 | `tailscale_api_auth_method` | str | `auto` | How the device is deleted from the tailnet through Tailscale's API, on this machine. auto uses whichever credential is set, tailscale_api_token first, and is none when neither is; none leaves the device there, logged out, and names it; token uses tailscale_api_token; oauth exchanges tailscale_oauth_client_id and tailscale_oauth_client_secret, a client with the devices:core scope, for an access token. One of `auto`, `none`, `token`, `oauth`. |
 | `tailscale_api_token` | str | `""` | An API access token (tskey-api-...), used under tailscale_api_auth_method auto or token. Set through vault_tailscale_api_token in vault.yml. A secret: never logged. |
 | `tailscale_oauth_client_id` | str | `""` | An OAuth client's ID, used under tailscale_api_auth_method auto or oauth. Set through vault_tailscale_oauth_client_id in vault.yml. |
@@ -50,6 +51,7 @@ With tailscale_login_interactive, or the answer to the question tailscale_login_
 | `tailscale_login_interactive` | bool | `false` | Sign in; the question below, when asked, takes Enter as yes. |
 | `tailscale_login_ask` | bool | `false` | Ask first, at a prompt here. With no terminal it returns at once with no answer. |
 | `tailscale_auth_method` | str | `auto` | Under key, a VM is joined by just deploy --only configure with the key, never by the web login. One of `auto`, `key`, `web`. |
+| `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the report never says the key will join it again. |
 
 Also takes, as described under `main`: `tailscale_enabled`, `tailscale_login_timeout`, `tailscale_login_desktop`, `tailscale_login_server`, `tailscale_advertise_tags`, `tailscale_marker_dir`.
 
@@ -61,6 +63,7 @@ Reads what Tailscale is installed and whose, and its state once, without waiting
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the line never says the key will join it again. |
 | `tailscale_auth_key` | str | `""` | Only whether one is set is read, for the line that says what joins the VM. A secret: never logged. |
 | `tailscale_hostname` | str | computed | The machine name asked for, which a name taken is told by. |
 
@@ -76,7 +79,7 @@ Also takes, as described under `main`: `tailscale_api_auth_method`, `tailscale_a
 
 ## Internal values
 
-Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 69 of the 78 are computed during a run, from earlier tasks' results.
+Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 71 of the 81 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -105,7 +108,9 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_dns_name` | <code>{{ (tailscale_self.DNSName &#124; default('')) &#124; regex_replace('[.]$', '') }}</code> |
 | `tailscale_ipv4` | <code>{{ tailscale_self.TailscaleIPs &#124; default([], true) &#124; tailnet_ipv4 }}</code> |
 | `tailscale_tailnet` | <code>{{ (tailscale_state.CurrentTailnet &#124; default({}, true)).Name &#124; default('') }}</code> |
-| `tailscale_first_join` | <code>{{ tailscale_backend == 'NeedsLogin' and not (tailscale_joined &#124; bool) }}</code> |
+| `tailscale_no_login` | <code>{{ tailscale_backend == 'NeedsLogin' and not (tailscale_joined &#124; bool) }}</code> |
+| `tailscale_first_join` | <code>{{ tailscale_no_login &#124; bool and not (tailscale_joined_before &#124; bool) }}</code> |
+| `tailscale_key_held_back` | <code>{{ tailscale_no_login &#124; bool and tailscale_joined_before &#124; bool and tailscale_key_wanted &#124; bool }}</code> |
 | `tailscale_name_taken` | <code>{{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname &#124; lower &#124; regex_escape) ~ '-[0-9]+$') }}</code> |
 | `tailscale_signed_in` | <code>{{ (tailscale_joined &#124; bool) and tailscale_backend in ['Running', 'NeedsMachineAuth'] }}</code> |
 | `tailscale_login_pending` | `{{ tailscale_joined_marker_text == 'pending' }}` |
@@ -130,6 +135,7 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_login_poll_seconds` | `5` |
 | `tailscale_web_page` | <code>{{ ((tailscale_web_state.stdout &#124; from_json).AuthURL &#124; default('')) if (tailscale_web_state.rc &#124; default(1)) == 0 else '' }}</code> |
 | `tailscale_web_page_trusted` | <code>{{ (tailscale_web_page is match('https://login[.]tailscale[.]com/a/[0-9a-f]+$')) if tailscale_login_server &#124; length == 0 else (tailscale_web_page is match((tailscale_login_server &#124; regex_replace('/+$', '') &#124; regex_escape) ~ '/[A-Za-z0-9/_:.?=&amp;%-]+$')) }}</code> |
+| `tailscale_node_id_pattern` | `^[A-Za-z0-9]+\Z` |
 | `tailscale_api_credential` | <code>{{ tailscale_api_auth_method if tailscale_api_auth_method != 'auto' else 'token' if tailscale_api_token &#124; length > 0 else 'oauth' if (tailscale_oauth_client_id &#124; length > 0 or tailscale_oauth_client_secret &#124; length > 0) else 'none' }}</code> |
 | `tailscale_api_oauth_whole` | <code>{{ tailscale_oauth_client_id &#124; length > 0 and tailscale_oauth_client_secret &#124; length > 0 }}</code> |
 | `tailscale_api_bearer` | <code>{{ tailscale_api_token if tailscale_api_credential == 'token' else ((tailscale_api_oauth.json &#124; default({}, true)).access_token &#124; default('', true)) if tailscale_api_credential == 'oauth' else '' }}</code> |
@@ -141,7 +147,7 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_api_gone_said` | `Tailscale had no such device (HTTP 404) - it was gone already, or is in a tailnet the API credential does not reach` |
 | `tailscale_api_by_hand` | <code>{{ ("; find this VM's own device at " ~ tailscale_admin_page ~ ' and delete it') if (tailscale_api_lookup.status &#124; default(0)) == 200 and not (tailscale_api_device_ours &#124; bool) else ': delete it at ' ~ tailscale_admin_page }}</code> |
 | `tailscale_api_last` | <code>{{ tailscale_api_delete if (tailscale_api_delete &#124; default({'skipped': true})) is not skipped else tailscale_api_lookup if (tailscale_api_lookup &#124; default({'skipped': true})) is not skipped else tailscale_api_oauth &#124; default({}) }}</code> |
-| `tailscale_api_refused_why` | <code>{{ 'the OAuth client needs both tailscale_oauth_client_id and tailscale_oauth_client_secret' if tailscale_api_credential == 'oauth' and not (tailscale_api_oauth_whole &#124; bool) else ('Tailscale refused the OAuth client (HTTP ' ~ (tailscale_api_oauth.status &#124; default('?')) ~ ')') if tailscale_api_credential == 'oauth' and tailscale_api_bearer &#124; length == 0 else 'no API access token is set (tailscale_api_token)' if tailscale_api_bearer &#124; length == 0 else ('the device under the ID the VM reported is named ' ~ (tailscale_api_device_name &#124; plain_text &#124; to_json) ~ ', not ' ~ (tailscale_hostname &#124; to_json) ~ ", so it is not this VM's") if (tailscale_api_lookup.status &#124; default(0)) == 200 and not (tailscale_api_device_ours &#124; bool) else ('Tailscale refused the call (HTTP 403): the ' ~ ('OAuth client' if tailscale_api_credential == 'oauth' else 'API access token') ~ ' may not delete this device - an OAuth client only those with its tags') if (tailscale_api_last.status &#124; default(0)) == 403 else ('Tailscale answered HTTP ' ~ (tailscale_api_last.status &#124; default('?')) ~ ': ' ~ ((tailscale_api_last.msg &#124; default('') &#124; plain_text)[:200] or 'no reason given')) }}</code> |
+| `tailscale_api_refused_why` | <code>{{ ('the node ID it reported, ' ~ (tailscale_api_refused_node &#124; plain_text &#124; to_json) ~ ", is not one Tailscale gives, so Tailscale's API was not asked") if tailscale_api_refused_node &#124; default('') &#124; length > 0 else 'the OAuth client needs both tailscale_oauth_client_id and tailscale_oauth_client_secret' if tailscale_api_credential == 'oauth' and not (tailscale_api_oauth_whole &#124; bool) else ('Tailscale refused the OAuth client (HTTP ' ~ (tailscale_api_oauth.status &#124; default('?')) ~ ')') if tailscale_api_credential == 'oauth' and tailscale_api_bearer &#124; length == 0 else 'no API access token is set (tailscale_api_token)' if tailscale_api_bearer &#124; length == 0 else ('the device under the ID the VM reported is named ' ~ (tailscale_api_device_name &#124; plain_text &#124; to_json) ~ ', not ' ~ (tailscale_hostname &#124; to_json) ~ ", so it is not this VM's") if (tailscale_api_lookup.status &#124; default(0)) == 200 and not (tailscale_api_device_ours &#124; bool) else ('Tailscale refused the call (HTTP 403): the ' ~ ('OAuth client' if tailscale_api_credential == 'oauth' else 'API access token') ~ ' may not delete this device - an OAuth client only those with its tags') if (tailscale_api_last.status &#124; default(0)) == 403 else ('Tailscale answered HTTP ' ~ (tailscale_api_last.status &#124; default('?')) ~ ': ' ~ ((tailscale_api_last.msg &#124; default('') &#124; plain_text)[:200] or 'no reason given')) }}</code> |
 | `tailscale_release_state` | <code>{{ (tailscale_release_status.stdout &#124; from_json) if (tailscale_release_status.rc &#124; default(1)) == 0 else {} }}</code> |
 | `tailscale_release_joined` | <code>{{ tailscale_release_state.HaveNodeKey &#124; default(false) &#124; bool }}</code> |
 | `tailscale_release_node` | <code>{{ (tailscale_release_state.Self &#124; default({}, true)).ID &#124; default('', true) }}</code> |
@@ -152,7 +158,7 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_absent_unasked` | <code>{{ tailscale_package_present &#124; bool and (tailscale_absent_status.rc &#124; default(1)) != 0 }}</code> |
 | `tailscale_absent_logout_failed` | <code>{{ (tailscale_logout &#124; default({'skipped': true})) is not skipped and (tailscale_logout.rc &#124; default(0)) != 0 }}</code> |
 | `tailscale_absent_login_left` | <code>{{ tailscale_absent_unasked &#124; bool or tailscale_absent_logout_failed &#124; bool }}</code> |
-| `tailscale_report_case` | <code>{{ 'not-ours' if not (tailscale_ours &#124; bool) else 'check-no-package' if tailscale_check_without_package &#124; bool else 'check-daemon-down' if ansible_check_mode and not (tailscale_daemon_up &#124; bool) else 'connecting' if not (tailscale_settled &#124; bool) else 'would-join' if ansible_check_mode and tailscale_first_join &#124; bool and tailscale_key_wanted &#124; bool and not (tailscale_key_refused_locally &#124; bool) else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url &#124; length > 0 else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined &#124; bool else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted &#124; bool and (tailscale_join_ran &#124; bool or tailscale_key_refused_locally &#124; bool) else tailscale_backend }}</code> |
+| `tailscale_report_case` | <code>{{ 'not-ours' if not (tailscale_ours &#124; bool) else 'check-no-package' if tailscale_check_without_package &#124; bool else 'check-daemon-down' if ansible_check_mode and not (tailscale_daemon_up &#124; bool) else 'connecting' if not (tailscale_settled &#124; bool) else 'would-join' if ansible_check_mode and tailscale_first_join &#124; bool and tailscale_key_wanted &#124; bool and not (tailscale_key_refused_locally &#124; bool) else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url &#124; length > 0 else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined &#124; bool else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted &#124; bool and not (tailscale_key_held_back &#124; bool) and (tailscale_join_ran &#124; bool or tailscale_key_refused_locally &#124; bool) else tailscale_backend }}</code> |
 | `tailscale_report_open` | `["check-no-package", "check-daemon-down", "connecting", "would-join", "page-pending", "expired", "refused", "NeedsMachineAuth", "Stopped"]` |
 | `tailscale_report_left` | <code>{{ tailscale_report_case in tailscale_report_open or (tailscale_report_case == 'NeedsLogin' and not (tailscale_sign_in_follows &#124; bool and tailscale_auth_method != 'key')) or (tailscale_report_case == 'Running' and (tailscale_name_taken &#124; bool or tailscale_tags_missing &#124; length > 0)) }}</code> |
 | `tailscale_admin_page` | <code>{{ 'your control server' if tailscale_login_server &#124; length > 0 else 'https://login.tailscale.com/admin/machines' }}</code> |
@@ -253,9 +259,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Exchange the OAuth client for an access token | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_credential == 'oauth' and tailscale_api_oauth_whole &#124; bool</code> |
-| Look the device up | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_bearer &#124; length > 0</code> |
-| Delete the device from the tailnet | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_bearer &#124; length > 0 and tailscale_api_device_ours &#124; bool</code> |
+| Refuse a node ID that is not one Tailscale gives | `ansible.builtin.set_fact` |  |
+| Exchange the OAuth client for an access token | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_refused_node &#124; length == 0 and tailscale_api_credential == 'oauth' and tailscale_api_oauth_whole &#124; bool</code> |
+| Look the device up | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_refused_node &#124; length == 0 and tailscale_api_bearer &#124; length > 0</code> |
+| Delete the device from the tailnet | `ansible.builtin.uri` | <code>tailscale_api_go &#124; bool and tailscale_api_refused_node &#124; length == 0 and tailscale_api_bearer &#124; length > 0 and tailscale_api_device_ours &#124; bool</code> |
 
 ```mermaid
 flowchart TD
@@ -269,10 +276,11 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| api_delete___Exchange_the_OAuth_client_for_an_access_token0[api delete   exchange the oauth client for an<br>access token<br>When: **tailscale api go   bool and tailscale api<br>credential     oauth  and tailscale api oauth<br>whole   bool**]:::task
-  api_delete___Exchange_the_OAuth_client_for_an_access_token0-->|Task| api_delete___Look_the_device_up1[api delete   look the device up<br>When: **tailscale api go   bool and tailscale api bearer  <br>length   0**]:::task
-  api_delete___Look_the_device_up1-->|Task| api_delete___Delete_the_device_from_the_tailnet2[api delete   delete the device from the tailnet<br>When: **tailscale api go   bool and tailscale api bearer  <br>length   0 and tailscale api device ours   bool**]:::task
-  api_delete___Delete_the_device_from_the_tailnet2-->End
+  Start-->|Task| api_delete___Refuse_a_node_ID_that_is_not_one_Tailscale_gives0[api delete   refuse a node id that is not one<br>tailscale gives]:::task
+  api_delete___Refuse_a_node_ID_that_is_not_one_Tailscale_gives0-->|Task| api_delete___Exchange_the_OAuth_client_for_an_access_token1[api delete   exchange the oauth client for an<br>access token<br>When: **tailscale api go   bool and tailscale api refused<br>node   length    0 and tailscale api credential   <br> oauth  and tailscale api oauth whole   bool**]:::task
+  api_delete___Exchange_the_OAuth_client_for_an_access_token1-->|Task| api_delete___Look_the_device_up2[api delete   look the device up<br>When: **tailscale api go   bool and tailscale api refused<br>node   length    0 and tailscale api bearer  <br>length   0**]:::task
+  api_delete___Look_the_device_up2-->|Task| api_delete___Delete_the_device_from_the_tailnet3[api delete   delete the device from the tailnet<br>When: **tailscale api go   bool and tailscale api refused<br>node   length    0 and tailscale api bearer  <br>length   0 and tailscale api device ours   bool**]:::task
+  api_delete___Delete_the_device_from_the_tailnet3-->End
 ```
 
 ### `connect.yml`
@@ -281,6 +289,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 |---|---|---|
 | Record the login a pending sign-in of this role's ended in | `ansible.builtin.copy` | <code>tailscale_login_pending &#124; bool and tailscale_signed_in &#124; bool</code> |
 | Read what this role has made, now that it has recorded the login | `ansible.builtin.include_tasks` | <code>tailscale_adopted is not skipped</code> |
+| Fail when the key would go to a VM that joined before | `ansible.builtin.assert` | <code>tailscale_ours &#124; bool and tailscale_auth_method == 'key'</code> |
 | Remember what tailscaled said before the join | `ansible.builtin.set_fact` | <code>not ansible_check_mode and tailscale_ours &#124; bool and tailscale_key_wanted &#124; bool and tailscale_first_join &#124; bool and not (tailscale_key_refused_locally &#124; bool)</code> |
 | Join the tailnet with the key | `ansible.builtin.command` | <code>not ansible_check_mode and tailscale_ours &#124; bool and tailscale_key_wanted &#124; bool and tailscale_first_join &#124; bool and not (tailscale_key_refused_locally &#124; bool)</code> |
 | Read the state after the join | `ansible.builtin.include_tasks` | <code>tailscale_join is not skipped</code> |
@@ -288,6 +297,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Mark a join still under way as this role's | `ansible.builtin.copy` | <code>tailscale_join is not skipped and not (tailscale_signed_in &#124; bool) and tailscale_join_under_way &#124; bool</code> |
 | Forget the sign-in a failed join ended | `ansible.builtin.file` | <code>tailscale_join is not skipped and not (tailscale_signed_in &#124; bool) and not (tailscale_join_under_way &#124; bool)</code> |
 | Read what this role has made, now that it has joined | `ansible.builtin.include_tasks` | <code>tailscale_join is not skipped and tailscale_signed_in &#124; bool</code> |
+| Say whether the VM holds a login of this role's, for Proxmox to record | `ansible.builtin.set_fact` |  |
 
 ```mermaid
 flowchart TD
@@ -303,14 +313,16 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| connect___Record_the_login_a_pending_sign_in_of_this_role_s_ended_in0[connect   record the login a pending sign in of<br>this role s ended in<br>When: **tailscale login pending   bool and tailscale<br>signed in   bool**]:::task
   connect___Record_the_login_a_pending_sign_in_of_this_role_s_ended_in0-->|Include task| connect___Read_what_this_role_has_made__now_that_it_has_recorded_the_login_ownership_yml_1[connect   read what this role has made  now that<br>it has recorded the login<br>When: **tailscale adopted is not skipped**<br>include_task: ownership yml]:::includeTasks
-  connect___Read_what_this_role_has_made__now_that_it_has_recorded_the_login_ownership_yml_1-->|Task| connect___Remember_what_tailscaled_said_before_the_join2[connect   remember what tailscaled said before the<br>join<br>When: **not ansible check mode and tailscale ours   bool<br>and tailscale key wanted   bool and tailscale<br>first join   bool and not  tailscale key refused<br>locally   bool**]:::task
-  connect___Remember_what_tailscaled_said_before_the_join2-->|Task| connect___Join_the_tailnet_with_the_key3[connect   join the tailnet with the key<br>When: **not ansible check mode and tailscale ours   bool<br>and tailscale key wanted   bool and tailscale<br>first join   bool and not  tailscale key refused<br>locally   bool**]:::task
-  connect___Join_the_tailnet_with_the_key3-->|Include task| connect___Read_the_state_after_the_join_state_yml_4[connect   read the state after the join<br>When: **tailscale join is not skipped**<br>include_task: state yml]:::includeTasks
-  connect___Read_the_state_after_the_join_state_yml_4-->|Task| connect___Remember_that_this_login_is_this_role_s5[connect   remember that this login is this role s<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**]:::task
-  connect___Remember_that_this_login_is_this_role_s5-->|Task| connect___Mark_a_join_still_under_way_as_this_role_s6[connect   mark a join still under way as this role<br>s<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and tailscale join under way  <br>bool**]:::task
-  connect___Mark_a_join_still_under_way_as_this_role_s6-->|Task| connect___Forget_the_sign_in_a_failed_join_ended7[connect   forget the sign in a failed join ended<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and not  tailscale join under<br>way   bool**]:::task
-  connect___Forget_the_sign_in_a_failed_join_ended7-->|Include task| connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_8[connect   read what this role has made  now that<br>it has joined<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**<br>include_task: ownership yml]:::includeTasks
-  connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_8-->End
+  connect___Read_what_this_role_has_made__now_that_it_has_recorded_the_login_ownership_yml_1-->|Task| connect___Fail_when_the_key_would_go_to_a_VM_that_joined_before2[connect   fail when the key would go to a vm that<br>joined before<br>When: **tailscale ours   bool and tailscale auth method   <br> key**]:::task
+  connect___Fail_when_the_key_would_go_to_a_VM_that_joined_before2-->|Task| connect___Remember_what_tailscaled_said_before_the_join3[connect   remember what tailscaled said before the<br>join<br>When: **not ansible check mode and tailscale ours   bool<br>and tailscale key wanted   bool and tailscale<br>first join   bool and not  tailscale key refused<br>locally   bool**]:::task
+  connect___Remember_what_tailscaled_said_before_the_join3-->|Task| connect___Join_the_tailnet_with_the_key4[connect   join the tailnet with the key<br>When: **not ansible check mode and tailscale ours   bool<br>and tailscale key wanted   bool and tailscale<br>first join   bool and not  tailscale key refused<br>locally   bool**]:::task
+  connect___Join_the_tailnet_with_the_key4-->|Include task| connect___Read_the_state_after_the_join_state_yml_5[connect   read the state after the join<br>When: **tailscale join is not skipped**<br>include_task: state yml]:::includeTasks
+  connect___Read_the_state_after_the_join_state_yml_5-->|Task| connect___Remember_that_this_login_is_this_role_s6[connect   remember that this login is this role s<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**]:::task
+  connect___Remember_that_this_login_is_this_role_s6-->|Task| connect___Mark_a_join_still_under_way_as_this_role_s7[connect   mark a join still under way as this role<br>s<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and tailscale join under way  <br>bool**]:::task
+  connect___Mark_a_join_still_under_way_as_this_role_s7-->|Task| connect___Forget_the_sign_in_a_failed_join_ended8[connect   forget the sign in a failed join ended<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and not  tailscale join under<br>way   bool**]:::task
+  connect___Forget_the_sign_in_a_failed_join_ended8-->|Include task| connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9[connect   read what this role has made  now that<br>it has joined<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**<br>include_task: ownership yml]:::includeTasks
+  connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9-->|Task| connect___Say_whether_the_VM_holds_a_login_of_this_role_s__for_Proxmox_to_record10[connect   say whether the vm holds a login of this<br>role s  for proxmox to record]:::task
+  connect___Say_whether_the_VM_holds_a_login_of_this_role_s__for_Proxmox_to_record10-->End
 ```
 
 ### `install.yml`

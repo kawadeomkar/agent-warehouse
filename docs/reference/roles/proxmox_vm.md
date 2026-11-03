@@ -58,7 +58,7 @@ All API calls are delegated to the controller.
 | `proxmox_vm_searchdomain` | str | `""` | Defaults to the vm_searchdomain host var. Set through vm_searchdomain in local.yml. |
 | `proxmox_vm_agent_retries` | int | `60` | How many times to poll the guest agent for an address. A count, not a wall-clock budget. With the defaults the wait is five minutes of delay plus the time each poll takes; a running VM with no agent answers each poll only after Proxmox's own ~3 s agent ping, so the role gives up on it after about nine minutes. |
 | `proxmox_vm_agent_delay` | int | `5` | Seconds between guest agent polls. |
-| `proxmox_vm_force_update` | bool | `false` | Re-apply the hardware and cloud-init settings to a VM that exists. Off by default because Proxmox reports every update as a change. On, every VM the run covers has its settings re-applied, its tag list replaced with proxmox_vm_tags (tags added by hand are dropped), and is started, whether or not it was shut down on purpose. |
+| `proxmox_vm_force_update` | bool | `false` | Re-apply the hardware and cloud-init settings to a VM that exists. Off by default because Proxmox reports every update as a change. On, every VM the run covers has its settings re-applied, its tag list replaced with proxmox_vm_tags (tags added by hand are dropped; the record that it joined Tailscale is kept), and is started, whether or not it was shut down on purpose. |
 
 ## Entry point `settings_drift`
 
@@ -72,7 +72,7 @@ Compares the VM's config, as the caller read it from Proxmox, with this role's o
 
 ## Internal values
 
-Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 10 are computed during a run, from earlier tasks' results.
+Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 12 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -83,6 +83,8 @@ Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a
 | `proxmox_vm_found_tags` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].tags &#124; default('', true) &#124; replace(',', ';') &#124; split(';') &#124; map('trim') &#124; select &#124; map('lower') &#124; list }}</code> |
 | `proxmox_vm_sent_tags` | <code>{{ proxmox_vm_tags &#124; map('lower') &#124; list }}</code> |
 | `proxmox_vm_unfinished_tag` | `{{ proxmox_vm_sent_tags[0] }}-unfinished` |
+| `proxmox_vm_tailscale_tag` | `{{ proxmox_vm_sent_tags[0] }}-tailscale` |
+| `proxmox_vm_kept_tags` | `{{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}` |
 | `proxmox_vm_needs_configuration` | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
 | `proxmox_vm_forget_address` | `{{ proxmox_vm_reported_address }}` |
 | `proxmox_vm_forget_names` | <code>{{ ([proxmox_vm_forget_address] if proxmox_vm_forget_address &#124; length > 0 else []) + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain] if proxmox_vm_known_hosts_domain &#124; length > 0 else []) }}</code> |
