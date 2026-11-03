@@ -51,7 +51,8 @@ what it stores:
   it. `tests/unit/test_release.py` holds that nothing reaches that endpoint, and greps the release's whole
   output, module arguments included, for every canned credential.
 - **What the VM ends up trusting**: the SSH key material, the passwordless sudo rule and the docker group
-  membership.
+  membership. Turned off, the rule goes with the one cloud-init writes and the groups that reach root
+  without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: `~/.ssh/known_hosts`, the managed SSH config
   `~/.ssh/claude-on-proxmox.conf` and the one `Include` line at the top of `~/.ssh/config`
   (`playbooks/tasks/ssh_config.yml`). A bug there reaches every `ssh` on the user's machine. The VM's

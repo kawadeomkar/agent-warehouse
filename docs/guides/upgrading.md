@@ -127,6 +127,20 @@ this matters only for a program you `cargo install` after turning Rust on:
 
 New sessions get it by themselves, and nothing needs restarting.
 
+## Passwordless sudo turned off on a VM configured by an earlier version
+
+`common_user_passwordless_sudo: false` used to take away only the `common` role's own sudo rule. cloud-init
+writes one of its own for the user it creates, `NOPASSWD:ALL` in `/etc/sudoers.d/90-cloud-init-users`, so
+the user stayed root. The setting now takes that rule away too, and the `lxd`, `cdrom` and `adm` groups
+([What the VM trusts](what-the-vm-trusts.md)), and so needs a password for sudo to ask for:
+`vault_vm_password`, which the playbooks become root with. A configure with the setting off and no
+password fails before it changes anything. Set it with `just vault`, then run
+`just deploy --only configure`. Likewise `dev_tools_install_docker: false` now takes the user out of the
+`docker` group an earlier run put it in.
+
+What was already running on the VM - a Remote Control session, a terminal, VS Code's server - keeps the
+groups it started with until it restarts; restarting the VM ends them all.
+
 ## Tailscale on VMs configured by an earlier version
 
 From PR #24, which joins the VMs to a tailnet. Tailscale is on by default, so the next `just deploy --only configure` installs it on every VM and reports each one

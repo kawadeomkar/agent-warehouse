@@ -681,7 +681,12 @@ back. Keep each drop-in with its owner: `10-` is `common`'s hardening, `15-` `co
 VM user's ssh sessions (`Match User` + `SetEnv`, checked the same way, since sshd keeps the first
 `SetEnv` that applies), `20-` VS Code's forwarding and keepalives. That PATH starts with `~/.local/bin`,
 so every `add_host` that publishes a VM gives it `ansible_python_interpreter: "{{ claude_vm_python }}"`:
-discovery would take a `python3.13` that `uv python install` put there, and run it as root.
+discovery would take a `python3.13` that `uv python install` put there, and run it as root. For the same
+reason every play becomes root through `/usr/bin/sudo` by its path (`ansible_become_exe`, group_vars/all): a
+`sudo` of the user's own there would be handed every module's arguments, and the password the playbooks become
+root with where sudo asks for one (`ansible_become_password`, `vault_vm_password`, which the `common` role sets as the
+user's, unlocked, before `common_user_passwordless_sudo: false` takes cloud-init's `NOPASSWD` rule away; set whatever
+the setting, since the run that turns it back on meets the VM still without the rule).
 
 **The alias play reads a fact the configure play set last.** `configure.yml`'s second play ends
 with a `getent` of `vm_user` and a `claude_vm_workspace` fact, both tagged `always`; the third play

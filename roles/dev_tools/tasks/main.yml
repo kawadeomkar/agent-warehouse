@@ -14,6 +14,23 @@
   ansible.builtin.include_tasks: docker.yml
   when: dev_tools_install_docker
 
+# Off on a VM an earlier run gave Docker: the engine stays, but its group is
+# root, so the user leaves it.
+- name: Read the docker group
+  ansible.builtin.getent:
+    database: group
+    key: docker
+    fail_key: false
+  when: not dev_tools_install_docker
+
+- name: Take the user out of the docker group
+  ansible.builtin.command:
+    argv: [gpasswd, --delete, "{{ dev_tools_user }}", docker]
+  changed_when: true
+  when:
+    - not dev_tools_install_docker
+    - dev_tools_user in ((ansible_facts['getent_group'] | default({}))['docker'] | default(['', '', ''], true))[2].split(',')
+
 - name: Install GitHub CLI
   ansible.builtin.include_tasks: gh.yml
   when: dev_tools_install_gh

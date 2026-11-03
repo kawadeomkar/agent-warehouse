@@ -452,11 +452,11 @@ Proxmox API token secret for proxmox_api_user (default ansible@pve): just init w
 
 ### Secrets: VMs
 
-Optional: a password for the VM user, for the Proxmox console. SSH stays key-only either way (common_harden_ssh). Empty sets none.
+Optional: a password for the VM user, for the Proxmox console, and the one sudo asks for with common_user_passwordless_sudo: false, which the playbooks then become root with. SSH stays key-only either way (common_harden_ssh). Empty sets none.
 
 | Secret, in `vault.yml` | Notes |
 |---|---|
-| `vault_vm_password` | Sets `proxmox_vm_password` ([`proxmox_vm`](roles/proxmox_vm.md)): Optional cloud-init password for the user (vault_vm_password in vault.yml). |
+| `vault_vm_password` | Sets `proxmox_vm_password` ([`proxmox_vm`](roles/proxmox_vm.md)): Optional cloud-init password for the user (vault_vm_password in vault.yml). Sets `common_user_password` ([`common`](roles/common.md)): The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role. |
 
 ### Secrets: GitHub
 

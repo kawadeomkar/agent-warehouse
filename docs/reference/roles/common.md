@@ -16,7 +16,9 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 | `common_user` | str | `dev` | Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Set through vm_user in local.yml. |
 | `common_user_shell` | str | `/bin/bash` | Login shell of common_user. |
 | `common_user_groups` | list of `str` | `["sudo"]` | Groups common_user is added to. Groups it already has are kept. |
-| `common_user_passwordless_sudo` | bool | `true` | Let common_user run sudo without a password, through a sudoers drop-in, which the playbooks' become relies on. false removes the drop-in. |
+| `common_user_passwordless_sudo` | bool | `true` | Let common_user run sudo without a password, through a sudoers drop-in, which the playbooks' become relies on. false makes sudo ask for common_user_password, which the playbooks then become root with, and needs it set. It removes the role's drop-in and cloud-init's own rule for the user (90-cloud-init-users), keeps a new cloud-init instance from writing that rule again (cloud.cfg.d), takes the user out of common_user_groups_revoked, and fails if sudo still lets the user run anything without a password. |
+| `common_user_password` | str | `""` | The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role. Set through vault_vm_password in vault.yml. A secret: never logged. |
+| `common_user_groups_revoked` | list of `str` | `["adm", "cdrom", "lxd"]` | Groups common_user is taken out of when common_user_passwordless_sudo is false, unless common_user_groups lists one. cloud-init gives the user it creates all three. lxd gets LXD from Ubuntu's lxd-installer on first use, root wherever snapd runs; cdrom reads the cloud-init drive, which holds the password's hash; adm reads every system log. |
 | `common_user_ssh_public_keys` | list of `str` | `[]` | Public keys added to common_user's authorized_keys. Keys already there are kept. Set through vm_ssh_public_keys in local.yml. |
 | `common_timezone` | str | `Etc/UTC` | Timezone name from /usr/share/zoneinfo, such as Europe/Berlin, linked to /etc/localtime. |
 | `common_manage_hostname` | bool | `true` | Set the hostname to common_hostname. Never done in a container (common_container_virt_types). |
@@ -36,7 +38,7 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 4 are computed during a run, from earlier tasks' results.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 5 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -44,6 +46,7 @@ Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a rol
 | `common_ssh_path_system` | <code>{{ common_environment.content &#124; default('') &#124; b64decode &#124; regex_findall('^PATH="?([^"\n]*)"?[ \t]*$', multiline=True) &#124; first &#124; default('', true) or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin' }}</code> |
 | `common_ssh_path` | <code>{{ (common_ssh_path_dirs &#124; map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/') &#124; list + [common_ssh_path_system]) &#124; join(':') }}</code> |
 | `common_ssh_path_dropin` | `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf` |
+| `common_cloud_init_user_cfg` | `/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg` |
 
 ## Tasks
 
@@ -65,8 +68,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Record timezone name | `ansible.builtin.copy` |  |
 | Set hostname | `ansible.builtin.hostname` | <code>common_manage_hostname and ansible_facts['virtualization_type'] not in common_container_virt_types</code> |
 | Create user {{ common_user }} | `ansible.builtin.user` |  |
-| Grant passwordless sudo | `ansible.builtin.template` | <code>common_user_passwordless_sudo</code> |
-| Revoke passwordless sudo | `ansible.builtin.file` | <code>not common_user_passwordless_sudo</code> |
+| Grant or take away passwordless sudo | `ansible.builtin.include_tasks` |  |
 | Authorise SSH keys | `ansible.posix.authorized_key` |  |
 | Ensure sshd privilege separation directory exists | `ansible.builtin.file` | <code>common_harden_ssh or common_ssh_path_dirs &#124; length > 0</code> |
 | Harden sshd | `ansible.builtin.template` | <code>common_harden_ssh</code> |
@@ -100,18 +102,17 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Set_timezone7-->|Task| Record_timezone_name8[record timezone name]:::task
   Record_timezone_name8-->|Task| Set_hostname9[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
   Set_hostname9-->|Task| Create_user_common_user10[create user common user]:::task
-  Create_user_common_user10-->|Task| Grant_passwordless_sudo11[grant passwordless sudo<br>When: **common user passwordless sudo**]:::task
-  Grant_passwordless_sudo11-->|Task| Revoke_passwordless_sudo12[revoke passwordless sudo<br>When: **not common user passwordless sudo**]:::task
-  Revoke_passwordless_sudo12-->|Task| Authorise_SSH_keys13[authorise ssh keys]:::task
-  Authorise_SSH_keys13-->|Task| Ensure_sshd_privilege_separation_directory_exists14[ensure sshd privilege separation directory exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
-  Ensure_sshd_privilege_separation_directory_exists14-->|Task| Harden_sshd15[harden sshd<br>When: **common harden ssh**]:::task
-  Harden_sshd15-->|Task| Remove_sshd_hardening16[remove sshd hardening<br>When: **not common harden ssh**]:::task
-  Remove_sshd_hardening16-->|Task| Put____local_bin_on_PATH_for_all_users17[put    local bin on path for all users]:::task
-  Put____local_bin_on_PATH_for_all_users17-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
-  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18-->|Include task| Write_the_tmux_settings_tmux_yml_19[write the tmux settings<br>include_task: tmux yml]:::includeTasks
-  Write_the_tmux_settings_tmux_yml_19-->|Include task| Enable_and_start_services_services_yml_20[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
-  Enable_and_start_services_services_yml_20-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
-  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21-->End
+  Create_user_common_user10-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_11[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
+  Grant_or_take_away_passwordless_sudo_sudo_yml_11-->|Task| Authorise_SSH_keys12[authorise ssh keys]:::task
+  Authorise_SSH_keys12-->|Task| Ensure_sshd_privilege_separation_directory_exists13[ensure sshd privilege separation directory exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
+  Ensure_sshd_privilege_separation_directory_exists13-->|Task| Harden_sshd14[harden sshd<br>When: **common harden ssh**]:::task
+  Harden_sshd14-->|Task| Remove_sshd_hardening15[remove sshd hardening<br>When: **not common harden ssh**]:::task
+  Remove_sshd_hardening15-->|Task| Put____local_bin_on_PATH_for_all_users16[put    local bin on path for all users]:::task
+  Put____local_bin_on_PATH_for_all_users16-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_17[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
+  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_17-->|Include task| Write_the_tmux_settings_tmux_yml_18[write the tmux settings<br>include_task: tmux yml]:::includeTasks
+  Write_the_tmux_settings_tmux_yml_18-->|Include task| Enable_and_start_services_services_yml_19[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
+  Enable_and_start_services_services_yml_19-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
+  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20-->End
 ```
 
 ### `masked_units.yml`
@@ -209,6 +210,59 @@ classDef rescue stroke:#665352,stroke-width:2px;
   ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user6-->|Task| ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7[ssh path   find what else sets sshd s environment <br>if anything does<br>When: **common ssh path dirs   length   0**]:::task
   ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7-->|Task| ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8[ssh path   fail when sshd does not give that path<br>to the sessions of common user<br>When: **common ssh path dirs   length   0 and not ansible<br>check mode**]:::task
   ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8-->End
+```
+
+### `sudo.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Grant passwordless sudo | `ansible.builtin.template` | <code>common_user_passwordless_sudo</code> |
+| Let a new cloud-init instance set the user up as Ubuntu does | `ansible.builtin.file` | <code>common_user_passwordless_sudo</code> |
+| Take passwordless sudo away | block | <code>not common_user_passwordless_sudo</code> |
+| &emsp;Refuse to take it away with no password to become root by | `ansible.builtin.assert` |  |
+| &emsp;Hash the user's password | `ansible.builtin.command` |  |
+| &emsp;Give the user the password sudo will ask for | `ansible.builtin.user` |  |
+| &emsp;Read what sudo lets the user run now | `ansible.builtin.command` |  |
+| &emsp;Refuse to take the rules away while no other takes the password | `ansible.builtin.assert` |  |
+| &emsp;Revoke the role's passwordless sudo | `ansible.builtin.file` |  |
+| &emsp;Take the user's rules out of cloud-init's sudoers file | `ansible.builtin.lineinfile` |  |
+| &emsp;Look for cloud-init's settings folder | `ansible.builtin.stat` |  |
+| &emsp;Keep a new cloud-init instance from giving the rule back | `ansible.builtin.copy` | <code>common_cloud_init_cfg_d.stat.isdir &#124; default(false)</code> |
+| &emsp;Read the groups | `ansible.builtin.getent` |  |
+| &emsp;Take the user out of the groups that reach root or the password | `ansible.builtin.command` | <code>common_user in (ansible_facts['getent_group'][common_user_group] &#124; default(['', '', ''], true))[2].split(',')</code> |
+| &emsp;Read what sudo lets the user run in the end | `ansible.builtin.command` |  |
+| &emsp;Fail on any rule that still runs without a password | `ansible.builtin.assert` | <code>not ansible_check_mode</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| sudo___Grant_passwordless_sudo0[sudo   grant passwordless sudo<br>When: **common user passwordless sudo**]:::task
+  sudo___Grant_passwordless_sudo0-->|Task| sudo___Let_a_new_cloud_init_instance_set_the_user_up_as_Ubuntu_does1[sudo   let a new cloud init instance set the user<br>up as ubuntu does<br>When: **common user passwordless sudo**]:::task
+  sudo___Let_a_new_cloud_init_instance_set_the_user_up_as_Ubuntu_does1-->|Block Start| sudo___Take_passwordless_sudo_away2_block_start_0[[sudo   take passwordless sudo away<br>When: **not common user passwordless sudo**]]:::block
+  sudo___Take_passwordless_sudo_away2_block_start_0-->|Task| sudo___Refuse_to_take_it_away_with_no_password_to_become_root_by0[sudo   refuse to take it away with no password to<br>become root by]:::task
+  sudo___Refuse_to_take_it_away_with_no_password_to_become_root_by0-->|Task| sudo___Hash_the_user_s_password1[sudo   hash the user s password]:::task
+  sudo___Hash_the_user_s_password1-->|Task| sudo___Give_the_user_the_password_sudo_will_ask_for2[sudo   give the user the password sudo will ask<br>for]:::task
+  sudo___Give_the_user_the_password_sudo_will_ask_for2-->|Task| sudo___Read_what_sudo_lets_the_user_run_now3[sudo   read what sudo lets the user run now]:::task
+  sudo___Read_what_sudo_lets_the_user_run_now3-->|Task| sudo___Refuse_to_take_the_rules_away_while_no_other_takes_the_password4[sudo   refuse to take the rules away while no<br>other takes the password]:::task
+  sudo___Refuse_to_take_the_rules_away_while_no_other_takes_the_password4-->|Task| sudo___Revoke_the_role_s_passwordless_sudo5[sudo   revoke the role s passwordless sudo]:::task
+  sudo___Revoke_the_role_s_passwordless_sudo5-->|Task| sudo___Take_the_user_s_rules_out_of_cloud_init_s_sudoers_file6[sudo   take the user s rules out of cloud init s<br>sudoers file]:::task
+  sudo___Take_the_user_s_rules_out_of_cloud_init_s_sudoers_file6-->|Task| sudo___Look_for_cloud_init_s_settings_folder7[sudo   look for cloud init s settings folder]:::task
+  sudo___Look_for_cloud_init_s_settings_folder7-->|Task| sudo___Keep_a_new_cloud_init_instance_from_giving_the_rule_back8[sudo   keep a new cloud init instance from giving<br>the rule back<br>When: **common cloud init cfg d stat isdir   default false<br>**]:::task
+  sudo___Keep_a_new_cloud_init_instance_from_giving_the_rule_back8-->|Task| sudo___Read_the_groups9[sudo   read the groups]:::task
+  sudo___Read_the_groups9-->|Task| sudo___Take_the_user_out_of_the_groups_that_reach_root_or_the_password10[sudo   take the user out of the groups that reach<br>root or the password<br>When: **common user in  ansible facts  getent group  <br>common user group    default               true  <br>2  split**]:::task
+  sudo___Take_the_user_out_of_the_groups_that_reach_root_or_the_password10-->|Task| sudo___Read_what_sudo_lets_the_user_run_in_the_end11[sudo   read what sudo lets the user run in the end]:::task
+  sudo___Read_what_sudo_lets_the_user_run_in_the_end11-->|Task| sudo___Fail_on_any_rule_that_still_runs_without_a_password12[sudo   fail on any rule that still runs without a<br>password<br>When: **not ansible check mode**]:::task
+  sudo___Fail_on_any_rule_that_still_runs_without_a_password12-.->|End of Block| sudo___Take_passwordless_sudo_away2_block_start_0
+  sudo___Fail_on_any_rule_that_still_runs_without_a_password12-->End
 ```
 
 ### `tmux.yml`

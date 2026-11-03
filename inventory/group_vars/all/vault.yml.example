@@ -19,8 +19,10 @@
 vault_proxmox_api_token_secret: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # -------------------------------------------------------------------- VMs ---
-# Optional: a password for the VM user, for the Proxmox console. SSH stays
-# key-only either way (common_harden_ssh). Empty sets none.
+# Optional: a password for the VM user, for the Proxmox console, and the one
+# sudo asks for with common_user_passwordless_sudo: false, which the playbooks
+# then become root with. SSH stays key-only either way (common_harden_ssh).
+# Empty sets none.
 vault_vm_password: ""
 
 # ----------------------------------------------------------------- GitHub ---

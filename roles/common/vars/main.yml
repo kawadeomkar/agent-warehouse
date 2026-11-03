@@ -19,3 +19,7 @@ common_ssh_path: >-
       | map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/')
       | list + [common_ssh_path_system]) | join(':') }}
 common_ssh_path_dropin: /etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf
+
+# With common_user_passwordless_sudo off: cloud-init's settings for the user it
+# creates, read after cloud.cfg and every drop-in sorted before it.
+common_cloud_init_user_cfg: /etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg

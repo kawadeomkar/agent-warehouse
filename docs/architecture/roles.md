@@ -96,6 +96,24 @@ Notable choices:
   works in containers with no `timedatectl`/dbus.
 - **Every toggle is a pair of tasks** (`Grant`/`Revoke` sudo, `Harden`/`Remove` sshd). `template` has
   no `state: absent`, so this is the idiom for a reversible setting.
+- **Passwordless sudo off takes away cloud-init's rule too** (`tasks/sudo.yml`). The user cloud-init creates
+  gets `NOPASSWD:ALL` in `/etc/sudoers.d/90-cloud-init-users` and the groups `adm`, `cdrom`, `dip`, `lxd`
+  and `sudo`, so removing only the role's own drop-in left the user root. Off, the role first sets the
+  user's password from `common_user_password`, unlocked (hashed on the VM by `openssl passwd -6`, salted with
+  the VM's name so a second run changes nothing: the controller's Python has no `crypt`), since sudo asks for
+  it and every later play becomes root with it (`ansible_become_password`, group_vars/all) - an assert refuses
+  the setting while the two differ or are empty, and another while `sudo -l -U` shows no rule that takes the
+  password (Ubuntu's `%sudo`), which would lock every later run out. Then it removes both rules (`visudo -cf`
+  on each change), writes a `cloud.cfg.d` drop-in whose `system_info.default_user` has no `sudo`, no
+  `lock_passwd` and only the role's groups - a new cloud-init instance (a rename) writes the rule again for a
+  user that exists and locks its password, which the `user` module, comparing hashes without the lock, would
+  leave locked - takes the user out of `common_user_groups_revoked`, and fails on anything `sudo -l -U` still
+  shows as `NOPASSWD` or `!authenticate`. On, the drop-in goes and the role's own rule is back; the groups
+  stay out, sudo covering them. A new instance also sets the password Proxmox holds, the one the VM was
+  made with (`proxmox_vm` sends `cipassword` only then): after `vault_vm_password` changes, a renamed VM's
+  sudo takes the old one until the Proxmox console sets the new. Become runs `/usr/bin/sudo` by its path (`ansible_become_exe`): the user's ssh sessions put
+  `~/.local/bin` first on PATH, where a `sudo` of the user's own would be handed every module's arguments
+  and the password.
 - **`validate:` on the sudoers and sshd templates** — `visudo -cf` and `sshd -t -f`, so a bad render
   cannot lock anyone out. `sshd -t` needs `/run/sshd`, which is created first because it does not exist in a
   fresh container.
@@ -597,7 +615,7 @@ substituted, else `open`, else `xdg-open`) and the code copied (`pbcopy`, `wl-co
 best effort and both gated by `github_projects_login_desktop`, which every
 scenario and the unit harness turn off because their `localhost` is the developer's machine, with a
 test that keeps it so. Those controller tasks carry `become: false`: the play's `become` is the VM's
-passwordless sudo, and inherited by a task delegated to the controller it is the developer's, which
+passwordless sudo (or its password, with `common_user_passwordless_sudo` off), and inherited by a task delegated to the controller it is the developer's, which
 asks for a password and fails the run (the first real run found this; the harness runs with become
 off, so a static test holds it). Control characters are stripped from gh's text before any message
 quotes it. Everything after gh's start is a block whose `always` gives gh a moment, ends it by pid if

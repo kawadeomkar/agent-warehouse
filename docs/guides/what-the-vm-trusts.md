@@ -9,7 +9,17 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   including Claude Code, is effectively root on the VM. The API key written to `~/.claude/settings.json`
   is therefore readable by any code the agent runs, and so is the GitHub token `gh` keeps in plain text
   in `~/.config/gh/hosts.yml` (mode 0600) - the vault's, or the one a device-flow login issued to that
-  VM. Set `common_user_passwordless_sudo: false` and `dev_tools_install_docker: false` for a tighter box.
+  VM. For a tighter box, set `common_user_passwordless_sudo: false` and `dev_tools_install_docker: false`
+  in `local.yml`, and `vault_vm_password` with `just vault`: sudo then asks for that password, and the
+  playbooks become root with it (a run refuses the setting without one). Off, the `common` role takes away
+  its own sudo rule and the one cloud-init writes for the user it creates (`NOPASSWD:ALL` in
+  `/etc/sudoers.d/90-cloud-init-users`), keeps a later cloud-init run from writing it again, and fails if
+  sudo still lets the user run anything without a password. It also takes the user out of the groups
+  cloud-init gave it that reach past sudo (`common_user_groups_revoked`): `lxd`, root on a VM that keeps
+  snapd (one with a snap installed: LXD comes on first use), `cdrom`, which reads the cloud-init drive
+  with the password's hash, and `adm`, every system log; and with Docker off, out of `docker`, which is
+  root while Docker is installed. A program already running keeps the groups it started with, until it
+  restarts or the VM does. The password is one for every VM, so make it one you use nowhere else.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
   does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's

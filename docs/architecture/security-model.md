@@ -101,7 +101,9 @@ is never scanned.
 
 Key-only SSH via a validated sshd drop-in, root password login disabled, passwordless
 sudo for the dev user (a deliberate trade-off, recorded in
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)),
+[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
+off, sudo takes `vault_vm_password` and cloud-init's own rule and root-equivalent groups go too,
+[§5.3](roles.md#53-common--os-baseline)),
 and GitHub's host keys pre-seeded from the API rather than trusted on first use. The GitHub token
 sits in `~/.config/gh/hosts.yml` (0600) and the Anthropic key in `settings.json`; what that means for
 the VM, and for the token a device-flow login leaves there, is

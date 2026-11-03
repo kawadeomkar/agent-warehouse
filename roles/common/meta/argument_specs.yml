@@ -19,7 +19,27 @@ argument_specs:
       common_user_passwordless_sudo:
         type: bool
         default: true
-        description: Let common_user run sudo without a password, through a sudoers drop-in, which the playbooks' become relies on. false removes the drop-in.
+        description:
+          - Let common_user run sudo without a password, through a sudoers drop-in, which the playbooks' become relies on.
+          - false makes sudo ask for common_user_password, which the playbooks then become root with, and needs it set. It
+            removes the role's drop-in and cloud-init's own rule for the user (90-cloud-init-users), keeps a new cloud-init
+            instance from writing that rule again (cloud.cfg.d), takes the user out of common_user_groups_revoked, and fails
+            if sudo still lets the user run anything without a password.
+      common_user_password:
+        type: str
+        default: ""
+        no_log: true
+        description:
+          - The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role.
+          - Set through vault_vm_password in vault.yml.
+      common_user_groups_revoked:
+        type: list
+        elements: str
+        default: [adm, cdrom, lxd]
+        description:
+          - Groups common_user is taken out of when common_user_passwordless_sudo is false, unless common_user_groups lists one.
+          - cloud-init gives the user it creates all three. lxd gets LXD from Ubuntu's lxd-installer on first use, root wherever
+            snapd runs; cdrom reads the cloud-init drive, which holds the password's hash; adm reads every system log.
       common_user_ssh_public_keys:
         type: list
         elements: str

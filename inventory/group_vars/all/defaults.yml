@@ -158,6 +158,16 @@ vm_user: dev
 # `uv python install` puts a python3.13 that discovery would take - under
 # become too, as root.
 claude_vm_python: /usr/bin/python3
+# How every play becomes root: sudo by its full path, never by name, for the
+# same PATH - a `sudo` of the user's own in ~/.local/bin would be handed every
+# module's arguments and the password below.
+ansible_become_exe: /usr/bin/sudo
+# The VM user's password, which the common role sets from vault_vm_password
+# with common_user_passwordless_sudo false: sudo on a VM then asks for it, and
+# the playbooks become root with it - on the run that turns the setting back on
+# too, which meets the VM still without its passwordless rule. Ansible sends it
+# only when sudo asks, which it never does with the rule in place.
+ansible_become_password: "{{ common_user_password }}"
 # configure.yml waits for cloud-init before configuring. Disable for hosts
 # that were not built from a cloud image (Vagrant, containers).
 configure_wait_for_cloud_init: true
@@ -460,6 +470,7 @@ proxmox_template_storage: "{{ proxmox_storage }}"
 
 common_user: "{{ vm_user }}"
 common_user_ssh_public_keys: "{{ vm_ssh_public_keys }}"
+common_user_password: "{{ vault_vm_password | default('') }}"
 
 vscode_server_enabled: "{{ vscode_remote }}"
 vscode_server_user: "{{ vm_user }}"

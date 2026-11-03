@@ -14,7 +14,10 @@ argument_specs:
       dev_tools_install_docker:
         type: bool
         default: true
-        description: Install Docker Engine from Docker's repository and add dev_tools_user to the docker group. false skips it and removes nothing.
+        description:
+          - Install Docker Engine from Docker's repository and add dev_tools_user to the docker group.
+          - false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run
+            put it in, since that group is root.
       dev_tools_install_gh:
         type: bool
         default: true
