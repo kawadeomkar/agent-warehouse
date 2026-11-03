@@ -115,9 +115,9 @@ argument_specs:
         elements: str
         default: []
         description:
-          - Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported - the
-            inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host) is never forgotten either way. Wired
-            from the inventory's hosts in group_vars/all.
+          - Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported, or
+            <name>.<domain> it is reached by - the inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host)
+            is never forgotten either way. Wired from the inventory's hosts in group_vars/all.
       proxmox_vm_name:
         type: str
         description: VM name in Proxmox. Defaults to the inventory hostname.
