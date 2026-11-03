@@ -239,6 +239,15 @@ command: the VS Code workspace file and the session notes, and, on a VM whose Cl
 missing, Remote Control's path unit, whose comment names `just login --only claude` (systemd is reloaded
 for it). The run after that changes none of them.
 
+## A BROWSER that runs a shell, cmd.exe or PowerShell
+
+From PR #147. A `BROWSER` whose command runs a shell or a Windows command interpreter - `sh -c '...'`, or
+WSL's usual `cmd.exe /c start` or `powershell.exe Start-Process` - reads the page as a command line of its own,
+and a sign-in page's query string, which a VM's root can choose, would then be a command run on this machine.
+Such a `BROWSER` no longer opens any page: the sign-ins print it for you to open, and Claude's asks for the
+code at the `Code:` prompt ([Remote Control](remote-control.md#when-the-browser-cannot-come-back)). To have
+pages open by themselves again, point `BROWSER` at a program that takes the page as one argument.
+
 ## See also
 
 - [Requirements](../getting-started/requirements.md) and [Proxmox access](../getting-started/proxmox-access.md),

@@ -15,6 +15,9 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
   that to you ([Tearing down](destroy.md)).
+- The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
+  is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
+  VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI.
 - Downloads are verified where the vendor makes that possible: the uv release by a pinned SHA256, the
   Ubuntu cloud image against Ubuntu's `SHA256SUMS`, apt repositories by vendored signing keys. The Claude
   Code installer script is fetched over TLS from `claude.ai` and itself verifies the binary against a
