@@ -125,3 +125,34 @@ How the justfile is built, and why (each tried on just 1.59.0, on macOS and in `
   [Upgrading](../guides/upgrading.md#make-became-just) maps every old command.
 - **What just does not do.** Shell completion completes recipe names, not their options, and
   `just deploy --help` is an unknown option: `just help deploy` is the way in.
+
+## 15.4 More than one editor and hypervisor, one of each at a time
+
+*Decided November 2026, after 1.0, for 1.x releases: each step only adds, as the promise in `CONTRIBUTING.md`
+asks of a minor version.*
+
+The project is to open more than VS Code (Zed first) and to run on more than Proxmox VE (Unraid later), each the
+user's choice. What was decided, and why:
+
+- **One editor at a time**, VS Code by default: the `editor` setting, or `just code <vm> --editor <editor>` for one
+  run. Each editor's work on this machine is two task files of `code.yml`'s own (`tasks/vscode_check.yml` before
+  anything is written on the VM, `tasks/vscode_open.yml` after), imported statically for that editor alone, with its
+  variables in a vars file (`playbooks/vars/vscode.yml`). Static, so `--tags` reaches them and the allowlist in
+  `tests/unit/test_code_session.py` follows them; every name an editor's file registers starts with `code_<editor>_`,
+  since a skipped task still overwrites its register.
+- **Every VM is made ready for any editor alike.** What `vscode_server` sets up is not VS Code's alone: Claude's
+  sign-in in the browser forwards its callback to the VM over `ssh -L` whichever editor is chosen, and the role's
+  `sshd -T` check is what says when forwarding is off; Zed's port forwards are `ssh -L` too. It keeps its name and its
+  files' names through 1.x.
+- **What `just code` does for any editor is named so**: `editor_claude_terminal`, `editor_files_dir`,
+  `editor_session_notes`, `claude_sessions_sync`. 1.0's `vscode_*` names stay read through 1.x, the new names fed from
+  them, and `tools/check settings` names the new name while one is set ([Upgrading](../guides/upgrading.md#names-11-added)).
+  The new name wins wherever both are set, `-e` of the old one included; `just settings` writes the new name and
+  takes the old one out, so the two are never left side by side, one of them doing nothing.
+- **One hypervisor per checkout.** A second one is a provider of its own, its VMs found and listed through entry
+  points of its role, read by static imports as the editors' files are; the `just status --json` keys 1.0 promises,
+  some of them Proxmox's (`vmid`, `node`, `proxmox`), stay for every provider.
+- **The names runs left behind stay**, whatever the project is called: the tag, the markers and drop-ins on each VM,
+  the managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
+- **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
+  file by file, to what they are, and fails when one grows.
