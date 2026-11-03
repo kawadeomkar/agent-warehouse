@@ -162,6 +162,7 @@
     mode: "0644"
   when: tailscale_signed_in | bool
 
-- name: web_login | Read what this role has made, now that it has signed in
+# Whether or not it signed in: a page still waiting is a sign-in of the role's,
+# its marker written above, for Proxmox to record (login.yml).
+- name: web_login | Read what this role has made, after the sign-in
   ansible.builtin.include_tasks: ownership.yml
-  when: tailscale_signed_in | bool

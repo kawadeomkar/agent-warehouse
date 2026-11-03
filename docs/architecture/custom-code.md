@@ -161,7 +161,7 @@ A run waits for the person in three ways, and each is set apart:
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 30 reports that can say what to do later registers its message and records it straight
+  Each of the 31 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
   `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
   `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
@@ -187,8 +187,8 @@ A run waits for the person in three ways, and each is set apart:
   workflow scope names no `just` command, and "just deploy signs it in next" names one with nothing to do. A
   looped report records each VM in a looped `set_stats` keyed by the loop var, so the callback reads no task
   result for this at all. Printed by VM name, the matters in a fixed order (`init_settings`, `init_check`,
-  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `vscode`, `destroy`), each line
-  once, nothing when nothing is left, and nothing after Ctrl-C, which has no stats event. `profile_tasks`'
+  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `tailscale_record`, `vscode`,
+  `destroy`), each line once, nothing when nothing is left, and nothing after Ctrl-C, which has no stats event. `profile_tasks`'
   TASKS RECAP follows it: Ansible calls collection callbacks after the stdout one.
 
 The blocks are bright yellow through `Display`, plain under `ANSIBLE_NOCOLOR` or with no terminal; the run

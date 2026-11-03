@@ -23,8 +23,8 @@ sudo on the VM can still do are trade-offs
 [SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the
 edit itself. The mechanism: the auth key is used for a first join only, on stdin, under `no_log`, and a
-VM that joined is recorded by a tag in Proxmox, which the VM cannot change, so a VM logged out from inside
-is never handed the key again; the
+VM whose Tailscale a run has seen signed in, or signing in, is recorded by a tag in Proxmox, which the VM
+cannot change, so a VM logged out from inside is never handed the key again; the
 web login's page is opened only when it is Tailscale's own, and the report names the tailnet joined,
 since a pending page is readable by every local user on the VM. The VM keeps its own resolver
 (`tailscale_accept_dns: false`).

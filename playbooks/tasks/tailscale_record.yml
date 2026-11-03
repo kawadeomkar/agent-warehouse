@@ -1,0 +1,113 @@
+---
+# The vault's Tailscale key joins a VM once. Whether a VM's Tailscale has held a
+# login is kept in Proxmox, as a tag the VM cannot change
+# (claude_vm_tailscale_tag), which discovery, provisioning and just status read
+# back as tailscale_joined_before: a VM logged out from inside reads like one
+# that never joined, and would otherwise be handed the key again. Written from
+# localhost, since playbooks own the API, for each VM the tailscale role says
+# has a login to record (tailscale_login_to_record) and that is not tagged yet.
+# Only where there is a Proxmox VM (Vagrant and the scenarios have none), never
+# in check mode, and only on the VM of that name and VMID that carries the
+# ownership tag. Its tags are read again first and written back as they are,
+# the record added: Proxmox replaces the whole list.
+#
+# Each VM on its own: one whose tags Proxmox cannot read or write - its node
+# down, the VM gone, a tag User Tag Access refuses - is said, and kept for NEXT
+# STEPS, and the others are still recorded. Not a failure of the run: the VM is
+# configured, and only its record is missing, which the next run writes.
+#
+# Input, through vars: on the import: claude_vm_tailscale_record_vms, the names
+# of the VMs to look at.
+
+# A read that failed holds no proxmox_vms: said below.
+- name: tailscale_record | Read the tags of each VM to record
+  community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
+    type: qemu
+    vmid: "{{ hostvars[claude_vm_tailscale_host].proxmox_vm_id }}"
+    config: current
+  register: claude_vm_tailscale_info
+  failed_when: false
+  when:
+    - not ansible_check_mode
+    - hostvars[claude_vm_tailscale_host].proxmox_vm_id is defined
+    - hostvars[claude_vm_tailscale_host].tailscale_login_to_record | default(false) | bool
+    - not (hostvars[claude_vm_tailscale_host].tailscale_joined_before | default(false) | bool)
+  loop: "{{ claude_vm_tailscale_record_vms }}"
+  loop_control:
+    loop_var: claude_vm_tailscale_host
+
+# The tags compared in lowercase, as the ownership tag is matched, and written
+# back as Proxmox gave them. An update that went through is always changed, so
+# one that is not failed: said below.
+- name: tailscale_record | Tag each one in Proxmox, keeping its other tags
+  vars:
+    claude_vm_tailscale_vm: >-
+      {{ claude_vm_tailscale_read.proxmox_vms | default([], true) | first | default({}, true) }}
+    claude_vm_tailscale_now: >-
+      {{ (claude_vm_tailscale_vm.config | default({}, true)).tags | default('', true)
+         | replace(',', ';') | split(';') | map('trim') | select | list }}
+    claude_vm_tailscale_now_lower: "{{ claude_vm_tailscale_now | map('lower') | list }}"
+  community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+    node: "{{ claude_vm_tailscale_vm.node }}"
+    vmid: "{{ claude_vm_tailscale_vm.vmid }}"
+    name: "{{ claude_vm_tailscale_vm.name }}"
+    update: true
+    tags: "{{ claude_vm_tailscale_now | union([claude_vm_tailscale_tag]) }}"
+  register: claude_vm_tailscale_tagged
+  failed_when: false
+  when:
+    - claude_vm_tailscale_read is not skipped
+    - claude_vm_tailscale_read.proxmox_vms is defined
+    - claude_vm_tailscale_vm.name | default('') == claude_vm_tailscale_read.claude_vm_tailscale_host
+    - claude_vm_tag | lower in claude_vm_tailscale_now_lower
+    - claude_vm_tailscale_tag | lower not in claude_vm_tailscale_now_lower
+  loop: "{{ claude_vm_tailscale_info.results | default([]) }}"
+  loop_control:
+    loop_var: claude_vm_tailscale_read
+    label: "{{ claude_vm_tailscale_read.claude_vm_tailscale_host }}"
+
+# Every VM whose tags were read, so that the record below says, VM by VM, what
+# is left: this line, or nothing once the record is written or was there.
+- name: tailscale_record | Say each VM whose record could not be written
+  vars:
+    claude_vm_tailscale_read_of: >-
+      {{ claude_vm_tailscale_info.results
+         | selectattr('claude_vm_tailscale_host', 'equalto', claude_vm_tailscale_vm_name) | first }}
+    claude_vm_tailscale_write_of: >-
+      {{ claude_vm_tailscale_tagged.results | default([])
+         | selectattr('claude_vm_tailscale_read.claude_vm_tailscale_host', 'equalto', claude_vm_tailscale_vm_name)
+         | first | default({'skipped': true}, true) }}
+    claude_vm_tailscale_unread: "{{ claude_vm_tailscale_read_of.proxmox_vms is not defined }}"
+    claude_vm_tailscale_unwritten: >-
+      {{ claude_vm_tailscale_write_of is not skipped and claude_vm_tailscale_write_of is not changed }}
+    claude_vm_tailscale_said: >-
+      {{ ((claude_vm_tailscale_read_of if claude_vm_tailscale_unread | bool else claude_vm_tailscale_write_of).msg
+          | default('no reason given', true) | plain_text | regex_replace('\s+', ' ') | trim)[:200] }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ claude_vm_tailscale_vm_name }}: Proxmox could not record that it joined Tailscale
+      ({{ claude_vm_tailscale_said }}), so vault_tailscale_auth_key could be sent to it again if it is logged
+      out. The next just deploy {{ claude_vm_tailscale_vm_name }} --only configure records it.
+  register: claude_vm_tailscale_unrecorded
+  when: claude_vm_tailscale_unread | bool or claude_vm_tailscale_unwritten | bool
+  loop: >-
+    {{ claude_vm_tailscale_info.results | default([]) | reject('skipped')
+       | map(attribute='claude_vm_tailscale_host') | list }}
+  loop_control:
+    loop_var: claude_vm_tailscale_vm_name
+
+# NEXT STEPS (callback_plugins/claude_on_proxmox.py), under a matter of its own
+# beside the role's report of the VM's Tailscale, which it neither replaces nor
+# clears.
+- name: tailscale_record | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      tailscale_next: >-
+        {{ {claude_vm_tailscale_said_of.claude_vm_tailscale_vm_name:
+            {'tailscale_record': claude_vm_tailscale_said_of.msg | default('')}} }}
+    aggregate: true
+    per_host: false
+  loop: "{{ claude_vm_tailscale_unrecorded.results | default([]) }}"
+  loop_control:
+    loop_var: claude_vm_tailscale_said_of
+    label: "{{ claude_vm_tailscale_said_of.claude_vm_tailscale_vm_name }}"

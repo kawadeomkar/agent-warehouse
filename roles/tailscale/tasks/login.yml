@@ -80,6 +80,15 @@
     - tailscale_login_go | bool
     - tailscale_login_due | bool
 
+# Whether the VM's Tailscale has had a login, or has a sign-in under way - the
+# web login above, approved or still waiting, or one found - for the play after
+# the sign-ins to record in Proxmox (tasks/tailscale_record.yml), as connect.yml
+# says it for configure's. Set every time this entry point runs.
+- name: login | Say whether the VM has had a login, for Proxmox to record
+  ansible.builtin.set_fact:
+    tailscale_login_to_record: >-
+      {{ tailscale_enabled | bool and tailscale_installed | bool and tailscale_login_seen | bool }}
+
 # The report configuration gives - which, for a page still waiting for its
 # approval, says so: the node's state holds the page.
 - name: login | Report how the VM is on Tailscale

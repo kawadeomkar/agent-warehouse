@@ -244,11 +244,14 @@ token; `github_auth_method: token` still fails. The status JSON carries
   Headscale run recorded it). Extend a fake rather than reaching for the network.
 - **Tailscale's auth key joins a VM once, and the role touches only the Tailscale it installed.** The key
   is used from a settled `NeedsLogin` with no `HaveNodeKey` only - a node that never joined, or one logged
-  out by hand, which reads the same - on a VM that never held a login of the role's, and never sent to a
-  node that has a login: one Tailscale no longer accepts logs the node out (tailscale#19501). That a VM held
-  one is kept in Proxmox, where the VM cannot change it: configure.yml's play after the role tags the VM
-  `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever the role found a login of its own
-  (`tailscale_login_to_record`), and discovery, provisioning's publish and `just status` pass the tag to the
+  out by hand, which reads the same - on a VM whose Tailscale never had a login, and never sent to a
+  node that has a login: one Tailscale no longer accepts logs the node out (tailscale#19501). That a VM's
+  Tailscale had one is kept in Proxmox, where the VM cannot change it: `tasks/tailscale_record.yml`, the play
+  after the role in configure.yml and after the sign-ins in tailscale_login.yml, tags the VM
+  `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`; the role names it as `tailscale_joined_tag`) VM by
+  VM, wherever the role saw any login on the Tailscale it installed - its own, one made by hand, one expired -
+  or a sign-in under way (`tailscale_login_seen`, `tailscale_login_to_record`), since a login made by hand and
+  then logged out reads like none too; and discovery, provisioning's publish and `just status` pass the tag to the
   role as `tailscale_joined_before`, read from the listing or the role's lookup, never from the VM - whose
   root can log the node out, or make `tailscale` say anything, to be handed the fleet's reusable key. Such a
   VM goes to the web login under `auto` and fails under `key`, and `proxmox_vm` keeps the tag whenever it

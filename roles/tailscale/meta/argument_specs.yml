@@ -31,7 +31,7 @@ argument_specs:
         type: bool
         default: false
         description:
-          - Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox
+          - Whether the VM's Tailscale had a login before, as the playbooks read it from the VM's tag in Proxmox
             (tailscale_joined_tag), which the VM cannot change. Such a VM is never sent the key again; under auto
             it is left for the web login, under key it fails.
       tailscale_joined_tag:

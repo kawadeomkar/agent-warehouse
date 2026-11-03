@@ -37,9 +37,11 @@ what it stores:
   machine's command line for the whole run. `tests/unit/test_claude_login.py` holds both prompts and both
   writers to `no_log` and greps whole runs for the code. The login it
   produces is Claude Code's own `~/.claude/.credentials.json`, mode 0600, which the project never reads.
-  The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only: the join is
-  recorded as a tag on the VM in Proxmox, which the VM cannot change, and a VM with that tag is never sent
-  the key again, so a VM's root cannot log the node out to be handed the fleet's key. It goes to the
+  The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only: every login a
+  run sees on the VM's Tailscale - the key's, the web login's, one made by hand - and every sign-in a run
+  starts there is recorded as a tag on the VM in Proxmox, which the VM cannot change, and a VM with that tag
+  is never sent the key again, so a VM's root cannot log the node out to be handed the fleet's key. A login
+  no run has seen, made by hand and logged out before the next run, leaves no record. It goes to the
   VM the same way: `tailscale up --auth-key=file:/dev/stdin`, the key as the `command` module's stdin
   under `no_log`, so it is on no command line and in no file, and never stored on the VM - tailscaled
   keeps the node's own keys, not the auth key. `tests/unit/test_tailscale.py` holds that task to be the

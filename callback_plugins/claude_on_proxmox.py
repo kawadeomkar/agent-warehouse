@@ -82,6 +82,7 @@ MATTERS = (
     "github",
     "github_identity",
     "tailscale",
+    "tailscale_record",
     "vscode",
     "destroy",
 )

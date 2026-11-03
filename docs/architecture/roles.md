@@ -690,20 +690,26 @@ plan's research record.
   never from human output.
 - **The key.** Used from a settled `NeedsLogin` with no `HaveNodeKey` only - a node that never joined, or
   one logged out by hand, which reads the same - because a key Tailscale no longer accepts, sent to a node
-  with a login, logs it out (tailscale#19501). And only on a VM that never held a login of the role's: a VM
+  with a login, logs it out (tailscale#19501). And only on a VM whose Tailscale never had a login: a VM
   logged out from inside, as its root can - or one whose `tailscale` says it was - would otherwise be handed
-  the fleet's key, a reusable one that joins devices of the VM's own long after it is gone. Whether it held
-  one is kept in Proxmox, where the VM cannot change it: `connect.yml` ends by setting
-  `tailscale_login_to_record` (a login of the role's, the join just made or one an earlier run recorded),
-  `configure.yml`'s next play tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
-  through the API - reading its tags first and keeping them, on the VM of that name and VMID that carries
-  the ownership tag, never in check mode - and discovery, provisioning's publish (from the role's lookup) and
+  the fleet's key, a reusable one that joins devices of the VM's own long after it is gone. Whether it had
+  one is kept in Proxmox, where the VM cannot change it, and recorded wherever a run sees it:
+  `connect.yml` and the `login` entry point end by setting `tailscale_login_to_record` from
+  `tailscale_login_seen` - any login on the Tailscale the role installed, the role's own, one made by hand or
+  one expired, each of which leaves a node key, and a sign-in under way, the role's pending marker or a page
+  tailscaled holds, which may be approved after the run - and the play after each of them,
+  `configure.yml`'s after the role and `tailscale_login.yml`'s after the sign-ins, runs
+  `tasks/tailscale_record.yml`, which tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
+  through the API - VM by VM, reading its tags first and writing them back as read, on the VM of that name
+  and VMID that carries the ownership tag, never in check mode, and saying, with a NEXT STEPS line, a VM
+  Proxmox could not read or write for - and discovery, provisioning's publish (from the role's lookup) and
   `just status` hand the tag to the role as `tailscale_joined_before` (`tailscale_first_join`,
   `tailscale_key_held_back`). Such a VM is left for the web login under `auto`, and fails under `key`,
   naming the tag to remove for one more join with the key (`tailscale_joined_tag`, the role's own input, wired
   from `claude_vm_tailscale_tag`); `proxmox_vm` keeps the tag whenever it replaces
   a VM's tags (`proxmox_vm_kept_tags`). Without a Proxmox VM - Vagrant, the scenarios - nothing is
-  recorded, and a VM logged out reads as one that never joined, as before. It goes in as `--auth-key=file:/dev/stdin`, the key as the
+  recorded, and a VM logged out reads as one that never joined, as before; nor is a login no run saw, made by
+  hand on the VM and logged out before the next. It goes in as `--auth-key=file:/dev/stdin`, the key as the
   `command` module's stdin under `no_log`: nothing on argv, no file - `copy` would stage one in
   `~/.ansible/tmp` - and with pipelining never on the VM's disk. The flags are every managed setting
   after `--reset`, so tailscale's "requires mentioning all non-default flags" never fires. A refusal is a

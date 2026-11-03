@@ -57,8 +57,8 @@ tailscale_tailnet: "{{ (tailscale_state.CurrentTailnet | default({}, true)).Name
 # joined, or one logged out with `tailscale logout`, which reads the same. An
 # expired key leaves HaveNodeKey, and is never joined again with the vault key.
 tailscale_no_login: "{{ tailscale_backend == 'NeedsLogin' and not (tailscale_joined | bool) }}"
-# A first join: a node with no login that never held one of this role's, as
-# Proxmox records it (tailscale_joined_before) - never from the VM, whose root
+# A first join: a node with no login whose VM never had one, as Proxmox
+# records it (tailscale_joined_before) - never from the VM, whose root
 # can log the node out, or make tailscale say anything, to be handed the fleet's
 # key again.
 tailscale_first_join: "{{ tailscale_no_login | bool and not (tailscale_joined_before | bool) }}"
@@ -86,6 +86,17 @@ tailscale_login_ours: >-
   {{ tailscale_node_key | length > 0
      and ((tailscale_joined | bool) and tailscale_joined_marker_text == tailscale_node_key
           or (tailscale_signed_in | bool) and tailscale_login_pending | bool) }}
+# Whether the Tailscale this role installed has had a login - any: the role's,
+# one made by hand, one expired (each leaves a node key) - or has a sign-in under
+# way (the role's pending marker, or a page tailscaled holds): what Proxmox
+# records (tasks/tailscale_record.yml), so that the vault's key is never sent to
+# the VM again. A node logged out reads like one that never joined, so a login is
+# recorded wherever it is seen, and a sign-in before it ends, since its page may
+# be approved after the run. Nothing the VM can make this say gets it the key:
+# at most it keeps the key from itself.
+tailscale_login_seen: >-
+  {{ (tailscale_installed_marker.stat.exists | default(false))
+     and (tailscale_joined | bool or tailscale_login_pending | bool or tailscale_auth_url | length > 0) }}
 tailscale_prefs: >-
   {{ (tailscale_prefs_raw.stdout | from_json) if (tailscale_prefs_raw.rc | default(1)) == 0 else {} }}
 

@@ -18,7 +18,7 @@ Installs Tailscale from its apt repository, joins the tailnet with tailscale_aut
 | `tailscale_enabled` | bool | `true` | Install and join; false logs out and removes what this role installed. |
 | `tailscale_auth_key` | str | `""` | A key for the first join only (tskey-auth-..., or a tskey-client-... OAuth secret, which needs tailscale_advertise_tags). Empty leaves the VM for the web login. Set through vault_tailscale_auth_key in vault.yml. A secret: never logged. |
 | `tailscale_auth_method` | str | `auto` | auto joins with tailscale_auth_key when there is one and leaves the VM for the web login otherwise; key joins with the key only, and an empty one fails by name; web leaves every VM for the web login. One of `auto`, `key`, `web`. |
-| `tailscale_joined_before` | bool | `false` | Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox (tailscale_joined_tag), which the VM cannot change. Such a VM is never sent the key again; under auto it is left for the web login, under key it fails. |
+| `tailscale_joined_before` | bool | `false` | Whether the VM's Tailscale had a login before, as the playbooks read it from the VM's tag in Proxmox (tailscale_joined_tag), which the VM cannot change. Such a VM is never sent the key again; under auto it is left for the web login, under key it fails. |
 | `tailscale_joined_tag` | str | `claude-on-proxmox-tailscale` | The tag in Proxmox that records a VM's join, named as the one to remove for one more join with the key; wired from claude_vm_tailscale_tag (&lt;ownership tag&gt;-tailscale). |
 | `tailscale_api_auth_method` | str | `auto` | How the device is deleted from the tailnet through Tailscale's API, on this machine. auto uses whichever credential is set, tailscale_api_token first, and is none when neither is; none leaves the device there, logged out, and names it; token uses tailscale_api_token; oauth exchanges tailscale_oauth_client_id and tailscale_oauth_client_secret, a client with the devices:core scope, for an access token. One of `auto`, `none`, `token`, `oauth`. |
 | `tailscale_api_token` | str | `""` | An API access token (tskey-api-...), used under tailscale_api_auth_method auto or token. Set through vault_tailscale_api_token in vault.yml. A secret: never logged. |
@@ -82,7 +82,7 @@ Also takes, as described under `main`: `tailscale_api_auth_method`, `tailscale_a
 
 ## Internal values
 
-Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 71 of the 81 are computed during a run, from earlier tasks' results.
+Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 72 of the 82 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -118,6 +118,7 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_signed_in` | <code>{{ (tailscale_joined &#124; bool) and tailscale_backend in ['Running', 'NeedsMachineAuth'] }}</code> |
 | `tailscale_login_pending` | `{{ tailscale_joined_marker_text == 'pending' }}` |
 | `tailscale_login_ours` | <code>{{ tailscale_node_key &#124; length > 0 and ((tailscale_joined &#124; bool) and tailscale_joined_marker_text == tailscale_node_key or (tailscale_signed_in &#124; bool) and tailscale_login_pending &#124; bool) }}</code> |
+| `tailscale_login_seen` | <code>{{ (tailscale_installed_marker.stat.exists &#124; default(false)) and (tailscale_joined &#124; bool or tailscale_login_pending &#124; bool or tailscale_auth_url &#124; length > 0) }}</code> |
 | `tailscale_prefs` | <code>{{ (tailscale_prefs_raw.stdout &#124; from_json) if (tailscale_prefs_raw.rc &#124; default(1)) == 0 else {} }}</code> |
 | `tailscale_up_flags` | <code>{{ ['--reset', '--hostname=' ~ tailscale_hostname, '--ssh=' ~ (tailscale_ssh &#124; bool &#124; lower), '--accept-routes=' ~ (tailscale_accept_routes &#124; bool &#124; lower), '--accept-dns=' ~ (tailscale_accept_dns &#124; bool &#124; lower)] + (['--advertise-tags=' ~ (tailscale_advertise_tags &#124; join(','))] if tailscale_advertise_tags &#124; length > 0 else []) + (['--login-server=' ~ tailscale_login_server] if tailscale_login_server &#124; length > 0 else []) + tailscale_up_args }}</code> |
 | `tailscale_auth_key_set` | <code>{{ tailscale_auth_key &#124; length > 0 }}</code> |
@@ -299,8 +300,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Remember that this login is this role's | `ansible.builtin.copy` | <code>tailscale_join is not skipped and tailscale_signed_in &#124; bool</code> |
 | Mark a join still under way as this role's | `ansible.builtin.copy` | <code>tailscale_join is not skipped and not (tailscale_signed_in &#124; bool) and tailscale_join_under_way &#124; bool</code> |
 | Forget the sign-in a failed join ended | `ansible.builtin.file` | <code>tailscale_join is not skipped and not (tailscale_signed_in &#124; bool) and not (tailscale_join_under_way &#124; bool)</code> |
-| Read what this role has made, now that it has joined | `ansible.builtin.include_tasks` | <code>tailscale_join is not skipped and tailscale_signed_in &#124; bool</code> |
-| Say whether the VM holds a login of this role's, for Proxmox to record | `ansible.builtin.set_fact` |  |
+| Read what this role has made, now that it has joined | `ansible.builtin.include_tasks` | <code>tailscale_join is not skipped and tailscale_signed_in &#124; bool or tailscale_join_under_way &#124; bool</code> |
+| Say whether the VM has had a login, for Proxmox to record | `ansible.builtin.set_fact` |  |
 
 ```mermaid
 flowchart TD
@@ -323,9 +324,9 @@ classDef rescue stroke:#665352,stroke-width:2px;
   connect___Read_the_state_after_the_join_state_yml_5-->|Task| connect___Remember_that_this_login_is_this_role_s6[connect   remember that this login is this role s<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**]:::task
   connect___Remember_that_this_login_is_this_role_s6-->|Task| connect___Mark_a_join_still_under_way_as_this_role_s7[connect   mark a join still under way as this role<br>s<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and tailscale join under way  <br>bool**]:::task
   connect___Mark_a_join_still_under_way_as_this_role_s7-->|Task| connect___Forget_the_sign_in_a_failed_join_ended8[connect   forget the sign in a failed join ended<br>When: **tailscale join is not skipped and not  tailscale<br>signed in   bool  and not  tailscale join under<br>way   bool**]:::task
-  connect___Forget_the_sign_in_a_failed_join_ended8-->|Include task| connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9[connect   read what this role has made  now that<br>it has joined<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool**<br>include_task: ownership yml]:::includeTasks
-  connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9-->|Task| connect___Say_whether_the_VM_holds_a_login_of_this_role_s__for_Proxmox_to_record10[connect   say whether the vm holds a login of this<br>role s  for proxmox to record]:::task
-  connect___Say_whether_the_VM_holds_a_login_of_this_role_s__for_Proxmox_to_record10-->End
+  connect___Forget_the_sign_in_a_failed_join_ended8-->|Include task| connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9[connect   read what this role has made  now that<br>it has joined<br>When: **tailscale join is not skipped and tailscale signed<br>in   bool or tailscale join under way   bool**<br>include_task: ownership yml]:::includeTasks
+  connect___Read_what_this_role_has_made__now_that_it_has_joined_ownership_yml_9-->|Task| connect___Say_whether_the_VM_has_had_a_login__for_Proxmox_to_record10[connect   say whether the vm has had a login  for<br>proxmox to record]:::task
+  connect___Say_whether_the_VM_has_had_a_login__for_Proxmox_to_record10-->End
 ```
 
 ### `install.yml`
@@ -395,6 +396,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Record whether the web login would sign this VM in | `ansible.builtin.set_fact` |  |
 | Ask whether to sign this VM in to Tailscale now | `ansible.builtin.pause` | <code>tailscale_login_ask &#124; bool and tailscale_login_due &#124; bool</code> |
 | Sign in by Tailscale's web login | `ansible.builtin.include_tasks` | <code>tailscale_login_go &#124; bool and tailscale_login_due &#124; bool</code> |
+| Say whether the VM has had a login, for Proxmox to record | `ansible.builtin.set_fact` |  |
 | Report how the VM is on Tailscale | `ansible.builtin.include_tasks` | <code>tailscale_enabled &#124; bool and tailscale_installed &#124; bool</code> |
 
 ```mermaid
@@ -416,8 +418,9 @@ classDef rescue stroke:#665352,stroke-width:2px;
   login___Keep_what_is_left_to_do_for_the_end_of_the_run3-->|Task| login___Record_whether_the_web_login_would_sign_this_VM_in4[login   record whether the web login would sign<br>this vm in]:::task
   login___Record_whether_the_web_login_would_sign_this_VM_in4-->|Task| login___Ask_whether_to_sign_this_VM_in_to_Tailscale_now5[login   ask whether to sign this vm in to<br>tailscale now<br>When: **tailscale login ask   bool and tailscale login due<br>  bool**]:::task
   login___Ask_whether_to_sign_this_VM_in_to_Tailscale_now5-->|Include task| login___Sign_in_by_Tailscale_s_web_login_web_login_yml_6[login   sign in by tailscale s web login<br>When: **tailscale login go   bool and tailscale login due <br> bool**<br>include_task: web login yml]:::includeTasks
-  login___Sign_in_by_Tailscale_s_web_login_web_login_yml_6-->|Include task| login___Report_how_the_VM_is_on_Tailscale_report_yml_7[login   report how the vm is on tailscale<br>When: **tailscale enabled   bool and tailscale installed  <br>bool**<br>include_task: report yml]:::includeTasks
-  login___Report_how_the_VM_is_on_Tailscale_report_yml_7-->End
+  login___Sign_in_by_Tailscale_s_web_login_web_login_yml_6-->|Task| login___Say_whether_the_VM_has_had_a_login__for_Proxmox_to_record7[login   say whether the vm has had a login  for<br>proxmox to record]:::task
+  login___Say_whether_the_VM_has_had_a_login__for_Proxmox_to_record7-->|Include task| login___Report_how_the_VM_is_on_Tailscale_report_yml_8[login   report how the vm is on tailscale<br>When: **tailscale enabled   bool and tailscale installed  <br>bool**<br>include_task: report yml]:::includeTasks
+  login___Report_how_the_VM_is_on_Tailscale_report_yml_8-->End
 ```
 
 ### `ownership.yml`
@@ -601,7 +604,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Wait for the page to be approved | `ansible.builtin.command` |  |
 | Read the state after the wait | `ansible.builtin.include_tasks` |  |
 | Remember that this login is this role's | `ansible.builtin.copy` | <code>tailscale_signed_in &#124; bool</code> |
-| Read what this role has made, now that it has signed in | `ansible.builtin.include_tasks` | <code>tailscale_signed_in &#124; bool</code> |
+| Read what this role has made, after the sign-in | `ansible.builtin.include_tasks` |  |
 
 ```mermaid
 flowchart TD
@@ -627,8 +630,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
   web_login___Open_the_sign_in_page_in_your_browser8-->|Task| web_login___Wait_for_the_page_to_be_approved9[web login   wait for the page to be approved]:::task
   web_login___Wait_for_the_page_to_be_approved9-->|Include task| web_login___Read_the_state_after_the_wait_state_yml_10[web login   read the state after the wait<br>include_task: state yml]:::includeTasks
   web_login___Read_the_state_after_the_wait_state_yml_10-->|Task| web_login___Remember_that_this_login_is_this_role_s11[web login   remember that this login is this role<br>s<br>When: **tailscale signed in   bool**]:::task
-  web_login___Remember_that_this_login_is_this_role_s11-->|Include task| web_login___Read_what_this_role_has_made__now_that_it_has_signed_in_ownership_yml_12[web login   read what this role has made  now that<br>it has signed in<br>When: **tailscale signed in   bool**<br>include_task: ownership yml]:::includeTasks
-  web_login___Read_what_this_role_has_made__now_that_it_has_signed_in_ownership_yml_12-->End
+  web_login___Remember_that_this_login_is_this_role_s11-->|Include task| web_login___Read_what_this_role_has_made__after_the_sign_in_ownership_yml_12[web login   read what this role has made  after<br>the sign in<br>include_task: ownership yml]:::includeTasks
+  web_login___Read_what_this_role_has_made__after_the_sign_in_ownership_yml_12-->End
 ```
 
 <!-- END_GENERATED: role -->

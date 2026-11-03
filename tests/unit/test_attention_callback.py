@@ -79,6 +79,7 @@ REPORTS = {
         "Say why Tailscale's sign-in was not started",
         "Say why, and go on with the next VM",
     ],
+    "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say what was opened", "Say how to open the VM later"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
@@ -406,5 +407,5 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
         for task in _tasks(path)
         if "ansible.builtin.set_stats" in task
     ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 30
+    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats

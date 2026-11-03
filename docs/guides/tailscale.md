@@ -21,10 +21,13 @@ to a browser), and `web` is the web login only, with a key in the vault left unu
   on; and **tagged** (`tag:claude-vm`, below). Never ephemeral: Tailscale removes an ephemeral node within
   the hour of it going offline, and a VM left stopped would be. The key is only used for a VM's first
   join - a VM that has joined keeps working after the key expires - and it reaches the VM on standard
-  input, never on a command line or in a file. Once a VM has joined, its tag in Proxmox
-  (`claude-on-proxmox-tailscale`) records it, and the key is never sent to that VM again, even if it is
-  logged out: only something on the VM logs it out, and the key would then let it join devices of its
-  own. Sign such a VM in by the web login, or remove the tag in Proxmox to let the key join it once more. An OAuth client secret (`tskey-client-...`) works too, with
+  input, never on a command line or in a file. Once a VM's Tailscale has had a login - by the key, the web
+  login or by hand - or a sign-in of the project's has started on it, its tag in Proxmox
+  (`claude-on-proxmox-tailscale`) records it, written by the first `just deploy` or `just login` to see it,
+  and the key is never sent to that VM again, even if it is logged out: only something on the VM logs it
+  out, and the key would then let it join devices of its own. Sign such a VM in by the web login, or remove
+  the tag in Proxmox to let the key join it once more. A login no run has seen - made by hand on the VM and
+  logged out before the next run - leaves no record. An OAuth client secret (`tskey-client-...`) works too, with
   `tailscale_advertise_tags` set and `?ephemeral=false` on the secret.
 - **The web login**, with no secret at all. `just login alpha --only tailscale` - and `just deploy`'s
   step, which starts by itself (`tailscale_login_auto_start`; `false` asks first) - opens Tailscale's

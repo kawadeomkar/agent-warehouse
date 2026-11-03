@@ -163,18 +163,10 @@
           {{ vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects' }}
       tags: [always]
 
-# The vault's Tailscale key joins a VM once. Whether a VM has held a login of the
-# tailscale role's is kept in Proxmox, as a tag the VM cannot change
-# (claude_vm_tailscale_tag), which discovery, provisioning and just status read
-# back as tailscale_joined_before: a VM logged out from inside reads like one that
-# never joined, and would otherwise be handed the key again. Written here, since
-# playbooks own the API, for each VM the role says holds a login of its own
-# (tailscale_login_to_record) and that is not tagged yet - a join this run made,
-# or one made before the record existed. Only where there is a Proxmox VM
-# (Vagrant and the scenarios have none), never in check mode, and only on the VM
-# of that name and VMID that carries the ownership tag. Its tags are read again
-# first and kept whole: Proxmox replaces the list.
-- name: Record in Proxmox each VM that has joined Tailscale through this project
+# Records in Proxmox, where the VM cannot change it, each VM whose Tailscale has
+# held a login (tasks/tailscale_record.yml), so that the vault's key is never
+# sent to it again: right after the role, which says which ones have.
+- name: Record in Proxmox each VM whose Tailscale has had a login
   hosts: localhost
   gather_facts: false
   tags: [tailscale]
@@ -182,68 +174,10 @@
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
   tasks:
-    # Not a failure of the run where it cannot be written: the VM is configured,
-    # and only the record is missing, which the next configure writes. Said.
-    - name: Record each VM that joined
-      block:
-        - name: Read the tags of each VM to record
-          community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
-            type: qemu
-            vmid: "{{ hostvars[claude_vm_tailscale_host].proxmox_vm_id }}"
-            config: current
-          register: claude_vm_tailscale_info
-          when:
-            - not ansible_check_mode
-            - hostvars[claude_vm_tailscale_host].proxmox_vm_id is defined
-            - hostvars[claude_vm_tailscale_host].tailscale_login_to_record | default(false) | bool
-            - not (hostvars[claude_vm_tailscale_host].tailscale_joined_before | default(false) | bool)
-          loop: "{{ groups['claude_vms'] | default([]) }}"
-          loop_control:
-            loop_var: claude_vm_tailscale_host
-
-        - name: Tag each one in Proxmox, keeping its other tags
-          vars:
-            claude_vm_tailscale_vm: >-
-              {{ claude_vm_tailscale_read.proxmox_vms | default([], true) | first | default({}, true) }}
-            claude_vm_tailscale_now: >-
-              {{ (claude_vm_tailscale_vm.config | default({}, true)).tags | default('', true)
-                 | replace(',', ';') | split(';') | map('trim') | select | map('lower') | list }}
-          community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
-            node: "{{ claude_vm_tailscale_vm.node }}"
-            vmid: "{{ claude_vm_tailscale_vm.vmid }}"
-            name: "{{ claude_vm_tailscale_vm.name }}"
-            update: true
-            tags: "{{ claude_vm_tailscale_now | union([claude_vm_tailscale_tag]) }}"
-          register: claude_vm_tailscale_tagged
-          when:
-            - claude_vm_tailscale_read is not skipped
-            - claude_vm_tailscale_vm.name | default('') == claude_vm_tailscale_read.claude_vm_tailscale_host
-            - claude_vm_tag | lower in claude_vm_tailscale_now
-            - claude_vm_tailscale_tag not in claude_vm_tailscale_now
-          loop: "{{ claude_vm_tailscale_info.results | default([]) }}"
-          loop_control:
-            loop_var: claude_vm_tailscale_read
-            label: "{{ claude_vm_tailscale_read.claude_vm_tailscale_host }}"
-      rescue:
-        - name: Say each VM whose record could not be written
-          vars:
-            claude_vm_tailscale_vm_name: >-
-              {{ claude_vm_tailscale_result.claude_vm_tailscale_host
-                 | default(claude_vm_tailscale_result.claude_vm_tailscale_read.claude_vm_tailscale_host | default('?')) }}
-            claude_vm_tailscale_said: >-
-              {{ (claude_vm_tailscale_result.msg | default('no reason given', true) | plain_text
-                  | regex_replace('\s+', ' ') | trim)[:200] }}
-          ansible.builtin.debug:
-            msg: >-
-              {{ claude_vm_tailscale_vm_name }}: Proxmox could not record that it joined Tailscale
-              ({{ claude_vm_tailscale_said }}), so vault_tailscale_auth_key could be sent to it again if it is logged
-              out. The next just deploy {{ claude_vm_tailscale_vm_name }} --only configure records it.
-          when: claude_vm_tailscale_result is failed
-          loop: >-
-            {{ (claude_vm_tailscale_info.results | default([])) + (claude_vm_tailscale_tagged.results | default([])) }}
-          loop_control:
-            loop_var: claude_vm_tailscale_result
-            label: "{{ claude_vm_tailscale_vm_name }}"
+    - name: Record each VM
+      ansible.builtin.import_tasks: tasks/tailscale_record.yml
+      vars:
+        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
 
 # One SSH alias per VM on this machine, so `ssh alpha` and the host picker of
 # VS Code's Remote - SSH extension follow the address DHCP gave it

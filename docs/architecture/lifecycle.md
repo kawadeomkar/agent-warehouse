@@ -169,9 +169,13 @@ hosts: claude_vms, become: true
 
 ```yaml
   post_tasks (tagged always): getent vm_user → claude_vm_workspace fact
+hosts: localhost  (tagged tailscale)
+  import tasks/tailscale_record.yml   → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
 hosts: localhost  (tagged always)
   collect {name, address, user, vmid, workspace} for every claude_vms host that has the fact
   import tasks/ssh_config.yml  state: present   → the connect line per VM
+hosts: claude_vms  (tagged always)
+  fail each VM with a failure in claude_vm_configure_failures, unless claude_vm_configure_in_deploy
 ```
 
 `claude_vm_discovery: false` skips the Proxmox API entirely, which is how the Vagrant and Molecule
@@ -179,7 +183,13 @@ paths configure a host that is already in a static inventory, and how `deploy.ym
 the hosts provisioning published (§4.7). `cloud-init status --wait` accepts exit code 2 ("done with
 recoverable errors").
 
-The third play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and VS Code's host
+The third play records in Proxmox, as a tag the VM cannot change, each VM whose Tailscale has had a login, so
+that the vault's auth key is never sent to it again ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)):
+`tasks/tailscale_record.yml`, which `tailscale_login.yml` runs too, after its sign-ins. It reads each VM's tags
+and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
+STEPS, while the others are still recorded.
+
+The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and VS Code's host
 picker follow the address DHCP gave it. It reads a fact the second play set *last*: `claude_vm_workspace`,
 `vm_projects_dir` or `~/projects` of `vm_user` as `getent` resolves it on the VM. A host that failed a
 role never reaches that `post_task`, so it never gets an alias; and the workspace is the VM user's real
@@ -191,7 +201,7 @@ keeps the whole project out of `~/.ssh`.
 Tailscale runs last, from the play's `tasks:` - after `roles:`, before `post_tasks:` - in a block whose
 rescue records a failure in `claude_vm_configure_failures`, with `just deploy <vm>
 --tags tailscale`, and says it. The VM stays in the play, so it still records its workspace and gets its
-alias, and under `just deploy` its sign-ins and VS Code; a fourth play, tagged `always`, then fails each
+alias, and under `just deploy` its sign-ins and VS Code; a fifth play, tagged `always`, then fails each
 VM with such a failure - skipped when `claude_vm_configure_in_deploy` is set, as `deploy.yml`'s configure
 import sets it, since deploy's own last play raises the same list (§4.7). `import_role`, not
 `include_role`: a static import takes the block's tag, so `just deploy <vm> --tags tailscale` runs the role's

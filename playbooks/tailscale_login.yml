@@ -163,6 +163,23 @@
             aggregate: true
             per_host: false
 
+# Records in Proxmox each VM whose Tailscale has had a login, as configure.yml
+# does after the role (tasks/tailscale_record.yml): a login this sign-in made, a
+# page still waiting, one found. After the last prompt, so that it holds no VM's
+# sign-in back, and before the last play, since a play in which every VM fails
+# ends the run.
+- name: Record in Proxmox each VM whose Tailscale has had a login
+  hosts: localhost
+  gather_facts: false
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+
+  tasks:
+    - name: Record each VM
+      ansible.builtin.import_tasks: tasks/tailscale_record.yml
+      vars:
+        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
+
 # just deploy carries on past a sign-in that failed - the person's to finish
 # later with just login --only tailscale; this command exists to sign in, so here the
 # run fails, VM by VM - unless just login runs the three sign-ins

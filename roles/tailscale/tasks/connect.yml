@@ -3,7 +3,7 @@
 # only (main.yml). Sent again to a node that is signed in, a key Tailscale no
 # longer accepts - expired, spent, revoked - logs the node out
 # (tailscale#19501), so a node that has joined is never handed it again. Nor is
-# a VM that held a login of this role's before and has none now
+# a VM whose Tailscale had a login before and has none now
 # (tailscale_joined_before, which Proxmox records): only something on the VM
 # logs it out, and its root could do that, or make tailscale report it, to be
 # handed the fleet's key - a reusable one, which joins devices of its own long
@@ -40,10 +40,9 @@
   ansible.builtin.assert:
     that: not (tailscale_key_held_back | bool)
     fail_msg: >-
-      {{ inventory_hostname }} joined Tailscale through this project before, as its tag in Proxmox records
-      ({{ tailscale_joined_tag }}), and has no login now: something on the
-      VM logged it out. vault_tailscale_auth_key is not sent to a VM again, and tailscale_auth_method key signs none
-      in by the browser. Set tailscale_auth_method to auto and run {{ tailscale_login_command }}; or, if you logged it
+      {{ inventory_hostname }} had a Tailscale login before, as its tag in Proxmox records ({{ tailscale_joined_tag }}),
+      and has none now: something on the VM logged it out. vault_tailscale_auth_key is not sent to a VM again, and
+      tailscale_auth_method key signs none in by the browser. Set tailscale_auth_method to auto and run {{ tailscale_login_command }}; or, if you logged it
       out yourself, remove that tag from the VM in Proxmox and run {{ tailscale_configure_command }}.
     quiet: true
   when:
@@ -128,18 +127,19 @@
     - not (tailscale_join_under_way | bool)
 
 # The reading taken before the join has no marker: read it again, so the rest of
-# this run knows the login is this role's.
+# this run knows the login is this role's, or the join under way its sign-in.
 - name: connect | Read what this role has made, now that it has joined
   ansible.builtin.include_tasks: ownership.yml
   when:
     - tailscale_join is not skipped
-    - tailscale_signed_in | bool
+    - tailscale_signed_in | bool or tailscale_join_under_way | bool
 
-# Whether the VM holds a login of this role's - the join above, or one an
-# earlier run recorded, which also covers a VM that joined before Proxmox kept
-# the record - for configure.yml's next play to record in Proxmox, where the VM
-# cannot change it (tailscale_joined_tag). Set on every run of this file, so
-# that it is never an earlier run's.
-- name: connect | Say whether the VM holds a login of this role's, for Proxmox to record
+# Whether the VM's Tailscale has had a login, or has a sign-in under way
+# (tailscale_login_seen) - the join above, one an earlier run made, before
+# Proxmox kept the record or not, one made by hand - for configure.yml's next
+# play to record in Proxmox, where the VM cannot change it
+# (tailscale_joined_tag). Set on every run of this file, so that it is never an
+# earlier run's.
+- name: connect | Say whether the VM has had a login, for Proxmox to record
   ansible.builtin.set_fact:
-    tailscale_login_to_record: "{{ tailscale_login_ours | bool }}"
+    tailscale_login_to_record: "{{ tailscale_login_seen | bool }}"

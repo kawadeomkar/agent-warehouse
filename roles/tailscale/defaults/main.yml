@@ -21,7 +21,7 @@ tailscale_auth_key: ""
 # leave the VM for a browser. web: by the web login only; a key is left unused.
 tailscale_auth_method: auto
 
-# Whether the VM held a login of this role's before, as recorded where the VM
+# Whether the VM's Tailscale had a login before, as recorded where the VM
 # cannot change it: the playbooks set it from the VM's tag in Proxmox
 # (tailscale_joined_tag). Such a VM is never sent the key again - a node
 # logged out from inside reads like one that never joined, and would otherwise
