@@ -129,9 +129,12 @@ restate them are not treated as vulnerabilities:
   person's own, which cannot list the others' VMs at all, is planned.
 - The VM's user gets passwordless sudo and docker group membership by default; both are toggles, and
   [What the VM trusts](docs/guides/what-the-vm-trusts.md) says what they mean.
-- `vault_vm_password`, when set, is one password for the VM user on every VM, for the Proxmox console.
-  SSH never takes it. Each VM holds its hash (in `/etc/shadow` and on its cloud-init drive), so root on one
-  VM can try to crack it offline and use it on every other VM's console. Make it one you use nowhere else.
+- `vault_vm_password`, when set, is one password for the VM user on every VM, for the Proxmox console and
+  for sudo with `common_user_passwordless_sudo: false`. SSH never takes it. Each VM holds its hash (in
+  `/etc/shadow` and on its cloud-init drive), and the playbooks become root with it whenever sudo asks, so
+  root on one VM can make its sudo ask and read the password from the next run. With it, that VM's root
+  has the password to every other VM's console and, on the tighter box, to every other VM's sudo. Make it
+  one you use nowhere else; a password of each VM's own is not built yet.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
   can be reached without manual steps. Changed keys are still refused.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH needs and OpenSSH

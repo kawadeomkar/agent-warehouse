@@ -19,7 +19,9 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   snapd (one with a snap installed: LXD comes on first use), `cdrom`, which reads the cloud-init drive
   with the password's hash, and `adm`, every system log; and with Docker off, out of `docker`, which is
   root while Docker is installed. A program already running keeps the groups it started with, until it
-  restarts or the VM does. The password is one for every VM, so make it one you use nowhere else.
+  restarts or the VM does. The password is one for every VM, and the playbooks hand it to any VM whose sudo
+  asks for it: root on one VM can make its sudo ask, and then holds the sudo password of every other tighter
+  box. Make it one you use nowhere else.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
   does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
