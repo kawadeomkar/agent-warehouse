@@ -13,7 +13,6 @@ from pathlib import Path
 
 import interrupts
 import pytest
-import sharding
 from ansible.module_utils import basic
 from ansible.module_utils.testing import patch_module_args
 
@@ -127,7 +126,11 @@ def pytest_collection_modifyitems(config, items):
     durations = json.loads(DURATIONS.read_text()) if DURATIONS.exists() else {}
     mean = statistics.mean(durations.values()) if durations else 1.0
     weight = {key: sum(durations.get(item.nodeid, mean) for item in members) for key, members in units.items()}
-    owner = sharding.split(weight, count)
+    loads, owner = [0.0] * count, {}
+    for key in sorted(units, key=lambda key: (-weight[key], key)):
+        slot = loads.index(min(loads))
+        loads[slot] += weight[key]
+        owner[key] = slot
     kept = {id(item) for key, members in units.items() if owner[key] == index - 1 for item in members}
     config.hook.pytest_deselected(items=[item for item in items if id(item) not in kept])
     items[:] = [item for item in items if id(item) in kept]

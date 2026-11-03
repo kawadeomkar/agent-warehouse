@@ -1,6 +1,5 @@
 """tests/unit/conftest.py's --shard, as CI splits the unit tests (docs/architecture/ci.md): N shards that between them
-run every test exactly once, each module whose tests share a fixture whole in one of them, and the longest of those
-in shards of their own (sharding.py).
+run every test exactly once, each module whose tests share a fixture whole in one of them.
 
 Each look is a collection of the suite in a pytest of its own, as each CI shard collects it.
 """
@@ -13,8 +12,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import sharding
-import yaml
 
 REPO = Path(__file__).resolve().parents[2]
 PYTEST = Path(sys.executable).with_name("pytest")
@@ -54,21 +51,3 @@ def test_a_module_whose_tests_share_a_fixture_is_never_split() -> None:
     for module in ("test_github_auth.py", "test_tailscale.py", "test_sign_in_plays.py"):
         holding = [index for index, shard in enumerate(shards, 1) if any(f"/{module}::" in test for test in shard)]
         assert len(holding) == 1, (module, holding)
-
-
-def test_the_longest_groups_get_shards_of_their_own() -> None:
-    # Two groups far longer than any other, as test_github_auth.py and test_tailscale.py are, three long ones and many
-    # short tests: the two have a shard each and nothing beside them, and the rest share the other two.
-    weight = {"giant-a": 600, "giant-b": 590, "long-a": 380, "long-b": 300, "long-c": 300, "middle": 230}
-    weight |= {f"short-{n}": 5 for n in range(200)}
-    owner = sharding.split(weight, 4)
-    alone = {owner["giant-a"], owner["giant-b"]}
-    assert len(alone) == 2
-    assert {group for group, shard in owner.items() if shard in alone} == {"giant-a", "giant-b"}
-    assert set(owner.values()) == {0, 1, 2, 3}
-
-
-def test_the_split_counts_the_workers_each_ci_shard_runs() -> None:
-    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
-    (step,) = [step for step in workflow["jobs"]["unit"]["steps"] if step.get("name") == "Unit tests"]
-    assert step["env"]["PYTEST_XDIST_AUTO_NUM_WORKERS"] == str(sharding.WORKERS)

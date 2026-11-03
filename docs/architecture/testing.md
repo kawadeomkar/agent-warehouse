@@ -13,8 +13,7 @@ other modules go test by test to whichever worker is free. Whole modules, since 
 through `request.getfixturevalue`, which no static look finds; and `tryfirst`, since xdist's own hook turns the
 marks into groups and, run first, would see none and rebuild the fixtures test by test. Plain `pytest` runs one
 test at a time, for one test or one file. `just test unit --shard <i>/<n>` runs one of n shards, each such module
-whole in one and put where its shard's time comes out least by `tests/unit/durations.json` (`sharding.py`,
-`tools/unit_durations.py`), so the two longest get shards of their own; CI runs four, `CI result` fails
+whole in one, balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs four, `CI result` fails
 unless all four passed, and `test_shards.py` holds that the shards together collect every test exactly once.
 Every child a test signals or types Ctrl-C at starts with SIGINT,
 SIGQUIT and SIGHUP at their defaults (`harness._default_signals`), since a suite started with `&` or under
@@ -195,10 +194,8 @@ pytest over `tests/unit/`: 2244 tests. By file:
 - **The CI gate** (`test_ci.py` 8): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
   success or a skip and fails a failure or a cancel.
-- **The shards** (`test_shards.py` 6): `--shard` collected as each CI shard collects it - two, three and four
-  shards that between them run every test exactly once, and a module whose tests share a fixture whole in one;
-  the split given two groups far longer than the rest puts each in a shard with nothing beside it, and counts
-  the workers `ci.yml` gives each shard.
+- **The shards** (`test_shards.py` 4): `--shard` collected as each CI shard collects it - two, three and four
+  shards that between them run every test exactly once, and a module whose tests share a fixture whole in one.
 - **Remote Control** (`test_remote_control_playbooks.py` 56): `claude_login.yml` and `remote_control.yml`
   against canned logins and stand-ins, and the harness they share (`tests/unit/harness.py`: an
   allowlisted environment, desktop stand-ins - and this machine's tailscale, gh and claude - that fail a run
