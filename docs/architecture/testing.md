@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2742 tests. By file:
+pytest over `tests/unit/`: 2743 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -477,11 +477,11 @@ pytest over `tests/unit/`: 2742 tests. By file:
   leaves `docs/`; the root files' links, the pages the repository names and the architecture sections it
   cites all exist, a section cited from another page is a link, and the README's quick start matches the
   wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 38, `test_ratchets.py` 1): the
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 38, `test_ratchets.py` 2): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
-  a new name that contains the old one fails too; and how many lines of the code name VS Code outside its own
-  files, file by file, against a table that a count above or below it fails.
+  a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor
+  outside its own files, file by file, against a table that a count above or below it fails.
 
 ## 11.2 Role scenarios — `just test role`
 

@@ -155,4 +155,4 @@ user's choice. What was decided, and why:
 - **The names runs left behind stay**, whatever the project is called: the tag, the markers and drop-ins on each VM,
   the managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
 - **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
-  file by file, to what they are, and fails when one grows.
+  and how many read Proxmox's API outside its own roles, file by file, to what they are, and fails when one grows.

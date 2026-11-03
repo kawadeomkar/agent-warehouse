@@ -847,7 +847,8 @@ def test_every_status_run_in_a_test_writes_into_its_own_directory() -> None:
     assert '"ansible_ssh_executable": str(root / "ssh")' in source
     for path in (REPO / "tests" / "unit").glob("test_*.py"):
         text = path.read_text()
-        if path.name not in ("test_status.py", "test_justfile.py") and "status.yml" in text:
+        # test_ratchets.py names status.yml as a file its table counts lines of, and runs nothing.
+        if path.name not in ("test_status.py", "test_justfile.py", "test_ratchets.py") and "status.yml" in text:
             assert "status_root" in text, path.name
     imports = 0
     for path in (REPO / "molecule").glob("*/*.yml"):

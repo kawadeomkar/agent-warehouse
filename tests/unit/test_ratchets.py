@@ -86,3 +86,47 @@ VSCODE_PROMISED = (
 
 def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None:
     _held(_lines_naming(VSCODE_TERMS, VSCODE_OWN, VSCODE_PROMISED), VSCODE_ELSEWHERE, "VS Code")
+
+
+# Proxmox's own: its two roles, its filters and the script just init runs on the host as root. Anywhere else, a line
+# that names its API's settings, its collection or its raw cluster listing reads Proxmox directly - the reads a
+# second hypervisor would have to be put behind (docs/architecture/decisions.md §15.4).
+PROXMOX_OWN = re.compile(
+    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|tools/proxmox-access\.sh$)"
+)
+PROXMOX_ELSEWHERE = {
+    "deploy.yml": 2,
+    "filter_plugins/live_ansible.py": 4,
+    "filter_plugins/run_view.py": 5,
+    "filter_plugins/status.py": 21,
+    "inventory/group_vars/all/defaults.yml": 30,
+    "inventory/group_vars/all/local.yml.example": 4,
+    "inventory/group_vars/all/vault.yml.example": 2,
+    "playbooks/code.yml": 2,
+    "playbooks/configure.yml": 1,
+    "playbooks/destroy.yml": 17,
+    "playbooks/discover.yml": 3,
+    "playbooks/init_check.yml": 38,
+    "playbooks/init_settings.yml": 16,
+    "playbooks/provision.yml": 23,
+    "playbooks/ssh_config.yml": 3,
+    "playbooks/status.yml": 23,
+    "playbooks/tailscale_login.yml": 1,
+    "playbooks/tasks/cluster_vms.yml": 17,
+    "playbooks/tasks/init_choose.yml": 2,
+    "playbooks/tasks/init_local_setting.yml": 1,
+    "playbooks/tasks/tailscale_record.yml": 6,
+    "playbooks/tasks/vm_addresses.yml": 11,
+    "playbooks/tasks/vm_stop.yml": 4,
+    "playbooks/templates/vm_session.md.j2": 2,
+    "tools/docs.py": 1,
+}
+
+
+# Its API's settings, its collection, its raw listing and the paths of its API, and the VMID, Proxmox's own ID of a
+# VM, which the fleet's records are to carry as a provider's id (plan §7.1).
+PROXMOX_TERMS = r"proxmox_api_|community\.proxmox|claude_vm_all|proxmox_vm_id|/cluster/|/qemu/|\bvmid\b"
+
+
+def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
+    _held(_lines_naming(PROXMOX_TERMS, PROXMOX_OWN), PROXMOX_ELSEWHERE, "Proxmox's API")
