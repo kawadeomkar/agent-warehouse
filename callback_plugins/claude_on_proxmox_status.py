@@ -27,7 +27,7 @@ DOCUMENTATION = """
     description:
       - Draws the report at the bottom of the terminal while the run reads, with a spinner wherever a value is still
         being read, and prints the finished report once when it ends. Piped, or with STATUS_QUIET set (just status
-        --json), it draws nothing.
+        --json), it draws nothing; under STATUS_QUIET the report goes to the run log alone.
       - Says a task's failure on stderr only when the run ends without a report, and shows task warnings.
     requirements:
       - Chosen with ANSIBLE_STDOUT_CALLBACK=claude_on_proxmox_status, as just status does.
@@ -164,10 +164,14 @@ class CallbackModule(CallbackBase):
         if isinstance(facts.get("status_report"), dict):
             self._finish()
             self._reported = True
-            if not self._quiet:
-                model = facts["status_report"]
-                reading = self._reading(model)
-                plain = self._status.status_text(model, False, reading=reading)
+            model = facts["status_report"]
+            reading = self._reading(model)
+            plain = self._status.status_text(model, False, reading=reading)
+            if self._quiet:
+                # Under --json the screen gets the JSON alone, from the recipe's last step; the run log still gets
+                # the report, as every other run's does, rather than staying an empty file.
+                self._display.display(plain, log_only=True)
+            else:
                 # The colours are for the screen: Display logs what it is given, so the log gets the plain text.
                 coloured = self._status.status_text(model, True, reading=reading) if self._color else plain
                 self._out.print([(coloured, plain)])

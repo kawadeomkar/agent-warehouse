@@ -58,6 +58,7 @@
   ansible.builtin.include_tasks: browser_login.yml
   when:
     - claude_code_login_interactive | bool
+    - claude_code_login_installed | bool
     - claude_code_anthropic_api_key | length == 0
     - not (claude_code_remote_control_status.loggedIn | default(false)) | bool
 
@@ -66,12 +67,16 @@
 # Remote Control off on purpose - an API key from the vault, or
 # claude_code_remote_control: false - is said as such, not as something to fix;
 # just deploy --only configure is named only where it is what starts Remote Control, after a
-# login fixed by hand, for which no path unit waits. The text is built in vars
-# so the message is one line.
+# login fixed by hand, for which no path unit waits. A VM with no claude at all
+# is told what installs it, as the GitHub and Tailscale sign-ins tell theirs.
+# The text is built in vars so the message is one line.
 - name: login | Report the login state and what to do about it
   vars:
     claude_code_login_report: >-
-      {{ ('signed in as ' if claude_code_login_done | default(false) | bool else 'already signed in as ')
+      {{ 'Claude Code is not installed; just deploy ' ~ inventory_hostname ~ ' --tags claude_code installs it, and '
+              ~ claude_code_login_command ~ ' then signs it in.'
+         if not claude_code_login_installed | bool
+         else ('signed in as ' if claude_code_login_done | default(false) | bool else 'already signed in as ')
          ~ (claude_code_remote_control_status.email | default('?', true))
          ~ ' (' ~ (claude_code_remote_control_status.authMethod | default('?', true)) ~ ', '
          ~ (claude_code_remote_control_status.subscriptionType | default('?', true)) ~ ' plan).'

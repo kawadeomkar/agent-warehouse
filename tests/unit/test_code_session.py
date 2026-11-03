@@ -634,6 +634,8 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
         # Never the developer's git config: a url.<base>.insteadOf there rewrites the origins read.
         GIT_CONFIG_GLOBAL=os.devnull,
         GIT_CONFIG_NOSYSTEM="1",
+        # A log of the run's own, which takes what Ansible writes to the log alone.
+        ANSIBLE_LOG_PATH=str(root / "run.log"),
     )
     extra = {**_window_extra(root), **extra}
     result = subprocess.run(
@@ -651,6 +653,7 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
     return {
         "rc": result.returncode,
         "output": output,
+        "log": (root / "run.log").read_text() if (root / "run.log").exists() else "",
         "reached": _said(output, "Reach the window") == "reached",
         "later": _said(output, "Say how to open the VM later"),
         "fleet": _said(output, "Say how to open each VM"),
@@ -1697,6 +1700,8 @@ def test_the_notes_say_their_time_in_this_machine_s_zone_or_utc(zones, case):
     assert run["rc"] == 0, run["output"]
     assert run["shown"] == ZONES[case][1]
     assert "[WARNING]" not in run["output"], run["output"]
+    # Nor in the log alone, where a lookup's ignored error goes: macOS has no /etc/timezone.
+    assert "occurred while running the lookup plugin" not in run["log"], run["log"]
 
 
 # ------------------------------------------------- the Claude terminal refreshes them after a sign-in ---

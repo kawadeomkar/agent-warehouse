@@ -142,6 +142,8 @@ def _hosts(root: Path, cases: dict) -> dict:
             (fake / "fake-no-page").write_text(case["no_page"])
         if case.get("foreign_page"):
             (fake / "fake-foreign-page").touch()
+        if case.get("absent"):
+            (fake / "fake-absent").touch()
         (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
             "ansible_connection": "local",
@@ -273,6 +275,8 @@ CASES = {
     "already": {"signed_in": True},
     # An API key and no claude.ai login: the key is the login on the API path.
     "keyed": {"api_key": API_KEY},
+    # No claude on its login shell's PATH: a VM the role never configured.
+    "absent": {"absent": True},
     # claude_code_login_args, such as --sso, for claude auth login.
     "sso": {"code": CODES["sso"], "args": ["--sso"]},
 }
@@ -419,6 +423,21 @@ def test_a_vm_whose_api_key_is_its_login_is_not_sent_through_the_sign_in(signed)
     assert "keyed" not in _failures(report)
 
 
+def test_a_vm_without_claude_code_is_told_what_installs_it(signed):
+    # Its login shell finds no claude, bash's 127: it was told it was not signed in, and sent to a sign-in that
+    # cannot run there, while the GitHub and Tailscale sign-ins said what installs theirs.
+    root, report = signed
+    calls = _calls(root, "absent")
+    assert "auth status" in calls and "auth login" not in calls, calls
+    said = _messages(report, "Report the login state and what to do about it")["absent"]
+    assert said == (
+        "absent: Claude Code is not installed; just deploy absent --tags claude_code installs it,"
+        " and just login absent --only claude then signs it in."
+    ), said
+    assert _left_to_do(report)["absent"]["claude"] == said
+    assert "absent" not in _failures(report)
+
+
 def test_the_login_arguments_reach_claude(signed):
     root, _ = signed
     calls = _calls(root, "sso")
@@ -481,6 +500,7 @@ def test_each_vm_records_whether_its_code_was_entered(signed):
         "skipped": "answered=False skipped=True",
         "already": "answered=unset skipped=unset",
         "keyed": "answered=unset skipped=unset",
+        "absent": "answered=unset skipped=unset",
         # The facts are the VM's own: nothing is written onto this machine.
         "localhost": "here=unset",
     }, said

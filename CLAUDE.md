@@ -509,7 +509,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   100 columns. Its stdout callback (`callback_plugins/claude_on_proxmox_status.py`, chosen by the recipe,
   the run's only callback) draws the report live at a terminal in the shared region (above), shows task
   warnings (ansible-core 2.19+ carries them on the result), and prints only the finished report piped, in the
-  log, or under `--json` (`STATUS_QUIET`). Every status run in a test pins `status_report_file` and `claude_ssh_config_file`
+  log, or under `--json` (`STATUS_QUIET`) - there to the log alone. Every status run in a test pins `status_report_file` and `claude_ssh_config_file`
   into its own directory and gets a refusing stand-in `ssh` (`status_root`); the reads inside a VM run
   against stand-in VMs (`tests/unit/test_status_vms.py`), which hold that every file there is unchanged.
   See docs/architecture/lifecycle.md §4.6.

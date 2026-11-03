@@ -31,10 +31,16 @@
 #   auth logout     removes .credentials.json, as claude's own does
 #   remote-control  stays up, as the server does
 #   --version       a version
+#   fake-absent     a VM without Claude Code: whatever is asked, what bash says
+#                   of a command it cannot find, and its exit status 127
 state="$HOME/.claude/fake"
 mkdir -p "$state"
 printf '%s\n' "$*" >> "$state/calls.log"
 credentials="$HOME/.claude/.credentials.json"
+if [ -e "$state/fake-absent" ]; then
+  echo "bash: line 1: claude: command not found" >&2
+  exit 127
+fi
 
 case "$1 $2" in
   "auth status")
