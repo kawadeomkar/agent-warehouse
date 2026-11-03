@@ -27,6 +27,17 @@ _GITHUB_LOGIN = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}")
 # word, never a prefix of Tailscale's alone. Never an API access token, which the
 # same Keys page makes and which joins nothing.
 _AUTH_KEY = re.compile(r"(?!tskey-api-)[A-Za-z0-9._:/?=&+-]{20,512}")
+# What Proxmox itself allows as the name of a node (a host name's first label),
+# a storage (pve-storage-id) and a bridge (a network interface's name). just
+# init writes such a name into local.yml, which every later run reads as a
+# template: a name the API or root SSH reported is held to these first, so
+# one that holds anything else - {{ ... }} above all - is never offered or
+# written, whoever answered for the host.
+PROXMOX_NAMES = {
+    "node": _LABEL,
+    "storage": re.compile(r"(?i)[a-z][a-z0-9_.-]*[a-z0-9]"),
+    "bridge": re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}"),
+}
 
 RULES = {
     "host": (
@@ -99,6 +110,23 @@ def init_answer(value, kind, choices=None):
     return ""
 
 
+def proxmox_name(value, kind):
+    """Return ``value`` when it is a name Proxmox gives a ``kind`` (node, storage, bridge), else ``""``."""
+    if kind not in PROXMOX_NAMES:
+        raise AnsibleFilterError(f"proxmox_name: no kind {kind!r}; one of {', '.join(PROXMOX_NAMES)}")
+    return value if isinstance(value, str) and PROXMOX_NAMES[kind].fullmatch(value) else ""
+
+
+def proxmox_names(values, kind):
+    """The items of ``values`` that are names Proxmox gives a ``kind``, in their order."""
+    return [value for value in values or [] if proxmox_name(value, kind)]
+
+
+def proxmox_names_refused(values, kind):
+    """The items of ``values`` that are not, each as JSON, so whatever it holds is shown and never acted on."""
+    return [json.dumps(str(value)) for value in values or [] if not proxmox_name(value, kind)]
+
+
 def init_answer_rule(kind):
     """The rule an answer of ``kind`` must follow, in words, for the prompt that asks again."""
     if kind not in RULES:
@@ -161,21 +189,25 @@ def init_candidates(results, key, prefix, required):
     order: ``lacks`` lists the required privileges the token does not hold
     there, and ``inactive`` is a storage Proxmox lists but cannot reach (an NFS
     share that is down). A candidate is usable with neither. A permission read
-    that failed lacks everything.
+    that failed lacks everything. A name Proxmox would not give a storage or a
+    bridge is ``refused``: shown as JSON, never usable, whatever the token holds.
     """
+    kind = "storage" if key == "storage" else "bridge"
     candidates = []
     for result in results or []:
         entry = result.get("item") or {}
         name = str(entry.get(key, ""))
+        refused = not proxmox_name(name, kind)
         data = (result.get("json") or {}).get("data") or {}
-        held = data.get(prefix + name) or {} if result.get("status") == 200 else {}
+        held = data.get(prefix + name) or {} if result.get("status") == 200 and not refused else {}
         candidates.append(
             {
-                "name": name,
-                "type": str(entry.get("type", "")),
-                "free": _size(entry["avail"]) + " free" if "avail" in entry else "",
+                "name": json.dumps(name) if refused else name,
+                "type": str(entry.get("type", "")) if not refused else "",
+                "free": _size(entry["avail"]) + " free" if "avail" in entry and not refused else "",
                 "lacks": [privilege for privilege in required if privilege not in held],
                 "inactive": str(entry.get("active", 1)) == "0",
+                "refused": refused,
             }
         )
     return candidates
@@ -183,8 +215,8 @@ def init_candidates(results, key, prefix, required):
 
 def init_choose_rows(candidates, path):
     """The lines a choice shows: the usable candidates numbered, then the others with what the token lacks."""
-    usable = [c for c in candidates if not c["lacks"] and not c.get("inactive")]
-    unusable = [c for c in candidates if c["lacks"] or c.get("inactive")]
+    usable = [c for c in candidates if not c["lacks"] and not c.get("inactive") and not c.get("refused")]
+    unusable = [c for c in candidates if c not in usable]
     name = max((len(c["name"]) for c in candidates), default=0)
     kind = max((len(c["type"]) for c in candidates), default=0)
     lines = []
@@ -192,7 +224,13 @@ def init_choose_rows(candidates, path):
         prefix = f"{number}) " if len(usable) > 1 else "-  "
         lines.append(f"  {prefix}{c['name']:<{name}}   {c['type']:<{kind}}   {c['free']}".rstrip())
     for c in unusable:
-        why = f"the token lacks {', '.join(c['lacks'])} on {path}{c['name']}" if c["lacks"] else "inactive"
+        why = (
+            "not a name Proxmox gives one, so never used"
+            if c.get("refused")
+            else f"the token lacks {', '.join(c['lacks'])} on {path}{c['name']}"
+            if c["lacks"]
+            else "inactive"
+        )
         lines.append(f"  -  {c['name']:<{name}}   {c['type']:<{kind}}   {why}")
     return lines
 
@@ -205,4 +243,7 @@ class FilterModule:
             "with_setting": with_setting,
             "init_candidates": init_candidates,
             "init_choose_rows": init_choose_rows,
+            "proxmox_name": proxmox_name,
+            "proxmox_names": proxmox_names,
+            "proxmox_names_refused": proxmox_names_refused,
         }

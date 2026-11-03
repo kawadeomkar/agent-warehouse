@@ -1025,9 +1025,10 @@ WRITERS_WHEN = (
     "code_session_on | bool",
 )
 # The task files code.yml imports that other playbooks import too, each held to its own tests: the
-# Proxmox API reads and the alias (test_ssh_config.py). Every other import is code.yml's own, and
-# its tasks are held to everything here as code.yml's are.
-SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml", "tasks/ssh_config.yml"}
+# Proxmox API reads, the alias (test_ssh_config.py) and the refusal of a VM named after an inventory
+# host (test_vm_names.py). Every other import is code.yml's own, and its tasks are held to everything
+# here as code.yml's are.
+SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml", "tasks/ssh_config.yml", "tasks/vm_names.yml"}
 
 
 def _tasks(items, imports_from=None):

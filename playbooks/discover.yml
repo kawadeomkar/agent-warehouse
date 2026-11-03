@@ -22,16 +22,34 @@
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
   tasks:
+    - name: Refuse a VM named after a host of the inventory
+      ansible.builtin.import_tasks: tasks/vm_names.yml
+      when: vm_name is defined
+
     - name: List every VM in the cluster
       ansible.builtin.import_tasks: tasks/cluster_vms.yml
 
     # claude_vm_requested (group_vars/all) keeps the VMs carrying this
     # project's tag, matched as a whole tag rather than a substring so
     # "claude-on-proxmox-staging" is left alone - and with vm_name given, only
-    # those; without it, the whole fleet.
+    # those; without it, the whole fleet. Never one named after a host of the
+    # inventory, which add_host would merge into that host: on a Proxmox
+    # others use too, anyone can tag a VM pve.
     - name: Narrow to the requested VMs
       ansible.builtin.set_fact:
-        claude_vm_discovered: "{{ claude_vm_requested }}"
+        claude_vm_discovered: "{{ claude_vm_requested | vms_not_named(claude_vm_inventory_hosts) }}"
+
+    - name: Say which tagged VMs are left out for their name
+      vars:
+        claude_vm_misnamed: >-
+          {{ claude_vm_requested | selectattr('name', 'defined') | selectattr('name', 'in', claude_vm_inventory_hosts)
+             | map(attribute='name') | list }}
+      ansible.builtin.debug:
+        msg: >-
+          Left out: {{ claude_vm_misnamed | join(', ') }}, tagged {{ claude_vm_tag }} but named like a host of the
+          inventory, which a VM must never become. Rename {{ 'it' if claude_vm_misnamed | length == 1 else 'them' }}
+          in Proxmox, or ask whoever made {{ 'it' if claude_vm_misnamed | length == 1 else 'them' }}.
+      when: claude_vm_misnamed | length > 0
 
     # Proxmox permits duplicate names. The role refuses to act on one; here the
     # second add_host would silently overwrite the first, so `just deploy --only configure`

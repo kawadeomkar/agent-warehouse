@@ -713,6 +713,9 @@
               to hand VS Code. Set it true, or open the VM by address yourself.
             quiet: true
 
+        - name: Refuse a VM named after a host of the inventory
+          ansible.builtin.import_tasks: tasks/vm_names.yml
+
         - name: List every VM in the cluster
           ansible.builtin.import_tasks: tasks/cluster_vms.yml
 
