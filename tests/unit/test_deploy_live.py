@@ -120,7 +120,7 @@ PLAYBOOKS = {
       ansible.builtin.set_stats:
         data:
           claude_vm_next: "{{ {'alpha': {'vm': long}} }}"
-          code_next: "{{ {'alpha, beta': {'vscode': fleet}} }}"
+          code_next: "{{ {'alpha, beta': {'editor': fleet}} }}"
       vars:
         long: >-
           alpha: just login alpha --only github signs GitHub in on alpha, which this run left for later: a line

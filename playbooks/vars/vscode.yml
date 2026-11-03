@@ -131,7 +131,7 @@ code_notes_task:
 # Whether the notes' directory is this window's second folder (above).
 code_notes_folder: "{{ code_notes | bool and code_notes_dir.startswith(code_target ~ '/') }}"
 # Opened as a rendered preview: VS Code matches a key with a "/" against the
-# file's scheme and path, so this follows vscode_workspaces_dir.
+# file's scheme and path, so this follows editor_files_dir.
 code_notes_glob: "**/{{ code_ws_dir | basename }}/session/*-session.md"
 code_not_installed: >-
   Claude Code is not installed on {{ claude_vm_names[0] }} yet. On your machine, run

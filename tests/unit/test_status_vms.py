@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import FAKES, REPO, STAND_INS, _run
-from test_status import S, status_root
+from test_status import PROMISED_KEYS, S, status_root
 from test_tailscale import DPKG_QUERY, GETENT, NODE, _joined
 
 LIBRARY = REPO / "playbooks" / "library"
@@ -90,7 +90,7 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
         "uptime": 187200,
     }
     # The native install's binary is named by its version; claude itself, and the npm package under node.
-    assert M.processes(str(root)) == {"claude": 2, "vscode_windows": 1}
+    assert M.processes(str(root)) == {"claude": 2, "vscode_windows": 1, "editor_windows": 1}
 
 
 def test_a_read_that_hangs_is_said_and_the_others_still_land() -> None:
@@ -332,6 +332,8 @@ def test_a_vm_signed_in_to_everything_has_nothing_to_do(read) -> None:
     assert ssh["github"]["account"] == "octocat" and ssh["github"]["signed_in"]
     assert ssh["tailscale"]["case"] == "Running"
     assert ssh["system"]["os"] == "Ubuntu 24.04.3 LTS" and ssh["system"]["load"] == [0.42, 0.31, 0.2]
+    # What --json prints of a VM read inside: every key 1.x promises, down to the system's (test_status.py).
+    assert PROMISED_KEYS["ssh"] - set(ssh) == set() and PROMISED_KEYS["system"] - set(ssh["system"]) == set()
     assert _items(model, "ready") == []
     # And no token, no login link, no key reached the report, nor anything the run said: every module's arguments
     # are in its result (ansible_inject_invocation), so a token rendered outside no_log would be here.

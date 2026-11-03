@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2675 tests. By file:
+pytest over `tests/unit/`: 2703 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -72,7 +72,7 @@ pytest over `tests/unit/`: 2675 tests. By file:
   repositories - a worktree under `.claude/worktrees/` and one outside the projects directory, a branch with
   no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file of them, `.git`
   included, as it was after.
-- **`just settings`** (`test_settings.py` 101): `tools/settings` against inventories of its own, made from the
+- **`just settings`** (`test_settings.py` 110): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
   are its `argument_specs`; every line within 100 columns. The attacks: a `pipe` lookup behind a group
@@ -279,7 +279,7 @@ pytest over `tests/unit/`: 2675 tests. By file:
   Claude Code sessions a VM alone holds saved first, byte for byte and 0700/0600 with their `sessions.json`,
   never a copy just code made still as written nor a transcript without a message, never a link the VM
   holds nor a folder not named as Claude Code names one - the file a link points at here left as it was -
-  just code's manifest read where `vscode_workspaces_dir` puts it, the save turned off, the save without
+  just code's manifest read where `editor_files_dir` (`vscode_workspaces_dir`, its 1.0 name, there) puts it, the save turned off, the save without
   the release under `destroy_release: false`, a VM whose sudo refuses saved and then deleted unreleased,
   said so, and one that fails keeping the VM neither released nor deleted, with no transcript in the
   output, the save's tasks held to an allowlist that keeps them off sudo and unreachable-safe; every
@@ -288,7 +288,7 @@ pytest over `tests/unit/`: 2675 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 200): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 210): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -427,7 +427,7 @@ pytest over `tests/unit/`: 2675 tests. By file:
   `test_sudo.py` 10 (passwordless sudo off takes away cloud-init's rule as well as the role's, keeps a new
   cloud-init instance from writing it again, takes the user out of the groups that reach root, and every play
   becomes root through `/usr/bin/sudo` with the VM's password).
-- **The justfile** (`test_justfile.py` 544): the real `just`, at least the pinned version, run against
+- **The justfile** (`test_justfile.py` 553): the real `just`, at least the pinned version, run against
   stand-ins - on macOS under `/bin/bash`, 3.2, so the scripts keep to what it has. Statically, over `just
   --json`: no recipe has a dependency (which `JUST_NO_DEPS` would skip), no assignment starts a program,
   nothing is unstable and no `.env` is read, every public recipe has a `[doc]` and every parameter its
@@ -625,7 +625,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   directory's hides `.claude-on-proxmox`. With VS Code settings in the ephemeral directory (never the
   developer's) saying nothing, `"on"` behind a commented-out `"off"`, and `"off"`, the message asks
   for trust and *Allow*, trust only, and says the terminal will not start; reopening leaves the file's
-  mtime and checksum alone; `vscode_claude_terminal: false` opens the bare folder and writes no file,
+  mtime and checksum alone; `editor_claude_terminal: false` opens the bare folder and writes no file,
   and no refusal writes one either.
 
 ## 11.4 The fakes — `tests/molecule/`

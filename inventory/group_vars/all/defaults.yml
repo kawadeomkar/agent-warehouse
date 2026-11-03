@@ -389,7 +389,13 @@ tailscale_upload_logs: true
 # page stays valid for 7 days, and a VM approved later joins by itself.
 tailscale_login_timeout: 300
 
-# ------------------------------------------------------------- VS Code -----
+# -------------------------------------------------------------- Editor -----
+# The editor `just code` opens, and `just deploy` at its end: one at a time,
+# VS Code (vscode) by default. Every VM is made ready for any of them alike
+# (vscode_remote, below); this picks the window. `just code <name> --editor
+# <editor>` picks it for one run.
+editor: vscode
+
 # Make each VM ready for VS Code's Remote - SSH extension: an sshd drop-in that
 # keeps the port forward the VS Code Server is reached through enabled, a
 # check that sshd really runs with it, and a higher inotify limit for the file
@@ -411,19 +417,25 @@ vm_projects_dir: ""
 # allow automatic tasks; this project answers neither for you
 # (docs/guides/vscode.md). Set false to open the bare folder and write
 # nothing on the VM.
+editor_claude_terminal: "{{ vscode_claude_terminal }}"
+# Its name in 1.0, still read through 1.x: editor_claude_terminal is the one to set.
 vscode_claude_terminal: true
 # Where those files go on the VM: an absolute path (no "~"), not the projects
 # directory itself. Empty: .claude-on-proxmox in the projects directory. A
 # directory that already exists keeps its mode; files written before a move
 # stay where they were.
+editor_files_dir: "{{ vscode_workspaces_dir }}"
+# Its name in 1.0, still read through 1.x: editor_files_dir is the one to set.
 vscode_workspaces_dir: ""
 # Session notes: a page about the VM - its addresses, how to reach it, what is
 # signed in, the just commands - that opens as a rendered preview beside the
 # Claude terminal every time the window opens. just code writes them in
 # session/ under the workspaces directory, never in a repository; the window's
 # "Session notes" task rewrites their "Signed in" section from the VM each
-# time it opens. They need that task, so they come with vscode_claude_terminal
+# time it opens. They need that task, so they come with editor_claude_terminal
 # (docs/guides/vscode.md). Set false for neither.
+editor_session_notes: "{{ vscode_session_notes }}"
+# Its name in 1.0, still read through 1.x: editor_session_notes is the one to set.
 vscode_session_notes: true
 # This machine's Claude Code sessions on the VM: every just code copies the ones
 # of the last 30 days whose repository the VM has checked out - matched by git
@@ -432,6 +444,8 @@ vscode_session_notes: true
 # the Claude terminal. A transcript holds whatever its tools printed, secrets
 # included, so a VM gets those too: set false for none. --session still copies
 # its one session with this off (docs/guides/vscode.md).
+claude_sessions_sync: "{{ vscode_claude_sessions }}"
+# Its name in 1.0, still read through 1.x: claude_sessions_sync is the one to set.
 vscode_claude_sessions: true
 # The VS Code user settings just code reads, and never writes, to say whether
 # that terminal will start on its own. Empty: where VS Code itself would keep

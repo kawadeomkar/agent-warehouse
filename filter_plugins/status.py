@@ -439,6 +439,7 @@ SYSTEM_KEYS = (
     "security",
     "claude",
     "vscode_windows",
+    "editor_windows",
     "unread",
 )
 

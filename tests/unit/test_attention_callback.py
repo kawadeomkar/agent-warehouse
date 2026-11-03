@@ -262,7 +262,7 @@ def test_next_steps_after_the_recap_by_vm_then_matter_each_line_once(tmp_path):
     - name: The same line for two matters
       ansible.builtin.set_stats:
         data:
-          code_next: "{{ {'beta': {'vscode': 'beta: run just login beta --only github'}} }}"
+          code_next: "{{ {'beta': {'editor': 'beta: run just login beta --only github'}} }}"
     - name: Under a name nobody reads
       ansible.builtin.set_stats:
         data:
@@ -408,7 +408,7 @@ def test_colour_on_the_screen_never_in_the_log(tmp_path):
         ),
         # Not a record: ignored, never a failure at the end of the run.
         ({"github_projects_next": {"a": "flat", "b": {"github": 3}}}, []),
-        ({"code_next": {"a": {"something_new": "new", "vscode": "open"}}}, ["open", "new"]),
+        ({"code_next": {"a": {"something_new": "new", "editor": "open"}}}, ["open", "new"]),
         # just init's, the settings' before the checks'.
         ({"claude_vm_next": {"just init": {"init_check": "deploy", "init_settings": "set"}}}, ["set", "deploy"]),
     ],

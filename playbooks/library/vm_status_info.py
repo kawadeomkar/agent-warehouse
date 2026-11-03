@@ -93,6 +93,10 @@ vscode_windows:
   description: How many VS Code extension hosts the user runs, one per window.
   returned: always
   type: int
+editor_windows:
+  description: How many windows of any editor this project opens the user has, VS Code's among them.
+  returned: always
+  type: int
 unread:
   description: Each read that failed or ran out of time, by name, with why.
   returned: always
@@ -183,7 +187,8 @@ def upgrades(timeout):
 
 
 def processes(root):
-    """This user's claude processes, and VS Code's extension hosts - one per window - from /proc."""
+    """This user's claude processes, and each editor's windows - VS Code's extension hosts, one per window - from
+    /proc; editor_windows is every editor's together."""
     proc = os.path.join(root, "proc")
     claude = windows = 0
     uid = os.getuid()
@@ -207,7 +212,7 @@ def processes(root):
             claude += 1
         elif ".vscode-server" in argv[0] and "--type=extensionHost" in argv:
             windows += 1
-    return {"claude": claude, "vscode_windows": windows}
+    return {"claude": claude, "vscode_windows": windows, "editor_windows": windows}
 
 
 def run_all(reads, timeout):
@@ -269,6 +274,7 @@ def main():
         "security": None,
         "claude": 0,
         "vscode_windows": 0,
+        "editor_windows": 0,
     }
     results, unread = run_all(reads, timeout)
     found.update(results)

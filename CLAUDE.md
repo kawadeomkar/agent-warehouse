@@ -69,7 +69,7 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 justfile upward, so started in a make-era worktree under `.claude/worktrees/` it would run main's, against
 main's inventory and vault), then its own rules with their messages, then what it needs (`tools/env-run
 --bin`, `tools/check vault`, `tools/check collections`, and in a recipe that reads the settings `tools/check settings`,
-which refuses a setting under a name 1.0 renamed), then the work, its last command `exec`'d - but in a
+which refuses a setting under a name 1.0 renamed and names the new name of one 1.1 named anew, still read), then the work, its last command `exec`'d - but in a
 recipe drawn in parts (`lint`, `init`, `test`), which exports its title and its state's path (`live_state`, the recipe's
 name and the shell's PID), sets `trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT` - an end that fails changes no exit
 status - only when `live_run` is empty, and runs each command as `{{ live }} run <stage> --step <label> -- …`
@@ -349,9 +349,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   spelling counts on OpenSSH 9.9+ and not before; an `Include` inside a `Host` block never does),
   and never rewrites or changes the mode of the user's file.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward
-  aside, and never answers VS Code's or Claude Code's security questions.** With `vscode_claude_terminal` it writes a `.code-workspace` file in
+  aside, and never answers VS Code's or Claude Code's security questions.** With `editor_claude_terminal` it writes a `.code-workspace` file in
   `<projects>/.claude-on-proxmox/`, beside the repositories and never in one, whose `folderOpen` tasks
-  run `claude` in a terminal and a login shell split to its left (one presentation group); with `vscode_session_notes` too, `session/<vm>-session.md` there (0600,
+  run `claude` in a terminal and a login shell split to its left (one presentation group); with `editor_session_notes` too, `session/<vm>-session.md` there (0600,
   0700 directory), and a second `folderOpen` task, "Session notes", run beside the Claude task, which
   rewrites only the notes' section between the live markers each time the window opens and opens them,
   its time in this machine's zone (`code_timezone`, an argument like everything variable; UTC without one).
@@ -388,7 +388,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   on PATH: never a login shell there, which would put this machine's own `code` and `tailscale` back. The `provision`
   scenario, which runs `code.yml`, points `vscode_user_settings_file` into the ephemeral directory,
   since the message depends on it, and asserts that file's bytes and mtime after every run.
-  With `vscode_claude_sessions` (on by default) it also copies this machine's Claude Code sessions of the
+  With `claude_sessions_sync` (on by default) it also copies this machine's Claude Code sessions of the
   last 30 days to the VM, those whose first directory's git origin names a repository the VM has a
   checkout of (`owner/repo`, matched against the VM's checkouts, never by folder name; the origin as
   configured, never as `url.<base>.insteadOf` rewrites it, and on the VM only a GitHub one, so a checkout

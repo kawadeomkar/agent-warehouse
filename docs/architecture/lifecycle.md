@@ -277,7 +277,7 @@ sessions exists only there: Claude Code keeps a session on the disk of the machi
 copy it can resume, and auto memory is machine-local too, so the deletion would end them.
 `claude_sessions_info` reads the VM's `~/.claude` with every session whatever its age and just code's
 manifest, from just code's own directory as code.yml names it (the `just_code_dir` filter, which follows
-`vscode_workspaces_dir`), and `claude_sessions_saved` keeps each session that holds a message and is not
+`editor_files_dir`), and `claude_sessions_saved` keeps each session that holds a message and is not
 a copy still as just code wrote it - this machine has that one - with the folder beside it (subagents,
 tool results, MCP tasks), and every auto memory folder. What the VM reports is the VM's to make up, so
 nothing it names is trusted: a folder not named as Claude Code names one (ASCII letters, digits and `-`)
@@ -628,7 +628,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    which with `--session` settle the project to open.
 5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
    machine, so `~` would not expand) and, with the terminal or the session copies on, a
-   `vscode_workspaces_dir` that is not absolute or is the projects directory (its files would sit
+   `editor_files_dir` that is not absolute or is the projects directory (its files would sit
    among the repositories), and with the terminal, one that is the folder being opened
    (`--project .claude-on-proxmox`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
@@ -643,11 +643,11 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    first on the VM, and the session notes (below).
 8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
    `playbooks/vars/vscode.yml`; every name either sets starts with `code_<editor>_`, since a skipped
-   task still overwrites its register). With `vscode_claude_terminal` (the default), write a workspace
+   task still overwrites its register). With `editor_claude_terminal` (the default), write a workspace
    file on the VM and open that:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
-   `vscode_workspaces_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
+   `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,
    it opens the folder itself and writes nothing.
 9. Say what VS Code will do, from the user's VS Code settings, read and never written: looked for
@@ -714,13 +714,13 @@ manual run of `just code` is the check when they move again.
 The workspace file, the helpers, the session notes (below) and the session copies (below) are all that
 is written on the VM, last, as the VM user, so every refusal above leaves the VM as it was - with `--session`, so is
 one checkout's fast-forward; a workspace directory that already exists keeps its mode, since
-`vscode_workspaces_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
+`editor_files_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
 every task in `code.yml` to an allowlist - read-only here, or delegated to the VM - and the
 `provision` scenario checks the settings file it planted is byte-for-byte untouched after every
 run. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
-**The session notes.** With `vscode_session_notes` (the default, with the terminal), a page about the
+**The session notes.** With `editor_session_notes` (the default, with the terminal), a page about the
 VM opens beside the Claude terminal every time the window opens - from `just code`, *Open Recent*, a
 restart that restores the window, or a reload - as a rendered preview, with its sign-in status read from
 the VM at that moment. VS Code has no workspace setting that opens a file, and a file named in the
@@ -756,16 +756,16 @@ settings opens them as a preview; the key holds a `/`, so VS Code matches it aga
 and path.
 
 The notes' directory is a **second workspace folder only where the window's own folder contains it** -
-the whole projects directory's window under the default `vscode_workspaces_dir`. VS Code computes trust
+the whole projects directory's window under the default `editor_files_dir`. VS Code computes trust
 over every folder and the saved workspace file, each `isEqualOrParent` of a URI the user trusted, and
 trusting stores exactly those URIs (`workspaceTrust.ts`): a folder added to a workspace trusted before
 is untrusted, and the window drops to Restricted Mode without its Claude terminal. A one-project window,
-and every window under a `vscode_workspaces_dir` outside the projects directory, keep their one folder;
+and every window under a `editor_files_dir` outside the projects directory, keep their one folder;
 they open the notes from outside it, which VS Code asks about once per workspace
 (`requestOpenFilesTrust`, remembered on *Open*) unless a trusted folder covers them - the projects
 directory, trusted in its own window - and `just code`'s message says so.
 
-**The session handoff.** With `vscode_claude_sessions` (the default) every run copies this machine's
+**The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's
 Claude Code sessions of the last 30 days - Claude Code's own `cleanupPeriodDays` by default, by their file
 time, so Claude Desktop's, which Claude Code keeps here at any age, come over within it like the rest - to
 the VM, those of the repositories it has checked out; `--session <id>` (`vm_session`) copies that one whatever its age, the

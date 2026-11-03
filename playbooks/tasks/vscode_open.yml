@@ -131,7 +131,7 @@
                  else " VS Code may ask once whether to open them, as a file outside this window's folder: Open"
                       ~ (', or trust the window of just code ' ~ claude_vm_names[0] ~ ', which covers them'
                          if code_ws_dir.startswith(code_root ~ '/') else '') ~ '.')
-              ~ ' vscode_session_notes: false turns them off.' }}
+              ~ ' editor_session_notes: false turns them off.' }}
     code_said:
       - VS Code is opening {{ code_target }} on {{ claude_vm_names[0] }} ({{ code_reach }}).
       - The first connection installs VS Code Server on the VM and takes a minute.
@@ -170,6 +170,6 @@
 - name: vscode_open | Keep what is left to do for the end of the run
   ansible.builtin.set_stats:
     data:
-      code_next: "{{ {claude_vm_names[0]: {'vscode': ''}} }}"
+      code_next: "{{ {claude_vm_names[0]: {'editor': ''}} }}"
     aggregate: true
     per_host: false

@@ -22,11 +22,11 @@
 # that opens it later, instead of failing a deploy whose VM is done. A deploy
 # for several VMs opens none: this ends at once with each VM's just code line.
 #
-# With vscode_claude_terminal (the default), VS Code is handed a workspace
+# With editor_claude_terminal (the default), VS Code is handed a workspace
 # file rather than the folder. It names the folder and holds one task, run when
 # the window opens: a terminal named Claude that starts claude there, signing
 # in to Claude, and to GitHub, first on a VM that has not been. With
-# vscode_session_notes (the default) it also holds a "Session notes" task,
+# editor_session_notes (the default) it also holds a "Session notes" task,
 # run beside the Claude task, which opens a page about the VM beside the
 # terminal each time the window opens, its "Signed in" section read from the
 # VM then (docs/guides/vscode.md). The workspace file, those notes and the
@@ -38,7 +38,7 @@
 # allowed automatic tasks; this playbook reads their VS Code settings to say
 # which of those to expect, and never writes them (docs/guides/vscode.md).
 #
-# With vscode_claude_sessions (the default) it also copies this machine's
+# With claude_sessions_sync (the default) it also copies this machine's
 # Claude Code sessions of the last 30 days to the VM, the ones of the
 # repositories the VM has checked out, so that /resume there lists them
 # (Ctrl+A); --session <id> (vm_session) has the Claude terminal resume that
@@ -69,27 +69,35 @@
   vars_files:
     - vars/vscode.yml
   vars:
-    # The editor whose task files open the window. VS Code alone, for now.
-    code_editor: vscode
+    # The editor whose task files open the window: the editor setting, or
+    # --editor for one run (vm_editor), each name one this play can open, as
+    # it is said.
+    code_editors:
+      vscode: VS Code
+    code_editor: "{{ vm_editor | default(editor | default('vscode', true), true) | string }}"
+    code_editor_name: "{{ code_editors[code_editor] | default(code_editor) }}"
     # code_ssh is the result of whichever task connected. ssh's error can hold
     # line breaks, and text the VM sent before the login: said on one line,
     # with no control character reaching this terminal.
     code_ssh_failed: >-
       {{ claude_vm_names[0] }} is running at {{ code_reach }}, but SSH to it as {{ vm_user }}
-      failed, so VS Code could not connect either: {{ code_ssh.msg | default('no reason given') | plain_text | regex_replace('\s+', ' ') | trim }}
+      failed, so {{ code_editor_name }} could not connect either:
+      {{ code_ssh.msg | default('no reason given') | plain_text | regex_replace('\s+', ' ') | trim }}
       A VM that has just booted can need another minute; `ssh {{ claude_vm_names[0] }}` shows why.
-    code_terminal: "{{ vscode_claude_terminal | default(true) | bool }}"
+    # Each setting by its name from 1.1, else by its name in 1.0, which the
+    # inventory defaults feed it from - and a run without them, from -e.
+    code_terminal: "{{ editor_claude_terminal | default(vscode_claude_terminal | default(true)) | bool }}"
     # The session notes need the workspace file's tasks: they come with the terminal.
-    code_notes: "{{ code_terminal and vscode_session_notes | default(true) | bool }}"
+    code_notes: "{{ code_terminal and editor_session_notes | default(vscode_session_notes | default(true)) | bool }}"
 
     # The session handoff (tasks/session_read.yml, tasks/session_write.yml):
-    # the sync, on unless vscode_claude_sessions is false, and --session, which
+    # the sync, on unless claude_sessions_sync is false, and --session, which
     # copies its one session with the sync off too. Claude Code's directory
     # here is CLAUDE_CONFIG_DIR's when the shell running just sets it; on the
     # VM, the VM user's ~/.claude. Every test points both at a directory of its
     # own: what is read and written there is a developer's own otherwise
     # (tests/unit/test_code_session.py holds that).
-    code_sessions: "{{ vscode_claude_sessions | default(true) | bool }}"
+    code_sessions: "{{ claude_sessions_sync | default(vscode_claude_sessions | default(true)) | bool }}"
     code_session_id: "{{ vm_session | default('', true) | string }}"
     code_session_on: "{{ code_sessions or code_session_id | length > 0 }}"
     code_session_days: 30
@@ -179,7 +187,7 @@
                  ~ code_session_sent.rc | default('') ~ (': ' ~ code_sync_why if code_sync_why else '')
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
                  if code_sync_failed | bool else '')
-              ~ ' vscode_claude_sessions: false turns the copying off.' }}
+              ~ ' claude_sessions_sync: false turns the copying off.' }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-
       {{ code_session_id | length > 0
@@ -214,9 +222,9 @@
     # VM started, which just code alone would not do.
     code_later: >-
       {{ claude_vm_names[0] ~ ' is stopped, and this deploy left it so: it was not configured, signed in or opened in'
-         ~ ' VS Code. To start it and finish the deploy: just deploy ' ~ claude_vm_names[0] ~ ' --start'
+         ~ ' ' ~ code_editor_name ~ '. To start it and finish the deploy: just deploy ' ~ claude_vm_names[0] ~ ' --start'
          if code_status | default('') == 'stopped'
-         else code_failure ~ ' VS Code was not opened; to open it later: just code ' ~ claude_vm_names[0] }}
+         else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0] }}
 
   tasks:
     # VS Code opens one VM at a time, so a deploy for several opens none, and
@@ -229,7 +237,7 @@
         - name: Say how to open each VM
           ansible.builtin.debug:
             msg: >-
-              {{ ['VS Code opens one VM at a time, so this deploy for ' ~ claude_vm_names | length
+              {{ [code_editor_name ~ ' opens one VM at a time, so this deploy for ' ~ claude_vm_names | length
                   ~ ' VMs opened none. To open one:']
                  + claude_vm_names | map('regex_replace', '^', 'just code ') | list }}
           register: code_fleet_reported
@@ -239,7 +247,7 @@
         - name: Keep what is left to do for the end of the run
           ansible.builtin.set_stats:
             data:
-              code_next: "{{ {claude_vm_names | join(', '): {'vscode': code_fleet_reported.msg | join('\n')}} }}"
+              code_next: "{{ {claude_vm_names | join(', '): {'editor': code_fleet_reported.msg | join('\n')}} }}"
             aggregate: true
             per_host: false
 
@@ -254,13 +262,30 @@
     # connections to the VM ignore that and say it with an assert.
     - name: Open the VM in the editor
       block:
+        # The setting, or --editor, names an editor this play opens; said
+        # before anything is read, here or on the VM.
+        # Said by where it came from: --editor, or the setting, whose file
+        # `just settings editor` names - a name a setup may have used for a
+        # variable of its own before 1.1.
+        - name: Refuse an editor just code cannot open
+          vars:
+            code_editor_given: >-
+              {{ ('--editor is "' ~ vm_editor ~ '"') if vm_editor | default('', true) | length > 0
+                 else 'The editor setting is "' ~ code_editor ~ '" (just settings editor says where it is set)' }}
+          ansible.builtin.assert:
+            that: code_editor in code_editors
+            fail_msg: >-
+              {{ code_editor_given }}, which just code cannot open: it opens
+              {{ code_editors | dict2items | map(attribute='key') | join(' or ') }}.
+            quiet: true
+
         # just deploy may have no vm_name: the default VM, one name all the same.
         - name: Refuse anything but one VM
           ansible.builtin.assert:
             that:
               - vm_name is defined or code_in_deploy | default(false) | bool
               - claude_vm_names | length == 1
-            fail_msg: "VS Code opens one VM at a time: just code <name>."
+            fail_msg: "{{ code_editor_name }} opens one VM at a time: just code <name>."
             quiet: true
 
         # A GitHub repository name: ASCII letters, digits, ".", "-" and "_", at
@@ -284,7 +309,7 @@
             that: claude_ssh_config | default(true) | bool
             fail_msg: >-
               claude_ssh_config is false, so this project keeps no SSH alias for the VM and has nothing
-              to hand VS Code. Set it true, or open the VM by address yourself.
+              to hand {{ code_editor_name }}. Set it true, or open the VM by address yourself.
             quiet: true
 
         - name: Refuse a VM named after a host of the inventory, or as no alias may be
@@ -393,7 +418,10 @@
             code_project_given: "{{ vm_project | default('', true) | string or code_session_project | default('') }}"
             # just_code_dir, which just destroy's save reads the session copies'
             # manifest by too (tasks/session_save.yml).
-            code_ws_dir_given: "{{ code_root_given | just_code_dir(vscode_workspaces_dir | default('', true)) }}"
+            # editor_files_dir, its name in 1.0 only where it is not set at all:
+            # an empty one is the default directory, never the old name's.
+            code_ws_dir_given: >-
+              {{ code_root_given | just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true))) }}
           ansible.builtin.set_fact:
             code_project: "{{ code_project_given }}"
             code_root: "{{ code_root_given }}"
@@ -417,7 +445,7 @@
             that: code_root is match('/')
             fail_msg: >-
               vm_projects_dir is a path on the VM, and must be an absolute one, not "{{ code_root }}":
-              VS Code is handed it as written.
+              {{ code_editor_name }} is handed it as written.
             quiet: true
 
         # The workspace files' directory is not a project, though a --project can
@@ -432,10 +460,10 @@
               - code_ws_dir != code_root
               - code_target != code_ws_dir or not code_terminal
             fail_msg: >-
-              {{ 'vscode_workspaces_dir is a path on the VM, and must be an absolute one, not "' ~ code_ws_dir
-                 ~ '": VS Code is handed it as written.'
+              {{ 'editor_files_dir is a path on the VM, and must be an absolute one, not "' ~ code_ws_dir
+                 ~ '": ' ~ code_editor_name ~ ' is handed it as written.'
                  if not code_ws_dir is match('/')
-                 else 'vscode_workspaces_dir is the projects directory, ' ~ code_root
+                 else 'editor_files_dir is the projects directory, ' ~ code_root
                       ~ ', whose folders are the projects; name a directory of its own.'
                  if code_ws_dir == code_root
                  else code_ws_dir ~ ' on ' ~ claude_vm_names[0]
@@ -533,7 +561,7 @@
         # The writes on the VM, as the VM user, last: every refusal above
         # leaves the VM as it was. An unchanged file is not rewritten, so a run
         # that only reopens a window reports no change there, and a directory
-        # that already exists keeps its mode: vscode_workspaces_dir may name one
+        # that already exists keeps its mode: editor_files_dir may name one
         # of the user's own, the home directory included. The notes' "Signed
         # in" section is the window's to write, each time it opens: read here
         # and carried into the notes written below, so a VM whose facts did not
@@ -595,7 +623,7 @@
           ansible.builtin.set_stats:
             data:
               code_next: >-
-                {{ {claude_vm_names[0]: {('vm' if code_status | default('') == 'stopped' else 'vscode'):
+                {{ {claude_vm_names[0]: {('vm' if code_status | default('') == 'stopped' else 'editor'):
                                          code_later_reported.msg}} }}
             aggregate: true
             per_host: false

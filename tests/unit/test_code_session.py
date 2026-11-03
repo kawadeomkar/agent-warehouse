@@ -514,11 +514,38 @@ def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
     assert task["runOptions"] == {"runOn": "folderOpen"}
 
 
+# just code's switches as code.yml reads them, through the inventory defaults: each by its name from 1.1, or its
+# name in 1.0 where the new one is not set; the new one wins where both are (and over -e of the old, which every
+# window run is given for the sessions: vscode_claude_sessions false).
+SWITCHES = "[code_terminal, code_notes, code_sessions]"
+SWITCH_CASES = {
+    "1.0's names": ({"vscode_claude_terminal": False, "vscode_session_notes": False}, [False, False, False]),
+    "1.1's names": (
+        {"editor_claude_terminal": True, "editor_session_notes": False, "claude_sessions_sync": True},
+        [True, False, True],
+    ),
+    "both, the new one wins": (
+        {"vscode_claude_terminal": True, "editor_claude_terminal": False, "editor_session_notes": True},
+        [False, False, False],
+    ),
+}
+# just code's own directory on the VM, by editor_files_dir, vscode_workspaces_dir where it is not set at all, else
+# the default: an empty new name is the default, never the old name's.
+FILES_CASES = {
+    "1.1's name": ({"editor_files_dir": "/srv/new"}, "/srv/new"),
+    "1.0's name": ({"vscode_workspaces_dir": "/srv/old"}, "/srv/old"),
+    "both": ({"editor_files_dir": "/srv/new", "vscode_workspaces_dir": "/srv/old"}, "/srv/new"),
+    "the new one empty": (
+        {"editor_files_dir": "", "vscode_workspaces_dir": "/srv/old"},
+        "/home/dev/projects/.claude-on-proxmox",
+    ),
+}
 # The window step runs on a PATH of its own: stand-ins for `which` and `code`
 # first, so no VS Code of this machine's can be started, then the system's
 # directories, which Ansible's local connection needs for its own work.
 WINDOW_PATH = "/usr/bin:/bin"
 ONE_VM = ["Refuse anything but one VM"]
+EDITOR = ["Refuse an editor just code cannot open"]
 VS_CODE = [
     "vscode_check | Look for VS Code on this machine",
     "vscode_check | Fail when VS Code's command is not on PATH",
@@ -716,6 +743,15 @@ WINDOWS = {
     "just code, code here": {"keep": ONE_VM + VS_CODE, "in_deploy": False, "code_here": True, "vm_name": "alpha"},
     "just code, no code": {"keep": ONE_VM + VS_CODE, "in_deploy": False, "vm_name": "alpha"},
     "deploy, no name": {"keep": ONE_VM, "in_deploy": True},
+    # An editor the setting or --editor names that code.yml cannot open, said first; the setting itself, by name.
+    "just code, another editor": {"keep": EDITOR, "in_deploy": False, "vm_name": "alpha", "vm_editor": "emacs"},
+    "deploy, editor setting": {"keep": EDITOR, "in_deploy": True, "vm_name": "alpha", "local": {"editor": "nano"}},
+    "just code, the setting's editor": {
+        "keep": EDITOR,
+        "in_deploy": False,
+        "vm_name": "alpha",
+        "local": {"editor": "vscode"},
+    },
     "just code, no name": {"keep": ONE_VM, "in_deploy": False},
     "deploy, fleet": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta"},
     "just code, fleet": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta"},
@@ -834,6 +870,28 @@ WINDOWS = {
         "local": {"vscode_session_notes": False},
         **NOTES,
     },
+    "notes off, by 1.1's name": {
+        "keep": [OPENED_REPORT],
+        "in_deploy": False,
+        "vm_name": "alpha",
+        "local": {"editor_session_notes": False},
+        **NOTES,
+    },
+    **{
+        f"switches, {case}": {"keep": [], "in_deploy": False, "vm_name": "alpha", "show": SWITCHES, "local": local}
+        for case, (local, _) in SWITCH_CASES.items()
+    },
+    **{
+        f"files, {case}": {
+            "keep": ["Settle the folder to open"],
+            "in_deploy": False,
+            "vm_name": "alpha",
+            "vm_projects_dir": "/home/dev/projects",
+            "show": "code_ws_dir",
+            "local": local,
+        }
+        for case, (local, _) in FILES_CASES.items()
+    },
 }
 
 
@@ -869,7 +927,7 @@ def test_just_deploy_without_vs_code_s_command_says_so_with_the_just_code_line_a
     assert run["rc"] == 0 and not run["reached"], run["output"]
     assert run["later"].startswith("`code` is not on this machine's PATH. In VS Code, run")
     assert run["later"].endswith(LATER)
-    assert run["left"] == {"alpha": {"vscode": run["later"]}}
+    assert run["left"] == {"alpha": {"editor": run["later"]}}
 
 
 def test_just_code_needs_one_vm_name(windows):
@@ -889,7 +947,7 @@ def test_a_deploy_for_a_fleet_ends_at_its_first_task_with_each_vm_s_just_code_li
     ]
     assert "TASK [Refuse anything but one VM]" not in run["output"]
     # Left to do for the fleet, once, as said.
-    assert run["left"] == {"alpha, beta": {"vscode": "\n".join(run["fleet"])}}
+    assert run["left"] == {"alpha, beta": {"editor": "\n".join(run["fleet"])}}
 
 
 def test_a_deploy_that_left_its_vm_stopped_names_the_deploy_that_starts_it(windows):
@@ -968,6 +1026,18 @@ def test_a_bare_deploy_opens_the_default_vm_beside_other_tagged_ones(windows):
 def test_a_named_deploy_opens_that_vm(windows):
     run = windows["deploy, named"]
     assert run["reached"], run["output"]
+
+
+def test_an_editor_just_code_cannot_open_is_refused_first_and_said_by_name(windows):
+    # --editor beats the setting for one run, and either way an editor code.yml has no files for is said, never opened.
+    other, setting = windows["just code, another editor"], windows["deploy, editor setting"]
+    assert other["rc"] != 0 and not other["reached"]
+    assert '--editor is "emacs", which just code cannot open: it opens vscode.' in other["output"], other["output"]
+    assert not setting["reached"] and setting["later"].startswith(
+        'The editor setting is "nano" (just settings editor says where it is set), which just code cannot open'
+    ), setting
+    assert windows["just code, the setting's editor"]["reached"]
+    assert other["code"] == [] == setting["code"]
 
 
 def test_a_real_duplicate_or_a_missing_vm_is_still_refused(windows):
@@ -1420,7 +1490,7 @@ def test_the_whole_directory_s_window_shows_the_notes_folder_and_opens_them_as_a
     assert "A shell in the same folder opens to its left." in run["opened"]
     assert f"The session notes open beside it each time ({SESSION}/alpha-session.md)." in run["opened"]
     assert "may ask" not in run["opened"]
-    assert run["opened"].endswith("vscode_session_notes: false turns them off.")
+    assert run["opened"].endswith("editor_session_notes: false turns them off.")
 
 
 def test_a_project_s_window_keeps_its_one_folder_and_says_the_question_vs_code_may_ask(windows):
@@ -1468,8 +1538,21 @@ def test_no_task_of_the_workspace_depends_on_another():
     assert "dependsOn" not in str(found["code_workspace_file"])
 
 
-def test_with_the_notes_off_the_workspace_is_as_it_was(windows):
-    run = windows["notes off"]
+@pytest.mark.parametrize("case", SWITCH_CASES)
+def test_each_switch_is_read_by_its_new_name_or_its_old_one(windows, case):
+    run = windows[f"switches, {case}"]
+    assert run["shown"] == SWITCH_CASES[case][1], run["output"]
+
+
+@pytest.mark.parametrize("case", FILES_CASES)
+def test_just_code_s_directory_is_read_by_its_new_name_or_its_old_one(windows, case):
+    run = windows[f"files, {case}"]
+    assert run["shown"] == FILES_CASES[case][1], run["output"]
+
+
+@pytest.mark.parametrize("name", ["notes off", "notes off, by 1.1's name"])
+def test_with_the_notes_off_the_workspace_is_as_it_was(windows, name):
+    run = windows[name]
     workspace = _workspace(run)
     assert workspace["folders"] == [{"path": "/home/dev/projects"}]
     assert workspace["settings"] == {"files.exclude": {".claude-on-proxmox": True}}
@@ -2234,7 +2317,7 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     assert stat.S_IMODE((world["vm"] / "projects" / ".claude-on-proxmox" / "claude-sessions").stat().st_mode) == 0o700
     assert run["opened"].endswith(
         "1 of this machine's Claude Code sessions of the last 30 days, of octo/demo, is on alpha (1 copied now): in"
-        " claude there, /resume and then Ctrl+A lists them. vscode_claude_sessions: false turns the copying off."
+        " claude there, /resume and then Ctrl+A lists them. claude_sessions_sync: false turns the copying off."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"

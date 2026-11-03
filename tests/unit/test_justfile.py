@@ -1084,6 +1084,25 @@ def test_only_code_takes_a_project(tmp_path: Path, recipe: str) -> None:
     assert "does not have option `--project`" in output or NOT_MATCHED in output
 
 
+# ----------------------------------------------------------------- --editor ----
+
+
+def test_code_passes_an_editor_as_its_own_json_extra_var(tmp_path: Path) -> None:
+    # For this run only: the editor setting is the inventory's, and --editor takes its place as vm_editor.
+    run = _playbook(tmp_path, "code", "alpha", "--editor", "vscode")
+    assert run[run.index('{"vm_name": "alpha"}') + 1 : run.index('{"vm_name": "alpha"}') + 3] == [
+        "-e",
+        '{"vm_editor": "vscode"}',
+    ], run
+    (tmp_path / "none").mkdir()
+    assert not any("vm_editor" in arg for arg in _playbook(tmp_path / "none", "code", "alpha"))
+
+
+@pytest.mark.parametrize("value", ["emacs", "VSCode", "vscode,zed", '"}', "$(x)", "-e"])
+def test_code_refuses_an_editor_it_cannot_open_before_the_playbook(tmp_path: Path, value: str) -> None:
+    assert NOT_MATCHED in _refused(tmp_path, "code", "alpha", "--editor", value)
+
+
 # ---------------------------------------------------------------- --session ----
 
 # One Claude Code session ID, lowercase hex in groups of 8-4-4-4-12, as Claude
@@ -2518,6 +2537,52 @@ def test_a_setting_under_a_name_1_0_renamed_is_refused_by_its_new_name(tmp_path:
     (tmp_path / "local.yml").write_text("claude_code_remote_control: false\n")
     (tmp_path / "hosts.yml").write_text("all: {}\n")
     assert _just("status", settings=_recording(tmp_path)).returncode == 0
+
+
+def test_a_setting_under_a_name_1_1_gave_a_new_one_is_still_read_and_said(tmp_path: Path) -> None:
+    # Through 1.x the name a setting had in 1.0 still works: the run goes on, told the new name; empty, it sets nothing.
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (tmp_path / "bin" / "python").chmod(0o755)
+    (tmp_path / "local.yml").write_text(
+        'vscode_claude_terminal: false\nvscode_workspaces_dir: ""\nvscode_claude_sessions: false\n'
+    )
+    (tmp_path / "hosts.yml").write_text("all: {}\n")
+    result = _just("status", settings=_recording(tmp_path))
+    local = tmp_path / "local.yml"
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert f"warning: {local} sets vscode_claude_terminal, which 1.1 calls editor_claude_terminal" in result.stderr
+    assert f"warning: {local} sets vscode_claude_sessions, which 1.1 calls claude_sessions_sync" in result.stderr
+    assert "vscode_workspaces_dir" not in result.stderr
+    # Both names of a pair: the new one is the one used, and the old one is said to be ignored, not "still read".
+    (tmp_path / "local.yml").write_text("vscode_session_notes: false\neditor_session_notes: true\n")
+    result = _just("status", settings=_recording(tmp_path))
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert (
+        f"warning: {local} sets both vscode_session_notes and editor_session_notes: editor_session_notes is the one"
+        " used, and vscode_session_notes is ignored" in result.stderr
+    ), result.stderr
+    assert "is still read" not in result.stderr
+
+
+def test_the_names_1_1_gave_anew_are_the_pairs_the_inventory_defaults_feed() -> None:
+    # tools/check names them by hand; tools/settings finds them in defaults.yml, each new name a default that is the
+    # old one's value and nothing else: the two lists are one.
+    check = (REPO / "tools" / "check").read_text()
+    listed = dict(re.findall(r'^    "(vscode_[a-z_]+)": "([a-z_]+)",$', check[check.index("NAMED_ANEW = {") :], re.M))
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    # Neither a role's variable, which the wiring feeds from a setting (vscode_server_enabled from vscode_remote).
+    roles = tuple(f"{role.name}_" for role in (REPO / "roles").iterdir() if role.is_dir())
+    fed = {
+        match.group(1): name
+        for name, value in defaults.items()
+        if isinstance(value, str)
+        and (match := re.fullmatch(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}", value))
+        and match.group(1) in defaults
+        and not name.startswith(roles)
+        and not match.group(1).startswith(roles)
+    }
+    assert listed == fed and len(listed) == 4, (listed, fed)
 
 
 def test_every_recipe_that_reads_the_settings_checks_them_for_a_renamed_name() -> None:

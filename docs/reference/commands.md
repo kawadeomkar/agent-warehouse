@@ -62,14 +62,15 @@ environment where `python3` is not it.
 | `just install` | Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own |
 | &emsp;`--lock` | Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH) |
 | `just vault` | Encrypt the vault, or edit it once it is encrypted |
-| `just deploy [<name>...]` | Create, configure and sign in the VM(s), then open VS Code |
+| `just deploy [<name>...]` | Create, configure and sign in the VM(s), then open them in your editor |
 | &emsp;`--only STAGE` | Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone) |
 | &emsp;`--check` | Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named) |
 | &emsp;`-t, --tags ROLES` | Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code) |
 | &emsp;`--start` | Start a VM this run would leave stopped (proxmox_vm_start_existing) |
 | &emsp;`<name>` | The VMs; none means claude-on-proxmox-default, or every VM this project created for --only configure, --check and --only ssh-config |
-| `just code <name>` | Open a VM in VS Code with a Claude terminal, this machine's recent Claude sessions copied there |
+| `just code <name>` | Open a VM in your editor, VS Code by default, with a Claude terminal, this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
+| &emsp;`--editor IDE` | Open it in this editor for this run, rather than the one the editor setting names: vscode |
 | &emsp;`--session SESSION` | Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, then claude --resume |
 | &emsp;`<name>` | The one VM to open |
 | `just login [<name>...]` | Sign the VM(s) in to Claude, GitHub and Tailscale, or report how each is signed in |

@@ -382,7 +382,7 @@ vault:
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [continue]
-[doc('Create, configure and sign in the VM(s), then open VS Code')]
+[doc('Create, configure and sign in the VM(s), then open them in your editor')]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
@@ -494,24 +494,26 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     fi
     exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} "$playbook"
 
-# One VM at a time: VS Code opens one window per workspace, and "open it in
-# the editor" does not mean a fleet. --session is one of this machine's Claude
+# One VM at a time: an editor opens one window per workspace, and "open it in
+# the editor" does not mean a fleet. --editor opens it in another editor than
+# the editor setting names, for this run. --session is one of this machine's Claude
 # Code sessions to continue there: its ID, the name of its transcript in
 # ~/.claude/projects/, lowercase hex in groups of 8-4-4-4-12 and nothing else.
 # Without it the folder's latest conversation continues, as before.
+[arg('IDE', long='editor', pattern='(vscode)?', help='Open it in this editor for this run, rather than the one the editor setting names: vscode')]
 [arg('NAME', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The one VM to open')]
 [arg('PROJECT', long='project', pattern='([A-Za-z0-9._-]{1,100})?', help='Open one project folder on the VM rather than the whole projects directory')]
 [arg('SESSION', long='session', pattern='([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?', help="Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, then claude --resume")]
 [continue]
-[doc("Open a VM in VS Code with a Claude terminal, this machine's recent Claude sessions copied there")]
+[doc("Open a VM in your editor, VS Code by default, with a Claude terminal, this machine's recent Claude sessions copied there")]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-code PROJECT='' SESSION='' *NAME:
+code PROJECT='' IDE='' SESSION='' *NAME:
     {{ guard }}
-    project=$1 session=$2
-    shift 2
+    project=$1 ide=$2 session=$3
+    shift 3
     [ "$#" -gt 0 ] || { echo "error: code opens one VM: just code <name>" >&2; exit 1; }
     tools/check names "$@"
     names=$(IFS=,; printf %s "$*")
@@ -528,6 +530,7 @@ code PROJECT='' SESSION='' *NAME:
     set -- "$@" -e "{\"vm_name\": \"$names\"}"
     [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     [ -z "$session" ] || set -- "$@" -e "{\"vm_session\": \"$session\"}"
+    [ -z "$ide" ] || set -- "$@" -e "{\"vm_editor\": \"$ide\"}"
     # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in filter_plugins/live_recipes.py), under
     # this title; a session's ID, which its report names, is left out of it. Any -v in ANSIBLE_ARGS streams it as
     # before.

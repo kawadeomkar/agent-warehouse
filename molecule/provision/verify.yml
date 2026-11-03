@@ -1751,10 +1751,10 @@
           # The workspace files' own directory, though a valid name.
           - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its VS Code workspace files, not a project\.'
             vars: {vm_project: .claude-on-proxmox}
-          - expect: 'vscode_workspaces_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
+          - expect: 'editor_files_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
             vars: {vscode_workspaces_dir: relative/files}
           # Not the projects directory: its files would sit among the repositories.
-          - expect: 'vscode_workspaces_dir is the projects directory, \S+/projects, whose folders are the projects'
+          - expect: 'editor_files_dir is the projects directory, \S+/projects, whose folders are the projects'
             vars: {vscode_workspaces_dir: "{{ verify_ssh_dir }}/projects"}
           # A "~" is not expanded on the way to VS Code, and is refused by its own name.
           - expect: 'vm_projects_dir is a path on the VM, and must be an absolute one, not \W+~/projects'

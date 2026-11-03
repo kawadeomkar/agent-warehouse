@@ -35,7 +35,7 @@
   ansible.builtin.assert:
     that: code_terminal | bool
     fail_msg: >-
-      --session opens the session in the window's Claude terminal, which vscode_claude_terminal: false turns
+      --session opens the session in the window's Claude terminal, which editor_claude_terminal: false turns
       off. Without it, run `claude --resume {{ code_session_id }}` in the project's folder on {{ claude_vm_names[0] }}.
     quiet: true
   when: code_session_id | length > 0

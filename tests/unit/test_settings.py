@@ -456,6 +456,9 @@ PROMISED_ROW_KEYS = {
     "wiring",
     "wiring_in",
 }
+# And every row of the settings' own view (--all) says the part of local.yml.example it is in: the key is promised, its
+# text ("Editor and SSH", "VS Code and SSH" in 1.0) is wording, which may change in any release.
+PROMISED_SETTING_ROW_KEYS = {"section"}
 
 
 def test_the_vm_settings_are_what_their_role_variables_read(scenarios, tmp_path) -> None:
@@ -487,6 +490,8 @@ def test_the_json_keeps_every_key_1x_promises(scenarios) -> None:
     assert PROMISED_KEYS <= set(report), sorted(PROMISED_KEYS - set(report))
     rows = set().union(*(set(row) for row in report["settings"]))
     assert PROMISED_ROW_KEYS <= rows, sorted(PROMISED_ROW_KEYS - rows)
+    every = _report(scenarios, "--all=true")["settings"]
+    assert every and all(PROMISED_SETTING_ROW_KEYS <= set(row) for row in every), every[:2]
 
 
 def test_the_text_and_the_json_hold_the_same_rows(scenarios) -> None:
@@ -573,6 +578,11 @@ def test_a_role_variable_set_through_a_setting_is_written_as_the_setting(scenari
         ("tailscale_advertise_tags", "[tag:a, tag:b]", 'tailscale_advertise_tags: ["tag:a", "tag:b"]'),
         ("tailscale_auth_method", "web", 'tailscale_auth_method: "web"'),
         ("vm_default_name", "a name with 'quotes' and $(dollars)", None),
+        # A name from 1.1 takes the type of its name in 1.0, whose value is its default; and the 1.0 name is written
+        # under the new one, which wins wherever both are set.
+        ("editor_claude_terminal", "no", "editor_claude_terminal: false"),
+        ("vscode_claude_terminal", "no", "editor_claude_terminal: false"),
+        ("editor", "vscode", 'editor: "vscode"'),
     ],
 )
 def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, value, written) -> None:
@@ -593,6 +603,7 @@ def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, valu
             "tailscale_auth_method takes one of auto, key, web: the value given is not one",
         ),
         ("tailscale_ssh", "maybe", "tailscale_ssh takes true or false"),
+        ("claude_sessions_sync", "maybe", "claude_sessions_sync takes true or false"),
         ("tailscale_advertise_tags", "[unclosed", "is not YAML"),
     ],
 )
@@ -761,7 +772,13 @@ def _reset(scenarios: dict, inventory: Path, name: str, *args: str) -> subproces
 
 @pytest.mark.parametrize(
     ("name", "value"),
-    [("vm_memory_mb", "8192"), ("tailscale_advertise_tags", "tag:a,tag:b"), ("tailscale_marker_dir", "~/markers")],
+    [
+        ("vm_memory_mb", "8192"),
+        ("tailscale_advertise_tags", "tag:a,tag:b"),
+        ("tailscale_marker_dir", "~/markers"),
+        ("editor_files_dir", "/srv/just-code"),
+        ("vscode_workspaces_dir", "/srv/just-code"),
+    ],
 )
 def test_a_value_set_and_then_reset_leaves_local_yml_as_it_was(scenarios, tmp_path, name, value) -> None:
     # In place of its example's line, and that line back; or at the end, and taken out again.
@@ -772,6 +789,43 @@ def test_a_value_set_and_then_reset_leaves_local_yml_as_it_was(scenarios, tmp_pa
     result = _reset(scenarios, inventory, name)
     assert result.returncode == 0, result.stderr[-2000:]
     assert _local(inventory).read_bytes() == before
+
+
+def _with_1_0_name(inventory: Path) -> str:
+    """local.yml setting vscode_claude_terminal by its 1.0 name, on its example's line; the text before."""
+    local = _local(inventory)
+    text = local.read_text()
+    assert "\n# vscode_claude_terminal: true\n" in text
+    local.write_text(text.replace("\n# vscode_claude_terminal: true\n", "\nvscode_claude_terminal: true\n"))
+    return text
+
+
+@pytest.mark.parametrize("asked", ["editor_claude_terminal", "vscode_claude_terminal"])
+def test_either_name_of_a_pair_is_written_as_the_new_one_and_the_old_line_taken_out(scenarios, tmp_path, asked):
+    # Never the two side by side, the new one silently outranking the old: the old line goes, its example comes back.
+    inventory = _writable(scenarios, tmp_path)
+    example = _with_1_0_name(inventory)
+    result = _set(scenarios, inventory, asked, "no")
+    assert result.returncode == 0, result.stderr[-2000:]
+    text = _local(inventory).read_text()
+    assert "\neditor_claude_terminal: false\n" in text
+    assert "\nvscode_claude_terminal:" not in text and "\n# vscode_claude_terminal: true\n" in text
+    assert "vscode_claude_terminal's line taken out" in result.stdout, result.stdout
+    # Back to the default from either name: both lines out, the file as its example had it.
+    assert _reset(scenarios, inventory, "vscode_claude_terminal").returncode == 0
+    assert _local(inventory).read_text() == example
+
+
+def test_reset_of_one_name_of_a_pair_takes_both_out(scenarios, tmp_path) -> None:
+    inventory = _writable(scenarios, tmp_path)
+    example = _with_1_0_name(inventory)
+    local = _local(inventory)
+    local.write_text(
+        local.read_text().replace("\n# editor_claude_terminal: true\n", "\neditor_claude_terminal: false\n")
+    )
+    result = _reset(scenarios, inventory, "editor_claude_terminal")
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert local.read_text() == example
 
 
 def test_reset_says_the_value_the_setting_has_now(scenarios, tmp_path) -> None:

@@ -196,9 +196,15 @@ Rust: rustup, and a stable toolchain with clippy and rustfmt for vm_user. Off by
 | `dev_tools_install_rust` | `false` | Install rustup from Ubuntu's archive and, for dev_tools_user, the dev_tools_rust_toolchain toolchain with dev_tools_rust_components. A variable of [`dev_tools`](roles/dev_tools.md). For example `true`. |
 | `dev_tools_node_major` | `22` | Node.js major version, which picks the NodeSource repository. A variable of [`dev_tools`](roles/dev_tools.md). |
 
-### VS Code and SSH
+### Editor and SSH
 
-VS Code over SSH ([docs/guides/vscode.md](../guides/vscode.md)). On the VM: an sshd drop-in with forwarding and keepalives, checked against what sshd runs with, and a higher inotify limit. Set false to remove both files.
+The editor just code opens, and just deploy at its end: one at a time, vscode by default ([docs/guides/vscode.md](../guides/vscode.md)). For one run: just code alpha --editor &lt;editor&gt;.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `editor` | `vscode` |  |
+
+An editor over SSH. On the VM, whichever editor is chosen: an sshd drop-in with forwarding (which Claude's sign-in in the browser uses too) and keepalives, checked against what sshd runs with, and a higher inotify limit. Set false to remove both files.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -241,28 +247,37 @@ Where the code lives on the VM: cloned into, opened by Remote Control, and what 
 |---|---|---|
 | `vm_projects_dir` | `""` | Sets `claude_code_remote_control_dir` ([`claude_code`](roles/claude_code.md)): Directory the sessions open in. Sets `github_projects_dir` ([`github_projects`](roles/github_projects.md)): Destination directory. |
 
-`just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. Set false to open the bare folder and write nothing on the VM; for one run, ANSIBLE_ARGS='-e vscode_claude_terminal=false' just code alpha.
+`just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. Set false to open the bare folder and write nothing on the VM; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vscode_claude_terminal` | `true` |  |
+| `editor_claude_terminal` | same as `vscode_claude_terminal` | For example `true`. |
 
 Where those files go on the VM, as an absolute path of its own. Empty: .claude-on-proxmox in vm_projects_dir.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vscode_workspaces_dir` | `""` |  |
+| `editor_files_dir` | same as `vscode_workspaces_dir` |  |
 
-A page about the VM - addresses, what is signed in, the just commands - opened beside the Claude terminal each time the window opens, its sign-in status read from the VM then. Needs vscode_claude_terminal.
+A page about the VM - addresses, what is signed in, the just commands - opened beside the Claude terminal each time the window opens, its sign-in status read from the VM then. Needs editor_claude_terminal.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vscode_session_notes` | `true` |  |
+| `editor_session_notes` | same as `vscode_session_notes` | For example `true`. |
 
 Copy this machine's Claude Code sessions of the VM's repositories, the last 30 days of them, to the VM on every just code, so /resume there lists them. Their transcripts hold whatever their tools printed: false keeps them here.
 
 | Setting | Default | Notes |
 |---|---|---|
+| `claude_sessions_sync` | same as `vscode_claude_sessions` | For example `true`. |
+
+The four above by their names in 1.0, still read through 1.x while the new name is not set; where both are, the new one wins. `just settings <name> --value` writes the new name and takes the old one out.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `vscode_claude_terminal` | `true` |  |
+| `vscode_workspaces_dir` | `""` |  |
+| `vscode_session_notes` | `true` |  |
 | `vscode_claude_sessions` | `true` |  |
 
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.

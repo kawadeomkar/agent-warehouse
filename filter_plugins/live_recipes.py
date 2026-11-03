@@ -181,7 +181,7 @@ CONFIGURE_FAILURES = Causes(
 # leave the rescue to the step before.
 # The folder is looked for here and then on the VM, around the alias: one step.
 WINDOW = (
-    Step("find the VM", starts=["Refuse anything but one VM"]),
+    Step("find the VM", starts=["Refuse an editor just code cannot open", "Refuse anything but one VM"]),
     Step("reach it", starts=["Reach the VM the way just deploy --only configure does"]),
     Step("read the sessions", files=["tasks/session_read.yml"]),
     Step("the folder", starts=["Settle the folder to open", "Look for the folder on the VM"]),

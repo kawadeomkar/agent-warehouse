@@ -149,21 +149,21 @@ restate them are not treated as vulnerabilities:
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
   root-equivalent and runs an AI agent.
 - `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
-  (`vscode_claude_terminal`, on by default). The file is written by this project beside the
+  (`editor_claude_terminal`, on by default). The file is written by this project beside the
   repositories, never in one, and what its tasks run is fixed: VS Code's helpers, files of
   `playbooks/files/` that `just code` copies to the VM unchanged, everything variable an argument. VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own
   `folderOpen` tasks run, as it would without this project.
-- The same file's "Session notes" task writes a page about the VM next to it (`vscode_session_notes`,
+- The same file's "Session notes" task writes a page about the VM next to it (`editor_session_notes`,
   on by default): its addresses, and the Claude, GitHub and Tailscale accounts signed in there, read
   from the VM as the window opens. It is the VM user's alone (0600, in a 0700 directory), never in a
   repository; no command the task runs prints a token, and what the VM reports is stripped of escape
   sequences and control characters before it is written. A window it would put back in Restricted
   Mode never gets the notes' folder: the project does not change what a window you trusted covers.
 - `just code` copies this machine's Claude Code sessions of the last 30 days to the VM it opens
-  (`vscode_claude_sessions`, on by default): the transcripts of the repositories that VM has checked
+  (`claude_sessions_sync`, on by default): the transcripts of the repositories that VM has checked
   out, matched by git origin. A transcript holds whatever its tools printed - command output, the
   contents of files, tokens - so every VM you open gets those of its repositories' sessions, in the VM
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
