@@ -109,19 +109,21 @@ def banner(body, title, host="", topic="", width=None):
 
 
 def plain_summary(summary):
-    """Return ansible-core's warning, deprecation or error summary with every string in it through plain_text.
+    """Return ansible-core's warning, deprecation or error summary with every string in it through visible_text.
 
     A module's result chooses its warnings' and deprecations' text, and a failed
     one its message, which Display prints as [WARNING], [DEPRECATION WARNING]
     and [ERROR] lines, raw, on the terminal and in the run log: a VM's root can
-    make any module on it return them. The summary is a frozen dataclass of
-    events, chained events and plugin details, rebuilt here field by field; an
-    enum is kept as it is (some are strings), and None stays None.
+    make any module on it return them. visible_text, as every live report has:
+    no escape sequence, and no bidi override to make a line read in an order of
+    its own. The summary is a frozen dataclass of events, chained events and
+    plugin details, rebuilt here field by field; an enum is kept as it is (some
+    are strings), and None stays None.
     """
     if isinstance(summary, enum.Enum):
         return summary
     if isinstance(summary, str):
-        return plain_text(summary)
+        return visible_text(summary)
     if isinstance(summary, tuple):
         return tuple(plain_summary(item) for item in summary)
     if dataclasses.is_dataclass(summary) and not isinstance(summary, type):

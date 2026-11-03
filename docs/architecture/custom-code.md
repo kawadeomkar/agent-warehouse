@@ -125,12 +125,13 @@ deprecations, and a failed module's message, are its to choose, and a VM's root 
 answer what it likes; ansible-core turns them into summaries that Display prints as `[WARNING]`,
 `[DEPRECATION WARNING]` and `[ERROR]` lines, raw, on the screen - stderr, which the live region lets
 through - and in the run log. `plain_summary` rebuilds such a summary (a frozen dataclass of events) with
-every string through `plain_text`; inside `plain_events`, a stdout callback's `_handle_warnings` and
-`_handle_exception` read the current result's summaries that way. Both stdout callbacks wrap the two
-methods in it, so every hook prints them plain; `claude_on_proxmox` also passes a diff's text - a file
-as the VM holds it - through `plain_text`. Covered by `test_attention_callback.py`, which runs a stand-in
-module returning escape sequences through both stdout callbacks, by `test_deploy_live.py`, which runs it in a
-live deploy, and by `test_status.py`'s test of the status callback's hooks.
+every string through `visible_text`, so no bidi override reorders a `[WARNING]` line either; inside
+`plain_events`, a stdout callback's `_handle_warnings` and `_handle_exception` read the current result's
+summaries that way. Both stdout callbacks wrap the two methods in it, so every hook prints them plain;
+`claude_on_proxmox` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
+keeps the file's own characters. Covered by `test_attention_callback.py`, which runs a stand-in module returning escape sequences through both
+stdout callbacks, by `test_deploy_live.py`, which runs it in a live deploy, and by `test_status.py`'s
+test of the status callback's hooks.
 
 **`visible_text(text)`** — `plain_text`, then every Unicode format, line or paragraph separator (bidi
 controls and zero-width characters among them) replaced by a space, its lines, tabs and indents kept: a
