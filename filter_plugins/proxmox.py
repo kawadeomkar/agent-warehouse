@@ -210,14 +210,22 @@ def ssh_config_blocks(content):
     return [{"name": match.group("name")} for match in BLOCK_RE.finditer(content)]
 
 
-def ssh_config_prune(blocks, resources, tag_pattern):
+def ssh_config_prune(blocks, resources, tag_pattern, hosts=None):
     """Which alias blocks a fleet-wide refresh should remove, and which it must not.
 
     ``blocks`` is what ``ssh_config_blocks`` read; ``resources`` the cluster's
     ``/cluster/resources`` listing; ``tag_pattern`` the project's whole-tag
-    regex. Pruning only ever removes alias blocks, never VMs, and a block was
+    regex; ``hosts`` the names this machine reaches the inventory's hosts by.
+    Pruning only ever removes alias blocks, never VMs, and a block was
     only ever written for a tagged VM, so the question is just whether that VM
     is still there. Returns a dict:
+
+    - ``refused``: names no alias may have, whatever VM carries them: one ssh
+      reads as an address, or one of ``hosts`` (``ssh_alias_refusal``). An
+      earlier version wrote them, and the refresh no longer does, so a block
+      left would take this machine's connections to that host for good.
+      Removed even while the listing is incomplete. A name with a dot is not
+      among them: a named run writes one.
 
     - ``prune``: names with no VM of that name left anywhere in the cluster.
     - ``untagged``: names a VM still carries but without the tag. Left alone
@@ -236,9 +244,13 @@ def ssh_config_prune(blocks, resources, tag_pattern):
     all_names = {vm["name"] for vm in qemu if vm.get("name")}
     nameless = [str(vm.get("vmid", "?")) for vm in tagged if not vm.get("name")]
 
-    result = {"prune": [], "held": [], "untagged": [], "nameless": nameless}
+    result = {"prune": [], "held": [], "untagged": [], "nameless": nameless, "refused": []}
     for block in blocks:
         name = block.get("name", "")
+        why, unnamed = _alias_refusal(name, hosts, None)
+        if why and not unnamed:
+            result["refused"].append(name)
+            continue
         if name in tagged_names:
             continue
         if name in all_names:

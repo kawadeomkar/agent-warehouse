@@ -39,10 +39,12 @@ a VMID in the detail — `500 Internal Server Error: VM 4013 is not running` —
 the fleet listing and `just deploy --only configure` for the whole fleet over one stopped VM.
 
 **`ssh_config_blocks(content)`** — the alias blocks in the managed file, as `{name}`, in file order. **`ssh_config_prune(blocks, resources,
-tag_pattern)`** — the decision `just deploy --only ssh-config` makes fleet-wide, as data: `prune` (no VM of that
-name anywhere), `untagged` (a VM of that name exists without the tag; left alone), and `nameless`
+tag_pattern, hosts)`** — the decision `just deploy --only ssh-config` makes fleet-wide, as data: `prune` (no VM of
+that name anywhere), `untagged` (a VM of that name exists without the tag; left alone), `nameless`
 (tagged VMs the listing shows without a name, a node that is down), which when non-empty empties
-`prune` into `held`. Pure, so every rule is a unit test rather than a fake-API fixture.
+`prune` into `held`, and `refused` (a name no alias may have, an address or one of `hosts`, as
+`ssh_alias_refusal` says, which an earlier version wrote: removed whatever the listing shows). Pure, so every
+rule is a unit test rather than a fake-API fixture.
 
 **`ssh_alias_refusal(name, hosts, chosen)`** — why a VM's name cannot be its alias, or `""`: a name ssh reads
 as an address (`192.0.2.10`, `3232235777`, `0x7f000001`: one to four parts between dots, each decimal, octal or

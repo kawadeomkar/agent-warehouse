@@ -573,10 +573,12 @@ named run wrote is left as it was, and the message names the run that refreshes 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
 (§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
 configure recorded, then pruning through `ssh_config_prune`
-([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block whose name no VM in the cluster carries any more. A name an untagged VM
-carries is left alone and reported, as `destroy.yml` refuses such a VM. While any tagged VM is listed
-without a name, which is what a node that is down looks like (§4.3), nothing is pruned, because any
-block could be that VM's. With names, only those VMs are refreshed and nothing is pruned. Two
+([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
+whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
+or one the inventory reaches a host by, which an earlier version wrote and which would otherwise take this
+machine's connections to that host for good. A name an untagged VM carries is left alone and reported, as
+`destroy.yml` refuses such a VM. While any tagged VM is listed without a name, which is what a node that is
+down looks like (§4.3), nothing else is pruned, because any block could be that VM's. With names, only those VMs are refreshed and nothing is pruned. Two
 tagged VMs of one name are refused as discovery refuses them: an alias of that name would point at
 one at random.
 

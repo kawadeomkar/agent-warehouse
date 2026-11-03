@@ -9,12 +9,14 @@ group_vars/all reads it:
 
 - discovery leaves such a VM out, and says so;
 - just status shows it from the listing, read no further, and reads every other VM through the API's own address;
-- a name given that is one is refused before Proxmox is asked anything, by every playbook that takes names.
+- a name given that is one is refused before Proxmox is asked anything, by every playbook that takes names;
+- a fleet-wide alias refresh removes an alias of such a name, or of an address, that an earlier version wrote.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -59,6 +61,19 @@ def _discover(tmp_path: Path, base: str, *extra: str) -> dict:
     return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
 
 
+def _refresh(tmp_path: Path, base: str, *extra: str) -> dict:
+    """playbooks/ssh_config.yml against the fake, its managed file the test's own (tmp_path / "ssh.conf")."""
+    settings = {**FROM_THE_HOST, "claude_ssh_user_config": str(tmp_path / "config"), "claude_ssh_config_include": False}
+    root, _ = status_root(tmp_path, base, settings)
+    playbook = root / "ssh_config.yml"
+    playbook.write_text((PLAYBOOKS / "ssh_config.yml").read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/"))
+    return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
+
+
+def _block(name: str) -> str:
+    return f"# BEGIN claude-on-proxmox: {name}\nHost {name}\n    HostName 192.0.2.99\n# END claude-on-proxmox: {name}\n"
+
+
 def _task(report: dict, name: str) -> dict:
     for play in report["plays"]:
         for task in play["tasks"]:
@@ -97,6 +112,33 @@ def test_status_shows_such_a_vm_unread_and_reads_the_rest_through_the_api_s_own_
         assert any(it["vm"] == name and it["level"] == "unread" for it in model["attention"])
     # Play 2 asks Proxmox about each VM at proxmox_api_url: had pve been merged, at the address pve reported.
     assert by["alpha"]["api"]["read"] and by["beta"]["api"]["read"]
+
+
+def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotted_one(tmp_path, fleet) -> None:
+    # An earlier version wrote an alias for any tagged VM, so the managed file may hold one for the VM named pve - the
+    # Proxmox host's root SSH - or for one named like an address. Tagged VMs still carry both names here.
+    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9015, name="3232235777")
+    _pve(fleet, "PUT", "nodes/pve/qemu/9015/config", tags="claude-on-proxmox", ciuser="dev")
+    # A dotted name: the user's own, written by a run that named it. Running, so the refresh has its address.
+    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9016, name="alpha.lab")
+    _pve(fleet, "PUT", "nodes/pve/qemu/9016/config", tags="claude-on-proxmox", ciuser="dev")
+    _pve(fleet, "POST", "nodes/pve/qemu/9016/status/start")
+    for _ in range(3):
+        try:
+            _pve(fleet, "GET", "nodes/pve/qemu/9016/agent/network-get-interfaces")
+        except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
+            pass
+    managed = tmp_path / "ssh.conf"
+    managed.write_text(_block("pve") + _block("3232235777") + _block("alpha.lab"))
+    report = _refresh(tmp_path, fleet)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    text = managed.read_text()
+    assert re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
+    # Left as it was: neither refreshed nor removed by a run that did not name it.
+    assert _block("alpha.lab") in text
+    said = _task(report, "Report what was kept, pruned and left alone")["msg"]
+    assert "which an earlier version wrote: pve, 3232235777" in said
+    assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
 
 
 @pytest.mark.parametrize("playbook", ["provision.yml", "destroy.yml", "code.yml", "discover.yml", "ssh_config.yml"])

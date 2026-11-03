@@ -506,6 +506,7 @@ class TestSshConfigPrune:
             "held": [],
             "untagged": [],
             "nameless": [],
+            "refused": [],
         }
 
     def test_keeps_a_block_whose_vm_was_rebuilt_under_a_new_vmid(self):
@@ -532,11 +533,20 @@ class TestSshConfigPrune:
         # A node that is down: Proxmox drops the name but keeps the tags.
         fleet = [vm("alpha", 9001), vm("beta", 9002), vm(None, 8001)]
         result = ssh_config_prune(self.BLOCKS, fleet, TAG)
-        assert result == {"prune": [], "held": ["old"], "untagged": [], "nameless": ["8001"]}
+        assert result == {"prune": [], "held": ["old"], "untagged": [], "nameless": ["8001"], "refused": []}
 
     def test_a_nameless_untagged_vm_holds_nothing(self):
         fleet = [vm("alpha", 9001), vm("beta", 9002), vm(None, 8000, tags=None)]
         assert ssh_config_prune(self.BLOCKS, fleet, TAG)["prune"] == ["old"]
+
+    def test_removes_an_alias_no_vm_may_have_whatever_carries_it(self):
+        # An earlier version wrote these; tagged VMs still carry pve and 3232235777, a node is down, and still both go.
+        blocks = [{"name": "alpha"}, {"name": "pve"}, {"name": "3232235777"}, {"name": "alpha.lab"}]
+        fleet = [vm("alpha", 9001), vm("pve", 9002), vm("3232235777", 9003), vm("alpha.lab", 9004), vm(None, 8001)]
+        result = ssh_config_prune(blocks, fleet, TAG, ["pve", "localhost"])
+        assert result["refused"] == ["pve", "3232235777"]
+        # A dotted name is not among them: a run that names it writes it, and it is still the VM's.
+        assert result["held"] == [] and result["prune"] == []
 
     def test_a_container_does_not_count_as_a_vm(self):
         # A tagged lxc named "old" is not what the alias was written for.
@@ -549,7 +559,7 @@ class TestSshConfigPrune:
             vm("beta", 9002, tags="ansible;claude-on-proxmox"),
         ]
         result = ssh_config_prune(self.BLOCKS[:2], fleet, TAG)
-        assert result == {"prune": [], "held": [], "untagged": [], "nameless": []}
+        assert result == {"prune": [], "held": [], "untagged": [], "nameless": [], "refused": []}
 
     def test_rejects_non_lists(self):
         with pytest.raises(AnsibleFilterError, match="as lists"):
