@@ -41,7 +41,7 @@
     that: not (tailscale_key_held_back | bool)
     fail_msg: >-
       {{ inventory_hostname }} joined Tailscale through this project before, as its tag in Proxmox records
-      ({{ claude_vm_tailscale_tag | default('claude-on-proxmox-tailscale') }}), and has no login now: something on the
+      ({{ tailscale_joined_tag }}), and has no login now: something on the
       VM logged it out. vault_tailscale_auth_key is not sent to a VM again, and tailscale_auth_method key signs none
       in by the browser. Set tailscale_auth_method to auto and run {{ tailscale_login_command }}; or, if you logged it
       out yourself, remove that tag from the VM in Proxmox and run {{ tailscale_configure_command }}.
@@ -138,7 +138,7 @@
 # Whether the VM holds a login of this role's - the join above, or one an
 # earlier run recorded, which also covers a VM that joined before Proxmox kept
 # the record - for configure.yml's next play to record in Proxmox, where the VM
-# cannot change it (claude_vm_tailscale_tag). Set on every run of this file, so
+# cannot change it (tailscale_joined_tag). Set on every run of this file, so
 # that it is never an earlier run's.
 - name: connect | Say whether the VM holds a login of this role's, for Proxmox to record
   ansible.builtin.set_fact:

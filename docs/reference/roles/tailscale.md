@@ -18,7 +18,8 @@ Installs Tailscale from its apt repository, joins the tailnet with tailscale_aut
 | `tailscale_enabled` | bool | `true` | Install and join; false logs out and removes what this role installed. |
 | `tailscale_auth_key` | str | `""` | A key for the first join only (tskey-auth-..., or a tskey-client-... OAuth secret, which needs tailscale_advertise_tags). Empty leaves the VM for the web login. Set through vault_tailscale_auth_key in vault.yml. A secret: never logged. |
 | `tailscale_auth_method` | str | `auto` | auto joins with tailscale_auth_key when there is one and leaves the VM for the web login otherwise; key joins with the key only, and an empty one fails by name; web leaves every VM for the web login. One of `auto`, `key`, `web`. |
-| `tailscale_joined_before` | bool | `false` | Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox (claude_vm_tailscale_tag), which the VM cannot change. Such a VM is never sent the key again; under auto it is left for the web login, under key it fails. |
+| `tailscale_joined_before` | bool | `false` | Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox (tailscale_joined_tag), which the VM cannot change. Such a VM is never sent the key again; under auto it is left for the web login, under key it fails. |
+| `tailscale_joined_tag` | str | `claude-on-proxmox-tailscale` | The tag in Proxmox that records a VM's join, named as the one to remove for one more join with the key; wired from claude_vm_tailscale_tag (&lt;ownership tag&gt;-tailscale). |
 | `tailscale_api_auth_method` | str | `auto` | How the device is deleted from the tailnet through Tailscale's API, on this machine. auto uses whichever credential is set, tailscale_api_token first, and is none when neither is; none leaves the device there, logged out, and names it; token uses tailscale_api_token; oauth exchanges tailscale_oauth_client_id and tailscale_oauth_client_secret, a client with the devices:core scope, for an access token. One of `auto`, `none`, `token`, `oauth`. |
 | `tailscale_api_token` | str | `""` | An API access token (tskey-api-...), used under tailscale_api_auth_method auto or token. Set through vault_tailscale_api_token in vault.yml. A secret: never logged. |
 | `tailscale_oauth_client_id` | str | `""` | An OAuth client's ID, used under tailscale_api_auth_method auto or oauth. Set through vault_tailscale_oauth_client_id in vault.yml. |
@@ -52,6 +53,7 @@ With tailscale_login_interactive, or the answer to the question tailscale_login_
 | `tailscale_login_ask` | bool | `false` | Ask first, at a prompt here. With no terminal it returns at once with no answer. |
 | `tailscale_auth_method` | str | `auto` | Under key, a VM is joined by just deploy --only configure with the key, never by the web login. One of `auto`, `key`, `web`. |
 | `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the report never says the key will join it again. |
+| `tailscale_joined_tag` | str | `claude-on-proxmox-tailscale` | The tag in Proxmox that records a VM's join, which the report names. |
 
 Also takes, as described under `main`: `tailscale_enabled`, `tailscale_login_timeout`, `tailscale_login_desktop`, `tailscale_login_server`, `tailscale_advertise_tags`, `tailscale_marker_dir`.
 
@@ -64,6 +66,7 @@ Reads what Tailscale is installed and whose, and its state once, without waiting
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the line never says the key will join it again. |
+| `tailscale_joined_tag` | str | `claude-on-proxmox-tailscale` | The tag in Proxmox that records a VM's join, which the line names. |
 | `tailscale_auth_key` | str | `""` | Only whether one is set is read, for the line that says what joins the VM. A secret: never logged. |
 | `tailscale_hostname` | str | computed | The machine name asked for, which a name taken is told by. |
 

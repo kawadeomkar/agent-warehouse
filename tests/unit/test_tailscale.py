@@ -1355,6 +1355,17 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
         assert "claude_vm_tailscale_tag_pattern" in added["tailscale_joined_before"], playbook
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     assert defaults["claude_vm_tailscale_tag"] == "{{ claude_vm_tag | lower }}-tailscale"
+    # The role names the tag through an input of its own, wired there as every role input is, and reads no
+    # variable of the playbooks'.
+    assert defaults["tailscale_joined_tag"] == "{{ claude_vm_tailscale_tag }}"
+    role = REPO / "roles" / "tailscale"
+    reads = [
+        (path.name, line.strip())
+        for path in [*(role / "tasks").glob("*.yml"), role / "vars" / "main.yml"]
+        for line in path.read_text().splitlines()
+        if "claude_vm_" in line and not line.lstrip().startswith("#")
+    ]
+    assert reads == []
 
 
 def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():

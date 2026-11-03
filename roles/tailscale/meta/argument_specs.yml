@@ -32,8 +32,14 @@ argument_specs:
         default: false
         description:
           - Whether the VM held a login of this role's before, as the playbooks read it from the VM's tag in Proxmox
-            (claude_vm_tailscale_tag), which the VM cannot change. Such a VM is never sent the key again; under auto
+            (tailscale_joined_tag), which the VM cannot change. Such a VM is never sent the key again; under auto
             it is left for the web login, under key it fails.
+      tailscale_joined_tag:
+        type: str
+        default: claude-on-proxmox-tailscale
+        description:
+          - The tag in Proxmox that records a VM's join, named as the one to remove for one more join with the key;
+            wired from claude_vm_tailscale_tag (<ownership tag>-tailscale).
       tailscale_api_auth_method:
         type: str
         default: auto
@@ -149,6 +155,10 @@ argument_specs:
         type: bool
         default: false
         description: Whether the VM joined before, so that the report never says the key will join it again.
+      tailscale_joined_tag:
+        type: str
+        default: claude-on-proxmox-tailscale
+        description: The tag in Proxmox that records a VM's join, which the report names.
       tailscale_login_timeout:
         type: int
         default: 300
@@ -185,6 +195,10 @@ argument_specs:
         type: bool
         default: false
         description: Whether the VM joined before, so that the line never says the key will join it again.
+      tailscale_joined_tag:
+        type: str
+        default: claude-on-proxmox-tailscale
+        description: The tag in Proxmox that records a VM's join, which the line names.
       tailscale_auth_key:
         type: str
         default: ""

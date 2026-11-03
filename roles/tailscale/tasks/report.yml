@@ -75,7 +75,7 @@
            if tailscale_auth_method != 'key'
            else ('signed out of Tailscale (its key expired), and tailscale_auth_method key never signs a VM in by the'
                  ~ ' browser nor sends the key to a node that had a login: run sudo tailscale logout on it'
-                 ~ (', remove its ' ~ (claude_vm_tailscale_tag | default('claude-on-proxmox-tailscale'))
+                 ~ (', remove its ' ~ tailscale_joined_tag
                     ~ ' tag in Proxmox' if tailscale_joined_before | bool else '')
                  ~ ', then ' ~ tailscale_configure_command ~ ' joins it with the key.') }}
       refused: "{{ tailscale_report_refused }}"

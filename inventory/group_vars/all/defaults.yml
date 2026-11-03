@@ -492,3 +492,4 @@ github_projects_git_user_name: "{{ git_user_name }}"
 github_projects_git_user_email: "{{ git_user_email }}"
 
 tailscale_login_desktop: "{{ login_desktop }}"
+tailscale_joined_tag: "{{ claude_vm_tailscale_tag }}"

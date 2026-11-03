@@ -700,7 +700,8 @@ plan's research record.
   the ownership tag, never in check mode - and discovery, provisioning's publish (from the role's lookup) and
   `just status` hand the tag to the role as `tailscale_joined_before` (`tailscale_first_join`,
   `tailscale_key_held_back`). Such a VM is left for the web login under `auto`, and fails under `key`,
-  naming the tag to remove for one more join with the key; `proxmox_vm` keeps the tag whenever it replaces
+  naming the tag to remove for one more join with the key (`tailscale_joined_tag`, the role's own input, wired
+  from `claude_vm_tailscale_tag`); `proxmox_vm` keeps the tag whenever it replaces
   a VM's tags (`proxmox_vm_kept_tags`). Without a Proxmox VM - Vagrant, the scenarios - nothing is
   recorded, and a VM logged out reads as one that never joined, as before. It goes in as `--auth-key=file:/dev/stdin`, the key as the
   `command` module's stdin under `no_log`: nothing on argv, no file - `copy` would stage one in

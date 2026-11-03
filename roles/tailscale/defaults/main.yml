@@ -23,11 +23,15 @@ tailscale_auth_method: auto
 
 # Whether the VM held a login of this role's before, as recorded where the VM
 # cannot change it: the playbooks set it from the VM's tag in Proxmox
-# (claude_vm_tailscale_tag). Such a VM is never sent the key again - a node
+# (tailscale_joined_tag). Such a VM is never sent the key again - a node
 # logged out from inside reads like one that never joined, and would otherwise
 # be handed the fleet's key: under auto it is left for the web login, under key
 # it fails. Without a Proxmox VM (Vagrant, the scenarios) nothing records it.
 tailscale_joined_before: false
+# The tag in Proxmox that records it, which the messages name as the one to
+# remove for one more join with the key: <ownership tag>-tailscale, wired from
+# claude_vm_tailscale_tag (inventory/group_vars/all/defaults.yml).
+tailscale_joined_tag: claude-on-proxmox-tailscale
 
 # Deleting a VM's device from the tailnet through Tailscale's API, when the VM
 # is destroyed (the release entry point) or Tailscale is turned off on it, so
