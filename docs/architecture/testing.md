@@ -489,6 +489,11 @@ is. Converge starts the first and, with no port in the container, leaves the age
 effect finds it stopped, gives the role a stand-in for the port and runs its services again, and verify
 finds both running.
 
+Last, the side effect puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
+`common_tmux_settings: []`, which takes the block out and leaves that line alone, then as converge ran them.
+Verify finds the block back beside the user's line, the file still 0644, and a tmux of its own loading the
+file with no error and each setting in effect, the user's among them.
+
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —
 `192.0.2.51`, not `172.17.0.1`, which would mean the docker bridge was picked up. It asserts the
