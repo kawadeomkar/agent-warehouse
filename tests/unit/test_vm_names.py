@@ -70,6 +70,18 @@ def _refresh(tmp_path: Path, base: str, *extra: str) -> dict:
     return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
 
 
+def _creating(tmp_path: Path, base: str, playbook: str, names: str) -> dict:
+    """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own."""
+    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
+    if playbook == "deploy.yml":
+        text = (REPO / "deploy.yml").read_text().replace(" playbooks/", f" {PLAYBOOKS}/")
+    else:
+        text = (PLAYBOOKS / playbook).read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
+    (root / playbook).write_text(text)
+    extra = json.dumps({"vm_name": names, "deploy_sign_in": False})
+    return _run(root, root / playbook, {}, *_proxmox_inventory(root), "-e", extra, timeout=180)
+
+
 def _block(name: str) -> str:
     return f"# BEGIN claude-on-proxmox: {name}\nHost {name}\n    HostName 192.0.2.99\n# END claude-on-proxmox: {name}\n"
 
@@ -143,7 +155,50 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
 
 
+@pytest.mark.parametrize("playbook", ["deploy.yml", "provision.yml"])
+@pytest.mark.parametrize(
+    ("name", "said"),
+    [
+        ("pve", "pve is the name of a host in the inventory"),
+        ("3232235777", "ssh reads it as an address"),
+        # The address the inventory reaches the Proxmox host at.
+        ("127.0.0.1", "ssh reads it as an address"),
+    ],
+)
+def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, fleet, playbook, name, said) -> None:
+    # deploy.yml before its template play, which may build a template over root SSH; provision.yml before a clone.
+    calls = tmp_path / "pve" / "calls.log"
+    before = calls.read_text() if calls.exists() else ""
+    report = _creating(tmp_path, fleet, playbook, f"alpha,{name}")
+    assert report["rc"] != 0
+    refused = [
+        task["hosts"]["localhost"]
+        for play in report["plays"]
+        for task in play["tasks"]
+        if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
+    ]
+    assert len(refused) == 1 and said in refused[0]["msg"], refused
+    assert calls.read_text() == before
+
+
+def test_a_name_with_a_dot_passes_the_checks_deploy_makes_first(tmp_path, fleet) -> None:
+    root, _ = status_root(tmp_path, fleet, FROM_THE_HOST)
+    play = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
+    tasks = [{**task, "ansible.builtin.import_tasks": f"{PLAYBOOKS / 'tasks'}/vm_names.yml"} for task in play["tasks"]]
+    (root / "first.yml").write_text(yaml.safe_dump([{**play, "tasks": tasks}]))
+    extra = json.dumps({"vm_name": "alpha.lab,beta"})
+    report = _run(root, root / "first.yml", {}, *_proxmox_inventory(root), "-e", extra, timeout=120)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+
+
 @pytest.mark.parametrize("playbook", ["provision.yml", "destroy.yml", "code.yml", "discover.yml", "ssh_config.yml"])
 def test_every_playbook_that_takes_names_refuses_a_host_of_the_inventory(playbook: str) -> None:
     text = (PLAYBOOKS / playbook).read_text()
     assert "import_tasks: tasks/vm_names.yml" in text
+
+
+def test_deploy_refuses_a_name_in_its_first_play() -> None:
+    # Before the template play, whose build needs root SSH: tested against the fake above.
+    first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
+    assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == ["playbooks/tasks/vm_names.yml"]
+    assert first["tasks"][0]["vars"] == {"claude_vm_names_alias": True}

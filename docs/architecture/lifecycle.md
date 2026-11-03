@@ -132,8 +132,9 @@ Finds VMs by tag so `configure.yml` works standalone, not only straight after pr
    address its own agent reported, and the API token would go there; one named `localhost` would make the
    controller a VM to configure. On a Proxmox others use too, anyone can tag a VM so. Such a VM is left
    out and said; a name given that is one is refused before the cluster is listed
-   (`tasks/vm_names.yml`, which provision, destroy, code and `--only ssh-config` import too), and
-   `just status` shows such a VM from the listing alone.
+   (`tasks/vm_names.yml`, which deploy, provision, destroy, code and `--only ssh-config` import too;
+   deploy, provision and code with `claude_vm_names_alias`, which also refuses a name that cannot be its
+   SSH alias, §4.8), and `just status` shows such a VM from the listing alone.
 4. Assert no duplicate names — Proxmox permits them, and the second `add_host` would silently
    overwrite the first, so `just deploy --only configure` would report success having touched one of two,
    unpredictably.
@@ -451,9 +452,11 @@ opens SSH.
 
 The whole thing: template, provision, configure, the three sign-ins, the editor - each stage the
 standalone playbook, imported as is, so deploy is the sum of `just deploy --only template`, `--only provision`
-and `--only configure`, the three sign-ins `just login` runs and `just code`, by construction. A first play on localhost asks the API whether a
-template named `proxmox_template_name` exists and records it; the template play is imported with a
-`when:` on that fact. The lookup is `proxmox_vm_info name=...`, so only the node holding that name is
+and `--only configure`, the three sign-ins `just login` runs and `just code`, by construction. A first play on
+localhost refuses a name no VM may have (`tasks/vm_names.yml`, as provision does, alias check included): the
+template play would otherwise build a template over root SSH before provision's own check refused it. The
+next asks the API whether a template named `proxmox_template_name` exists and records it; the template play
+is imported with a `when:` on that fact. The lookup is `proxmox_vm_info name=...`, so only the node holding that name is
 asked for its VM list — unfiltered, one node that is down failed the run before anything was built.
 
 `configure.yml` is imported with `vars: {claude_vm_discovery: false}`, so it configures exactly the

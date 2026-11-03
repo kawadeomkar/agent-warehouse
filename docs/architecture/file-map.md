@@ -57,7 +57,7 @@ playbooks/
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
-  tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost)
+  tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
