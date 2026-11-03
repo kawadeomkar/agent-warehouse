@@ -138,6 +138,11 @@ alone. The device stays in your tailnet, expired, until you delete it in the adm
 unless the project can delete it for you (below). A logout that fails - Tailscale's servers out of the VM's
 reach - is said and the rest removed anyway; its login then stays valid until you delete the device.
 
+The VM's `claude-on-proxmox-tailscale` tag in Proxmox stays: the project never takes it off, since only
+you can say the logout was yours. Turned back on, the VM is signed in by the web login under `auto`, and
+under `key` the run stops and names the tag. For one more join with the key, remove that tag from the VM in
+Proxmox - its tags, in the VM's summary in the web UI - and keep the ownership tag beside it.
+
 ## Removing devices for you
 
 A logged-out device stays in the admin console until it is deleted, and
