@@ -123,7 +123,8 @@ tests/
                                   config, the Claude terminal's script, the justfile, just status and every live
                                   output - the model, each recipe drawn, tools/live's runs in parts (live_kit.py runs
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
-                                  interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
+                                  interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process;
+                                  sharding.py, how --shard splits them) -
                                   and the wiki (test_docs.py)
   molecule/                       shared fakes: PVE API, qm, virt-customize, GitHub API, gh, claude, tailscale,
                                   Tailscale API, the Anthropic Messages API (for the real claude in configure)
