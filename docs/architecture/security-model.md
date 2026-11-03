@@ -37,7 +37,8 @@ can hold a secret carries `no_log: true` in its `argument_specs`.
 secret and the GitHub username into the vault's text in memory and pipes it into `ansible-vault encrypt`'s
 stdin under `no_log`, which shreds the old file and writes the new one `0600`. Nothing renders the secret
 outside `no_log` tasks, and init's inventory turns pipelining on, so even the module arguments that carry
-it never land in `~/.ansible/tmp`; a run with `ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off and
+it never land in `~/.ansible/tmp`. Every other run pipelines the modules on this machine as well
+(`ansible.cfg`'s `[connection]`), so the Proxmox token every API call carries never lands there either; a run with `ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off and
 keeps each module's file there, is refused before it reads anything. Its password goes in `.vault_pass`, made only when there is no password
 anywhere (`.vault_pass` or `ANSIBLE_VAULT_PASSWORD_FILE`): `O_EXCL`, `0600`, and never read, rewritten or
 re-moded once it exists. The secret is never taken from the command line, which the shell's history, the

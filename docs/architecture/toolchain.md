@@ -70,7 +70,12 @@ to exact versions in `requirements.yml`, with `community.library_inventory_filte
 > does this; a hand-rolled `molecule test` does not.
 
 `ansible.cfg` sets the directory inventory, `roles_path`, the local `filter_plugins`, YAML callback
-output, `profile_tasks`, `forks = 20`, pipelining, and `StrictHostKeyChecking=accept-new`. There is
+output, `profile_tasks`, `forks = 20`, pipelining, and `StrictHostKeyChecking=accept-new`. Pipelining is under
+`[connection]`, so it holds for the modules run on this machine too, which carry the Proxmox token and the
+Tailscale API's credential: set for ssh alone, each of those was written into `~/.ansible/tmp` before it ran.
+Only the `yaml` and `ini` inventory plugins are enabled - `inventory/` and init's inventory, and the one Vagrant
+writes - never `script`, which runs any executable file in the inventory folder, nor `auto`;
+`tests/unit/test_ansible_config.py` holds both. There is
 deliberately no fact cache: the roles read only a few gathered facts, the one gather per configure run
 costs seconds in a run that takes minutes, and a cached entry keyed by inventory name outlived the VM it
 described, so a VM rebuilt under the same name within the hour was configured with the old VM's
