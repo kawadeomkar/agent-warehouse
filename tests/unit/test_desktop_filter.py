@@ -79,5 +79,52 @@ def test_the_url_is_one_argument_whatever_it_holds():
     assert page_opener(url, "", ["/usr/bin/open"]) == ["open", url]
 
 
+@pytest.mark.parametrize(
+    "browser",
+    [
+        "sh -c 'firefox %s'",
+        "/bin/bash -c 'open \"$1\"' _",
+        "zsh -c 'firefox %s'",
+        "fish -c 'firefox %s'",
+        # WSL's usual ways to Windows' browser, which read the URL as a command line again.
+        "/mnt/c/Windows/System32/cmd.exe /c start",
+        "cmd.exe /c start %s",
+        "powershell.exe -NoProfile -Command Start-Process",
+        "pwsh -c Start-Process %s",
+        "CMD.EXE /c start",
+        # Through env, its options and assignments, and the launchers that run a command given.
+        "env sh -c 'firefox %s'",
+        "/usr/bin/env -i LANG=C bash -c 'firefox %s'",
+        "env -u FOO sh -c 'firefox %s'",
+        "env -C /tmp bash -c 'firefox %s'",
+        "env -S 'sh -c' 'firefox %s'",
+        "nohup sh -c 'firefox %s'",
+        "sudo -u me sh -c 'firefox %s'",
+    ],
+)
+def test_a_browser_that_is_a_command_interpreter_opens_nothing(browser):
+    # A page's query string - in a page the VM chose - would be read as a
+    # command line here: the page is printed for the person instead, and no
+    # opener is tried, since BROWSER said which program opens pages.
+    page = "https://claude.ai/oauth/authorize?a=1&touch /tmp/x;b=2"
+    assert page_opener(page, browser, ["/usr/bin/open", "/usr/bin/xdg-open"]) == []
+
+
+@pytest.mark.parametrize(
+    ("browser", "argv"),
+    [
+        # A program whose name only starts like one is a browser.
+        ("shelly-browser %s", ["shelly-browser", URL]),
+        ("env firefox", ["env", "firefox", URL]),
+        ("/usr/bin/env PROFILE=work firefox %s", ["/usr/bin/env", "PROFILE=work", "firefox", URL]),
+        ("nohup firefox %s", ["nohup", "firefox", URL]),
+        # Only the words before the page can run it; one after it is the browser's argument.
+        ("firefox %s --profile sh", ["firefox", URL, "--profile", "sh"]),
+    ],
+)
+def test_a_browser_that_only_looks_like_one_still_opens(browser, argv):
+    assert page_opener(URL, browser, []) == argv
+
+
 def test_the_filter_is_registered():
     assert desktop_filters.FilterModule().filters()["page_opener"] is page_opener

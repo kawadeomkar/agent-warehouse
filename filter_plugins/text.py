@@ -15,10 +15,17 @@ one_line keeps a value a VM chose to one line of a report: `just status`
 (filter_plugins/status.py) draws its report from them, and every live run
 (filter_plugins/run_view.py) its reports, and a newline in a directory's name
 would otherwise start a line of its own - a forged item with a command to run.
+
+plain_events is for the stdout callbacks: what a module returns as warnings,
+deprecations or a failure's message is the VM's to choose, and Display prints
+it as it is, so each callback prints those through plain_summary.
 """
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
+import enum
 import re
 import shutil
 import unicodedata
@@ -99,6 +106,74 @@ def banner(body, title, host="", topic="", width=None):
     lines = body if isinstance(body, (list, tuple)) else [body]
     text = "\n".join(plain_text(line) for line in lines if line is not None).strip("\n")
     return f"{rule}\n##  {heading}\n{rule}\n" + (f"{text}\n" if text else "")
+
+
+def plain_summary(summary):
+    """Return ansible-core's warning, deprecation or error summary with every string in it through visible_text.
+
+    A module's result chooses its warnings' and deprecations' text, and a failed
+    one its message, which Display prints as [WARNING], [DEPRECATION WARNING]
+    and [ERROR] lines, raw, on the terminal and in the run log: a VM's root can
+    make any module on it return them. visible_text, as every live report has:
+    no escape sequence, and no bidi override to make a line read in an order of
+    its own. The summary is a frozen dataclass of events, chained events and
+    plugin details, rebuilt here field by field; an enum is kept as it is (some
+    are strings), and None stays None.
+    """
+    if isinstance(summary, enum.Enum):
+        return summary
+    if isinstance(summary, str):
+        return visible_text(summary)
+    if isinstance(summary, tuple):
+        return tuple(plain_summary(item) for item in summary)
+    if dataclasses.is_dataclass(summary) and not isinstance(summary, type):
+        fields = dataclasses.fields(summary)
+        return dataclasses.replace(
+            summary, **{field.name: plain_summary(getattr(summary, field.name)) for field in fields if field.init}
+        )
+    return summary
+
+
+class _PlainResult:
+    """A callback's current task result whose warnings, deprecations and error read through plain_summary."""
+
+    def __init__(self, result):
+        self._result = result
+
+    @property
+    def warnings(self):
+        return [plain_summary(warning) for warning in self._result.warnings]
+
+    @property
+    def deprecations(self):
+        return [plain_summary(deprecation) for deprecation in self._result.deprecations]
+
+    @property
+    def exception(self):
+        exception = self._result.exception
+        return plain_summary(exception) if exception is not None else None
+
+    def __getattr__(self, name):
+        return getattr(self._result, name)
+
+
+@contextlib.contextmanager
+def plain_events(callback):
+    """Inside, the callback's _handle_warnings and _handle_exception print the current result's events plain.
+
+    ansible-core's CallbackBase reads them from _current_task_result, the
+    result each hook is called for; the stdout callbacks wrap both methods in
+    this, so every hook that prints a result's warnings or error does it plain.
+    """
+    current = getattr(callback, "_current_task_result", None)
+    if current is None:
+        yield
+        return
+    callback._current_task_result = _PlainResult(current)
+    try:
+        yield
+    finally:
+        callback._current_task_result = current
 
 
 class FilterModule:

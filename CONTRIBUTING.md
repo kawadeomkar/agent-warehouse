@@ -6,7 +6,7 @@ git-ignored file, never in a commit.
 
 ## Setup
 
-You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12 or newer (`brew install uv`, or its
+You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4 or newer (`brew install uv`, or its
 standalone installer), [just](https://github.com/casey/just) 1.59 or newer (`brew install just`, or `cargo install
 just`, from its own releases), and Docker Engine for the tests. Python comes with uv, or bring a virtualenv of
 Python 3.12+ of your own (`PYTHON=`).
@@ -122,8 +122,10 @@ CI runs lint, unit tests, every Molecule scenario and the integration scenario o
 dependency review. No job uses a secret, so the full suite runs on pull requests from forks - please keep
 it that way and do not add a job that needs one.
 
-Before opening a PR, run `just test` locally, and check that nothing environment-specific slipped in: CI
-fails if a `hosts.yml`, `local.yml`, `vault.yml` or `.vault_pass` is ever committed.
+Before opening a PR, run `just test` - in full on a throwaway VM rather than the machine that holds your vault,
+since its scenarios run what they download as root in privileged containers
+([Testing](docs/development/testing.md)) - and check that nothing environment-specific slipped in: CI fails if a
+`hosts.yml`, `local.yml`, `vault.yml` or `.vault_pass` is ever committed.
 
 **PR titles** start with a bracketed tag that says what kind of change the PR is, then a short
 imperative summary: `[feat] create VMs by name, find them by tag, and let DHCP address them`,

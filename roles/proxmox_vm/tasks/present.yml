@@ -78,7 +78,7 @@
     agent: enabled=1
     # Written with the cloud-init user, in the same call, and removed below
     # once the VM has started - see proxmox_vm_needs_configuration.
-    tags: "{{ proxmox_vm_sent_tags + [proxmox_vm_unfinished_tag] }}"
+    tags: "{{ proxmox_vm_sent_tags + proxmox_vm_kept_tags + [proxmox_vm_unfinished_tag] }}"
     ciuser: "{{ proxmox_vm_user }}"
     cipassword: "{{ proxmox_vm_password | default(omit, true) }}"
     sshkeys: "{{ proxmox_vm_ssh_public_keys | join('\n') | default(omit, true) }}"
@@ -121,7 +121,7 @@
     vmid: "{{ proxmox_vm_resolved_id }}"
     name: "{{ proxmox_vm_name }}"
     update: true
-    tags: "{{ proxmox_vm_sent_tags }}"
+    tags: "{{ proxmox_vm_sent_tags + proxmox_vm_kept_tags }}"
   when: proxmox_vm_needs_configuration | bool
 
 # The other half of not booting it: a stopped VM that the start above skipped

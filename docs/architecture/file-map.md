@@ -42,8 +42,9 @@ playbooks/
   init_check.yml                  just init's checks: the API and token, privileges, the template or root SSH, node, storage, bridge, a key
   inventory/init.yml              init_settings.yml's own inventory: the controller alone, no group_vars
   configure.yml                   discover, then common → vscode_server → dev_tools → claude_code → github_projects,
-                                  then tailscale in a rescued block, then an SSH alias per configured VM on the
-                                  controller, and a last play failing what the rescue recorded
+                                  then tailscale in a rescued block, then the Proxmox record of each Tailscale login,
+                                  then an SSH alias per configured VM on the controller, and a last play failing what
+                                  the rescue recorded
   destroy.yml                     confirm, verify ownership, save each VM's own Claude sessions, release (Claude, GitHub,
                                   Tailscale), delete in parallel, forget each alias
   ssh_config.yml                  refresh every alias from the fleet; fleet-wide, prune the vanished
@@ -57,7 +58,9 @@ playbooks/
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
-  tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost)
+  tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
+  tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
+                                  key is never sent to it again (configure.yml, tailscale_login.yml)
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
@@ -93,7 +96,7 @@ filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv
 filter_plugins/vscode.py          vscode_setting (JSONC, read-only): VS Code's settings, never written
 filter_plugins/desktop.py         page_opener, the sign-ins' browser command
 filter_plugins/text.py            plain_text, what a VM printed made safe to quote; one_line, one line of it; banner, the
-                                  block a prompt is set in
+                                  block a prompt is set in; plain_summary, a module's warnings and errors made plain
 filter_plugins/status.py          just status's model and text: status_fleet, status_vm_api, status_report, status_text (§7.7)
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;

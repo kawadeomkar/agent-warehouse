@@ -14,6 +14,18 @@
 # not by the VM. A 404 is a device already gone, or one in another tailnet.
 # Every call carries a secret, so none is logged; what they answered is read
 # from their status and the device's name alone.
+#
+# The ID goes into the API's path, so it is held to the letters and digits
+# Tailscale's IDs are made of first: urlencode leaves / alone, and an ID of
+# ../../tailnet/-/keys would take the credential to another endpoint. One that
+# is not is said (tailscale_api_refused_why), and no call is made. A fact, set
+# on every include, so that it is never an earlier one's.
+- name: api_delete | Refuse a node ID that is not one Tailscale gives
+  ansible.builtin.set_fact:
+    tailscale_api_refused_node: >-
+      {{ tailscale_api_node if tailscale_api_go | bool and tailscale_api_node is not match(tailscale_node_id_pattern)
+         else '' }}
+
 - name: api_delete | Exchange the OAuth client for an access token
   ansible.builtin.uri:
     url: "{{ tailscale_api_url }}/api/v2/oauth/token"
@@ -30,6 +42,7 @@
   no_log: true
   when:
     - tailscale_api_go | bool
+    - tailscale_api_refused_node | length == 0
     - tailscale_api_credential == 'oauth'
     - tailscale_api_oauth_whole | bool
 
@@ -47,6 +60,7 @@
   no_log: true
   when:
     - tailscale_api_go | bool
+    - tailscale_api_refused_node | length == 0
     - tailscale_api_bearer | length > 0
 
 - name: api_delete | Delete the device from the tailnet
@@ -63,5 +77,6 @@
   no_log: true
   when:
     - tailscale_api_go | bool
+    - tailscale_api_refused_node | length == 0
     - tailscale_api_bearer | length > 0
     - tailscale_api_device_ours | bool

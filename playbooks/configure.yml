@@ -163,10 +163,26 @@
           {{ vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects' }}
       tags: [always]
 
+# Records in Proxmox, where the VM cannot change it, each VM whose Tailscale has
+# held a login (tasks/tailscale_record.yml), so that the vault's key is never
+# sent to it again: right after the role, which says which ones have.
+- name: Record in Proxmox each VM whose Tailscale has had a login
+  hosts: localhost
+  gather_facts: false
+  tags: [tailscale]
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+
+  tasks:
+    - name: Record each VM
+      ansible.builtin.import_tasks: tasks/tailscale_record.yml
+      vars:
+        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
+
 # One SSH alias per VM on this machine, so `ssh alpha` and the host picker of
 # VS Code's Remote - SSH extension follow the address DHCP gave it
 # (docs/guides/vscode.md). A localhost play after the roles: the alias must
-# not exist before the VM is ready, and the play above has just recorded
+# not exist before the VM is ready, and the configure play has just recorded
 # where each VM's code lives. Only a VM that finished that play gets one.
 # Tagged "always" like discovery, so `just deploy <vm> --tags ...` still
 # refreshes an address that moved; `claude_ssh_config: false` keeps this

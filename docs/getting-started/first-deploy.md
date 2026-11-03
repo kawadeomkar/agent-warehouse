@@ -113,8 +113,9 @@ before the first run. A run that was given values but still lacks the address, t
 username fails, naming what is missing; `--no-prompt` makes a run at a terminal one of these. At a terminal,
 the values given are taken and the rest asked, Enter still leaving one for later.
 
-Or skip `just init`'s questions and edit the three files yourself, then run `just vault`, which encrypts
-the vault (with the password in `.vault_pass`, if you made one).
+Or skip `just init`'s questions and edit the three files yourself - `just init` makes them readable by you
+alone - then run `just vault`, which encrypts the vault (with the password in `.vault_pass`, if you made
+one).
 
 ## Deploy
 

@@ -641,6 +641,15 @@ def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve)
     assert "proxmox_api_token_id" in item["command"]
 
 
+def test_a_token_secret_ending_in_a_newline_is_sent_without_it_and_never_said(tmp_path, fake_pve) -> None:
+    # A vault edited by hand: both HTTP clients refuse a header with a newline, quoting it whole - escaped, so
+    # no_log's masking missed the secret in it.
+    report, model = _status_run(tmp_path, fake_pve, settings={"vault_proxmox_api_token_secret": PVE_SECRET + "\n"})
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert model["vms"][0]["api"]["read"]
+    assert PVE_SECRET not in json.dumps(report)
+
+
 def test_a_proxmox_that_does_not_answer_is_said_not_failed(tmp_path) -> None:
     report, model = _status_run(tmp_path, "https://127.0.0.1:9", settings={"status_api_timeout": 2})
     assert report["rc"] == 0, report["stderr"][-2000:]
@@ -897,11 +906,11 @@ def callback(monkeypatch):
     signal.signal(signal.SIGWINCH, handler)
 
 
-def _ok(host, facts):
+def _ok(host, facts, action="ansible.builtin.set_fact", **result):
     return SimpleNamespace(
-        result={"ansible_facts": facts},
+        result={"ansible_facts": facts, **result},
         host=SimpleNamespace(get_name=lambda: host),
-        task=SimpleNamespace(get_name=lambda: "t"),
+        task=SimpleNamespace(get_name=lambda: "t", action=action),
     )
 
 
@@ -974,6 +983,41 @@ def test_the_callback_writes_no_other_escape_than_its_own(callback) -> None:
     assert escapes <= {"\x1b[K", "\x1b[J", "\x1b[?2026h", "\x1b[?2026l"} | {
         e for e in escapes if re.fullmatch(r"\x1b\[\d+A", e)
     }
+
+
+def test_a_report_is_drawn_only_from_the_report_play_s_own_task(callback, monkeypatch) -> None:
+    # Any module's result can carry facts, and a VM's root makes the modules there answer what it likes: a report of
+    # its own, drawn in place of the real one, could say anything at all.
+    cb, terminal = callback(quiet=True)
+    shown = []
+    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append(msg))
+    fleet = _fleet()
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now")
+    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
+    cb.v2_runner_on_ok(_ok("alpha", {"status_report": model}, action="vm_status_info"))
+    cb.v2_runner_on_ok(_ok("alpha", {"status_report": model}))
+    cb.v2_runner_on_ok(_ok("localhost", {"status_report": model}, action="ansible.builtin.slurp"))
+    assert shown == [] and not cb._reported
+    cb.v2_runner_on_ok(_ok("localhost", {"status_report": model}))
+    assert cb._reported and len(shown) == 1 and "VMS" in shown[0], shown
+
+
+def test_a_module_s_warnings_are_shown_plain(callback, monkeypatch) -> None:
+    # ansible-core prints a module's warnings as they are, and a VM's root chooses them: a clipboard write, a title.
+    from ansible._internal._task import UnifiedTaskResult
+
+    cb, terminal = callback(quiet=True)
+    shown = []
+    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append(msg))
+    escapes = "\x1b]52;c;b3duZWQ=\x07\x1b]0;retitled\x07\x9b31m"
+    said = UnifiedTaskResult.from_module_result_dict(
+        {"warnings": ["warned " + escapes], "failed": True, "msg": escapes}
+    )
+    cb._current_task_result = SimpleNamespace(warnings=said.warnings, deprecations=[], exception=said.exception)
+    cb.v2_runner_on_ok(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
+    cb.v2_runner_on_failed(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
+    assert shown and all(not re.search("[\x00-\x08\x0b-\x1f\x7f-\x9f]", line) for line in shown), shown
+    assert "[WARNING]: warned" in shown[0] and "retitled" not in "".join(shown), shown
 
 
 def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callback, monkeypatch) -> None:

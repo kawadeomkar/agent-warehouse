@@ -53,10 +53,19 @@ tailscale_node_key: "{{ tailscale_self.PublicKey | default('') }}"
 tailscale_dns_name: "{{ (tailscale_self.DNSName | default('')) | regex_replace('[.]$', '') }}"
 tailscale_ipv4: "{{ tailscale_self.TailscaleIPs | default([], true) | tailnet_ipv4 }}"
 tailscale_tailnet: "{{ (tailscale_state.CurrentTailnet | default({}, true)).Name | default('') }}"
-# A first join: a settled NeedsLogin with no node key - a node that never
+# No login at all: a settled NeedsLogin with no node key - a node that never
 # joined, or one logged out with `tailscale logout`, which reads the same. An
 # expired key leaves HaveNodeKey, and is never joined again with the vault key.
-tailscale_first_join: "{{ tailscale_backend == 'NeedsLogin' and not (tailscale_joined | bool) }}"
+tailscale_no_login: "{{ tailscale_backend == 'NeedsLogin' and not (tailscale_joined | bool) }}"
+# A first join: a node with no login whose VM never had one, as Proxmox
+# records it (tailscale_joined_before) - never from the VM, whose root
+# can log the node out, or make tailscale say anything, to be handed the fleet's
+# key again.
+tailscale_first_join: "{{ tailscale_no_login | bool and not (tailscale_joined_before | bool) }}"
+# The key held back: a node with no login, on a VM that held a login of this
+# role's before, where a first join would have used the key.
+tailscale_key_held_back: >-
+  {{ tailscale_no_login | bool and tailscale_joined_before | bool and tailscale_key_wanted | bool }}
 # Joined under another name than asked: <hostname>-<n>, the name already taken.
 tailscale_name_taken: >-
   {{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '-[0-9]+$') }}
@@ -77,6 +86,17 @@ tailscale_login_ours: >-
   {{ tailscale_node_key | length > 0
      and ((tailscale_joined | bool) and tailscale_joined_marker_text == tailscale_node_key
           or (tailscale_signed_in | bool) and tailscale_login_pending | bool) }}
+# Whether the Tailscale this role installed has had a login - any: the role's,
+# one made by hand, one expired (each leaves a node key) - or has a sign-in under
+# way (the role's pending marker, or a page tailscaled holds): what Proxmox
+# records (tasks/tailscale_record.yml), so that the vault's key is never sent to
+# the VM again. A node logged out reads like one that never joined, so a login is
+# recorded wherever it is seen, and a sign-in before it ends, since its page may
+# be approved after the run. Nothing the VM can make this say gets it the key:
+# at most it keeps the key from itself.
+tailscale_login_seen: >-
+  {{ (tailscale_installed_marker.stat.exists | default(false))
+     and (tailscale_joined | bool or tailscale_login_pending | bool or tailscale_auth_url | length > 0) }}
 tailscale_prefs: >-
   {{ (tailscale_prefs_raw.stdout | from_json) if (tailscale_prefs_raw.rc | default(1)) == 0 else {} }}
 
@@ -195,6 +215,11 @@ tailscale_web_page_trusted: >-
                                         ~ '/[A-Za-z0-9/_:.?=&%-]+$')) }}
 
 # --- Tailscale's API (api_delete.yml) ---
+# A node's stable ID as Tailscale gives it: letters and digits, and nothing
+# after them - \Z, since $ lets a trailing newline through. The VM reports it,
+# and it goes into the API's path, where a / or a .. would reach another
+# endpoint with the credential (api_delete.yml).
+tailscale_node_id_pattern: '^[A-Za-z0-9]+\Z'
 # The credential a device is deleted with: tailscale_api_auth_method, or under
 # auto whatever the vault holds - the API access token first, since it can
 # delete every device this project makes, where an OAuth client reaches only
@@ -247,7 +272,10 @@ tailscale_api_last: >-
 # reach a device without them, such as one joined by the web login: a 403 says
 # so.
 tailscale_api_refused_why: >-
-  {{ 'the OAuth client needs both tailscale_oauth_client_id and tailscale_oauth_client_secret'
+  {{ ('the node ID it reported, ' ~ ((tailscale_api_refused_node | plain_text)[:200] | to_json)
+      ~ ", is not one Tailscale gives, so Tailscale's API was not asked")
+     if tailscale_api_refused_node | default('') | length > 0
+     else 'the OAuth client needs both tailscale_oauth_client_id and tailscale_oauth_client_secret'
      if tailscale_api_credential == 'oauth' and not (tailscale_api_oauth_whole | bool)
      else ('Tailscale refused the OAuth client (HTTP ' ~ (tailscale_api_oauth.status | default('?')) ~ ')')
      if tailscale_api_credential == 'oauth' and tailscale_api_bearer | length == 0
@@ -322,6 +350,7 @@ tailscale_report_case: >-
      else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url | length > 0
      else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined | bool
      else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted | bool
+                       and not (tailscale_key_held_back | bool)
                        and (tailscale_join_ran | bool or tailscale_key_refused_locally | bool)
      else tailscale_backend }}
 # The cases that leave something to do whatever else holds (NEXT STEPS).

@@ -23,6 +23,12 @@ is given as `--only configure`, and beside `--only` or `--check` such a word is 
 (`just deploy --only provision configure` creates a VM named `configure`). A recipe's name is a VM name
 like any other: `just deploy test` deploys the VM `test`. Options go after the recipe's name, before or after the names.
 
+A VM's name is also its SSH alias on this machine ([VS Code](vscode.md#where-the-alias-lives)), in a file ssh reads
+ahead of your own config, so `deploy` and `code` refuse a name ssh would take for another host: one it reads as an
+address (`192.0.2.10`, and a bare number such as `42` or `0xbeef`), or a name of the Proxmox host's in the inventory
+(`pve`, or the address it is reached at). A name with a dot, `alpha.lab`, is fine when you give it; a VM someone
+else made with one, on a shared host, gets no alias from a run that does not name it.
+
 Given, the names narrow every recipe to those VMs. Left out, what it means depends on what the
 command does - what creates or deletes VMs acts on the default one, and what reads them or applies the
 configuration again reaches them all:

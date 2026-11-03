@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import socket
 from urllib.parse import unquote
 
 from ansible.errors import AnsibleFilterError
@@ -16,6 +15,13 @@ MAC_RE = re.compile(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
 # looked for in that status position: Proxmox names the VM in the detail, so
 # "500 Internal Server Error: VM 4013 is not running" must not read as a 401.
 DENIED_RE = re.compile(r"(?:^|: )40[13] |[Pp]ermission|[Aa]uthentication")
+
+# A name ssh could read as an IPv4 address, by its spelling alone: one to four
+# parts between dots, each decimal, octal or 0x-hex, of any size, and anything
+# after a space. That is everything inet_aton accepts - glibc's, which ssh on
+# Linux resolves with, and macOS's, which also takes 4294967296 - and more, on
+# every platform alike, rather than whatever this machine's own inet_aton says.
+ADDRESS_LIKE_RE = re.compile(r"(?:0x[0-9a-f]*|[0-9]+)(?:\.(?:0x[0-9a-f]*|[0-9]+)){0,3}(?:\s.*)?", re.I | re.S)
 
 
 _RAISE = object()
@@ -204,14 +210,22 @@ def ssh_config_blocks(content):
     return [{"name": match.group("name")} for match in BLOCK_RE.finditer(content)]
 
 
-def ssh_config_prune(blocks, resources, tag_pattern):
+def ssh_config_prune(blocks, resources, tag_pattern, hosts=None):
     """Which alias blocks a fleet-wide refresh should remove, and which it must not.
 
     ``blocks`` is what ``ssh_config_blocks`` read; ``resources`` the cluster's
     ``/cluster/resources`` listing; ``tag_pattern`` the project's whole-tag
-    regex. Pruning only ever removes alias blocks, never VMs, and a block was
+    regex; ``hosts`` the names this machine reaches the inventory's hosts by.
+    Pruning only ever removes alias blocks, never VMs, and a block was
     only ever written for a tagged VM, so the question is just whether that VM
     is still there. Returns a dict:
+
+    - ``refused``: names no alias may have, whatever VM carries them: one ssh
+      reads as an address, or one of ``hosts`` (``ssh_alias_refusal``). An
+      earlier version wrote them, and the refresh no longer does, so a block
+      left would take this machine's connections to that host for good.
+      Removed even while the listing is incomplete. A name with a dot is not
+      among them: a named run writes one.
 
     - ``prune``: names with no VM of that name left anywhere in the cluster.
     - ``untagged``: names a VM still carries but without the tag. Left alone
@@ -230,9 +244,13 @@ def ssh_config_prune(blocks, resources, tag_pattern):
     all_names = {vm["name"] for vm in qemu if vm.get("name")}
     nameless = [str(vm.get("vmid", "?")) for vm in tagged if not vm.get("name")]
 
-    result = {"prune": [], "held": [], "untagged": [], "nameless": nameless}
+    result = {"prune": [], "held": [], "untagged": [], "nameless": nameless, "refused": []}
     for block in blocks:
         name = block.get("name", "")
+        why, unnamed = _alias_refusal(name, hosts, None)
+        if why and not unnamed:
+            result["refused"].append(name)
+            continue
         if name in tagged_names:
             continue
         if name in all_names:
@@ -256,39 +274,47 @@ def vms_not_named(vms, names):
     return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
 
 
-def ssh_alias_refusal(name, hosts=None):
+def _alias_refusal(name, hosts, chosen):
+    """``(why, unnamed)``: why ``name`` cannot be an alias, ``""`` when it can, and whether only a dot stops it."""
+    name = str(name)
+    if ADDRESS_LIKE_RE.fullmatch(name):
+        return "ssh reads it as an address (as it reads 3232235777 or 0x7f000001)", False
+    if name in set(hosts or []):
+        return "it names a host of the inventory, which ssh would then reach at the VM's address", False
+    if "." in name and name not in set(chosen or []):
+        return "it has a dot, so it could be a host's own name (github.com), and ssh would take it for that host", True
+    return "", False
+
+
+def ssh_alias_refusal(name, hosts=None, chosen=None):
     """Why ``name`` cannot be the alias of a VM in this machine's ssh config, or ``""`` when it can.
 
     The managed file is included at the top of ``~/.ssh/config``, so an alias wins
     over every other way ssh reaches that name: one named like a real host
-    (``github.com``), an address, or a host of the inventory (``hosts``: the
-    Proxmox host's name) would send this machine's own connections to it - and
-    where the VM's name comes from a shared Proxmox, someone else chose it.
+    (``github.com``), an address, or a name this machine reaches a host of the
+    inventory by (``hosts``: the Proxmox host's name and address) would send this
+    machine's own connections to it - and where the VM's name comes from a shared
+    Proxmox, someone else chose it. A name with a dot is an alias only when the
+    person chose it (``chosen``: the names given, never a fleet-wide run's); an
+    address or one of ``hosts`` never is.
     """
-    name = str(name)
-    if "." in name:
-        return "it has a dot, so it could be a host's own name (github.com), and ssh would take it for that host"
-    try:
-        socket.inet_aton(name)
-    except OSError:
-        pass
-    else:
-        return "ssh reads it as an address (as it reads 3232235777 or 0x7f000001)"
-    if name in set(hosts or []):
-        return "it is the name of a host in the inventory, which ssh would then reach at the VM's address"
-    return ""
+    return _alias_refusal(name, hosts, chosen)[0]
 
 
-def ssh_alias_refusals(vms, hosts=None):
-    """The entries of ``vms`` (``{name, ...}``) whose name cannot be an alias, each as ``{name, why}``, in order."""
+def ssh_alias_refusals(vms, hosts=None, chosen=None):
+    """The entries of ``vms`` (``{name, ...}``) whose name cannot be an alias, in order.
+
+    Each as ``{name, why, unnamed}``, ``unnamed`` true where only its dot stops it:
+    named, it would get its alias, so a fleet-wide run says so rather than "rename".
+    """
     if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
         raise AnsibleFilterError(f"ssh_alias_refusals expects a list, got {type(vms).__name__}")
     refused = []
     for vm in vms:
         name = vm.get("name", "") if isinstance(vm, dict) else ""
-        why = ssh_alias_refusal(name, hosts)
+        why, unnamed = _alias_refusal(name, hosts, chosen)
         if why:
-            refused.append({"name": str(name), "why": why})
+            refused.append({"name": str(name), "why": why, "unnamed": unnamed})
     return refused
 
 

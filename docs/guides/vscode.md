@@ -72,6 +72,13 @@ and would otherwise override yours silently. Set `claude_ssh_config: false` to k
 of `~/.ssh` altogether, or `claude_ssh_config_include: false` to write the file but add the `Include`
 yourself.
 
+Since the managed file comes first, no alias is written that ssh would take for another host: a name it reads
+as an address (`192.0.2.10`, `42`, `0xbeef`), or one the inventory reaches a host by (`pve`, or the Proxmox
+host's address), whose root SSH would go to the VM instead. A name with a dot gets its alias only from a run
+that names it - `just deploy alpha.lab`, `just code alpha.lab` - and never from a fleet-wide one, which says
+it left the VM out and leaves an alias it has as it was: on a shared host a tagged VM named `github.com` could
+be anyone's, and would get this machine's `git push`.
+
 ```
 # ~/.ssh/claude-on-proxmox.conf
 # BEGIN claude-on-proxmox: alpha
@@ -281,7 +288,8 @@ compared as owner and repository with the origin of each checkout in `~/projects
 clone or a session started in a subfolder still matches, another owner's repository of the same name
 does not. On the VM only a GitHub origin counts, as `just deploy` clones one, so a checkout there with a
 local path or another host's URL for its origin is given none of this machine's sessions; here any form
-does, an SSH alias of yours for GitHub included. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
+does, an SSH alias of yours for GitHub included. So a VM that names a GitHub repository gets the sessions of
+a checkout here of that owner and name on any host, a GitLab or company server's too. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
 goes by its checkout, and one of a clone that is gone by the `githubRepoPaths` Claude Code keeps in
 `~/.claude.json`. Left here: sessions without a message, and sessions written by a Claude Code newer
 than the VM's - which installs the stable channel - named in the run's message until the VM's catches

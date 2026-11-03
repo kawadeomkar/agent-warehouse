@@ -26,9 +26,9 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 | `dev_tools_container_virt_types` | list of `str` | `["docker", "container", "containerd", "podman", "lxc"]` | Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there. |
 | `dev_tools_docker_manage_service` | bool | computed | Defaults to true unless running inside a container. |
 | `dev_tools_deb_arch` | str | computed | Derived from the architecture fact by default. One of `amd64`, `arm64`. |
-| `dev_tools_uv_version` | str | `0.9.5` | uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. |
+| `dev_tools_uv_version` | str | `0.13.5` | uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is never older than the uv pyproject.toml pins for the controller. |
 | `dev_tools_uv_arch_map` | dict | `{aarch64: aarch64-unknown-linux-gnu, x86_64: x86_64-unknown-linux-gnu}` | uv's release target for each value of the architecture fact, which names the archive downloaded. |
-| `dev_tools_uv_sha256` | dict | `{aarch64: 9db0c2f6683099f86bfeea47f4134e915f382512278de95b2a0e625957594ff3, x86_64: 2cf10babba653310606f8b49876cfb679928669e7ddaa1fb41fb00ce73e64f66}` | SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map. |
+| `dev_tools_uv_sha256` | dict | `{aarch64: 4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403, x86_64: f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f}` | SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map. |
 | `dev_tools_uv_install_dir` | path | `/usr/local/bin` | Directory uv and uvx are installed into. |
 | `dev_tools_rust_toolchain` | str | `stable` | Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a version such as 1.90.0 - and makes the default when no default is set. The role never updates it. |
 | `dev_tools_rust_components` | list of `str` | `["clippy", "rustfmt"]` | Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std), such as rust-src or rust-analyzer. One taken off the list stays installed. |

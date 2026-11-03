@@ -576,11 +576,6 @@ class Engine:
                 self.run.fact(name, "proxmox_vm_address", address)
             self.run.fact(name, "proxmox_vm_resolved_id", str(vmid or "").strip())
 
-    def _next_records(self, stats):
-        """This part's NEXT STEPS records, {stat: {vm: {matter: line}}}, as the callback reads them."""
-        run_stats = stats.custom.get("_run", {}) if isinstance(getattr(stats, "custom", None), dict) else {}
-        return {stat: run_stats[stat] for stat in self.cb.NEXT_STATS if isinstance(run_stats.get(stat), dict)}
-
     def _records(self, result):
         """What a report recorded for NEXT STEPS, as it goes: a report on a matter a later report recorded again is
         not repeated in the summary."""
@@ -812,7 +807,7 @@ class Engine:
                 self.print([(line, line) for line in ended])
             self.out.finish()
             recap(stats)
-            records = commands.merged_records(self.records, self._next_records(stats))
+            records = commands.merged_records(self.records, self.cb.next_records())
             commands.save_state(self.state, self.run.dump(now, records, [*self.failed_hosts, *failed]))
             self.saved = True
             return
@@ -824,7 +819,7 @@ class Engine:
             self._after()
         self.out.finish()
         recap(stats)
-        lines = self.cb.next_steps_of(stats)
+        lines = self.cb.next_steps_of()
         commands.say_end(self.out, self.display, self.run, now, failed, lines, self._width(), self.cb.COLOR)
         if self.mode == "live":
             self.out.bell()

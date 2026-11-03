@@ -200,7 +200,13 @@ def resolve_listing(module, api_url, username, token, headers, per_page, account
     return public, {}
 
 
-def fetch_all_pages(module, url, headers):
+def fetch_all_pages(module, url, headers, api_url):
+    """Every page of a listing, following each answer's next link - only to api_url's own scheme and host.
+
+    The token goes with every request, and check_api_url judged only the first URL: a next link elsewhere would carry
+    it there.
+    """
+    api = urlparse(api_url)
     repos = []
     while url:
         page, info = get_json(module, url, headers)
@@ -208,6 +214,10 @@ def fetch_all_pages(module, url, headers):
             module.fail_json(msg=f"Unexpected response from {url}: expected a list")
         repos.extend(page)
         url = parse_next_link(info.get("link"))
+        following = urlparse(url) if url else None
+        if following and (following.scheme, following.netloc) != (api.scheme, api.netloc):
+            elsewhere = f"{following.scheme}://{following.netloc}"
+            module.fail_json(msg=f"The listing's next page is at {elsewhere}, not {api_url}: not following it.")
     return repos
 
 
@@ -262,7 +272,7 @@ def run_module():
     headers = build_headers(token)
 
     url, account = resolve_listing(module, api_url, params["username"], token, headers, per_page, params["account"])
-    all_repos = fetch_all_pages(module, url, headers)
+    all_repos = fetch_all_pages(module, url, headers, api_url)
     repos = filter_repos(all_repos, params["include_forks"], params["include_archived"])
     user = {field: account.get(field) for field in USER_FIELDS} if account else {}
 

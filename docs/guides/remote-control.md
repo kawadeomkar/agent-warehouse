@@ -56,7 +56,8 @@ terminal the run is drawn live, a row per sign-in with each VM's state and whose
 ### When the browser cannot come back
 
 Where the browser could not come back - the port is already taken on this machine, `login_desktop:
-false`, nothing here to open a browser with, or `just` run over SSH, where the browser is on another
+false`, nothing here to open a browser with, a `BROWSER` that runs a shell, `cmd.exe` or PowerShell (which
+would read the page as a command line of its own), or `just` run over SSH, where the browser is on another
 machine and the page would send it to that machine's own localhost - claude's other page opens instead,
 which shows a code once you authorise: paste it at the `Code:` prompt and the run hands it to claude
 through a pipe. The code is read with the run log's no_log, so it never lands in `.logs/`. Enter alone

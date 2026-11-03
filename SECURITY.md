@@ -24,7 +24,14 @@ what it stores:
   module arguments included, for every canned token; `github_repos` strips the token and masks the
   stripped form as well. What `claude`, `gh` and `ssh` print on the VM, which its user controls, is
   quoted in messages only through the `plain_text` filter, with every escape sequence and control
-  character removed. The GitHub token is also stored on the VM, by `gh`
+  character removed; so are the warnings, deprecations and failure messages any module there returns,
+  which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
+  (`filter_plugins/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
+  `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
+  module's result can carry custom stats and facts. GitHub's device flow opens and prints GitHub's own
+  page, `https://github.com/login/device`, never a URL out of gh's output, and no page opens through a
+  `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
+  a command line. The GitHub token is also stored on the VM, by `gh`
   (`~/.config/gh/hosts.yml`, mode 0600), so that `git` and `gh` there can push; a device-flow login
   made on the VM stores its own token the same way. Either is readable by the VM user, and so by
   Claude Code ([What the VM trusts](docs/guides/what-the-vm-trusts.md)). The Claude sign-in's one-time code
@@ -37,7 +44,11 @@ what it stores:
   machine's command line for the whole run. `tests/unit/test_claude_login.py` holds both prompts and both
   writers to `no_log` and greps whole runs for the code. The login it
   produces is Claude Code's own `~/.claude/.credentials.json`, mode 0600, which the project never reads.
-  The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only, and goes to the
+  The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only: every login a
+  run sees on the VM's Tailscale - the key's, the web login's, one made by hand - and every sign-in a run
+  starts there is recorded as a tag on the VM in Proxmox, which the VM cannot change, and a VM with that tag
+  is never sent the key again, so a VM's root cannot log the node out to be handed the fleet's key. A login
+  no run has seen, made by hand and logged out before the next run, leaves no record. It goes to the
   VM the same way: `tailscale up --auth-key=file:/dev/stdin`, the key as the `command` module's stdin
   under `no_log`, so it is on no command line and in no file, and never stored on the VM - tailscaled
   keeps the node's own keys, not the auth key. `tests/unit/test_tailscale.py` holds that task to be the
@@ -60,9 +71,10 @@ what it stores:
   filter takes only a string that parses as one IPv4 address, and the task file refuses a name or
   address that is not one plain word, since a newline in either would add a directive (`ProxyCommand`
   runs on this machine). The VM's name is Proxmox's, chosen by whoever made it, and the managed file is
-  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (a dot, as in
-  `github.com`; a number it reads as an address; a host of the inventory) gets no alias - refused when
-  named, left out of a fleet-wide refresh and said. A VM named after a host of the inventory is kept
+  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (one it reads
+  as an address; a name of a host of the inventory, or the address it is reached at) gets no alias -
+  refused when named, left out of a fleet-wide refresh and said - and a name with a dot, as in
+  `github.com`, gets one only when the user names it, never from a fleet-wide refresh. A VM named after a host of the inventory is kept
   out wherever a name becomes a host (`localhost`, or the Proxmox host's, which would hand the VM the
   API token).
   Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there
@@ -81,10 +93,45 @@ a VM lives with in [What the VM trusts](docs/guides/what-the-vm-trusts.md), how 
 restate them are not treated as vulnerabilities:
 
 - `proxmox_validate_certs` defaults to `false`, because a stock Proxmox install presents a self-signed
-  certificate. [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-  explains how to trust the Proxmox CA and turn it on.
+  certificate, so every run sends the API token to whatever answers at the host's address on port 8006.
+  [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
+  explains how to trust the Proxmox CA and turn it on; a later release will have `just init` fetch the CA
+  and turn validation on by default. Until you turn it on, count the project's own VMs among the devices
+  that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
+  bridge the host's own address is usually on, with no Proxmox firewall on their network device. So that
+  network always has a device you cannot fully trust on it: root on any VM - an agent with passwordless
+  sudo, or another user's VM on a shared host - can try to answer for the host's address and read the
+  token, which reaches every VM on the host (below).
+- **The API token's reach.** `tools/proxmox-access.sh` grants the `AnsibleVM` role on `/vms`, and the grant
+  propagates to every VM on the host. The token can set the SSH keys cloud-init installs on any VM there,
+  restart it into them, and delete it - this project's VMs or not - and so can anyone who obtains the token,
+  by answering for the host (above) or from the vault. The ownership tag keeps this project's own runs off
+  other VMs; it does not limit the token. A later release will scope the grant to a Proxmox pool. Until
+  then, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a root
+  password for those VMs.
+- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `claude-on-proxmox` by default) is a
+  convention, not a permission: any user of the host who can create VMs can set it, and your token can list
+  every VM on the host (above). Every tagged VM your token lists is treated as yours:
+
+    - A fleet-wide `just deploy --only configure` reaches it and, where it accepts your SSH key - its root
+      decides that - configures it with your secrets: the GitHub token, the Anthropic API key, the
+      Tailscale auth key.
+    - `just deploy <name>`, for a name only their tagged VM has, configures and signs in that VM rather
+      than creating yours.
+    - `just destroy <name>`, for a name only their tagged VM has, deletes it. Deletion goes through the
+      API and needs no SSH.
+
+  On a shared host, give each person a tag of their own in `local.yml` (`claude_vm_tag`) before their
+  first deploy - VMs made under one tag are not found under another, and a Proxmox
+  [User Tag Access](docs/getting-started/proxmox-access.md#user-tag-access) list must allow it and its
+  `-unfinished` and `-tailscale` forms - and name the VMs a run is for. That keeps each person's runs off the others' VMs by
+  accident, but not off a VM someone made to look like yours. A token scoped to a Proxmox pool of each
+  person's own, which cannot list the others' VMs at all, is planned.
 - The VM's user gets passwordless sudo and docker group membership by default; both are toggles, and
   [What the VM trusts](docs/guides/what-the-vm-trusts.md) says what they mean.
+- `vault_vm_password`, when set, is one password for the VM user on every VM, for the Proxmox console.
+  SSH never takes it. Each VM holds its hash (in `/etc/shadow` and on its cloud-init drive), so root on one
+  VM can try to crack it offline and use it on every other VM's console. Make it one you use nowhere else.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
   can be reached without manual steps. Changed keys are still refused.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH needs and OpenSSH
@@ -116,9 +163,12 @@ restate them are not treated as vulnerabilities:
   continued on the VM is never overwritten. `--session <id>` moves the VM's checkout of that session's
   repository to the commit it is pushed at, by fast-forward only: never over changes of the VM's own, an
   ignored file the commit would replace, or commits a detached `HEAD` alone holds, and never while a
-  `claude` works in it. A VM chooses which of this machine's sessions it gets only through the GitHub
-  origins of its checkouts: a local path or another host's URL there matches none. Claude Code's question whether to trust that folder is
-  left for you to answer.
+  `claude` works in it. A VM chooses which of this machine's sessions it gets through the GitHub origins
+  of its checkouts, and only those: a local path or another host's URL there matches none. Here, though, a
+  checkout's origin counts by its owner and name whatever its host, so a VM whose checkout names
+  `github.com/team/internal` also gets the sessions of a checkout here of `team/internal` on GitLab or a
+  server of your own, and a VM whose root is not yours can name every repository your GitHub token lists.
+  Claude Code's question whether to trust that folder is left for you to answer.
 - `just destroy` saves the Claude Code sessions and auto memory that exist only on a VM into
   `.sessions/` in your checkout before deleting it (`destroy_save_sessions`, on by default): plaintext
   transcripts holding whatever their tools printed, in 0600 files and 0700 folders readable by you alone,

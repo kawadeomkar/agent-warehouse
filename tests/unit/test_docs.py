@@ -170,6 +170,7 @@ def test_every_setting_that_reaches_a_role_is_in_an_example_file():
     not_settings = {
         "inventory_hostname": "Ansible's own: the VM's name",
         "proxmox_api_host": "taken from inventory/hosts.yml",
+        "claude_vm_tailscale_tag": "made from claude_vm_tag: <ownership tag>-tailscale",
     }
     missing = [
         source
