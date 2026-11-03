@@ -68,8 +68,8 @@ Two independent mechanisms:
 
 ## Supply chain
 
-Galaxy collections are pinned to exact versions (a range means every run silently
-picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
+Galaxy collections are pinned to exact versions, those the pinned ones depend on included (a range means every
+run silently picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
 reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
 `just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
