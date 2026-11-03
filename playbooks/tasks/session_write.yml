@@ -257,7 +257,7 @@
   ansible.builtin.assert:
     that: code_session_head.stdout | trim == code_session_commit
     fail_msg: >-
-      {{ code_session_plan.session.checkout }} on {{ claude_vm_names[0] }} is at {{ code_session_head.stdout | trim }},
+      {{ code_session_plan.session.checkout }} on {{ claude_vm_names[0] }} is at {{ code_session_head.stdout | plain_text | trim }},
       not at {{ code_session_commit }}, where {{ code_session_plan.session.branch }} is here.
     quiet: true
   when: code_session_id | length > 0

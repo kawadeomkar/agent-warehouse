@@ -452,7 +452,7 @@ Proxmox API token secret for proxmox_api_user (default ansible@pve): just init w
 
 ### Secrets: VMs
 
-Optional: a password for the VM user, for the Proxmox console. SSH stays key-only either way (common_harden_ssh). Empty sets none.
+Optional: a password for the VM user, for the Proxmox console. SSH stays key-only either way (common_harden_ssh). Empty sets none. Every VM gets the same one, and each VM can read its hash: use it nowhere else.
 
 | Secret, in `vault.yml` | Notes |
 |---|---|

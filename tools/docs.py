@@ -202,10 +202,11 @@ def wiring() -> tuple[dict, dict[str, list[str]]]:
 
     The wiring is a variable whose whole value is one setting, as in defaults.yml
     (`claude_code_login_desktop: "{{ login_desktop }}"`) or a role's defaults
-    (`proxmox_vm_cores: "{{ vm_cores | default(2) }}"`, which is where vm_cores' default lives).
+    (`proxmox_vm_cores: "{{ vm_cores | default(2) }}"`, which is where vm_cores' default lives), trimmed or not
+    (`proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | trim }}"`).
     Role defaults load first and defaults.yml after, as Ansible ranks them.
     """
-    wire = re.compile(r"""^(\w+): "\{\{ (\w+)(?: \| default\((.*)\))? \}\}"$""")
+    wire = re.compile(r"""^(\w+): "\{\{ (\w+)(?: \| trim)?(?: \| default\((.*)\))? \}\}"$""")
     defaults: dict = {}
     feeds: dict[str, list[str]] = {}
     files = sorted((ROOT / "roles").glob("*/defaults/main.yml")) + [GROUP_VARS / "defaults.yml"]

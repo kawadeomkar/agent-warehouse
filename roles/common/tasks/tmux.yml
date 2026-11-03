@@ -1,0 +1,26 @@
+---
+# common_tmux_settings as one block of /etc/tmux.conf: Ubuntu's tmux ships no
+# such file, and tmux reads it before the user's own, which still wins. The
+# lines around the block are the user's and stay as they are, as does the mode
+# of a file that was there before.
+- name: tmux | Look for /etc/tmux.conf
+  ansible.builtin.stat:
+    path: /etc/tmux.conf
+  register: common_tmux_conf
+
+- name: tmux | Write the settings into /etc/tmux.conf
+  ansible.builtin.blockinfile:
+    path: /etc/tmux.conf
+    marker: "# {mark} claude-on-proxmox: common_tmux_settings"
+    block: "{{ common_tmux_settings | join('\n') }}"
+    create: true
+    mode: "{{ omit if common_tmux_conf.stat.exists else '0644' }}"
+  when: common_tmux_settings | length > 0
+
+# blockinfile fails on a file that is not there, even to take a block out.
+- name: tmux | Take the settings out of /etc/tmux.conf
+  ansible.builtin.blockinfile:
+    path: /etc/tmux.conf
+    marker: "# {mark} claude-on-proxmox: common_tmux_settings"
+    state: absent
+  when: common_tmux_settings | length == 0 and common_tmux_conf.stat.exists

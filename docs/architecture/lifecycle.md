@@ -439,7 +439,10 @@ drawn in the region every live output shares
 `just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
 the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
 at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of
-its own and reads the bytes back through a small terminal (`tests/unit/vt.py`).
+its own and reads the bytes back through a small terminal (`tests/unit/vt.py`). The finished report is
+taken only from play 3's own `set_fact` on localhost, since any module's result can carry facts and a VM's
+root makes the modules there return what it likes; their warnings are printed through `plain_summary`
+([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
 
 **The recipe.** `just status [names] [--only sections] [--json]` runs the playbook through
 `tools/run-logged` with a report path of its own run in `STATUS_DIR` (`.cache/status/`, git-ignored and
@@ -881,7 +884,8 @@ not set, so GitHub's follow-on play runs the whole `github_projects` role for ea
 
 ## 4.12 `playbooks/init_settings.yml`
 
-`just init`'s questions, after `just install`, the git hook and the copies of the three example files: one
+`just init`'s questions, after `just install`, the git hook and the copies of the three example files - `0600`,
+since the vault is plaintext until it is encrypted and the guide has you fill it in by hand first: one
 play on `localhost`, run with an inventory of its own, `playbooks/inventory/init.yml` - the controller,
 as `inventory/controller.yml` has it, with pipelining on, and a run that keeps the modules' files
 (`ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off) refused - so no `group_vars` load. It runs before the

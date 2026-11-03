@@ -179,3 +179,46 @@
           - common_verify_downloads.matched == 0
         fail_msg: "left in /var/cache/apt/archives: {{ common_verify_downloads.files | map(attribute='path') | list }}"
         quiet: true
+
+    # common_tmux_settings, after side_effect.yml took the block out around a
+    # line of the user's own and put it back: tmux loads the file without an
+    # error and has each setting, and the user's line is still there.
+    - name: Read /etc/tmux.conf
+      ansible.builtin.slurp:
+        src: /etc/tmux.conf
+      register: common_verify_tmux_conf
+
+    - name: Look at /etc/tmux.conf's mode
+      ansible.builtin.stat:
+        path: /etc/tmux.conf
+      register: common_verify_tmux_stat
+
+    - name: Load /etc/tmux.conf into a tmux of its own and read the settings back
+      ansible.builtin.command:
+        argv: [tmux, -L, common-verify, -f, /dev/null, start-server, ;, source-file, /etc/tmux.conf, ;,
+               show-options, -s, extended-keys, ;, show-options, -g, allow-passthrough, ;,
+               show-options, -g, focus-events, ;, show-options, -g, mouse, ;, show-options, -s, terminal-features]
+      register: common_verify_tmux
+      changed_when: false
+
+    - name: Assert tmux has the settings and the user's own line
+      ansible.builtin.assert:
+        that:
+          - (common_verify_tmux_conf.content | b64decode) == common_verify_tmux_expected
+          - common_verify_tmux_stat.stat.mode == '0644'
+          - "'extended-keys on' in common_verify_tmux.stdout_lines"
+          - "'allow-passthrough on' in common_verify_tmux.stdout_lines"
+          - "'focus-events on' in common_verify_tmux.stdout_lines"
+          - "'mouse on' in common_verify_tmux.stdout_lines"
+          - common_verify_tmux.stdout is search('^terminal-features\[\d+\] xterm\*:extkeys$', multiline=True)
+        fail_msg: "{{ common_verify_tmux.stdout }}"
+        quiet: true
+      vars:
+        common_verify_tmux_expected: |
+          set -g mouse on
+          # BEGIN claude-on-proxmox: common_tmux_settings
+          set -g allow-passthrough on
+          set -g focus-events on
+          set -s extended-keys on
+          set -as terminal-features 'xterm*:extkeys'
+          # END claude-on-proxmox: common_tmux_settings

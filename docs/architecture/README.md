@@ -121,8 +121,11 @@ appearing; there is no local state file to reconcile, and no drift to repair.
 cannot prove this project created something. Every VM the `proxmox_vm` role creates is tagged
 `claude-on-proxmox` (`claude_vm_tag`). Discovery selects on it, and both deletion and provisioning
 *refuse* an existing VM without it — configuring someone else's VM would rewrite it and stamp the tag,
-after which deletion would accept it too. Matching is anchored via `claude_vm_tag_pattern` so
-`claude-on-proxmox-staging` and `not-claude-on-proxmox` are never claimed:
+after which deletion would accept it too. It guards the project's own runs against mistakes, not against
+another user of the host: anyone who can create a VM can tag it, and the token can list every VM, so on a
+shared host every tagged VM a token lists is treated as its holder's
+([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)). Matching is anchored via
+`claude_vm_tag_pattern` so `claude-on-proxmox-staging` and `not-claude-on-proxmox` are never claimed:
 
 ```
 (?i)(^|[;,])claude\-on\-proxmox([;,]|$)

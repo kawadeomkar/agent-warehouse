@@ -625,7 +625,8 @@
     # an SSH error need not be, and ending a sentence, as the line after it
     # starts one.
     code_failure: >-
-      {{ (code_failure_text ~ ('' if code_failure_text is search('[.!?]$') else '.')) | regex_replace('\s*\n\s*', ' ') }}
+      {{ (code_failure_text ~ ('' if code_failure_text is search('[.!?]$') else '.')) | plain_text
+         | regex_replace('\s*\n\s*', ' ') }}
     code_failure_text: >-
       {{ ('`' ~ (ansible_failed_result.cmd if ansible_failed_result.cmd is string else ansible_failed_result.cmd | join(' '))
           ~ '` failed' ~ (': ' ~ ansible_failed_result.stderr | trim
@@ -918,7 +919,7 @@
         - name: Fail when the folder is not there
           vars:
             code_names: >-
-              {{ code_listing.files | default([]) | map(attribute='path') | map('basename') | sort | list }}
+              {{ code_listing.files | default([]) | map(attribute='path') | map('basename') | map('plain_text') | sort | list }}
             code_close: >-
               {{ code_names | select('match', '(?i)^' ~ (code_project | regex_escape) ~ '$') | list }}
             # find lists a path that does not exist under skipped_paths.

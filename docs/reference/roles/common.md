@@ -23,6 +23,7 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 | `common_hostname` | str | same as `inventory_hostname` | Hostname given to the VM. Defaults to the inventory hostname, the VM's name. |
 | `common_harden_ssh` | bool | `true` | Write an sshd drop-in that turns password logins off, root's included, even where cloud-init was given a password. false removes it. |
 | `common_ssh_path_dirs` | list of `str` | `[".local/bin", ".cargo/bin"]` | Directories in common_user's home put first on PATH for every session sshd starts for that user, `ssh vm <command>` included, which reads no profile. Written as an sshd drop-in (Match User, SetEnv) holding the whole PATH, the rest being /etc/environment's, and checked with sshd -T. Login shells get ~/.local/bin from /etc/profile.d, and ~/.cargo/bin there too where dev_tools installs Rust. [] removes the drop-in. |
+| `common_tmux_settings` | list of `str` | `["set -g allow-passthrough on", "set -g focus-events on", "set -s extended-keys on", "set -as terminal-features \u0027xterm*:extkeys\u0027"]` | tmux commands written as one block of /etc/tmux.conf, which tmux reads before ~/.tmux.conf, so a setting of the user's own wins; lines of the file outside the block are left as they are. The default is what Claude Code's terminal documentation asks for inside tmux - notifications and the progress bar passed through to the outer terminal, Shift+Enter told from Enter. allow-passthrough lets a program in a pane write escape sequences to the terminal you attach from, as it could without tmux. [] takes the block out. |
 | `common_apt_upgrade` | bool | `true` | Upgrade the installed packages (apt safe upgrade) on every run. |
 | `common_apt_cache_valid_time` | int | `3600` | Seconds the apt cache counts as fresh. An older one is refreshed at the start of the role. |
 | `common_apt_lock_timeout` | int | `600` | Seconds each apt task waits for the apt lock, which unattended-upgrades holds on a fresh cloud image after first boot. |
@@ -72,6 +73,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Remove sshd hardening | `ansible.builtin.file` | <code>not common_harden_ssh</code> |
 | Put ~/.local/bin on PATH for all users | `ansible.builtin.template` |  |
 | Put the per-user directories on PATH for ssh commands | `ansible.builtin.include_tasks` |  |
+| Write the tmux settings | `ansible.builtin.include_tasks` |  |
 | Enable and start services | `ansible.builtin.include_tasks` | <code>ansible_facts['service_mgr'] == 'systemd'</code> |
 | Mask the services a headless VM has no use for | `ansible.builtin.include_tasks` | <code>ansible_facts['service_mgr'] == 'systemd' and common_masked_units &#124; length > 0</code> |
 
@@ -106,9 +108,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Harden_sshd15-->|Task| Remove_sshd_hardening16[remove sshd hardening<br>When: **not common harden ssh**]:::task
   Remove_sshd_hardening16-->|Task| Put____local_bin_on_PATH_for_all_users17[put    local bin on path for all users]:::task
   Put____local_bin_on_PATH_for_all_users17-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
-  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18-->|Include task| Enable_and_start_services_services_yml_19[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
-  Enable_and_start_services_services_yml_19-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
-  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20-->End
+  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18-->|Include task| Write_the_tmux_settings_tmux_yml_19[write the tmux settings<br>include_task: tmux yml]:::includeTasks
+  Write_the_tmux_settings_tmux_yml_19-->|Include task| Enable_and_start_services_services_yml_20[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
+  Enable_and_start_services_services_yml_20-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
+  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21-->End
 ```
 
 ### `masked_units.yml`
@@ -206,6 +209,32 @@ classDef rescue stroke:#665352,stroke-width:2px;
   ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user6-->|Task| ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7[ssh path   find what else sets sshd s environment <br>if anything does<br>When: **common ssh path dirs   length   0**]:::task
   ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7-->|Task| ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8[ssh path   fail when sshd does not give that path<br>to the sessions of common user<br>When: **common ssh path dirs   length   0 and not ansible<br>check mode**]:::task
   ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8-->End
+```
+
+### `tmux.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Look for /etc/tmux.conf | `ansible.builtin.stat` |  |
+| Write the settings into /etc/tmux.conf | `ansible.builtin.blockinfile` | <code>common_tmux_settings &#124; length > 0</code> |
+| Take the settings out of /etc/tmux.conf | `ansible.builtin.blockinfile` | <code>common_tmux_settings &#124; length == 0 and common_tmux_conf.stat.exists</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| tmux___Look_for__etc_tmux_conf0[tmux   look for  etc tmux conf]:::task
+  tmux___Look_for__etc_tmux_conf0-->|Task| tmux___Write_the_settings_into__etc_tmux_conf1[tmux   write the settings into  etc tmux conf<br>When: **common tmux settings   length   0**]:::task
+  tmux___Write_the_settings_into__etc_tmux_conf1-->|Task| tmux___Take_the_settings_out_of__etc_tmux_conf2[tmux   take the settings out of  etc tmux conf<br>When: **common tmux settings   length    0 and common tmux<br>conf stat exists**]:::task
+  tmux___Take_the_settings_out_of__etc_tmux_conf2-->End
 ```
 
 <!-- END_GENERATED: role -->
