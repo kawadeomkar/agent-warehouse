@@ -30,6 +30,10 @@ proxmox_vm_allow_untagged_delete: false
 # under <name>.<domain> as well as under its address, so a VM created again
 # with the same name is not refused for the old key.
 proxmox_vm_known_hosts_domain: ""
+# Addresses whose host key deleting a VM never forgets, whatever address the VM
+# reported: those of the inventory's other hosts. The Proxmox host's
+# (proxmox_vm_api_host) is never forgotten either way.
+proxmox_vm_known_hosts_kept: []
 
 # Identity. The name is the key: the role looks the VM up by name and only
 # clones when no VM of that name exists, so re-running is a no-op. The VMID is

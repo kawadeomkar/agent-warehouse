@@ -36,14 +36,16 @@
 - name: init_choose | Work out what the token can use
   ansible.builtin.set_fact:
     init_choose_usable: >-
-      {{ init_choose_candidates | rejectattr('lacks') | rejectattr('inactive') | map(attribute='name') | list }}
+      {{ init_choose_candidates | rejectattr('lacks') | rejectattr('inactive') | rejectattr('refused')
+         | map(attribute='name') | list }}
     init_choose_in_effect: >-
       {{ init_choose_candidates | selectattr('name', 'equalto', init_choose_value) | first | default({}) }}
     # Asked at a terminal only, and only for a default that is not listed.
     init_choose_asked: >-
       {{ init_ask | bool and init_choose_given | length == 0 and not init_choose_set | bool
          and init_choose_candidates | selectattr('name', 'equalto', init_choose_value) | list | length == 0
-         and init_choose_candidates | rejectattr('lacks') | rejectattr('inactive') | list | length > 0 }}
+         and init_choose_candidates | rejectattr('lacks') | rejectattr('inactive') | rejectattr('refused') | list
+             | length > 0 }}
 
 - name: init_choose | Refuse a value given on the command line that will not do
   ansible.builtin.fail:

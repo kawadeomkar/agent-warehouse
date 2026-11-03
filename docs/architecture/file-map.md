@@ -57,6 +57,7 @@ playbooks/
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
+  tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost)
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
@@ -87,14 +88,16 @@ roles/                            one role per concern, each with defaults/, met
 
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
-                                  proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune
+                                  proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
+                                  ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
 filter_plugins/vscode.py          vscode_setting (JSONC, read-only): VS Code's settings, never written
 filter_plugins/desktop.py         page_opener, the sign-ins' browser command
 filter_plugins/text.py            plain_text, what a VM printed made safe to quote; one_line, one line of it; banner, the
                                   block a prompt is set in
 filter_plugins/status.py          just status's model and text: status_fleet, status_vm_api, status_report, status_text (§7.7)
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
-                                  init_candidates and init_choose_rows, what the token can use among a node's storages or bridges
+                                  init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
+                                  proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/run_view.py        a live run as stages, steps and tasks (just deploy's first): its frame, a line per step,
                                   the summary (§7.5)
 filter_plugins/live_ansible.py    the engine that draws a playbook run live: Ansible's events in, the region, the run's own

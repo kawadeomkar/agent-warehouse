@@ -291,10 +291,18 @@ token; `github_auth_method: token` still fails. The status JSON carries
   when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
   `just clean env` deletes that folder and nothing beside it.
   Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
-  `ssh -G`, refuses an alias the user's own config already names, and refuses a name or address that
-  is not one plain word. A VM's address is whatever its guest agent reports, which the VM chooses:
+  `ssh -G`, refuses an alias the user's own config already names, refuses a name or address that
+  is not one plain word, and refuses a name ssh would take for another host (`ssh_alias_refusal`: a dot,
+  as in `github.com`; a number ssh reads as an address, `3232235777` or `0x7f000001`; a host of the
+  inventory): the managed file is included ahead of everything in the user's config, and a tagged VM's
+  name is whoever made it's to choose - on a shared Proxmox, not only the user. With names given it is
+  refused (`just deploy` before it creates anything); fleet-wide it is left out, said, and the rest
+  written, so someone else's tagged `github.com` cannot stop every alias refresh. A VM's address is whatever its guest agent reports, which the VM chooses:
   `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a
-  `ProxyCommand` after a valid address pass `ssh -G` and run on this machine. A block is only ever written
+  `ProxyCommand` after a valid address pass `ssh -G` and run on this machine, and never `0.0.0.0` (this
+  machine, as a destination), multicast or the reserved range; deleting a VM never forgets the Proxmox
+  host's key, or another inventory host's (`proxmox_vm_known_hosts_kept`), whatever address the VM
+  reported last. A block is only ever written
   for a tagged VM, holds only what ssh reads (no state of this project's - `just code` reads the
   workspace on the VM), and pruning (`ssh_config.yml`) removes blocks, never VMs. The `Include` is
   added only when `ssh -G` says the user's config does not reach the managed file yet (a `${HOME}`
@@ -360,7 +368,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   nothing here; every task reading a transcript is `no_log` and no message carries more than IDs,
   folders, branches and counts. Claude Code's trust question for a checkout stays the user's. The
   allowlist follows `code.yml`'s own imports (`tasks/session_read.yml`, `tasks/session_write.yml`;
-  only `cluster_vms.yml`, `vm_addresses.yml` and `ssh_config.yml` are shared and not followed) and names
+  only `cluster_vms.yml`, `vm_addresses.yml`, `ssh_config.yml` and `vm_names.yml` are shared and not followed) and names
   each reader, writer and command (docs/architecture/lifecycle.md §4.9). A copy gone while its ID is in
   another folder of the VM's moved there (`/cd`) and is never written again: an ID in two folders resumes
   from neither - unless that copy is still as written, when the session moved here and its copy follows.
@@ -458,6 +466,10 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `--no-prompt`, and every write is under it or under a value given on the command line
   (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
   `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.
+  Every later run reads `local.yml` as a template, so a node, storage or bridge name the host reported - over an
+  API whose certificate is not checked, or root SSH taken on first contact - is held to Proxmox's own format
+  (`proxmox_name`) before it is offered or written, and `tasks/init_local_setting.yml` refuses any value that
+  opens a template (`{{`, `{%`, `{#`).
   The vault is re-encrypted by piping its text into `ansible-vault encrypt`'s stdin under `no_log`, never
   through `copy`, which decrypts. `.vault_pass` is created `O_EXCL`, 0600, and never rewritten. Every
   test points the four `init_*_file` vars into its own directory, through `_init` and
@@ -529,7 +541,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   name can be set as comes from one function (`settable`), which the read view's hint uses too; anything the
   vault holds or feeds, a `no_log` variable, an inline `!vault`, a name made from each VM's own, what a run sets
   for itself, the host's address, an internal value, an expression (`{{ }}`) and a value equal to a vault secret
-  are refused, a secret's value never said back. The rest is held to its `argument_specs` type by Ansible's
+  are refused - each looked for in the text and again in the value it parses to, since YAML decodes escapes
+  (`"\x7b{"`) - a secret's value never said back. The rest is held to its `argument_specs` type by Ansible's
   `ArgumentSpecValidator`, written as `just init` writes (JSON in place of its line or its example's line), read
   back with every other key unchanged before it replaces the file atomically, or nothing is written. `--reset`
   takes the setting's line out and puts its example's commented line back (set then reset leaves a file that has
@@ -549,6 +562,15 @@ fleet. `provision.yml` therefore ends with a third play that loops `add_host` fr
 the facts the role left behind. Do not move it back into `proxmox_vm`. That loop is over the names
 asked for, so it publishes only a VM whose `proxmox_vm_address` is non-empty: a VM the role left
 stopped has none on purpose, and one whose run failed has no fact at all.
+
+`add_host` also merges a VM into a host of the same name, so no VM may be named after a host of the
+inventory (`claude_vm_inventory_hosts`: `localhost`, and the Proxmox host, `pve` in `hosts.yml.example`).
+A VM named `pve` gave the Proxmox host the address its own agent reported, and `just status` sent the API
+token there in the same run; one named `localhost` made this machine a VM to configure. Anyone with a
+Proxmox user can make and tag one. A name given that is one is refused by `tasks/vm_names.yml` before
+Proxmox is asked anything (provision, destroy, code, discovery and the alias refresh with names); fleet-wide,
+`vms_not_named` leaves such a VM out of discovery and the aliases, said, and `just status` shows it from
+the listing alone. `tests/unit/test_vm_names.py` runs both against the fake.
 
 **`provision.yml` is three plays on purpose.** Most of the per-VM time is a multi-minute wait for
 the guest agent, and the VMs boot on the hypervisor up to `forks` at a time (20 in `ansible.cfg`;
