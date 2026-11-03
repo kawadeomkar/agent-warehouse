@@ -141,6 +141,25 @@ def test_lists_public_repos_with_pagination(fake_api, patch_module):
     assert result["user"] == {}
 
 
+@pytest.mark.parametrize(
+    "elsewhere", ["https://api.github.com.example/repos?page=2", "http://api.github.com/repos?page=2"]
+)
+def test_a_next_page_on_another_host_or_scheme_is_never_asked_for(fake_api, patch_module, elsewhere):
+    page1 = f"{API}/user/repos?affiliation=owner&per_page=100"
+    api = fake_api(
+        {
+            f"{API}/user": (200, {"login": "octo"}, {}),
+            page1: (200, [repo("one")], {"link": f'<{elsewhere}>; rel="next"'}),
+            elsewhere: (200, [repo("two")], {}),
+        }
+    )
+
+    result = fail({"username": "octo", "token": "tok"})
+
+    assert "not following it" in result["msg"]
+    assert [c[0] for c in api.calls] == [f"{API}/user", page1]
+
+
 def test_returns_the_account_without_extra_fields_when_asked(fake_api, patch_module):
     api = fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (200, [], {})})
 
