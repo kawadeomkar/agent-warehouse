@@ -869,6 +869,9 @@
             quiet: true
           when: code_terminal or code_session_on | bool
 
+        # The one VM opened is always one the person chose: named, or the
+        # default of a bare deploy, which has no vm_name and runs discovery
+        # here, so group_vars' claude_vm_names_chosen would be empty for it.
         - name: Refresh the alias
           ansible.builtin.import_tasks: tasks/ssh_config.yml
           vars:
@@ -878,6 +881,7 @@
                 address: "{{ claude_vm_addressed[0].address }}"
                 user: "{{ vm_user }}"
                 workspace: "{{ code_root }}"
+            claude_vm_names_chosen: "{{ claude_vm_names }}"
 
         - name: Look for the folder on the VM
           ansible.builtin.stat:

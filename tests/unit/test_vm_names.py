@@ -197,6 +197,24 @@ def test_every_playbook_that_takes_names_refuses_a_host_of_the_inventory(playboo
     assert "import_tasks: tasks/vm_names.yml" in text
 
 
+def test_the_vm_just_code_opens_counts_as_named_even_in_a_bare_deploy() -> None:
+    # A bare deploy has no vm_name, and its code.yml runs discovery: group_vars would choose no name, and a dotted
+    # default VM would lose its alias in the window step.
+    def imports(tasks):
+        for task in tasks:
+            yield task
+            yield from imports(task.get("block", []) + task.get("rescue", []))
+
+    plays = yaml.safe_load((PLAYBOOKS / "code.yml").read_text())
+    alias = [
+        task
+        for play in plays
+        for task in imports(play.get("tasks", []))
+        if task.get("ansible.builtin.import_tasks") == "tasks/ssh_config.yml"
+    ]
+    assert [task["vars"]["claude_vm_names_chosen"] for task in alias] == ["{{ claude_vm_names }}"]
+
+
 def test_deploy_refuses_a_name_in_its_first_play() -> None:
     # Before the template play, whose build needs root SSH: tested against the fake above.
     first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
