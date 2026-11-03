@@ -137,6 +137,8 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     # Left as it was: neither refreshed nor removed by a run that did not name it.
     assert _block("alpha.lab") in text
     said = _task(report, "Report what was kept, pruned and left alone")["msg"]
+    # alpha and beta: alpha.lab had an address, and was left out.
+    assert said.startswith("2 aliases refreshed in ")
     assert "which an earlier version wrote: pve, 3232235777" in said
     assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
 
