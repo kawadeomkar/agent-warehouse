@@ -712,6 +712,11 @@ the error text and `VM 4013 is not running` otherwise reads as a 401.
   checkout now has its own (`tools/env-run --collections`), and every recipe that runs Ansible still runs
   `tools/check collections` first (`ansible-galaxy collection install --offline` against `requirements.yml`),
   refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one.
+- **ansible-galaxy's response cache turns one failed request into a failed install.** It writes an empty
+  entry before each request to Galaxy, and the retry after one that failed (a 502, a timeout) reads that
+  entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core 2.21), never asking
+  Galaxy again; a first `just init` ended there. `just install` runs it with `--no-cache`, so its retries
+  reach Galaxy; `tests/unit/test_galaxy_install.py` runs it against a stand-in Galaxy that fails once.
 - **uv writes the environment's path, as it was given, into every command it installs.** `make venv`
   synced through the checkout's `.venv` link to the environment, so 31 commands started their Python by
   that link and would have broken with it, and a sync that finds every package current rewrites none.

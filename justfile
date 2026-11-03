@@ -292,7 +292,11 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
 # through a link into it (the .venv make venv once made) left them naming the
 # link, and a sync that installs nothing rewrites none - and the sync
 # reinstalls those, then checks that none is left. ansible-galaxy installs the
-# collections requirements.yml pins, into this checkout's own folder for them. Both change nothing when they are
+# collections requirements.yml pins, into this checkout's own folder for them,
+# with --no-cache: its response cache writes an empty entry before each request,
+# and the retry after one that failed (a 502, a timeout) reads that entry and
+# stops with "Missing expected 'results' in ansible-galaxy cache" (ansible-core
+# 2.21), never asking Galaxy again. Both change nothing when they are
 # current, so this is also the command to run after a pull, and what CI runs.
 [arg('LOCK', long='lock', value='lock', help='Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH)')]
 [doc("Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own")]
@@ -321,7 +325,7 @@ install LOCK='':
       {{ find_bin }}
       ;;
     esac
-    exec "$bin/ansible-galaxy" collection install -r requirements.yml -p "$ANSIBLE_COLLECTIONS_PATH"
+    exec "$bin/ansible-galaxy" collection install -r requirements.yml -p "$ANSIBLE_COLLECTIONS_PATH" --no-cache
 
 # A plaintext vault can only be encrypted and an encrypted one only edited, so
 # the file says which: the first `just vault` after editing the example
