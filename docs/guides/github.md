@@ -11,7 +11,9 @@ skipped unless `github_projects_include_forks` / `github_projects_include_archiv
 `github_projects_exclude` always wins. A repository whose name starts with a dot is never cloned, and is
 named in the report: in the projects folder, `.claude` would be the settings, hooks and `CLAUDE.md` of every
 Claude Code session started there, Remote Control's included, and `.vscode` the tasks of the window
-`just code` opens.
+`just code` opens. Naming one in `github_projects_include` does not change that, and a clone of one that an
+earlier version made stays where it is, unreported: on a VM an earlier version configured, look in the
+projects folder (`ls -d ~/projects/.[!.]*`, or under `vm_projects_dir`) and remove any you find.
 
 ## Private repositories, and pushing from the VM
 
