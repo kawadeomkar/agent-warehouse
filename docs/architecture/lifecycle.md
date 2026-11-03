@@ -662,7 +662,7 @@ outranks a play var, and no task var shares a fact's name.
 from the explorer of the window that shows it, and holds a `Shell` task - `/bin/bash -l` in the folder,
 `folderOpen` too, in the same presentation group as Claude's so the two share a terminal as split panes,
 the shell on the left because it is listed, and so started, first - and the `Claude` task: a `process` task,
-`/bin/bash -lc <script> just-code` and eight arguments (the line without `claude`, the two lines a
+`/bin/bash -l <helpers>/claude-terminal.sh` and eight arguments (the line without `claude`, the two lines a
 sign-in ends with, the path unit's file, GitHub's line, the git protocol, the scopes, the VM's name),
 the session notes' four (below) and `--session`, read as the last word by a `for` loop,
 `cwd` the folder, `runOptions.runOn:
@@ -675,7 +675,11 @@ given `--session`, `claude --resume <id>` and nothing after it, or else
 `claude --continue` - the folder's latest conversation; where there is none, Claude Code 2.1 exits 1 at once ("No conversation found to continue"), and a `--continue` that fails within five seconds starts a fresh `claude` instead, the script ending `exit 0` either way - because a task terminal
 does not survive a window reload, after which the task runs again; its messages arrive as arguments,
 never as script text, and
-`tests/unit/test_code_session.py` runs it against a stand-in `claude`. `${workspaceFolder}`
+`tests/unit/test_code_session.py` runs it against a stand-in `claude`. **The helpers** - that script,
+the notes' `session-notes.sh` and `session_notes.py` - are fixed files in `playbooks/files/`, copied
+unchanged into `helpers/` of just code's own directory on the VM, and run there by path, so the workspace
+file carries no script text; the `provision` scenario checks the copies byte for byte against the files
+the unit tests run. `${workspaceFolder}`
 is not used: in a task that belongs to a workspace file rather than a folder it is ambiguous.
 
 Sign-in is not scripted, because it cannot be: it is a browser flow. VS Code Server puts its
@@ -701,8 +705,8 @@ include a workspace file's tasks, and a path ending in `.code-workspace` given t
 workspace. The defaults moved twice in 2026 (1.109, 1.126); CI cannot watch the user's editor, so a
 manual run of `just code` is the check when they move again.
 
-The workspace file, the session notes (below) and the session copies (below) are all that is written
-on the VM, last, as the VM user, so every refusal above leaves the VM as it was - with `--session`, so is
+The workspace file, the helpers, the session notes (below) and the session copies (below) are all that
+is written on the VM, last, as the VM user, so every refusal above leaves the VM as it was - with `--session`, so is
 one checkout's fast-forward; a workspace directory that already exists keeps its mode, since
 `vscode_workspaces_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
 every task in `code.yml` to an allowlist - read-only here, or delegated to the VM - and the
@@ -721,8 +725,8 @@ both. Not the Claude task's `dependsOn`, which was the first design: VS Code loo
 workspace-file task up, misses it, and asks every task provider instead - npm, gulp (which runs `gulp`),
 grunt, jake - which held Claude back about 7.5 s on a projects directory of 22 repositories, measured
 live. Side by side, the notes open a moment after the Claude terminal and usually take the keyboard
-focus from it. The helper's bash (`code_notes_script`) is in charge whatever its Python part does:
-Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
+focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its Python part
+(`session_notes.py`, beside it) does: Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
 open and VS Code never prints the command line. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
 --json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
@@ -735,7 +739,7 @@ links into a zoneinfo directory for (macOS, most Linux), then `/etc/timezone` (D
 play runs nothing here but `which` and `code`; the helper gets it as an argument and says UTC for a zone
 the VM's tzdata lacks. The Claude task gets four more arguments - the
 helper, the notes' path, the unit, the zone - and after a sign-in that succeeded in its terminal starts the helper
-once more, `refresh-only`, in the background (`shift 8`: `${10}` would be VS Code's to resolve).
+once more, `refresh-only`, in the background (reached by `shift 8`).
 
 `just code` writes the rest from `playbooks/templates/vm_session.md.j2` into
 `<workspaces>/session/<vm>-session.md` (0600; `session/` 0700): the VM's facts from the cluster listing,
@@ -853,7 +857,8 @@ holds uncommitted or untracked changes; a branch that is detached, gone, untrack
 remote than `origin`, or not where `origin`'s is; no VM checkout of the repository (`--project` must name
 it when given); a VM checkout with changes, on a detached `HEAD` that no branch, remote-tracking branch
 or tag holds (a switch away would leave its commits to garbage collection, and `--quiet` would not say
-so), or with a `claude` of the VM user working in it (from `/proc`). `session_write.yml` then copies,
+so), with a `claude` of the VM user working in it (from `/proc`), or in a folder whose name `--project` would
+refuse (the VM names it, and it becomes the window's folder). `session_write.yml` then copies,
 refuses a session changed on both machines since the last copy - naming the folder its copy is in -
 fetches `+refs/heads/<upstream>` - a refspec, never an option - refuses a move that would replace a path
 git does not track there (`git_checkouts_info`'s `target`: an ignored file the commit adds, which `git

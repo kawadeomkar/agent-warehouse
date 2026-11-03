@@ -191,6 +191,22 @@
     quiet: true
   when: code_session_id | length > 0
 
+# The checkout's folder name is the VM's to choose, and it is handed to the
+# editor as the window's folder: into the workspace's folders and its tasks'
+# options, where ${...} is resolved. So it is held to what --project takes, a
+# GitHub repository's name, and never said back as it is.
+- name: session_read | Refuse a checkout folder an editor cannot be handed as it is
+  ansible.builtin.assert:
+    that:
+      - code_session_plan.session.name | string is match('^[A-Za-z0-9._-]{1,100}$')
+      - code_session_plan.session.name | string not in ['.', '..']
+    fail_msg: >-
+      --session's checkout on {{ claude_vm_names[0] }} is in a folder whose name a GitHub repository could not have,
+      so just code does not hand it to an editor. Rename the folder there, or run claude --resume {{ code_session_id }}
+      in it yourself.
+    quiet: true
+  when: code_session_id | length > 0
+
 - name: session_read | Keep the folder the session opens in
   ansible.builtin.set_fact:
     code_session_project: "{{ code_session_plan.session.name }}"

@@ -56,6 +56,9 @@ playbooks/
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
+  files/                          just code's helpers, copied to the VM unchanged and run there by the window's
+                                  tasks: claude-terminal.sh (the Claude terminal), session-notes.sh and
+                                  session_notes.py (the notes' live section)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias

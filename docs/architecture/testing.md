@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2661 tests. By file:
+pytest over `tests/unit/`: 2667 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -288,7 +288,7 @@ pytest over `tests/unit/`: 2661 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 193): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 199): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -620,7 +620,8 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   them - all of them children of one task, so a Ctrl-C ends them with the verify. Every
   child run gets a 3 s SSH connect timeout, since the fake VMs' `192.0.2.x` drops packets. The user ssh
   config in the ephemeral directory never exists. The workspace files are read back and parsed: one
-  folder, the project's path; one task, `folderOpen`, `bash -lc` in that folder; the whole
+  folder, the project's path; one task, `folderOpen`, `bash -l` and a helper's path in that folder,
+  the helpers written beside the files byte for byte as `playbooks/files/` has them; the whole
   directory's hides `.claude-on-proxmox`. With VS Code settings in the ephemeral directory (never the
   developer's) saying nothing, `"on"` behind a commented-out `"off"`, and `"off"`, the message asks
   for trust and *Allow*, trust only, and says the terminal will not start; reopening leaves the file's

@@ -47,6 +47,12 @@ checks and provisioning stop at a `vm_password` in the vault that still holds a 
 under the old name. One set to `""` or left empty, as `vault.yml.example` had `vm_password`, sets nothing and is
 left alone.
 
+## What just code writes and says from 1.1
+
+The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace file and puts VS Code's
+helpers beside it (`helpers/` in just code's directory there), each `changed` once. A window opened from VS Code's
+recent list before that still runs 1.0's workspace file, which works as it did.
+
 ## A template built before its record
 
 From PR #126, `just deploy` compares the template with what its settings would build, and rebuilds it when it

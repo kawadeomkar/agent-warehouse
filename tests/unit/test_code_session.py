@@ -1,9 +1,10 @@
 """The Claude session `just code` starts in the window it opens, the window step around it, and what it may write.
 
-`playbooks/code.yml` hands VS Code a workspace file whose one task runs
-`bash -lc <code_terminal_script> just-code <not installed> <signed in, watched>
+`playbooks/code.yml` hands VS Code a workspace file whose Claude task runs
+`bash -l <helpers>/claude-terminal.sh <not installed> <signed in, watched>
 <signed in, unwatched> <the login's path unit> <signed in to GitHub>
-<git protocol> <scopes> <vm name>` when the window opens. The script is run
+<git protocol> <scopes> <vm name> ...` when the window opens, the helper being
+playbooks/files/claude-terminal.sh as just code copies it to the VM. It is run
 here as it is, against stand-ins for `claude`, `gh` and the BROWSER helper that
 record what they were asked: PATH holds the stand-ins alone, and the script
 uses only shell builtins besides them, so nothing on this machine is reached.
@@ -63,6 +64,11 @@ from harness import _default_signals, _drain, ansible_config
 
 REPO = Path(__file__).resolve().parents[2]
 CODE = REPO / "playbooks" / "code.yml"
+# The helpers just code copies to the VM unchanged, which the workspace's tasks run there by path.
+HELPERS = REPO / "playbooks" / "files"
+TERMINAL = HELPERS / "claude-terminal.sh"
+NOTES_HELPER = HELPERS / "session-notes.sh"
+NOTES_PYTHON = HELPERS / "session_notes.py"
 DEPLOY = REPO / "deploy.yml"
 ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 PROVISION_VERIFY = REPO / "molecule" / "provision" / "verify.yml"
@@ -139,7 +145,7 @@ def _play() -> dict:
 
 
 def _script() -> str:
-    return _play()["vars"]["code_terminal_script"]
+    return TERMINAL.read_text()
 
 
 def _terminal(
@@ -176,7 +182,7 @@ def _terminal(
     watch = tmp_path / "claude-remote-control.path"
     if watched:
         watch.write_text("[Path]\n")
-    argv = ["/bin/bash", "-c", _script(), "just-code", NOT_INSTALLED, *signed_in, str(watch), github_signed_in]
+    argv = ["/bin/bash", str(TERMINAL), NOT_INSTALLED, *signed_in, str(watch), github_signed_in]
     env = {
         "PATH": str(bin_dir),
         "BROWSER": str(bin_dir / "browser"),
@@ -450,13 +456,13 @@ def test_github_auth_off_leaves_gh_alone(tmp_path):
     assert result.stdout == ""
 
 
-def test_the_task_passes_the_script_and_its_messages_as_arguments():
+def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
     # The role-level names: the inventory wires them, the roles read them, and
     # an override of one reaches both.
     task = _play()["vars"]["code_claude_task"]
     assert task["command"] == "/bin/bash"
-    assert task["args"][:3] == ["-lc", "{{ code_terminal_script }}", "just-code"]
-    assert task["args"][3:] == [
+    assert task["args"][:2] == ["-l", "{{ code_terminal_helper }}"]
+    assert task["args"][2:] == [
         "{{ code_not_installed }}",
         "{{ code_signed_in_watched }}",
         "{{ code_signed_in_unwatched }}",
@@ -467,7 +473,7 @@ def test_the_task_passes_the_script_and_its_messages_as_arguments():
         "{{ claude_vm_names[0] }}",
         # The session notes' helper, their path, the Remote Control unit and
         # the time zone, for the refresh after a sign-in in the terminal.
-        "{{ code_notes_script if code_notes | bool else '' }}",
+        "{{ code_notes_helper if code_notes | bool else '' }}",
         "{{ code_notes_file if code_notes | bool else '' }}",
         "{{ code_remote_control_unit }}",
         "{{ code_timezone }}",
@@ -502,8 +508,8 @@ OPENED = {
     "code_notes_dir": "/home/dev/projects/.claude-on-proxmox/session",
     "code_notes_file": "/home/dev/projects/.claude-on-proxmox/session/alpha-session.md",
 }
-# The Claude task's arguments after the script, the session notes' three aside.
-ARGS = "code_claude_task.args[3:11]"
+# The Claude task's arguments after the helper, the session notes' four and --session aside.
+ARGS = "code_claude_task.args[2:10]"
 NOTES = {**OPENED, "show": "code_workspace_file"}
 SESSION = "/home/dev/projects/.claude-on-proxmox/session"
 LATER = " VS Code was not opened; to open it later: just code alpha"
@@ -1102,6 +1108,16 @@ def test_every_task_reads_this_machine_or_is_delegated_to_the_vm(task):
     elif action in WRITES_ON_VM:
         assert task.get("delegate_to") == ON_VM
         assert task.get("when") in WRITERS_WHEN
+        if action == "ansible.builtin.copy":
+            # What a copy sends to the VM: text the play built, or VS Code's helpers from playbooks/files/, by
+            # their names alone - never a file of this machine's that a list could be made to name.
+            args = task[action]
+            assert "remote_src" not in args, task["name"]
+            if "src" in args:
+                assert args["src"] == "{{ code_helper }}" and task.get("loop") == "{{ code_helpers }}", task["name"]
+                assert (task.get("loop_control") or {}).get("loop_var") == "code_helper", task["name"]
+            else:
+                assert "content" in args, task["name"]
     elif action == "ansible.builtin.meta":
         # The one meta action: a deploy for a fleet ends the play.
         assert task[action] == "end_play", task.get("name")
@@ -1140,16 +1156,40 @@ def test_every_name_code_yml_sets_is_its_own():
     assert sorted(facts & task_vars) == []
 
 
+def test_the_helpers_copied_are_the_files_of_playbooks_files_by_their_names():
+    # The one list a copy reads from this machine: every file there, by a plain name, and nothing else.
+    helpers = _play()["vars"]["code_helpers"]
+    assert sorted(helpers) == sorted(path.name for path in HELPERS.iterdir() if path.is_file())
+    assert all(re.fullmatch(r"[A-Za-z0-9_.-]+", name) and not name.startswith(".") for name in helpers), helpers
+
+
 def test_just_code_writes_exactly_the_directory_and_the_file():
     # The allowlist must not pass by finding no writer.
     assert [t["name"] for t in _every_task() if _action(t) in WRITES_ON_VM] == [
         "session_write | Make the directory for the sessions on the VM",
         "session_write | Write the copies the VM resumes",
+        "Make the directory for the helpers on the VM",
+        "Write the helpers on the VM",
         "Make the directory for VS Code workspace files on the VM",
         "Write the VS Code workspace on the VM",
         "Make the directory for the session notes on the VM",
         "Write the session notes on the VM",
     ]
+
+
+def test_the_session_s_checkout_folder_is_held_to_what_project_takes():
+    # The VM names it, and it becomes the window's folder in VS Code's workspace and tasks: the same rule as
+    # --project, a GitHub repository's name, before anything is handed over.
+    read = yaml.safe_load((CODE.parent / "tasks" / "session_read.yml").read_text())
+    check = next(
+        t for t in read if t["name"] == "session_read | Refuse a checkout folder an editor cannot be handed as it is"
+    )
+    project = next(
+        t for t in _tasks(_the_window(_play())["block"]) if t["name"] == "Refuse a project that is not one folder name"
+    )
+    pattern = "'^[A-Za-z0-9._-]{1,100}$'"
+    assert any(pattern in str(that) for that in check["ansible.builtin.assert"]["that"])
+    assert any(pattern in str(that) for that in project["ansible.builtin.assert"]["that"])
 
 
 def test_git_on_the_vm_runs_only_for_session_and_moves_its_checkout_only_forward():
@@ -1290,13 +1330,16 @@ def test_the_whole_directory_s_window_shows_the_notes_folder_and_opens_them_as_a
     # dependsOn made VS Code ask every task provider first, 7.5 s live.
     notes, shell, claude = workspace["tasks"]["tasks"]
     assert notes["label"] == "Session notes" and notes["runOptions"] == {"runOn": "folderOpen"}
-    assert notes["args"][2:] == [
-        "session-notes",
+    # The helpers by path, in just code's own directory on the VM: no script text in the workspace.
+    assert notes["args"] == [
+        "-l",
+        "/home/dev/projects/.claude-on-proxmox/helpers/session-notes.sh",
         f"{SESSION}/alpha-session.md",
         "alpha",
         "claude-remote-control",
         "UTC",
     ]
+    assert claude["args"][:2] == ["-l", "/home/dev/projects/.claude-on-proxmox/helpers/claude-terminal.sh"]
     assert notes["presentation"] == {
         "reveal": "never",
         "focus": False,
@@ -1440,8 +1483,7 @@ def _helper(
         notes.write_text(text)
     if notes.exists():
         notes.chmod(0o600)
-    script = _play()["vars"]["code_notes_script"]
-    argv = ["/bin/bash", *(["-e"] if errexit else []), "-c", script, "session-notes", str(notes), "alpha"]
+    argv = ["/bin/bash", *(["-e"] if errexit else []), str(NOTES_HELPER), str(notes), "alpha"]
     argv += ["claude-remote-control", zone, *(["refresh-only"] if refresh else [])]
     began = time.monotonic()
     result = subprocess.run(argv, env={"PATH": str(bin_dir)}, capture_output=True, text=True, check=False, timeout=60)
@@ -1529,8 +1571,7 @@ def test_what_a_tool_prints_reaches_the_notes_as_plain_text_in_one_cell(tmp_path
 
 def _helper_patterns() -> dict[str, str]:
     """The patterns the helper compiles, read from its Python."""
-    script = _play()["vars"]["code_notes_script"]
-    source = script.split("<<'PY' >/dev/null 2>&1 &\n", 1)[1].split("\nPY\n", 1)[0]
+    source = NOTES_PYTHON.read_text()
     patterns = {}
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call) and len(node.targets) == 1:
@@ -1628,16 +1669,17 @@ def test_refresh_only_waits_rewrites_and_opens_nothing(tmp_path):
 
 
 def test_the_helper_hands_bash_nothing_it_could_lose_control_to():
-    script = _play()["vars"]["code_notes_script"]
-    for marker in ("{{", "{%", "{#", "${"):
-        assert marker not in script
+    script = NOTES_HELPER.read_text()
     assert not re.search(r"^\s*exec\b", script, re.M)
-    assert script.splitlines()[0] == "set +e" and script.splitlines()[-1] == "exit 0"
+    lines = [line for line in script.splitlines() if not line.startswith("#")]
+    assert lines[0] == "set +e" and lines[-1] == "exit 0"
     # Nothing waits on it any more, so no wait of its own; code -r in the
     # foreground, so the task's terminal does not close under it.
     assert "sleep 1" not in script
     assert re.search(r'^  code -r "\$1" </dev/null >/dev/null 2>&1$', script, re.M)
-    assert re.search(r"""^python3 - "\$1" "\$2" "\$3" "\$4" <<'PY' >/dev/null 2>&1 &$""", script, re.M)
+    # Its Python is the file beside it, found from bash's own $0: nothing else on PATH but python3.
+    python = r"""^python3 "\$\{0%/\*\}/session_notes.py" "\$1" "\$2" "\$3" "\$4" >/dev/null 2>&1 &$"""
+    assert re.search(python, script, re.M)
 
 
 # ------------------------------------------------------------- the zone the notes say their time in ---
@@ -1711,7 +1753,9 @@ def _signing_in(tmp_path: Path, helper: str | None, **case):
     argv, env = _terminal(tmp_path, **case)
     (tmp_path / "bin" / "bash").symlink_to("/bin/bash")
     marker = tmp_path / "helper.log"
-    script = "" if helper is None else f'printf "%s\\n" "$0 $*" >> "{marker}"'
+    stand_in = tmp_path / "session-notes.sh"
+    stand_in.write_text(f'printf "%s\\n" "session-notes $*" >> "{marker}"\n')
+    script = "" if helper is None else str(stand_in)
     argv = [*argv[:-5], script, str(tmp_path / "alpha-session.md"), "claude-remote-control", "Asia/Kolkata", ""]
     # Every process the script starts inherits the pipe's write end, the helper it backgrounds too, so the pipe
     # ends only once they all have: the helper's log is whole when it is read, where a file that merely existed

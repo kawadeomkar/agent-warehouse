@@ -366,8 +366,10 @@ token; `github_auth_method: token` still fails. The status JSON carries
   VS Code runs that task only in a trusted window and once the user has allowed automatic tasks;
   `code.yml` reads `task.allowAutomaticTasks` from the user's VS Code settings to say which to
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
-  `terminal.integrated.allowInUntrustedWorkspace`. The script is fixed text in `code.yml`'s vars;
-  anything variable reaches it as an argument. Every name `code.yml` sets starts with `code_`, a prefix
+  `terminal.integrated.allowInUntrustedWorkspace`. The tasks run the helpers by path: fixed files in
+  `playbooks/files/` (`claude-terminal.sh`, `session-notes.sh`, `session_notes.py`), copied unchanged into
+  `helpers/` of that directory; anything variable reaches them as an argument, and the workspace file
+  carries no script text. Every name `code.yml` sets starts with `code_`, a prefix
   no role uses: a role's fact or register outranks a play var in the same `just deploy`, and no task var
   shares a fact's name. In `just deploy` (`code_in_deploy`) every task of the window step is in one
   `block` whose `rescue` says any failure with the `just code` line (`just deploy <vm>
@@ -378,9 +380,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   every task in `code.yml`, and in the task files it imports, followed all the way down, to an
   allowlist: read-only on this machine (plus `which`/`code`, the session handoff's `rsync` to the VM and
   the alias through `tasks/ssh_config.yml`), the handoff's readers (`claude_sessions_info`,
-  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the six
-  writes (the workspace and its directory, the notes and theirs, the sessions' directory and their copies)
-  delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
+  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the eight
+  writes (the workspace and its directory, the helpers and theirs, the notes and theirs, the sessions'
+  directory and their copies) delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
   on PATH: never a login shell there, which would put this machine's own `code` and `tailscale` back. The `provision`
   scenario, which runs `code.yml`, points `vscode_user_settings_file` into the ephemeral directory,
   since the message depends on it, and asserts that file's bytes and mtime after every run.
