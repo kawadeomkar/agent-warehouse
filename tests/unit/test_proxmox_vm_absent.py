@@ -95,6 +95,16 @@ def test_an_address_kept_for_the_inventory_is_never_forgotten(tmp_path):
     assert _forget(tmp_path, **VM, **kept, proxmox_vm_known_hosts_domain="") == {"192.0.2.10", "alpha.lan", "beta.lan"}
 
 
+@pytest.mark.parametrize("kept", [{"proxmox_vm_known_hosts_kept": ["beta.lan"]}, {"proxmox_vm_api_host": "beta.lan"}])
+def test_a_kept_name_is_never_forgotten_as_the_vm_s_name_either(tmp_path, kept):
+    # The Proxmox host reached as beta.lan, under another name in the inventory, and a VM named beta deleted.
+    vm = {**VM, "proxmox_vm_name": "beta"}
+    left = _forget(
+        tmp_path, **{"proxmox_vm_api_host": "198.51.100.1", **kept}, **vm, proxmox_vm_known_hosts_domain="lan"
+    )
+    assert left == {"alpha.lan", "beta.lan"}
+
+
 def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     assert "claude_vm_inventory_hosts" in defaults["proxmox_vm_known_hosts_kept"]

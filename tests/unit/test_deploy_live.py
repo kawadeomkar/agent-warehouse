@@ -447,6 +447,52 @@ def test_a_failure_says_what_failed_whole_wherever_it_is(tmp_path):
     assert re.search(r"^\d+ tasks · nothing changed · 4 failed \(4 VMs\)", text, re.M), text
 
 
+# A module as a VM's root can make any module there answer: warnings and a failure's message carrying a clipboard
+# write (OSC 52), a title, a screen erase and an 8-bit CSI, which ansible-core prints as they are, on stderr - which
+# the region lets through to the screen - and in the log.
+VM_SAID = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+
+ESCAPES = "\\x1b]52;c;b3duZWQ=\\x07\\x1b]0;retitled\\x07\\x1b[2J\\x9b31m"
+module = AnsibleModule(argument_spec={"fail": {"type": "bool", "default": False}})
+module.warn("warned " + ESCAPES)
+if module.params["fail"]:
+    module.fail_json(msg="failed " + ESCAPES)
+module.exit_json(changed=False)
+"""
+VM_SAYS = """
+- name: A VM's modules
+  hosts: alpha
+  gather_facts: false
+  tasks:
+    - name: Says what it likes
+      vm_said: {}
+    - name: Fails with what it likes
+      vm_said:
+        fail: true
+"""
+
+
+def test_what_a_vm_s_module_says_is_drawn_plain_on_the_screen_and_in_the_log(stand_in):
+    (stand_in / "vm_says.yml").write_text(VM_SAYS)
+    (stand_in / "library").mkdir()
+    (stand_in / "library" / "vm_said.py").write_text(VM_SAID)
+    _fresh(stand_in)
+    ran = kit.at_a_terminal(
+        kit.playbook(stand_in, stand_in / "hosts", stand_in / "vm_says.yml"),
+        stand_in,
+        _environment(stand_in, "deploy alpha", None),
+    )
+    assert ran.rc == 2, ran.text
+    ran.assert_drawn_and_gone()
+    for said in (b"\x1b]52;", b"retitled", b"\x1b[2J", "\x9b".encode()):
+        assert said not in ran.raw, (said, ran.text)
+    assert "[WARNING]: warned" in ran.transcript and "failed" in ran.transcript, ran.transcript
+    # The log has the failure's dump too, where YAML writes each sequence escaped (\e, \a), as the stream does.
+    assert not re.search("[\x00-\x08\x0b-\x1f\x7f-\x9f]", ran.log), ran.log
+    assert "[WARNING]: warned" in ran.log, ran.log
+
+
 RESCUED = """
 - name: A failure under each way in, each block's rescue taking it
   hosts: localhost

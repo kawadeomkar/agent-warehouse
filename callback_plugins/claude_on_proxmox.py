@@ -6,7 +6,14 @@ is drawn as a block titled ACTION REQUIRED IN YOUR BROWSER instead of an
 that it is waiting instead of a FAILED - RETRYING line every few seconds.
 After PLAY RECAP it prints NEXT STEPS: what the report tasks recorded with
 set_stats as still left to do, per VM and matter, the last record of each
-winning (docs/architecture/custom-code.md §7.5).
+winning (docs/architecture/custom-code.md §7.5) - read from those tasks' own
+results, never from the run's custom stats, to which any module's result can
+add: a VM's root makes the modules run there say what it likes.
+
+A module's warnings, deprecations and failure message are the VM's to choose
+too, and Display prints them raw, so every hook prints them through
+filter_plugins/text.py's plain_summary; a dry run's diffs, a file's text as the
+VM holds it, through plain_text.
 
 Everything else is the default callback's, options included: a subclass
 without DOCUMENTATION has no options, every hook then fails on its first
@@ -43,6 +50,7 @@ import sys
 from pathlib import Path
 
 from ansible.plugins.callback.default import CallbackModule as DefaultCallback
+from ansible.utils.vars import merge_hash
 
 
 def _sibling(stem):
@@ -64,6 +72,10 @@ live = _sibling("live_ansible")
 
 WAITING_TAG = live.WAITING_TAG
 DEBUG_ACTIONS = live.DEBUG_ACTIONS
+STATS_ACTIONS = live.STATS_ACTIONS
+# What a diff holds that the VM wrote: the file's text before and after, the
+# headers naming it, and a diff a module prepared itself.
+DIFF_TEXT = ("before", "after", "before_header", "after_header", "prepared")
 # A wait's block names the sign-in it belongs to, by the role the task is in.
 TOPICS = {
     "claude_code": "Claude Code sign-in",
@@ -91,7 +103,7 @@ COLOR = "bright yellow"
 
 
 def next_steps(run_stats):
-    """The lines left to do, from the run's custom stats: by VM name, then matter, each text once."""
+    """The lines left to do, from the records the report tasks made: by VM name, then matter, each text once."""
     records = {}
     for stat in NEXT_STATS:
         for vm, matters in (run_stats.get(stat) or {}).items():
@@ -119,6 +131,8 @@ class CallbackModule(DefaultCallback):
         self._waiting = set()
         # The live run's engine, when the run is drawn: decided when the playbook starts, once the verbosity is known.
         self._live = None
+        # NEXT STEPS's records, {stat: {vm: {matter: line}}}, as the set_stats tasks made them.
+        self._next = {}
 
     # --- the classic output --------------------------------------------------------------------------------------
     # Every block is banner's own width - 80 columns, or the terminal's when
@@ -167,8 +181,55 @@ class CallbackModule(DefaultCallback):
             color=COLOR,
         )
 
-    def next_steps_of(self, stats):
-        return next_steps(stats.custom.get("_run", {}))
+    # --- NEXT STEPS -----------------------------------------------------------------------------------------------
+    def _keep_records(self, result):
+        """A set_stats task's NEXT STEPS records, merged as Ansible merges the run's custom stats. Only that action's:
+        ansible-core adds a module result's ansible_stats to the custom stats too, so a module on a VM could write any
+        VM's line there, or blank one."""
+        if result.task.action not in STATS_ACTIONS:
+            return
+        # A loop's records are its items', in their order (provision.yml's and destroy.yml's records loop).
+        looped = result.result.get("results")
+        for each in looped if isinstance(looped, list) else [result.result]:
+            stats = each.get("ansible_stats") if isinstance(each, dict) else None
+            if not isinstance(stats, dict) or stats.get("per_host") or not isinstance(stats.get("data"), dict):
+                continue
+            for stat in NEXT_STATS:
+                records = stats["data"].get(stat)
+                if isinstance(records, dict):
+                    if stats.get("aggregate", True) and isinstance(self._next.get(stat), dict):
+                        records = merge_hash(self._next[stat], records)
+                    self._next[stat] = records
+
+    def next_records(self):
+        """The records kept so far, {stat: {vm: {matter: line}}}: what a part of a run in parts saves for the next."""
+        return dict(self._next)
+
+    def next_steps_of(self):
+        """NEXT STEPS' lines, from the records kept: never the run's custom stats (_keep_records)."""
+        return next_steps(self._next)
+
+    # --- what the VM chose to say ----------------------------------------------------------------------------------
+    def _handle_warnings(self, res):
+        with text.plain_events(self):
+            super()._handle_warnings(res)
+
+    def _handle_exception(self, result, use_stderr=False):
+        with text.plain_events(self):
+            super()._handle_exception(result, use_stderr=use_stderr)
+
+    def _get_diff(self, difflist):
+        diffs = difflist if isinstance(difflist, list) else [difflist]
+        return super()._get_diff([self._plain_diff(diff) for diff in diffs])
+
+    @staticmethod
+    def _plain_diff(diff):
+        if not isinstance(diff, dict):
+            return diff
+        return {
+            key: text.plain_text(value) if key in DIFF_TEXT and isinstance(value, str) else value
+            for key, value in diff.items()
+        }
 
     # --- the playbook, each hook handed to the live engine when the run is drawn ------------------------------------
     def v2_playbook_on_start(self, playbook):
@@ -201,6 +262,7 @@ class CallbackModule(DefaultCallback):
         super().v2_runner_on_start(host, task)
 
     def v2_runner_on_ok(self, result):
+        self._keep_records(result)
         if self._live:
             if self._live.ok(result):
                 super().v2_runner_on_ok(result)
@@ -254,6 +316,6 @@ class CallbackModule(DefaultCallback):
             self._live.stats(stats, lambda s: DefaultCallback.v2_playbook_on_stats(self, s))
             return
         super().v2_playbook_on_stats(stats)
-        lines = self.next_steps_of(stats)
+        lines = self.next_steps_of()
         if lines:
             self._display.display(banner(lines, "NEXT STEPS"), color=COLOR)

@@ -13,7 +13,10 @@ proxmox_api_port: 8006
 # (docs/getting-started/proxmox-access.md).
 proxmox_api_user: ansible@pve
 proxmox_api_token_id: ansible
-proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret }}"
+# Trimmed: a vault edited by hand can end the secret with a newline, which both
+# HTTP clients refuse in a header with the whole header, secret included, in
+# their error - escaped, so no_log's masking missed it.
+proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | trim }}"
 # Proxmox ships a self-signed certificate. Set to true once the PVE CA is
 # trusted on the controller (docs/getting-started/proxmox-access.md).
 proxmox_validate_certs: false
@@ -146,6 +149,24 @@ claude_vm_inventory_hosts: >-
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
                     + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])))
      | unique | list }}
+# Every name this machine's ssh reaches a host of the inventory by: the host's
+# own, its ansible_host, and the Proxmox API's address. The managed SSH config
+# is included ahead of the user's own, so a VM's alias of one of them - a VM
+# named pve.lan, where the Proxmox host is reached as pve.lan - would take this
+# machine's root SSH to that host. tasks/ssh_config.yml never writes one.
+claude_vm_inventory_names: >-
+  {{ (claude_vm_inventory_hosts
+      + (claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
+         | map(attribute='ansible_host', default='') | select | list)
+      + ([proxmox_api_host] if proxmox_api_host | default('') | length > 0 else []))
+     | map('string') | unique | list }}
+# The VM names the person chose for this run: those given (vm_name), or the
+# default one for a deploy, which provisions by name without discovery - never
+# a fleet-wide run's, whose names are Proxmox's, and on a shared host anyone's.
+# Only one of these gets an SSH alias with a dot (tasks/ssh_config.yml): a
+# tagged VM someone else named github.com is never given one by a refresh.
+claude_vm_names_chosen: >-
+  {{ claude_vm_names if vm_name is defined or not claude_vm_discovery | bool else [] }}
 # The tagged VMs a fleet-wide recipe acts on: the ones named (vm_name), or all of
 # them without it. discover.yml and status.yml both narrow through this, so
 # `just deploy --only configure` and `just status` cannot disagree on what the names select.

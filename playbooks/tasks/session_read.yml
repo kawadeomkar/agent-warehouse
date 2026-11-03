@@ -95,7 +95,7 @@
 - name: session_read | Refuse a session that cannot be opened on the VM
   ansible.builtin.assert:
     that: code_session_plan.session.problem | length == 0
-    fail_msg: "{{ code_session_plan.session.problem }}"
+    fail_msg: "{{ code_session_plan.session.problem | plain_text }}"
     quiet: true
   when: code_session_id | length > 0
 
@@ -173,8 +173,9 @@
       - code_git.clean
       - code_git.head_kept
       - code_git.busy | length == 0
+    # The VM names its checkout's folder and what holds it: plain text, like everything a VM says.
     fail_msg: >-
-      {{ 'Session ' ~ code_session_id ~ ' is open on ' ~ claude_vm_names[0] ~ ' (claude, pid '
+      {{ ('Session ' ~ code_session_id ~ ' is open on ' ~ claude_vm_names[0] ~ ' (claude, pid '
          ~ code_open ~ '). Exit it there first: a session continues in one place at a time.'
          if code_open | int > 0
          else code_git.path ~ ' on ' ~ claude_vm_names[0] ~ ' has changes of its own. Commit, push or discard them there,'
@@ -185,7 +186,8 @@
               ~ ' branch of it there (git switch --create <name>), then run this again.'
          if not code_git.head_kept
          else 'claude is running in ' ~ code_git.path ~ ' on ' ~ claude_vm_names[0] ~ ' (pid '
-              ~ code_git.busy | join(', ') ~ '). Exit it first: just code moves a checkout only when nobody is working in it.' }}
+              ~ code_git.busy | join(', ') ~ '). Exit it first: just code moves a checkout only when nobody is working in it.')
+         | plain_text }}
     quiet: true
   when: code_session_id | length > 0
 

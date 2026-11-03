@@ -66,8 +66,10 @@ argument_specs:
         description: Derived from the architecture fact by default.
       dev_tools_uv_version:
         type: str
-        default: "0.9.5"
-        description: uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256.
+        default: "0.13.5"
+        description: >-
+          uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is
+          never older than the uv pyproject.toml pins for the controller.
       dev_tools_uv_arch_map:
         type: dict
         description: uv's release target for each value of the architecture fact, which names the archive downloaded.

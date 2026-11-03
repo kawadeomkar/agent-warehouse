@@ -32,6 +32,19 @@
 # nothing: the template play is skipped, the VMs are found by name rather than
 # created again, and configuration re-applies only what has drifted.
 #
+# A name no VM may have - a host of the inventory's, or one that cannot be its
+# SSH alias - is refused before anything: provision.yml refuses it too, but
+# only after the template play, which may already have built a template over
+# root SSH for a VM that was never going to be made.
+- name: Refuse a VM name no VM may have
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Refuse a VM named after a host of the inventory, or as no alias may be
+      ansible.builtin.import_tasks: playbooks/tasks/vm_names.yml
+      vars:
+        claude_vm_names_alias: true
+
 # The template check is made through the Proxmox API rather than on the node,
 # and playbooks/template.yml gathers no facts, so a run that does not need to
 # build the template opens no SSH connection to the Proxmox host at all. Only

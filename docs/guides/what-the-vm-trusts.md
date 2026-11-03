@@ -15,6 +15,9 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
   that to you ([Tearing down](destroy.md)).
+- The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
+  is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
+  VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI.
 - Downloads are verified where the vendor makes that possible: the uv release by a pinned SHA256, the
   Ubuntu cloud image against Ubuntu's `SHA256SUMS`, apt repositories by vendored signing keys. The Claude
   Code installer script is fetched over TLS from `claude.ai` and itself verifies the binary against a
@@ -22,6 +25,11 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   rustup comes from Ubuntu's archive, and the Rust toolchain it installs is fetched over TLS from `static.rust-lang.org` and checked against
   the hashes in the channel manifest, which comes from the same place.
 - sshd is restricted to key-based logins (`common_harden_ssh`), even if `vault_vm_password` is set.
+- tmux on the VM passes escape sequences through to the terminal you attach from (`allow-passthrough`, one
+  of the `common_tmux_settings` Claude Code asks for), so a program in a pane can do to that terminal what it
+  could do without tmux - set the title, raise a notification, or write the clipboard where the terminal lets
+  it. Take `set -g allow-passthrough on` out of `common_tmux_settings`, or set it off in your `~/.tmux.conf`,
+  and Claude Code's notifications stay inside tmux.
 - `just code` gives each VM this machine's Claude Code sessions of the repositories it has checked out
   ([This machine's Claude sessions on the VM](vscode.md#this-machines-claude-sessions-on-the-vm)): their
   transcripts hold whatever their tools printed, secrets among them, readable there by anything running as

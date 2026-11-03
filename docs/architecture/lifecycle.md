@@ -132,8 +132,9 @@ Finds VMs by tag so `configure.yml` works standalone, not only straight after pr
    address its own agent reported, and the API token would go there; one named `localhost` would make the
    controller a VM to configure. On a Proxmox others use too, anyone can tag a VM so. Such a VM is left
    out and said; a name given that is one is refused before the cluster is listed
-   (`tasks/vm_names.yml`, which provision, destroy, code and `--only ssh-config` import too), and
-   `just status` shows such a VM from the listing alone.
+   (`tasks/vm_names.yml`, which deploy, provision, destroy, code and `--only ssh-config` import too;
+   deploy, provision and code with `claude_vm_names_alias`, which also refuses a name that cannot be its
+   SSH alias, §4.8), and `just status` shows such a VM from the listing alone.
 4. Assert no duplicate names — Proxmox permits them, and the second `add_host` would silently
    overwrite the first, so `just deploy --only configure` would report success having touched one of two,
    unpredictably.
@@ -448,7 +449,10 @@ drawn in the region every live output shares
 `just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
 the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
 at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of
-its own and reads the bytes back through a small terminal (`tests/unit/vt.py`).
+its own and reads the bytes back through a small terminal (`tests/unit/vt.py`). The finished report is
+taken only from play 3's own `set_fact` on localhost, since any module's result can carry facts and a VM's
+root makes the modules there return what it likes; their warnings are printed through `plain_summary`
+([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
 
 **The recipe.** `just status [names] [--only sections] [--json]` runs the playbook through
 `tools/run-logged` with a report path of its own run in `STATUS_DIR` (`.cache/status/`, git-ignored and
@@ -461,9 +465,11 @@ opens SSH.
 
 The whole thing: template, provision, configure, the three sign-ins, the editor - each stage the
 standalone playbook, imported as is, so deploy is the sum of `just deploy --only template`, `--only provision`
-and `--only configure`, the three sign-ins `just login` runs and `just code`, by construction. A first play on localhost asks the API whether a
-template named `proxmox_template_name` exists and records it; the template play is imported with a
-`when:` on that fact. The lookup is `proxmox_vm_info name=...`, so only the node holding that name is
+and `--only configure`, the three sign-ins `just login` runs and `just code`, by construction. A first play on
+localhost refuses a name no VM may have (`tasks/vm_names.yml`, as provision does, alias check included): the
+template play would otherwise build a template over root SSH before provision's own check refused it. The
+next asks the API whether a template named `proxmox_template_name` exists and records it; the template play
+is imported with a `when:` on that fact. The lookup is `proxmox_vm_info name=...`, so only the node holding that name is
 asked for its VM list — unfiltered, one node that is down failed the run before anything was built.
 
 `configure.yml` is imported with `vars: {claude_vm_discovery: false}`, so it configures exactly the
@@ -568,21 +574,27 @@ silently override the user's entry); every write is validated by the real client
 only ever written for a VM the caller found by its tag. Before any of them, a name or address that is
 not one plain word is refused: `ssh -G` accepts a well-formed `ProxyCommand`, so it cannot be the
 check for a value the VM chose (see `guest_ipv4`, section 7). So is a name ssh would take for another
-host (`ssh_alias_refusal`): one with a dot, a number ssh reads as an address (`3232235777`,
-`0x7f000001`), or a host of the inventory. The managed file is included ahead of the user's own
-config, so a VM named `github.com` would get the controller's own `git push`, and one named after the
-Proxmox host its root SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others
-use too is not always the user. With names given it is refused, and `just deploy` refuses it before it
-creates anything; fleet-wide (no names) such a VM is left out, said, and the rest written, so someone
-else's tagged VM named `github.com` cannot stop every alias refresh of the user's own fleet.
+host (`ssh_alias_refusal`): a name ssh reads as an address (`192.0.2.10`, `3232235777`, `0x7f000001`),
+a name this machine reaches a host of the inventory by (`claude_vm_inventory_names`: `pve`, or the
+address the Proxmox host is reached at), or a name with a dot that the user did not give
+(`claude_vm_names_chosen`). The managed file is included ahead of the user's own config, so a VM named
+`github.com` would get the controller's own `git push`, and one named after the Proxmox host its root
+SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others use too is not always
+the user. With names given it is refused, and `just deploy` refuses it before it creates anything; a
+dotted name given is the user's choice, as `docs/guides/vms.md` allows, and gets its alias. Fleet-wide
+(no names) such a VM is left out, said, and the rest written, so someone else's tagged VM named
+`github.com` cannot stop every alias refresh of the user's own fleet, nor get an alias; a dotted alias a
+named run wrote is left as it was, and the message names the run that refreshes it.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
 (§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
 configure recorded, then pruning through `ssh_config_prune`
-([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block whose name no VM in the cluster carries any more. A name an untagged VM
-carries is left alone and reported, as `destroy.yml` refuses such a VM. While any tagged VM is listed
-without a name, which is what a node that is down looks like (§4.3), nothing is pruned, because any
-block could be that VM's. With names, only those VMs are refreshed and nothing is pruned. Two
+([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
+whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
+or one the inventory reaches a host by, which an earlier version wrote and which would otherwise take this
+machine's connections to that host for good. A name an untagged VM carries is left alone and reported, as
+`destroy.yml` refuses such a VM. While any tagged VM is listed without a name, which is what a node that is
+down looks like (§4.3), nothing else is pruned, because any block could be that VM's. With names, only those VMs are refreshed and nothing is pruned. Two
 tagged VMs of one name are refused as discovery refuses them: an alias of that name would point at
 one at random.
 
@@ -882,7 +894,8 @@ not set, so GitHub's follow-on play runs the whole `github_projects` role for ea
 
 ## 4.12 `playbooks/init_settings.yml`
 
-`just init`'s questions, after `just install`, the git hook and the copies of the three example files: one
+`just init`'s questions, after `just install`, the git hook and the copies of the three example files - `0600`,
+since the vault is plaintext until it is encrypted and the guide has you fill it in by hand first: one
 play on `localhost`, run with an inventory of its own, `playbooks/inventory/init.yml` - the controller,
 as `inventory/controller.yml` has it, with pipelining on, and a run that keeps the modules' files
 (`ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off) refused - so no `group_vars` load. It runs before the

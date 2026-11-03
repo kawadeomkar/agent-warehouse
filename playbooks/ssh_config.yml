@@ -14,7 +14,9 @@
 # will not prune: a name an untagged VM still carries (not this project's to
 # reason about; reported), and anything while a tagged VM is listed without
 # a name, which is what a node that is down looks like (held, and reported).
-# Read-only against Proxmox.
+# What it always removes: an alias no VM may have - a name ssh reads as an
+# address, or one the inventory reaches a host by - which an earlier version
+# wrote. Read-only against Proxmox.
 - name: Refresh the SSH aliases from Proxmox
   hosts: localhost
   gather_facts: false
@@ -101,18 +103,26 @@
         claude_ssh_vms: "{{ claude_ssh_refresh | default([]) }}"
       when: claude_ssh_refresh | default([]) | length > 0
 
+    # What the write decided, which VMs got an alias, kept before the prune's
+    # import of the same file sets its facts again for its own list.
+    - name: Keep which aliases were refreshed
+      ansible.builtin.set_fact:
+        claude_ssh_refreshed: "{{ claude_ssh_written if claude_ssh_refresh | default([]) | length > 0 else [] }}"
+
     - name: Decide what to prune
       ansible.builtin.set_fact:
         claude_ssh_prune: >-
-          {{ claude_ssh_existing | ssh_config_prune(claude_vm_all.json.data, claude_vm_tag_pattern)
-             if vm_name is not defined else {'prune': [], 'held': [], 'untagged': [], 'nameless': []} }}
+          {{ claude_ssh_existing
+             | ssh_config_prune(claude_vm_all.json.data, claude_vm_tag_pattern, claude_vm_inventory_names)
+             if vm_name is not defined else {'prune': [], 'held': [], 'untagged': [], 'nameless': [], 'refused': []} }}
 
-    - name: Remove the aliases of VMs that are gone
+    - name: Remove the aliases of VMs that are gone, and those no VM may have
       ansible.builtin.import_tasks: tasks/ssh_config.yml
       vars:
         claude_ssh_state: absent
-        claude_ssh_vms: "{{ claude_ssh_prune.prune | map('community.general.dict_kv', 'name') | list }}"
-      when: claude_ssh_prune.prune | length > 0
+        claude_ssh_vms: >-
+          {{ (claude_ssh_prune.prune + claude_ssh_prune.refused) | map('community.general.dict_kv', 'name') | list }}
+      when: (claude_ssh_prune.prune + claude_ssh_prune.refused) | length > 0
 
     - name: Report what was kept, pruned and left alone
       vars:
@@ -120,13 +130,9 @@
           {{ claude_vm_addressed | selectattr('address', 'equalto', '')
              | map(attribute='name') | list
              if claude_ssh_host_domain | default('') | length == 0 else [] }}
-        # Fleet-wide, the task file leaves out a VM whose name cannot be an alias, and says which.
-        claude_ssh_unaliased: >-
-          {{ claude_ssh_refresh | default([]) | ssh_alias_refusals(claude_vm_inventory_hosts)
-             if vm_name is not defined else [] }}
       ansible.builtin.debug:
         msg: |-
-          {% set claude_ssh_count = (claude_ssh_refresh | default([]) | length) - (claude_ssh_unaliased | length) %}
+          {% set claude_ssh_count = claude_ssh_refreshed | length %}
           {{ claude_ssh_count }} alias{{ 'es' if claude_ssh_count != 1 else '' }} refreshed in {{ claude_ssh_config_file }}.
           {% if claude_ssh_unaddressed | length > 0 %}
           Not refreshed, no address (stopped, booting, or without the agent): {{ claude_ssh_unaddressed | join(', ') }}.
@@ -134,6 +140,10 @@
           {% endif %}
           {% if claude_ssh_prune.prune | length > 0 %}
           Pruned, no VM of that name exists any more: {{ claude_ssh_prune.prune | join(', ') }}.
+          {% endif %}
+          {% if claude_ssh_prune.refused | length > 0 %}
+          Removed, a name no alias may have - an address, or one this machine reaches a host of the inventory by -
+          which an earlier version wrote: {{ claude_ssh_prune.refused | join(', ') }}. Rename the VM in Proxmox.
           {% endif %}
           {% if claude_ssh_prune.untagged | length > 0 %}
           Left alone: {{ claude_ssh_prune.untagged | join(', ') }}. A VM of that name exists but is not tagged

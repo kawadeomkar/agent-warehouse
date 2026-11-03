@@ -6,20 +6,26 @@ expected 'results' in ansible-galaxy cache", never asking Galaxy again: one bad 
 `just init`. `just install` therefore runs it with --no-cache (test_justfile.py holds the recipe's arguments), and this
 runs it so against a Galaxy that fails the first listing of versions with a 502, then serves a collection built here.
 Nothing reaches the real Galaxy, and nothing is written under the developer's ~/.ansible.
+
+requirements.yml pins every collection installed, those the pinned ones depend on included: a dependency left out is
+installed at whatever version Galaxy published last.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import yaml
 from harness import _env
 
+ROOT = Path(__file__).resolve().parents[2]
 GALAXY = Path(sys.executable).with_name("ansible-galaxy")
 VERSIONS = "/api/v3/collections/acme/demo/versions/?limit=100"
 
@@ -137,3 +143,15 @@ def test_one_failed_request_to_galaxy_is_retried_and_the_collection_installed(tm
     assert asked.count(VERSIONS) == 2, asked
     manifest = json.loads((collections / "ansible_collections" / "acme" / "demo" / "MANIFEST.json").read_text())
     assert manifest["collection_info"]["version"] == "1.0.0"
+
+
+def test_every_collection_installed_is_pinned_its_dependencies_included() -> None:
+    requirements = yaml.safe_load((ROOT / "requirements.yml").read_text())["collections"]
+    pins = {item["name"]: item["version"] for item in requirements}
+    installed = Path(os.environ["ANSIBLE_COLLECTIONS_PATH"]) / "ansible_collections"
+    needed = set()
+    for name in pins:
+        manifest = json.loads((installed / name.replace(".", "/") / "MANIFEST.json").read_text())["collection_info"]
+        assert manifest["version"] == pins[name], name
+        needed |= set(manifest["dependencies"])
+    assert needed <= set(pins), f"not pinned in requirements.yml: {sorted(needed - set(pins))}"

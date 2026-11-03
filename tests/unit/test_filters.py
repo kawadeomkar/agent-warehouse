@@ -423,7 +423,7 @@ class TestVmsNotNamed:
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
-    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x"])
+    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x", "1a", "0xg", "9-1"])
     def test_a_name_that_can_be_nothing_else(self, name):
         assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
 
@@ -432,11 +432,19 @@ class TestSshAliasRefusal:
         [
             # github.com: this machine's git over ssh would go to the VM's address.
             ("github.com", "dot"),
-            ("192.0.2.10", "dot"),
+            ("192.0.2.10", "address"),
             # ssh resolves a bare number, or a hex one, as an IPv4 address.
             ("3232235777", "address"),
             ("0x7f000001", "address"),
             ("127", "address"),
+            # What any platform's inet_aton takes: macOS's takes numbers past 32 bits that glibc's refuses, and both
+            # take octal and hex parts, and anything after a space.
+            ("4294967296", "address"),
+            ("12345678901234567890", "address"),
+            ("0177.1", "address"),
+            ("0X7F.0.0.1", "address"),
+            ("0x", "address"),
+            ("1.2.3.4 x", "address"),
             ("pve", "inventory"),
             ("localhost", "inventory"),
         ],
@@ -447,11 +455,27 @@ class TestSshAliasRefusal:
     def test_a_list_gives_each_refused_name_with_why_in_order(self):
         vms = [{"name": "alpha"}, {"name": "github.com"}, {"name": "pve"}, {"name": "beta"}]
         refused = proxmox_filters.ssh_alias_refusals(vms, ["pve"])
-        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"]) for r in refused] == [
-            ("github.com", True),
-            ("pve", True),
+        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"], r["unnamed"]) for r in refused] == [
+            # Named, github.com would get its alias; pve never.
+            ("github.com", True, True),
+            ("pve", True, False),
         ]
         assert proxmox_filters.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
+
+    @pytest.mark.parametrize("name", ["alpha.lab", "github.com", "dev.example.org"])
+    def test_a_name_with_a_dot_is_an_alias_when_the_person_chose_it(self, name):
+        # Proxmox allows a DNS name, and docs/guides/vms.md does: the person who typed it chose what it shadows.
+        assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"], ["alpha", name]) == ""
+        assert proxmox_filters.ssh_alias_refusals([{"name": name}], ["pve"], [name]) == []
+
+    @pytest.mark.parametrize(
+        ("name", "said"), [("192.0.2.10", "address"), ("pve.lan", "inventory"), ("pve", "inventory")]
+    )
+    def test_an_address_or_a_name_of_the_inventory_is_refused_even_when_chosen(self, name, said):
+        # pve.lan as the way this machine reaches the Proxmox host: its root SSH would go to the VM.
+        hosts = ["pve", "localhost", "pve.lan"]
+        assert said in proxmox_filters.ssh_alias_refusal(name, hosts, [name])
+        assert proxmox_filters.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
 
 
 class TestSshConfigBlocks:
@@ -482,6 +506,7 @@ class TestSshConfigPrune:
             "held": [],
             "untagged": [],
             "nameless": [],
+            "refused": [],
         }
 
     def test_keeps_a_block_whose_vm_was_rebuilt_under_a_new_vmid(self):
@@ -508,11 +533,20 @@ class TestSshConfigPrune:
         # A node that is down: Proxmox drops the name but keeps the tags.
         fleet = [vm("alpha", 9001), vm("beta", 9002), vm(None, 8001)]
         result = ssh_config_prune(self.BLOCKS, fleet, TAG)
-        assert result == {"prune": [], "held": ["old"], "untagged": [], "nameless": ["8001"]}
+        assert result == {"prune": [], "held": ["old"], "untagged": [], "nameless": ["8001"], "refused": []}
 
     def test_a_nameless_untagged_vm_holds_nothing(self):
         fleet = [vm("alpha", 9001), vm("beta", 9002), vm(None, 8000, tags=None)]
         assert ssh_config_prune(self.BLOCKS, fleet, TAG)["prune"] == ["old"]
+
+    def test_removes_an_alias_no_vm_may_have_whatever_carries_it(self):
+        # An earlier version wrote these; tagged VMs still carry pve and 3232235777, a node is down, and still both go.
+        blocks = [{"name": "alpha"}, {"name": "pve"}, {"name": "3232235777"}, {"name": "alpha.lab"}]
+        fleet = [vm("alpha", 9001), vm("pve", 9002), vm("3232235777", 9003), vm("alpha.lab", 9004), vm(None, 8001)]
+        result = ssh_config_prune(blocks, fleet, TAG, ["pve", "localhost"])
+        assert result["refused"] == ["pve", "3232235777"]
+        # A dotted name is not among them: a run that names it writes it, and it is still the VM's.
+        assert result["held"] == [] and result["prune"] == []
 
     def test_a_container_does_not_count_as_a_vm(self):
         # A tagged lxc named "old" is not what the alias was written for.
@@ -525,7 +559,7 @@ class TestSshConfigPrune:
             vm("beta", 9002, tags="ansible;claude-on-proxmox"),
         ]
         result = ssh_config_prune(self.BLOCKS[:2], fleet, TAG)
-        assert result == {"prune": [], "held": [], "untagged": [], "nameless": []}
+        assert result == {"prune": [], "held": [], "untagged": [], "nameless": [], "refused": []}
 
     def test_rejects_non_lists(self):
         with pytest.raises(AnsibleFilterError, match="as lists"):

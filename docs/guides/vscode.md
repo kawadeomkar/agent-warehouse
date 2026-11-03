@@ -72,6 +72,13 @@ and would otherwise override yours silently. Set `claude_ssh_config: false` to k
 of `~/.ssh` altogether, or `claude_ssh_config_include: false` to write the file but add the `Include`
 yourself.
 
+Since the managed file comes first, no alias is written that ssh would take for another host: a name it reads
+as an address (`192.0.2.10`, `42`, `0xbeef`), or one the inventory reaches a host by (`pve`, or the Proxmox
+host's address), whose root SSH would go to the VM instead. A name with a dot gets its alias only from a run
+that names it - `just deploy alpha.lab`, `just code alpha.lab` - and never from a fleet-wide one, which says
+it left the VM out and leaves an alias it has as it was: on a shared host a tagged VM named `github.com` could
+be anyone's, and would get this machine's `git push`.
+
 ```
 # ~/.ssh/claude-on-proxmox.conf
 # BEGIN claude-on-proxmox: alpha
@@ -211,6 +218,30 @@ conversation. Opening a window that is already open focuses it rather than start
 session; two windows on one project would share the conversation. Quitting `claude` ends the task;
 *Tasks: Run Task*, *Claude* starts another. After `just code ... --session <id>` the terminal runs
 `claude --resume <id>` instead, until a `just code` for the same project without `--session` (below).
+
+### Leaving Claude working while you are away
+
+A window that loses its connection - the laptop sleeps, the network drops - reconnects by itself, and
+for 3 hours the VM keeps its side of the window: the VS Code server, the Claude terminal and whatever
+Claude was doing, so the window picks up where it left off. After 3 hours without a window the server
+shuts down, and the terminal and its `claude` end with it: the conversation stays on disk and the next
+window's `claude --continue` brings it back, but whatever Claude was in the middle of stops there. The
+3 hours is VS Code's own `remote.SSH.reconnectionGraceTime`, in seconds, a setting of yours that this
+project never writes.
+
+To leave Claude working for longer than that:
+
+- **`/bg`** in the Claude terminal moves the conversation into one of Claude Code's
+    [background sessions](https://code.claude.com/docs/en/agent-view), a process of its own on the VM
+    that needs no window or terminal. Back in a window, `claude agents` in the shell beside the Claude
+    terminal lists it, and `claude attach <name>` opens it. Background sessions are a research preview
+    of Claude Code's; one that has finished and waited an hour unattended is stopped, and resumes where
+    it left off when you attach.
+- **[Remote Control](remote-control.md)** runs on the VM as a service of its own, so a session you start
+    from claude.ai/code or the Claude app keeps working with no window at all, and you can follow it from
+    your phone.
+- For a long command of your own - a build, a fuzzer - `tmux` is on every VM: `tmux new -s <name>` in
+    the shell, and `tmux attach -t <name>` from any later window or `ssh alpha`.
 
 ### Switches
 

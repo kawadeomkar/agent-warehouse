@@ -56,15 +56,26 @@ three to one. Dependabot moves neither file, so moving to a new `just` is by han
 the archive's line of the new release's `SHA256SUMS` as `JUST_SHA256`. The justfile's format is checked
 (`just lint just`) only by the pinned version, which `just lint` says when it skips it.
 
+The uv every VM gets is the `dev_tools` role's own pin (`dev_tools_uv_version`, with each architecture's
+SHA-256), which Dependabot does not read. It moves with the `uv` pin in `pyproject.toml`: never older than it,
+which `tests/unit/test_pins.py` holds, so a Dependabot bump of the controller's uv fails that test until the
+VM's follows, its digests taken from the release's `.sha256` files.
+
 Collections: `community.proxmox`, `community.general`, `community.docker` and `ansible.posix`, pinned
-to exact versions in `requirements.yml`.
+to exact versions in `requirements.yml`, with `community.library_inventory_filtering_v1`, which
+`community.docker` depends on with a range: unlisted, it would install whatever Galaxy published last.
 
 > **Molecule resolves `ansible-playbook` from `PATH` and only appends the virtualenv**, so the
 > environment's `bin` must be **prepended** or a different ansible-core is silently used. `just test`
 > does this; a hand-rolled `molecule test` does not.
 
 `ansible.cfg` sets the directory inventory, `roles_path`, the local `filter_plugins`, YAML callback
-output, `profile_tasks`, `forks = 20`, pipelining, and `StrictHostKeyChecking=accept-new`. There is
+output, `profile_tasks`, `forks = 20`, pipelining, and `StrictHostKeyChecking=accept-new`. Pipelining is under
+`[connection]`, so it holds for the modules run on this machine too, which carry the Proxmox token and the
+Tailscale API's credential: set for ssh alone, each of those was written into `~/.ansible/tmp` before it ran.
+Only the `yaml` and `ini` inventory plugins are enabled - `inventory/` and init's inventory, and the one Vagrant
+writes - never `script`, which runs any executable file in the inventory folder, nor `auto`;
+`tests/unit/test_ansible_config.py` holds both. There is
 deliberately no fact cache: the roles read only a few gathered facts, the one gather per configure run
 costs seconds in a run that takes minutes, and a cached entry keyed by inventory name outlived the VM it
 described, so a VM rebuilt under the same name within the hour was configured with the old VM's

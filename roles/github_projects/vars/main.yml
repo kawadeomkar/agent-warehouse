@@ -119,13 +119,18 @@ github_projects_login_start_seconds: 30
 github_projects_login_wait_seconds: 930
 github_projects_login_async_seconds: 960
 # What gh printed there, without escape sequences or control characters (see
-# github_projects_status_said), and the code and the page read out of it.
+# github_projects_status_said), and the code read out of it: a word of its own
+# in GitHub's shape, XXXX-XXXX.
 github_projects_login_text: >-
   {{ ((github_projects_login_out.content | b64decode) if github_projects_login_out.content is defined else '')
      | plain_text }}
-github_projects_login_code: "{{ github_projects_login_text | regex_search('[A-Z0-9]{4}-[A-Z0-9]{4}') or '' }}"
-github_projects_login_page: >-
-  {{ github_projects_login_text | regex_search('https://[^ \n]+') or 'https://github.com/login/device' }}
+github_projects_login_code: >-
+  {{ github_projects_login_text | regex_search('(?<![A-Za-z0-9-])[A-Z0-9]{4}-[A-Z0-9]{4}(?![A-Za-z0-9-])') or '' }}
+# Internal: the page the code is entered at, opened on this machine. GitHub's
+# own, never a URL out of gh's output: the VM chooses what gh prints there, and
+# a page of its choosing would open in your browser just as the run asks you to
+# sign in to GitHub. gh signs in to github.com alone (github_projects_login_args).
+github_projects_login_page: https://github.com/login/device
 # Internal: gh's own lines, without the closing line the start task writes
 # after it ("gh exited: N"), for the messages that quote what gh said.
 github_projects_login_said: >-
@@ -195,11 +200,20 @@ github_projects_listing_token: >-
 github_projects_token_set: "{{ github_projects_token | length > 0 }}"
 github_projects_listing_token_set: "{{ github_projects_listing_token | length > 0 }}"
 
+# A repository whose name starts with a dot would land in the projects
+# folder as a folder of settings: .claude for every Claude Code session
+# started there, whose trust Remote Control accepts in advance, .vscode for
+# the window just code opens, .claude-on-proxmox for just code's own folder.
+# Never cloned, whatever the lists say, and named in the report.
+github_projects_dotted: >-
+  {{ github_projects_listing.repos | map(attribute='name') | select('match', '[.]') | list }}
+
 # The repositories after the role's own filters: never-pushed ones out, the
 # exclude list out, the include list in when there is one.
 github_projects_candidates: >-
   {{ github_projects_listing.repos
      | rejectattr('empty')
+     | rejectattr('name', 'in', github_projects_dotted)
      | rejectattr('name', 'in', github_projects_exclude)
      | selectattr('name', 'in', github_projects_include if github_projects_include else
                                 github_projects_listing.repos | map(attribute='name') | list)

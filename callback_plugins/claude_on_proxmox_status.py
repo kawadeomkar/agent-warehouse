@@ -11,7 +11,8 @@ drawn by filter_plugins/status.py, the same functions as the finished report, lo
 own task output is shown: a task that failed is said on stderr only if the run ends without a report, since the
 report says what each failure meant, and an unreachable VM is the report's too. Task warnings, which since
 ansible-core 2.19 travel on the task result, are printed in every hook, or a stdout callback of one's own drops them
-without a word.
+without a word - through filter_plugins/text.py's plain_summary, since a module on a VM chooses their text. The
+finished report is taken only from the report play's own set_fact on this machine: any module's result can carry facts.
 
 The live region is every live output's (filter_plugins/live_region.py, docs/architecture/custom-code.md §7.8): one
 write per redraw in synchronized-output marks, nothing wrapped, a resize pushing the screen into the scrollback,
@@ -57,6 +58,9 @@ def _sibling(stem):
 
 
 live = _sibling("live_region")
+text = _sibling("text")
+# The report play's task that makes the finished report: a set_fact on this machine (playbooks/status.yml).
+REPORT_ACTIONS = frozenset({"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"})
 
 
 class CallbackModule(CallbackBase):
@@ -161,7 +165,11 @@ class CallbackModule(CallbackBase):
                 elif host != "localhost":
                     self._done_at[host] = now
                 self._redraw()
-        if isinstance(facts.get("status_report"), dict):
+        if (
+            isinstance(facts.get("status_report"), dict)
+            and host == "localhost"
+            and result.task.action in REPORT_ACTIONS
+        ):
             self._finish()
             self._reported = True
             model = facts["status_report"]
@@ -175,6 +183,15 @@ class CallbackModule(CallbackBase):
                 # The colours are for the screen: Display logs what it is given, so the log gets the plain text.
                 coloured = self._status.status_text(model, True, reading=reading) if self._color else plain
                 self._out.print([(coloured, plain)])
+
+    # --- what a module chose to say -----------------------------------------------------------------------------
+    def _handle_warnings(self, res):
+        with text.plain_events(self):
+            super()._handle_warnings(res)
+
+    def _handle_exception(self, result, use_stderr=False):
+        with text.plain_events(self):
+            super()._handle_exception(result, use_stderr=use_stderr)
 
     # A failure or an unreachable VM is the report's to say - a rescue records it, or the ping's register does - so
     # neither prints Ansible's error: only its warnings, and its message at the end of a run that left no report.

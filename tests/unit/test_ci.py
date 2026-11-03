@@ -2,7 +2,8 @@
 
 `CI result`, the one check branch protection requires, holds every other job to it. Required alone, it fails open
 where a list of required job names failed closed: a job added to the workflow and left out of its `needs`, or one
-allowed to fail, could fail and the pull request still merge. So the job set is held here.
+allowed to fail, could fail and the pull request still merge. So the job set is held here, and so is the Molecule
+image every scenario runs, pinned by digest, which the weekly canary runs unpinned.
 
 A release is an annotated SemVer tag on main (release.yml), its notes the pull requests merged since the last one,
 grouped by the label labels.yml gives each from its title's tag (.github/release.yml). Their scripts run here
@@ -74,6 +75,39 @@ def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(results, p
     assert (run.returncode == 0) is passes, (results, run.stdout, run.stderr)
     for name in RESULT["needs"]:
         assert f"{name}: {results.get(name, 'success')}" in run.stdout
+
+
+# ------------------------------------------------------------------------------------------ the Molecule image ---
+
+IMAGE = re.compile(r"\$\{MOLECULE_IMAGE:-(?P<repository>[\w./-]+)@sha256:[0-9a-f]{64}\}")
+
+
+def _molecule_images() -> dict[str, list[str]]:
+    """The image of each platform, by configuration: the shared one, then every scenario's."""
+    files = [
+        REPO / ".config" / "molecule" / "config.yml",
+        *sorted(REPO.glob("molecule/*/molecule.yml")),
+        *sorted(REPO.glob("roles/*/molecule/*/molecule.yml")),
+    ]
+    return {
+        str(path.relative_to(REPO)): [platform["image"] for platform in yaml.safe_load(path.read_text())["platforms"]]
+        for path in files
+    }
+
+
+def test_every_scenario_runs_the_one_image_pinned_by_digest():
+    # Each scenario names its own platforms, so each repeats the image: a bump that missed one would leave that
+    # scenario on the old image without a word.
+    images = _molecule_images()
+    found = {image for each in images.values() for image in each}
+    assert len(found) == 1, images
+    (image,) = found
+    assert IMAGE.fullmatch(image), image
+
+
+def test_the_canary_runs_the_pinned_image_unpinned():
+    (image,) = {image for each in _molecule_images().values() for image in each}
+    assert JOBS["canary"]["env"]["MOLECULE_IMAGE"] == IMAGE.fullmatch(image)["repository"] + ":latest"
 
 
 # ----------------------------------------------------------------------- pull requests' labels, and releases ---
