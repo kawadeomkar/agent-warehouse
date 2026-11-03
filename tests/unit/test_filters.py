@@ -423,7 +423,7 @@ class TestVmsNotNamed:
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
-    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x"])
+    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x", "1a", "0xg", "9-1"])
     def test_a_name_that_can_be_nothing_else(self, name):
         assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
 
@@ -432,11 +432,19 @@ class TestSshAliasRefusal:
         [
             # github.com: this machine's git over ssh would go to the VM's address.
             ("github.com", "dot"),
-            ("192.0.2.10", "dot"),
+            ("192.0.2.10", "address"),
             # ssh resolves a bare number, or a hex one, as an IPv4 address.
             ("3232235777", "address"),
             ("0x7f000001", "address"),
             ("127", "address"),
+            # What any platform's inet_aton takes: macOS's takes numbers past 32 bits that glibc's refuses, and both
+            # take octal and hex parts, and anything after a space.
+            ("4294967296", "address"),
+            ("12345678901234567890", "address"),
+            ("0177.1", "address"),
+            ("0X7F.0.0.1", "address"),
+            ("0x", "address"),
+            ("1.2.3.4 x", "address"),
             ("pve", "inventory"),
             ("localhost", "inventory"),
         ],

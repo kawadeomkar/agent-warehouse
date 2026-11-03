@@ -416,7 +416,7 @@ def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_writte
         # The managed file is included ahead of the user's own config: this
         # machine's git over ssh would go to the address the VM reported.
         ("github.com", "it has a dot"),
-        ("192.0.2.10", "it has a dot"),
+        ("192.0.2.10", "ssh reads it as an address"),
         ("3232235777", "ssh reads it as an address"),
         ("0x7f000001", "ssh reads it as an address"),
         ("pve", "the name of a host in the inventory"),

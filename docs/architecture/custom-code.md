@@ -45,10 +45,11 @@ name anywhere), `untagged` (a VM of that name exists without the tag; left alone
 `prune` into `held`. Pure, so every rule is a unit test rather than a fake-API fixture.
 
 **`ssh_alias_refusal(name, hosts)`** — why a VM's name cannot be its alias, or `""`: a dot (it could be a
-host's own name, `github.com`), a number ssh reads as an address (`3232235777`, `0x7f000001`, as
-`inet_aton` does), or one of `hosts`, the inventory's own (`claude_vm_inventory_hosts`). The managed file
-is included ahead of the user's own config, so such an alias would take this machine's own connections to
-that host ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
+host's own name, `github.com`), a number ssh reads as an address (`3232235777`, `0x7f000001`: one to four
+parts between dots, each decimal, octal or hex, of any size - more than any platform's `inet_aton` takes, so
+the answer is the same on every machine), or one of `hosts`, the inventory's own (`claude_vm_inventory_hosts`).
+The managed file is included ahead of the user's own config, so such an alias would take this machine's own
+connections to that host ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 **`ssh_alias_refusals(vms, hosts)`** is the same over a list, each refused VM as `{name, why}`: what a
 fleet-wide refresh leaves out and says.
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM

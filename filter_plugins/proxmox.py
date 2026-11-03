@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import socket
 from urllib.parse import unquote
 
 from ansible.errors import AnsibleFilterError
@@ -16,6 +15,13 @@ MAC_RE = re.compile(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
 # looked for in that status position: Proxmox names the VM in the detail, so
 # "500 Internal Server Error: VM 4013 is not running" must not read as a 401.
 DENIED_RE = re.compile(r"(?:^|: )40[13] |[Pp]ermission|[Aa]uthentication")
+
+# A name ssh could read as an IPv4 address, by its spelling alone: one to four
+# parts between dots, each decimal, octal or 0x-hex, of any size, and anything
+# after a space. That is everything inet_aton accepts - glibc's, which ssh on
+# Linux resolves with, and macOS's, which also takes 4294967296 - and more, on
+# every platform alike, rather than whatever this machine's own inet_aton says.
+ADDRESS_LIKE_RE = re.compile(r"(?:0x[0-9a-f]*|[0-9]+)(?:\.(?:0x[0-9a-f]*|[0-9]+)){0,3}(?:\s.*)?", re.I | re.S)
 
 
 _RAISE = object()
@@ -266,14 +272,10 @@ def ssh_alias_refusal(name, hosts=None):
     where the VM's name comes from a shared Proxmox, someone else chose it.
     """
     name = str(name)
+    if ADDRESS_LIKE_RE.fullmatch(name):
+        return "ssh reads it as an address (as it reads 3232235777 or 0x7f000001)"
     if "." in name:
         return "it has a dot, so it could be a host's own name (github.com), and ssh would take it for that host"
-    try:
-        socket.inet_aton(name)
-    except OSError:
-        pass
-    else:
-        return "ssh reads it as an address (as it reads 3232235777 or 0x7f000001)"
     if name in set(hosts or []):
         return "it is the name of a host in the inventory, which ssh would then reach at the VM's address"
     return ""
