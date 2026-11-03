@@ -1,15 +1,17 @@
 ---
-# Zed on this machine, for playbooks/code.yml's window step, before anything
-# is written on the VM: its command, `zeditor` as some Linux distributions name
-# it or `zed`. Neither name is Zed's alone - ZFS's event daemon is `zed` too,
-# in /usr/sbin or, on Arch, /usr/bin, which is why Arch names Zed `zeditor` -
-# so every command of either name on PATH is asked its version, `zeditor`s
-# first, and the first that says it is Zed is the one run: an ssh:// URL is
-# never handed to a daemon. Zed needs no extension for SSH, and installs its
-# own server on the VM (~/.zed_server) the first time it connects. Imported
-# only when the editor is Zed; every name starts with code_zed_, since a
-# skipped task still overwrites its register and another editor's file is
-# imported beside this one.
+# Zed, for playbooks/code.yml's window step, before anything is written on
+# the VM. On this machine, its command: `zeditor` as some Linux distributions
+# name it, or `zed`. Neither name is Zed's alone - ZFS's event daemon is `zed`
+# too, in /usr/sbin or, on Arch, /usr/bin, which is why Arch names Zed
+# `zeditor` - so every command of either name on PATH is asked its version,
+# `zeditor`s first, and the first that says it is Zed is the one run: an
+# ssh:// URL is never handed to a daemon. Zed needs no extension for SSH, and
+# installs its own server on the VM (~/.zed_server) the first time it
+# connects. Then the folder its URL carries, and last, read on the VM, whether
+# the tasks file in just code's directory there is just code's. Imported only
+# when the editor is Zed; every name starts with code_zed_, since a skipped
+# task still overwrites its register and another editor's file is imported
+# beside this one.
 - name: zed_check | Look for Zed's commands on this machine
   ansible.builtin.command:
     argv: [which, -a, zeditor, zed]
@@ -67,3 +69,24 @@
       digits, "/" and . _ ~ + , = : @ - there. Set vm_projects_dir to a path of only those, or open it in VS Code:
       just code {{ claude_vm_names[0] }} --editor vscode.
     quiet: true
+
+# A tasks file already in just code's directory on the VM is just code's only
+# where its first line is just code's marker (code_ownership_marker); Zed
+# reads a tasks file as JSON with comments, so the marker costs it nothing.
+# One without it is someone else's: left as it is by tasks/zed_open.yml, and
+# said. Read here, before anything is written there, since the notes, written
+# before the window, say whether the task is there. A read, on the VM, only
+# where the task is written at all.
+- name: zed_check | Read Zed's tasks already on the VM
+  ansible.builtin.slurp:
+    src: "{{ code_ws_dir }}/.zed/tasks.json"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_zed_tasks_found
+  failed_when: false
+  when: code_claude_task_written | bool
+
+- name: zed_check | Keep whether Zed's tasks there are someone else's
+  ansible.builtin.set_fact:
+    code_zed_tasks_foreign: >-
+      {{ code_zed_tasks_found.content is defined
+         and (code_zed_tasks_found.content | b64decode).splitlines() | first | default('') != code_ownership_marker }}

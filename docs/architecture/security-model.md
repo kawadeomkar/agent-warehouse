@@ -211,12 +211,37 @@ the task runs is fixed: VS Code's helpers, files of `playbooks/files/` that `jus
 unchanged and the task runs by path, with the VM name and every other value passed as an argument rather
 than spliced into a script, and the copy held by `tests/unit/test_code_session.py` to those files alone.
 
-Zed runs no task as its window opens, so with `editor: zed` nothing of the kind exists: `just code` runs
+Wherever `just code` writes in its own directory on the VM, for any editor, it first refuses a directory
+inside a checkout of the projects directory - a `.git` in any folder from the first below the projects directory
+down to it, by the path as written - so neither a workspace file nor a task file lands in a repository there,
+where git would track it or a later run would overwrite a file the repository holds. It looks nowhere else: not
+outside the projects directory, where `editor_files_dir` may point, not in a projects directory that is itself a
+checkout, and not where a symlink on the way leads, so an `editor_files_dir` in a repository is the user's to
+avoid.
+
+Zed runs no task as its window opens, so with `editor: zed` nothing starts by itself: `just code` runs
 `zed ssh://<alias><folder>` - only a `zeditor` or `zed` that says it is Zed, never ZFS's daemon of the same
-name - writes no Zed setting and never `trust_all_worktrees`, and says to run `claude` in Zed's terminal,
-which is the VM's. Zed's Agent Panel runs its Claude Agent on the VM as well, with its tools, the VM's `~/.claude`
-and its claude.ai login, as seen on Zed 1.26; the terminal still comes first, since that agent's Claude Code is
+name - writes no Zed setting, keymap, task or trust of the user's, and never `trust_all_worktrees`. It writes
+one task for the user to start, **Claude (just code)**, into `.zed/tasks.json` in its own directory on the VM,
+never a repository's, and only where that directory is inside the projects directory: fixed text, with no tag,
+which runs the shared helper `claude-start.sh` by path - the path the one value in it, held to a pattern of its
+own - held to that by `tests/unit/test_code_session.py`. The file's first line is just code's ownership marker,
+and a `tasks.json` there without it is someone else's: left as it is, and said. The helper starts a fresh
+`claude` where a `claude` of a terminal already has the folder open, so two never write one transcript, and reads
+Claude Code's registry with an isolated Python (`python3 -I`), so no `json.py` or other module of the folder - a
+repository's root, often - runs in place of the standard library's. Zed
+lists the task in a window whose folder holds that directory, in Restricted Mode too (seen on Zed 1.26.2), as it
+lists a repository's own tasks; elsewhere `just code` says to run `claude` in Zed's terminal, which is the VM's.
+
+The project binds no key and publishes no tag: Zed's spawn by tag starts every task that carries it, a
+repository's in the window too, so a published tag would be a trigger any cloned repository, or a Claude talked
+into it, could plant. The key the guide shows is the user's own, bound to a tag of their own, in their own Zed
+files; it reaches every window, local ones too, where its guarded command finds no helper and does nothing.
+Trusting the projects directory's window trusts every checkout in it - their project settings, language servers
+and MCP servers - so the guide never advises it for the Claude task alone; a Zed that holds a folder's tasks back
+until it is trusted is met with the user's own task, which needs no trust. Zed's Agent Panel runs its Claude Agent on the VM as well, with its tools, the VM's `~/.claude`
+and its claude.ai login, as seen on Zed 1.26.2; the terminal still comes first, since that agent's Claude Code is
 its own ([§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time)).
 Zed shows just code's own directory on the VM, the copied sessions' mirror in it, where VS Code's window
 hides it: its project panel, search and its own AI features can read the transcripts unless the user
-excludes the directory in their Zed settings.
+excludes the mirror (`claude-sessions/`) in their Zed settings.

@@ -61,16 +61,17 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
     }
     playbook = tmp_path / "deploy_report.yml"
     playbook.write_text(yaml.safe_dump([play], sort_keys=False))
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     variables = {
         "proxmox_template_name": "ubuntu-24.04-cloudinit",
         "proxmox_node": "pve",
         "claude_vm_names": ["alpha"],
         "deploy_sign_in": True,
         "deploy_code": True,
-        # The editors as the inventory defaults list them, which the report says the editor by.
-        "claude_editors": yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())[
-            "claude_editors"
-        ],
+        # The editors as the inventory defaults list them, and the editor setting as every playbook reads it, which
+        # the report says the editor by.
+        "claude_editors": defaults["claude_editors"],
+        "claude_editor_key": defaults["claude_editor_key"],
         **extra,
     }
     # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).

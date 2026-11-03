@@ -394,20 +394,31 @@ tailscale_login_timeout: 300
 # VS Code (vscode) by default, or Zed (zed). Every VM is made ready for any of
 # them alike (vscode_remote, below); this picks the window. `just code <name>
 # --editor <editor>` picks it for one run. Zed opens the folder over SSH, and
-# claude is started in its terminal, by you (docs/guides/zed.md).
+# starts nothing by itself: claude is a task of the window you pick, or typed
+# in its terminal (docs/guides/zed.md).
 editor: vscode
 # The editors just code can open, by the editor setting's value, one task file
-# pair each (playbooks/tasks/<editor>_check.yml and <editor>_open.yml): how each
-# is said, and whether its window runs just code's tasks as it opens - what the
-# Claude terminal, the notes' refresh and --session's terminal take. Internal,
+# pair each (playbooks/tasks/<editor>_check.yml and <editor>_open.yml). Each
+# row says, in literal values only: name, how the editor is said;
+# window_tasks, whether its window runs just code's tasks as it opens (the
+# notes' refresh, the Claude terminal's start); claude_terminal, how its
+# window gets a Claude terminal - started (a task the window runs as it
+# opens), listed (a task the user picks from the editor's list of tasks) or
+# none (neither, the default for a row without it). The last two mean
+# different things, though with these two rows they always agree. Internal,
 # not a setting: tests hold it to those files and to just code's --editor.
 claude_editors:
   vscode:
     name: VS Code
     window_tasks: true
+    claude_terminal: started
   zed:
     name: Zed
     window_tasks: false
+    claude_terminal: listed
+# The editor setting as every playbook reads it: an empty one is the
+# default's. Internal, not a setting.
+claude_editor_key: "{{ editor | default('vscode', true) | string }}"
 
 # Make each VM ready for VS Code's Remote - SSH extension: an sshd drop-in that
 # keeps the port forward the VS Code Server is reached through enabled, a
@@ -421,15 +432,18 @@ vscode_remote: true
 # things read it and they must agree.
 vm_projects_dir: ""
 
-# `just code` opens a VS Code workspace file rather than the bare folder, and
-# the file holds one task: once the window is connected, a terminal named
-# Claude runs claude in the folder, signing in to Claude first on a VM that has
-# not been. The file is the one thing just code writes on the VM, in a
-# directory of its own (empty: .claude-on-proxmox in the projects directory),
-# never in a repository. VS Code still asks once to trust the folder and to
-# allow automatic tasks; this project answers neither for you
-# (docs/guides/vscode.md). Set false to open the bare folder and write
-# nothing on the VM.
+# The Claude terminal of the window `just code` opens, as the editors list
+# says each editor gets it (claude_editors, above). In VS Code, a workspace
+# file rather than the bare folder, whose task starts claude in a terminal
+# once the window is connected, signing in to Claude first on a VM that has
+# not been; VS Code still asks once to trust the folder and to allow
+# automatic tasks, and this project answers neither for you. In an editor
+# whose window starts nothing, a task you pick from the window's list of
+# tasks, written only where just code's directory is inside the projects
+# directory. Each editor's guide in docs/guides/ says more. Their files go in
+# just code's own directory on the VM (empty: .claude-on-proxmox in the
+# projects directory), never in a repository. Set false to open the bare
+# folder and write none of them.
 editor_claude_terminal: "{{ vscode_claude_terminal }}"
 # Its name in 1.0, still read through 1.x: editor_claude_terminal is the one to set.
 vscode_claude_terminal: true
@@ -441,12 +455,13 @@ editor_files_dir: "{{ vscode_workspaces_dir }}"
 # Its name in 1.0, still read through 1.x: editor_files_dir is the one to set.
 vscode_workspaces_dir: ""
 # Session notes: a page about the VM - its addresses, how to reach it, what is
-# signed in, the just commands - that opens as a rendered preview beside the
-# Claude terminal every time the window opens. just code writes them in
-# session/ under the workspaces directory, never in a repository; the window's
-# "Session notes" task rewrites their "Signed in" section from the VM each
-# time it opens. They need that task, so they come with editor_claude_terminal
-# (docs/guides/vscode.md). Set false for neither.
+# signed in, the just commands - that just code writes in session/ under its
+# own directory on the VM, never in a repository. In VS Code it opens as a
+# rendered preview beside the Claude terminal every time the window opens,
+# and the window's "Session notes" task rewrites its "Signed in" section from
+# the VM then: there the notes need that task, so they come with
+# editor_claude_terminal. In an editor whose window runs no task they are
+# written all the same, for you to open (docs/guides/). Set false for none.
 editor_session_notes: "{{ vscode_session_notes }}"
 # Its name in 1.0, still read through 1.x: editor_session_notes is the one to set.
 vscode_session_notes: true

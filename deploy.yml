@@ -169,7 +169,7 @@
              if claude_deploy_pages | length > 0 else '' }}
         claude_deploy_window: >-
           {{ (', and opening ' ~ claude_vm_names[0] ~ ' in '
-              ~ (claude_editors[editor | default('vscode', true)] | default({})).name | default(editor | default('vscode', true)))
+              ~ (claude_editors[claude_editor_key] | default({})).name | default(claude_editor_key))
              if deploy_code | bool and claude_vm_names | length == 1 else '' }}
         claude_deploy_wait: >-
           {{ ('' if claude_deploy_pages | length == 0

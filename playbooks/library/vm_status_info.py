@@ -13,7 +13,7 @@ version_added: "1.0.0"
 description:
   - For C(just status) (playbooks/status.yml). Reads the OS and the running kernel, the newest kernel installed,
     whether a reboot is waiting and for which packages, the load, memory and uptime, the upgrades apt would make
-    and how many are security ones, and how many claude processes and VS Code windows the user has open.
+    and how many are security ones, and how many claude processes and windows of each editor the user has open.
   - Every read is fixed here, and none changes anything. The upgrades come from C(apt-get -s), a simulation that
     takes no lock and reads the lists as the last C(apt update) left them; nothing here refreshes them. Each read
     runs in a thread of its own with its own time limit, and one that runs out is said as such rather than holding
@@ -93,14 +93,14 @@ vscode_windows:
   description: How many VS Code extension hosts the user runs, one per window.
   returned: always
   type: int
-zed_windows:
-  description: How many projects Zed's remote server serves the user, one per Zed window.
-  returned: always
-  type: int
 editor_windows:
-  description: How many windows of any editor this project opens the user has, VS Code's and Zed's together.
+  description: How many windows of any editor this project opens the user has, every editor's together.
   returned: always
   type: int
+editor_windows_by:
+  description: How many windows of each editor the user has, by its key in the editors list (claude_editors).
+  returned: always
+  type: dict
 unread:
   description: Each read that failed or ran out of time, by name, with why.
   returned: always
@@ -192,10 +192,11 @@ def upgrades(timeout):
 
 def processes(root):
     """This user's claude processes, and each editor's windows - VS Code's extension hosts, one per window, and the
-    daemons of Zed's remote server, one per project it opens - from /proc; editor_windows is every editor's together.
+    daemons of Zed's remote server, one per project it opens - from /proc, by the editor's key in the editors list
+    (claude_editors); editor_windows is every editor's together, and vscode_windows stays as 1.0 has it.
 
     Zed's is as Zed starts it (~/.zed_server/zed-remote-server-<channel>-<version> run ...), its proxies beside it
-    not counted; from Zed's source, and seen on Zed 1.26, a window's daemon ending with it (docs/guides/zed.md)."""
+    not counted; from Zed's source, and seen on Zed 1.26.2, a window's daemon ending with it (docs/guides/zed.md)."""
     proc = os.path.join(root, "proc")
     claude = windows = zed = 0
     uid = os.getuid()
@@ -221,7 +222,8 @@ def processes(root):
             windows += 1
         elif os.path.basename(argv[0]).startswith("zed-remote-server") and argv[1:2] == ["run"]:
             zed += 1
-    return {"claude": claude, "vscode_windows": windows, "zed_windows": zed, "editor_windows": windows + zed}
+    by = {"vscode": windows, "zed": zed}
+    return {"claude": claude, "vscode_windows": windows, "editor_windows": sum(by.values()), "editor_windows_by": by}
 
 
 def run_all(reads, timeout):
@@ -283,8 +285,8 @@ def main():
         "security": None,
         "claude": 0,
         "vscode_windows": 0,
-        "zed_windows": 0,
         "editor_windows": 0,
+        "editor_windows_by": {},
     }
     results, unread = run_all(reads, timeout)
     found.update(results)

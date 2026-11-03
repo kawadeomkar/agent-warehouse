@@ -439,8 +439,8 @@ SYSTEM_KEYS = (
     "security",
     "claude",
     "vscode_windows",
-    "zed_windows",
     "editor_windows",
+    "editor_windows_by",
     "unread",
 )
 
@@ -818,10 +818,12 @@ def _ssh_items(vm, settings, live, now):
             busy = []
             if system.get("claude"):
                 busy.append(plural(system["claude"], "claude process", "claude processes"))
-            if system.get("vscode_windows"):
-                busy.append(plural(system["vscode_windows"], "VS Code window"))
-            if system.get("zed_windows"):
-                busy.append(plural(system["zed_windows"], "Zed window"))
+            # Each editor's windows, named as the editors list names it (status.yml's editor_names), in its order.
+            windows = system.get("editor_windows_by")
+            windows = windows if isinstance(windows, dict) else {}
+            for key, editor in (settings.get("editor_names") or {}).items():
+                if windows.get(key):
+                    busy.append(plural(windows[key], f"{editor or key} window"))
             text = f"waits for a reboot: {why}" + (
                 f"; {_and(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
                 if busy

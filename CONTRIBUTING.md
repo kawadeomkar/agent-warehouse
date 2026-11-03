@@ -151,6 +151,9 @@ and only that:
   `github_projects` and `tailscale`;
 - the settings every recipe takes from the environment or before its name: `ANSIBLE_ARGS`, `LOG_DIR`,
   `LOG_RETENTION_DAYS`, `PYTHON` and `UV`;
+- the path of the helper `just code` copies to a VM for any editor's Claude task, which a task of your own may
+  run (`docs/guides/zed.md`): `helpers/claude-start.sh` in just code's own directory there,
+  `<projects>/.claude-on-proxmox/helpers/claude-start.sh` by default, run as `bash <path>` with no arguments;
 - `just status`'s exit codes for a run that reads the fleet - 0 nothing is wrong, 1 a problem, 2 something
   could not be read, 3 the run failed - and the JSON `just status --json` and `just settings --json` print, to
   which a release may add keys but never removes or renames one (`test_status.py` and `test_settings.py` hold

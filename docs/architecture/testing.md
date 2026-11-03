@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2770 tests. By file:
+pytest over `tests/unit/`: 2823 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -47,7 +47,7 @@ pytest over `tests/unit/`: 2770 tests. By file:
   sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
   gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
-- **`just status`** (`test_status.py` 63, `test_status_live.py` 10, `test_status_vms.py` 14,
+- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 15,
   `test_status_work.py` 3): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
   `local.yml`, the twelve buckets of a day at Proxmox VE 9's resolution and 8's, the ranking and exit code,
@@ -72,6 +72,8 @@ pytest over `tests/unit/`: 2770 tests. By file:
   repositories - a worktree under `.claude/worktrees/` and one outside the projects directory, a branch with
   no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file of them, `.git`
   included, as it was after.
+  Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
+  ACCESS line names the editor that is set.
 - **`just settings`** (`test_settings.py` 111): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
@@ -98,6 +100,8 @@ pytest over `tests/unit/`: 2770 tests. By file:
   name shown alone, an unknown name or a refused value never said back, a role variable set by hand written where
   it is and named after a reset, a quoted key never written twice, `hosts.yml`'s group vars ranked below
   `local.yml`, and no host-pattern warning.
+  The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
+  taking the old one's line out, `--reset` on either taking both.
 - **The stdout callback** (`test_attention_callback.py` 21): `callback_plugins/claude_on_proxmox.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
@@ -114,8 +118,8 @@ pytest over `tests/unit/`: 2770 tests. By file:
   it through `harness._at_a_pseudo_terminal`, and every live test through `tests/unit/live_kit.py`, which gives
   each run a `HOME` of its own.
 - **The live output** (`test_run_view.py` 109, `test_deploy_live.py` 19, `test_login_live.py` 3,
-  `test_destroy_live.py` 4, `test_code_live.py` 3, `test_lint_live.py` 5, `test_init_live.py` 2,
-  `test_test_live.py` 11, `test_live_recipes.py` 38, `test_live_commands.py` 29): the model, fed
+  `test_destroy_live.py` 4, `test_code_live.py` 4, `test_lint_live.py` 5, `test_init_live.py` 2,
+  `test_test_live.py` 11, `test_live_recipes.py` 39, `test_live_commands.py` 29): the model, fed
   events with the time given - a running, a waiting, a failed, a dry and a fleet run's frame, a wait known
   by how long it runs, a step's time its own tasks', a running stage's ended steps whole, a report a later
   report on its matter made old left out of the summary, as under `just deploy`, no line wider than the
@@ -288,7 +292,7 @@ pytest over `tests/unit/`: 2770 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 226): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 270): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -298,6 +302,10 @@ pytest over `tests/unit/`: 2770 tests. By file:
   cannot find - the refresh after a sign-in in the terminal, the zone `code.yml` finds (`TZ`, the
   `/etc/localtime` link on Linux and macOS, `/etc/timezone`, else UTC, shell syntax and paths refused),
   and the workspace each window gets: the notes' folder only where its own folder holds them.
+  Zed's window as well, with a stand-in `zed` and `zeditor` first on PATH: ZFS's `zed` passed over by its
+  `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json` written only where the
+  window lists it and never over a file that is someone else's, and the editors list held to the task files and to
+  `--editor`.
 - **The session handoff** (`test_session_handoff.py` 151): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their
@@ -324,9 +332,11 @@ pytest over `tests/unit/`: 2770 tests. By file:
   machine, changed on both, unpushed, tracking another remote, gone, a fetch that fails, a detached `HEAD`,
   an ignored file in the way, an rsync that fails - leaving the VM's checkout where it was, and no run
   printing the marker the transcripts carry.
-- **The session notes** (`test_session_notes.py` 15): `vm_session.md.j2` rendered as `code.yml`
+- **The session notes** (`test_session_notes.py` 16): `vm_session.md.j2` rendered as `code.yml`
   renders it - the placeholder, a live section carried over, the parts switched off, the same file
   from every window, and no time, template marker or token shape in it.
+  In an editor whose window runs no task (Zed), the notes say what to do instead, and name the listed Claude task
+  only where just code wrote it.
 - **`just init`'s questions** (`test_init_settings.py` 71, `test_settings_filter.py` 83):
   `init_settings.yml` against copies of the example files in the test's directory - never the checkout's,
   which a static test holds - with no terminal (nothing asked; nothing written but the values given) and at
@@ -477,7 +487,7 @@ pytest over `tests/unit/`: 2770 tests. By file:
   leaves `docs/`; the root files' links, the pages the repository names and the architecture sections it
   cites all exist, a section cited from another page is a link, and the README's quick start matches the
   wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 38, `test_ratchets.py` 3): the
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 41, `test_ratchets.py` 3): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor

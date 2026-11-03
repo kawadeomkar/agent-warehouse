@@ -3,10 +3,10 @@
 Against the fake Proxmox, its guest agent giving the VM's address, with test_code_session.py's world - a checkout and
 its sessions here, the VM's home beside it, this machine standing in for the VM - and its pins (_window_extra): the
 developer's VS Code settings, time zone and ~/.claude never read, the managed SSH config and the user's in the test's
-own directory, stand-ins for `which` and `code` first on a PATH of the system's directories only, and the live kit's
-HOME. What a person sees: each of the window's nine steps, the VM in the header, the region gone and the window
-opened; and a VM that is not there, said under the step it failed in, the raise naming nothing of its own
-(docs/architecture/custom-code.md §7.5).
+own directory, stand-ins for `which`, `code` and `zed` first on a PATH of the system's directories only, and the live
+kit's HOME. What a person sees: each of the window's steps, the VM in the header, the region gone and the window
+opened, in each editor of the editors list; and a VM that is not there, said under the step it failed in, the raise
+naming nothing of its own (docs/architecture/custom-code.md §7.5).
 """
 
 from __future__ import annotations
@@ -26,6 +26,23 @@ CODE_STAND_IN = """#!/bin/sh
 echo "code $*" >> "{log}"
 [ "$1" = --list-extensions ] && echo ms-vscode-remote.remote-ssh
 exit 0
+"""
+# Zed's command, which says it is Zed when asked its version and records anything else it is asked.
+ZED_STAND_IN = """#!/bin/sh
+[ "$1" = --version ] && echo "Zed 1.26.2 - /Applications/Zed.app" && exit 0
+echo "zed $*" >> "{log}"
+"""
+# which as which answers: each name it has a stand-in for, in the order asked, -a for every one.
+WHICH_STAND_IN = """#!/bin/sh
+[ "$1" = -a ] && shift
+missing=0
+for name; do
+  case "$name" in
+    code|zed) echo "{bin}/$name" ;;
+    *) missing=1 ;;
+  esac
+done
+exit $missing
 """
 STEPS = (
     "find the VM",
@@ -53,13 +70,14 @@ def _seed(base):
             pass
 
 
-def _code(root, title, vm="alpha", piped=False):
+def _code(root, title, vm="alpha", piped=False, editor="vscode"):
     world = tcs._world(root / "world")
     bin_dir = root / "bin"
     bin_dir.mkdir()
     (bin_dir / "code").write_text(CODE_STAND_IN.format(log=root / "code.log"))
-    (bin_dir / "which").write_text(f'#!/bin/sh\n[ "$1" = code ] && echo "{bin_dir}/code" && exit 0\nexit 1\n')
-    for name in ("code", "which"):
+    (bin_dir / "zed").write_text(ZED_STAND_IN.format(log=root / "code.log"))
+    (bin_dir / "which").write_text(WHICH_STAND_IN.format(bin=bin_dir))
+    for name in ("code", "zed", "which"):
         (bin_dir / name).chmod(0o755)
     ssh = root / "ssh"
     ssh.mkdir(mode=0o700)
@@ -97,6 +115,7 @@ def _code(root, title, vm="alpha", piped=False):
             "vscode_claude_sessions": True,
             "claude_ssh_config_file": str(ssh / "claude-on-proxmox.conf"),
             "claude_ssh_user_config": str(ssh / "config"),
+            "vm_editor": editor,
         }
         env = kit.environment(root, title, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         desktop = env["PATH"].split(os.pathsep)[0]
@@ -108,12 +127,18 @@ def _code(root, title, vm="alpha", piped=False):
         pve.terminate()
         pve.wait(timeout=10)
     ran.code = (root / "code.log").read_text().splitlines() if (root / "code.log").exists() else []
+    ran.world = world
     return ran
 
 
 @pytest.fixture(scope="module")
 def opened(tmp_path_factory):
     return _code(tmp_path_factory.mktemp("code_opened"), "code alpha")
+
+
+@pytest.fixture(scope="module")
+def zed_opened(tmp_path_factory):
+    return _code(tmp_path_factory.mktemp("code_zed"), "code alpha", editor="zed")
 
 
 @pytest.fixture(scope="module")
@@ -135,6 +160,20 @@ def test_the_summary_says_each_step_and_no_row_of_the_fleets_skipped_tasks(opene
     # Each step by its whole name, in its order; just deploy's fleet, skipped, no row.
     said = [re.match(r"^ ✓ (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
     assert said == list(STEPS), table
+
+
+def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed_opened):
+    # The window step begins at Zed's first task as at VS Code's: the shared helper and the task file are drawn
+    # under it, never under the notes before it.
+    assert zed_opened.rc == 0, zed_opened.text
+    zed_opened.assert_drawn_and_gone()
+    table = zed_opened.transcript.split("STEPS", 1)[1].split("\n\n", 1)[0]
+    said = [re.match(r"^ ✓ (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
+    assert said == list(STEPS), table
+    projects = zed_opened.world["vm"] / "projects"
+    assert zed_opened.code == [f"zed ssh://alpha{projects}"], zed_opened.code
+    tasks = projects / ".claude-on-proxmox" / ".zed" / "tasks.json"
+    assert tasks.read_text().startswith(tcs.MARKER_LINE + "\n"), tasks.read_text()
 
 
 def test_a_vm_that_is_not_there_is_said_under_the_step_it_failed_in(missing):

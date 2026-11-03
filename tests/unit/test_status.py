@@ -110,15 +110,21 @@ PROMISED_KEYS = {
         "vscode_windows",
     },
 }
-# In the report, never promised: how many windows one editor has. editor_windows, every editor's together, is the
-# promise (vscode_windows is 1.0's); zed_windows is what one Zed's processes were read to mean (Zed 1.26).
-UNPROMISED_SYSTEM_KEYS = {"zed_windows"}
+# In the report, never promised: how many windows each editor has, one map by the editors list's keys, promised only
+# with the contract. editor_windows, every editor's together, is the promise (vscode_windows is 1.0's).
+UNPROMISED_SYSTEM_KEYS = {"editor_windows_by"}
 
 
 def test_every_key_of_a_vms_system_part_is_promised_or_named_as_not() -> None:
     # A key the model adds is a choice: promised for 1.x, or named here as not; never promised by default.
     assert set(S.SYSTEM_KEYS) == PROMISED_KEYS["system"] | UNPROMISED_SYSTEM_KEYS
     assert not PROMISED_KEYS["system"] & UNPROMISED_SYSTEM_KEYS
+
+
+def test_no_editor_has_a_windows_key_of_its_own() -> None:
+    # A key per editor puts code of each editor's own into every client of --json: an editor's windows are its entry
+    # in editor_windows_by. vscode_windows and editor_windows stay, as 1.0 promised them.
+    assert {key for key in S.SYSTEM_KEYS if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
 
 
 HOSTILE = [
@@ -337,9 +343,10 @@ SETTINGS = {
     "storage": "local-lvm",
     "sections": "",
     "tailscale_enabled": True,
-    # As status.yml resolves the editor setting's default.
+    # As status.yml resolves the editor setting's default, and names every editor of the list.
     "editor": "vscode",
     "editor_name": "VS Code",
+    "editor_names": {"vscode": "VS Code", "zed": "Zed"},
 }
 
 
@@ -1162,6 +1169,8 @@ SYSTEM = {
     "security": 45,
     "claude": 12,
     "vscode_windows": 3,
+    "editor_windows": 5,
+    "editor_windows_by": {"vscode": 3, "zed": 2},
     "unread": {"upgrades": "it took longer than 20 s"},
 }
 TAILSCALE = {
@@ -1364,6 +1373,27 @@ def test_the_longest_footer_and_kernel_fit_100_columns() -> None:
     system = S._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
     kernel = S.plain(system[1])
     assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= S.WIDTH, kernel
+
+
+def test_a_reboot_says_each_editors_windows_as_the_editors_list_names_them() -> None:
+    # One map of the windows open, by the editors list's keys and in its order: an editor the list gains is said with
+    # no line of its own here, and a key the list has not got is never said.
+    fleet = _fleet()
+    fleet["vms"][0]["address"] = "192.0.2.60"
+    fleet["settings"]["editor_names"] = {"vscode": "VS Code", "zed": "Zed", "helix": "Helix"}
+    windows = {"zed": 2, "vscode": 1, "helix": 3, "emacs": 4}
+    system = {**SYSTEM, "claude": 1, "editor_windows_by": windows}
+    found = {"localhost": {"fleet": fleet}, "alpha": {"ssh": {"reached": True, "system": system}}}
+    model = S.status_report(found, "now", 1_800_000_000)
+    (text,) = [it["text"] for it in model["attention"] if it["text"].startswith("waits for a reboot")]
+    assert text == (
+        "waits for a reboot: kernel 6.8.0-147 is installed, 6.8.0-142 runs; 1 claude process, 1 VS Code window,"
+        " 2 Zed windows and 3 Helix windows are open there"
+    )
+    # A map that is not one, as a VM may send, is no window at all.
+    system["editor_windows_by"] = ["vscode"]
+    (text,) = [it["text"] for it in S.status_report(found, "now", 1_800_000_000)["attention"] if "reboot" in it["text"]]
+    assert text.endswith("; 1 claude process is open there"), text
 
 
 def test_a_vm_is_dated_by_its_disk_and_drawn_from_then_on() -> None:

@@ -178,8 +178,10 @@ CONFIGURE_FAILURES = Causes(
 # The window, as just code and just deploy open it: code.yml's own tasks between its imports, each run starting at a
 # task, and the task files it imports. Each editor's two files are steps by their first task, as drawn, without its
 # file's prefix: it begins the step for the rest of the file and for the rescue after it, where a file's step would
-# leave the rescue to the step before.
-# The folder is looked for here and then on the VM, around the alias: one step.
+# leave the rescue to the step before. Every editor's window file begins with the helpers' directory, so one name
+# begins the window for each of them.
+# The folder is looked for here and then on the VM, around the alias, and so is a checkout around just code's own
+# directory: one step.
 WINDOW = (
     Step("find the VM", starts=["Refuse an editor just code cannot open", "Refuse anything but one VM"]),
     Step("reach it", starts=["Reach the VM the way just deploy --only configure does"]),
@@ -190,7 +192,7 @@ WINDOW = (
     Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),
     Step("the notes", starts=["Read the session notes already on the VM"]),
-    Step("window", starts=["Look for the directory for the helpers on the VM", "Open the folder in Zed"]),
+    Step("window", starts=["Look for the directory for the helpers on the VM"]),
 )
 # just init's questions, each a step from the include that asks it, and the vault the answers go into.
 INIT_QUESTIONS = (

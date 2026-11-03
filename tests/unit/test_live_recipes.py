@@ -187,6 +187,18 @@ def test_a_step_begun_in_an_imported_file_begins_at_its_first_task(name):
                         )
 
 
+def test_the_window_begins_at_every_editor_s_first_task_of_its_window():
+    # Each editor in the editors list opens its window with tasks/<editor>_open.yml: its first task, whatever it is
+    # named, begins the window step of just code's run and of just deploy's, or the window is drawn under the notes.
+    editors = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())["claude_editors"]
+    for name in ("code", "deploy"):
+        stage = next(stage for stage in recipes.RECIPES[name].stages if any(s.label == "window" for s in stage.steps))
+        window = next(step for step in stage.steps if step.label == "window")
+        for editor in editors:
+            first = _load_yaml(REPO / "playbooks" / "tasks" / f"{editor}_open.yml")[0]["name"]
+            assert re.sub(r"^[a-z0-9_]+ \| ", "", first) in window.starts, (name, editor, first)
+
+
 @pytest.mark.parametrize("name", RECIPES)
 def test_every_fact_a_declaration_reads_is_set_by_a_task(name):
     recipe = recipes.RECIPES[name]

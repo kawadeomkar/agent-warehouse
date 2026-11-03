@@ -71,13 +71,16 @@
   vars:
     # The editor whose task files open the window: the editor setting, or
     # --editor for one run (vm_editor), among the editors the inventory
-    # defaults list (claude_editors): how each is said, and whether its window
-    # runs just code's tasks when it opens, which is what the Claude terminal,
-    # the notes' refresh and --session's terminal take.
+    # defaults list (claude_editors): how each is said; whether its window
+    # runs just code's tasks when it opens, which is what the notes' refresh
+    # and --session's terminal take; and how its window gets a Claude
+    # terminal - started as the window opens, listed for the user to pick, or
+    # none.
     code_editors: "{{ claude_editors }}"
-    code_editor: "{{ vm_editor | default(editor | default('vscode', true), true) | string }}"
+    code_editor: "{{ vm_editor | default(claude_editor_key, true) | string }}"
     code_editor_name: "{{ (code_editors[code_editor] | default({})).name | default(code_editor) }}"
     code_editor_tasks: "{{ (code_editors[code_editor] | default({})).window_tasks | default(false) | bool }}"
+    code_editor_claude: "{{ (code_editors[code_editor] | default({})).claude_terminal | default('none') }}"
     # code_ssh is the result of whichever task connected. ssh's error can hold
     # line breaks, and text the VM sent before the login: said on one line,
     # with no control character reaching this terminal.
@@ -97,10 +100,58 @@
          and editor_session_notes | default(vscode_session_notes | default(true)) | bool }}
 
     # Whether anything goes into just code's own directory on the VM: the
-    # workspace file and VS Code's helpers, the notes, or session copies.
+    # editor's files for the Claude terminal (VS Code's workspace file and
+    # helpers, or the task file and the shared helper an editor lists), the
+    # notes, or session copies.
     code_writes_its_directory: >-
-      {{ (code_terminal and code_editor_tasks) or code_notes | bool
-         or code_session_plan.sessions | default([]) | length > 0 }}
+      {{ (code_terminal and code_editor_claude == 'started') or code_claude_task_written | bool
+         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 }}
+    # Whether an editor that lists its Claude task gets one, on this VM and
+    # so in every window of it: only where just code's directory is inside
+    # the projects directory (code_ws_below, below), the folder of the window
+    # that can list it, and its helper's path is one the task can be handed
+    # as it is. A task file there that is not just code's is the editor's
+    # file to leave as it is.
+    code_claude_task_written: >-
+      {{ code_terminal and code_editor_claude == 'listed' and code_ws_below | length > 0
+         and code_start_helper is match(code_helper_path_pattern) }}
+    # And whether that task is there once the window opens, which the notes
+    # say: written, and over no file of someone else's at its path, which the
+    # editor's own check reads on the VM before the notes are written.
+    code_claude_task_there: >-
+      {{ code_claude_task_written | bool and not code_zed_tasks_foreign | default(false) | bool }}
+
+    # The helpers' directory, in just code's own directory on the VM, and
+    # the helpers any editor's task runs there by path: fixed files in
+    # playbooks/files/, copied unchanged, run by an interpreter (bash
+    # <helper>), and taking nothing variable. Each editor's own helpers are
+    # listed in its vars file; a file of playbooks/files/ is shared or one
+    # editor's, never both. Their paths are in files of the user's own (a
+    # task of theirs runs the shared helper), so they stay
+    # (tests/unit/test_persisted_names.py).
+    code_helpers_dir: "{{ code_ws_dir }}/helpers"
+    code_shared_helpers: [claude-start.sh]
+    code_start_helper: "{{ code_helpers_dir }}/claude-start.sh"
+    # What a helper's path may hold to be handed to an editor's task as it
+    # is, an argument no editor quotes for a shell: an absolute path of
+    # letters, digits, ".", "_", "-" and "/". Its own, never the folder
+    # pattern an editor's URL takes, which allows more.
+    code_helper_path_pattern: '^/[A-Za-z0-9._/-]+$'
+    # The first line of every file in JSON with comments that just code
+    # writes for an editor to read, from 1.1 on - a tasks or settings file:
+    # today the task file of the editor that lists its Claude task, any other
+    # editor's later - which says the file is just code's: one there without
+    # it is someone else's, and left as it is. The helpers and the notes, a
+    # script and a page, carry none: they are just code's by where they live,
+    # its helpers' and its notes' directories. Any editor's, and written on
+    # VMs, so it stays (tests/unit/test_persisted_names.py).
+    code_ownership_marker: "// Written by just code (claude-on-proxmox); edits here are overwritten."
+    # The directories from the first below the projects directory down to
+    # just code's own, by name, which the checkout refusal looks in; none
+    # for a directory outside the projects directory.
+    code_ws_below: >-
+      {{ (code_ws_dir | normpath)[(code_root | normpath | length) + 1:].split('/')
+         if (code_ws_dir | normpath).startswith((code_root | normpath) ~ '/') else [] }}
 
     # The session handoff (tasks/session_read.yml, tasks/session_write.yml):
     # the sync, on unless claude_sessions_sync is false, and --session, which
@@ -474,11 +525,13 @@
               {{ code_editor_name }} is handed it as written.
             quiet: true
 
-        # The workspace files' directory is not a project, though a --project can
+        # just code's own directory is not a project, though a --project can
         # name it, and is not the projects directory either: its files would sit
-        # among the repositories, and project/ would be listed as one. Only with
-        # the terminal or the sessions on, which is when the directory is used at all; it
-        # is the folder opened only for the terminal, whose workspace files it holds.
+        # among the repositories, and project/ would be listed as one. Wherever
+        # anything goes into it (code_writes_its_directory: the notes alone, for
+        # an editor whose window runs no tasks, too), and with the terminal or the
+        # sessions on, whose tasks use it even where nothing new goes in; it is
+        # the folder opened only for the terminal, whose workspace files it holds.
         - name: Refuse a workspace directory that is not absolute, is the projects directory, or is the folder
           ansible.builtin.assert:
             that:
@@ -495,7 +548,7 @@
                  else code_ws_dir ~ ' on ' ~ claude_vm_names[0]
                       ~ ' is where just code keeps its own files, not a project.' }}
             quiet: true
-          when: code_terminal or code_session_on | bool
+          when: code_terminal or code_session_on | bool or code_writes_its_directory | bool
 
         # The one VM opened is always one the person chose: named, or the
         # default of a bare deploy, which has no vm_name and runs discovery
@@ -572,9 +625,42 @@
               {%- endif -%}
             quiet: true
 
-        # The editor on this machine, before anything is written on the VM: each
-        # editor's own file, imported for that editor alone. Each registers names
-        # of its own, since a skipped task still overwrites its register.
+        # just code writes beside the repositories, never in one, whichever
+        # editor opens the window: where anything goes into its own directory,
+        # no directory from the first below the projects directory down to it
+        # may hold a .git, a checkout's or a worktree's. Only those, so a home
+        # directory kept in git (dotfiles) refuses nothing.
+        - name: Look for a checkout around just code's own directory on the VM
+          ansible.builtin.stat:
+            path: "{{ code_root ~ '/' ~ code_ws_below[:code_ws_depth] | join('/') ~ '/.git' }}"
+            get_checksum: false
+          delegate_to: "{{ claude_vm_names[0] }}"
+          register: code_checkouts_found
+          loop: "{{ range(1, code_ws_below | length + 1) | list }}"
+          loop_control:
+            loop_var: code_ws_depth
+          when: code_writes_its_directory | bool
+
+        # The checkout is named by the path the VM's stat returned: plain text,
+        # like everything a VM says.
+        - name: Refuse just code's own directory inside a checkout
+          vars:
+            code_checkouts: >-
+              {{ code_checkouts_found.results | default([]) | selectattr('stat', 'defined')
+                 | selectattr('stat.exists') | map(attribute='stat.path') | map('dirname') | map('plain_text') | list }}
+          ansible.builtin.assert:
+            that: code_checkouts | length == 0
+            fail_msg: >-
+              {{ code_ws_dir }}, just code's own directory on {{ claude_vm_names[0] }} (editor_files_dir), is inside
+              the checkout {{ code_checkouts | first | default('') }}: just code writes beside the repositories,
+              never in one. Set editor_files_dir to a directory outside every checkout.
+            quiet: true
+
+        # The editor on this machine, before anything is written on the VM, and
+        # what of the editor's own the VM holds already, which decides what is
+        # written there: each editor's own file, imported for that editor alone.
+        # Each registers names of its own, since a skipped task still overwrites
+        # its register.
         - name: Check VS Code on this machine
           ansible.builtin.import_tasks: tasks/vscode_check.yml
           when: code_editor == 'vscode'

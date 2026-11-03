@@ -7,9 +7,13 @@
 {%- set vm = claude_vm_addressed[0] -%}
 {%- set gib = 1024 * 1024 * 1024 -%}
 {#- The editor the window is in, and whether it runs just code's tasks as it opens: VS Code's does, and so refreshes
-    the live section and starts the Claude terminal; another's runs nothing, and the page says what to do instead. -#}
+    the live section; another's runs nothing, and the page says what to do instead. How the editor gets its Claude
+    terminal is the editors list's (claude_terminal): started as the window opens, or listed for the user to pick
+    where the task is there (code_claude_task_there, the VM's and not one window's): written, and not kept out by a
+    tasks file of someone else's, which the editor's check reads before these notes are written. -#}
 {%- set editor_name = code_editor_name | default('VS Code') -%}
 {%- set window_tasks = code_editor_tasks | default(true) | bool -%}
+{%- set claude_terminal = code_editor_claude | default('started' if window_tasks else 'none') -%}
 # {{ name }}
 
 VM {{ vm.vmid }} on Proxmox node **{{ vm.node }}** · written by `just code` on your machine · not in any repository · edits here are overwritten
@@ -56,8 +60,10 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 
 ## Start here
 
-{% if window_tasks %}
+{% if claude_terminal == 'started' %}
 - The terminal below runs Claude Code: `claude --continue` picks this folder's conversation up; `/clear` starts afresh.
+{% elif claude_terminal == 'listed' and code_claude_task_there | default(false) | bool %}
+- In the window of `just code {{ name }}`, the task **Claude (just code)** runs Claude Code in a terminal of {{ editor_name }}'s, which is this VM's: it picks the folder's conversation up, or starts a fresh one where a `claude` already has it open; `/clear` starts afresh. In any other window, run `claude` in its terminal. How to start the task: `docs/guides/{{ code_editor }}.md` in the project.
 {% else %}
 - Run `claude` in {{ editor_name }}'s terminal, which is this VM's: `claude --continue` picks the folder's conversation up; `/clear` starts afresh.
 {% endif %}

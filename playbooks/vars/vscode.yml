@@ -6,15 +6,14 @@
 # (tasks/vscode_*.yml) read them. Every name starts with code_, as every
 # name code.yml sets does.
 
-# VS Code's helpers, on the VM in just code's own directory there, which the
-# workspace's tasks run: fixed files in playbooks/files/, copied unchanged by
-# tasks/vscode_open.yml, each run with `bash -l <helper> <arguments>`, anything
-# variable an argument, never script text. A login shell, because tasks start
-# non-login shells and claude is on the login PATH only. They are VS Code's:
-# they take what only a VS Code task can carry, and use VS Code Server's BROWSER
-# and `code -r`. What each does, and its arguments in order, is said at the top
-# of its file.
-code_helpers_dir: "{{ code_ws_dir }}/helpers"
+# VS Code's helpers, on the VM in the helpers' directory of just code's own
+# there (code_helpers_dir, code.yml's), which the workspace's tasks run: fixed
+# files in playbooks/files/, copied unchanged by tasks/vscode_open.yml, each
+# run with `bash -l <helper> <arguments>`, anything variable an argument,
+# never script text. A login shell, because tasks start non-login shells and
+# claude is on the login PATH only. They are VS Code's: they take what only a
+# VS Code task can carry, and use VS Code Server's BROWSER and `code -r`. What
+# each does, and its arguments in order, is said at the top of its file.
 code_helpers: [claude-terminal.sh, session-notes.sh, session_notes.py]
 code_terminal_helper: "{{ code_helpers_dir }}/claude-terminal.sh"
 code_notes_helper: "{{ code_helpers_dir }}/session-notes.sh"

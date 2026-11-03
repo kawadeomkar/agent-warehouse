@@ -172,12 +172,26 @@ restate them are not treated as vulnerabilities:
   to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
   it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
   (`docs/guides/zed.md`).
-- With `editor: zed`, `just code` runs `zed ssh://<alias><folder>` and writes nothing for Zed, nor any Zed
-  setting of yours: no task starts on its own, and you run `claude` in Zed's terminal, which is the VM's. It
+- `just code` refuses to write in its own directory on the VM where that directory is inside a checkout of the
+  projects directory - a `.git` in any folder from the first below the projects directory down to it, by the path
+  as written - for every editor. It looks nowhere else: not outside the projects directory, where
+  `editor_files_dir` may point, not in a projects directory that is itself a checkout, and not where a symlink on
+  the way leads. Keep `editor_files_dir` out of every repository.
+- With `editor: zed`, `just code` runs `zed ssh://<alias><folder>` and writes two files for Zed, in its own
+  directory on the VM and only where that is inside the projects directory - `.zed/tasks.json`, a
+  **Claude (just code)** task of fixed text with no tag, and the helper it runs, `helpers/claude-start.sh` - and no
+  Zed setting, keymap, task or trust of yours: no task starts on its own, and you start that one, or `claude` in
+  Zed's terminal, which is the VM's. The tasks file starts with just code's marker line, and one there without it
+  is left as it is, and said. The helper starts a fresh `claude` where one of a terminal already has the folder
+  open, never a second on its conversation. Zed lists a folder's tasks in Restricted Mode too (seen on Zed
+  1.26.2), your repositories' own beside it. The project binds no key and publishes no tag, which any repository
+  could put on a task of its own; the key `docs/guides/zed.md` shows is yours, with a tag of yours, and reaches
+  every window. Trusting the projects directory's window trusts every checkout in it, so do not trust it for the
+  Claude task alone. It
   runs only a `zeditor` or `zed` that says it is Zed when asked its version, so ZFS's event daemon, also
   named `zed`, is never handed the VM. Zed's Agent Panel runs its Claude Agent on the VM as well: Zed's
   remote server installs it there and starts it as the VM's user, with the VM's `~/.claude` and claude.ai
-  login, so its tools have the VM's files in reach and not this machine's (seen on Zed 1.26; Zed's
+  login, so its tools have the VM's files in reach and not this machine's (seen on Zed 1.26.2; Zed's
   documentation does not say). Its Claude Code is the one its npm package bundles, at the version Zed's
   registry installs, not the one `just deploy` keeps current. Zed's remote server, in the VM's
   `~/.zed_server`, and that agent, in `~/.local/share/zed/`, are the VM user's to replace, as VS Code

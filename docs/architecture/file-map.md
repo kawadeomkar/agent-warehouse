@@ -62,10 +62,12 @@ playbooks/
   tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
                                   what VS Code will ask
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
-  tasks/zed_open.yml              just code's Zed window: zed ssh://<alias><folder>, and claude in Zed's terminal
-  files/                          VS Code's helpers, copied to the VM unchanged and run there by the window's
-                                  tasks: claude-terminal.sh (the Claude terminal), session-notes.sh and
-                                  session_notes.py (the notes' live section)
+  tasks/zed_open.yml              just code's Zed window: the Claude (just code) task and its helper on the VM,
+                                  zed ssh://<alias><folder>, and claude in Zed's terminal
+  files/                          the helpers, copied to the VM unchanged and run there by the window's tasks:
+                                  VS Code's claude-terminal.sh (the Claude terminal), session-notes.sh and
+                                  session_notes.py (the notes' live section); any editor's claude-start.sh (a
+                                  Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias

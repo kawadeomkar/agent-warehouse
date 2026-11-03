@@ -520,8 +520,11 @@ without a report.
 **`vm_status_info`** (`playbooks/library/`), the one module status runs on a VM, as the VM user and
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
-refreshes nothing) would make and how many are security ones, and the user's own claude processes and VS
-Code extension hosts, one per window. Every read is fixed in its code, runs in a thread of its own with
+refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
+editor's windows: VS Code's extension hosts and the daemons of Zed's remote server, one per window, kept by the
+editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
+`vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
+as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
 its own time limit - one that runs out is said by name and the rest still land - and the one program it
 runs, `/usr/bin/apt-get`, by its absolute path: the VM user's PATH over SSH starts with directories the user
 owns. Its `root` option reads a fixture tree in the tests.

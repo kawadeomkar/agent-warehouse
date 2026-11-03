@@ -145,11 +145,14 @@
 # vm_projects_dir: ""
 # In VS Code, `just code` opens a workspace file that starts claude in a
 # terminal of the window, once you have trusted the folder and allowed
-# automatic tasks. Set false to open the bare folder and write nothing on the
-# VM; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code
-# alpha. Zed starts no terminal by itself, so in Zed this changes nothing.
+# automatic tasks. In Zed (docs/guides/zed.md) it writes a task, Claude
+# (just code), which the window of the projects directory lists under "task:
+# spawn", and the helper it runs: nothing starts by itself there. Set false to
+# open the bare folder and write none of them; for one run,
+# ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha.
 # editor_claude_terminal: true
-# Where those files go on the VM, as an absolute path of its own. Empty:
+# Where those files go on the VM, as an absolute path of its own, never inside
+# a repository: just code refuses one in a checkout of vm_projects_dir. Empty:
 # .claude-on-proxmox in vm_projects_dir.
 # editor_files_dir: ""
 # A page about the VM - addresses, what is signed in, the just commands - opened

@@ -20,8 +20,8 @@
   hosts: localhost
   gather_facts: false
   vars:
-    # The editor just code opens: the setting, an empty one the default's, as code.yml resolves it.
-    status_editor: "{{ editor | default('vscode', true) | string }}"
+    # The editor just code opens: the setting, an empty one the default's (claude_editor_key).
+    status_editor: "{{ claude_editor_key }}"
     status_settings:
       names: "{{ claude_vm_names if vm_name is defined else [] }}"
       sections: "{{ status_only | default('') | status_sections }}"
@@ -36,6 +36,10 @@
       # The editor just code opens, by its key and its name, for the line under ACCESS.
       editor: "{{ status_editor }}"
       editor_name: "{{ ((claude_editors | default({}))[status_editor] | default({})).name | default(status_editor, true) }}"
+      # Every editor's name by its key, in the editors list's order, for the windows a VM has open of each.
+      editor_names: >-
+        {{ dict(claude_editors | default({}) | dict2items | map(attribute='key')
+           | zip(claude_editors | default({}) | dict2items | map(attribute='value.name', default=''))) }}
   tasks:
     # status_sections refuses a section the report has not got, naming the ones it has; the recipe has checked
     # --only already, so this is for a run by hand.

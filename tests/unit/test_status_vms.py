@@ -1,7 +1,7 @@
 """`just status` inside the VMs: what playbooks/status.yml reads over SSH, and that it changes nothing there.
 
 - vm_status_info (playbooks/library/), run in this process on fixture trees: the OS, the kernels, the reboot flag,
-  the load, memory and uptime, apt's simulation, and the user's own claude processes and VS Code windows.
+  the load, memory and uptime, apt's simulation, and the user's own claude processes and each editor's windows.
 - status.yml with discovery off against stand-in VMs, as the configure scenario reaches its container: each runs
   the claude_code, github_projects and tailscale roles' status entry points and the module with the stand-ins of
   the harness (tests/unit/harness.py), the gh and tailscale fakes (tests/molecule/), and a fixture tree. What the
@@ -92,8 +92,24 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
         "memory": {"total": 4028228 * 1024, "available": 2014114 * 1024},
         "uptime": 187200,
     }
-    # The native install's binary is named by its version; claude itself, and the npm package under node.
-    assert M.processes(str(root)) == {"claude": 2, "vscode_windows": 1, "zed_windows": 1, "editor_windows": 2}
+    # The native install's binary is named by its version; claude itself, and the npm package under node. Each
+    # editor's windows in one map, by its key in the editors list; VS Code's and every editor's as 1.0 has them.
+    assert M.processes(str(root)) == {
+        "claude": 2,
+        "vscode_windows": 1,
+        "editor_windows": 2,
+        "editor_windows_by": {"vscode": 1, "zed": 1},
+    }
+
+
+def test_the_windows_are_counted_by_the_editors_lists_keys_and_by_no_key_per_editor(tmp_path) -> None:
+    # The map's keys are the editors list's, which status.yml names them by; no editor has a key of its own beside
+    # the two 1.0 promised, in what the module says it returns or in what it returns (test_status.py holds the model).
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    found = M.processes(str(tmp_path))
+    assert list(found["editor_windows_by"]) == list(defaults["claude_editors"])
+    for keys in (found, yaml.safe_load(M.RETURN)):
+        assert {key for key in keys if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
 
 
 def test_a_read_that_hangs_is_said_and_the_others_still_land() -> None:
@@ -194,7 +210,13 @@ CASES = {
         "tree": {
             "installed": ("6.8.0-85-generic", "6.8.0-87-generic"),
             "reboot": ("linux-image-6.8.0-87-generic",),
-            "processes": (["claude"], ["claude", "-c"]),
+            "processes": (
+                ["claude"],
+                ["claude", "-c"],
+                ["/home/dev/.vscode-server/cli/servers/Stable-abc/server/node", "--type=extensionHost"],
+                ["/home/dev/.zed_server/zed-remote-server-stable-0.230.1", "run"],
+                ["/home/dev/.zed_server/zed-remote-server-stable-0.230.1", "run"],
+            ),
         },
     },
 }
@@ -377,8 +399,10 @@ def test_what_is_down_and_what_was_not_checked_are_said_for_what_they_are(read) 
     assert levels["gh could not check its login with GitHub"] == "unread"
     assert levels["tailscaled is not running"] == "problem"
     reboot = next(text for _, _, text, _ in items if text.startswith("waits for a reboot"))
-    assert (
-        reboot == "waits for a reboot: kernel 6.8.0-87 is installed, 6.8.0-85 runs; 2 claude processes are open there"
+    # Each editor's windows named as status.yml names them from the editors list.
+    assert reboot == (
+        "waits for a reboot: kernel 6.8.0-87 is installed, 6.8.0-85 runs; 2 claude processes, 1 VS Code window and"
+        " 2 Zed windows are open there"
     )
     assert model["exit"] == 2
     row = next(line for line in S.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)

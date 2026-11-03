@@ -247,13 +247,13 @@ Where the code lives on the VM: cloned into, opened by Remote Control, and what 
 |---|---|---|
 | `vm_projects_dir` | `""` | Sets `claude_code_remote_control_dir` ([`claude_code`](roles/claude_code.md)): Directory the sessions open in. Sets `github_projects_dir` ([`github_projects`](roles/github_projects.md)): Destination directory. |
 
-In VS Code, `just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. Set false to open the bare folder and write nothing on the VM; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha. Zed starts no terminal by itself, so in Zed this changes nothing.
+In VS Code, `just code` opens a workspace file that starts claude in a terminal of the window, once you have trusted the folder and allowed automatic tasks. In Zed ([docs/guides/zed.md](../guides/zed.md)) it writes a task, Claude (just code), which the window of the projects directory lists under "task: spawn", and the helper it runs: nothing starts by itself there. Set false to open the bare folder and write none of them; for one run, ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha.
 
 | Setting | Default | Notes |
 |---|---|---|
 | `editor_claude_terminal` | same as `vscode_claude_terminal` | For example `true`. |
 
-Where those files go on the VM, as an absolute path of its own. Empty: .claude-on-proxmox in vm_projects_dir.
+Where those files go on the VM, as an absolute path of its own, never inside a repository: just code refuses one in a checkout of vm_projects_dir. Empty: .claude-on-proxmox in vm_projects_dir.
 
 | Setting | Default | Notes |
 |---|---|---|

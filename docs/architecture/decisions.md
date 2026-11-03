@@ -140,18 +140,51 @@ user's choice. What was decided, and why:
   variables in a vars file (`playbooks/vars/vscode.yml`). Static, so `--tags` reaches them and the allowlist in
   `tests/unit/test_code_session.py` follows them; every name an editor's file registers starts with `code_<editor>_`,
   since a skipped task still overwrites its register. The editors are one internal list, `claude_editors` in the
-  inventory defaults - each one's name, and whether its window runs just code's tasks as it opens - which
-  `code.yml`, `deploy.yml` and the notes read, and a test holds to the editors' files and to `--editor`'s pattern.
-  VS Code's helpers (`playbooks/files/`) are VS Code's: they take what only its tasks carry. Making them any
-  editor's would need a notes refresh `just code` runs on the VM, a new command there, worth it once a second editor
-  can run them.
-- **Zed opens the folder, and Claude runs in its terminal.** `just code` runs `zed ssh://<alias><folder>` and
-  writes nothing for Zed: Zed runs no task when a window opens, its tasks live in a repository's `.zed/` or in the
-  user's own settings, and the project writes in neither. Its Agent Panel can host Claude (Claude Agent, over ACP).
+  inventory defaults - each one's name, whether its window runs just code's tasks as it opens, and how it gets its
+  Claude terminal (`claude_terminal`: `started` as the window opens, `listed` for the user to pick, or `none`), every
+  value a literal - which `code.yml`, `deploy.yml` and the notes read, and a test holds to the editors' files and to
+  `--editor`'s pattern. VS Code's helpers (`playbooks/files/`) are VS Code's: they take what only its tasks carry.
+  Making them any editor's would need a notes refresh `just code` runs on the VM, a new command there, worth it once
+  a second editor can run them. One helper is every editor's: `claude-start.sh`, the Claude terminal of a task the
+  user starts, which never starts a second `claude` on a conversation one already has open.
+- **Zed opens the folder, and Claude is a task the user starts** (decided 3 November 2026, D11). `just code` runs
+  `zed ssh://<alias><folder>` and writes two files for Zed, in its own directory on the VM, only where that
+  directory is inside the projects directory: `.zed/tasks.json`, a **Claude (just code)** task that Zed lists in a
+  window whose folder holds the directory, the projects directory's by default, and the shared helper it runs. A
+  spawn opens a terminal of its own, so it never replaces a running Claude. Zed runs no task when a window opens
+  (its one hook is a Git worktree's creation), and its other tasks live in a repository's `.zed/` or in the user's
+  own settings, where the project writes nothing. Two costs, both disclosed in the guide: the projects window no
+  longer lists the repositories' `.vscode/tasks.json`, which Zed leaves out of a window with a `.zed` tasks file
+  (a `--project` window still lists them); and once Zed holds a folder's tasks back until it is trusted (its change
+  #66284, seen on Nightly 1.28.0), the task needs the projects folder trusted, which trusts every checkout in it -
+  so the guide offers a task of the user's own, which needs no trust, and never advises trusting the projects
+  window for the task alone. Zed's Agent Panel can host Claude (Claude Agent, over ACP).
   Run on this machine, that agent would have this machine's files and logins in reach rather than the VM's, so the
-  panel was to be named only once it was seen to run on the VM, and it was (Zed 1.26): Zed's remote server installs
+  panel was to be named only once it was seen to run on the VM, and it was (Zed 1.26.2): Zed's remote server installs
   the agent there and starts it with the VM's `~/.claude` and claude.ai login. The terminal still comes first, since
   the agent's Claude Code is its npm package's own, at the version Zed's registry installs.
+- **No key and no tag of the project's** (D12). Zed's `task::Spawn` with a `task_tag` starts every task that
+  carries the tag, from the user's own tasks file and from every `.zed/tasks.json` in the window, and Zed 1.26.2
+  lists a folder's tasks in Restricted Mode: a tag the project published would be a trigger any cloned repository,
+  or a Claude talked into it, could plant beside the project's task, run by one key outside Claude Code's
+  permission prompts. So the generated task has no tag, the project binds no key, and the guide shows a task, a tag
+  and a key the user keeps in their own Zed files, the tag a name of their own.
+- **No timed second `zed` call for the notes** (D13). Zed's command takes one `ssh://` path, so the notes are
+  opened by hand once, and Zed reopens the tab with the window. A second call once Zed's server runs on the VM
+  has no signal to wait for - another window of the VM satisfies any check at once - and a lost race leaves a
+  window of the notes alone, which Zed restores for good. The fix is Zed's: one command taking two `ssh://` paths of
+  one host, an issue drafted for the user to file.
+- **What any editor's code does, from 1.1 on**, so nothing written before the editors become a package of their
+  own goes the other way: an editor's code returns data and the playbook's tasks perform every effect - no Python
+  writes a file or starts a program around the allowlist `tests/unit/test_code_session.py` walks; no editor gets a
+  key of its own in `just status --json`, every editor's windows one map by the editors list's keys beside the
+  `vscode_windows` 1.0 promised; and the shared helper (`claude-start.sh`) and the ownership marker - the first
+  line of every file in JSON with comments that `just code` writes for an editor to read from 1.1 on, a tasks or
+  settings file (`.zed/tasks.json` today, any other editor's later),
+  `// Written by just code (claude-on-proxmox); edits here are overwritten.`, without which such a file there is
+  someone else's and left as it is - are any editor's, never one editor's names. The helpers and the notes, a
+  script and a page, carry no marker: they are `just code`'s by where they live, its helpers' and its notes'
+  directories.
 - **Every VM is made ready for any editor alike.** What `vscode_server` sets up is not VS Code's alone: Claude's
   sign-in in the browser forwards its callback to the VM over `ssh -L` whichever editor is chosen, and the role's
   `sshd -T` check is what says when forwarding is off; Zed's port forwards are `ssh -L` too. It keeps its name and its
@@ -165,6 +198,7 @@ user's choice. What was decided, and why:
   points of its role, read by static imports as the editors' files are; the `just status --json` keys 1.0 promises,
   some of them Proxmox's (`vmid`, `node`, `proxmox`), stay for every provider.
 - **The names runs left behind stay**, whatever the project is called: the tag, the markers and drop-ins on each VM,
-  the managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
+  just code's helpers there - the shared one's path is in a task of the user's own - and its ownership marker, the
+  managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
 - **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
   and how many read Proxmox's API outside its own roles, file by file, to what they are, and fails when one grows.

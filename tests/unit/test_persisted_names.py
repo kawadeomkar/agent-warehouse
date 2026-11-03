@@ -54,8 +54,8 @@ VALUES = [
     ),
     ("roles/claude_code/vars/main.yml", "claude_code_login_dir", "{{ claude_code_home }}/.config/claude-on-proxmox"),
     ("roles/common/vars/main.yml", "common_ssh_path_dropin", "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf"),
-    # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path.
-    ("playbooks/vars/vscode.yml", "code_helpers_dir", "{{ code_ws_dir }}/helpers"),
+    # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path (their directory,
+    # code_helpers_dir, is code.yml's, below).
     ("playbooks/vars/vscode.yml", "code_helpers", ["claude-terminal.sh", "session-notes.sh", "session_notes.py"]),
     ("playbooks/vars/vscode.yml", "code_terminal_helper", "{{ code_helpers_dir }}/claude-terminal.sh"),
     ("playbooks/vars/vscode.yml", "code_notes_helper", "{{ code_helpers_dir }}/session-notes.sh"),
@@ -92,6 +92,18 @@ LINES = [
     ),
     ("playbooks/code.yml", "~ ('/project/' ~ code_project_given if code_project_given | length > 0"),
     ("playbooks/code.yml", "~ '.code-workspace' }}"),
+    # The helpers' directory, which every editor's helpers are in, and the shared helper, whose path is in the
+    # tasks file just code writes and in a task of the user's own (docs/guides/zed.md): <projects>/.claude-on-proxmox/
+    # helpers/claude-start.sh by default.
+    ("playbooks/code.yml", 'code_helpers_dir: "{{ code_ws_dir }}/helpers"'),
+    ("playbooks/code.yml", "code_shared_helpers: [claude-start.sh]"),
+    ("playbooks/code.yml", 'code_start_helper: "{{ code_helpers_dir }}/claude-start.sh"'),
+    # The first line of every file in JSON with comments just code writes for an editor to read from 1.1 on
+    # (.zed/tasks.json today), by which a later run tells its own from a file that is someone else's.
+    (
+        "playbooks/code.yml",
+        'code_ownership_marker: "// Written by just code (claude-on-proxmox); edits here are overwritten."',
+    ),
     # The notes' live section, as the template writes it and the helper finds it.
     ("playbooks/templates/vm_session.md.j2", "<!-- claude-on-proxmox:live -->"),
     ("playbooks/templates/vm_session.md.j2", "<!-- /claude-on-proxmox:live -->"),

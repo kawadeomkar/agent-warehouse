@@ -78,7 +78,9 @@ second is VS Code's own.
 
 The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace files and notes, and puts
 VS Code's helpers beside them (`helpers/` in just code's directory there), each `changed` once. A window opened from
-VS Code's recent list before that still runs 1.0's workspace file, which works as it did.
+VS Code's recent list before that still runs 1.0's workspace file, which works as it did. An `editor_files_dir`
+inside a checkout of the projects directory - a folder there with a `.git` - is refused from then on, before
+anything is written: `just code` writes beside the repositories, never in one, so move it out of the repository.
 
 The live output says the window's stage as "editor", where it said "VS Code", and two of its steps as "the editor
 here" and "the notes" ("VS Code here" and "workspace" before); `just deploy`'s first line says "opening alpha in VS
