@@ -410,41 +410,73 @@ def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_writte
     assert not (tmp_path / "owned").exists()
 
 
+# The inventory's own names, as group_vars/all has them: its hosts, and the address the Proxmox host is reached at.
+INVENTORY = {"claude_vm_inventory_names": ["pve", "localhost", "pve.lan"]}
+
+
+def _named(*names: str) -> dict:
+    """The names given on the just line, as the justfile and group_vars/all pass them."""
+    return {"vm_name": ",".join(names), "claude_vm_names_chosen": list(names)}
+
+
 @pytest.mark.parametrize(
     ("name", "said"),
     [
         # The managed file is included ahead of the user's own config: this
-        # machine's git over ssh would go to the address the VM reported.
-        ("github.com", "it has a dot"),
+        # machine's root SSH to the Proxmox host would go to the address the VM reported.
         ("192.0.2.10", "ssh reads it as an address"),
         ("3232235777", "ssh reads it as an address"),
         ("0x7f000001", "ssh reads it as an address"),
-        ("pve", "the name of a host in the inventory"),
+        ("pve", "names a host of the inventory"),
+        ("pve.lan", "names a host of the inventory"),
     ],
 )
 def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
     tmp_path: Path, name: str, said: str
 ) -> None:
-    # A VM's name is Proxmox's, and on a Proxmox others use too, anyone's. Named on the just line, it is refused.
-    hosts = {"claude_vm_inventory_hosts": ["pve", "localhost"]}
-    assert _run(tmp_path, [ALPHA], **hosts).returncode == 0
+    # Named on the just line or not, an address or a name of the inventory is never an alias.
+    assert _run(tmp_path, [ALPHA], **INVENTORY).returncode == 0
     before = _managed(tmp_path)
     vms = [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}]
-    result = _run(tmp_path, vms, **hosts, vm_name=f"alpha,{name}")
+    result = _run(tmp_path, vms, **INVENTORY, **_named("alpha", name))
     assert result.returncode != 0
     assert "Not writing an alias for " + name in result.stdout and said in result.stdout
     assert _managed(tmp_path) == before
 
 
+def test_a_name_with_a_dot_given_gets_its_alias(tmp_path: Path) -> None:
+    # Proxmox allows a DNS name and docs/guides/vms.md promises one: named, it is the person's choice.
+    lab = {"name": "alpha.lab", "address": "192.0.2.66", "user": "dev"}
+    result = _run(tmp_path, [ALPHA, lab], **INVENTORY, **_named("alpha", "alpha.lab"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _blocks(_managed(tmp_path)) == ["alpha", "alpha.lab"]
+    assert _resolve(tmp_path, "alpha.lab")["hostname"] == "192.0.2.66"
+
+
 def test_fleet_wide_a_name_ssh_would_take_for_another_host_is_left_out_and_the_rest_written(tmp_path: Path) -> None:
-    # Anyone's tagged VM named github.com must not stop every alias refresh of the user's own fleet.
-    result = _run(tmp_path, [ALPHA, {"name": "github.com", "address": "192.0.2.66", "user": "dev"}])
+    # Anyone's tagged VM named github.com must not stop every alias refresh of the user's own fleet, nor get an alias.
+    result = _run(tmp_path, [ALPHA, {"name": "github.com", "address": "192.0.2.66", "user": "dev"}], **INVENTORY)
     assert result.returncode == 0, result.stdout + result.stderr
     assert _blocks(_managed(tmp_path)) == ["alpha"]
     assert "No alias for github.com (it has a dot" in result.stdout
+    assert "just deploy github.com --only ssh-config, if it is yours" in result.stdout
+    assert "Rename" not in result.stdout
     assert "alpha: ssh alpha" in result.stdout and "github.com: ssh github.com" not in result.stdout
     # The Include is added for the alias written: ssh is asked about alpha, never github.com.
     assert _resolve(tmp_path, "alpha")["hostname"] == "192.0.2.51"
+
+
+def test_fleet_wide_an_alias_a_dotted_name_was_given_by_name_is_left_as_it_was(tmp_path: Path) -> None:
+    lab = {"name": "alpha.lab", "address": "192.0.2.66", "user": "dev"}
+    assert _run(tmp_path, [lab], **INVENTORY, **_named("alpha.lab")).returncode == 0
+    moved = {**lab, "address": "192.0.2.67"}
+    result = _run(tmp_path, [ALPHA, moved, {"name": "pve", "address": "192.0.2.68", "user": "dev"}], **INVENTORY)
+    assert result.returncode == 0, result.stdout + result.stderr
+    # Neither rewritten nor removed: only a run that names it refreshes it.
+    assert _blocks(_managed(tmp_path)) == ["alpha.lab", "alpha"]
+    assert _resolve(tmp_path, "alpha.lab")["hostname"] == "192.0.2.66"
+    assert "An alias it has already is left as it was" in result.stdout
+    assert "Rename pve in Proxmox" in result.stdout
 
 
 # ---------------------------------------------------------------- guards ---

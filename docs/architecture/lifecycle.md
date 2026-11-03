@@ -558,13 +558,17 @@ silently override the user's entry); every write is validated by the real client
 only ever written for a VM the caller found by its tag. Before any of them, a name or address that is
 not one plain word is refused: `ssh -G` accepts a well-formed `ProxyCommand`, so it cannot be the
 check for a value the VM chose (see `guest_ipv4`, section 7). So is a name ssh would take for another
-host (`ssh_alias_refusal`): one with a dot, a number ssh reads as an address (`3232235777`,
-`0x7f000001`), or a host of the inventory. The managed file is included ahead of the user's own
-config, so a VM named `github.com` would get the controller's own `git push`, and one named after the
-Proxmox host its root SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others
-use too is not always the user. With names given it is refused, and `just deploy` refuses it before it
-creates anything; fleet-wide (no names) such a VM is left out, said, and the rest written, so someone
-else's tagged VM named `github.com` cannot stop every alias refresh of the user's own fleet.
+host (`ssh_alias_refusal`): a name ssh reads as an address (`192.0.2.10`, `3232235777`, `0x7f000001`),
+a name this machine reaches a host of the inventory by (`claude_vm_inventory_names`: `pve`, or the
+address the Proxmox host is reached at), or a name with a dot that the user did not give
+(`claude_vm_names_chosen`). The managed file is included ahead of the user's own config, so a VM named
+`github.com` would get the controller's own `git push`, and one named after the Proxmox host its root
+SSH; a tagged VM's name is whoever made it's to choose, which on a Proxmox others use too is not always
+the user. With names given it is refused, and `just deploy` refuses it before it creates anything; a
+dotted name given is the user's choice, as `docs/guides/vms.md` allows, and gets its alias. Fleet-wide
+(no names) such a VM is left out, said, and the rest written, so someone else's tagged VM named
+`github.com` cannot stop every alias refresh of the user's own fleet, nor get an alias; a dotted alias a
+named run wrote is left as it was, and the message names the run that refreshes it.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
 (§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier

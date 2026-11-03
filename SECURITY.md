@@ -59,9 +59,10 @@ what it stores:
   filter takes only a string that parses as one IPv4 address, and the task file refuses a name or
   address that is not one plain word, since a newline in either would add a directive (`ProxyCommand`
   runs on this machine). The VM's name is Proxmox's, chosen by whoever made it, and the managed file is
-  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (a dot, as in
-  `github.com`; a number it reads as an address; a host of the inventory) gets no alias - refused when
-  named, left out of a fleet-wide refresh and said. A VM named after a host of the inventory is kept
+  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (one it reads
+  as an address; a name of a host of the inventory, or the address it is reached at) gets no alias -
+  refused when named, left out of a fleet-wide refresh and said - and a name with a dot, as in
+  `github.com`, gets one only when the user names it, never from a fleet-wide refresh. A VM named after a host of the inventory is kept
   out wherever a name becomes a host (`localhost`, or the Proxmox host's, which would hand the VM the
   API token).
   Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there

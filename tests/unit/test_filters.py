@@ -455,11 +455,27 @@ class TestSshAliasRefusal:
     def test_a_list_gives_each_refused_name_with_why_in_order(self):
         vms = [{"name": "alpha"}, {"name": "github.com"}, {"name": "pve"}, {"name": "beta"}]
         refused = proxmox_filters.ssh_alias_refusals(vms, ["pve"])
-        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"]) for r in refused] == [
-            ("github.com", True),
-            ("pve", True),
+        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"], r["unnamed"]) for r in refused] == [
+            # Named, github.com would get its alias; pve never.
+            ("github.com", True, True),
+            ("pve", True, False),
         ]
         assert proxmox_filters.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
+
+    @pytest.mark.parametrize("name", ["alpha.lab", "github.com", "dev.example.org"])
+    def test_a_name_with_a_dot_is_an_alias_when_the_person_chose_it(self, name):
+        # Proxmox allows a DNS name, and docs/guides/vms.md does: the person who typed it chose what it shadows.
+        assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"], ["alpha", name]) == ""
+        assert proxmox_filters.ssh_alias_refusals([{"name": name}], ["pve"], [name]) == []
+
+    @pytest.mark.parametrize(
+        ("name", "said"), [("192.0.2.10", "address"), ("pve.lan", "inventory"), ("pve", "inventory")]
+    )
+    def test_an_address_or_a_name_of_the_inventory_is_refused_even_when_chosen(self, name, said):
+        # pve.lan as the way this machine reaches the Proxmox host: its root SSH would go to the VM.
+        hosts = ["pve", "localhost", "pve.lan"]
+        assert said in proxmox_filters.ssh_alias_refusal(name, hosts, [name])
+        assert proxmox_filters.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
 
 
 class TestSshConfigBlocks:

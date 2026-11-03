@@ -58,11 +58,13 @@
 
     # A VM's name is its SSH alias, and tasks/ssh_config.yml writes none that ssh
     # would take for another host. Refused here too, before anything is created,
-    # rather than when the first deploy has all but finished.
+    # rather than when the first deploy has all but finished. Every name here is
+    # one the person chose, so a dot is no reason.
     - name: Refuse a name that cannot be an SSH alias
       vars:
         claude_vm_alias_refused: >-
-          {{ dict(claude_vm_names | zip(claude_vm_names | map('ssh_alias_refusal', claude_vm_inventory_hosts)))
+          {{ dict(claude_vm_names
+                  | zip(claude_vm_names | map('ssh_alias_refusal', claude_vm_inventory_names, claude_vm_names)))
              | dict2items | selectattr('value') | list }}
         claude_vm_alias_first: "{{ claude_vm_alias_refused | first | default({'key': '', 'value': ''}) }}"
       ansible.builtin.assert:
@@ -70,8 +72,7 @@
         fail_msg: >-
           {{ claude_vm_alias_refused | map(attribute='key') | join(', ') }} cannot be a VM's name while this
           project keeps an SSH alias for each VM, by its name: for {{ claude_vm_alias_first.key }},
-          {{ claude_vm_alias_first.value }}. Choose a name of letters, digits and hyphens, or set
-          claude_ssh_config: false.
+          {{ claude_vm_alias_first.value }}. Choose another name, or set claude_ssh_config: false.
         quiet: true
       when: claude_ssh_config | default(true) | bool
 

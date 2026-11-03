@@ -122,7 +122,7 @@
              if claude_ssh_host_domain | default('') | length == 0 else [] }}
         # Fleet-wide, the task file leaves out a VM whose name cannot be an alias, and says which.
         claude_ssh_unaliased: >-
-          {{ claude_ssh_refresh | default([]) | ssh_alias_refusals(claude_vm_inventory_hosts)
+          {{ claude_ssh_refresh | default([]) | ssh_alias_refusals(claude_vm_inventory_names, claude_vm_names_chosen)
              if vm_name is not defined else [] }}
       ansible.builtin.debug:
         msg: |-

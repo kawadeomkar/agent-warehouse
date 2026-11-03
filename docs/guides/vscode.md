@@ -72,6 +72,13 @@ and would otherwise override yours silently. Set `claude_ssh_config: false` to k
 of `~/.ssh` altogether, or `claude_ssh_config_include: false` to write the file but add the `Include`
 yourself.
 
+Since the managed file comes first, no alias is written that ssh would take for another host: a name it reads
+as an address (`192.0.2.10`, `42`, `0xbeef`), or one the inventory reaches a host by (`pve`, or the Proxmox
+host's address), whose root SSH would go to the VM instead. A name with a dot gets its alias only from a run
+that names it - `just deploy alpha.lab`, `just code alpha.lab` - and never from a fleet-wide one, which says
+it left the VM out and leaves an alias it has as it was: on a shared host a tagged VM named `github.com` could
+be anyone's, and would get this machine's `git push`.
+
 ```
 # ~/.ssh/claude-on-proxmox.conf
 # BEGIN claude-on-proxmox: alpha
