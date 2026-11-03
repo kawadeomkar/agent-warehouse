@@ -207,5 +207,6 @@ the project reads `task.allowAutomaticTasks` to say what will happen and never w
 trust, and lowers no VS Code setting. The task is the one written in the file, not one a repository
 can supply: the file lives beside the repositories, never in one, and a repository's own
 `.vscode/tasks.json` still needs the same trust and permission as it would without this project. What
-the task runs is fixed in `code.yml`, with the VM name passed as an argument rather than spliced into
-the script.
+the task runs is fixed: VS Code's helpers, files of `playbooks/files/` that `just code` copies to the VM
+unchanged and the task runs by path, with the VM name and every other value passed as an argument rather
+than spliced into a script, and the copy held by `tests/unit/test_code_session.py` to those files alone.

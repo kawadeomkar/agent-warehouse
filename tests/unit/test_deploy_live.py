@@ -305,7 +305,7 @@ def test_a_deploy_at_a_terminal_is_drawn_in_place_and_leaves_its_words_and_the_s
     # The summary, then NEXT STEPS.
     assert re.search(r"^claude-on-proxmox  deploy alpha · done in \d+ s · \d\d:\d\d$", screen, re.M), screen
     stages = re.findall(r"^ ✓ (\S+(?: \S+)?) {2,}", screen[screen.index("STAGES") :], re.M)
-    assert stages == ["template", "provision", "configure", "sign in", "VS Code"], screen
+    assert stages == ["template", "provision", "configure", "sign in", "editor"], screen
     assert screen.index("STAGES") < screen.index("##  NEXT STEPS") and "alpha: just login alpha --only github" in screen
     # Each line whole, as the stream prints it: the terminal wraps a long one, and a fleet's lines stay their own.
     assert _next_steps(ran.text) == _next_steps(ran.log) == NEXT_STEPS, ran.text

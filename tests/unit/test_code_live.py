@@ -33,9 +33,9 @@ STEPS = (
     "read the sessions",
     "the folder",
     "alias",
-    "VS Code here",
+    "the editor here",
     "copy the sessions",
-    "workspace",
+    "the notes",
     "window",
 )
 

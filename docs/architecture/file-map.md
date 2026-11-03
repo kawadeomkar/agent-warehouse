@@ -56,7 +56,12 @@ playbooks/
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
-  files/                          just code's helpers, copied to the VM unchanged and run there by the window's
+  vars/vscode.yml                 code.yml's VS Code variables: the workspace file and its tasks, its helpers'
+                                  paths, the Claude terminal's lines, the user's VS Code settings (read, never written)
+  tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
+  tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
+                                  what VS Code will ask
+  files/                          VS Code's helpers, copied to the VM unchanged and run there by the window's
                                   tasks: claude-terminal.sh (the Claude terminal), session-notes.sh and
                                   session_notes.py (the notes' live section)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above

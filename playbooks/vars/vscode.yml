@@ -1,0 +1,195 @@
+---
+# VS Code's own variables of playbooks/code.yml, which names this file in its
+# vars_files: the workspace file just code writes on the VM and its tasks, the
+# lines the Claude terminal is handed, and the user's VS Code settings, read and
+# never written. Lazy, as a play's vars are: only VS Code's task files
+# (tasks/vscode_*.yml) read them. Every name starts with code_, as every
+# name code.yml sets does.
+
+# VS Code's helpers, on the VM in just code's own directory there, which the
+# workspace's tasks run: fixed files in playbooks/files/, copied unchanged by
+# tasks/vscode_open.yml, each run with `bash -l <helper> <arguments>`, anything
+# variable an argument, never script text. A login shell, because tasks start
+# non-login shells and claude is on the login PATH only. They are VS Code's:
+# they take what only a VS Code task can carry, and use VS Code Server's BROWSER
+# and `code -r`. What each does, and its arguments in order, is said at the top
+# of its file.
+code_helpers_dir: "{{ code_ws_dir }}/helpers"
+code_helpers: [claude-terminal.sh, session-notes.sh, session_notes.py]
+code_terminal_helper: "{{ code_helpers_dir }}/claude-terminal.sh"
+code_notes_helper: "{{ code_helpers_dir }}/session-notes.sh"
+
+# The workspace file, built as data and written with to_nice_json so no
+# path or message can break its JSON. Absolute paths throughout:
+# ${workspaceFolder} is ambiguous in a task that belongs to a workspace
+# file rather than to a folder. The workspace files' own directory is hidden
+# from the explorer in the window that shows it, the whole directory's. The
+# notes' directory is a second folder only where this window's own folder
+# contains it: VS Code stores the folders a user trusted, not their parents,
+# so a folder added beside them would put a window trusted before back in
+# Restricted Mode, without the Claude terminal (docs/architecture/lifecycle.md §4.9).
+code_workspace_file:
+  folders: >-
+    {{ [{'path': code_target}]
+       + ([{'path': code_notes_dir, 'name': claude_vm_names[0] ~ ' · session'}] if code_notes_folder | bool else []) }}
+  settings: >-
+    {{ ({'files.exclude': {code_ws_dir | basename: true}} if code_ws_dir | dirname == code_target else {})
+       | combine({'workbench.editorAssociations': {code_notes_glob: 'vscode.markdown.preview.editor'}}
+                 if code_notes | bool else {}) }}
+  tasks:
+    version: "2.0.0"
+    # Two folderOpen tasks, run side by side: the notes never hold Claude
+    # up. Not the Claude task's dependsOn: VS Code looks a dependency up,
+    # misses a task defined in a workspace file, and asks every task
+    # provider instead - npm, gulp (which runs gulp), grunt, jake - about
+    # 7.5 s on a projects directory of 22 repositories before Claude could
+    # start (measured live, 2026-10-12).
+    # The shell before Claude's terminal: VS Code starts the folderOpen
+    # tasks in the order listed, and tasks of one presentation group share
+    # a terminal as split panes in the order they start, so the shell is on
+    # the left.
+    tasks: >-
+      {{ ([code_notes_task] if code_notes | bool else []) + [code_shell_task, code_claude_task] }}
+# A shell in the window's folder, beside Claude's terminal: an interactive
+# login shell, as a terminal VS Code opens itself would be, its pane closing
+# when it exits.
+code_shell_task:
+  label: Shell
+  type: process
+  command: /bin/bash
+  args: [-l]
+  options:
+    cwd: "{{ code_target }}"
+  runOptions:
+    runOn: folderOpen
+  presentation:
+    reveal: always
+    focus: false
+    panel: dedicated
+    group: claude
+    clear: true
+    close: true
+    showReuseMessage: false
+  problemMatcher: []
+code_claude_task:
+  label: Claude
+  type: process
+  command: /bin/bash
+  args:
+    - -l
+    - "{{ code_terminal_helper }}"
+    - "{{ code_not_installed }}"
+    - "{{ code_signed_in_watched }}"
+    - "{{ code_signed_in_unwatched }}"
+    - "{{ code_login_watch }}"
+    - "{{ code_github_signed_in }}"
+    - "{{ github_projects_clone_protocol | default('https') }}"
+    - "{{ github_projects_login_scopes | default(['workflow']) | join(',') }}"
+    - "{{ claude_vm_names[0] }}"
+    - "{{ code_notes_helper if code_notes | bool else '' }}"
+    - "{{ code_notes_file if code_notes | bool else '' }}"
+    - "{{ code_remote_control_unit }}"
+    - "{{ code_timezone }}"
+    - "{{ code_session_id }}"
+  options:
+    cwd: "{{ code_target }}"
+  runOptions:
+    runOn: folderOpen
+  presentation:
+    reveal: always
+    focus: true
+    panel: dedicated
+    # Split beside the shell (code_shell_task), on its right.
+    group: claude
+    clear: true
+    # When claude exits, say what the next keypress does.
+    showReuseMessage: true
+  problemMatcher: []
+# Run when the window opens, beside the Claude task, quietly, its terminal
+# closing when it ends. In the Run Task list too: "Tasks: Run Task",
+# Session notes refreshes and opens the notes by hand.
+code_notes_task:
+  label: Session notes
+  type: process
+  command: /bin/bash
+  args:
+    - -l
+    - "{{ code_notes_helper }}"
+    - "{{ code_notes_file }}"
+    - "{{ claude_vm_names[0] }}"
+    - "{{ code_remote_control_unit }}"
+    - "{{ code_timezone }}"
+  runOptions:
+    runOn: folderOpen
+  presentation:
+    reveal: never
+    focus: false
+    echo: false
+    close: true
+    showReuseMessage: false
+  problemMatcher: []
+# Whether the notes' directory is this window's second folder (above).
+code_notes_folder: "{{ code_notes | bool and code_notes_dir.startswith(code_target ~ '/') }}"
+# Opened as a rendered preview: VS Code matches a key with a "/" against the
+# file's scheme and path, so this follows vscode_workspaces_dir.
+code_notes_glob: "**/{{ code_ws_dir | basename }}/session/*-session.md"
+code_not_installed: >-
+  Claude Code is not installed on {{ claude_vm_names[0] }} yet. On your machine, run
+  just deploy {{ claude_vm_names[0] }} --only configure, then "Tasks: Run Task", Claude here.
+# Remote Control needs that claude.ai login, which is why it was waiting.
+# On a VM with no login the claude_code role leaves a path unit that starts
+# it once the login lands; the role's next run, which the first line names,
+# enables it for boot and checks it stays up. Where that unit is not - a
+# setting that blocks Remote Control, or a VM last configured before the
+# unit existed - nothing starts it, and the second line names the run that
+# does. The script tells the two apart on the VM, by the unit's file. Both
+# are empty with Remote Control off.
+code_signed_in_watched: >-
+  {{ ('Signed in. Remote Control starts by itself in a moment, putting this VM in the Claude apps too;'
+      ~ ' to keep it on across reboots, run on your machine: '
+      ~ 'just deploy ' ~ claude_vm_names[0] ~ ' --tags claude_code')
+     if claude_code_remote_control | default(true) | bool else '' }}
+code_signed_in_unwatched: >-
+  {{ ('Signed in. To reach this VM from the Claude apps too, start Remote Control from your machine: '
+      ~ 'just deploy ' ~ claude_vm_names[0] ~ ' --tags claude_code')
+     if claude_code_remote_control | default(true) | bool else '' }}
+# The role's own default, unless the inventory names the service otherwise.
+code_login_watch: "/etc/systemd/system/{{ code_remote_control_unit }}.path"
+# Empty when github_projects_auth is off or the token method is chosen,
+# which is also what tells the script to leave GitHub alone. The role's
+# names, which the inventory wires to github_auth and github_auth_method,
+# so that an override of either reaches the role and this alike. The
+# private repositories are listed with the token gh just stored, so they
+# take one more configure run (docs/guides/github.md).
+code_github_signed_in: >-
+  {{ ('Signed in to GitHub. To clone your private repositories here too, run on your machine: '
+      ~ 'just deploy ' ~ claude_vm_names[0] ~ ' --tags github_projects')
+     if github_projects_auth | default(true) | bool and github_projects_auth_method | default('auto') != 'token' else '' }}
+
+# Read on this machine, never written. task.allowAutomaticTasks is an
+# application setting, so the default profile's settings.json holds it
+# whichever profile is in use. Looked for where VS Code itself would put
+# it: the two variables it honours first, then stock VS Code's place on
+# macOS and Linux, then the snap and the flatpak. A VS Code that keeps its
+# settings elsewhere (Windows driven from WSL, VSCodium, Insiders on
+# Linux) is pointed at with vscode_user_settings_file. The text is kept
+# apart from the value read out of it, so a file that could not be read
+# or did not parse is said as such rather than taken for "unset".
+code_vscode_settings_file: >-
+  {{ vscode_user_settings_file | default('', true)
+     or query('ansible.builtin.first_found', code_vscode_settings_places, skip=true) | first | default('') }}
+code_vscode_settings_places: >-
+  {{ ([lookup('ansible.builtin.env', 'VSCODE_APPDATA') ~ '/Code/User/settings.json']
+      if lookup('ansible.builtin.env', 'VSCODE_APPDATA') | length > 0 else [])
+     + ([lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') ~ '/Code/User/settings.json']
+        if lookup('ansible.builtin.env', 'XDG_CONFIG_HOME') | length > 0 else [])
+     + [code_here_home ~ '/Library/Application Support/Code/User/settings.json',
+        code_here_home ~ '/.config/Code/User/settings.json',
+        code_here_home ~ '/snap/code/current/.config/Code/User/settings.json',
+        code_here_home ~ '/.var/app/com.visualstudio.code/config/Code/User/settings.json'] }}
+code_vscode_settings_text: >-
+  {{ lookup('ansible.builtin.file', code_vscode_settings_file, errors='ignore')
+     if code_vscode_settings_file | length > 0 else '' }}
+code_vscode_auto_tasks: >-
+  {{ (code_vscode_settings_text or '')
+     | vscode_setting('task.allowAutomaticTasks', '', unparsable='unparsable') }}

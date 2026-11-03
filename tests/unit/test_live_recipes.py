@@ -61,6 +61,16 @@ def _load_yaml(path):
 TASKS = [(path, item) for path in _yaml_files() for item in _items(_load_yaml(path))]
 
 
+def _with_imports(path):
+    """A playbook's items and those of the task files it imports statically, followed down: the tasks Ansible starts."""
+    items = list(_items(_load_yaml(path)))
+    for item in list(items):
+        for key in ("import_tasks", "ansible.builtin.import_tasks"):
+            if isinstance(item.get(key), str) and "{{" not in item[key]:
+                items += _with_imports(path.parent / item[key])
+    return items
+
+
 def _playbook(name):
     """A playbook a declaration names, by its file name: deploy.yml at the top, the others in playbooks/."""
     for path in (REPO / name, REPO / "playbooks" / name):
@@ -130,14 +140,51 @@ def test_every_task_a_step_starts_at_is_one_ansible_starts_and_every_task_file_i
     recipe = recipes.RECIPES[name]
     files = [path.as_posix() for path in _yaml_files()]
     for stage in recipe.stages:
-        items = [item for play in stage.plays for item in _items(_load_yaml(_playbook(play.partition(":")[0])))]
-        tasks = {item["name"]: item for item in items if isinstance(item.get("name"), str) and "block" not in item}
+        items = [item for play in stage.plays for item in _with_imports(_playbook(play.partition(":")[0]))]
+        # By name as the engine draws it, without a task file's prefix (live_ansible.drawn_name), which is how a step
+        # matches the task it starts at.
+        tasks = {
+            re.sub(r"^[a-z0-9_]+ \| ", "", item["name"]): item
+            for item in items
+            if isinstance(item.get("name"), str) and "block" not in item
+        }
         for step in stage.steps:
             for task in getattr(step, "starts", ()):
                 assert task in tasks, f"{name}: {step.label}: no task {task!r} in {stage.key}'s playbooks"
                 assert not IMPORTS & set(tasks[task]), f"{name}: {step.label}: {task!r} is an import"
             for end in getattr(step, "files", ()):
                 assert any(path.endswith("/" + end) for path in files), f"{name}: {step.label}: no {end}"
+
+
+def _imported_files(path):
+    """Each task file a playbook imports statically, followed down, with its tasks."""
+    found = {}
+    for item in _items(_load_yaml(path)):
+        for key in ("import_tasks", "ansible.builtin.import_tasks"):
+            if isinstance(item.get(key), str) and "{{" not in item[key]:
+                imported = path.parent / item[key]
+                found[imported] = [task for task in _load_yaml(imported) if isinstance(task, dict) and "name" in task]
+                found |= _imported_files(imported)
+    return found
+
+
+@pytest.mark.parametrize("name", RECIPES)
+def test_a_step_begun_in_an_imported_file_begins_at_its_first_task(name):
+    # A step that starts at a task of a file the playbook imports - each editor's two files - is that file from its
+    # start: a task put above it would be drawn under the step before.
+    recipe = recipes.RECIPES[name]
+    for stage in recipe.stages:
+        files = {}
+        for play in stage.plays:
+            files |= _imported_files(_playbook(play.partition(":")[0]))
+        for step in stage.steps:
+            for start in getattr(step, "starts", ()):
+                for path, tasks in files.items():
+                    names = [re.sub(r"^[a-z0-9_]+ \| ", "", task["name"]) for task in tasks]
+                    if start in names:
+                        assert names[0] == start, (
+                            f"{name}: {step.label}: {start!r} is not the first task of {path.name}"
+                        )
 
 
 @pytest.mark.parametrize("name", RECIPES)

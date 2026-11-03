@@ -139,7 +139,7 @@ def test_the_stage_table_names_every_playbook_deploy_runs_in_the_order_it_runs_t
     files = _play_files(REPO / "deploy.yml")
     stages = view.stages_of([str(f) for f in files])
     order = [stage for index, (stage, _) in enumerate(stages) if index == 0 or stages[index - 1][0] != stage]
-    assert order == ["template", "provision", "configure", "sign in", "VS Code"]
+    assert order == ["template", "provision", "configure", "sign in", "editor"]
     sign_ins = [
         step for index, (stage, step) in enumerate(stages) if stage == "sign in" and step != stages[index - 1][1]
     ]
@@ -220,7 +220,7 @@ def test_a_running_frame_shows_the_stages_the_running_steps_tasks_and_where_the_
     ]
     assert window[1].endswith("skipped") and window[-1].endswith("0:02")
     assert re.search(r"^     ○ dev_tools +3 tasks$", text, re.M), text
-    assert re.search(r"^ ○ sign in      4 tasks$", text, re.M) and re.search(r"^ ○ VS Code      3 tasks$", text, re.M)
+    assert re.search(r"^ ○ sign in      4 tasks$", text, re.M) and re.search(r"^ ○ editor       3 tasks$", text, re.M)
     assert lines[-2] == ""
     assert lines[-1] == f"⠋ 1:59 · stage 3 of 5 · {LOG}"
     # 16 tasks reached of 27: the ended stages' 3 and 5, configure's 12, the sign-in's 4 and VS Code's 3.
@@ -253,7 +253,7 @@ def test_a_folded_frame_says_what_is_to_come_on_one_line():
     script = Script().to_configure()
     lines = script.run.frame(script.now, 100, 14, "⠋", color=False)
     assert "     ○ then dev_tools" in lines
-    assert " ○ then sign in, VS Code" in lines
+    assert " ○ then sign in, editor" in lines
 
 
 def test_a_wait_for_the_browser_is_said_on_its_stage_in_the_footer_and_the_title():
@@ -552,9 +552,9 @@ def test_a_play_of_a_file_can_be_a_stage_of_its_own():
         ("/r/playbooks/code.yml:61", "Open a VM in VS Code"),
         ("/r/deploy.yml:225", "Fail each VM whose work after a sign-in failed"),
     ]
-    assert view.stages_for(plays) == [("template", None), ("template", None), ("VS Code", None), ("finish", None)]
+    assert view.stages_for(plays) == [("template", None), ("template", None), ("editor", None), ("finish", None)]
     # By its file alone, deploy.yml's last play takes its neighbour's, as before.
-    assert view.stages_of([path for path, _ in plays])[-1] == ("VS Code", None)
+    assert view.stages_of([path for path, _ in plays])[-1] == ("editor", None)
 
 
 def _finish_plays():
@@ -968,7 +968,7 @@ def _code(names=("alpha",)):
                 ("a1", None, {"name": "Write the alias", "file": "/r/playbooks/tasks/ssh_config.yml"}),
                 ("o5", None, {"name": "Look for the folder on the VM"}),
                 ("o6", None, {"name": "Fail when the folder is not there"}),
-                ("w1", None, {"name": "Open the folder in VS Code"}),
+                ("w1", None, {"name": "Look for the directory for the helpers on the VM"}),
                 ("r1", None, {"name": "Fail as just code does, outside just deploy"}),
             ],
         )
@@ -991,7 +991,7 @@ def _ran(script, key, name, file="", outcome="ok"):
 
 def test_a_step_runs_from_a_task_it_starts_at_until_another_begins_and_a_task_file_is_its_steps():
     script = _code()
-    steps = script.run.stages["VS Code"].steps
+    steps = script.run.stages["editor"].steps
     # Counted when the playbook starts, as each step's tasks will run: the folder's both runs, around the alias.
     assert list(steps) == [None, "find the VM", "reach it", "read the sessions", "the folder", "alias", "window"]
     assert steps["find the VM"].expected == 2 and steps["the folder"].expected == 3

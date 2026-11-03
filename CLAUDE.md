@@ -325,8 +325,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
   `just clean env` deletes that folder and nothing beside it. The fourth: when `code --list-extensions`
   lacks the Remote - SSH extension, `just code`, and `just deploy`'s window step, run
-  `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/code.yml`), and VS Code's CLI writes
-  that extension, from VS Code's marketplace, into VS Code's extensions folder (`~/.vscode/extensions/`),
+  `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/tasks/vscode_check.yml`), and VS Code's
+  CLI writes that extension, from VS Code's marketplace, into VS Code's extensions folder (`~/.vscode/extensions/`),
   with what VS Code records of an install in its own data folder: no other extension, and no VS Code setting.
   Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
   `ssh -G`, refuses an alias the user's own config already names, refuses a name or address that
@@ -366,10 +366,12 @@ token; `github_auth_method: token` still fails. The status JSON carries
   VS Code runs that task only in a trusted window and once the user has allowed automatic tasks;
   `code.yml` reads `task.allowAutomaticTasks` from the user's VS Code settings to say which to
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
-  `terminal.integrated.allowInUntrustedWorkspace`. The tasks run the helpers by path: fixed files in
-  `playbooks/files/` (`claude-terminal.sh`, `session-notes.sh`, `session_notes.py`), copied unchanged into
-  `helpers/` of that directory; anything variable reaches them as an argument, and the workspace file
-  carries no script text. Every name `code.yml` sets starts with `code_`, a prefix
+  `terminal.integrated.allowInUntrustedWorkspace`. VS Code's tasks run its helpers by path: fixed files in
+  `playbooks/files/` (`claude-terminal.sh`, `session-notes.sh`, `session_notes.py`), VS Code's alone (their
+  variables are in `playbooks/vars/vscode.yml`), copied unchanged into `helpers/` of that directory; anything
+  variable reaches them as an argument, and the workspace file carries no script text. The allowlist holds a
+  `copy` to `content`, or to `src: "{{ code_helper }}"` over `code_helpers`, which must name exactly the files of
+  `playbooks/files/`: nothing else of this machine's is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
   no role uses: a role's fact or register outranks a play var in the same `just deploy`, and no task var
   shares a fact's name. In `just deploy` (`code_in_deploy`) every task of the window step is in one
   `block` whose `rescue` says any failure with the `just code` line (`just deploy <vm>

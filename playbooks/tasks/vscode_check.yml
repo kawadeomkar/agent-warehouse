@@ -1,0 +1,33 @@
+---
+# VS Code on this machine, for playbooks/code.yml's window step, before
+# anything is written on the VM: its command on PATH, and the Remote - SSH
+# extension, installed when VS Code lacks it. Imported only when the editor is
+# VS Code; every name starts with code_vscode_, since a skipped task still
+# overwrites its register and another editor's file is imported beside this one.
+- name: vscode_check | Look for VS Code on this machine
+  ansible.builtin.command:
+    argv: [which, code]
+  register: code_vscode_which
+  changed_when: false
+  failed_when: false
+
+- name: vscode_check | Fail when VS Code's command is not on PATH
+  ansible.builtin.assert:
+    that: code_vscode_which.rc == 0
+    fail_msg: >-
+      `code` is not on this machine's PATH. In VS Code, run "Shell Command: Install 'code' command
+      in PATH" from the Command Palette (macOS), or install VS Code; then run this again. The alias
+      is in place either way: ssh {{ claude_vm_names[0] }}.
+    quiet: true
+
+- name: vscode_check | List VS Code's extensions
+  ansible.builtin.command:
+    argv: [code, --list-extensions]
+  register: code_vscode_extensions
+  changed_when: false
+
+- name: vscode_check | Install the Remote - SSH extension when VS Code lacks it
+  ansible.builtin.command:
+    argv: [code, --install-extension, ms-vscode-remote.remote-ssh]
+  when: "'ms-vscode-remote.remote-ssh' not in (code_vscode_extensions.stdout_lines | map('lower') | list)"
+  changed_when: true

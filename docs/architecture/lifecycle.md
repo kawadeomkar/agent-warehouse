@@ -637,9 +637,14 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    case, suggests the right one, since the VM's paths are case-sensitive; a missing workspace means a
    VM never configured, and says to run `just deploy --only configure`. These are there so a typo is said in the
    terminal, not in a VS Code window opened on a folder that does not exist.
-7. Check `code` is on `PATH`, and install `ms-vscode-remote.remote-ssh` if `code --list-extensions`
-   lacks it. Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM.
-8. With `vscode_claude_terminal` (the default), write a workspace file on the VM and open that:
+7. Check the editor on this machine - each editor's own file, imported for it alone
+   (`tasks/vscode_check.yml`): `code` on `PATH`, and `ms-vscode-remote.remote-ssh` installed if
+   `code --list-extensions` lacks it. Then the session handoff's writes (`tasks/session_write.yml`), the
+   first on the VM, and the session notes (below).
+8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
+   `playbooks/vars/vscode.yml`; every name either sets starts with `code_<editor>_`, since a skipped
+   task still overwrites its register). With `vscode_claude_terminal` (the default), write a workspace
+   file on the VM and open that:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
    `vscode_workspaces_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
@@ -676,7 +681,8 @@ given `--session`, `claude --resume <id>` and nothing after it, or else
 does not survive a window reload, after which the task runs again; its messages arrive as arguments,
 never as script text, and
 `tests/unit/test_code_session.py` runs it against a stand-in `claude`. **The helpers** - that script,
-the notes' `session-notes.sh` and `session_notes.py` - are fixed files in `playbooks/files/`, copied
+the notes' `session-notes.sh` and `session_notes.py`, VS Code's alone, their paths in `playbooks/vars/vscode.yml` -
+are fixed files in `playbooks/files/`, copied
 unchanged into `helpers/` of just code's own directory on the VM, and run there by path, so the workspace
 file carries no script text; the `provision` scenario checks the copies byte for byte against the files
 the unit tests run. `${workspaceFolder}`

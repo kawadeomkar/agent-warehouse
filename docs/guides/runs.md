@@ -82,8 +82,8 @@ its question: its check (and the VMs it started to release them), each VM's rele
 Claude, GitHub, Tailscale - its deletion and the aliases, each VM's state on each; a VM that was not deleted is
 the run's failure, by name, and a deletion not confirmed is said as the answer it is, not as a failure. So is
 `just code`, a row for each of its steps - finding the VM, reaching it, its sessions read, the folder, the alias,
-VS Code here, the sessions copied, the workspace and the window - with the VM's ID and address at the top, and
-under `just deploy` its `VS Code` stage the same. `just lint` is drawn too, a row for each check, its log for the
+the editor here, the sessions copied, the notes and the window - with the VM's ID and address at the top, and
+under `just deploy` its `editor` stage the same. `just lint` is drawn too, a row for each check, its log for the
 first time every line the checks print, and so is `just init`, its questions and then its checks as one run, the
 checks listed as each is made and whole in its summary, and `just test`, lint, the unit tests and each Molecule
 scenario as one run. The other recipes print as before. Without a terminal - output piped into a file, CI - it prints a line as each

@@ -258,7 +258,7 @@
 # just code, for the one VM this run was for: an alias that follows the VM,
 # then a VS Code window whose terminal starts claude. A fleet is not opened
 # window by window: code.yml ends at once with each VM's just code line.
-- name: Open the VM in VS Code
+- name: Open the VM in the editor
   ansible.builtin.import_playbook: playbooks/code.yml
   vars:
     code_in_deploy: true

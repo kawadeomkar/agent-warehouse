@@ -81,7 +81,8 @@ REPORTS = {
         "Say why, and go on with the next VM",
     ],
     "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
-    "playbooks/code.yml": ["Say how to open each VM", "Say what was opened", "Say how to open the VM later"],
+    "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
+    "playbooks/tasks/vscode_open.yml": ["vscode_open | Say what was opened"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",

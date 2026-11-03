@@ -269,9 +269,10 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   sign-in, for every play of its file; else the step the last task a declared step `starts` at began, in this play
   (`code.yml`'s phases, runs of its own tasks between its imports, a rescue running in the step that failed); else
   its role. An include's tasks are counted in the step they will run in, by the same rule, when the playbook
-  starts and when it announces them. `VS Code`, `just code`'s one stage and deploy's, is declared so: find the VM,
-  reach it, read the sessions, the folder (here and then on the VM), alias, VS Code here, copy the sessions,
-  workspace, window. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
+  starts and when it announces them. `editor`, `just code`'s one stage and deploy's, is declared so: find the VM,
+  reach it, read the sessions, the folder (here and then on the VM), alias, the editor here, copy the sessions,
+  the notes, window - the editor's two task files each a step from its first task, named as drawn, without its
+  file's prefix. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
   beta`, from `claude_vm_release_started`). A quiet stage - `finish`, deploy's last play, which only
   raises again what failed after the sign-ins - is counted but never drawn, unless one of its tasks fails; a step
   whose every task was skipped reads `–`, never `✓`. A run of one stage (`--only configure`) is drawn as that

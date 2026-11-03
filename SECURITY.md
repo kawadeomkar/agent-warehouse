@@ -150,7 +150,8 @@ restate them are not treated as vulnerabilities:
   root-equivalent and runs an AI agent.
 - `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
   (`vscode_claude_terminal`, on by default). The file is written by this project beside the
-  repositories, never in one, and its command is fixed in `playbooks/code.yml`. VS Code still runs
+  repositories, never in one, and what its tasks run is fixed: VS Code's helpers, files of
+  `playbooks/files/` that `just code` copies to the VM unchanged, everything variable an argument. VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own

@@ -144,6 +144,37 @@ def _play() -> dict:
     return yaml.safe_load(CODE.read_text())[0]
 
 
+def _vars() -> dict:
+    """code.yml's play vars, with each editor's own from the vars files it names."""
+    play = _play()
+    found = dict(play["vars"])
+    for name in play.get("vars_files") or []:
+        found.update(yaml.safe_load((CODE.parent / name).read_text()))
+    return found
+
+
+# Each editor's task files, as code.yml imports them: for that editor alone.
+EDITOR_FILES = {"tasks/vscode_check.yml": "vscode", "tasks/vscode_open.yml": "vscode"}
+
+
+def _inlined(block: list) -> list:
+    """code.yml's window step with each editor's imports replaced by their tasks, each under the import's condition.
+
+    How Ansible runs a static import, made visible to the cases below, which keep the tasks they run by name.
+    """
+    tasks = []
+    for task in block:
+        imported = task.get("ansible.builtin.import_tasks")
+        if imported not in EDITOR_FILES:
+            tasks.append(task)
+            continue
+        for inner in yaml.safe_load((CODE.parent / imported).read_text()):
+            own = inner.get("when")
+            inner["when"] = [task["when"], *(own if isinstance(own, list) else [own] if own else [])]
+            tasks.append(inner)
+    return tasks
+
+
 def _script() -> str:
     return TERMINAL.read_text()
 
@@ -295,7 +326,7 @@ def test_the_script_and_its_messages_are_not_templates():
         "code_login_watch",
         "code_github_signed_in",
     ):
-        assert "${" not in _play()["vars"][message]
+        assert "${" not in _vars()[message]
 
 
 def test_with_nothing_to_continue_a_fresh_claude_starts(tmp_path):
@@ -459,7 +490,7 @@ def test_github_auth_off_leaves_gh_alone(tmp_path):
 def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
     # The role-level names: the inventory wires them, the roles read them, and
     # an override of one reaches both.
-    task = _play()["vars"]["code_claude_task"]
+    task = _vars()["code_claude_task"]
     assert task["command"] == "/bin/bash"
     assert task["args"][:2] == ["-l", "{{ code_terminal_helper }}"]
     assert task["args"][2:] == [
@@ -488,9 +519,17 @@ def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
 # directories, which Ansible's local connection needs for its own work.
 WINDOW_PATH = "/usr/bin:/bin"
 ONE_VM = ["Refuse anything but one VM"]
-VS_CODE = ["Look for VS Code on this machine", "Fail when VS Code's command is not on PATH"]
+VS_CODE = [
+    "vscode_check | Look for VS Code on this machine",
+    "vscode_check | Fail when VS Code's command is not on PATH",
+]
 UP = ["Settle where the VM is reached", "Fail when the VM cannot be reached"]
-EXTENSION = ["List VS Code's extensions", "Install the Remote - SSH extension when VS Code lacks it"]
+EXTENSION = [
+    "vscode_check | List VS Code's extensions",
+    "vscode_check | Install the Remote - SSH extension when VS Code lacks it",
+]
+# VS Code's report of the window it opened.
+OPENED_REPORT = "vscode_open | Say what was opened"
 STOPPED = [{"name": "beta", "vmid": 9004, "node": "pve", "status": "stopped", "address": ""}]
 NO_ADDRESS = [{"name": "alpha", "vmid": 9001, "node": "pve", "status": "running", "address": ""}]
 REFUSED = {
@@ -524,7 +563,7 @@ def _listing(*names):
 
 
 def _the_window(play: dict) -> dict:
-    return next(task for task in play["tasks"] if task.get("name") == "Open the VM in VS Code")
+    return next(task for task in play["tasks"] if task.get("name") == "Open the VM in the editor")
 
 
 def _deploy_vars() -> dict:
@@ -618,14 +657,15 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
     if in_deploy:
         play["vars"].update(_deploy_vars())
     window = _the_window(play)
-    window["block"] = [task for task in window["block"] if task["name"] in keep]
+    window["block"] = [task for task in _inlined(window["block"]) if task["name"] in keep]
     assert [task["name"] for task in window["block"]] == keep, "keep names code.yml's tasks, in its order"
     if show:
         window["block"].append({"name": "Show it", "ansible.builtin.debug": {"msg": "{{ " + show + " }}"}})
     window["block"].append({"name": "Reach the window", "ansible.builtin.debug": {"msg": "reached"}})
     (root / "window.yml").write_text(yaml.safe_dump([play]))
-    # What code.yml finds beside itself: the task files it imports, its modules and its templates.
-    for name in ("tasks", "library", "templates"):
+    # What code.yml finds beside itself: the task files it imports, its modules, its templates, the vars files it
+    # names and the helpers it copies.
+    for name in ("tasks", "library", "templates", "vars", "files"):
         (root / name).symlink_to(REPO / "playbooks" / name)
 
     # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
@@ -664,7 +704,7 @@ def _window(root: Path, keep: list[str], *, in_deploy: bool, code_here=False, lo
         "later": _said(output, "Say how to open the VM later"),
         "fleet": _said(output, "Say how to open each VM"),
         "shown": _said(output, "Show it"),
-        "opened": _said(output, "Say what was opened"),
+        "opened": _said(output, OPENED_REPORT),
         "left": _recorded(output),
         "code": asked.read_text().splitlines() if asked.exists() else [],
     }
@@ -726,9 +766,9 @@ WINDOWS = {
         "vm_name": "gamma",
         "claude_vm_all": _listing("alpha"),
     },
-    "messages": {"keep": ["Say what was opened"], "in_deploy": False, "vm_name": "alpha", "show": ARGS, **OPENED},
+    "messages": {"keep": [OPENED_REPORT], "in_deploy": False, "vm_name": "alpha", "show": ARGS, **OPENED},
     "messages, role-level switches": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         "show": ARGS,
@@ -742,7 +782,7 @@ WINDOWS = {
         **OPENED,
     },
     "messages, inventory switches": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         "show": ARGS,
@@ -754,7 +794,7 @@ WINDOWS = {
         **OPENED,
     },
     "messages, token method": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         "show": ARGS,
@@ -762,9 +802,9 @@ WINDOWS = {
         **OPENED,
     },
     # The session notes, by window: the workspace file as code.yml writes it, and what is said.
-    "notes, whole directory": {"keep": ["Say what was opened"], "in_deploy": False, "vm_name": "alpha", **NOTES},
+    "notes, whole directory": {"keep": [OPENED_REPORT], "in_deploy": False, "vm_name": "alpha", **NOTES},
     "notes, one project": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         **NOTES,
@@ -772,7 +812,7 @@ WINDOWS = {
         "code_project": "discord-music-bot",
     },
     "notes, workspaces elsewhere": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         **NOTES,
@@ -781,14 +821,14 @@ WINDOWS = {
         "code_notes_file": "/home/dev/.vscode-workspaces/session/alpha-session.md",
     },
     "notes, automatic tasks off": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         **NOTES,
         "code_vscode_auto_tasks": "off",
     },
     "notes off": {
-        "keep": ["Say what was opened"],
+        "keep": [OPENED_REPORT],
         "in_deploy": False,
         "vm_name": "alpha",
         "local": {"vscode_session_notes": False},
@@ -1080,7 +1120,26 @@ def test_code_yml_imports_its_own_task_files_and_the_shared_ones_alone():
         for task in _tasks(_play()["tasks"])
         if "ansible.builtin.import_tasks" in task
     }
-    assert imported == SHARED | {"tasks/session_read.yml", "tasks/session_write.yml"}
+    assert imported == SHARED | {"tasks/session_read.yml", "tasks/session_write.yml"} | set(EDITOR_FILES)
+
+
+def test_each_editor_s_files_are_imported_for_that_editor_alone():
+    # Static imports, so --tags and the walks above reach them, each under its editor's condition; and every name an
+    # editor's file registers is its own, since a skipped task still overwrites its register.
+    imports = [
+        t for t in _tasks(_the_window(_play())["block"]) if t.get("ansible.builtin.import_tasks") in EDITOR_FILES
+    ]
+    assert {t["ansible.builtin.import_tasks"]: t["when"] for t in imports} == {
+        path: f"code_editor == '{editor}'" for path, editor in EDITOR_FILES.items()
+    }
+    # A name, the file and its condition, nothing else: _inlined, which the window cases run them through, carries
+    # the condition alone, and a vars, tags, become or delegate_to here would make those cases run another play.
+    assert all(set(t) == {"name", "ansible.builtin.import_tasks", "when"} for t in imports), imports
+    for path, editor in EDITOR_FILES.items():
+        registers = [
+            task["register"] for task in _tasks(yaml.safe_load((CODE.parent / path).read_text())) if "register" in task
+        ]
+        assert all(name.startswith(f"code_{editor}_") for name in registers), (path, registers)
 
 
 def _action(task):
@@ -1129,7 +1188,7 @@ def test_every_task_of_the_window_step_is_in_the_block_just_deploy_rescues():
     # A task outside it would fail a deploy whose VM is done. Before it is
     # only the fleet's end, which opens nothing.
     tasks = _play()["tasks"]
-    assert [task["name"] for task in tasks] == ["Leave the windows of a fleet for later", "Open the VM in VS Code"]
+    assert [task["name"] for task in tasks] == ["Leave the windows of a fleet for later", "Open the VM in the editor"]
     assert [_action(task) for task in tasks[0]["block"]] == [
         "ansible.builtin.debug",
         "ansible.builtin.set_stats",
@@ -1143,13 +1202,12 @@ def test_every_name_code_yml_sets_is_its_own():
     # and a fact or register of theirs outranks a play var. The inputs of the
     # project's task files keep those files' names. And no task var is also a
     # fact or a register, which would outrank it from then on.
-    play = _play()
     facts, task_vars = set(), set()
     for task in _every_task():
         facts |= set(task.get("ansible.builtin.set_fact") or {}) | ({task["register"]} if "register" in task else set())
         if "ansible.builtin.import_tasks" not in task:
             task_vars |= set(task.get("vars") or {})
-    names = set(play["vars"]) | facts | task_vars
+    names = set(_vars()) | facts | task_vars
     assert facts and task_vars
     assert sorted(name for name in names if not name.startswith("code_")) == []
     assert not (REPO / "roles" / "code").exists()
@@ -1158,7 +1216,7 @@ def test_every_name_code_yml_sets_is_its_own():
 
 def test_the_helpers_copied_are_the_files_of_playbooks_files_by_their_names():
     # The one list a copy reads from this machine: every file there, by a plain name, and nothing else.
-    helpers = _play()["vars"]["code_helpers"]
+    helpers = _vars()["code_helpers"]
     assert sorted(helpers) == sorted(path.name for path in HELPERS.iterdir() if path.is_file())
     assert all(re.fullmatch(r"[A-Za-z0-9_.-]+", name) and not name.startswith(".") for name in helpers), helpers
 
@@ -1168,12 +1226,12 @@ def test_just_code_writes_exactly_the_directory_and_the_file():
     assert [t["name"] for t in _every_task() if _action(t) in WRITES_ON_VM] == [
         "session_write | Make the directory for the sessions on the VM",
         "session_write | Write the copies the VM resumes",
-        "Make the directory for the helpers on the VM",
-        "Write the helpers on the VM",
-        "Make the directory for VS Code workspace files on the VM",
-        "Write the VS Code workspace on the VM",
         "Make the directory for the session notes on the VM",
         "Write the session notes on the VM",
+        "vscode_open | Make the directory for the helpers on the VM",
+        "vscode_open | Write the helpers on the VM",
+        "vscode_open | Make the directory for VS Code workspace files on the VM",
+        "vscode_open | Write the VS Code workspace on the VM",
     ]
 
 
@@ -1404,10 +1462,10 @@ def test_with_automatic_tasks_off_the_notes_are_named_with_how_to_open_them(wind
 def test_no_task_of_the_workspace_depends_on_another():
     # VS Code looks a dependency of a workspace-file task up, misses it, and
     # asks every task provider instead: 7.5 s before Claude started, live.
-    play = _play()
+    found = _vars()
     for name in ("code_claude_task", "code_notes_task", "code_shell_task"):
-        assert "dependsOn" not in play["vars"][name], name
-    assert "dependsOn" not in str(play["vars"]["code_workspace_file"])
+        assert "dependsOn" not in found[name], name
+    assert "dependsOn" not in str(found["code_workspace_file"])
 
 
 def test_with_the_notes_off_the_workspace_is_as_it_was(windows):
@@ -1818,7 +1876,7 @@ SESSION_KEEP = [
     "Read the sessions to carry to the VM",
     "Settle the folder to open",
     "Carry the sessions to the VM",
-    "Say what was opened",
+    OPENED_REPORT,
 ]
 OTHER_ID = "bc0e637b-2c3d-4e4f-9a01-23456789abcd"
 STUB_ID = "178468f7-0000-4000-8000-000000000000"

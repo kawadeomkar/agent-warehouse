@@ -53,6 +53,10 @@ The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its 
 helpers beside it (`helpers/` in just code's directory there), each `changed` once. A window opened from VS Code's
 recent list before that still runs 1.0's workspace file, which works as it did.
 
+The live output says the window's stage as "editor", where it said "VS Code", and two of its steps as "the editor
+here" and "the notes" ("VS Code here" and "workspace" before). Wording, which the promise leaves free, but a script
+that read the line-per-step output by those names must follow them.
+
 ## A template built before its record
 
 From PR #126, `just deploy` compares the template with what its settings would build, and rebuilds it when it
