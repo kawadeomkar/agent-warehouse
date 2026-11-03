@@ -96,6 +96,24 @@ Notable choices:
   works in containers with no `timedatectl`/dbus.
 - **Every toggle is a pair of tasks** (`Grant`/`Revoke` sudo, `Harden`/`Remove` sshd). `template` has
   no `state: absent`, so this is the idiom for a reversible setting.
+- **Passwordless sudo off takes away cloud-init's rule too** (`tasks/sudo.yml`). The user cloud-init creates
+  gets `NOPASSWD:ALL` in `/etc/sudoers.d/90-cloud-init-users` and the groups `adm`, `cdrom`, `dip`, `lxd`
+  and `sudo`, so removing only the role's own drop-in left the user root. Off, the role first sets the
+  user's password from `common_user_password`, unlocked (hashed on the VM by `openssl passwd -6`, salted with
+  the VM's name so a second run changes nothing: the controller's Python has no `crypt`), since sudo asks for
+  it and every later play becomes root with it (`ansible_become_password`, group_vars/all) - an assert refuses
+  the setting while the two differ or are empty, and another while `sudo -l -U` shows no rule that takes the
+  password (Ubuntu's `%sudo`), which would lock every later run out. Then it removes both rules (`visudo -cf`
+  on each change), writes a `cloud.cfg.d` drop-in whose `system_info.default_user` has no `sudo`, no
+  `lock_passwd` and only the role's groups - a new cloud-init instance (a rename) writes the rule again for a
+  user that exists and locks its password, which the `user` module, comparing hashes without the lock, would
+  leave locked - takes the user out of `common_user_groups_revoked`, and fails on anything `sudo -l -U` still
+  shows as `NOPASSWD` or `!authenticate`. On, the drop-in goes and the role's own rule is back; the groups
+  stay out, sudo covering them. A new instance also sets the password Proxmox holds, the one the VM was
+  made with (`proxmox_vm` sends `cipassword` only then): after `vault_vm_password` changes, a renamed VM's
+  sudo takes the old one until the Proxmox console sets the new. Become runs `/usr/bin/sudo` by its path (`ansible_become_exe`): the user's ssh sessions put
+  `~/.local/bin` first on PATH, where a `sudo` of the user's own would be handed every module's arguments
+  and the password.
 - **`validate:` on the sudoers and sshd templates** — `visudo -cf` and `sshd -t -f`, so a bad render
   cannot lock anyone out. `sshd -t` needs `/run/sshd`, which is created first because it does not exist in a
   fresh container.
@@ -547,7 +565,9 @@ organisation gives none, which is said. Written with `community.general.git_conf
 so the two writers of `~/.gitconfig` each check before writing. The listing is `no_log`; its failure
 is said by the next task in the module's words, which the module masks (it strips the token and masks
 the stripped form too). The filters (`exclude`, then `include` if non-empty, never-pushed repositories
-dropped as `empty`) are vars in `vars/main.yml`; a private repository is cloned only where git has a
+dropped as `empty`, and any whose name starts with a dot, which would be a folder of settings in the projects
+folder whose Claude Code trust Remote Control accepts in advance - `.claude`, `.vscode`) are vars in
+`vars/main.yml`; a private repository is cloned only where git has a
 credential for it - over SSH always, over HTTPS with gh signed in and git's helper (made here, or by
 hand) - else skipped and named rather than cloned and failed. The clone runs as the user
 under `sudo -H`, so git reads that user's `~/.gitconfig` and the helper reads that user's
@@ -591,13 +611,16 @@ after starting gh leaves gh polling for up to fifteen minutes, and truncating wo
 with it, whose expiry line would then end the new wait early, while an unlinked file leaves it its
 own inode to die on. gh runs in the job's background, its pid recorded, and the job writes
 `gh exited: N` once gh ends however it ends; both waits end on it. A `wait_for` reads the code out of
-the file, the run prints it, and on the controller the page is opened by the `page_opener` filter
+the file - a word of its own in GitHub's shape, `XXXX-XXXX` - the run prints it with GitHub's own page,
+`https://github.com/login/device`, and never a URL out of gh's output, which the VM chooses (a page of the
+VM's choosing would open in your browser just as the run asks you to sign in to GitHub), and on the
+controller that page is opened by the `page_opener` filter
 (`filter_plugins/desktop.py`, shared with the Claude sign-in: the first `BROWSER` command, `%s`
 substituted, else `open`, else `xdg-open`) and the code copied (`pbcopy`, `wl-copy`, `xclip`), both
 best effort and both gated by `github_projects_login_desktop`, which every
 scenario and the unit harness turn off because their `localhost` is the developer's machine, with a
 test that keeps it so. Those controller tasks carry `become: false`: the play's `become` is the VM's
-passwordless sudo, and inherited by a task delegated to the controller it is the developer's, which
+passwordless sudo (or its password, with `common_user_passwordless_sudo` off), and inherited by a task delegated to the controller it is the developer's, which
 asks for a password and fails the run (the first real run found this; the harness runs with become
 off, so a static test holds it). Control characters are stripped from gh's text before any message
 quotes it. Everything after gh's start is a block whose `always` gives gh a moment, ends it by pid if
@@ -700,7 +723,26 @@ plan's research record.
   never from human output.
 - **The key.** Used from a settled `NeedsLogin` with no `HaveNodeKey` only - a node that never joined, or
   one logged out by hand, which reads the same - because a key Tailscale no longer accepts, sent to a node
-  with a login, logs it out (tailscale#19501). It goes in as `--auth-key=file:/dev/stdin`, the key as the
+  with a login, logs it out (tailscale#19501). And only on a VM whose Tailscale never had a login: a VM
+  logged out from inside, as its root can - or one whose `tailscale` says it was - would otherwise be handed
+  the fleet's key, a reusable one that joins devices of the VM's own long after it is gone. Whether it had
+  one is kept in Proxmox, where the VM cannot change it, and recorded wherever a run sees it:
+  `connect.yml` and the `login` entry point end by setting `tailscale_login_to_record` from
+  `tailscale_login_seen` - any login on the Tailscale the role installed, the role's own, one made by hand or
+  one expired, each of which leaves a node key, and a sign-in under way, the role's pending marker or a page
+  tailscaled holds, which may be approved after the run - and the play after each of them,
+  `configure.yml`'s after the role and `tailscale_login.yml`'s after the sign-ins, runs
+  `tasks/tailscale_record.yml`, which tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
+  through the API - VM by VM, reading its tags first and writing them back as read, on the VM of that name
+  and VMID that carries the ownership tag, never in check mode, and saying, with a NEXT STEPS line, a VM
+  Proxmox could not read or write for - and discovery, provisioning's publish (from the role's lookup) and
+  `just status` hand the tag to the role as `tailscale_joined_before` (`tailscale_first_join`,
+  `tailscale_key_held_back`). Such a VM is left for the web login under `auto`, and fails under `key`,
+  naming the tag to remove for one more join with the key (`tailscale_joined_tag`, the role's own input, wired
+  from `claude_vm_tailscale_tag`); `proxmox_vm` keeps the tag whenever it replaces
+  a VM's tags (`proxmox_vm_kept_tags`). Without a Proxmox VM - Vagrant, the scenarios - nothing is
+  recorded, and a VM logged out reads as one that never joined, as before; nor is a login no run saw, made by
+  hand on the VM and logged out before the next. It goes in as `--auth-key=file:/dev/stdin`, the key as the
   `command` module's stdin under `no_log`: nothing on argv, no file - `copy` would stage one in
   `~/.ansible/tmp` - and with pipelining never on the VM's disk. The flags are every managed setting
   after `--reset`, so tailscale's "requires mentioning all non-default flags" never fires. A refusal is a
@@ -740,8 +782,9 @@ plan's research record.
 - **The join method** (`tailscale_auth_method`): `auto` joins with the key when there is one and leaves the
   VM for the web login otherwise; `key` is the key only - an empty one fails at the role's first task by
   name, the web login is never offered or started (`tailscale_login_possible`), and an expired node is told
-  to be logged out by hand, since the key is never sent to a node that had a login; `web` leaves the key
-  unused (`tailscale_key_wanted`).
+  to be logged out by hand - and its tag in Proxmox removed, where it has one - since the key is never sent
+  to a node that had a login, or to a VM that held one of the role's; `web` leaves the key unused
+  (`tailscale_key_wanted`).
 - **Deleting the device** (`api_delete.yml`), from the controller with `tailscale_api_credential`, which
   `tailscale_api_auth_method` decides: `auto`, the default, takes whatever the vault holds - a credential
   there is the opt-in, as the auth key is for the join - so `token` when there is an API access token (it
@@ -750,7 +793,8 @@ plan's research record.
   `token` is an API access token, `oauth` an OAuth client, exchanged at `/api/v2/oauth/token` for a
   one-hour token (it needs `devices:core`). `GET /api/v2/device/<Self.ID>` first, then `DELETE` only when
   the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`: the VM reports the ID,
-  and the credential can delete any device. A 404 is a device already gone. Every call is `no_log` and
+  and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
+  one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
   is an earlier run's. Run by the off path after its logout, and by the `release` entry point, which
   `destroy.yml` runs before deleting a VM: start a stopped `tailscaled`, read the node's ID, log it out,

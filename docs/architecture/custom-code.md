@@ -39,18 +39,23 @@ a VMID in the detail — `500 Internal Server Error: VM 4013 is not running` —
 the fleet listing and `just deploy --only configure` for the whole fleet over one stopped VM.
 
 **`ssh_config_blocks(content)`** — the alias blocks in the managed file, as `{name}`, in file order. **`ssh_config_prune(blocks, resources,
-tag_pattern)`** — the decision `just deploy --only ssh-config` makes fleet-wide, as data: `prune` (no VM of that
-name anywhere), `untagged` (a VM of that name exists without the tag; left alone), and `nameless`
+tag_pattern, hosts)`** — the decision `just deploy --only ssh-config` makes fleet-wide, as data: `prune` (no VM of
+that name anywhere), `untagged` (a VM of that name exists without the tag; left alone), `nameless`
 (tagged VMs the listing shows without a name, a node that is down), which when non-empty empties
-`prune` into `held`. Pure, so every rule is a unit test rather than a fake-API fixture.
+`prune` into `held`, and `refused` (a name no alias may have, an address or one of `hosts`, as
+`ssh_alias_refusal` says, which an earlier version wrote: removed whatever the listing shows). Pure, so every
+rule is a unit test rather than a fake-API fixture.
 
-**`ssh_alias_refusal(name, hosts)`** — why a VM's name cannot be its alias, or `""`: a dot (it could be a
-host's own name, `github.com`), a number ssh reads as an address (`3232235777`, `0x7f000001`, as
-`inet_aton` does), or one of `hosts`, the inventory's own (`claude_vm_inventory_hosts`). The managed file
-is included ahead of the user's own config, so such an alias would take this machine's own connections to
-that host ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
-**`ssh_alias_refusals(vms, hosts)`** is the same over a list, each refused VM as `{name, why}`: what a
-fleet-wide refresh leaves out and says.
+**`ssh_alias_refusal(name, hosts, chosen)`** — why a VM's name cannot be its alias, or `""`: a name ssh reads
+as an address (`192.0.2.10`, `3232235777`, `0x7f000001`: one to four parts between dots, each decimal, octal or
+hex, of any size - more than any platform's `inet_aton` takes, so the answer is the same on every machine), one
+of `hosts` (`claude_vm_inventory_names`: the inventory's hosts, their `ansible_host` and the API's address), or
+a dot (it could be a host's own name, `github.com`) in a name that is not one of `chosen`
+(`claude_vm_names_chosen`, the names the person gave). The managed file is included ahead of the user's own
+config, so such an alias would take this machine's own connections to that host
+([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
+**`ssh_alias_refusals(vms, hosts, chosen)`** is the same over a list, each refused VM as `{name, why,
+unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leaves out and says.
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
 without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
 inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).
@@ -68,7 +73,9 @@ Covered by the unit tests in `tests/unit/test_filters.py`, and `proxmox_vm_drift
 
 ## 7.2 `roles/github_projects/library/github_repos.py`
 
-An Ansible module listing a GitHub account's repositories, following `Link`-header pagination. With a
+An Ansible module listing a GitHub account's repositories, following `Link`-header pagination - only to
+the API's own scheme and host, since the token goes with every request: a next page anywhere else fails the
+listing rather than carry it there. With a
 token belonging to the queried user it uses the authenticated endpoint and includes private repos;
 otherwise it falls back to the public listing, which GitHub documents as public repositories only.
 Returns a compact, sorted list carrying `name`, `full_name`, `clone_url`, `ssh_url`,
@@ -103,7 +110,12 @@ Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 both sign-ins so the two cannot drift: the first command `BROWSER` names (a `:`-separated list, each
 split as a shell would, `%s` replaced by the URL or the URL appended), else `open`, else `xdg-open`,
 from what `which` found; `[]` when nothing can, and the task is skipped. Only the first `BROWSER`
-command is taken, since an argv holds one. Covered by `tests/unit/test_desktop_filter.py`.
+command is taken, since an argv holds one. A `BROWSER` command that runs a shell or a Windows command
+interpreter (`sh -c`, `cmd.exe /c start`, `powershell.exe`) gives `[]` too - any word before the one that holds
+`%s` naming one, so no launcher ahead of it (`env` and its options, `nohup`, `sudo -u`) hides it: it reads
+the URL as a command line of its own, and a page's query string - in a page the VM chose - would be a
+command run here. The page is then printed for the person to open. Covered by
+`tests/unit/test_desktop_filter.py`.
 
 **`plain_text(text)`** — what a VM printed, safe to quote in a message on this machine: every escape
 sequence removed whole (OSC up to its terminator or the end of its line, DCS and the other string
@@ -114,6 +126,19 @@ the control characters left a clipboard write's base64 or a window title behind 
 that quotes the VM's text goes through it: the Claude sign-in's (`claude_code_login_said`), gh's
 (`github_projects_login_text`, `_status_said`, `_token_said`) and `just code`'s SSH failure. Covered by
 `tests/unit/test_text_filter.py`, and by the sign-in tests, which feed both flows escape sequences.
+
+**`plain_summary(summary)`, `plain_events(callback)`** — what a module returns as warnings or
+deprecations, and a failed module's message, are its to choose, and a VM's root makes every module there
+answer what it likes; ansible-core turns them into summaries that Display prints as `[WARNING]`,
+`[DEPRECATION WARNING]` and `[ERROR]` lines, raw, on the screen - stderr, which the live region lets
+through - and in the run log. `plain_summary` rebuilds such a summary (a frozen dataclass of events) with
+every string through `visible_text`, so no bidi override reorders a `[WARNING]` line either; inside
+`plain_events`, a stdout callback's `_handle_warnings` and `_handle_exception` read the current result's
+summaries that way. Both stdout callbacks wrap the two methods in it, so every hook prints them plain;
+`claude_on_proxmox` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
+keeps the file's own characters. Covered by `test_attention_callback.py`, which runs a stand-in module returning escape sequences through both
+stdout callbacks, by `test_deploy_live.py`, which runs it in a live deploy, and by `test_status.py`'s
+test of the status callback's hooks.
 
 **`visible_text(text)`** — `plain_text`, then every Unicode format, line or paragraph separator (bidi
 controls and zero-width characters among them) replaced by a space, its lines, tabs and indents kept: a
@@ -161,7 +186,7 @@ A run waits for the person in three ways, and each is set apart:
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 30 reports that can say what to do later registers its message and records it straight
+  Each of the 31 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
   `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
   `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
@@ -171,6 +196,10 @@ A run waits for the person in three ways, and each is set apart:
   deciding what comes next; and `init_check`, each problem with its fix, what could not be checked when
   nothing is wrong, or else `just deploy alpha` - nothing while the GitHub username, which the first names, is
   still the example's - and nothing at all when it ends before checking, a value still the example's.
+  The callback keeps them from those tasks' own results, merged as Ansible merges custom stats, never from
+  the run's custom stats themselves: ansible-core adds any module result's `ansible_stats` to those, so a
+  module on a VM could write another VM's line, or blank one. So no record runs under `no_log`, its own or
+  one from above it: `no_log` censors the result the record is read from, and its line would go unsaid.
   `aggregate` merges the records, so the last one of a VM and matter wins across plays: configure's "not
   signed in" is cleared by the sign-in's own report later in the same `just deploy`. The sign-in playbooks
   record what their own plays say, under the role's stat and the sign-in's matter: a VM that could not be
@@ -187,8 +216,8 @@ A run waits for the person in three ways, and each is set apart:
   workflow scope names no `just` command, and "just deploy signs it in next" names one with nothing to do. A
   looped report records each VM in a looped `set_stats` keyed by the loop var, so the callback reads no task
   result for this at all. Printed by VM name, the matters in a fixed order (`init_settings`, `init_check`,
-  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `vscode`, `destroy`), each line
-  once, nothing when nothing is left, and nothing after Ctrl-C, which has no stats event. `profile_tasks`'
+  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `tailscale_record`, `vscode`,
+  `destroy`), each line once, nothing when nothing is left, and nothing after Ctrl-C, which has no stats event. `profile_tasks`'
   TASKS RECAP follows it: Ansible calls collection callbacks after the stdout one.
 
 The blocks are bright yellow through `Display`, plain under `ANSIBLE_NOCOLOR` or with no terminal; the run

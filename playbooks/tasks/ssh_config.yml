@@ -59,18 +59,21 @@
 
 # The managed file is included ahead of everything in the user's config, so an
 # alias is taken for every connection to its name: a VM named github.com would
-# get this machine's git pushes, and one named after an address, or after the
-# Proxmox host, its root SSH (ssh_alias_refusals). A VM's name is Proxmox's, and
-# on a Proxmox others use too, anyone's to choose. Only a name that can be
-# nothing else is written. Fleet-wide (no vm_name), such a VM is left out and
-# said, and the rest written: anyone's tagged VM named github.com would
+# get this machine's git pushes, and one named after an address, or the way
+# this machine reaches the Proxmox host, its root SSH (ssh_alias_refusals). A
+# VM's name is Proxmox's, and on a Proxmox others use too, anyone's to choose.
+# An address or a host of the inventory is never written; a name with a dot
+# only when the person chose it (claude_vm_names_chosen: the names given), as
+# docs/guides/vms.md allows one. Fleet-wide (no vm_name), such a VM is left out
+# and said, and the rest written: anyone's tagged VM named github.com would
 # otherwise stop every alias refresh of the user's own fleet. With names given,
 # it is refused below. Set again on every import, both states, so no earlier
 # run's list is ever read: the rest of this file writes claude_ssh_written.
 - name: ssh_config | Work out which VMs get an alias
   vars:
     claude_ssh_refusals: >-
-      {{ claude_ssh_vms | ssh_alias_refusals(claude_vm_inventory_hosts | default(['localhost']))
+      {{ claude_ssh_vms | ssh_alias_refusals(claude_vm_inventory_names | default(['localhost']),
+                                             claude_vm_names_chosen | default([]))
          if claude_ssh_state | default('present') == 'present' else [] }}
     claude_ssh_strict: "{{ vm_name is defined }}"
   ansible.builtin.set_fact:
@@ -87,18 +90,27 @@
       Not writing an alias for {{ claude_ssh_refused | map(attribute='name') | join(', ') }}: an alias is the VM's
       name, and ssh would take it for another host
       ({% for claude_ssh_why in claude_ssh_refused %}{{ claude_ssh_why.name }}: {{ claude_ssh_why.why
-      }}{{ '; ' if not loop.last else '' }}{% endfor %}). Rename the VM in Proxmox to letters, digits and hyphens.
+      }}{{ '; ' if not loop.last else '' }}{% endfor %}). Rename the VM in Proxmox.
     quiet: true
   when: claude_ssh_state | default('present') == 'present'
 
+# A name with a dot is left out only because nobody named it: said apart, with
+# the run that writes its alias, and an alias it has already is left as it is.
 - name: ssh_config | Say which VMs get no alias
+  vars:
+    claude_ssh_renamed: "{{ claude_ssh_left_out | rejectattr('unnamed') | map(attribute='name') | list }}"
+    claude_ssh_unnamed: "{{ claude_ssh_left_out | selectattr('unnamed') | map(attribute='name') | list }}"
   ansible.builtin.debug:
     msg: >-
       No alias for {% for claude_ssh_why in claude_ssh_left_out %}{{ claude_ssh_why.name }} ({{ claude_ssh_why.why
       }}){{ '; ' if not loop.last else '' }}{% endfor %}: an alias is the VM's name, and the file ssh reads first
-      would send this machine's own connections there. The other VMs' aliases are written. Rename
-      {{ 'it' if claude_ssh_left_out | length == 1 else 'them' }} in Proxmox, to letters, digits and hyphens, or ask
-      whoever made {{ 'it' if claude_ssh_left_out | length == 1 else 'them' }}.
+      would send this machine's own connections there. The other VMs' aliases are written.
+      {% if claude_ssh_unnamed | length > 0 %}A name with a dot gets its alias only from a run that names it, so
+      that a VM someone else named github.com never gets one: just deploy {{ claude_ssh_unnamed | join(',') }}
+      --only ssh-config, if {{ 'it is' if claude_ssh_unnamed | length == 1 else 'they are' }} yours. An alias
+      {{ 'it has' if claude_ssh_unnamed | length == 1 else 'they have' }} already is left as it was.{% endif %}
+      {% if claude_ssh_renamed | length > 0 %}Rename {{ claude_ssh_renamed | join(', ') }} in Proxmox, or ask whoever
+      made {{ 'it' if claude_ssh_renamed | length == 1 else 'them' }}.{% endif %}
   when: claude_ssh_left_out | length > 0
 
 - name: ssh_config | Stat the managed file

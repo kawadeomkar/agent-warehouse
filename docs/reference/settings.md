@@ -452,11 +452,11 @@ Proxmox API token secret for proxmox_api_user (default ansible@pve): just init w
 
 ### Secrets: VMs
 
-Optional: a password for the VM user, for the Proxmox console. SSH stays key-only either way (common_harden_ssh). Empty sets none.
+Optional: a password for the VM user, for the Proxmox console, and the one sudo asks for with common_user_passwordless_sudo: false, which the playbooks then become root with. SSH stays key-only either way (common_harden_ssh). Empty sets none. Every VM gets the same one, each VM can read its hash, and a VM whose root makes sudo ask is sent the password itself by the next run: use it nowhere else.
 
 | Secret, in `vault.yml` | Notes |
 |---|---|
-| `vault_vm_password` | Sets `proxmox_vm_password` ([`proxmox_vm`](roles/proxmox_vm.md)): Optional cloud-init password for the user (vault_vm_password in vault.yml). |
+| `vault_vm_password` | Sets `proxmox_vm_password` ([`proxmox_vm`](roles/proxmox_vm.md)): Optional cloud-init password for the user (vault_vm_password in vault.yml). Sets `common_user_password` ([`common`](roles/common.md)): The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role. |
 
 ### Secrets: GitHub
 
@@ -482,7 +482,7 @@ Optional: skip interactive `claude` login on the VM. Billing for Claude Code on 
 
 ### Secrets: Tailscale
 
-Optional: a Tailscale auth key, so each new VM joins your tailnet during configuration with nothing to click; just init asks for it after a y to Tailscale. Make it reusable (one key for the whole fleet) or one-off, pre-approved and tagged - never ephemeral, since Tailscale removes an ephemeral node within the hour of it going offline, and a VM left stopped would be. Leave it empty to sign each VM in by Tailscale's web login instead (just login &lt;name&gt; --only tailscale), with no secret here. Only ever used for a VM's first join. [docs/guides/tailscale.md](../guides/tailscale.md).
+Optional: a Tailscale auth key, so each new VM joins your tailnet during configuration with nothing to click; just init asks for it after a y to Tailscale. Make it reusable (one key for the whole fleet) or one-off, pre-approved and tagged - never ephemeral, since Tailscale removes an ephemeral node within the hour of it going offline, and a VM left stopped would be. Leave it empty to sign each VM in by Tailscale's web login instead (just login &lt;name&gt; --only tailscale), with no secret here. Only ever used for a VM's first join: a tag in Proxmox records it, and a VM logged out later is never sent the key again. [docs/guides/tailscale.md](../guides/tailscale.md).
 
 | Secret, in `vault.yml` | Notes |
 |---|---|

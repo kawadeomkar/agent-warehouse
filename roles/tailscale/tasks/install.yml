@@ -94,7 +94,8 @@
     # check mode and apt's cache is never refreshed there, so apt would fail with
     # "No package matching 'tailscale' is available". state present, not latest:
     # an upgrade restarts tailscaled, which a configure run should not do on its
-    # own; common_apt_upgrade and unattended upgrades upgrade it like any package.
+    # own; common_apt_upgrade upgrades it with every other package on each run.
+    # unattended-upgrades does not: it takes only Ubuntu's own archive.
     - name: install | Install Tailscale
       ansible.builtin.apt:
         name: tailscale

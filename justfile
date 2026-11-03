@@ -253,9 +253,11 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
         chmod 755 "$hook"
       fi
     fi
+    # Readable by you alone, as .vault_pass is: the vault is plaintext until just vault encrypts it, and is
+    # filled in by hand before that.
     copied=
     for file in {{ INIT_FILES }}; do
-      test -f "$file" || { cp "$file.example" "$file"; copied="$copied $file"; }
+      test -f "$file" || { (umask 077 && cp "$file.example" "$file"); copied="$copied $file"; }
     done
     [ -z "$copied" ] || echo "Created$copied from their .example files (git-ignored)."
     tools/check settings "$bin" {{ SETTINGS_FILES }}

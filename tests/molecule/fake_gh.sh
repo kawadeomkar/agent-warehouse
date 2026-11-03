@@ -96,7 +96,9 @@ case "$*" in
     echo "! Failed to copy one-time code to clipboard" >&2
     echo "  No clipboard utilities available. Please install xsel, xclip, wl-clipboard or Termux:API add-on for termux-clipboard-get/set." >&2
     echo "! First copy your one-time code: FAKE-C0DE"
-    echo "Open this URL to continue in your web browser: https://github.com/login/device"
+    # The page gh names, which a VM's root could make any it likes (fake-page).
+    page=$(cat "$state/fake-page" 2>/dev/null || echo https://github.com/login/device)
+    echo "Open this URL to continue in your web browser: $page"
     if [ -e "$state/fake-expire" ]; then
       # gh polls until its own deadline, the code's lifetime, and says so.
       nap "$(grep . "$state/fake-expire" 2>/dev/null || echo 1)"

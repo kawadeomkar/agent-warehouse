@@ -15,7 +15,7 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 |---|---|---|---|
 | `dev_tools_user` | str | `dev` | User added to the docker group. Set through vm_user in local.yml. |
 | `dev_tools_install_node` | bool | `true` | Install Node.js from NodeSource, and the packages in dev_tools_npm_global_packages. false skips it and removes nothing. |
-| `dev_tools_install_docker` | bool | `true` | Install Docker Engine from Docker's repository and add dev_tools_user to the docker group. false skips it and removes nothing. |
+| `dev_tools_install_docker` | bool | `true` | Install Docker Engine from Docker's repository and add dev_tools_user to the docker group. false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run put it in, since that group is root. |
 | `dev_tools_install_gh` | bool | `true` | Install the GitHub CLI from its repository; github_projects signs in and clones private repositories through it. false skips it and removes nothing. |
 | `dev_tools_install_uv` | bool | `true` | Install uv and uvx, a pinned release checked against dev_tools_uv_sha256, into dev_tools_uv_install_dir. false skips it and removes nothing. |
 | `dev_tools_install_rust` | bool | `false` | Install rustup from Ubuntu's archive and, for dev_tools_user, the dev_tools_rust_toolchain toolchain with dev_tools_rust_components. Off by default; false skips it and removes nothing. |
@@ -26,9 +26,9 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 | `dev_tools_container_virt_types` | list of `str` | `["docker", "container", "containerd", "podman", "lxc"]` | Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there. |
 | `dev_tools_docker_manage_service` | bool | computed | Defaults to true unless running inside a container. |
 | `dev_tools_deb_arch` | str | computed | Derived from the architecture fact by default. One of `amd64`, `arm64`. |
-| `dev_tools_uv_version` | str | `0.9.5` | uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. |
+| `dev_tools_uv_version` | str | `0.13.5` | uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is never older than the uv pyproject.toml pins for the controller. |
 | `dev_tools_uv_arch_map` | dict | `{aarch64: aarch64-unknown-linux-gnu, x86_64: x86_64-unknown-linux-gnu}` | uv's release target for each value of the architecture fact, which names the archive downloaded. |
-| `dev_tools_uv_sha256` | dict | `{aarch64: 9db0c2f6683099f86bfeea47f4134e915f382512278de95b2a0e625957594ff3, x86_64: 2cf10babba653310606f8b49876cfb679928669e7ddaa1fb41fb00ce73e64f66}` | SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map. |
+| `dev_tools_uv_sha256` | dict | `{aarch64: 4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403, x86_64: f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f}` | SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map. |
 | `dev_tools_uv_install_dir` | path | `/usr/local/bin` | Directory uv and uvx are installed into. |
 | `dev_tools_rust_toolchain` | str | `stable` | Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a version such as 1.90.0 - and makes the default when no default is set. The role never updates it. |
 | `dev_tools_rust_components` | list of `str` | `["clippy", "rustfmt"]` | Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std), such as rust-src or rust-analyzer. One taken off the list stays installed. |
@@ -45,6 +45,8 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Install development packages | `ansible.builtin.apt` |  |
 | Install Node.js | `ansible.builtin.include_tasks` | <code>dev_tools_install_node</code> |
 | Install Docker Engine | `ansible.builtin.include_tasks` | <code>dev_tools_install_docker</code> |
+| Read the docker group | `ansible.builtin.getent` | <code>not dev_tools_install_docker</code> |
+| Take the user out of the docker group | `ansible.builtin.command` | <code>not dev_tools_install_docker and dev_tools_user in ((ansible_facts['getent_group'] &#124; default({}))['docker'] &#124; default(['', '', ''], true))[2].split(',')</code> |
 | Install GitHub CLI | `ansible.builtin.include_tasks` | <code>dev_tools_install_gh</code> |
 | Install uv | `ansible.builtin.include_tasks` | <code>dev_tools_install_uv</code> |
 | Install Rust | `ansible.builtin.include_tasks` | <code>dev_tools_install_rust</code> |
@@ -64,10 +66,12 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| Install_development_packages0[install development packages]:::task
   Install_development_packages0-->|Include task| Install_Node_js_node_yml_1[install node js<br>When: **dev tools install node**<br>include_task: node yml]:::includeTasks
   Install_Node_js_node_yml_1-->|Include task| Install_Docker_Engine_docker_yml_2[install docker engine<br>When: **dev tools install docker**<br>include_task: docker yml]:::includeTasks
-  Install_Docker_Engine_docker_yml_2-->|Include task| Install_GitHub_CLI_gh_yml_3[install github cli<br>When: **dev tools install gh**<br>include_task: gh yml]:::includeTasks
-  Install_GitHub_CLI_gh_yml_3-->|Include task| Install_uv_uv_yml_4[install uv<br>When: **dev tools install uv**<br>include_task: uv yml]:::includeTasks
-  Install_uv_uv_yml_4-->|Include task| Install_Rust_rust_yml_5[install rust<br>When: **dev tools install rust**<br>include_task: rust yml]:::includeTasks
-  Install_Rust_rust_yml_5-->End
+  Install_Docker_Engine_docker_yml_2-->|Task| Read_the_docker_group3[read the docker group<br>When: **not dev tools install docker**]:::task
+  Read_the_docker_group3-->|Task| Take_the_user_out_of_the_docker_group4[take the user out of the docker group<br>When: **not dev tools install docker and dev tools user in<br>  ansible facts  getent group     default      <br>docker     default               true   2  split  <br>**]:::task
+  Take_the_user_out_of_the_docker_group4-->|Include task| Install_GitHub_CLI_gh_yml_5[install github cli<br>When: **dev tools install gh**<br>include_task: gh yml]:::includeTasks
+  Install_GitHub_CLI_gh_yml_5-->|Include task| Install_uv_uv_yml_6[install uv<br>When: **dev tools install uv**<br>include_task: uv yml]:::includeTasks
+  Install_uv_uv_yml_6-->|Include task| Install_Rust_rust_yml_7[install rust<br>When: **dev tools install rust**<br>include_task: rust yml]:::includeTasks
+  Install_Rust_rust_yml_7-->End
 ```
 
 ### `docker.yml`

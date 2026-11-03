@@ -8,7 +8,12 @@ that `git push` and `gh pr create` work from the VM.
 `github_projects` (in `local.yml`) is a list of repository names. Leave it empty and every repository
 owned by `github_username` is cloned; list names to clone only those. Forks and archived repositories are
 skipped unless `github_projects_include_forks` / `github_projects_include_archived` are true, and
-`github_projects_exclude` always wins.
+`github_projects_exclude` always wins. A repository whose name starts with a dot is never cloned, and is
+named in the report: in the projects folder, `.claude` would be the settings, hooks and `CLAUDE.md` of every
+Claude Code session started there, Remote Control's included, and `.vscode` the tasks of the window
+`just code` opens. Naming one in `github_projects_include` does not change that, and a clone of one that an
+earlier version made stays where it is, unreported: on a VM an earlier version configured, look in the
+projects folder (`ls -d ~/projects/.[!.]*`, or under `vm_projects_dir`) and remove any you find.
 
 ## Private repositories, and pushing from the VM
 
@@ -50,8 +55,8 @@ answered, which it says, with `just login alpha --only github` to start it later
 terminal skips it, as nobody is there to approve it. Once the code is shown
 the run waits until it is approved or expires, and Ctrl-C there ends the whole run; with
 `github_login_auto_start: false` it asks first, and `n` leaves a VM for later. `just deploy --only configure` never
-runs it. On a controller with no browser or clipboard the run prints the page and the
-code and waits all the same, and `login_desktop: false` makes it never try. The terminal that `just
+runs it. On a controller with no browser or clipboard, or whose `BROWSER` runs a shell, `cmd.exe` or
+PowerShell, the run prints the page and the code and waits all the same, and `login_desktop: false` makes it never try. The terminal that `just
 code` opens runs the same flow after the Claude sign-in, with the page opening by itself and the code
 printed to copy (a Remote-SSH terminal cannot fill your clipboard); Ctrl-C there skips it and starts
 Claude. The private repositories then take one `just deploy --only configure`, or `just login alpha --only github`,

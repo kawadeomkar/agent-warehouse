@@ -4,7 +4,19 @@
 common_user: dev
 common_user_shell: /bin/bash
 common_user_groups: [sudo]
+# false: sudo asks common_user for its password, common_user_password, which
+# the playbooks then become root with. Takes away cloud-init's own rule as well
+# as the role's, and the groups below, whose members reach root or read the
+# password's hash without sudo.
 common_user_passwordless_sudo: true
+# The password sudo asks for when common_user_passwordless_sudo is false. Set
+# through vault_vm_password in vault.yml.
+common_user_password: ""
+# Taken from common_user when common_user_passwordless_sudo is false, unless
+# common_user_groups lists one: lxd (LXD on first use, root wherever snapd
+# runs), cdrom (the cloud-init drive, with the password's hash), adm (every
+# system log). cloud-init gives the user it creates all three.
+common_user_groups_revoked: [adm, cdrom, lxd]
 common_user_ssh_public_keys: []
 
 common_timezone: Etc/UTC

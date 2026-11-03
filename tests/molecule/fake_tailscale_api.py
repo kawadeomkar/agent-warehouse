@@ -11,6 +11,7 @@
                                  tskey-api-denied-0000, 401 for any other
   GET    /fake/deleted           what was deleted, for the tests
   GET    /fake/exchanged         the client ID of every exchange asked for
+  GET    /fake/asked             the path of every request made of the API
 
 It never reaches Tailscale: there is no network code but the listener.
 
@@ -28,6 +29,7 @@ FORBIDDEN = "tskey-api-denied-0000"
 DEVICES = dict(arg.split("=", 1) for arg in sys.argv[2:])
 DELETED: list = []
 EXCHANGED: list = []
+ASKED: list = []
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -40,6 +42,13 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)
         return self.rfile.read(length) if length else b""
+
+    def parse_request(self):
+        # Every request of the API's, as sent - the path unnormalised - before anything answers it.
+        parsed = super().parse_request()
+        if parsed and not self.path.startswith("/fake/"):
+            ASKED.append(self.path)
+        return parsed
 
     def do_POST(self):  # http.server API name
         if urlparse(self.path).path != "/api/v2/oauth/token":
@@ -82,6 +91,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, DELETED)
         elif path == "/fake/exchanged":
             self._send(200, EXCHANGED)
+        elif path == "/fake/asked":
+            self._send(200, ASKED)
         elif path.startswith("/api/v2/device/"):
             device = self._device()
             if device:

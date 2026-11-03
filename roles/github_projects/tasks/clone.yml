@@ -46,11 +46,14 @@
       {{ '; ' ~ github_projects_private_skip_reason ~ ': ' ~ github_projects_private_skipped if github_projects_private_skipped | length > 0 else '' }}
     github_projects_unlisted_private: >-
       {{ ' Private repositories are not listed until gh is signed in.' if not github_projects_listing_token_set | bool else '' }}
+    github_projects_skipped_dotted: >-
+      {{ '; named with a leading dot, which would make a folder of settings there: ' ~ github_projects_dotted if github_projects_dotted | length > 0 else '' }}
   ansible.builtin.debug:
     msg: >-
       {{ github_projects_selected | length }} of {{ github_projects_listing.repos | length }}
       repositories selected for {{ github_projects_target_dir }}
-      (skipped as empty: {{ github_projects_skipped_empty }}{{ github_projects_skipped_private }}).{{ github_projects_unlisted_private }}
+      (skipped as empty: {{ github_projects_skipped_empty ~ github_projects_skipped_private
+      ~ github_projects_skipped_dotted }}).{{ github_projects_unlisted_private }}
 
 # Before the helper: both write ~/.gitconfig, and each checks before writing.
 - name: clone | Set the git identity of {{ github_projects_user }}

@@ -17,6 +17,7 @@ plain_text = _module.plain_text
 visible_text = _module.visible_text
 one_line = _module.one_line
 banner = _module.banner
+plain_summary = _module.plain_summary
 
 
 @pytest.mark.parametrize(
@@ -117,3 +118,16 @@ def test_a_banner_lets_no_control_character_through():
 def test_a_banners_frame_is_ascii():
     lines = banner("…é", "USER INPUT REQUIRED", host="alpha", topic="GitHub sign-in").splitlines()
     assert all(line.isascii() for line in lines[:3])
+
+
+def test_a_modules_warnings_and_failure_are_made_plain_and_read_in_their_own_order():
+    # What Display prints as [WARNING] and [ERROR] lines: a VM's root chooses it.
+    from ansible._internal._task import UnifiedTaskResult
+
+    said = UnifiedTaskResult.from_module_result_dict(
+        {"warnings": ["warned \x1b]0;retitled\x07\u202etxt.exe"], "failed": True, "msg": "failed \x9b31m\u2066x"}
+    )
+    (warning,) = [plain_summary(each) for each in said.warnings]
+    assert warning.event.msg == "warned  txt.exe", warning
+    assert plain_summary(said.exception).event.msg == "failed  x"
+    assert plain_summary(None) is None

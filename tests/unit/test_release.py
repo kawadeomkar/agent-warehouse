@@ -111,6 +111,10 @@ CASES = {
     "gone": {"node": "nGONE", "api": "token"},
     # A VM reporting another device's ID - a laptop's: never deleted.
     "liar": {"node": "nLAPTOP", "api": "token"},
+    # A VM reporting an ID that is a path: it never reaches the API.
+    "traversal": {"node": "../../tailnet/-/keys", "api": "token"},
+    # The same, as long as the VM likes: said cut, as other text a VM chose is.
+    "long-id": {"node": "n" * 150 + "/" + "n" * 300, "api": "token"},
     # A VM whose marker claims the vault token: it is every VM's, never taken for this project's sign-in.
     "marked-vault": {"gh": VAULT_TOKEN, "vault": True, "device_marker": True},
     # Two accounts in gh: with no terminal, its logout will not choose one.
@@ -477,6 +481,26 @@ def test_a_device_is_deleted_only_under_the_name_this_project_asked_the_vm_to_jo
         ' reported is named "laptop", not "liar", so it is not this VM\'s; find this VM\'s own device at'
         f" {ADMIN} and delete it."
     )
+
+
+def test_a_node_id_that_is_not_one_tailscale_gives_never_reaches_the_api(released, fake_tailscale):
+    # urlencode leaves / alone: in the API's path, ../.. would take the
+    # credential to another endpoint.
+    _, report, _, _ = released
+    assert _said(report)["traversal"] == (
+        "traversal: released - Tailscale: logged out, but its device was not deleted - the node ID it reported,"
+        ' "../../tailnet/-/keys", is not one Tailscale gives, so Tailscale\'s API was not asked: delete it at'
+        f" {ADMIN}."
+    )
+    asked = _get(f"{fake_tailscale}/fake/asked")
+    assert asked and not [path for path in asked if "tailnet" in path or ".." in path or "%2F" in path], asked
+
+
+def test_a_refused_node_id_is_said_cut_to_200_characters(released):
+    _, report, _, _ = released
+    said = _said(report)["long-id"]
+    assert ('the node ID it reported, "' + "n" * 150 + "/" + "n" * 49 + '", is not one') in said, said
+    assert "n" * 50 + '"' not in said
 
 
 def test_a_credential_in_the_vault_is_enough_and_none_keeps_it_unused(released):
@@ -1128,9 +1152,15 @@ def test_destroy_release_defaults_to_on():
 
 def test_every_api_call_is_made_on_this_machine_and_never_logged():
     api = yaml.safe_load((REPO / "roles" / "tailscale" / "tasks" / "api_delete.yml").read_text())
-    for task in api:
+    calls = [task for task in api if "ansible.builtin.uri" in task]
+    assert len(calls) == 3
+    for task in calls:
         assert task["delegate_to"] == "localhost" and task["become"] is False, task["name"]
         assert task["no_log"] is True, task["name"]
+        # Never with a node ID the VM made up: it goes into the path.
+        assert "tailscale_api_refused_node | length == 0" in task["when"], task["name"]
+    # Beside them, only the refusal of such an ID, which calls nothing.
+    assert [list(task)[1] for task in api if task not in calls] == ["ansible.builtin.set_fact"]
     # GitHub's release calls no API at all: it signs gh out, and says the rest.
     github = yaml.safe_load((REPO / "roles" / "github_projects" / "tasks" / "release.yml").read_text())
     assert not [task["name"] for task in github if "ansible.builtin.uri" in task]

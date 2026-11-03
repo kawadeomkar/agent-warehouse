@@ -47,7 +47,7 @@ a first deploy.
 - **A Proxmox VE 9.x host** that already runs VMs: `apt` working, a bridge with a DHCP server on
   it, and a storage for VM disks ([what the project assumes](docs/getting-started/requirements.md)).
 - **On your machine** (macOS or Linux): [just](https://github.com/casey/just) 1.59+ and
-  [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.12+ (`brew install just uv`, or each one's
+  [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4+ (`brew install just uv`, or each one's
   installer), an SSH key at `~/.ssh/id_ed25519.pub`, and VS Code with the `code` command (optional). No
   Python of your own: uv downloads the one the project runs on.
 - **Accounts:** a Claude Pro, Max, Team or Enterprise login, which Remote Control needs - on Team and

@@ -14,7 +14,10 @@ argument_specs:
       dev_tools_install_docker:
         type: bool
         default: true
-        description: Install Docker Engine from Docker's repository and add dev_tools_user to the docker group. false skips it and removes nothing.
+        description:
+          - Install Docker Engine from Docker's repository and add dev_tools_user to the docker group.
+          - false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run
+            put it in, since that group is root.
       dev_tools_install_gh:
         type: bool
         default: true
@@ -66,8 +69,10 @@ argument_specs:
         description: Derived from the architecture fact by default.
       dev_tools_uv_version:
         type: str
-        default: "0.9.5"
-        description: uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256.
+        default: "0.13.5"
+        description: >-
+          uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is
+          never older than the uv pyproject.toml pins for the controller.
       dev_tools_uv_arch_map:
         type: dict
         description: uv's release target for each value of the architecture fact, which names the archive downloaded.

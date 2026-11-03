@@ -7,13 +7,23 @@ with; this is the mechanism.
 ## Authentication
 
 Authentication is API tokens only, never a password. [Proxmox access](../getting-started/proxmox-access.md) documents the
-dedicated, VM-scoped `ansible@pve` token used rather than `root@pam`, which `tools/proxmox-access.sh` makes:
+dedicated `ansible@pve` token used rather than `root@pam`. It holds only the VM privileges the `proxmox_vm` role
+uses, but on `/vms`, which propagates to every VM of the host, this project's or not: whoever holds it can set the
+SSH keys cloud-init installs on any VM there, restart it, and delete it. The ownership tag keeps the project's
+own runs off other VMs; it does not limit the token, and any user of the host can set it, so on a shared host
+every tagged VM a token lists is treated as its holder's
+([SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)
+says what that means, and [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) what to do);
+a grant scoped to a Proxmox pool is planned. `tools/proxmox-access.sh` makes the token:
 `just init` runs it on the Proxmox host over root SSH only after showing what it would run and taking a `y`,
 creates only what is missing, changes nothing that exists, and pipes the token's secret from the script's
 stdout into the encrypted vault under `no_log` - never on the screen or a command line. A vault it cannot
 write deletes the token again, since its secret, shown once, would be lost. `validate_certs` defaults to `false`
 because Proxmox ships a self-signed certificate, and the same page covers trusting the PVE CA to turn it
-on.
+on. Until it is on, the token goes to whatever answers at the host's address, and the VMs themselves are on
+that network: `proxmox_bridge`, by default `vmbr0`, with no Proxmox firewall on their network device, so root
+on one of them can try to answer for the host. `just init` fetching the CA and turning validation on by
+default is planned.
 
 ## Tailscale
 
@@ -22,7 +32,9 @@ can reach it. What a tailnet's default policy allows, the policy edit that bound
 sudo on the VM can still do are trade-offs
 [SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the
-edit itself. The mechanism: the auth key is used for a first join only, on stdin, under `no_log`; the
+edit itself. The mechanism: the auth key is used for a first join only, on stdin, under `no_log`, and a
+VM whose Tailscale a run has seen signed in, or signing in, is recorded by a tag in Proxmox, which the VM
+cannot change, so a VM logged out from inside is never handed the key again; the
 web login's page is opened only when it is Tailscale's own, and the report names the tailnet joined,
 since a pending page is readable by every local user on the VM. The VM keeps its own resolver
 (`tailscale_accept_dns: false`).
@@ -38,7 +50,10 @@ secret and the GitHub username into the vault's text in memory and pipes it into
 stdin under `no_log`, which shreds the old file and writes the new one `0600`. Nothing renders the secret
 outside `no_log` tasks, and init's inventory turns pipelining on, so even the module arguments that carry
 it never land in `~/.ansible/tmp`; a run with `ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off and
-keeps each module's file there, is refused before it reads anything. Its password goes in `.vault_pass`, made only when there is no password
+keeps each module's file there, is refused before it reads anything. Every other run pipelines the modules
+on this machine as well (`ansible.cfg`'s `[connection]`), so the Proxmox token every API call carries is not
+written there, nor left there by a run killed part way - unless `ANSIBLE_KEEP_REMOTE_FILES` is set, which
+only `just init` refuses. Its password goes in `.vault_pass`, made only when there is no password
 anywhere (`.vault_pass` or `ANSIBLE_VAULT_PASSWORD_FILE`): `O_EXCL`, `0600`, and never read, rewritten or
 re-moded once it exists. The secret is never taken from the command line, which the shell's history, the
 process list and a CI log keep: `just init` has no option for it, refuses `--token-secret` as one it does
@@ -67,15 +82,20 @@ Two independent mechanisms:
 
 ## Supply chain
 
-Galaxy collections are pinned to exact versions (a range means every run silently
-picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
+Galaxy collections are pinned to exact versions, those the pinned ones depend on included (a range means every
+run silently picks up the latest publish, and made the CI cache key useless since it hashes the file). Ansible never
 reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
 `just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
-is not. pre-commit hooks are pinned to commit SHAs, not tags, because a tag can be moved. apt signing
+is not. pre-commit's hook repositories are pinned to commit SHAs, not tags, because a tag can be moved; the
+environments pre-commit builds for them are not. It installs each Python hook's own dependencies from PyPI
+(`ruamel.yaml` for pre-commit-hooks, and the setuptools that builds it) unpinned and unhashed, outside
+`uv.lock`, and, on a machine with no Go, downloads a Go toolchain for gitleaks with no checksum - once, when
+the git hook or `just lint` first needs them, on the machine that holds the vault. apt signing
 keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
-separately from the download. The Molecule base image is pinned by digest, with an unpinned weekly
-canary. What verifies each download a VM gets is listed in
+separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
+moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The
+Molecule base image is pinned by digest, with an unpinned weekly canary. What verifies each download a VM gets is listed in
 [What the VM trusts](../guides/what-the-vm-trusts.md).
 
 ## Secret scanning
@@ -101,7 +121,9 @@ is never scanned.
 
 Key-only SSH via a validated sshd drop-in, root password login disabled, passwordless
 sudo for the dev user (a deliberate trade-off, recorded in
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)),
+[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
+off, sudo takes `vault_vm_password` and cloud-init's own rule and root-equivalent groups go too,
+[§5.3](roles.md#53-common--os-baseline)),
 and GitHub's host keys pre-seeded from the API rather than trusted on first use. The GitHub token
 sits in `~/.config/gh/hosts.yml` (0600) and the Anthropic key in `settings.json`; what that means for
 the VM, and for the token a device-flow login leaves there, is

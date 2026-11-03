@@ -16,8 +16,12 @@ ssh-copy-id root@<proxmox-host>
 
 ## The API token
 
-The token belongs to a dedicated user with only the rights the `proxmox_vm` role needs, rather than root.
-Four things make it up, and `tools/proxmox-access.sh` creates whichever of them is missing:
+The token belongs to a dedicated user rather than root, with only the privileges the `proxmox_vm` role uses -
+but on every VM of the host, not only this project's: the grant on `/vms` propagates to all of them, so the
+token can set the SSH keys cloud-init installs on any VM there, restart it, and delete it. Keep the vault, which
+holds it, as you would a root password for those VMs. A later release will scope it to a Proxmox pool
+([Sharing the host](#sharing-the-host)). Four things make it up, and `tools/proxmox-access.sh` creates whichever
+of them is missing:
 
 - the role `AnsibleVM`, with the privileges below;
 - the user `ansible@pve`, with no password: it signs in by its token alone;
@@ -83,6 +87,27 @@ pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox
 It prints the token's secret last, once: give it to `just init`, which asks for it (or to
 `--token-secret-file`, [Your first deploy](first-deploy.md#without-a-terminal-or-scripted)).
 
+### Sharing the host
+
+A second person who deploys onto the same host gets a user of their own with `--user`, and a token of their own.
+Their token holds the same role on `/vms`, so it can list, reconfigure and delete your VMs as yours can theirs.
+The ownership tag does not separate you either. Anyone who can create a VM can tag it `claude-on-proxmox`, and
+every tagged VM a token lists is treated as that person's own:
+
+- a fleet-wide `just deploy --only configure` sends your secrets to every one of them that takes your SSH key;
+- `just destroy <name>` deletes another person's VM of that name when you have none.
+
+Until tokens can be scoped to a Proxmox pool of each person's own, which a later release will do:
+
+- give each person a tag of their own, `claude_vm_tag: <tag>` in their `local.yml`, before their first deploy
+  (VMs made under one tag are not found under another, and [User Tag Access](#user-tag-access) must allow the
+  tag and its `-unfinished` and `-tailscale` forms);
+- name the VMs a run is for rather than running fleet-wide.
+
+That keeps each person's runs off the others' VMs by accident, but it does not stop someone who copies your tag
+on purpose: share a host only with people you would trust with your VMs
+([SECURITY.md's known trade-offs](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)).
+
 ### The guest agent's privilege
 
 `VM.GuestAgent.Audit` is what lets the token read the address DHCP gave the VM; without it provisioning
@@ -102,9 +127,10 @@ One datacenter setting can also block provisioning: if **Datacenter → Options 
 (a separate option from Tag Style) is set to `list` or `existing` rather than the default `free`, a
 non-root token cannot apply the `claude-on-proxmox` tag. Since that tag is how this project recognises its own
 VMs, provisioning fails or the VMs are created untagged and `just deploy --only configure` then finds nothing.
-Either leave the setting at `free`, or add both `claude-on-proxmox` and
-`claude-on-proxmox-unfinished` to the allowed list. The second marks a VM whose first run has not
-finished yet, and is removed once it has started.
+Either leave the setting at `free`, or add `claude-on-proxmox`, `claude-on-proxmox-unfinished` and
+`claude-on-proxmox-tailscale` to the allowed list. The second marks a VM whose first run has not
+finished yet, and is removed once it has started. The third records that a VM has joined Tailscale, so
+the vault's auth key is never sent to it again; without it, configure says it could not write the record.
 
 ### What `just init` checks
 
@@ -117,7 +143,11 @@ lacks and the `pveum role modify` line that adds them. It asks for the token's I
 ## Trusting the Proxmox certificate
 
 Proxmox ships a self-signed certificate, so `proxmox_validate_certs` defaults to `false`: the token is
-sent to whatever answers on port 8006. To validate, copy the PVE CA once and point the HTTP client at it:
+sent to whatever answers on port 8006. That includes the project's own VMs: they sit on `proxmox_bridge`,
+by default `vmbr0`, usually the bridge the host's own address is on, so root on any of them - an agent with
+passwordless sudo - can try to answer for the host there, and the token it reads reaches every VM on the
+host. A later release will have `just init` fetch the CA and turn validation on by default. Until then, to
+validate, copy the PVE CA once and point the HTTP client at it:
 
 ```bash
 scp root@<pve-ip>:/etc/pve/pve-root-ca.pem ~/.config/pve-root-ca.pem

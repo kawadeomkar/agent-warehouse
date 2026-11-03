@@ -46,7 +46,9 @@ BUILT = {
 
 
 def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> str:
-    first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
+    plays = yaml.safe_load((REPO / "deploy.yml").read_text())
+    # The play that looks the template up: the one before it refuses a name no VM may have.
+    first = next(play for play in plays if LOOKUP in [task["name"] for task in play.get("tasks", [])])
     tasks = first["tasks"]
     assert [t["name"] for t in tasks][0] == LOOKUP
     lookup = tasks[0]["register"]

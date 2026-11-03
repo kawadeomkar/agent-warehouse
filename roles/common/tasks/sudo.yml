@@ -1,0 +1,162 @@
+---
+# Passwordless sudo for common_user, or none at all. The user cloud-init creates
+# from Ubuntu's cloud image comes with a rule of cloud-init's own, NOPASSWD:ALL
+# in /etc/sudoers.d/90-cloud-init-users, and the groups adm, cdrom, dip, lxd and
+# sudo: taking away only this role's drop-in left that rule, and with it root.
+- name: sudo | Grant passwordless sudo
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: "/etc/sudoers.d/90-{{ common_user }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: common_user_passwordless_sudo
+
+- name: sudo | Let a new cloud-init instance set the user up as Ubuntu does
+  ansible.builtin.file:
+    path: "{{ common_cloud_init_user_cfg }}"
+    state: absent
+  when: common_user_passwordless_sudo
+
+# Without it sudo asks for the user's password - and so does every play's
+# become, which group_vars/all gives that password (ansible_become_password).
+# Set before any rule goes, so the run that takes them away goes on with it.
+- name: sudo | Take passwordless sudo away
+  when: not common_user_passwordless_sudo
+  block:
+    - name: sudo | Refuse to take it away with no password to become root by
+      ansible.builtin.assert:
+        that:
+          - common_user_password | length > 0
+          - ansible_become_password | default('') == common_user_password
+        fail_msg: >-
+          common_user_passwordless_sudo is false, so sudo on {{ inventory_hostname }} would ask for
+          {{ common_user }}'s password, and every later run becomes root with it: set vault_vm_password with just
+          vault, which becomes that password and the one the playbooks become root with. Nothing was changed.
+        quiet: true
+
+    # Hashed on the VM, whose openssl ca-certificates brings: the controller's
+    # Python has no crypt. A salt of the VM's own name, so a second run hashes
+    # to the same string and the user module changes nothing.
+    - name: sudo | Hash the user's password
+      vars:
+        common_user_password_salt: "{{ ((inventory_hostname ~ ':' ~ common_user) | hash('sha256'))[:16] }}"
+      ansible.builtin.command:
+        argv: [openssl, passwd, -6, -salt, "{{ common_user_password_salt }}", -stdin]
+        stdin: "{{ common_user_password }}"
+      register: common_user_password_hashed
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    # Unlocked too: a new cloud-init instance locks it (Ubuntu's lock_passwd)
+    # and leaves the hash, which the module compares without the lock.
+    - name: sudo | Give the user the password sudo will ask for
+      ansible.builtin.user:
+        name: "{{ common_user }}"
+        password: "{{ common_user_password_hashed.stdout }}"
+        password_lock: false
+      no_log: true
+
+    # What is left once the rules without a password go must still take that
+    # password - common_user_groups' sudo, as Ubuntu's %sudo rule - or the run
+    # would lock every later one out, this one's next task first.
+    - name: sudo | Read what sudo lets the user run now
+      ansible.builtin.command:
+        argv: [/usr/bin/sudo, -l, -U, "{{ common_user }}"]
+      register: common_user_sudo_before
+      changed_when: false
+      check_mode: false
+      failed_when: common_user_sudo_before.rc not in [0, 1]
+
+    - name: sudo | Refuse to take the rules away while no other takes the password
+      ansible.builtin.assert:
+        that: >-
+          common_user_sudo_before.stdout_lines | select('match', '\s+[(]') | reject('search', 'NOPASSWD') | list
+          | length > 0
+        fail_msg: >-
+          {{ common_user }} has no sudo rule that takes a password, so taking its passwordless ones away would leave
+          no way to root for it or for any later run. Keep sudo in common_user_groups (Ubuntu's %sudo rule), or
+          give it such a rule. sudo -l -U {{ common_user }} says: {{ common_user_sudo_before.stdout | plain_text }}
+        quiet: true
+
+    - name: sudo | Revoke the role's passwordless sudo
+      ansible.builtin.file:
+        path: "/etc/sudoers.d/90-{{ common_user }}"
+        state: absent
+
+    - name: sudo | Take the user's rules out of cloud-init's sudoers file
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/90-cloud-init-users
+        regexp: '^{{ common_user | regex_escape }}\s'
+        state: absent
+        validate: /usr/sbin/visudo -cf %s
+
+    # A new cloud-init instance - a VM renamed, its cloud-init settings
+    # changed - writes the rule again for a user that exists already, and locks
+    # its password (Ubuntu's lock_passwd), which left sudo, and every later run,
+    # nothing to take. A system_info later in cloud.cfg.d outranks cloud.cfg's:
+    # no sudo rule, the password left as it is, and the role's groups for a user
+    # cloud-init creates.
+    - name: sudo | Look for cloud-init's settings folder
+      ansible.builtin.stat:
+        path: "{{ common_cloud_init_user_cfg | dirname }}"
+      register: common_cloud_init_cfg_d
+
+    - name: sudo | Keep a new cloud-init instance from giving the rule back
+      ansible.builtin.copy:
+        content: |
+          # claude-on-proxmox (common_user_passwordless_sudo: false): no sudo rule
+          # for the default user, its password never locked, and only the groups
+          # the common role gives it.
+          system_info:
+            default_user:
+              sudo: null
+              lock_passwd: false
+              groups: {{ common_user_groups | to_json }}
+        dest: "{{ common_cloud_init_user_cfg }}"
+        owner: root
+        group: root
+        mode: "0644"
+      when: common_cloud_init_cfg_d.stat.isdir | default(false)
+
+    - name: sudo | Read the groups
+      ansible.builtin.getent:
+        database: group
+
+    # Members of lxd get LXD from Ubuntu's lxd-installer on first use, which is
+    # root wherever snapd runs (masked_units keeps it on a VM with a snap);
+    # cdrom reads the cloud-init drive, which holds the password's hash; adm
+    # reads every system log. A group listed in common_user_groups stays.
+    - name: sudo | Take the user out of the groups that reach root or the password
+      ansible.builtin.command:
+        argv: [gpasswd, --delete, "{{ common_user }}", "{{ common_user_group }}"]
+      changed_when: true
+      when: >-
+        common_user in (ansible_facts['getent_group'][common_user_group] | default(['', '', ''], true))[2].split(',')
+      loop: "{{ common_user_groups_revoked | difference(common_user_groups) }}"
+      loop_control:
+        loop_var: common_user_group
+
+    - name: sudo | Read what sudo lets the user run in the end
+      ansible.builtin.command:
+        argv: [/usr/bin/sudo, -l, -U, "{{ common_user }}"]
+      register: common_user_sudo_rules
+      changed_when: false
+      # 1 is a user sudo lets run nothing at all.
+      failed_when: common_user_sudo_rules.rc not in [0, 1]
+      check_mode: false
+
+    # Whatever else gives it - a drop-in made by hand, a Defaults !authenticate -
+    # the box is not what the setting says, so the run says which.
+    - name: sudo | Fail on any rule that still runs without a password
+      ansible.builtin.assert:
+        that:
+          - common_user_sudo_rules.stdout is not search('NOPASSWD')
+          - common_user_sudo_rules.stdout is not search('!authenticate')
+        fail_msg: >-
+          common_user_passwordless_sudo is false, but sudo still lets {{ common_user }} run something without a
+          password. sudo -l -U {{ common_user }} says: {{ common_user_sudo_rules.stdout | plain_text }}
+        quiet: true
+      when: not ansible_check_mode

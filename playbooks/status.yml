@@ -183,6 +183,10 @@
         # ansible.cfg's own, with the host key held to what this machine knows and never updated: status adds none.
         ansible_ssh_args: "{{ status_ssh_args }}"
         status_vm: "{{ status_vm }}"
+        # From the listing, as discover.yml has it: a VM that joined before is never sent the key again.
+        tailscale_joined_before: >-
+          {{ claude_vm_all.json.data | default([], true) | selectattr('vmid', 'equalto', status_vm.vmid)
+             | map(attribute='tags', default='') | first | default('') is regex(claude_vm_tailscale_tag_pattern) }}
       changed_when: false
       loop: "{{ status_found.fleet.vms | selectattr('read') | list }}"
       loop_control:

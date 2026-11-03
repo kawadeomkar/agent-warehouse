@@ -93,21 +93,8 @@
     create_home: true
     state: present
 
-- name: Grant passwordless sudo
-  ansible.builtin.template:
-    src: sudoers.j2
-    dest: "/etc/sudoers.d/90-{{ common_user }}"
-    owner: root
-    group: root
-    mode: "0440"
-    validate: /usr/sbin/visudo -cf %s
-  when: common_user_passwordless_sudo
-
-- name: Revoke passwordless sudo
-  ansible.builtin.file:
-    path: "/etc/sudoers.d/90-{{ common_user }}"
-    state: absent
-  when: not common_user_passwordless_sudo
+- name: Grant or take away passwordless sudo
+  ansible.builtin.include_tasks: sudo.yml
 
 # As the user, not root: authorized_key follows a symlink at ~/.ssh, so as root
 # it made the keys file in the link's target and set that directory to 0700,

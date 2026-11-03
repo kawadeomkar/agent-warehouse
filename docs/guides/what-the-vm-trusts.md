@@ -9,18 +9,40 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   including Claude Code, is effectively root on the VM. The API key written to `~/.claude/settings.json`
   is therefore readable by any code the agent runs, and so is the GitHub token `gh` keeps in plain text
   in `~/.config/gh/hosts.yml` (mode 0600) - the vault's, or the one a device-flow login issued to that
-  VM. Set `common_user_passwordless_sudo: false` and `dev_tools_install_docker: false` for a tighter box.
+  VM. For a tighter box, set `common_user_passwordless_sudo: false` and `dev_tools_install_docker: false`
+  in `local.yml`, and `vault_vm_password` with `just vault`: sudo then asks for that password, and the
+  playbooks become root with it (a run refuses the setting without one). Off, the `common` role takes away
+  its own sudo rule and the one cloud-init writes for the user it creates (`NOPASSWD:ALL` in
+  `/etc/sudoers.d/90-cloud-init-users`), keeps a later cloud-init run from writing it again, and fails if
+  sudo still lets the user run anything without a password. It also takes the user out of the groups
+  cloud-init gave it that reach past sudo (`common_user_groups_revoked`): `lxd`, root on a VM that keeps
+  snapd (one with a snap installed: LXD comes on first use), `cdrom`, which reads the cloud-init drive
+  with the password's hash, and `adm`, every system log; and with Docker off, out of `docker`, which is
+  root while Docker is installed. A program already running keeps the groups it started with, until it
+  restarts or the VM does. The password is one for every VM, and the playbooks hand it to any VM whose sudo
+  asks for it: root on one VM can make its sudo ask, and then holds the sudo password of every other tighter
+  box. Make it one you use nowhere else.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
   does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
   that to you ([Tearing down](destroy.md)).
-- Downloads are verified where the vendor makes that possible: the uv release by a pinned SHA256, the
-  Ubuntu cloud image against Ubuntu's `SHA256SUMS`, apt repositories by vendored signing keys. The Claude
-  Code installer script is fetched over TLS from `claude.ai` and itself verifies the binary against a
-  release manifest; there is no independently signed artifact to pin. With `dev_tools_install_rust` on,
+- The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
+  is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
+  VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI.
+- Downloads are verified, though not yet everywhere the vendor makes it possible: the uv release by a
+  pinned SHA256 and apt repositories by vendored signing keys, but the Ubuntu cloud image only against the
+  `SHA256SUMS` from the same server, whose signature (`SHA256SUMS.gpg`) is not checked. The Claude Code
+  installer script is fetched over TLS from `claude.ai` and checks the binary against a release manifest from
+  the same place; Anthropic signs that manifest (from 2.1.89) and publishes a signed apt repository, but this
+  project verifies neither yet, so whoever can serve those addresses can serve the VMs another Claude Code.
+  With `dev_tools_install_rust` on,
   rustup comes from Ubuntu's archive, and the Rust toolchain it installs is fetched over TLS from `static.rust-lang.org` and checked against
   the hashes in the channel manifest, which comes from the same place.
+- Security updates arrive by two roads. `unattended-upgrades` installs Ubuntu's own security updates every
+  day, from Ubuntu's archive only. The packages from the vendors' repositories - Docker, Node.js, the GitHub CLI and
+  Tailscale - are upgraded only when a run upgrades packages (`common_apt_upgrade`, on by default: each
+  `just deploy` of the VM) or by hand (`sudo apt upgrade`).
 - sshd is restricted to key-based logins (`common_harden_ssh`), even if `vault_vm_password` is set.
 - tmux on the VM passes escape sequences through to the terminal you attach from (`allow-passthrough`, one
   of the `common_tmux_settings` Claude Code asks for), so a program in a pane can do to that terminal what it
