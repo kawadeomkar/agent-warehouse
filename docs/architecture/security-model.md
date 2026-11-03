@@ -37,9 +37,11 @@ can hold a secret carries `no_log: true` in its `argument_specs`.
 secret and the GitHub username into the vault's text in memory and pipes it into `ansible-vault encrypt`'s
 stdin under `no_log`, which shreds the old file and writes the new one `0600`. Nothing renders the secret
 outside `no_log` tasks, and init's inventory turns pipelining on, so even the module arguments that carry
-it never land in `~/.ansible/tmp`. Every other run pipelines the modules on this machine as well
-(`ansible.cfg`'s `[connection]`), so the Proxmox token every API call carries never lands there either; a run with `ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off and
-keeps each module's file there, is refused before it reads anything. Its password goes in `.vault_pass`, made only when there is no password
+it never land in `~/.ansible/tmp`; a run with `ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off and
+keeps each module's file there, is refused before it reads anything. Every other run pipelines the modules
+on this machine as well (`ansible.cfg`'s `[connection]`), so the Proxmox token every API call carries is not
+written there, nor left there by a run killed part way - unless `ANSIBLE_KEEP_REMOTE_FILES` is set, which
+only `just init` refuses. Its password goes in `.vault_pass`, made only when there is no password
 anywhere (`.vault_pass` or `ANSIBLE_VAULT_PASSWORD_FILE`): `O_EXCL`, `0600`, and never read, rewritten or
 re-moded once it exists. The secret is never taken from the command line, which the shell's history, the
 process list and a CI log keep: `just init` has no option for it, refuses `--token-secret` as one it does
@@ -76,8 +78,8 @@ against the pins, which changes nothing when they are installed and fails, namin
 is not. pre-commit hooks are pinned to commit SHAs, not tags, because a tag can be moved. apt signing
 keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
 separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
-moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The Molecule base image is pinned by digest, with an unpinned weekly
-canary. What verifies each download a VM gets is listed in
+moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The
+Molecule base image is pinned by digest, with an unpinned weekly canary. What verifies each download a VM gets is listed in
 [What the VM trusts](../guides/what-the-vm-trusts.md).
 
 ## Secret scanning

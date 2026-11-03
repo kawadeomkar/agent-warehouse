@@ -2,8 +2,8 @@
 
 Pipelining is on for the modules run on this machine as for those on the VMs. Set only for ssh, it left each module
 the controller runs - every community.proxmox call and uri request, which carry the Proxmox token, and the Tailscale
-API's, which carry its credential - written into ~/.ansible/tmp as a file before it ran, and kept there for good under
-ANSIBLE_KEEP_REMOTE_FILES=1 or by a run killed part way.
+API's, which carry its credential - written into ~/.ansible/tmp as a file before it ran, and left there by a run killed
+part way. ANSIBLE_KEEP_REMOTE_FILES=1 still turns pipelining off and keeps each file: only just init refuses it.
 
 Only the inventory plugins the project's inventories need are enabled: never script, which runs any executable file in
 the inventory folder, nor auto, which loads any inventory plugin a YAML file there names. Each inventory the project

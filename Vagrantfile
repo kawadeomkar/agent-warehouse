@@ -22,7 +22,8 @@ end
 Vagrant.configure("2") do |config|
   config.vm.box = "bento/ubuntu-24.04"
   # A box version moves only when this line does, as every other download is
-  # pinned; Vagrant checks the box against the checksum its catalog gives.
+  # pinned. bento publishes no checksum for its boxes, so the version is all
+  # that holds it: Vagrant verifies nothing past the download's TLS.
   config.vm.box_version = "202510.26.0"
   config.vm.hostname = "claude-dev"
   # Vagrant shares the project folder with the VM, read-write at /vagrant,
