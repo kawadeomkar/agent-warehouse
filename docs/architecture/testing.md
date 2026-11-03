@@ -191,9 +191,10 @@ pytest over `tests/unit/`: 2244 tests. By file:
   playbook and its task's worker gone.
 - **`github_repos`** (`test_github_repos.py` 32) and the **tracked-file guard** (`test_tracked_files.py`
   98), both ways.
-- **The CI gate** (`test_ci.py` 8): `CI result` needs every job of `ci.yml` but the canary, runs `if:
+- **The CI gate** (`test_ci.py` 25): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
-  success or a skip and fails a failure or a cancel.
+  success or a skip and fails a failure or a cancel. Every Molecule configuration, the shared one and each
+  scenario's, names the one image pinned by digest, and the canary runs that image's repository at `:latest`.
 - **The shards** (`test_shards.py` 4): `--shard` collected as each CI shard collects it - two, three and four
   shards that between them run every test exactly once, and a module whose tests share a fixture whole in one.
 - **Remote Control** (`test_remote_control_playbooks.py` 56): `claude_login.yml` and `remote_control.yml`
@@ -489,6 +490,11 @@ is. Converge starts the first and, with no port in the container, leaves the age
 effect finds it stopped, gives the role a stand-in for the port and runs its services again, and verify
 finds both running.
 
+Last, the side effect puts a line of the user's own into `/etc/tmux.conf` and runs the tmux tasks with
+`common_tmux_settings: []`, which takes the block out and leaves that line alone, then as converge ran them.
+Verify finds the block back beside the user's line, the file still 0644, and a tmux of its own loading the
+file with no error and each setting in effect, the user's among them.
+
 `proxmox_vm`'s scenario is the interesting one: it runs against the fake PVE API and asserts the VMID
 came from Proxmox (9001, the next free one) and that the address came from the VM's own NIC —
 `192.0.2.51`, not `172.17.0.1`, which would mean the docker bridge was picked up. It asserts the
@@ -659,7 +665,10 @@ browser or touches its clipboard.
 
 ## 11.5 Vagrant — `just vagrant`
 
-`configure.yml` against a real VirtualBox VM, with `claude_vm_discovery: false`. Not part of CI.
+`configure.yml` against a real VirtualBox VM, with `claude_vm_discovery: false`. Not part of CI. The box is
+pinned to one version (`config.vm.box_version`), and Vagrant's share of the project folder at `/vagrant` is off: in a
+checkout it would hand the VM, which runs an agent with sudo, `.vault_pass` and the vault, and the files this machine
+runs next. `test_justfile.py` holds both.
 
 ## 11.6 Which scenarios need the network
 

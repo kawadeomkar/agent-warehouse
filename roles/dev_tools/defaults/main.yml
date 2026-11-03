@@ -45,13 +45,17 @@ dev_tools_deb_arch: "{{ 'arm64' if ansible_facts['architecture'] == 'aarch64' el
 # here (not fetched alongside the archive) so a compromised release endpoint
 # cannot swap both. Update both when bumping the version:
 #   curl -L https://github.com/astral-sh/uv/releases/download/<ver>/uv-<target>.tar.gz.sha256
-dev_tools_uv_version: "0.9.5"
+# Never older than the uv pyproject.toml pins for this machine, which
+# Dependabot moves: tests/unit/test_pins.py fails when it is. Dependabot reads
+# no role default, and a pin nothing moved kept every VM on a uv with
+# published advisories.
+dev_tools_uv_version: "0.13.5"
 dev_tools_uv_arch_map:
   x86_64: x86_64-unknown-linux-gnu
   aarch64: aarch64-unknown-linux-gnu
 dev_tools_uv_sha256:
-  x86_64: 2cf10babba653310606f8b49876cfb679928669e7ddaa1fb41fb00ce73e64f66
-  aarch64: 9db0c2f6683099f86bfeea47f4134e915f382512278de95b2a0e625957594ff3
+  x86_64: f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f
+  aarch64: 4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403
 dev_tools_uv_install_dir: /usr/local/bin
 
 # Rust (rustup from Ubuntu's archive, which conflicts with its rustc and cargo

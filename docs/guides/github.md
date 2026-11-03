@@ -8,7 +8,12 @@ that `git push` and `gh pr create` work from the VM.
 `github_projects` (in `local.yml`) is a list of repository names. Leave it empty and every repository
 owned by `github_username` is cloned; list names to clone only those. Forks and archived repositories are
 skipped unless `github_projects_include_forks` / `github_projects_include_archived` are true, and
-`github_projects_exclude` always wins.
+`github_projects_exclude` always wins. A repository whose name starts with a dot is never cloned, and is
+named in the report: in the projects folder, `.claude` would be the settings, hooks and `CLAUDE.md` of every
+Claude Code session started there, Remote Control's included, and `.vscode` the tasks of the window
+`just code` opens. Naming one in `github_projects_include` does not change that, and a clone of one that an
+earlier version made stays where it is, unreported: on a VM an earlier version configured, look in the
+projects folder (`ls -d ~/projects/.[!.]*`, or under `vm_projects_dir`) and remove any you find.
 
 ## Private repositories, and pushing from the VM
 

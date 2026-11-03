@@ -26,6 +26,18 @@ common_ssh_path_dirs:
   - .local/bin
   - .cargo/bin
 
+# tmux commands for every tmux on the VM (common_packages installs it). By
+# default the settings Claude Code's documentation asks for when it runs inside
+# tmux: its notifications and progress bar pass through to your terminal, and
+# Shift+Enter is told apart from Enter. Written as a block of /etc/tmux.conf,
+# which tmux reads before ~/.tmux.conf, so a setting of your own still wins and
+# lines of your own in the file stay as they are. [] takes the block out.
+common_tmux_settings:
+  - set -g allow-passthrough on
+  - set -g focus-events on
+  - set -s extended-keys on
+  - set -as terminal-features 'xterm*:extkeys'
+
 common_apt_upgrade: true
 common_apt_cache_valid_time: 3600
 # Fresh cloud images run unattended-upgrades right after first boot; wait for

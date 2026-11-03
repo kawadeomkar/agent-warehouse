@@ -70,7 +70,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 54 of the 58 are computed during a run, from earlier tasks' results.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 55 of the 59 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -111,7 +111,8 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_listing_token` | <code>{{ github_projects_token if github_projects_token &#124; length > 0 else github_projects_stored_token }}</code> |
 | `github_projects_token_set` | <code>{{ github_projects_token &#124; length > 0 }}</code> |
 | `github_projects_listing_token_set` | <code>{{ github_projects_listing_token &#124; length > 0 }}</code> |
-| `github_projects_candidates` | <code>{{ github_projects_listing.repos &#124; rejectattr('empty') &#124; rejectattr('name', 'in', github_projects_exclude) &#124; selectattr('name', 'in', github_projects_include if github_projects_include else github_projects_listing.repos &#124; map(attribute='name') &#124; list) &#124; list }}</code> |
+| `github_projects_dotted` | <code>{{ github_projects_listing.repos &#124; map(attribute='name') &#124; select('match', '[.]') &#124; list }}</code> |
+| `github_projects_candidates` | <code>{{ github_projects_listing.repos &#124; rejectattr('empty') &#124; rejectattr('name', 'in', github_projects_dotted) &#124; rejectattr('name', 'in', github_projects_exclude) &#124; selectattr('name', 'in', github_projects_include if github_projects_include else github_projects_listing.repos &#124; map(attribute='name') &#124; list) &#124; list }}</code> |
 | `github_projects_gh_helper` | <code>{{ github_projects_helpers.stdout_lines &#124; default([]) &#124; select('search', '^!([^ ]*/)?gh( &#124;$)') &#124; list &#124; length > 0 }}</code> |
 | `github_projects_private_cloneable` | <code>{{ github_projects_clone_protocol == 'ssh' or (github_projects_signed_in &#124; bool and (github_projects_auth_wanted &#124; bool or github_projects_gh_helper &#124; bool)) }}</code> |
 | `github_projects_private_skipped` | <code>{{ [] if github_projects_private_cloneable &#124; bool else github_projects_candidates &#124; selectattr('private') &#124; map(attribute='name') &#124; list }}</code> |

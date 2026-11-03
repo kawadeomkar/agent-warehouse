@@ -214,7 +214,7 @@ def _marker(root: Path, host: str) -> Path:
     return root / host / ".config" / "claude-on-proxmox" / "gh-login"
 
 
-def _bare_repos(git_root: Path) -> None:
+def _bare_repos(git_root: Path, specs: list[str] = REPOS) -> None:
     """One bare repository per listed name, with a commit on main, as the Molecule prepare makes them."""
     env = {
         **os.environ,
@@ -224,7 +224,7 @@ def _bare_repos(git_root: Path) -> None:
         "GIT_COMMITTER_NAME": "molecule",
         "GIT_COMMITTER_EMAIL": "molecule@example.com",
     }
-    for spec in REPOS:
+    for spec in specs:
         name = spec.split(":")[0]
         src = git_root / "src" / name
         src.mkdir(parents=True)
@@ -431,6 +431,27 @@ def test_text_gh_prints_is_quoted_without_control_characters(configured):
     assert not CONTROL.search(said), repr(said)
     # Each sequence goes whole, its payload with it: a title, a clipboard write.
     assert "owned" not in said and "b3duZWQ" not in said and "[31m" not in said, repr(said)
+
+
+DOTTED = ["pub-one", ".claude", ".vscode"]
+
+
+@pytest.fixture(scope="module")
+def fake_github_dotted(tmp_path_factory):
+    """The fake GitHub API listing repositories whose names start with a dot; yields its base URL."""
+    git_root = tmp_path_factory.mktemp("git_dotted")
+    _bare_repos(git_root, DOTTED)
+    yield from _serve(FAKE_API, USERNAME, str(git_root), *DOTTED)
+
+
+def test_a_repository_named_with_a_leading_dot_is_never_cloned_and_is_named(tmp_path, fake_github_dotted):
+    # In the projects folder, .claude would be the settings, hooks and CLAUDE.md of every Claude Code session
+    # started there - Remote Control's, whose trust the role accepts in advance - and .vscode the window's tasks.
+    report = _role_run(tmp_path, _hosts(tmp_path, {"dotted": {"token": ""}}, fake_github_dotted))
+    said = _messages(report, "Report selection")["dotted"]
+    assert said.startswith("1 of 3 repositories"), said
+    assert "named with a leading dot, which would make a folder of settings there: ['.claude', '.vscode']" in said
+    assert sorted(path.name for path in (tmp_path / "dotted" / "projects").iterdir()) == ["pub-one"]
 
 
 @pytest.mark.parametrize("host", sorted(CASES))

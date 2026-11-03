@@ -200,11 +200,20 @@ github_projects_listing_token: >-
 github_projects_token_set: "{{ github_projects_token | length > 0 }}"
 github_projects_listing_token_set: "{{ github_projects_listing_token | length > 0 }}"
 
+# A repository whose name starts with a dot would land in the projects
+# folder as a folder of settings: .claude for every Claude Code session
+# started there, whose trust Remote Control accepts in advance, .vscode for
+# the window just code opens, .claude-on-proxmox for just code's own folder.
+# Never cloned, whatever the lists say, and named in the report.
+github_projects_dotted: >-
+  {{ github_projects_listing.repos | map(attribute='name') | select('match', '[.]') | list }}
+
 # The repositories after the role's own filters: never-pushed ones out, the
 # exclude list out, the include list in when there is one.
 github_projects_candidates: >-
   {{ github_projects_listing.repos
      | rejectattr('empty')
+     | rejectattr('name', 'in', github_projects_dotted)
      | rejectattr('name', 'in', github_projects_exclude)
      | selectattr('name', 'in', github_projects_include if github_projects_include else
                                 github_projects_listing.repos | map(attribute='name') | list)

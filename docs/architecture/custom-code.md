@@ -68,7 +68,9 @@ Covered by the unit tests in `tests/unit/test_filters.py`, and `proxmox_vm_drift
 
 ## 7.2 `roles/github_projects/library/github_repos.py`
 
-An Ansible module listing a GitHub account's repositories, following `Link`-header pagination. With a
+An Ansible module listing a GitHub account's repositories, following `Link`-header pagination - only to
+the API's own scheme and host, since the token goes with every request: a next page anywhere else fails the
+listing rather than carry it there. With a
 token belonging to the queried user it uses the authenticated endpoint and includes private repos;
 otherwise it falls back to the public listing, which GitHub documents as public repositories only.
 Returns a compact, sorted list carrying `name`, `full_name`, `clone_url`, `ssh_url`,
