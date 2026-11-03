@@ -52,6 +52,8 @@ from pathlib import Path
 
 import pytest
 import yaml
+from ansible.parsing.dataloader import DataLoader
+from ansible.template import Templar, trust_as_template
 from harness import (
     FAKES,
     GUARDED_TOOLS,
@@ -1455,6 +1457,32 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
         if "claude_vm_" in line and not line.lstrip().startswith("#")
     ]
     assert reads == []
+
+
+@pytest.mark.parametrize(
+    ("tag", "tags", "recorded"),
+    [
+        ("claude-on-proxmox", "claude-on-proxmox;claude-on-proxmox-tailscale", True),
+        # proxmox_kvm sends them comma-joined, and some Proxmox versions return them so.
+        ("claude-on-proxmox", "claude-on-proxmox-tailscale,claude-on-proxmox", True),
+        ("claude-on-proxmox", "CLAUDE-ON-PROXMOX-TAILSCALE", True),
+        # Whole tags only: a tag that merely starts or ends with the record is someone else's.
+        ("claude-on-proxmox", "claude-on-proxmox;claude-on-proxmox-tailscale-old", False),
+        ("claude-on-proxmox", "not-claude-on-proxmox-tailscale", False),
+        ("claude-on-proxmox", "claude-on-proxmox", False),
+        ("claude-on-proxmox", "", False),
+        # Another person's tag on a shared host: lowercased as Proxmox stores it, its dot a dot.
+        ("Team.A", "team.a;team.a-tailscale", True),
+        ("Team.A", "team.a;teamxa-tailscale", False),
+    ],
+)
+def test_the_record_s_pattern_matches_the_whole_tag_in_either_list(tag, tags, recorded):
+    # What discover.yml, provision.yml and status.yml read as tailscale_joined_before: `is regex`, a search.
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    names = ("claude_vm_tailscale_tag", "claude_vm_tailscale_tag_pattern")
+    variables = {"claude_vm_tag": tag, **{name: trust_as_template(defaults[name]) for name in names}}
+    pattern = Templar(loader=DataLoader(), variables=variables).template(variables["claude_vm_tailscale_tag_pattern"])
+    assert bool(re.search(pattern, tags)) is recorded
 
 
 def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():

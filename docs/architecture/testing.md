@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2518 tests. By file:
+pytest over `tests/unit/`: 2527 tests. By file:
 
 - **Filters** (`test_filters.py` 84, `test_vscode_filters.py` 41, `test_desktop_filter.py` 24,
   `test_text_filter.py` 33): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -229,11 +229,12 @@ pytest over `tests/unit/`: 2518 tests. By file:
   no report, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
   and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
-- **Tailscale** (`test_tailscale.py` 82): the role's files from `ownership.yml` on, and
+- **Tailscale** (`test_tailscale.py` 91): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and
   `getent`: a first join once, with the key on stdin and in no report, argument or file; no key for a node
   whose key expired, and a node logged out by hand joined again - unless Proxmox records the VM as having
-  joined (`tailscale_joined_before`), when the key is held back, under `key` by name; any login the role's
+  joined (`tailscale_joined_before`, its tag matched whole in a `;`- or `,`-joined list), when the key is
+  held back, under `key` by name; any login the role's
   Tailscale has had, or a sign-in under way, held to be recorded, by configure and by the sign-in alike, and
   the record (`tasks/tailscale_record.yml`) after each, against the fake Proxmox: tagging only the VM of that
   name and VMID that is the project's, its tags written back as read, never in check mode, and VM by VM -
