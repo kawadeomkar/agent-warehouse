@@ -5,7 +5,8 @@ real here, against small playbooks on this machine's localhost, with the
 result settings the repository's ansible.cfg gives: untagged output must stay
 the default's byte for byte, and no hook may fail - a subclass that lost its
 options' DOCUMENTATION fails every hook while Ansible only warns, and every
-task's result disappears. Statically: ansible.cfg wires it, the tags sit on the
+task's result disappears. What a VM's module says is run through it, and through
+just status's callback, plain. Statically: ansible.cfg wires it, the tags sit on the
 tasks that wait in the browser, every prompt is drawn by banner, and every
 report task records what it leaves to do.
 """
@@ -347,6 +348,19 @@ def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path
     tail = out[out.index("PLAY RECAP") :]
     assert f"{RULE}\n##  NEXT STEPS\n{RULE}\nalpha: Tailscale is down: sudo tailscale up.\n" in tail, tail
     assert "evil.example" not in tail, tail
+
+
+def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path):
+    # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
+    # hand, and would still pass if ansible-core stopped setting it.
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, err, log = _play(tmp_path, VM_PLAY, "claude_on_proxmox_status")
+    for name, text in (("stdout", out), ("stderr", err), ("log", log)):
+        assert not TERMINAL_CONTROL.search(text), (name, text)
+        assert "retitled" not in text and "b3duZWQ=" not in text, (name, text)
+    said = out + err
+    assert "[WARNING]: warned" in said and "[DEPRECATION WARNING]: deprecated" in said, said
 
 
 def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
