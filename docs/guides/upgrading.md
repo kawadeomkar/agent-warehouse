@@ -127,6 +127,21 @@ this matters only for a program you `cargo install` after turning Rust on:
 
 New sessions get it by themselves, and nothing needs restarting.
 
+## VM names an SSH alias cannot have
+
+From 1.0. A VM's SSH alias is its name, in a file ssh reads ahead of your own config, so no alias is written
+any more for a name ssh would take for another host: one it reads as an address (`192.0.2.10`, or a bare
+number such as `42` or `0xbeef`), or one the inventory reaches a host by (`pve`, or the address of the Proxmox
+host). `just deploy` and `just code` refuse such a name, and the next fleet-wide
+`just deploy --only ssh-config` removes an alias an earlier version wrote for one, and says so. Rename such a
+VM in Proxmox: renamed, it is a new cloud-init instance, which gives it new SSH host keys at its next start,
+so `just deploy <new name> --only configure` takes the new key ([What just status shows](vms.md#what-just-status-shows)).
+
+A name with a dot, as in `alpha.lab`, keeps its alias, but only a run that names it refreshes it -
+`just deploy alpha.lab --only ssh-config`, `just code alpha.lab` or any run given that name. A fleet-wide
+refresh leaves its alias as it was, and says so: on a shared host, a tagged VM named `github.com` could be
+anyone's.
+
 ## Tailscale on VMs configured by an earlier version
 
 From PR #24, which joins the VMs to a tailnet. Tailscale is on by default, so the next `just deploy --only configure` installs it on every VM and reports each one
