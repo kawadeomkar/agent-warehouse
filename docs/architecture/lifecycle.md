@@ -431,7 +431,10 @@ drawn in the region every live output shares
 `just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
 the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
 at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of
-its own and reads the bytes back through a small terminal (`tests/unit/vt.py`).
+its own and reads the bytes back through a small terminal (`tests/unit/vt.py`). The finished report is
+taken only from play 3's own `set_fact` on localhost, since any module's result can carry facts and a VM's
+root makes the modules there return what it likes; their warnings are printed through `plain_summary`
+([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
 
 **The recipe.** `just status [names] [--only sections] [--json]` runs the playbook through
 `tools/run-logged` with a report path of its own run in `STATUS_DIR` (`.cache/status/`, git-ignored and

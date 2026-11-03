@@ -90,7 +90,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ inventory_hostname }}: another sign-in of this VM is still waiting for its code (claude, pid
-      {{ claude_code_login_other.stdout | trim }}), from a run still at its prompt. Finish or stop that run, then
+      {{ claude_code_login_other.stdout | plain_text | trim }}), from a run still at its prompt. Finish or stop that run, then
       run {{ claude_code_login_command }} again.
   when: claude_code_login_other.stdout | trim | length > 0
 

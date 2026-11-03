@@ -96,6 +96,8 @@ NOREPLY = f"4242+{USERNAME}@users.noreply.github.com"
 # Control characters a VM's user could put in what gh prints: a title, a
 # clipboard write (OSC 52) and a colour.
 ESCAPES = "\x1b]0;owned\x07\x1b]52;c;b3duZWQ=\x07\x1b[31m"
+# A page a VM's gh could name instead of GitHub's, made to look like it.
+FOREIGN_PAGE = "https://github.com.login-device.example/device"
 CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 # One host per state the role can meet: the vault token, what gh holds
@@ -290,6 +292,8 @@ def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) ->
             (state / "fake-hang").touch()
         if case.get("said"):
             (state / "fake-said").write_text(case["said"] + "\n")
+        if case.get("page"):
+            (state / "fake-page").write_text(case["page"] + "\n")
         # The device flow's timing: a code approved as soon as gh has shown it,
         # or after approve_after seconds, and an expiring one expired as soon.
         # Always written, 0 included: without the file the stand-in waits
@@ -923,11 +927,14 @@ def _device_flow(tmp_path_factory, fake_github, name: str, case: dict, extra: di
 
 @pytest.fixture(scope="module")
 def approved(tmp_path_factory, fake_github):
-    """An approval after which gh says something other than "Logged in as", as a later gh may.
+    """An approval after which gh says something other than "Logged in as", as a later gh may, from a gh that names
+    a page of its own, as a VM's root could make it.
 
     gh's own wording is the other device flows' (two, deployed, deployed_asking).
     """
-    return _device_flow(tmp_path_factory, fake_github, "approved", {"said": "✓ Authentication complete."})
+    return _device_flow(
+        tmp_path_factory, fake_github, "approved", {"said": "✓ Authentication complete.", "page": FOREIGN_PAGE}
+    )
 
 
 @pytest.fixture(scope="module")
@@ -1064,7 +1071,9 @@ def test_the_device_flow_runs_gh_with_no_terminal_and_shows_the_code(approved):
     assert DEVICE_LOGIN in _calls(root, "approved"), _calls(root, "approved")
     shown = _messages(report, "Say the code and the page")["approved"]
     assert "FAKE-C0DE" in shown
+    # GitHub's own page, whatever page gh named: the VM chooses what gh prints.
     assert "https://github.com/login/device" in shown
+    assert FOREIGN_PAGE not in shown and "example" not in shown, shown
     # The choices there are: approve, wait for the code to expire, or Ctrl-C.
     assert "the wait ends by itself when the code expires" in shown
     assert "Ctrl-C ends the whole run" in shown
@@ -1275,6 +1284,25 @@ def test_the_page_is_opened_by_the_shared_opener():
     assert "page_opener(" in opener["vars"]["github_projects_login_opener"]
     assert opener["ansible.builtin.command"]["argv"] == "{{ github_projects_login_opener }}"
     assert "github_projects_login_opener | length > 0" in opener["when"]
+
+
+def test_the_page_opened_and_shown_is_github_s_own_never_one_gh_named():
+    # The VM chooses what gh prints there: a page read out of it would open a
+    # page of the VM's choosing in your browser, as the run asks you to sign in.
+    internal = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())
+    assert internal["github_projects_login_page"] == "https://github.com/login/device"
+    tasks = _all_tasks(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text()))
+    opener = next(task for task in tasks if task["name"].endswith("Open the page in your browser"))
+    assert opener["vars"]["github_projects_login_opener"].split("|")[0].strip() == "{{ github_projects_login_page"
+
+
+def test_the_code_is_a_word_of_its_own_in_github_s_shape():
+    expression = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())["github_projects_login_code"]
+    pattern = re.search(r"regex_search\('([^']+)'\)", expression).group(1)
+    found = re.search(pattern, "! First copy your one-time code: AB12-CD34\nOpen this URL ...")
+    assert found and found.group(0) == "AB12-CD34"
+    for text in ("XAB12-CD34", "AB12-CD345", "ab12-cd34", "AB12-CD34-EF56", "AB1-CD34"):
+        assert re.search(pattern, text) is None, text
 
 
 # Every task argument that can carry a token: the vault's, the one gh stored,

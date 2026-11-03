@@ -90,7 +90,11 @@ Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 both sign-ins so the two cannot drift: the first command `BROWSER` names (a `:`-separated list, each
 split as a shell would, `%s` replaced by the URL or the URL appended), else `open`, else `xdg-open`,
 from what `which` found; `[]` when nothing can, and the task is skipped. Only the first `BROWSER`
-command is taken, since an argv holds one. Covered by `tests/unit/test_desktop_filter.py`.
+command is taken, since an argv holds one. A `BROWSER` command that is a shell or a Windows command
+interpreter (`sh -c`, `cmd.exe /c start`, `powershell.exe`, looked for past `env`) gives `[]` too: it reads
+the URL as a command line of its own, and a page's query string - in a page the VM chose - would be a
+command run here. The page is then printed for the person to open. Covered by
+`tests/unit/test_desktop_filter.py`.
 
 **`plain_text(text)`** — what a VM printed, safe to quote in a message on this machine: every escape
 sequence removed whole (OSC up to its terminator or the end of its line, DCS and the other string
@@ -101,6 +105,17 @@ the control characters left a clipboard write's base64 or a window title behind 
 that quotes the VM's text goes through it: the Claude sign-in's (`claude_code_login_said`), gh's
 (`github_projects_login_text`, `_status_said`, `_token_said`) and `just code`'s SSH failure. Covered by
 `tests/unit/test_text_filter.py`, and by the sign-in tests, which feed both flows escape sequences.
+
+**`plain_summary(summary)`, `plain_events(callback)`** — what a module returns as warnings or
+deprecations, and a failed module's message, are its to choose, and a VM's root makes every module there
+answer what it likes; ansible-core turns them into summaries that Display prints as `[WARNING]`,
+`[DEPRECATION WARNING]` and `[ERROR]` lines, raw, on the screen - stderr, which the live region lets
+through - and in the run log. `plain_summary` rebuilds such a summary (a frozen dataclass of events) with
+every string through `plain_text`; inside `plain_events`, a stdout callback's `_handle_warnings` and
+`_handle_exception` read the current result's summaries that way. Both stdout callbacks wrap the two
+methods in it, so every hook prints them plain; `claude_on_proxmox` also passes a diff's text - a file
+as the VM holds it - through `plain_text`. Covered by `test_attention_callback.py`, `test_deploy_live.py`
+and `test_status.py`, each with a stand-in module returning escape sequences.
 
 **`visible_text(text)`** — `plain_text`, then every Unicode format, line or paragraph separator (bidi
 controls and zero-width characters among them) replaced by a space, its lines, tabs and indents kept: a
@@ -158,6 +173,9 @@ A run waits for the person in three ways, and each is set apart:
   deciding what comes next; and `init_check`, each problem with its fix, what could not be checked when
   nothing is wrong, or else `just deploy alpha` - nothing while the GitHub username, which the first names, is
   still the example's - and nothing at all when it ends before checking, a value still the example's.
+  The callback keeps them from those tasks' own results, merged as Ansible merges custom stats, never from
+  the run's custom stats themselves: ansible-core adds any module result's `ansible_stats` to those, so a
+  module on a VM could write another VM's line, or blank one.
   `aggregate` merges the records, so the last one of a VM and matter wins across plays: configure's "not
   signed in" is cleared by the sign-in's own report later in the same `just deploy`. The sign-in playbooks
   record what their own plays say, under the role's stat and the sign-in's matter: a VM that could not be

@@ -8,6 +8,28 @@ import shlex
 # The openers tried when BROWSER names none, in this order: macOS's, then the
 # freedesktop one.
 OPENERS = ("open", "xdg-open")
+# Commands that read the URL again as a command line of their own - a shell's
+# -c, Windows' cmd.exe /c start or PowerShell's Start-Process - where a page's
+# query string (a & or a ;, in a page the VM chose) would be a command run here.
+# By name, without a directory or Windows' .exe.
+INTERPRETERS = frozenset(
+    {"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash", "fish", "csh", "tcsh", "busybox", "cmd", "powershell", "pwsh"}
+)
+
+
+def _program(argv):
+    """The program argv runs, by name: past env and its options and assignments, without a directory or .exe."""
+    words = list(argv)
+    if words and _name(words[0]) == "env":
+        words = words[1:]
+        while words and (words[0].startswith("-") or "=" in words[0]):
+            words = words[1:]
+    return _name(words[0]) if words else ""
+
+
+def _name(word):
+    name = os.path.basename(str(word).replace("\\", "/")).lower()
+    return name[: -len(".exe")] if name.endswith(".exe") else name
 
 
 def page_opener(url, browser, found):
@@ -24,6 +46,11 @@ def page_opener(url, browser, found):
     ``found`` is what ``which`` printed for the openers asked about, as paths or
     names: without a usable ``BROWSER``, ``open`` is used if it was found, then
     ``xdg-open``.
+
+    A ``BROWSER`` command that is a shell or a Windows command interpreter
+    (INTERPRETERS) opens nothing: it would read the URL as a command line of
+    its own. The caller then prints the page for the person to open, as it does
+    when this machine has no opener at all.
     """
     url = str(url)
     for entry in str(browser or "").split(":"):
@@ -35,6 +62,8 @@ def page_opener(url, browser, found):
             # Unbalanced quotes: no command can be read out of it.
             argv = []
         if argv:
+            if _program(argv) in INTERPRETERS:
+                return []
             if any("%s" in arg for arg in argv):
                 return [arg.replace("%s", url) for arg in argv]
             return [*argv, url]

@@ -24,7 +24,14 @@ what it stores:
   module arguments included, for every canned token; `github_repos` strips the token and masks the
   stripped form as well. What `claude`, `gh` and `ssh` print on the VM, which its user controls, is
   quoted in messages only through the `plain_text` filter, with every escape sequence and control
-  character removed. The GitHub token is also stored on the VM, by `gh`
+  character removed; so are the warnings, deprecations and failure messages any module there returns,
+  which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
+  (`filter_plugins/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
+  `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
+  module's result can carry custom stats and facts. GitHub's device flow opens and prints GitHub's own
+  page, `https://github.com/login/device`, never a URL out of gh's output, and no page opens through a
+  `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
+  a command line. The GitHub token is also stored on the VM, by `gh`
   (`~/.config/gh/hosts.yml`, mode 0600), so that `git` and `gh` there can push; a device-flow login
   made on the VM stores its own token the same way. Either is readable by the VM user, and so by
   Claude Code ([What the VM trusts](docs/guides/what-the-vm-trusts.md)). The Claude sign-in's one-time code

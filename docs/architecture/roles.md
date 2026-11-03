@@ -581,7 +581,10 @@ after starting gh leaves gh polling for up to fifteen minutes, and truncating wo
 with it, whose expiry line would then end the new wait early, while an unlinked file leaves it its
 own inode to die on. gh runs in the job's background, its pid recorded, and the job writes
 `gh exited: N` once gh ends however it ends; both waits end on it. A `wait_for` reads the code out of
-the file, the run prints it, and on the controller the page is opened by the `page_opener` filter
+the file - a word of its own in GitHub's shape, `XXXX-XXXX` - the run prints it with GitHub's own page,
+`https://github.com/login/device`, and never a URL out of gh's output, which the VM chooses (a page of the
+VM's choosing would open in your browser just as the run asks you to sign in to GitHub), and on the
+controller that page is opened by the `page_opener` filter
 (`filter_plugins/desktop.py`, shared with the Claude sign-in: the first `BROWSER` command, `%s`
 substituted, else `open`, else `xdg-open`) and the code copied (`pbcopy`, `wl-copy`, `xclip`), both
 best effort and both gated by `github_projects_login_desktop`, which every

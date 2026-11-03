@@ -70,7 +70,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 55 of the 58 are computed during a run, from earlier tasks' results.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 54 of the 58 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -95,8 +95,8 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_login_wait_seconds` | `930` |
 | `github_projects_login_async_seconds` | `960` |
 | `github_projects_login_text` | <code>{{ ((github_projects_login_out.content &#124; b64decode) if github_projects_login_out.content is defined else '') &#124; plain_text }}</code> |
-| `github_projects_login_code` | <code>{{ github_projects_login_text &#124; regex_search('[A-Z0-9]{4}-[A-Z0-9]{4}') or '' }}</code> |
-| `github_projects_login_page` | <code>{{ github_projects_login_text &#124; regex_search('https://[^ \n]+') or 'https://github.com/login/device' }}</code> |
+| `github_projects_login_code` | <code>{{ github_projects_login_text &#124; regex_search('(?&lt;![A-Za-z0-9-])[A-Z0-9]{4}-[A-Z0-9]{4}(?![A-Za-z0-9-])') or '' }}</code> |
+| `github_projects_login_page` | `https://github.com/login/device` |
 | `github_projects_login_said` | <code>{{ github_projects_login_text.splitlines() &#124; map('trim') &#124; select &#124; reject('match', 'gh exited: ') &#124; list }}</code> |
 | `github_projects_login_expired` | <code>{{ (github_projects_login_result.msg &#124; default('')) is search('Timeout exceeded') or (github_projects_login_finished.finished &#124; default(1) &#124; int) != 1 }}</code> |
 | `github_projects_login_answer` | <code>{{ (github_projects_login_asked &#124; default({})).user_input &#124; default('', true) &#124; trim &#124; lower }}</code> |
