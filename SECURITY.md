@@ -75,10 +75,45 @@ a VM lives with in [What the VM trusts](docs/guides/what-the-vm-trusts.md), how 
 restate them are not treated as vulnerabilities:
 
 - `proxmox_validate_certs` defaults to `false`, because a stock Proxmox install presents a self-signed
-  certificate. [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-  explains how to trust the Proxmox CA and turn it on.
+  certificate, so every run sends the API token to whatever answers at the host's address on port 8006.
+  [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
+  explains how to trust the Proxmox CA and turn it on; a later release will have `just init` fetch the CA
+  and turn validation on by default. Until you turn it on, count the project's own VMs among the devices
+  that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
+  bridge the host's own address is usually on, with no Proxmox firewall on their network device. So that
+  network always has a device you cannot fully trust on it: root on any VM - an agent with passwordless
+  sudo, or another user's VM on a shared host - can try to answer for the host's address and read the
+  token, which reaches every VM on the host (below).
+- **The API token's reach.** `tools/proxmox-access.sh` grants the `AnsibleVM` role on `/vms`, and the grant
+  propagates to every VM on the host. The token can set the SSH keys cloud-init installs on any VM there,
+  restart it into them, and delete it - this project's VMs or not - and so can anyone who obtains the token,
+  by answering for the host (above) or from the vault. The ownership tag keeps this project's own runs off
+  other VMs; it does not limit the token. A later release will scope the grant to a Proxmox pool. Until
+  then, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a root
+  password for those VMs.
+- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `claude-on-proxmox` by default) is a
+  convention, not a permission: any user of the host who can create VMs can set it, and your token can list
+  every VM on the host (above). Every tagged VM your token lists is treated as yours:
+
+    - A fleet-wide `just deploy --only configure` reaches it and, where it accepts your SSH key - its root
+      decides that - configures it with your secrets: the GitHub token, the Anthropic API key, the
+      Tailscale auth key.
+    - `just deploy <name>`, for a name only their tagged VM has, configures and signs in that VM rather
+      than creating yours.
+    - `just destroy <name>`, for a name only their tagged VM has, deletes it. Deletion goes through the
+      API and needs no SSH.
+
+  On a shared host, give each person a tag of their own in `local.yml` (`claude_vm_tag`) before their
+  first deploy - VMs made under one tag are not found under another, and a Proxmox
+  [User Tag Access](docs/getting-started/proxmox-access.md#user-tag-access) list must allow it and its
+  `-unfinished` form - and name the VMs a run is for. That keeps each person's runs off the others' VMs by
+  accident, but not off a VM someone made to look like yours. A token scoped to a Proxmox pool of each
+  person's own, which cannot list the others' VMs at all, is planned.
 - The VM's user gets passwordless sudo and docker group membership by default; both are toggles, and
   [What the VM trusts](docs/guides/what-the-vm-trusts.md) says what they mean.
+- `vault_vm_password`, when set, is one password for the VM user on every VM, for the Proxmox console.
+  SSH never takes it. Each VM holds its hash (in `/etc/shadow` and on its cloud-init drive), so root on one
+  VM can try to crack it offline and use it on every other VM's console. Make it one you use nowhere else.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
   can be reached without manual steps. Changed keys are still refused.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH needs and OpenSSH

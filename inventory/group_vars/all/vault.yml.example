@@ -20,7 +20,8 @@ vault_proxmox_api_token_secret: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # -------------------------------------------------------------------- VMs ---
 # Optional: a password for the VM user, for the Proxmox console. SSH stays
-# key-only either way (common_harden_ssh). Empty sets none.
+# key-only either way (common_harden_ssh). Empty sets none. Every VM gets the
+# same one, and each VM can read its hash: use it nowhere else.
 vault_vm_password: ""
 
 # ----------------------------------------------------------------- GitHub ---
