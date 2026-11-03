@@ -92,9 +92,14 @@ def test_the_url_is_one_argument_whatever_it_holds():
         "powershell.exe -NoProfile -Command Start-Process",
         "pwsh -c Start-Process %s",
         "CMD.EXE /c start",
-        # Through env, its options and assignments.
+        # Through env, its options and assignments, and the launchers that run a command given.
         "env sh -c 'firefox %s'",
         "/usr/bin/env -i LANG=C bash -c 'firefox %s'",
+        "env -u FOO sh -c 'firefox %s'",
+        "env -C /tmp bash -c 'firefox %s'",
+        "env -S 'sh -c' 'firefox %s'",
+        "nohup sh -c 'firefox %s'",
+        "sudo -u me sh -c 'firefox %s'",
     ],
 )
 def test_a_browser_that_is_a_command_interpreter_opens_nothing(browser):
@@ -112,6 +117,9 @@ def test_a_browser_that_is_a_command_interpreter_opens_nothing(browser):
         ("shelly-browser %s", ["shelly-browser", URL]),
         ("env firefox", ["env", "firefox", URL]),
         ("/usr/bin/env PROFILE=work firefox %s", ["/usr/bin/env", "PROFILE=work", "firefox", URL]),
+        ("nohup firefox %s", ["nohup", "firefox", URL]),
+        # Only the words before the page can run it; one after it is the browser's argument.
+        ("firefox %s --profile sh", ["firefox", URL, "--profile", "sh"]),
     ],
 )
 def test_a_browser_that_only_looks_like_one_still_opens(browser, argv):

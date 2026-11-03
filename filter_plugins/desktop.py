@@ -17,14 +17,16 @@ INTERPRETERS = frozenset(
 )
 
 
-def _program(argv):
-    """The program argv runs, by name: past env and its options and assignments, without a directory or .exe."""
-    words = list(argv)
-    if words and _name(words[0]) == "env":
-        words = words[1:]
-        while words and (words[0].startswith("-") or "=" in words[0]):
-            words = words[1:]
-    return _name(words[0]) if words else ""
+def _through_interpreter(argv):
+    """Whether argv starts an interpreter before it reaches the page: a word ahead of the one that holds %s (any word,
+    when none does) named as one of INTERPRETERS. Every word counts, not only the first, so a launcher before one -
+    env and its options, nohup, sudo -u - cannot hide it, and each of a word's own words, which env -S splits."""
+    ahead = []
+    for word in argv:
+        if "%s" in word:
+            break
+        ahead += str(word).split()
+    return any(_name(word) in INTERPRETERS for word in ahead)
 
 
 def _name(word):
@@ -62,7 +64,7 @@ def page_opener(url, browser, found):
             # Unbalanced quotes: no command can be read out of it.
             argv = []
         if argv:
-            if _program(argv) in INTERPRETERS:
+            if _through_interpreter(argv):
                 return []
             if any("%s" in arg for arg in argv):
                 return [arg.replace("%s", url) for arg in argv]

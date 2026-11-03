@@ -103,8 +103,9 @@ Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 both sign-ins so the two cannot drift: the first command `BROWSER` names (a `:`-separated list, each
 split as a shell would, `%s` replaced by the URL or the URL appended), else `open`, else `xdg-open`,
 from what `which` found; `[]` when nothing can, and the task is skipped. Only the first `BROWSER`
-command is taken, since an argv holds one. A `BROWSER` command that is a shell or a Windows command
-interpreter (`sh -c`, `cmd.exe /c start`, `powershell.exe`, looked for past `env`) gives `[]` too: it reads
+command is taken, since an argv holds one. A `BROWSER` command that runs a shell or a Windows command
+interpreter (`sh -c`, `cmd.exe /c start`, `powershell.exe`) gives `[]` too - any word before the one that holds
+`%s` naming one, so no launcher ahead of it (`env` and its options, `nohup`, `sudo -u`) hides it: it reads
 the URL as a command line of its own, and a page's query string - in a page the VM chose - would be a
 command run here. The page is then printed for the person to open. Covered by
 `tests/unit/test_desktop_filter.py`.
