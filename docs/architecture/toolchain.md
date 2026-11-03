@@ -56,6 +56,11 @@ three to one. Dependabot moves neither file, so moving to a new `just` is by han
 the archive's line of the new release's `SHA256SUMS` as `JUST_SHA256`. The justfile's format is checked
 (`just lint just`) only by the pinned version, which `just lint` says when it skips it.
 
+The uv every VM gets is the `dev_tools` role's own pin (`dev_tools_uv_version`, with each architecture's
+SHA-256), which Dependabot does not read. It moves with the `uv` pin in `pyproject.toml`: never older than it,
+which `tests/unit/test_pins.py` holds, so a Dependabot bump of the controller's uv fails that test until the
+VM's follows, its digests taken from the release's `.sha256` files.
+
 Collections: `community.proxmox`, `community.general`, `community.docker` and `ansible.posix`, pinned
 to exact versions in `requirements.yml`, with `community.library_inventory_filtering_v1`, which
 `community.docker` depends on with a range: unlisted, it would install whatever Galaxy published last.

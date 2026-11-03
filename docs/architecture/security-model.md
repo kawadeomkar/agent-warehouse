@@ -74,7 +74,8 @@ reads `requirements.yml`, and each checkout's collections (`tools/env-run --coll
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
 is not. pre-commit hooks are pinned to commit SHAs, not tags, because a tag can be moved. apt signing
 keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
-separately from the download. The Molecule base image is pinned by digest, with an unpinned weekly
+separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
+moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The Molecule base image is pinned by digest, with an unpinned weekly
 canary. What verifies each download a VM gets is listed in
 [What the VM trusts](../guides/what-the-vm-trusts.md).
 
