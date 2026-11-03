@@ -161,6 +161,15 @@ class TestGuestIpv4:
         returned = guest_ipv4([ETH0], LAN_MAC)
         assert returned == "192.0.2.51" and isinstance(returned, str)
 
+    @pytest.mark.parametrize("reported", ["0.0.0.0", "255.255.255.255", "224.0.0.1", "239.255.255.250", "240.0.0.1"])
+    def test_an_address_no_nic_answers_at_is_no_address(self, reported):
+        # The VM's to choose: 0.0.0.0 as a destination is this machine itself, so
+        # its aliases and the next run's connections would come here.
+        crafted = iface("eth0", LAN_MAC, [(reported, "ipv4", 24)])
+        assert guest_ipv4([crafted], LAN_MAC) is None
+        then_real = iface("eth0", LAN_MAC, [(reported, "ipv4", 24), ("192.0.2.51", "ipv4", 24)])
+        assert guest_ipv4([then_real]) == "192.0.2.51"
+
 
 class TestTailnetIpv4:
     """The tailnet address a VM reports for itself, held to one IPv4 address in Tailscale's range."""
@@ -382,6 +391,67 @@ def vm(name, vmid, tags="claude-on-proxmox", kind="qemu"):
     if tags is not None:
         entry["tags"] = tags
     return entry
+
+
+class TestVmsNotNamed:
+    """The listing without the VMs named after a host of the inventory, which add_host would merge into it."""
+
+    LISTING = [
+        {"vmid": 100, "name": "alpha"},
+        {"vmid": 101, "name": "pve"},
+        {"vmid": 102},
+        {"vmid": 103, "name": "localhost"},
+        {"vmid": 104, "name": "beta"},
+    ]
+
+    def test_leaves_out_the_inventory_s_names_and_keeps_the_order(self):
+        kept = proxmox_filters.vms_not_named(self.LISTING, ["pve", "localhost"])
+        assert [vm["vmid"] for vm in kept] == [100, 102, 104]
+
+    def test_a_vm_without_a_name_is_kept(self):
+        assert proxmox_filters.vms_not_named([{"vmid": 102}], ["pve"]) == [{"vmid": 102}]
+
+    def test_takes_what_selectattr_hands_on(self):
+        names = (vm for vm in self.LISTING if "name" in vm)
+        assert [vm["vmid"] for vm in proxmox_filters.vms_not_named(names, ["pve"])] == [100, 103, 104]
+
+    def test_refuses_what_is_no_listing(self):
+        with pytest.raises(AnsibleFilterError):
+            proxmox_filters.vms_not_named({"vmid": 100}, [])
+
+
+class TestSshAliasRefusal:
+    """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
+
+    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x"])
+    def test_a_name_that_can_be_nothing_else(self, name):
+        assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
+
+    @pytest.mark.parametrize(
+        ("name", "said"),
+        [
+            # github.com: this machine's git over ssh would go to the VM's address.
+            ("github.com", "dot"),
+            ("192.0.2.10", "dot"),
+            # ssh resolves a bare number, or a hex one, as an IPv4 address.
+            ("3232235777", "address"),
+            ("0x7f000001", "address"),
+            ("127", "address"),
+            ("pve", "inventory"),
+            ("localhost", "inventory"),
+        ],
+    )
+    def test_a_name_ssh_would_take_for_another_host(self, name, said):
+        assert said in proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"])
+
+    def test_a_list_gives_each_refused_name_with_why_in_order(self):
+        vms = [{"name": "alpha"}, {"name": "github.com"}, {"name": "pve"}, {"name": "beta"}]
+        refused = proxmox_filters.ssh_alias_refusals(vms, ["pve"])
+        assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"]) for r in refused] == [
+            ("github.com", True),
+            ("pve", True),
+        ]
+        assert proxmox_filters.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
 
 
 class TestSshConfigBlocks:

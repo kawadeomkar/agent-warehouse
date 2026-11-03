@@ -57,6 +57,50 @@
     quiet: true
   when: claude_ssh_state | default('present') == 'present'
 
+# The managed file is included ahead of everything in the user's config, so an
+# alias is taken for every connection to its name: a VM named github.com would
+# get this machine's git pushes, and one named after an address, or after the
+# Proxmox host, its root SSH (ssh_alias_refusals). A VM's name is Proxmox's, and
+# on a Proxmox others use too, anyone's to choose. Only a name that can be
+# nothing else is written. Fleet-wide (no vm_name), such a VM is left out and
+# said, and the rest written: anyone's tagged VM named github.com would
+# otherwise stop every alias refresh of the user's own fleet. With names given,
+# it is refused below. Set again on every import, both states, so no earlier
+# run's list is ever read: the rest of this file writes claude_ssh_written.
+- name: ssh_config | Work out which VMs get an alias
+  vars:
+    claude_ssh_refusals: >-
+      {{ claude_ssh_vms | ssh_alias_refusals(claude_vm_inventory_hosts | default(['localhost']))
+         if claude_ssh_state | default('present') == 'present' else [] }}
+    claude_ssh_strict: "{{ vm_name is defined }}"
+  ansible.builtin.set_fact:
+    claude_ssh_refused: "{{ claude_ssh_refusals if claude_ssh_strict | bool else [] }}"
+    claude_ssh_left_out: "{{ [] if claude_ssh_strict | bool else claude_ssh_refusals }}"
+    claude_ssh_written: >-
+      {{ claude_ssh_vms if claude_ssh_strict | bool
+         else claude_ssh_vms | rejectattr('name', 'in', claude_ssh_refusals | map(attribute='name') | list) | list }}
+
+- name: ssh_config | Refuse a name ssh would take for another host
+  ansible.builtin.assert:
+    that: claude_ssh_refused | length == 0
+    fail_msg: >-
+      Not writing an alias for {{ claude_ssh_refused | map(attribute='name') | join(', ') }}: an alias is the VM's
+      name, and ssh would take it for another host
+      ({% for claude_ssh_why in claude_ssh_refused %}{{ claude_ssh_why.name }}: {{ claude_ssh_why.why
+      }}{{ '; ' if not loop.last else '' }}{% endfor %}). Rename the VM in Proxmox to letters, digits and hyphens.
+    quiet: true
+  when: claude_ssh_state | default('present') == 'present'
+
+- name: ssh_config | Say which VMs get no alias
+  ansible.builtin.debug:
+    msg: >-
+      No alias for {% for claude_ssh_why in claude_ssh_left_out %}{{ claude_ssh_why.name }} ({{ claude_ssh_why.why
+      }}){{ '; ' if not loop.last else '' }}{% endfor %}: an alias is the VM's name, and the file ssh reads first
+      would send this machine's own connections there. The other VMs' aliases are written. Rename
+      {{ 'it' if claude_ssh_left_out | length == 1 else 'them' }} in Proxmox, to letters, digits and hyphens, or ask
+      whoever made {{ 'it' if claude_ssh_left_out | length == 1 else 'them' }}.
+  when: claude_ssh_left_out | length > 0
+
 - name: ssh_config | Stat the managed file
   ansible.builtin.stat:
     path: "{{ claude_ssh_config_file }}"
@@ -72,7 +116,7 @@
       {{ (lookup('ansible.builtin.file', claude_ssh_user_config, errors='ignore') or '')
          | regex_findall('^\s*Host\s+(.+?)\s*$', multiline=True, ignorecase=True)
          | map('split') | flatten | list }}
-    claude_ssh_taken: "{{ claude_ssh_vms | map(attribute='name') | intersect(claude_ssh_user_hosts) | list }}"
+    claude_ssh_taken: "{{ claude_ssh_written | map(attribute='name') | intersect(claude_ssh_user_hosts) | list }}"
   ansible.builtin.assert:
     that: claude_ssh_taken | length == 0
     fail_msg: >-
@@ -120,7 +164,7 @@
     marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"
     block: "{{ claude_ssh_block }}"
     validate: "ssh -G -F %s {{ claude_ssh_vm.name }}"
-  loop: "{{ claude_ssh_vms }}"
+  loop: "{{ claude_ssh_written }}"
   loop_control:
     loop_var: claude_ssh_vm
     label: "{{ claude_ssh_vm.name }}"
@@ -157,14 +201,14 @@
 # come back with the HostName the managed file just gave it.
 - name: ssh_config | Ask ssh whether the user's config reaches the managed file
   ansible.builtin.command:
-    argv: [ssh, -G, -F, "{{ claude_ssh_user_config }}", "{{ claude_ssh_vms[0].name }}"]
+    argv: [ssh, -G, -F, "{{ claude_ssh_user_config }}", "{{ claude_ssh_written[0].name }}"]
   register: claude_ssh_probe
   changed_when: false
   failed_when: false
   when:
     - claude_ssh_state | default('present') == 'present'
     - claude_ssh_config_include | default(true) | bool
-    - claude_ssh_vms | length > 0
+    - claude_ssh_written | length > 0
     - claude_ssh_user.stat.exists
 
 # At the top, because an Include below a Host block is scoped to that block.
@@ -190,8 +234,8 @@
          + ([claude_ssh_config_file | basename]
             if (claude_ssh_config_file | dirname) == (claude_ssh_user_config | dirname) else []) }}
     claude_ssh_first_hostname: >-
-      {{ claude_ssh_vms[0].name ~ '.' ~ claude_ssh_host_domain
-         if claude_ssh_host_domain | default('') | length > 0 else claude_ssh_vms[0].address }}
+      {{ claude_ssh_written[0].name ~ '.' ~ claude_ssh_host_domain
+         if claude_ssh_host_domain | default('') | length > 0 else claude_ssh_written[0].address }}
     claude_ssh_included: >-
       {{ (lookup('ansible.builtin.file', claude_ssh_user_config, errors='ignore') or '')
          is search('^\s*include\s+(' ~ (claude_ssh_spellings | map('regex_escape') | join('|')) ~ ')\s*$',
@@ -206,13 +250,13 @@
   when:
     - claude_ssh_state | default('present') == 'present'
     - claude_ssh_config_include | default(true) | bool
-    - claude_ssh_vms | length > 0
+    - claude_ssh_written | length > 0
     - not claude_ssh_included | bool
 
 - name: ssh_config | Show how to connect
   ansible.builtin.debug:
     msg: |-
-      {% for claude_ssh_vm in claude_ssh_vms %}
+      {% for claude_ssh_vm in claude_ssh_written %}
       {% if claude_ssh_vm.workspace | default('') | length > 0 %}
       {{ claude_ssh_vm.name }}: ssh {{ claude_ssh_vm.name }}   |   just code {{ claude_ssh_vm.name }}   (opens {{ claude_ssh_vm.workspace }})
       {% else %}
@@ -225,4 +269,4 @@
       {% endif %}
   when:
     - claude_ssh_state | default('present') == 'present'
-    - claude_ssh_vms | length > 0
+    - claude_ssh_written | length > 0

@@ -31,6 +31,13 @@ cloud image, which is why the canary checks its URL and checksum list. The unpin
 on a push or a pull request: its failure is how you learn the current Ubuntu image no longer works before
 you bump the digest.
 
+Bump it after a green canary, so the gate tests the image the canary last passed rather than one that ages
+until something breaks: an old image makes every scenario that runs `common` upgrade what it ships, 23
+seconds of `configure`'s converge against 2 on a current one. The digest is the image index's, as
+`docker buildx imagetools inspect geerlingguy/docker-ubuntu2404-ansible:latest` prints it, and it goes in
+`.config/molecule/config.yml` and in every scenario's `molecule.yml`, since each names its own platforms;
+`tests/unit/test_ci.py` fails while any of them differs.
+
 The gitleaks scans, and what they cannot see, are in [Secret scanning](security-model.md#secret-scanning).
 A secret they find has already been pushed and is public: revoke it rather than only rewriting history.
 

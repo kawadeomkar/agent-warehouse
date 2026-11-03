@@ -164,3 +164,34 @@
       ansible.builtin.include_role:
         name: common
         tasks_from: ssh_path
+
+# /etc/tmux.conf holding a line of the user's own as well: [] takes the block
+# out and nothing else, and the settings go back in beside that line, which
+# verify.yml then finds there with the block.
+- name: Take the tmux settings out and put them back around a line of the user's
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Add a line of the user's own to /etc/tmux.conf
+      ansible.builtin.lineinfile:
+        path: /etc/tmux.conf
+        line: set -g mouse on
+
+    - name: Run the role's tmux tasks with no settings
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: tmux
+      vars:
+        common_tmux_settings: []
+
+    - name: Read what that left of /etc/tmux.conf
+      ansible.builtin.slurp:
+        src: /etc/tmux.conf
+      register: common_side_effect_tmux
+      failed_when: (common_side_effect_tmux.content | b64decode) != "set -g mouse on\n"
+
+    - name: Run the role's tmux tasks as converge did
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: tmux

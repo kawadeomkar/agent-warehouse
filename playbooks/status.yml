@@ -165,7 +165,8 @@
                    aliases=(status_ssh_config_text.content | default('') | b64decode)
                      | status_aliases(claude_ssh_config | bool),
                    settings=status_settings | combine({'proxmox_hint': status_proxmox_hint | default('')}),
-                   unread=status_proxmox_unread | default('')) | status_clean }}
+                   unread=status_proxmox_unread | default(''),
+                   hosts=claude_vm_inventory_hosts) | status_clean }}
 
     # Each VM this project created, by its name - the name every role's commands use - with how to reach it on
     # the host itself, as discover.yml adds them. Not a VM whose name two VMs carry, or one no recipe could name,

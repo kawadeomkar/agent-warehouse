@@ -1,0 +1,17 @@
+---
+# Refuses a VM name that is a host of the inventory (claude_vm_inventory_hosts,
+# group_vars/all): add_host would merge the VM into that host, so the Proxmox
+# host's address - and with it the API token - would become the VM's, or this
+# machine would become a VM to configure. Every play that takes names imports
+# it before anything is created, started or added.
+- name: vm_names | Refuse a VM named after a host of the inventory
+  vars:
+    claude_vm_names_taken: "{{ claude_vm_names | select('in', claude_vm_inventory_hosts) | list }}"
+  ansible.builtin.assert:
+    that: claude_vm_names_taken | length == 0
+    fail_msg: >-
+      {{ claude_vm_names_taken | join(', ') }} {{ 'is the name' if claude_vm_names_taken | length == 1 else 'are
+      names' }} of a host in the inventory ({{ claude_vm_inventory_hosts | join(', ') }}), which no VM may take:
+      Ansible would take the VM for that host, and what is meant for the host - the Proxmox API token, or this
+      machine's own configuration - would go to the VM. Give the VM another name.
+    quiet: true

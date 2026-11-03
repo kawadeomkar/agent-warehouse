@@ -426,11 +426,15 @@ class Handler(BaseHTTPRequestHandler):
             NODES_NAMED[parts[2]] = params.get("named") == "1"
             return self._reply(200, {"node": parts[2], "status": params.get("status")})
         if parts == ["nodes"]:
+            # A node of any other name a fixture switched on is listed too, with nothing on it: what init reads
+            # of a name the API chose.
+            others = [{"node": n, "status": "online"} for n, on in NODES_ONLINE.items() if n != DOWN_NODE and on]
             return self._reply(
                 200,
                 [
                     {"node": NODE, "status": "online"},
                     {"node": DOWN_NODE, "status": "online" if NODES_ONLINE[DOWN_NODE] else "offline"},
+                    *others,
                 ],
             )
         if parts[:2] == ["fake", "listing-lag"] and method == "PUT":

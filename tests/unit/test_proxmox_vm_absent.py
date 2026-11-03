@@ -7,6 +7,11 @@ What this guards: with claude_ssh_host_domain set, the SSH aliases and just code
 connect by <name>.<domain>, so that is a name known_hosts records the key under.
 Deleting the VM forgot only its address, and a VM created again under the same
 name failed its first connection by name with "Host key verification failed".
+
+And what it never forgets: the address is the VM's own report, from its guest
+agent, so a VM that reported the Proxmox host's address (or another host's of
+the inventory) just before its deletion had this machine forget that host's
+key, and accept whatever answered there next.
 """
 
 from __future__ import annotations
@@ -38,7 +43,7 @@ def _forget(tmp_path: Path, **extra) -> set[str]:
 
     task = next(t for t in yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()) if t["name"] == FORGET)
     playbook = tmp_path / "forget.yml"
-    vars_files = [str(ROLE / "vars" / "main.yml")]
+    vars_files = [str(ROLE / "defaults" / "main.yml"), str(ROLE / "vars" / "main.yml")]
     play = {"hosts": "localhost", "gather_facts": False, "vars_files": vars_files, "tasks": [task]}
     playbook.write_text(yaml.safe_dump([play]))
     # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
@@ -78,3 +83,19 @@ def test_a_vm_whose_address_is_unknown_still_loses_its_name(tmp_path, domain):
 def test_the_inventory_wires_the_domain_into_the_role():
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     assert defaults["proxmox_vm_known_hosts_domain"] == "{{ claude_ssh_host_domain }}"
+
+
+def test_the_proxmox_host_s_key_is_never_forgotten(tmp_path):
+    left = _forget(tmp_path, **VM, proxmox_vm_api_host="192.0.2.10", proxmox_vm_known_hosts_domain="lan")
+    assert left == {"192.0.2.10", "beta.lan"}
+
+
+def test_an_address_kept_for_the_inventory_is_never_forgotten(tmp_path):
+    kept = {"proxmox_vm_api_host": "198.51.100.1", "proxmox_vm_known_hosts_kept": ["192.0.2.10"]}
+    assert _forget(tmp_path, **VM, **kept, proxmox_vm_known_hosts_domain="") == {"192.0.2.10", "alpha.lan", "beta.lan"}
+
+
+def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    assert "claude_vm_inventory_hosts" in defaults["proxmox_vm_known_hosts_kept"]
+    assert "ansible_host" in defaults["proxmox_vm_known_hosts_kept"]

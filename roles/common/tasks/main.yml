@@ -166,6 +166,9 @@
 - name: Put the per-user directories on PATH for ssh commands
   ansible.builtin.include_tasks: ssh_path.yml
 
+- name: Write the tmux settings
+  ansible.builtin.include_tasks: tmux.yml
+
 - name: Enable and start services
   ansible.builtin.include_tasks: services.yml
   when: ansible_facts['service_mgr'] == 'systemd'
