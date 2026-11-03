@@ -819,7 +819,7 @@ class Engine:
             self._after()
         self.out.finish()
         recap(stats)
-        lines = self.cb.next_steps_of(stats)
+        lines = self.cb.next_steps_of()
         commands.say_end(self.out, self.display, self.run, now, failed, lines, self._width(), self.cb.COLOR)
         if self.mode == "live":
             self.out.bell()

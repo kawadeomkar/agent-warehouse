@@ -204,7 +204,8 @@ class CallbackModule(DefaultCallback):
         """The records kept so far, {stat: {vm: {matter: line}}}: what a part of a run in parts saves for the next."""
         return dict(self._next)
 
-    def next_steps_of(self, stats):
+    def next_steps_of(self):
+        """NEXT STEPS' lines, from the records kept: never the run's custom stats (_keep_records)."""
         return next_steps(self._next)
 
     # --- what the VM chose to say ----------------------------------------------------------------------------------
@@ -314,6 +315,6 @@ class CallbackModule(DefaultCallback):
             self._live.stats(stats, lambda s: DefaultCallback.v2_playbook_on_stats(self, s))
             return
         super().v2_playbook_on_stats(stats)
-        lines = self.next_steps_of(stats)
+        lines = self.next_steps_of()
         if lines:
             self._display.display(banner(lines, "NEXT STEPS"), color=COLOR)
