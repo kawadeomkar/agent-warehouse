@@ -821,7 +821,7 @@ Claude Code's own Agent SDK documents. The rules:
 - **Selection by origin, decided against the VM.** `git_checkouts_info` reads the origin of every
   checkout in the VM's projects directory, as configured - never rewritten by a `url.<base>.insteadOf`,
   which names where git connects, not the repository - and `claude_sessions_plan`
-  (`filter_plugins/sessions.py`) matches `owner/repo`, without regard to case, against each session's:
+  (`lib/claude_vm/sessions.py`) matches `owner/repo`, without regard to case, against each session's:
   never a folder's name, which renamed clones, subfolders and other owners' repositories of the same
   name get wrong, and never the GitHub listing, which differs from what is cloned (a private repository
   with gh signed out, one created since). On the VM only a GitHub origin names a repository

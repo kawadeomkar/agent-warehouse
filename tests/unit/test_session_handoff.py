@@ -1,4 +1,4 @@
-"""The pieces of just code's session handoff: filter_plugins/sessions.py and the modules in playbooks/library/.
+"""The pieces of just code's session handoff: lib/claude_vm/sessions.py and the modules in playbooks/library/.
 
 Which session goes to which checkout on the VM, what a copy is made of, and
 when an existing copy is left alone. Every transcript, ~/.claude and checkout
@@ -11,7 +11,6 @@ session_write.yml) is run in test_code_session.py.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import io
 import json
 import os
@@ -22,13 +21,11 @@ import time
 from pathlib import Path
 
 import pytest
-from ansible.errors import AnsibleFilterError
 from conftest import load_module, run_main
 
+from claude_vm import sessions as filters
+
 REPO = Path(__file__).resolve().parents[2]
-_SPEC = importlib.util.spec_from_file_location("session_filters", REPO / "filter_plugins" / "sessions.py")
-filters = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(filters)
 info = load_module("playbooks/library/claude_sessions_info.py")
 checkouts = load_module("playbooks/library/git_checkouts_info.py")
 copy = load_module("playbooks/library/claude_sessions_copy.py")
@@ -102,7 +99,7 @@ def test_the_folder_name_is_claude_code_s(path, folder):
 
 
 def test_a_folder_name_claude_code_would_shorten_is_refused():
-    with pytest.raises(AnsibleFilterError, match="too long"):
+    with pytest.raises(ValueError, match="too long"):
         filters.claude_project_folder("/home/dev/projects/" + "x" * 190)
 
 

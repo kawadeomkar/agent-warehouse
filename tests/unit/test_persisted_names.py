@@ -76,7 +76,7 @@ LINES = [
     ("roles/vscode_server/tasks/main.yml", "sysctl_file: /etc/sysctl.d/60-vscode-server.conf"),
     # just code's own directory on a VM, and what is in it: the sessions' mirror and manifest, written by just code and
     # read by destroy's save; the notes; the workspace files.
-    ("filter_plugins/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"'),
+    ("lib/claude_vm/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"'),
     ("playbooks/code.yml", 'code_session_dir: "{{ code_ws_dir }}/claude-sessions"'),
     ("playbooks/tasks/session_write.yml", 'mirror: "{{ code_session_dir }}/mirror"'),
     ("playbooks/tasks/session_write.yml", 'manifest: "{{ code_session_dir }}/manifest.json"'),

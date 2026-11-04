@@ -379,7 +379,8 @@ only records, names it - so nothing a test pins is drawn.
 
 What `just code` carries of this machine's Claude Code sessions to a VM
 ([§4.9](lifecycle.md#49-playbookscodeyml), **The session handoff**), and what `just destroy` brings
-back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)). The filters'
+code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
 files; the filters decide from what they read, and touch no file.
 

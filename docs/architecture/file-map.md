@@ -137,7 +137,8 @@ filter_plugins/status.py          the adapter of just status's model and text: s
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
-filter_plugins/sessions.py        claude_sessions_plan, which session goes to which VM checkout by origin; git_repository
+filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
+                                  which VM checkout by origin; git_repository
                                   and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,
                                   just code's own directory on a VM; claude_sessions_saved, what of a VM's sessions destroy saves;
