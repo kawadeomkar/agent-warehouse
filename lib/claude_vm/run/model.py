@@ -30,6 +30,7 @@ import sys
 import time
 from collections import Counter, OrderedDict
 
+from ..refs import VmRef
 from ..text import one_line as _one_line
 from . import recipes
 
@@ -742,6 +743,15 @@ class Run:
             entry["address"] = one_line(value)
         elif name == "proxmox_vm_exists":
             entry.setdefault("new", not value)
+
+    def vm_ref(self, host):
+        """A VM of the run as the core names one, by its name and VM ID, once its ID is known: None before, and for a
+        name or an ID no VM of the project's can have."""
+        vmid = self.facts.get(host, {}).get("vmid")
+        try:
+            return VmRef(name=host, vmid=vmid) if vmid is not None else None
+        except ValueError:
+            return None
 
     def raised(self, stage, step, host=None):
         """A failure a rescue took in stage's step, raised again later or declared so: the step's, not the raising

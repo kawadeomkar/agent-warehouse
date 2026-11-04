@@ -100,7 +100,8 @@ class Run(model.Run):
         vms = [(host, facts) for host, facts in self.facts.items() if facts.get("vmid") or facts.get("address")]
         if len(vms) == 1:
             host, facts = vms[0]
-            parts = [f"VM {facts['vmid']}" if facts.get("vmid") else "", facts.get("address", "")]
+            ref = self.vm_ref(host)
+            parts = [f"VM {ref.vmid}" if ref else "", facts.get("address", "")]
             return " · ".join(part for part in parts if part)
         if vms:
             return f"{len(vms)} VMs"
@@ -656,8 +657,9 @@ class Run(model.Run):
             texts = notes[host]
             facts = self.facts.get(host, {})
             lines.append([])
+            ref = self.vm_ref(host)
             said_facts = " · ".join(
-                part for part in (facts.get("address", ""), f"VM {facts['vmid']}" if facts.get("vmid") else "") if part
+                part for part in (facts.get("address", ""), f"VM {ref.vmid}" if ref else "") if part
             )
             heading = "THIS MACHINE" if host == "localhost" else host.upper()
             new = " · new" if facts.get("new") else ""

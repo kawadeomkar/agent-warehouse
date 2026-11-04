@@ -39,9 +39,9 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2893 tests. By file:
+pytest over `tests/unit/`: 2896 tests. By file:
 
-- **The package** (`test_claude_vm.py` 63): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py` 64): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
@@ -129,7 +129,7 @@ pytest over `tests/unit/`: 2893 tests. By file:
   reading status's and deploy's streams the same cut anywhere. Every test that runs something at a terminal opens
   it through `harness._at_a_pseudo_terminal`, and every live test through `tests/unit/live_kit.py`, which gives
   each run a `HOME` of its own.
-- **The live output** (`test_run_view.py` 110, `test_deploy_live.py` 19, `test_login_live.py` 3,
+- **The live output** (`test_run_view.py` 111, `test_deploy_live.py` 20, `test_login_live.py` 3,
   `test_destroy_live.py` 4, `test_code_live.py` 4, `test_lint_live.py` 5, `test_init_live.py` 2,
   `test_test_live.py` 11, `test_live_recipes.py` 39, `test_live_commands.py` 29): the model, fed
   events with the time given - a running, a waiting, a failed, a dry and a fleet run's frame, a wait known

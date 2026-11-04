@@ -34,6 +34,7 @@ from ansible import context
 from ansible.utils import display as ansible_display
 
 from .. import text
+from ..refs import NAME
 from ..run import model as view
 from ..tui import live_region as live
 from ..tui import run as drawn
@@ -58,7 +59,6 @@ VM_FACTS = ("proxmox_vm_resolved_id", "proxmox_vm_address", "proxmox_vm_exists")
 QUIET_SECONDS = 10.0
 # A task name's file prefix, as an included file's tasks are named: "session_read | Read the sessions".
 FILE_PREFIX = re.compile(r"^[a-z0-9_]+ \| ")
-NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def from_environment(callback, playbook):
@@ -90,7 +90,7 @@ def vm_names(extra_vars):
     out = []
     for name in names.split(","):
         name = plain_text(name).strip()
-        if NAME.match(name) and name not in out:
+        if NAME.fullmatch(name) and name not in out:
             out.append(name)
     return out
 
@@ -528,7 +528,7 @@ class Engine:
         names = []
         for item in value if isinstance(value, list) else []:
             name = plain_text(str(item.get("name", "") if isinstance(item, dict) else item)).strip()
-            if NAME.match(name) and name not in names:
+            if NAME.fullmatch(name) and name not in names:
                 names.append(name)
         return names
 
@@ -551,7 +551,7 @@ class Engine:
                 found.append((entry.get("name"), entry.get("address"), entry.get("vmid")))
         for name, address, vmid in found:
             name = plain_text(str(name or "")).strip()
-            if not NAME.match(name):
+            if not NAME.fullmatch(name):
                 continue
             try:
                 address = str(ipaddress.IPv4Address(str(address or "").strip()))

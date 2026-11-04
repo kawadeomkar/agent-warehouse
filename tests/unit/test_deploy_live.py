@@ -721,6 +721,13 @@ def test_the_vms_a_run_was_given_are_read_from_its_extra_vars():
     assert engine.vm_names([]) == []
 
 
+def test_a_name_the_run_s_facts_hold_is_a_vm_s_only_whole():
+    # refs.NAME, matched in full: a name with a space, a ; or a line break is no VM's, and a line break would break
+    # the region's count of the lines it drew.
+    names = ["alpha", "alpha beta", "al;pha", "alpha\nx", {"name": "beta"}, {"name": "beta\n"}]
+    assert kit_engine().Engine._names(names) == ["alpha", "beta"]
+
+
 def kit_engine():
     from claude_vm.ansible import engine
 

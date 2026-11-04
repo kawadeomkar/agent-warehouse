@@ -112,7 +112,7 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
     "lib/claude_vm/refs.py": 3,
-    "lib/claude_vm/run/model.py": 2,
+    "lib/claude_vm/run/model.py": 4,
     "lib/claude_vm/status/model.py": 18,
     "lib/claude_vm/tui/run.py": 3,
     "lib/claude_vm/tui/status.py": 3,

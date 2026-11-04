@@ -1074,3 +1074,14 @@ def test_what_is_said_above_the_region_is_kept_in_the_model_and_drawn_from_it():
     run.diff("--- before\n+++ after\n")
     run.warning("a warning")
     assert run.rescued == {"alpha": [rescued]} and run.diffs and run.warnings == ["a warning"]
+
+
+def test_a_vm_of_the_run_is_a_vm_ref_once_its_id_is_known():
+    from claude_vm.refs import VmRef
+
+    run = view.Run("deploy alpha", 0.0)
+    assert run.vm_ref("alpha") is None
+    run.fact("alpha", "proxmox_vm_resolved_id", "4013")
+    run.fact("localhost", "proxmox_vm_resolved_id", "99")
+    assert run.vm_ref("alpha") == VmRef(name="alpha", vmid=4013)
+    assert run.vm_ref("localhost") is None  # no VM of the project's has an ID below 100

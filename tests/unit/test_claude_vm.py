@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -152,6 +153,17 @@ def test_to_wire_puts_format_version_and_kind_first_and_derived_values_after_the
         "action": {"recipe": "code", "args": ["alpha"], "line": "just code alpha"},
     }
     assert wire.to_wire(NextStep(vm=step.vm, matter="vm", action=None))["action"] is None
+
+
+def test_a_vm_name_is_matched_whole_wherever_the_core_checks_one() -> None:
+    # refs.NAME has no anchors of its own: re.match would take any name that only starts like one.
+    lib = REPO / "lib" / "claude_vm"
+    partial = [
+        str(path.relative_to(lib))
+        for path in lib.rglob("*.py")
+        if re.search(r"\bNAME\.(match|search)\(", path.read_text())
+    ]
+    assert partial == []
 
 
 def test_to_wire_refuses_what_is_no_record() -> None:

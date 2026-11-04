@@ -17,6 +17,7 @@ import re
 import time
 from datetime import UTC, datetime
 
+from ..refs import NAME
 from ..text import one_line
 from ..tui.screen import plural
 
@@ -29,8 +30,6 @@ SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
 FIELD_LIMIT = 120
 LINE_LIMIT = 400
 LINE_KEYS = frozenset({"line"})
-# A VM name the recipe takes, as tools/check names checks it: a name is how a role's commands name a VM.
-NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out.
@@ -225,7 +224,7 @@ def status_fleet(
             reason = "nameless"
         elif counts.get(name, 0) > 1:
             reason = "duplicate"
-        elif not NAME_RE.match(name) or name in (hosts or ["localhost"]):
+        elif not NAME.fullmatch(name) or name in (hosts or ["localhost"]):
             reason = "name"
         config = found.get("config", {})
         vms.append(
