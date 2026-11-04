@@ -773,8 +773,8 @@ Claude Code's own Agent SDK documents. The rules:
   for each first directory and the checkout of a `.claude/worktrees/<name>` one, taking each path and
   branch as written (`expand_user_and_vars=False`, no `path`-typed option, which expand `~` and `$VAR`),
   its status with `--untracked-files=normal --ignore-submodules=none` whatever the checkout's config
-  hides, and each origin without what precedes the host, where a token can sit. Nothing here is written, so the controller still writes only the
-  SSH files of §4.8.
+  hides, and each origin without what precedes the host, where a token can sit. Nothing here is written, so the
+  handoff adds nothing to what the controller writes ([On the controller](security-model.md#on-the-controller)).
 - **Selection by origin, decided against the VM.** `git_checkouts_info` reads the origin of every
   checkout in the VM's projects directory, as configured - never rewritten by a `url.<base>.insteadOf`,
   which names where git connects, not the repository - and `claude_sessions_plan`

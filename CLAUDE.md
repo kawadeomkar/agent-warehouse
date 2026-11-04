@@ -293,7 +293,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   that runs the role installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the
   Vagrantfile is keyless with logs off, and a guard holds each - and the role's scenario to `scenario_roles` and
   CI's matrix. The template is never signed in to anything.
-- **The project writes exactly three things outside the repo on the controller:** `~/.ssh/known_hosts`,
+- **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
+  write a fourth:** `~/.ssh/known_hosts`,
   the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include` line at the top of
   `~/.ssh/config` that is added once and never removed), and the checkout's own folder. Nothing else in
   `~/.ssh` is ever edited. (The Claude Code sessions `just destroy` saves go into the checkout's
@@ -301,7 +302,11 @@ token; `github_auth_method: token` still fails. The status JSON carries
   folder is `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
   (`tools/env-run --data`): `just install` puts the Galaxy collections there, and the Python environment
   when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
-  `just clean env` deletes that folder and nothing beside it.
+  `just clean env` deletes that folder and nothing beside it. The fourth: when `code --list-extensions`
+  lacks the Remote - SSH extension, `just code`, and `just deploy`'s window step, run
+  `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/code.yml`), and VS Code's CLI writes
+  that extension, from VS Code's marketplace, into VS Code's extensions folder (`~/.vscode/extensions/`),
+  with what VS Code records of an install in its own data folder: no other extension, and no VS Code setting.
   Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
   `ssh -G`, refuses an alias the user's own config already names, refuses a name or address that
   is not one plain word, and refuses a name ssh would take for another host (`ssh_alias_refusal`: a name
@@ -401,7 +406,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   made the VM's links here as links, nor a `file` with `recurse`, whose `follow` chmodded their targets.
   Into `destroy_sessions_dir` (absolute or `~`, refused otherwise before any VM starts;
   `.sessions/<vm>-<time>/` in the checkout: git-ignored, refused by `tests/check_no_local_files.sh`, inside
-  the repo, so the controller still writes only the two SSH files outside it), edited in nothing,
+  the repo, so it adds nothing to what the controller writes outside it), edited in nothing,
   0700/0600, with `sessions.json` naming the `claude --resume <path>` that continues each, its version and
   that its content is the VM's. The save runs as the VM user, never through sudo, Remote Control paused
   for it (`claude_code`'s `release_pause`, `release_resume` on a VM kept), and a VM that stops answering

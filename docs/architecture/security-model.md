@@ -156,7 +156,7 @@ name, so one `just test` is one file.
 
 ## On the controller
 
-The project writes exactly three things outside the repository:
+The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
 checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum>`
@@ -165,7 +165,11 @@ virtualenv, the Python environment ([§13](toolchain.md)), and which `just clean
 only where you point `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves
 ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)), which otherwise go into the
 checkout's git-ignored `.sessions/`. Those are the VM's writing and are unpacked as plain files and
-folders only, never a link the VM made. Every
+folders only, never a link the VM made. The fourth is VS Code's own: when VS Code lacks the Remote - SSH
+extension, `just code` (and `just deploy`'s window step) runs
+`code --install-extension ms-vscode-remote.remote-ssh`, and VS Code's CLI writes that extension, Microsoft's,
+from VS Code's own marketplace into VS Code's extensions folder (`~/.vscode/extensions/`); nothing else of
+VS Code's is changed. Every
 alias write is validated by the real ssh client before it lands, an
 alias the user's own config already names is refused, and the Molecule scenarios point the managed
 file into the ephemeral directory with the `Include` off, guarded by a unit test, because the

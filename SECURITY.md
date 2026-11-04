@@ -77,6 +77,10 @@ what it stores:
   `github.com`, gets one only when the user names it, never from a fleet-wide refresh. A VM named after a host of the inventory is kept
   out wherever a name becomes a host (`localhost`, or the Proxmox host's, which would hand the VM the
   API token).
+  One more write is VS Code's own, at the project's request: when VS Code lacks the Remote - SSH
+  extension (`ms-vscode-remote.remote-ssh`), which `just code` needs to open a VM, `just code` and
+  `just deploy`'s window step run `code --install-extension` for it, and VS Code's CLI installs it from
+  VS Code's marketplace into VS Code's extensions folder; no other extension, and no VS Code setting.
   Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there
   as on screen, but the files name hosts and addresses, so the directory is git-ignored, blocked by
   `tests/check_no_local_files.sh`, created `0700`, and pruned after `LOG_RETENTION_DAYS`. A secret
