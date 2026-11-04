@@ -13,7 +13,8 @@
 # approved after that joins by itself; this says so. just deploy imports this
 # playbook for the VMs it configured, after GitHub's sign-in, and asks VM by
 # VM first: Enter signs in a VM whose Claude code was entered, "y" one that
-# showed no Claude prompt, and one whose Claude prompt got Enter is left.
+# showed no Claude prompt, and one whose Claude prompt got Enter is left. A run
+# with no terminal asks nothing, and signs in no VM it would have asked about.
 - name: Discover VMs on Proxmox
   ansible.builtin.import_playbook: discover.yml
   when: claude_vm_discovery | default(true) | bool
@@ -78,6 +79,14 @@
          and claude_code_login_skipped | default(false) | bool
          and not (claude_vm_login_interactive | default(claude_vm_login_named) | bool)
          and not (claude_vm_login_ask | default(false) | bool) }}
+    # A VM that would be asked first (claude_vm_login_ask), in a run with no
+    # terminal to ask at: the justfile then passes claude_vm_login_terminal:
+    # false (no_tty_args), and pause would come back at once with nothing, which
+    # is Enter - a web login started for nobody. Such a VM is neither asked nor
+    # signed in, and told so below. Unset, as in a run of ansible-playbook by
+    # hand, a person is taken to be there to answer.
+    claude_vm_login_unasked: >-
+      {{ claude_vm_login_ask | default(false) | bool and not (claude_vm_login_terminal | default(true) | bool) }}
   serial: "{{ 1 if (claude_vm_login_in_deploy | default(false) | bool or claude_vm_login_named | bool) else '100%' }}"
 
   tasks:
@@ -92,9 +101,13 @@
             tasks_from: login
           vars:
             # Names given (any number), or just deploy for a VM whose Claude
-            # code was entered: sign in. just deploy asks first.
-            tailscale_login_interactive: "{{ claude_vm_login_interactive | default(claude_vm_login_named) }}"
-            tailscale_login_ask: "{{ claude_vm_login_ask | default(false) }}"
+            # code was entered: sign in. just deploy asks first - but never
+            # where nobody can answer (claude_vm_login_unasked), and then
+            # starts nothing.
+            tailscale_login_interactive: >-
+              {{ claude_vm_login_interactive | default(claude_vm_login_named) | bool
+                 and not (claude_vm_login_unasked | bool) }}
+            tailscale_login_ask: "{{ claude_vm_login_ask | default(false) | bool and not (claude_vm_login_unasked | bool) }}"
           # On the task, not the block: a block's condition is its rescue's
           # too, read again for each task, and the rescue sets this fact.
           when: claude_vm_tailscale_login_failure is not defined
@@ -107,12 +120,13 @@
         - name: Say why Tailscale's sign-in was not started
           ansible.builtin.debug:
             msg: >-
-              {{ inventory_hostname }}: Tailscale's sign-in was not started, since its Claude sign-in was skipped:
+              {{ inventory_hostname }}: Tailscale's sign-in was not started, since
+              {{ 'this run has no terminal to ask at' if claude_vm_login_unasked | bool else 'its Claude sign-in was skipped' }}:
               just login {{ inventory_hostname }} --only tailscale starts it.
           register: claude_vm_tailscale_held_reported
           when:
             - claude_vm_tailscale_login_failure is not defined
-            - claude_vm_login_held | bool
+            - claude_vm_login_held | bool or claude_vm_login_unasked | bool
             - tailscale_login_due | default(false) | bool
 
         # NEXT STEPS: the line above, in place of the role's own report of the
@@ -129,7 +143,7 @@
             per_host: false
           when:
             - claude_vm_tailscale_login_failure is not defined
-            - claude_vm_login_held | bool
+            - claude_vm_login_held | bool or claude_vm_login_unasked | bool
             - tailscale_login_due | default(false) | bool
             - tailscale_login_signed_out | default(false) | bool
       rescue:

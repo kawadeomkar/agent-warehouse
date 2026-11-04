@@ -43,7 +43,7 @@ Reads gh's login state on the VM and prints it, with the one command to run when
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `github_projects_login_interactive` | bool | `false` | Run the device flow for a signed-out VM. Set by playbooks/github_login.yml when names were given, and by just deploy for a VM whose Claude code was entered in the same run. |
-| `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer is nothing. |
+| `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer would be nothing, which is Enter, so playbooks/github_login.yml never sets it in a run without one. |
 | `github_projects_login_role_follows` | bool | `false` | The whole role runs for this VM next, in the same run, so a vault token gh is not yet signed in with is said to be signed in by it rather than by a command to run. |
 
 ## Entry point `status`

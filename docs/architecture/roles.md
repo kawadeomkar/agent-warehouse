@@ -665,8 +665,14 @@ flow asks for `github_projects_login_scopes` on top of gh's own and tells gh the
 
 ### Under `just deploy`, one VM at a time
 
-`just deploy` asks first: Enter goes for a VM whose Claude code was entered and `n` skips it; any other
-VM goes on `y` only, and with no terminal a question returns nothing at once. One VM at a time:
+With `github_login_auto_start: false`, `just deploy` (and `just login` with names) asks first: Enter goes
+for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. With no terminal
+a question would return nothing at once, which is Enter, and start a fifteen-minute flow nobody watches,
+so the justfile passes `claude_vm_login_terminal: false` then (`no_tty_args`), and `github_login.yml` asks
+no VM: one it would have asked (`claude_vm_login_unasked`) gets neither switch, so no flow, and is told
+so where the flow would have run (`github_projects_login_due`), with `just login <vm> --only github`, the
+line NEXT STEPS keeps in place of the report's. A `/dev/tty` probe could not tell (§5.5), so the run is
+told. One VM at a time:
 `github_login.yml` runs its sign-in play `serial: 1` where it can prompt (names given, or `just
 deploy`), and the fleet at once for a report, and `device_flow.yml` refuses a batch of
 more than one, since the browser step would otherwise run for each before any waiting began. The
@@ -787,7 +793,9 @@ plan's research record.
   user's own device.
 - **The web login** (`tasks/login.yml`, `web_login.yml`), where `tailscale_login_possible` holds, as the
   fact `tailscale_login_due` that the question and the login go on, and that `tailscale_login.yml` reads
-  after the role to say, for a VM whose Claude sign-in nobody answered, why it was not started - in NEXT STEPS
+  after the role to say, for a VM whose Claude sign-in nobody answered, or one a run with no terminal would
+  have asked about with `tailscale_login_auto_start: false` (`claude_vm_login_unasked`: never asked, since
+  `pause` would answer at once with nothing, which is Enter; as for GitHub, §5.6), why it was not started - in NEXT STEPS
   in place of the report's line only where the VM is merely signed out (`tailscale_login_signed_out`, the
   report's `NeedsLogin` case), never over a page still waiting, an expired login or a refused key. One `up --timeout=5s` per attempt - each keyless
   `up` mints a new page - then the page is read from `AuthURL` once and opened here, only when it is

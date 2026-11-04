@@ -15,7 +15,8 @@
 # playbook for the VMs it configured and asks VM by VM first: a VM whose Claude
 # code was entered signs in on Enter, one that showed no Claude prompt on a "y",
 # and one whose Claude prompt got Enter is left - this flow waits up to fifteen
-# minutes for a browser.
+# minutes for a browser. A run with no terminal asks nothing, and signs in no VM
+# it would have asked about.
 - name: Discover VMs on Proxmox
   ansible.builtin.import_playbook: discover.yml
   when: claude_vm_discovery | default(true) | bool
@@ -99,6 +100,14 @@
          and claude_code_login_skipped | default(false) | bool
          and not (claude_vm_login_interactive | default(claude_vm_login_named) | bool)
          and not (claude_vm_login_ask | default(false) | bool) }}
+    # A VM that would be asked first (claude_vm_login_ask), in a run with no
+    # terminal to ask at: the justfile then passes claude_vm_login_terminal:
+    # false (no_tty_args), and pause would come back at once with nothing, which
+    # is Enter - a fifteen-minute device flow started for nobody. Such a VM is
+    # neither asked nor signed in, and told so below. Unset, as in a run of
+    # ansible-playbook by hand, a person is taken to be there to answer.
+    claude_vm_login_unasked: >-
+      {{ claude_vm_login_ask | default(false) | bool and not (claude_vm_login_terminal | default(true) | bool) }}
   serial: "{{ 1 if (claude_vm_login_in_deploy | default(false) | bool or claude_vm_login_named | bool) else '100%' }}"
 
   tasks:
@@ -113,9 +122,13 @@
             tasks_from: login
           vars:
             # Names given (any number), or just deploy for a VM whose Claude
-            # code was entered: sign in. just deploy asks first.
-            github_projects_login_interactive: "{{ claude_vm_login_interactive | default(claude_vm_login_named) }}"
-            github_projects_login_ask: "{{ claude_vm_login_ask | default(false) }}"
+            # code was entered: sign in. just deploy asks first - but never
+            # where nobody can answer (claude_vm_login_unasked), and then
+            # starts nothing.
+            github_projects_login_interactive: >-
+              {{ claude_vm_login_interactive | default(claude_vm_login_named) | bool
+                 and not (claude_vm_login_unasked | bool) }}
+            github_projects_login_ask: "{{ claude_vm_login_ask | default(false) | bool and not (claude_vm_login_unasked | bool) }}"
             github_projects_login_role_follows: "{{ claude_vm_login_role_follows }}"
           # On the task, not the block: a block's condition is its rescue's
           # too, read again for each task, and the rescue sets this fact, so
@@ -130,12 +143,13 @@
         - name: Say why GitHub's sign-in was not started
           ansible.builtin.debug:
             msg: >-
-              {{ inventory_hostname }}: GitHub's sign-in was not started, since its Claude sign-in was skipped:
+              {{ inventory_hostname }}: GitHub's sign-in was not started, since
+              {{ 'this run has no terminal to ask at' if claude_vm_login_unasked | bool else 'its Claude sign-in was skipped' }}:
               just login {{ inventory_hostname }} --only github starts it.
           register: claude_vm_github_held_reported
           when:
             - claude_vm_github_login_failure is not defined
-            - claude_vm_login_held | bool
+            - claude_vm_login_held | bool or claude_vm_login_unasked | bool
             - github_projects_login_due | default(false) | bool
 
         # NEXT STEPS: the line above, in place of the role's own report of the
@@ -148,7 +162,7 @@
             per_host: false
           when:
             - claude_vm_github_login_failure is not defined
-            - claude_vm_login_held | bool
+            - claude_vm_login_held | bool or claude_vm_login_unasked | bool
             - github_projects_login_due | default(false) | bool
       rescue:
         - name: Stop the run when the person aborted at the prompt

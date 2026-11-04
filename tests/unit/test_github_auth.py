@@ -1643,7 +1643,10 @@ def test_the_harness_keeps_the_device_flow_off_the_developer_s_desktop(tmp_path)
 # With github_login_auto_start, the default, the device flow starts by itself
 # for every VM but one whose Claude sign-in was skipped. Off, every VM but that
 # one is asked first: Enter signs in one whose Claude sign-in was answered, and
-# "y" one that showed no Claude prompt (signed in already, or an API key).
+# "y" one that showed no Claude prompt (signed in already, or an API key). With
+# no terminal to ask at (claude_vm_login_terminal: false, as the justfile passes
+# it then) none is asked, and none of those signed in: pause would answer at
+# once with nothing, which is Enter.
 AFTER_CLAUDE = {
     "typed": {"claude_code_login_answered": True, "claude_code_login_skipped": False},
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
@@ -1675,7 +1678,7 @@ def _deploy_github_step(root: Path) -> Path:
 
 
 def _deploy_github(root: Path, fake_github, **extra) -> tuple[Path, dict]:
-    """just deploy's GitHub step for three signed-out VMs, with no terminal to ask at."""
+    """just deploy's GitHub step for three signed-out VMs, stdin /dev/null: every question answered with Enter."""
     hosts = _hosts(root, {name: {"token": ""} for name in AFTER_CLAUDE}, fake_github, home_given=False)
     for name, facts in AFTER_CLAUDE.items():
         hosts[name].update(facts, github_projects_user=ME)
@@ -1701,6 +1704,17 @@ def deployed_asking(tmp_path_factory, fake_github):
     return _deploy_github(tmp_path_factory.mktemp("deploy_github_ask"), fake_github, github_login_auto_start=False)
 
 
+@pytest.fixture(scope="module")
+def deployed_asking_no_terminal(tmp_path_factory, fake_github):
+    """The same, in a run the justfile found no terminal for: what no_tty_args passes."""
+    return _deploy_github(
+        tmp_path_factory.mktemp("deploy_github_ask_no_terminal"),
+        fake_github,
+        github_login_auto_start=False,
+        claude_vm_login_terminal=False,
+    )
+
+
 def test_deploy_starts_gh_s_sign_in_by_itself_for_every_vm_but_one_whose_claude_sign_in_was_skipped(deployed):
     root, report = deployed
     # A failure after the sign-in (the role's directory task, without a group
@@ -1721,8 +1735,10 @@ def test_github_login_auto_start_defaults_to_on():
 
 
 def test_asking_first_signs_gh_in_only_where_a_claude_code_was_entered(deployed_asking):
-    # With no terminal the question comes back with nothing: Enter, for the
-    # VM someone entered a Claude code for; no "y", for the other.
+    # stdin is /dev/null, so each question comes back with nothing, as Enter
+    # does at a terminal - in a run the justfile saw one for, which passes no
+    # claude_vm_login_terminal: Enter, for the VM someone entered a Claude code
+    # for; no "y", for the other.
     root, report = deployed_asking
     assert report["rc"] == 0, _failures(report)
     started = {name for name in AFTER_CLAUDE if DEVICE_LOGIN in _calls(root, name)}
@@ -1752,6 +1768,56 @@ def test_deploy_says_once_why_gh_s_sign_in_was_not_started_where_the_claude_sign
     # One NEXT STEPS line for it, this one, in place of the role's own report
     # of the same sign-out.
     assert _left_to_do(report)["skipped"]["github"] == line
+
+
+NO_TERMINAL = (
+    "{0}: GitHub's sign-in was not started, since this run has no terminal to ask at:"
+    " just login {0} --only github starts it."
+)
+
+
+def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_have_asked_about(
+    deployed_asking_no_terminal,
+):
+    # A scripted run with a Claude code given: pause would come back with
+    # nothing at once, which is Enter for typed, and start a fifteen-minute
+    # device flow nobody watches.
+    root, report = deployed_asking_no_terminal
+    assert report["rc"] == 0, _failures(report)
+    assert _asked(report) == set()
+    assert {name for name in AFTER_CLAUDE if DEVICE_LOGIN in _calls(root, name)} == set()
+    # Each said, once, with what starts it, and NEXT STEPS keeps that line in
+    # place of the role's own report of the sign-out; skipped for its own reason.
+    said = {
+        host: result["msg"]
+        for name, host, result in _results(report)
+        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+    }
+    assert said == {
+        "typed": NO_TERMINAL.format("typed"),
+        "quiet": NO_TERMINAL.format("quiet"),
+        "skipped": "skipped: GitHub's sign-in was not started, since its Claude sign-in was skipped:"
+        " just login skipped --only github starts it.",
+    }, said
+    left = _left_to_do(report)
+    assert {host: left[host]["github"] for host in AFTER_CLAUDE} == said
+
+
+def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_terminal(tmp_path, fake_github):
+    hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
+    hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
+    rc, output, _ = _run_at_a_terminal(
+        tmp_path,
+        _deploy_github_step(tmp_path),
+        hosts,
+        {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
+        "",
+        prompt=b"type n and Enter to skip it",
+    )
+    assert rc == 0, output
+    assert "Enter signs it in now" in output
+    assert DEVICE_LOGIN in _calls(tmp_path, "typed"), output
+    assert "no terminal to ask at" not in output, output
 
 
 def test_asking_first_signs_a_vm_that_showed_no_claude_prompt_in_on_a_typed_y(tmp_path, fake_github):

@@ -21,8 +21,9 @@
 # waits up to fifteen minutes for a browser, so it can always be left for
 # later. Where a Claude code was entered someone is here, and Enter goes; a
 # VM that showed no Claude prompt (signed in already, or an API key) goes on
-# a "y". With no terminal pause returns at once with nothing
-# (vars/main.yml, github_projects_login_go).
+# a "y". Never asked in a run with no terminal, where pause would return at
+# once with nothing, which is Enter: playbooks/github_login.yml leaves the VM
+# then (claude_vm_login_unasked; vars/main.yml, github_projects_login_go).
 - name: login | Ask whether to sign gh in to GitHub now for {{ inventory_hostname }}
   vars:
     github_projects_login_question: >-

@@ -250,7 +250,12 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `n` leaves it, while one that showed no Claude sign-in (signed in already, an API key) signs in on `y`
   only - never one fact for the whole run, which made one answer start every VM's flow. A run with no
   terminal gets `deploy_sign_in: false` from the justfile (`no_tty_args`), since sign-ins that start by
-  themselves would otherwise wait for a browser nobody watches. The path unit that starts Remote
+  themselves would otherwise wait for a browser nobody watches, and `claude_vm_login_terminal: false`, since
+  `pause` there answers a `*_login_ask` question at once with nothing, which is Enter: `github_login.yml` and
+  `tailscale_login.yml` then ask no VM, start nothing for one they would have asked
+  (`claude_vm_login_unasked`), and say so with its `just login <vm> --only github|tailscale` line, kept for
+  NEXT STEPS - the run's one fact, which only ever holds a flow back; unset, a person is taken to be there,
+  as for `ansible-playbook` by hand and the harnesses, whose `/dev/null` is Enter. The path unit that starts Remote
   Control when a login lands is `PathChanged=`, never `PathExists=`, which restarts a stopped service
   instantly, and exists only while the login is the one thing missing (docs/architecture/roles.md §5.5).
 - **Tests never touch a real Proxmox, GitHub, Tailscale or hypervisor.** `tests/molecule/` holds the

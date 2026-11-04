@@ -159,14 +159,17 @@ github_projects_login_expired: >-
      or (github_projects_login_finished.finished | default(1) | int) != 1 }}
 
 # Internal: what was typed at login.yml's question, if it was asked. Enter
-# alone, or no terminal to ask at, is nothing.
+# alone is nothing - and so would be a question asked with no terminal, which
+# pause answers at once.
 github_projects_login_answer: >-
   {{ (github_projects_login_asked | default({})).user_input | default('', true) | trim | lower }}
 # Internal: whether login.yml runs the device flow. Asked about a VM someone
 # is here for (github_projects_login_interactive: just deploy, for a VM whose
 # Claude code was entered), Enter or "y" goes and anything else - "n" - stays;
-# asked about any other, only "y" goes, so that a run with no terminal skips
-# it. Not asked, the switch alone decides.
+# asked about any other, only "y" goes. Since nothing is Enter, the question is
+# put only where someone can answer it: playbooks/github_login.yml sets
+# neither switch for such a VM in a run with no terminal
+# (claude_vm_login_unasked). Not asked, the switch alone decides.
 github_projects_login_go: >-
   {{ github_projects_login_answer in (['', 'y', 'yes'] if github_projects_login_interactive | bool else ['y', 'yes'])
      if github_projects_login_ask | bool

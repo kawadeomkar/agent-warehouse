@@ -60,7 +60,8 @@ github_projects_login_desktop: true
 github_projects_login_interactive: false
 # Ask at a prompt first: just deploy, for every VM but one whose Claude prompt
 # got Enter. Enter goes for an interactive VM and "n" skips it; any other goes
-# on "y" only. With no terminal the answer is nothing.
+# on "y" only. With no terminal the answer would be nothing, which is Enter, so
+# playbooks/github_login.yml never sets it in a run without one.
 github_projects_login_ask: false
 # Read by the login entry point: true when the whole role runs for this VM
 # next, in the same run, so a vault token not yet signed in is said to be

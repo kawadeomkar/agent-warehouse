@@ -106,7 +106,8 @@ Code:
 ```
 
 - **`USER INPUT REQUIRED`**: a prompt to type at - the code Claude's sign-in page shows, or, with
-  `github_login_auto_start` or `tailscale_login_auto_start` off, whether to sign a VM in now. `just init`
+  `github_login_auto_start` or `tailscale_login_auto_start` off, whether to sign a VM in now (a run with no
+  terminal never asks that: the VM is left, and the run names the `just login` line that signs it in). `just init`
   asks this way too, for each value a first deploy needs that is still the example's (`just init` in the
   block's title); there, Enter leaves the value for the next `just init`.
 - **`ACTION REQUIRED IN YOUR BROWSER`**: a page to approve - Claude's, GitHub's device code, Tailscale's.

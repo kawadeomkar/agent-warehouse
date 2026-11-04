@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2655 tests. By file:
+pytest over `tests/unit/`: 2661 tests. By file:
 
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
@@ -221,16 +221,17 @@ pytest over `tests/unit/`: 2655 tests. By file:
   stand-in's callback: no prompt, a forward refused or a port held here on one address only, a page that
   is not Claude's, a run over SSH or no browser here falling back
   to the paste, and a browser that never comes back skipping the VM's later sign-ins.
-- **The GitHub sign-in** (`test_github_auth.py` 132): the `github_projects` role's `auth.yml`,
+- **The GitHub sign-in** (`test_github_auth.py` 134): the `github_projects` role's `auth.yml`,
   `clone.yml`, `device_flow.yml` and `github_login.yml` for real against the stand-in `gh` and the fake
   GitHub API on a loopback port, one host per sign-in state, twice over for idempotence, with `git
   credential fill` proving that git itself gets the token through the config written, deploy's GitHub
-  step per VM - starting by itself, and asking first with `github_login_auto_start: false` - every task
-  that renders a token held to `no_log`, and the whole output searched for every canned token; and two
-  device flows with the desktop steps on, against recorders of the test's own first on PATH, opening
-  GitHub's own page whether gh named it or another, which is said and never shown, nor quoted where a
-  failure quotes gh's own lines - gh's status page among them.
-- **The sign-in playbooks** (`test_sign_in_plays.py` 36): `claude_login.yml`, `github_login.yml` and
+  step per VM - starting by itself, and asking first with `github_login_auto_start: false`: Enter and `n`
+  at a pseudo-terminal, and with no terminal (`claude_vm_login_terminal: false`) no question and no flow,
+  each VM told why - every task that renders a token held to `no_log`, and the whole output searched for
+  every canned token; and two device flows with the desktop steps on, against recorders of the test's own
+  first on PATH, opening GitHub's own page whether gh named it or another, which is said and never shown,
+  nor quoted where a failure quotes gh's own lines - gh's status page among them.
+- **The sign-in playbooks** (`test_sign_in_plays.py` 37): `claude_login.yml`, `github_login.yml` and
   `deploy.yml`'s own sign-in steps end to end - a VM whose ssh refuses the connection among VMs that
   sign in (for `claude_login.yml` alone, in `test_claude_login.py`'s run), a failed sign-in said in its
   turn, a failure after a sign-in (Remote Control's start, a clone) told apart from a failed one and
@@ -239,10 +240,11 @@ pytest over `tests/unit/`: 2655 tests. By file:
   refused code and `deploy_sign_in: false`, and one VM per batch only where a sign-in prompts; and
   `login.yml` - `just login` - running the three in deploy's order and by its rules, held to deploy.yml's
   own decisions: no device flow for a VM whose Claude sign-in nobody answered, said once for it and in
-  no report, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
+  no report, nor, with no terminal, for one a code signed in that `github_login_auto_start: false` would
+  have asked about, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
   and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
-- **Tailscale** (`test_tailscale.py` 91): the role's files from `ownership.yml` on, and
+- **Tailscale** (`test_tailscale.py` 94): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and
   `getent`: a first join once, with the key on stdin and in no report, argument or file; no key for a node
   whose key expired, and a node logged out by hand joined again - unless Proxmox records the VM as having
@@ -263,7 +265,8 @@ pytest over `tests/unit/`: 2655 tests. By file:
   login made by hand left to whoever made it, never signed in again by the web; a page still waiting reported
   before an expired or refused key, just deploy's two plays included; a Tailscale dpkg does not know only
   read; `tailscale_auth_method` `key` and `web`; deploy's step VM by VM, starting by itself and asking
-  first with `tailscale_login_auto_start: false`, and NEXT STEPS keeping the role's line for a refused key or a
+  first with `tailscale_login_auto_start: false` - Enter and `n` at a pseudo-terminal, and with no terminal
+  no question and no web login - and NEXT STEPS keeping the role's line for a refused key or a
   page still waiting where Claude's sign-in was skipped; `configure.yml`'s rescue and last play; and the guards
   that keep every scenario, the Vagrantfile and this harness off Tailscale, and the role in the justfile's `scenario_roles` and CI.
 - **Destroy's release** (`test_release.py` 51): `destroy.yml`'s release play and report against the
