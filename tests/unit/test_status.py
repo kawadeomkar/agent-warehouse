@@ -29,12 +29,10 @@ import pytest
 import yaml
 from harness import FAKES, PVE_SECRET, REPO, _certificate, _pve, _run, _serve
 
+from claude_vm import proxmox as proxmox_filters
 from claude_vm import text as text_filters
 from claude_vm.status import model as S
 from claude_vm.tui import status as T
-
-sys.path.insert(0, str(REPO / "filter_plugins"))
-import proxmox as proxmox_filters  # noqa: E402
 
 STATUS = REPO / "playbooks" / "status.yml"
 # The keys of `just status --json` that 1.x promises (CONTRIBUTING.md, Releasing): a release may add keys, never take

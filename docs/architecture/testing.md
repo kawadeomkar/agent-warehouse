@@ -39,9 +39,9 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2868 tests. By file:
+pytest over `tests/unit/`: 2870 tests. By file:
 
-- **The package** (`test_claude_vm.py` 44): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py` 46): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`

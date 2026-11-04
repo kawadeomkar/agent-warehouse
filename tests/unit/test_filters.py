@@ -1,22 +1,16 @@
-"""Unit tests for filter_plugins/proxmox.py."""
+"""Unit tests for lib/claude_vm/proxmox.py and checks.py, the filters of filter_plugins/proxmox.py."""
 
 from __future__ import annotations
 
-import importlib.util
 import pathlib
 
 import pytest
-from ansible.errors import AnsibleFilterError
 
-SPEC = importlib.util.spec_from_file_location(
-    "proxmox_filters",
-    pathlib.Path(__file__).resolve().parents[2] / "filter_plugins" / "proxmox.py",
-)
-proxmox_filters = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(proxmox_filters)
+from claude_vm import checks
+from claude_vm import proxmox as proxmox_filters
 
 net_mac = proxmox_filters.net_mac
-guest_ipv4 = proxmox_filters.guest_ipv4
+guest_ipv4 = checks.guest_ipv4
 tailnet_ipv4 = proxmox_filters.tailnet_ipv4
 guest_address = proxmox_filters.guest_address
 guest_addresses = proxmox_filters.guest_addresses
@@ -52,11 +46,11 @@ class TestNetMac:
         assert net_mac("virtio=00:11:22:33:44:55,bridge=vmbr0") == "00:11:22:33:44:55"
 
     def test_rejects_config_without_a_mac(self):
-        with pytest.raises(AnsibleFilterError, match="no MAC address"):
+        with pytest.raises(ValueError, match="no MAC address"):
             net_mac("virtio,bridge=vmbr0")
 
     def test_rejects_non_string(self):
-        with pytest.raises(AnsibleFilterError, match="expects a string"):
+        with pytest.raises(ValueError, match="expects a string"):
             net_mac(None)
 
 
@@ -121,7 +115,7 @@ class TestGuestIpv4:
         assert guest_ipv4([v6], LAN_MAC) is None
 
     def test_rejects_non_list(self):
-        with pytest.raises(AnsibleFilterError, match="expects a list"):
+        with pytest.raises(ValueError, match="expects a list"):
             guest_ipv4({"eth0": []})
 
     @pytest.mark.parametrize(
@@ -215,7 +209,7 @@ class TestNetMacDefault:
         assert net_mac(["virtio=BC:24:11:00:00:01"], "") == ""
 
     def test_still_raises_without_a_default(self):
-        with pytest.raises(AnsibleFilterError):
+        with pytest.raises(ValueError):
             net_mac("bridge=vmbr0")
 
     def test_a_default_does_not_mask_a_real_mac(self):
@@ -353,11 +347,11 @@ class TestGuestAddresses:
         assert rows[0]["address"] == ""
 
     def test_rejects_lists_of_different_lengths(self):
-        with pytest.raises(AnsibleFilterError, match="1 VMs, 2 configs"):
+        with pytest.raises(ValueError, match="1 VMs, 2 configs"):
             guest_addresses([ALPHA], [uri_result({}), uri_result({})], [uri_result({})])
 
     def test_rejects_non_lists(self):
-        with pytest.raises(AnsibleFilterError, match="three lists"):
+        with pytest.raises(ValueError, match="three lists"):
             guest_addresses({"vmid": 1}, [], [])
 
 
@@ -416,7 +410,7 @@ class TestVmsNotNamed:
         assert [vm["vmid"] for vm in proxmox_filters.vms_not_named(names, ["pve"])] == [100, 103, 104]
 
     def test_refuses_what_is_no_listing(self):
-        with pytest.raises(AnsibleFilterError):
+        with pytest.raises(ValueError):
             proxmox_filters.vms_not_named({"vmid": 100}, [])
 
 
@@ -425,7 +419,7 @@ class TestSshAliasRefusal:
 
     @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x", "1a", "0xg", "9-1"])
     def test_a_name_that_can_be_nothing_else(self, name):
-        assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
+        assert checks.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
 
     @pytest.mark.parametrize(
         ("name", "said"),
@@ -450,23 +444,23 @@ class TestSshAliasRefusal:
         ],
     )
     def test_a_name_ssh_would_take_for_another_host(self, name, said):
-        assert said in proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"])
+        assert said in checks.ssh_alias_refusal(name, ["pve", "localhost"])
 
     def test_a_list_gives_each_refused_name_with_why_in_order(self):
         vms = [{"name": "alpha"}, {"name": "github.com"}, {"name": "pve"}, {"name": "beta"}]
-        refused = proxmox_filters.ssh_alias_refusals(vms, ["pve"])
+        refused = checks.ssh_alias_refusals(vms, ["pve"])
         assert [(r["name"], "dot" in r["why"] or "inventory" in r["why"], r["unnamed"]) for r in refused] == [
             # Named, github.com would get its alias; pve never.
             ("github.com", True, True),
             ("pve", True, False),
         ]
-        assert proxmox_filters.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
+        assert checks.ssh_alias_refusals([{"name": "alpha"}], ["pve"]) == []
 
     @pytest.mark.parametrize("name", ["alpha.lab", "github.com", "dev.example.org"])
     def test_a_name_with_a_dot_is_an_alias_when_the_person_chose_it(self, name):
         # Proxmox allows a DNS name, and docs/guides/vms.md does: the person who typed it chose what it shadows.
-        assert proxmox_filters.ssh_alias_refusal(name, ["pve", "localhost"], ["alpha", name]) == ""
-        assert proxmox_filters.ssh_alias_refusals([{"name": name}], ["pve"], [name]) == []
+        assert checks.ssh_alias_refusal(name, ["pve", "localhost"], ["alpha", name]) == ""
+        assert checks.ssh_alias_refusals([{"name": name}], ["pve"], [name]) == []
 
     @pytest.mark.parametrize(
         ("name", "said"), [("192.0.2.10", "address"), ("pve.lan", "inventory"), ("pve", "inventory")]
@@ -474,8 +468,8 @@ class TestSshAliasRefusal:
     def test_an_address_or_a_name_of_the_inventory_is_refused_even_when_chosen(self, name, said):
         # pve.lan as the way this machine reaches the Proxmox host: its root SSH would go to the VM.
         hosts = ["pve", "localhost", "pve.lan"]
-        assert said in proxmox_filters.ssh_alias_refusal(name, hosts, [name])
-        assert proxmox_filters.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
+        assert said in checks.ssh_alias_refusal(name, hosts, [name])
+        assert checks.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
 
 
 class TestSshConfigBlocks:
@@ -492,7 +486,7 @@ class TestSshConfigBlocks:
         assert ssh_config_blocks(text) == []
 
     def test_rejects_non_text(self):
-        with pytest.raises(AnsibleFilterError, match="file's text"):
+        with pytest.raises(ValueError, match="file's text"):
             ssh_config_blocks(["Host alpha"])
 
 
@@ -562,7 +556,7 @@ class TestSshConfigPrune:
         assert result == {"prune": [], "held": [], "untagged": [], "nameless": [], "refused": []}
 
     def test_rejects_non_lists(self):
-        with pytest.raises(AnsibleFilterError, match="as lists"):
+        with pytest.raises(ValueError, match="as lists"):
             ssh_config_prune({"name": "alpha"}, [], TAG)
 
 

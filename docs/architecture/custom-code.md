@@ -3,7 +3,9 @@
 ## 7.1 `filter_plugins/proxmox.py`
 
 Five filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
-SSH config.
+SSH config. Their code is `lib/claude_vm/proxmox.py`'s, and the checks of what a VM or a person supplies
+(`guest_ipv4`, `ssh_alias_refusal`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
+ansible-core says with the filter's name.
 
 **`net_mac(net_config, default=_RAISE)`** — extracts the MAC from `virtio=BC:24:11:0E:72:04,bridge=vmbr0`.
 It **raises by default**, because a caller about to act on one specific VM wants to know its NIC is

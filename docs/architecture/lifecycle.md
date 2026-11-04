@@ -31,7 +31,7 @@ show, so the build records it in the template's notes, one line: the build steps
 (`proxmox_template_build` in the role's `vars/main.yml`, raised whenever a change to them changes what a
 template is), the image's URL, the packages put into it, and its SHA-256, kept but never compared. One
 definition of what a build makes, the role's `proxmox_template_wanted`, feeds both the build and the
-comparison (`proxmox_template_drift` in `filter_plugins/proxmox.py`): `deploy.yml` through the role's
+comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
 `drift` entry point, on the config the API gives, and the role itself on `qm config`'s, which
 `qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
 built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new

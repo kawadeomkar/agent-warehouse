@@ -121,7 +121,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   the region, the run's own words and the summary out; the stdout callback hands it
                                   every event (§7.5)
                                   status/model.py, just status's model, and tui/status.py, its report drawn (§7.7)
-filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
+filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
+                                  net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host

@@ -733,7 +733,7 @@ run: `proxmox_disk` compares size strings, and Proxmox cannot shrink a hand-grow
 **A template is compared, not just found.** `deploy.yml` reads the template's config through the API
 (`proxmox_vm_info` with `config: current`) and runs the template play only when it is missing or
 differs from what its settings would build, as the role's `drift` entry point says
-(`proxmox_template_drift` in `filter_plugins/proxmox.py`, on `proxmox_template_wanted`, the one
+(`proxmox_template_drift` in `lib/claude_vm/proxmox.py`, on `proxmox_template_wanted`, the one
 definition the build uses too; the role compares `qm config`'s output, read by `qm_config`, the same
 way). Proxmox cannot show what went into the disk, so the build records it on one line of the
 template's notes - build version, image URL, packages - and a template without that line, as every one

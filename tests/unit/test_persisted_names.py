@@ -112,11 +112,11 @@ LINES = [
         'START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
     ),
     # On the Proxmox host: the record of the template's build in its notes.
-    ("filter_plugins/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
+    ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
     # On this machine: the managed SSH config's blocks, written and read, and the checkout's own folder.
     ("playbooks/tasks/ssh_config.yml", 'marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"'),
     (
-        "filter_plugins/proxmox.py",
+        "lib/claude_vm/proxmox.py",
         'r"^# BEGIN claude-on-proxmox: (?P<name>\\S+)$\\n(?P<body>.*?)^# END claude-on-proxmox: (?P=name)$",',
     ),
     (

@@ -103,7 +103,7 @@ def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None
 # that names its API's settings, its collection or its raw cluster listing reads Proxmox directly - the reads a
 # second hypervisor would have to be put behind (docs/architecture/decisions.md §15.4).
 PROXMOX_OWN = re.compile(
-    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|tools/proxmox-access\.sh$)"
+    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$|tools/proxmox-access\.sh$)"
 )
 PROXMOX_ELSEWHERE = {
     "deploy.yml": 2,
