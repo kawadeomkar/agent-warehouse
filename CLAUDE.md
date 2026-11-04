@@ -171,7 +171,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `github_projects_login_desktop`, `claude_code_login_desktop`, `tailscale_login_desktop`, all wired from
   it in `inventory/group_vars/all/defaults.yml`) gates those steps; every scenario and the harnesses set
   it false, and `tests/unit/test_github_auth.py`, `test_claude_login.py` and `test_tailscale.py` fail if
-  one stops, if the wiring goes, or if a desktop step runs. Behind that, `tests/unit/harness.py` puts stand-ins for
+  one stops, if the wiring goes, or if a desktop step runs - but for `test_github_auth.py`'s two `opened_*`
+  runs, which turn GitHub's desktop steps on with recorders of their own first on PATH (they log and succeed,
+  the harness's failing stand-ins behind them) to see which page would open. Behind that, `tests/unit/harness.py` puts stand-ins for
   `open`, `xdg-open`, `pbcopy`, `wl-copy` and `xclip` first on every run's PATH and points `BROWSER` at
   one: they record the call and fail, and a run that made one fails its test. A run inherits only the
   variables the harness names (`PASSED_ON`), and a stand-in host's modules get its own directory as

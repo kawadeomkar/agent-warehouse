@@ -613,8 +613,12 @@ own inode to die on. gh runs in the job's background, its pid recorded, and the 
 `gh exited: N` once gh ends however it ends; both waits end on it. A `wait_for` reads the code out of
 the file - a word of its own in GitHub's shape, `XXXX-XXXX` - the run prints it with GitHub's own page,
 `https://github.com/login/device`, and never a URL out of gh's output, which the VM chooses (a page of the
-VM's choosing would open in your browser just as the run asks you to sign in to GitHub), and on the
-controller that page is opened by the `page_opener` filter
+VM's choosing would open in your browser just as the run asks you to sign in to GitHub). The pages gh
+printed are read only to say, when `github_projects_login_page_pattern` (`^https://github[.]com/login/device$`,
+gh signing in to github.com alone) does not match one, that gh named another, a sign the VM may not be yours:
+such a page is never opened, and the failures that quote gh's own lines (`github_projects_login_said`: gh
+started no flow, or ended unapproved) have `<a page that is not GitHub's own>` in its place, so no message
+quotes it. On the controller GitHub's page is opened by the `page_opener` filter
 (`filter_plugins/desktop.py`, shared with the Claude sign-in: the first `BROWSER` command, `%s`
 substituted, else `open`, else `xdg-open`) and the code copied (`pbcopy`, `wl-copy`, `xclip`), both
 best effort and both gated by `github_projects_login_desktop`, which every

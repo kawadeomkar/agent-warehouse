@@ -29,7 +29,9 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   that to you ([Tearing down](destroy.md)).
 - The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
   is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
-  VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI.
+  VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI. When
+  the run says gh on the VM named another page, not GitHub's own, the VM may not be the one you made:
+  authorise nothing for it unless you know it is yours.
 - Downloads are verified, though not yet everywhere the vendor makes it possible: the uv release by a
   pinned SHA256 and apt repositories by vendored signing keys, but the Ubuntu cloud image only against the
   `SHA256SUMS` from the same server, whose signature (`SHA256SUMS.gpg`) is not checked. The Claude Code

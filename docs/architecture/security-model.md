@@ -177,6 +177,15 @@ file into the ephemeral directory with the `Include` off, guarded by a unit test
 and documented as a choice: the VM user is root-equivalent and runs an AI agent, and `ForwardAgent`
 would hand it every key in the user's agent.
 
+The sign-ins open a page in this machine's browser, and the VM chooses what its `claude`, `gh` and
+`tailscale` print. Claude's page opens only when it matches `claude_code_login_page_pattern`
+([§5.5](roles.md#55-claude_code--install-claude-code)) and Tailscale's only when it is Tailscale's own
+([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)). GitHub's device flow opens and shows
+`https://github.com/login/device` whatever gh printed, since gh signs in to github.com alone, and says so
+when gh named a page `github_projects_login_page_pattern` does not match, which no message quotes - a
+failure quoting gh's own lines puts a placeholder in its place: a VM whose gh does that may not be yours
+([§5.6](roles.md#56-github_projects--sign-in-to-github-clone-an-accounts-repositories)).
+
 ## In the editor
 
 `just code`'s workspace file starts a terminal running `claude` when the window

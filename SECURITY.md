@@ -28,8 +28,11 @@ what it stores:
   which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
   (`filter_plugins/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
   `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
-  module's result can carry custom stats and facts. GitHub's device flow opens and prints GitHub's own
-  page, `https://github.com/login/device`, never a URL out of gh's output, and no page opens through a
+  module's result can carry custom stats and facts. GitHub's device flow opens and shows GitHub's own
+  page, `https://github.com/login/device`, whatever gh printed: a page gh prints that
+  `github_projects_login_page_pattern` does not match is said to be another, and is neither opened nor
+  quoted - where a failure quotes gh's own lines, `<a page that is not GitHub's own>` stands in its place;
+  Claude's and Tailscale's pages likewise open only when they are their own. No page opens through a
   `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
   a command line. The GitHub token is also stored on the VM, by `gh`
   (`~/.config/gh/hosts.yml`, mode 0600), so that `git` and `gh` there can push; a device-flow login
@@ -192,7 +195,8 @@ restate them are not treated as vulnerabilities:
   a genuine sign-in page or device code of its own receives a claude.ai login, or a GitHub OAuth token
   with gh's scopes (`repo`, `read:org`, `gist`) and `workflow` that does not expire until revoked - with
   no GitHub token in the vault as much as with one. Authorise only a page or code for a VM you have just
-  created or know to be yours. Keeping
+  created or know to be yours; a run that says gh on the VM named another page, not GitHub's own, is one
+  more sign that the VM is not. Keeping
   the key instead would only trade this for a failure every time a lease is recycled, so the removal is
   deliberate. On a network where you do not trust every device, put the VMs on a bridge that only
   trusted devices can reach (`proxmox_bridge`, set before `just deploy --only template`, since every clone inherits

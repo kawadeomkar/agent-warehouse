@@ -91,16 +91,22 @@
       when: github_projects_login_code | length == 0
 
     # One line of Jinja per line of text: a more-indented line in a folded
-    # scalar keeps its line break.
+    # scalar keeps its line break. The page is GitHub's own whatever gh
+    # printed; another page gh printed is said, never opened, and never quoted
+    # (github_projects_login_said, the failures' lines, has a placeholder).
     - name: device_flow | Say the code and the page
       vars:
         github_projects_login_opens: >-
           {{ ' (the page opens in your browser and the code is on your clipboard, if this machine allows it)' if github_projects_login_desktop | bool else '' }}
+        github_projects_login_elsewhere: >-
+          {{ " gh on the VM named another page, not GitHub's own, so it is neither shown nor opened here: authorise only"
+             ~ ' if this VM is one you just created or know to be yours.' if github_projects_login_page_foreign | bool else '' }}
       ansible.builtin.debug:
         msg: >-
           {{ inventory_hostname }}: enter the code {{ github_projects_login_code }} at {{ github_projects_login_page }}
-          and authorise GitHub CLI there{{ github_projects_login_opens }}. This run waits for that: the wait ends by
-          itself when the code expires, after fifteen minutes, and Ctrl-C ends the whole run.
+          and authorise GitHub CLI there{{ github_projects_login_opens }}.{{ github_projects_login_elsewhere }} This run
+          waits for that: the wait ends by itself when the code expires, after fifteen minutes, and Ctrl-C ends the
+          whole run.
       # Drawn as a block by the stdout callback (callback_plugins/claude_on_proxmox.py).
       tags: [attention_browser]
 
