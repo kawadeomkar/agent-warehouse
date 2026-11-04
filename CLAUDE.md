@@ -535,7 +535,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   (the controller alone, pipelining on, no `group_vars`; never in `playbooks/` itself, where the syntax
   check and ansible-lint take it for a playbook), and asks through `tasks/init_ask.yml` only while a value
   is the example's or unset; Enter is "later", and an answer is held to its kind by `init_answer`
-  (`filter_plugins/settings.py`). `init_ask` is false unless the justfile sees a terminal and was not given
+  (`lib/claude_vm/init.py`). `init_ask` is false unless the justfile sees a terminal and was not given
   `--no-prompt`, and every write is under it or under a value given on the command line
   (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
   `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.

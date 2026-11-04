@@ -134,7 +134,8 @@ filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_te
                                   module's warnings and errors made plain, which the callbacks import
 filter_plugins/status.py          the adapter of just status's model and text: status_fleet, status_vm_api, status_report,
                                   status_text (§7.7)
-filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
+filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each
+                                  just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to

@@ -962,7 +962,7 @@ back); the token's ID, while there is no secret and `local.yml` names no token (
 from `ansible@pve!ansible` are written, by `tasks/init_local_setting.yml`, in place of their commented
 example lines); and last the secret, hidden - last so that a token the offer makes has its secret written
 into the vault with no question between. Each answer is held to its kind by the `init_answer` filter
-(`filter_plugins/settings.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
+(`lib/claude_vm/init.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
 the value for the next run. The address in effect is the first `proxmox` host's `ansible_host`, else its
 name, as `defaults.yml` reads it. Tailscale's question is whether to use it, while `local.yml` does not set
 `tailscale_enabled` (`yes_no`; `--tailscale on` or `off` answers it, as `y` or `n`), written either way by
@@ -1057,7 +1057,7 @@ every task a read (held by `tests/unit/test_init_check.py`):
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
    question, since there is nothing to choose - and set there, a node that differs is a problem naming both.
    A node SSH named that the cluster does not list, or several nodes and no SSH, is a problem too.
-   Only a name Proxmox gives a node counts (the `proxmox_name` filter, `filter_plugins/settings.py`):
+   Only a name Proxmox gives a node counts (the `proxmox_name` filter, `lib/claude_vm/checks.py`):
    `local.yml` is read as a template by every later run, and with the certificate not checked and the host key
    taken on first contact, the answer is whoever's sits in the path, so `{{ ... }}` in a name there would run on
    the controller. A reported name that is no node's is said, as JSON, and never written.

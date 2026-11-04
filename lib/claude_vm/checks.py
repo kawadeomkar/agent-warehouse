@@ -1,9 +1,11 @@
 """The checks of what a VM, the Proxmox host or a person supplies before anything uses it: a guest agent's IPv4
-address, and a name ssh would take for another host. Stdlib only, nothing read or written."""
+address, a name ssh would take for another host, and a name Proxmox gives a node, a storage or a bridge. Stdlib
+only, nothing read or written."""
 
 from __future__ import annotations
 
 import ipaddress
+import json
 import re
 
 # A name ssh could read as an IPv4 address, by its spelling alone: one to four
@@ -109,3 +111,35 @@ def ssh_alias_refusals(vms, hosts=None, chosen=None):
         if why:
             refused.append({"name": str(name), "why": why, "unnamed": unnamed})
     return refused
+
+
+_LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
+
+# What Proxmox itself allows as the name of a node (a host name's first label),
+# a storage (pve-storage-id) and a bridge (a network interface's name). just
+# init writes such a name into local.yml, which every later run reads as a
+# template: a name the API or root SSH reported is held to these first, so
+# one that holds anything else - {{ ... }} above all - is never offered or
+# written, whoever answered for the host.
+PROXMOX_NAMES = {
+    "node": _LABEL,
+    "storage": re.compile(r"(?i)[a-z][a-z0-9_.-]*[a-z0-9]"),
+    "bridge": re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}"),
+}
+
+
+def proxmox_name(value, kind):
+    """Return ``value`` when it is a name Proxmox gives a ``kind`` (node, storage, bridge), else ``""``."""
+    if kind not in PROXMOX_NAMES:
+        raise ValueError(f"proxmox_name: no kind {kind!r}; one of {', '.join(PROXMOX_NAMES)}")
+    return value if isinstance(value, str) and PROXMOX_NAMES[kind].fullmatch(value) else ""
+
+
+def proxmox_names(values, kind):
+    """The items of ``values`` that are names Proxmox gives a ``kind``, in their order."""
+    return [value for value in values or [] if proxmox_name(value, kind)]
+
+
+def proxmox_names_refused(values, kind):
+    """The items of ``values`` that are not, each as JSON, so whatever it holds is shown and never acted on."""
+    return [json.dumps(str(value)) for value in values or [] if not proxmox_name(value, kind)]
