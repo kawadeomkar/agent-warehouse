@@ -62,7 +62,7 @@ def _held(found: dict[str, int], allowed: dict[str, int], what: str) -> None:
 # names 1.x promises are taken out of it: the vscode_* settings, the vscode_server role and its variables, its
 # files on every VM, the vscode_windows key of just status --json.
 VSCODE_OWN = re.compile(
-    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|filter_plugins/vscode\.py$)"
+    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|filter_plugins/vscode\.py$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
     "deploy.yml": 4,

@@ -104,6 +104,7 @@ the caller passes one, which is how `code.yml` says a file did not parse rather 
 unset. Either way a run that only reports what the editor will do must not fail on the user's own
 settings. Read-only by construction; nothing in the project writes that file.
 
+Its code is `lib/claude_vm/editors/vscode.py`'s (§7.10), the module VS Code's family is to grow from.
 Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 
 ## 7.4 `filter_plugins/desktop.py` and `filter_plugins/text.py`

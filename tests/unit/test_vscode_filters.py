@@ -1,18 +1,10 @@
-"""Unit tests for filter_plugins/vscode.py."""
+"""Unit tests for lib/claude_vm/editors/vscode.py, the filter of filter_plugins/vscode.py."""
 
 from __future__ import annotations
 
-import importlib.util
-import pathlib
-
 import pytest
 
-SPEC = importlib.util.spec_from_file_location(
-    "vscode_filters",
-    pathlib.Path(__file__).resolve().parents[2] / "filter_plugins" / "vscode.py",
-)
-vscode_filters = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(vscode_filters)
+from claude_vm.editors import vscode as vscode_filters
 
 jsonc_loads = vscode_filters.jsonc_loads
 vscode_setting = vscode_filters.vscode_setting

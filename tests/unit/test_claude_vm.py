@@ -185,3 +185,31 @@ def test_an_adapter_knows_its_own_lib_by_file_not_by_spelling(tmp_path) -> None:
     link = tmp_path / "lib"
     os.symlink(LIB, link)
     plugin.own(str(link))  # the same directory, spelled another way
+
+
+ADAPTERS = sorted((REPO / "filter_plugins").glob("*.py"))
+
+
+@pytest.mark.parametrize("path", ADAPTERS, ids=lambda path: path.name)
+def test_every_adapter_loads_no_core_module_and_each_filter_is_the_core_s_of_its_name(path) -> None:
+    # Every worker executes every file in filter_plugins/ at its first filter lookup: an adapter loads nothing of the
+    # core there, and each filter it names calls the core's function of that name when it is called.
+    script = f"""
+import importlib, importlib.util, inspect, json, sys
+spec = importlib.util.spec_from_file_location("adapter", {str(path)!r})
+adapter = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(adapter)
+# After filters() too, which a worker calls at its first lookup: the plugin module it uses, and nothing of the core.
+filters = adapter.FilterModule().filters()
+loaded = sorted(m for m in sys.modules if m.split(".")[0] == "claude_vm" and m not in ("claude_vm", "claude_vm.plugin"))
+found = {{}}
+for name, call in filters.items():
+    where = inspect.getclosurevars(call).nonlocals
+    core = getattr(importlib.import_module("claude_vm." + where["module"]), where["name"], None)
+    found[name] = [call.__name__, where["name"], callable(core)]
+print(json.dumps({{"loaded": loaded, "found": found}}))
+"""
+    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
+    said = json.loads(run.stdout)
+    assert said["loaded"] == []
+    assert said["found"] and all(made == [name, name, True] for name, made in said["found"].items()), said["found"]
