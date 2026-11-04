@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2948 tests. By file:
+pytest over `tests/unit/`: 2951 tests. By file:
 
 - **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -509,7 +509,7 @@ pytest over `tests/unit/`: 2948 tests. By file:
   the checkout or one git ignores on purpose (the user's `inventory/hosts.yml`), a section cited from
   another page is a link, and the README's quick start matches the
   wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 43, `test_ratchets.py` 3): the
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 46, `test_ratchets.py` 3): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor

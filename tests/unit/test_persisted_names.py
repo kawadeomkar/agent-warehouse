@@ -105,6 +105,9 @@ LINES = [
     ("playbooks/code.yml", 'code_helpers_dir: "{{ code_ws_dir }}/helpers"'),
     ("playbooks/code.yml", "code_shared_helpers: [claude-start.sh]"),
     ("playbooks/code.yml", 'code_start_helper: "{{ code_helpers_dir }}/claude-start.sh"'),
+    # The same two names as the editors' plans write them: the directory they make, and the helper Zed's task runs.
+    ("lib/claude_vm/editors/common.py", 'HELPERS: Final = "helpers"'),
+    ("lib/claude_vm/editors/zed.py", 'HELPER: Final = "claude-start.sh"'),
     # The first line of every file in JSON with comments just code writes for an editor to read from 1.1 on
     # (.zed/tasks.json today), by which a later run tells its own from a file that is someone else's.
     (
@@ -161,3 +164,17 @@ def test_a_name_kept_inside_a_longer_one_is_a_rename_too(tmp_path, monkeypatch) 
     monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
     assert _value("vars.yml", "marker") != "{{ home }}/.config/claude-on-proxmox/gh-login"
     assert not _spells("tasks.yml", "dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf")
+
+
+def test_the_helpers_the_editors_plans_copy_are_the_ones_the_yaml_lists() -> None:
+    # A family names its helpers in the core; the copy takes them from the YAML's lists. Held equal, so a helper added
+    # to one list alone is neither copied without a word nor refused at the window.
+    from claude_vm.editors import vscode, zed
+
+    yaml_vars = yaml.safe_load((REPO / "playbooks" / "vars" / "vscode.yml").read_text())
+    assert vscode.HELPERS == tuple(yaml_vars["code_helpers"])
+    plays = yaml.safe_load((REPO / "playbooks" / "code.yml").read_text())
+    shared = [
+        play["vars"]["code_shared_helpers"] for play in plays if "code_shared_helpers" in (play.get("vars") or {})
+    ]
+    assert shared == [[zed.HELPER]]
