@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import collections
 import contextlib
-import importlib.util
 import json
 import os
 import re
@@ -48,19 +47,10 @@ if _LIB not in sys.path:
     sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
 
 
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem> (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name(f"{stem}.py"))
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
-
-
 from claude_vm import proc as processes  # noqa: E402
 from claude_vm import text  # noqa: E402
 from claude_vm.run import model as view  # noqa: E402
+from claude_vm.run import next_steps as steps  # noqa: E402
 from claude_vm.tui import live_region as live  # noqa: E402
 from claude_vm.tui import run as drawn  # noqa: E402
 from claude_vm.tui import screen  # noqa: E402
@@ -148,19 +138,6 @@ def merged_records(*records):
                         {str(matter): line for matter, line in matters.items() if isinstance(line, str)}
                     )
     return out
-
-
-def _callback():
-    """The stdout callback's module, for the end of a run in parts, which tools/live says outside Ansible: NEXT STEPS
-    as the callback says them, and its colour. Loaded by path as every module here loads another; a playbook's engine
-    hands say_end its own callback's colour instead, and never loads the callback a second time."""
-    name = "claude_on_proxmox_claude_on_proxmox"
-    if name not in sys.modules:
-        path = Path(__file__).resolve().parents[1] / "callback_plugins" / "claude_on_proxmox.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
 
 
 def say_end(out, display, run, now, failed_hosts, next_steps, width, color):
@@ -748,9 +725,8 @@ def end(title, state_path, rc):
         # The tab says how the run ended: drawn here as the region would, the region itself long gone.
         sys.stdout.write(f"\x1b]0;{run.title_text(now)}\x07")
         sys.stdout.flush()
-    callback = _callback()
-    next_steps = callback.next_steps(merged_records(state.get("next_records")))
-    say_end(out, display, run, now, failed_hosts, next_steps, _width(), callback.COLOR)
+    next_steps = steps.next_steps(merged_records(state.get("next_records")))
+    say_end(out, display, run, now, failed_hosts, next_steps, _width(), steps.COLOR)
     if out.live:
         sys.stdout.write("\a")
         sys.stdout.flush()

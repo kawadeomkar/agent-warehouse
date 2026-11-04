@@ -12,7 +12,6 @@ directory or a line a tool printed can never start a line of the report of its o
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import sys
 import textwrap
@@ -25,17 +24,6 @@ from ansible.errors import AnsibleFilterError
 _LIB = str(Path(__file__).resolve().parents[1] / "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
-
-
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>: a filter plugin is no module another
-    # can import, and every module here loads another this way (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name(f"{stem}.py"))
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
 
 
 from claude_vm.text import one_line  # noqa: E402

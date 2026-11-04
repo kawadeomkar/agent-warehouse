@@ -113,6 +113,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   by its title (§7.8); run/model.py, a live run as stages, steps and tasks (just
                                   deploy's first), and tui/run.py, it drawn: its frame, a line per step, the summary
                                   (§7.5)
+                                  run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
+                                  as the callback and a run in parts say them (§7.5)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
