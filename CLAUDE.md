@@ -490,7 +490,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   drawn live after them - a playbook run joins through `CLAUDE_ON_PROXMOX_LIVE` and its declaration in
   `lib/claude_vm/run/recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette
   or cut. A command's live output is its declaration: the engine (`filter_plugins/live_ansible.py`), the model
-  (`run_view.py`) and the region know no command, and what a declaration cannot say becomes a new field there,
+  (`lib/claude_vm/run/model.py`, drawn by `tui/run.py`) and the region know no command, and what a declaration cannot say becomes a new field there,
   never code of one command's own. A recipe of several processes is one run in parts: each command goes through
   `tools/live`, which passes it through unchanged, without the variable or the state's path, unless it can draw -
   a terminal, a title, no `-v`, a log, a state, the engine's packages, decided with the standard library alone -
@@ -509,7 +509,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   which only the recipes drawn live export - `deploy`, `login`, `destroy`, `code`, and `lint`, `init` and `test`
   for their parts - (the run's title) and the engine takes out of its environment at once, so nothing the run starts
   inherits it, hands the stdout callback's every event to the engine at verbosity 0 with
-  a run log: at a terminal, the region drawn from `filter_plugins/run_view.py`'s model; otherwise a line per step.
+  a run log: at a terminal, the region drawn from `lib/claude_vm/run/model.py`'s model; otherwise a line per step.
   Every line the stream would print still reaches the run log, in order, through `Display`'s `log_only` - so
   without a log (`LOG_DIR=`) the run is the stream; the reports, browser blocks, diffs, warnings and failures
   print above the region for good, whole - a report is wrapped, never cut, a failure says its output's end and

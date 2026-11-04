@@ -320,7 +320,7 @@ def test_a_run_whose_end_fails_exits_with_its_part_s_status_all_the_same(tmp_pat
 
 
 def test_no_bar_falls_from_one_part_to_the_next():
-    view = _commands().view
+    view = _commands().drawn
     run = view.Run("lint", 0.0)
     run.parts = True
     assert run._clamped("title", 0.6) == 0.6

@@ -4,9 +4,9 @@ Some recipes are more than one process - lint's checks one after another, init's
 and Molecule - and each is drawn as one run (docs/architecture/custom-code.md §7.8):
 
 - The state. Each part takes over the run's model from the parts before it - every task, step, report and record, as
-  run_view.Run.dump keeps it - draws them as done, works, and saves it for the next. It is a file in LIVE_DIR named
-  for the run's stamp and its top recipe, both from checked parts only, made by the run's first part, 0600 in a 0700
-  directory, and a part takes over only a state of its own run's title. The playbook engine
+  claude_vm.run.model's Run.dump keeps it - draws them as done, works, and saves it for the next. It is a file in
+  LIVE_DIR named for the run's stamp and its top recipe, both from checked parts only, made by the run's first part,
+  0600 in a 0700 directory, and a part takes over only a state of its own run's title. The playbook engine
   (filter_plugins/live_ansible.py) does the same for a playbook that is a part.
 - A command (run): the child's stdin is /dev/null, its stdout and stderr one pipe, its environment this one without the
   live switch, the state's path or the run log's, with colour off and Python unbuffered. Every line it prints goes to
@@ -60,10 +60,10 @@ def _sibling(stem):
 
 from claude_vm import proc as processes  # noqa: E402
 from claude_vm import text  # noqa: E402
-from claude_vm.tui import screen  # noqa: E402
-
-view = _sibling("run_view")
+from claude_vm.run import model as view  # noqa: E402
 from claude_vm.tui import live_region as live  # noqa: E402
+from claude_vm.tui import run as drawn  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
 
 LIVE_ENV = "CLAUDE_ON_PROXMOX_LIVE"
 STATE_ENV = "CLAUDE_ON_PROXMOX_LIVE_STATE"
@@ -576,7 +576,7 @@ class Part:
 
     def start(self):
         now = self._now()
-        self.run = view.Run(self.title, now, log=_log())
+        self.run = drawn.Run(self.title, now, log=_log())
         self.run.parts = True
         state = load_state(self.state_path, self.title)
         if state is not None:
@@ -735,7 +735,7 @@ def end(title, state_path, rc):
         return
     display = Display()
     now = time.monotonic()
-    run = view.Run(title, now, log=_log())
+    run = drawn.Run(title, now, log=_log())
     run.parts = True
     run.adopt(state, now)
     failed_hosts = list(state.get("failed_hosts") or [])

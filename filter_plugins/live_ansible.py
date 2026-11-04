@@ -3,9 +3,9 @@
 The stdout callback (callback_plugins/claude_on_proxmox.py) hands every event to an Engine when a recipe has exported
 CLAUDE_ON_PROXMOX_LIVE, its title, and keeps only its classic output for itself. Everything a live run does is here:
 
-- live, at a terminal that can draw (lib/claude_vm/tui/live_region.py): the run's model (filter_plugins/run_view.py)
-  drawn in place at the bottom of the screen, with the reports, the blocks, the diffs, warnings and failures printed
-  above it for good;
+- live, at a terminal that can draw (lib/claude_vm/tui/live_region.py): the run's model (lib/claude_vm/run/model.py)
+  drawn (lib/claude_vm/tui/run.py) in place at the bottom of the screen, with the reports, the blocks, the diffs,
+  warnings and failures printed above it for good;
 - lines, any other output: a line as each step ends, and the same reports, blocks and failures.
 
 Either way the default callback still renders every task, sent to the run's log alone (display's log_only), so the
@@ -52,10 +52,10 @@ def _sibling(stem):
 from claude_vm import text  # noqa: E402
 
 plain_text = text.plain_text
-from claude_vm.tui import screen  # noqa: E402
-
-view = _sibling("run_view")
+from claude_vm.run import model as view  # noqa: E402
 from claude_vm.tui import live_region as live  # noqa: E402
+from claude_vm.tui import run as drawn  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
 
 commands = _sibling("live_commands")
 
@@ -375,7 +375,7 @@ class Engine:
     # --- the playbook ------------------------------------------------------------------------------------------
     def start(self, playbook):
         cli = context.CLIARGS or {}
-        self.run = view.Run(
+        self.run = drawn.Run(
             self.title,
             self._now(),
             check=bool(cli.get("check")),

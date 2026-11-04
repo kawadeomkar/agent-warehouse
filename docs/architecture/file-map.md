@@ -110,7 +110,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   their end: what a kill must reach beyond the group it was sent to - ansible-core's
                                   detached task worker, a nested run's parts (§7.8)
                                   run/recipes.py, every command drawn live, declared: its stages and steps, named
-                                  by its title (§7.8)
+                                  by its title (§7.8); run/model.py, a live run as stages, steps and tasks (just
+                                  deploy's first), and tui/run.py, it drawn: its frame, a line per step, the summary
+                                  (§7.5)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
@@ -125,8 +127,6 @@ filter_plugins/status.py          just status's model and text: status_fleet, st
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
-filter_plugins/run_view.py        a live run as stages, steps and tasks (just deploy's first): its frame, a line per step,
-                                  the summary (§7.5)
 filter_plugins/live_ansible.py    the engine that draws a playbook run live: Ansible's events in, the region, the run's own
                                   words and the summary out; the stdout callback hands it every event (§7.5)
 filter_plugins/live_commands.py   a run in parts: a command drawn as a part, the state between parts, the run's end (§7.8)

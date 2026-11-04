@@ -256,8 +256,8 @@ verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_
 The callback then keeps only its classic output, which the engine prints through it too. The engine takes the
 variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
 later `just destroy` may run in - inherits it. It is `live` when stdout can take the region every live output
-shares (§7.8, `can_draw`), and `lines` otherwise. The model is `filter_plugins/run_view.py`, which any playbook run
-can be drawn with, and what a run is made of is its recipe's declaration in `lib/claude_vm/run/recipes.py`, named
+shares (§7.8, `can_draw`), and `lines` otherwise. The model is `lib/claude_vm/run/model.py`, which `tui/run.py`
+draws and any playbook run can be drawn with, and what a run is made of is its recipe's declaration in `lib/claude_vm/run/recipes.py`, named
 by the title's first word: `just deploy` is the first, and §7.8 says how another recipe joins it.
 
 - **Stages and steps.** A play's stage is the first of the declaration's stages that names it: by its file and
@@ -289,7 +289,7 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   the include's ID: when the include announces itself (`v2_playbook_on_include`) it uses that count up rather than
   adding to it. Any other include adds its file's count then. A serial play - the sign-ins, one VM at a time - runs
   every task again for each batch, under the same IDs: once it starts, its counts are multiplied by its batches,
-  cut as Ansible cuts them (`run_view.batches`). A task beyond them counts as reached. A step that has ended is
+  cut as Ansible cuts them (`model.batches`). A task beyond them counts as reached. A step that has ended is
   whole, in its row and in its stage's: a rescue that never ran was never left to do. No bar and no percentage in
   the title ever falls: each is held at the highest it has shown. A step's time is its own tasks' time added up,
   never its first task to its last: a role's handler runs at the end of the play, after every other role.
@@ -334,7 +334,7 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   (destroy's `delete`: `claude_vm_delete_error`, `claude_vm_save_error`, `claude_vm_deleted`). A VM a task could
   not reach though it ignored that (a sign-in's ping) is marked unreachable, and a failure raised again marks its
   VM in its cause's step, once however often it is raised.
-- **The screen.** The region (§7.8) draws the frame, which `run_view` folds to the height before the region
+- **The screen.** The region (§7.8) draws the frame, which `tui/run.py` folds to the height before the region
   cuts it, and steps aside for every prompt. The running step's last five tasks show (the declaration's
   `window`), never the check of an included role's arguments, and a `meta` task, which Ansible starts once for
   each host, each just before that host's result, once: a host an `end_host` ends sends none, and is `–`, left as
@@ -595,7 +595,8 @@ East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a f
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
 each module that needs another loads it by path, once, as `claude_on_proxmox_<stem>` (`_sibling`): the
-callbacks, `status.py`, `run_view.py` and `live_ansible.py` share one copy of each.
+callbacks, `status.py` and `live_ansible.py` share one copy of each; what has moved into `lib/claude_vm/` (§7.10) is
+imported instead.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
 `just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s

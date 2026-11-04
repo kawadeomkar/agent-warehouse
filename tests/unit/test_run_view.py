@@ -1,4 +1,4 @@
-"""A live run, as drawn: filter_plugins/run_view.py, fed events with the time given.
+"""A live run, as drawn: lib/claude_vm/run/model.py and tui/run.py, fed events with the time given.
 
 A Run is what the callback keeps of a run - the stages deploy.yml's imports make, each step's tasks - and every
 frame, line and summary is worked out from it alone, so each is checked here without Ansible: what a running, a
@@ -10,7 +10,6 @@ test_screen.py's, and test_deploy_live.py runs the whole of it at a pseudo-termi
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import time
 from pathlib import Path
@@ -21,14 +20,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _load(name):
-    spec = importlib.util.spec_from_file_location(f"test_{name}", REPO / "filter_plugins" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-view = _load("run_view")
+from claude_vm.run import model as view  # noqa: E402
+from claude_vm.tui import run as drawn  # noqa: E402
 
 STARTED = time.mktime((2026, 10, 25, 9, 30, 0, 0, 0, -1))
 LOG = ".logs/20261025-093000-deploy.log"
@@ -61,7 +54,7 @@ class Script:
     """A run fed events as Ansible sends them, one task at a time, the clock moved by each."""
 
     def __init__(self, check=False, plays=PLAYS, title="deploy alpha"):
-        self.run = view.Run(title, 0.0, check=check, log=LOG, started_at=STARTED)
+        self.run = drawn.Run(title, 0.0, check=check, log=LOG, started_at=STARTED)
         self.run.plays(plays)
         self.now = 0.0
 
@@ -492,7 +485,7 @@ def test_a_failed_run_says_so_in_the_title():
 
 
 def test_a_vms_id_is_a_number_or_nothing():
-    run = view.Run("deploy alpha", 0.0)
+    run = drawn.Run("deploy alpha", 0.0)
     run.fact("alpha", "proxmox_vm_resolved_id", "104; rm -rf")
     run.fact("alpha", "proxmox_vm_address", "192.0.2.61\nProxyCommand x")
     assert run.facts["alpha"] == {"address": "192.0.2.61 ProxyCommand x"}
@@ -1027,7 +1020,7 @@ def test_a_run_drawn_as_its_steps_says_its_vm_in_the_header_and_each_steps_whole
 
 
 def test_a_run_in_parts_shows_no_percentage_while_a_listed_stage_has_no_size():
-    run = view.Run("test", 0.0, recipe=view.recipes.RECIPES["test"])
+    run = drawn.Run("test", 0.0, recipe=view.recipes.RECIPES["test"])
     run.parts = True
     run.planned_stages(["lint", "unit"])
     run.planned("lint", ["lock", "yaml"])
