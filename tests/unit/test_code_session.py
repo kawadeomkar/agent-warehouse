@@ -1887,7 +1887,7 @@ COMMANDS_HERE = {
     ("which", "code"),
     ("code", "--list-extensions"),
     ("code", "--install-extension"),
-    ("code", "--remote"),
+    ("{{ code_vscode_which.stdout_lines[0] }}", "--remote"),
     # Zed: its command as which found it, given the alias and the folder, and nothing else.
     ("which", "-a"),
     ("{{ code_zed_candidate }}", "--version"),

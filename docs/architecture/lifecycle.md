@@ -673,7 +673,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `claude` (or `claude --resume <id>`) in Zed's terminal, which is the VM's, and why no task was written where
    none was; Zed's Agent Panel runs Claude Agent on the VM too, said as a Claude Code of its own. For VS Code, with
    `editor_claude_terminal` (the default), write a workspace file on the VM and open that:
-   `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
+   `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace` (the `code` that `which`
+   found, by its path), or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
    `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,

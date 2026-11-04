@@ -63,11 +63,12 @@
 
 # VS Code opens a path ending in .code-workspace as a workspace, not as a
 # file to edit; the same workspace already open is focused, and its task
-# is not run a second time.
+# is not run a second time. The command is the one `which` found, by its
+# path: the same program whatever PATH the run has by then.
 - name: vscode_open | Open the folder in VS Code
   ansible.builtin.command:
     argv:
-      - code
+      - "{{ code_vscode_which.stdout_lines[0] }}"
       - --remote
       - ssh-remote+{{ claude_vm_names[0] }}
       - "{{ code_ws_file if code_terminal else code_target }}"
