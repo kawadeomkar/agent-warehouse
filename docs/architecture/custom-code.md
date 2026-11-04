@@ -181,7 +181,8 @@ the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_fi
 
 These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
 Ansible `plain_text`, `one_line` and `banner` as filters, and the callbacks, the engines and `tools/settings`
-import the module itself.
+import the module itself. `page_opener` and `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and
+`filter_plugins/desktop.py` their adapter.
 
 ## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
 

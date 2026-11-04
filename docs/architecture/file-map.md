@@ -127,8 +127,8 @@ filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and ch
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
 filter_plugins/vscode.py          vscode_setting (JSONC, read-only): VS Code's settings, never written
-filter_plugins/desktop.py         page_opener, the sign-ins' browser command; controller_run and its state, the run a
-                                  Claude sign-in waits for (§7.4)
+filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_opener, the sign-ins' browser command;
+                                  controller_run and its state, the run a Claude sign-in waits for (§7.4)
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe to quote;
                                   one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
                                   module's warnings and errors made plain, which the callbacks import

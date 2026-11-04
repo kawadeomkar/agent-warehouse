@@ -65,7 +65,6 @@ What these guard:
 from __future__ import annotations
 
 import http.client
-import importlib.util
 import json
 import os
 import re
@@ -95,10 +94,9 @@ from harness import (
 )
 
 ROLE = REPO / "roles" / "claude_code"
-# filter_plugins/desktop.py, whose controller_run the sign-in records the run waiting for it with.
-_SPEC = importlib.util.spec_from_file_location("claude_on_proxmox_desktop", REPO / "filter_plugins" / "desktop.py")
-DESKTOP = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(DESKTOP)
+# lib/claude_vm/desktop.py, whose controller_run the sign-in records the run waiting for it with.
+from claude_vm import desktop as DESKTOP  # noqa: E402
+
 FAKE_CLAUDE = REPO / "tests" / "molecule" / "fake_claude.sh"
 PLAYBOOK = REPO / "playbooks" / "claude_login.yml"
 # The page the stand-in claude prints.
