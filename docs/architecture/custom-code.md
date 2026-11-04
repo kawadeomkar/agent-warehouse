@@ -175,7 +175,11 @@ narrower), a title line naming the VM and the sign-in, the rule again, then the 
 URL or a command stays whole to copy, and a last newline, so that a prompt's last word (`Code`,
 `Answer`) starts a line of its own: a `'\n'` written in the Jinja of a folded YAML scalar reaches the
 screen as a backslash and an `n`. Every part goes through `plain_text`. The prompts call it as a filter,
-the stdout callback (§7.5) by path. Covered by `tests/unit/test_text_filter.py`.
+the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
+
+These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
+Ansible `plain_text`, `one_line` and `banner` as filters, and the callbacks, the engines and `tools/settings`
+import the module itself.
 
 ## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
 
@@ -540,7 +544,7 @@ change nothing there, and the host key's options and refusals), and `tests/unit/
 ## 7.8 `filter_plugins/live_region.py` and `filter_plugins/screen.py` — every live output
 
 `just status`'s report (§7.7) and every live run (§7.5) are drawn the same way, with the same code, so each
-new live output adds only what it shows. Two modules hold what they share, and `filter_plugins/text.py`'s
+new live output adds only what it shows. Two modules hold what they share, and `lib/claude_vm/text.py`'s
 `plain_text` and `one_line` (§7.4) clean everything a VM said before any of it is kept.
 
 **`live_region.py`** — `LiveRegion(display, frame, route, more)`, the region at the bottom of a terminal

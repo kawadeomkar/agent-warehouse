@@ -34,6 +34,10 @@ from ansible import constants as C
 from ansible import context
 from ansible.utils import display as ansible_display
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+
 
 def _sibling(stem):
     # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem> (docs/architecture/custom-code.md §7.8).
@@ -45,7 +49,8 @@ def _sibling(stem):
     return sys.modules[name]
 
 
-text = _sibling("text")
+from claude_vm import text  # noqa: E402
+
 plain_text = text.plain_text
 screen = _sibling("screen")
 view = _sibling("run_view")

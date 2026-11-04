@@ -105,8 +105,7 @@ def _load(stem: str, path: Path):
 
 docs = _load("docs", REPO / "tools" / "docs.py")
 screen = _load("screen", REPO / "filter_plugins" / "screen.py")
-text = _load("text", REPO / "filter_plugins" / "text.py")
-
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 import yaml  # noqa: E402
 from ansible import constants as C  # noqa: E402
 from ansible.cli import CLI  # noqa: E402
@@ -121,6 +120,8 @@ from ansible.plugins.loader import init_plugin_loader  # noqa: E402
 from ansible.template import Templar, trust_as_template  # noqa: E402
 from ansible.vars.manager import VariableManager  # noqa: E402
 from jinja2 import Environment, meta  # noqa: E402
+
+from claude_vm import text  # noqa: E402
 
 
 class Refused(Exception):

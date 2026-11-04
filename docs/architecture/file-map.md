@@ -111,8 +111,9 @@ filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv
 filter_plugins/vscode.py          vscode_setting (JSONC, read-only): VS Code's settings, never written
 filter_plugins/desktop.py         page_opener, the sign-ins' browser command; controller_run and its state, the run a
                                   Claude sign-in waits for (§7.4)
-filter_plugins/text.py            plain_text, what a VM printed made safe to quote; one_line, one line of it; banner, the
-                                  block a prompt is set in; plain_summary, a module's warnings and errors made plain
+filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe to quote;
+                                  one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
+                                  module's warnings and errors made plain, which the callbacks import
 filter_plugins/status.py          just status's model and text: status_fleet, status_vm_api, status_report, status_text (§7.7)
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;

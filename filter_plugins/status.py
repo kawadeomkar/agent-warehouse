@@ -6,7 +6,7 @@ finished, when the run ends, and over and over while it runs, when callback_plug
 draws it live with a spinner wherever a value is still being read (docs/architecture/lifecycle.md §4.6).
 
 Nothing here reads or writes anything. Every value a VM supplies is cleaned by status_clean before anything keeps
-it, and again by status_report: one line of plain text each (filter_plugins/text.py's one_line), so a name, a
+it, and again by status_report: one line of plain text each (lib/claude_vm/text.py's one_line), so a name, a
 directory or a line a tool printed can never start a line of the report of its own.
 """
 
@@ -22,6 +22,10 @@ from pathlib import Path
 
 from ansible.errors import AnsibleFilterError
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+
 
 def _sibling(stem):
     # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>: a filter plugin is no module another
@@ -34,7 +38,8 @@ def _sibling(stem):
     return sys.modules[name]
 
 
-one_line = _sibling("text").one_line
+from claude_vm.text import one_line  # noqa: E402
+
 # The report is drawn as every live output is: lines of styled segments (filter_plugins/screen.py).
 _screen = _sibling("screen")
 seg, plain, pad, cut, render, bar, spark, plural = (

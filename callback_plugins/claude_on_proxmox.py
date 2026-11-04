@@ -12,7 +12,7 @@ add: a VM's root makes the modules run there say what it likes.
 
 A module's warnings, deprecations and failure message are the VM's to choose
 too, and Display prints them raw, so every hook prints them through
-filter_plugins/text.py's plain_summary; a dry run's diffs, a file's text as the
+lib/claude_vm/text.py's plain_summary; a dry run's diffs, a file's text as the
 VM holds it, through plain_text.
 
 Everything else is the default callback's, options included: a subclass
@@ -52,6 +52,13 @@ from pathlib import Path
 from ansible.plugins.callback.default import CallbackModule as DefaultCallback
 from ansible.utils.vars import merge_hash
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+from claude_vm import plugin, text  # noqa: E402
+
+plugin.own(_LIB)
+
 
 def _sibling(stem):
     # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>, since a callback cannot ask for a
@@ -66,7 +73,6 @@ def _sibling(stem):
 
 
 # The filter the prompts use, so a prompt's block and a message's look the same.
-text = _sibling("text")
 banner = text.banner
 live = _sibling("live_ansible")
 

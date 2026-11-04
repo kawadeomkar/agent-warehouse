@@ -11,7 +11,7 @@ drawn by filter_plugins/status.py, the same functions as the finished report, lo
 own task output is shown: a task that failed is said on stderr only if the run ends without a report, since the
 report says what each failure meant, and an unreachable VM is the report's too. Task warnings, which since
 ansible-core 2.19 travel on the task result, are printed in every hook, or a stdout callback of one's own drops them
-without a word - through filter_plugins/text.py's plain_summary, since a module on a VM chooses their text. The
+without a word - through lib/claude_vm/text.py's plain_summary, since a module on a VM chooses their text. The
 finished report is taken only from the report play's own set_fact on this machine: any module's result can carry facts.
 
 The live region is every live output's (filter_plugins/live_region.py, docs/architecture/custom-code.md §7.8): one
@@ -44,6 +44,13 @@ from pathlib import Path
 from ansible import constants as C
 from ansible.plugins.callback import CallbackBase
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+from claude_vm import plugin, text  # noqa: E402
+
+plugin.own(_LIB)
+
 
 def _sibling(stem):
     # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>, since a callback cannot ask for a
@@ -58,7 +65,6 @@ def _sibling(stem):
 
 
 live = _sibling("live_region")
-text = _sibling("text")
 # The report play's task that makes the finished report: a set_fact on this machine (playbooks/status.yml).
 REPORT_ACTIONS = frozenset({"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"})
 

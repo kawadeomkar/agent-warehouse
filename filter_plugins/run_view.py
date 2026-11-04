@@ -39,6 +39,10 @@ from pathlib import Path
 
 import yaml
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+
 
 def _sibling(stem):
     # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem> (docs/architecture/custom-code.md §7.8).
@@ -52,7 +56,7 @@ def _sibling(stem):
 
 screen = _sibling("screen")
 recipes = _sibling("live_recipes")
-_one_line = _sibling("text").one_line
+from claude_vm.text import one_line as _one_line  # noqa: E402
 
 
 def stage_files(recipe):

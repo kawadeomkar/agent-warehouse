@@ -42,7 +42,6 @@ from __future__ import annotations
 import ast
 import copy
 import fcntl
-import importlib.util
 import inspect
 import json
 import os
@@ -2487,9 +2486,8 @@ def _helper_patterns() -> dict[str, str]:
 def test_the_helper_removes_what_plain_text_removes():
     # It runs on the VM, so it has its own copy of plain_text's patterns, and this test keeps it one:
     # a sequence plain_text learns to remove, the notes must not keep.
-    spec = importlib.util.spec_from_file_location("text_filters_for_code", REPO / "filter_plugins" / "text.py")
-    text = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(text)
+    from claude_vm import text
+
     helper = _helper_patterns()
     assert helper["SEQUENCES"] == text._SEQUENCES.pattern
     # A table cell takes no tab or newline either: every control character plain_text removes, and those two.
