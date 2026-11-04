@@ -405,17 +405,27 @@ editor: vscode
 # window gets a Claude terminal - started (a task the window runs as it
 # opens), listed (a task the user picks from the editor's list of tasks) or
 # none (neither, the default for a row without it). The last two mean
-# different things, though with these two rows they always agree. Internal,
-# not a setting: tests hold it to those files and to just code's --editor.
+# different things, though with these two rows they always agree. family,
+# the module of lib/claude_vm/editors/ that plans its window (a fork of an
+# editor is one more row of that editor's family); cli_candidates, the names
+# its command goes by here, looked for in that order; version_re, what that
+# command's --version must say where another program shares a name.
+# Internal, not a setting: tests hold it to those files, to just code's
+# --editor and to the core's records (docs/architecture/custom-code.md §7.10).
 claude_editors:
   vscode:
     name: VS Code
+    family: vscode
     window_tasks: true
     claude_terminal: started
+    cli_candidates: [code]
   zed:
     name: Zed
+    family: zed
     window_tasks: false
     claude_terminal: listed
+    cli_candidates: [zeditor, zed]
+    version_re: "^Zed "
 # The editor setting as every playbook reads it: an empty one is the
 # default's. Internal, not a setting.
 claude_editor_key: "{{ editor | default('vscode', true) | string }}"

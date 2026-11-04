@@ -656,7 +656,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    a skipped task still overwrites its register). The editors are one list, `claude_editors` in the
    inventory defaults, literal values only: how each is said, whether its window runs just code's tasks as it
    opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
-   `listed` for the user to pick, Zed's; or `none`). Where the window runs none (Zed), the notes are written
+   `listed` for the user to pick, Zed's; or `none`); its `family`, the core's module that plans its window; the
+   names its command goes by here (`cli_candidates`), and what that command's `--version` must say where another
+   program shares a name (`version_re`). Where the window runs none (Zed), the notes are written
    without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
    `claude --resume` to run, with the cautions every editor's report says. Zed's (`tasks/zed_open.yml`) writes,
    with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the

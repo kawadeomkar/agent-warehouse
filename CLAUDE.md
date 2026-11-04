@@ -370,8 +370,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
   `terminal.integrated.allowInUntrustedWorkspace`. The editors are one internal list, `claude_editors` in the
   inventory defaults (each one's name, whether its window runs just code's tasks, and how it gets its Claude
-  terminal, `claude_terminal`: `started`, `listed` or `none`; literal values only, and no Claude task is decided
-  from `window_tasks` alone), held by `test_code_session.py` to the editors' task files and to `--editor`'s pattern. With
+  terminal, `claude_terminal`: `started`, `listed` or `none`; its `family`, `cli_candidates` and `version_re`;
+  literal values only, and no Claude task is decided from `window_tasks` alone), held by `test_code_session.py` to the editors' task files and to `--editor`'s pattern. With
   `editor: zed` (or `--editor zed`) nothing of VS Code's is written and `tasks/zed_open.yml` runs
   `zed ssh://<alias><folder>` with the first `zeditor` or `zed` on PATH whose `--version` says Zed - ZFS's event
   daemon is `zed` too, and is asked nothing else; it writes no Zed config, keymap, task or trust of the user's,
