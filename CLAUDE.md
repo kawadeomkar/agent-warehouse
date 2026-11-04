@@ -501,9 +501,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   write per redraw in synchronized output, up exactly the lines drawn, so no line may wrap (`tests/unit/vt.py`
   counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s `do_var_prompt`), back only
   half a second after it; keeps
-  the echo off while it is up; and never hides the cursor. Modules load each other by path, once, as
-  `claude_on_proxmox_<stem>`, and every test that runs something at a terminal opens it through
-  `harness._at_a_pseudo_terminal`. See docs/architecture/custom-code.md §7.8.
+  the echo off while it is up; and never hides the cursor. What the callbacks, engines and tools share is one
+  package, `claude_vm` in `lib/`, imported, never loaded by path (custom-code.md §7.10), and every test that runs
+  something at a terminal opens it through `harness._at_a_pseudo_terminal`. See docs/architecture/custom-code.md §7.8.
 
 - **`just deploy` is drawn live, and nothing a person must read is drawn only there.** `CLAUDE_ON_PROXMOX_LIVE`,
   which only the recipes drawn live export - `deploy`, `login`, `destroy`, `code`, and `lint`, `init` and `test`

@@ -1,0 +1,523 @@
+"""`just status`'s report, drawn from its model (claude_vm.status.model): a section of lines each, every line within
+WIDTH, the same functions finished and live (docs/architecture/lifecycle.md §4.6).
+
+The report is drawn as every live output is: lines of styled segments (screen.py).
+"""
+
+from __future__ import annotations
+
+import re
+import textwrap
+import time
+
+from ..status.model import _fmt_gib, _remote_control, _short_kernel, _uptime, _work_said
+from . import screen as _screen
+
+seg, plain, pad, cut, render, bar, spark, plural = (
+    _screen.seg,
+    _screen.plain,
+    _screen.pad,
+    _screen.cut,
+    _screen.render,
+    _screen.bar,
+    _screen.spark,
+    _screen.plural,
+)
+PENDING = _screen.PENDING
+# The widest line the report draws, a tested limit.
+WIDTH = 100
+
+
+# ------------------------------------------------------------------------------------------------- the text ----
+
+
+def _dot(state):
+    return {"running": ("●", "g"), "stopped": ("○", "d"), "paused": ("●", "y")}.get(state, ("●", "y"))
+
+
+def _vms_lines(model):
+    vms = model["vms"]
+    others = model.get("others") or {}
+    nodes = ", ".join(model["proxmox"].get("nodes") or [])
+    lines = []
+    if not vms:
+        if others.get("count"):
+            lines.append(
+                [
+                    seg("VMS", "h"),
+                    seg(
+                        f"  + {plural(others['count'], 'other VM')} on {nodes}, not this project's:"
+                        f" {plural(others['vcpus'], 'vCPU')}, {_fmt_gib(others['mem'])} GiB,"
+                        f" {others['running']} running",
+                        "d",
+                    ),
+                ]
+            )
+        return lines
+    vcpus = sum(int(vm.get("vcpus") or 0) for vm in vms)
+    mem = sum(int(vm.get("maxmem") or 0) for vm in vms)
+    disk = sum(int(vm.get("maxdisk") or 0) for vm in vms)
+    lines.append(
+        [
+            seg("VMS", "h"),
+            seg(
+                f"  {nodes} · this project: {plural(len(vms), 'VM')}, {plural(vcpus, 'vCPU')}, {_fmt_gib(mem)} GiB,"
+                f" {_fmt_gib(disk)} GiB of disk"
+            ),
+        ]
+    )
+    # A name past 13 characters is cut, so the row fits 100 columns with every cell at its widest.
+    nw = min(13, max([5] + [len(vm.get("name") or "(no name)") for vm in vms]))
+    lines.append(
+        [
+            seg(
+                f" VMID  {'NAME':<{nw + 4}}UP        vCPU  CPU  LAST 24 H     MEM GiB             ROOT GiB   CREATED",
+                "d",
+            )
+        ]
+    )
+    for vm in vms:
+        name = vm.get("name") or "(no name)"
+        name = name if len(name) <= nw else name[: nw - 1] + "…"
+        state = vm.get("state") or "unknown"
+        dot, style = _dot(state)
+        if vm.get("skipped") == "node":
+            dot, style = "?", "r"
+        row = [seg(f" {vm.get('vmid', ''):>4}  "), seg(dot, style), seg(f" {name:<{nw}}  ")]
+        if state != "running" or vm.get("skipped") == "node":
+            word = "stopped" if state == "stopped" else "node down" if vm.get("skipped") == "node" else state
+            mem = "— / " + _fmt_gib(vm.get("maxmem"))
+            rest = f"{word:<10}{vm.get('vcpus') or '':>4} {'':4}  {'':12}  {mem:<18}  "
+            rest += f"{'— / ' + _fmt_gib(vm.get('maxdisk')):<9}  {vm.get('created_ago', '')}"
+            lines.append(row + [seg(rest, "d")])
+            continue
+        pending = vm.get("pending_api")
+        cpu = vm.get("cpu")
+        cpu_text = f"{cpu * 100:.0f}%" if isinstance(cpu, (int, float)) else "—"
+        cpu_spark = PENDING if pending else spark((vm.get("api") or {}).get("cpu_24h"))
+        mem_text = f"{_fmt_gib(vm.get('mem_used', vm.get('mem')))} / {_fmt_gib(vm.get('mem_total', vm.get('maxmem')))}"
+        if vm.get("min_mem"):
+            mem_text += f", min {_fmt_gib(vm['min_mem'])}"
+        root = vm.get("root")
+        root_text = PENDING if pending else f"{_fmt_gib(root['used'])} / {_fmt_gib(root['total'])}" if root else "—"
+        row += [
+            seg(f"{_uptime(vm.get('uptime')):<10}{vm.get('vcpus') or '':>4} {cpu_text:>4}  "),
+            seg(f"{cpu_spark:<12}", "c"),
+            seg(f"  {mem_text:<18}  {root_text:<9}  {vm.get('created_ago', '') or '—'}"),
+        ]
+        lines.append(row)
+        pressure = (vm.get("api") or {}).get("pressure_1h")
+        if isinstance(pressure, (int, float)) and pressure > 0.10:
+            lines.append([seg(f"{'':{14 + nw}}waited for the host's CPU {pressure:.0%} of the last hour", "d")])
+    if others.get("count"):
+        lines.append(
+            [
+                seg(
+                    f"       + {plural(others['count'], 'other VM')} on"
+                    f" {', '.join(others.get('nodes') or []) or nodes},"
+                    f" not this project's: {plural(others['vcpus'], 'vCPU')}, {_fmt_gib(others['mem'])} GiB,"
+                    f" {others['running']} running",
+                    "d",
+                )
+            ]
+        )
+    return lines
+
+
+def _storage_lines(model):
+    if not model.get("storages") and not model.get("template"):
+        return []
+    lines = [[seg("STORAGE", "h")]]
+    for s in model.get("storages") or []:
+        used, total = s.get("used"), s.get("total")
+        line = [seg(f" {s['storage']:<10} {s.get('type', ''):<8} ")]
+        if isinstance(used, (int, float)) and total:
+            fraction = used / total
+            line += bar(fraction) + [seg(f"  {fraction:>3.0%}  {_fmt_gib(used)} / {_fmt_gib(total)} GiB")]
+        else:
+            line.append(seg("not read", "d"))
+        line.append(seg(f" · this project's disks {_fmt_gib(s['ours']) + ' GiB' if s.get('ours') else 'none'}"))
+        lines.append(line)
+        if s.get("provisioned") and total and s.get("type") in ("lvmthin", "zfspool") and s["provisioned"] > total:
+            lines.append(
+                [
+                    seg(
+                        f"{'':12}its disks are provisioned at {_fmt_gib(s['provisioned'])} GiB in all,"
+                        " more than the pool holds",
+                        "d",
+                    )
+                ]
+            )
+    template = model.get("template") or {}
+    if template.get("missing"):
+        lines.append([seg(f" {'template':<10} {template.get('name')}: not built yet; the first just deploy builds it")])
+    elif template:
+        built = f" · built {template['built_ago']}" if template.get("built_ago") else ""
+        where = f" on {template['storage']}" if template.get("storage") else ""
+        line = [seg(f" {'template':<10} {template.get('name')} ({template.get('vmid')}){where}{built}")]
+        # How it differs is said under ATTENTION; here only what the next deploy does with it.
+        if template.get("drift"):
+            line += [
+                seg(" · "),
+                seg("next deploy rebuilds it", "y") if template.get("rebuild", True) else seg("differs, kept", "d"),
+            ]
+        lines.append(line)
+    return lines
+
+
+def _ssh_vms(model):
+    """The VMs a section read over SSH shows: each this project created that is read over SSH, by name."""
+    return [vm for vm in model["vms"] if vm.get("name") and vm.get("needs_ssh")]
+
+
+def _name_width(vms):
+    return min(13, max([5] + [len(vm["name"]) for vm in vms]))
+
+
+def _cell(text, width, style=""):
+    """One column's cell: ``text`` cut to ``width`` - 1 and padded, so a long value never pushes the next column."""
+    text = text if len(text) < width else text[: width - 2] + "…"
+    return [seg(f"{text:<{width}}", style)]
+
+
+def _access_lines(model):
+    vms = [vm for vm in model["vms"] if vm.get("name")]
+    if not vms:
+        return []
+    aliases = model["settings"].get("aliases_enabled")
+    nw = _name_width(vms)
+    # The tailnet column, from the Tailscale role's read: whenever the VMs are read over SSH, or Tailscale is off.
+    show_tailnet = any(vm.get("needs_ssh") for vm in vms) or not model["settings"].get("tailscale_enabled")
+    # The alias is what ssh takes, so whole up to 24 characters, the column as wide as the longest and two spaces:
+    # one padded to 12 alone ran a 12-character alias into the tailnet column.
+    alias_width = min(26, max([12] + [len(vm["name"]) + 2 for vm in vms if vm.get("alias")]))
+    head = "LAN           " + (f"{'SSH ALIAS':<{alias_width}}" if aliases else "") + ("TAILNET" if show_tailnet else "")
+    # The tailnet names padded to the longest, so their addresses line up.
+    dns_width = max([0] + [len(((vm.get("ssh") or {}).get("tailscale") or {}).get("dns_name") or "") for vm in vms])
+    lines = [[seg("ACCESS", "h"), seg(" " * max(1, nw + 4 - len("ACCESS")) + head, "d")]]
+    for vm in vms:
+        state = vm.get("state")
+        lan = vm.get("address") or ("stopped" if state == "stopped" else "—")
+        name = vm["name"] if len(vm["name"]) <= nw else vm["name"][: nw - 1] + "…"
+        row = [seg(f" {name:<{nw}}   "), seg(f"{lan:<14}", "d" if not vm.get("address") else "")]
+        if aliases:
+            # A cell one short and a space: two spaces before the tailnet column, an alias cut or not.
+            alias = _cell(vm["name"] if vm.get("alias") else "none", alias_width - 1, "" if vm.get("alias") else "y")
+            row += [*alias, seg(" ")]
+        if show_tailnet:
+            row += _tailnet_cells(vm, model, dns_width)
+        lines.append(row)
+    editor = model["settings"]["editor_name"]
+    lines.append([seg(f" {editor}: just code <name> [--project <repo>] [--session <id>]", "d")])
+    return lines
+
+
+def _tailnet_cells(vm, model, dns_width=0):
+    if not model["settings"].get("tailscale_enabled"):
+        return [seg("off: tailscale_enabled is false", "d")]
+    if vm.get("pending_ssh"):
+        return [seg(PENDING, "c")]
+    tailscale = (vm.get("ssh") or {}).get("tailscale")
+    if not tailscale:
+        return [seg("—", "d")]
+    if tailscale.get("backend") == "Running" and tailscale.get("dns_name"):
+        return [seg(f"{tailscale['dns_name']:<{dns_width}}  {tailscale.get('ipv4') or ''}".rstrip())]
+    return [seg(_tailscale_cell(tailscale)[0][2:], "d")]
+
+
+def _claude_cell(claude):
+    if not claude.get("installed"):
+        return "○ not installed", "y"
+    version = f"{claude['version']} " if claude.get("version") else ""
+    if claude.get("api_key"):
+        return f"● {version}API key", "g"
+    if claude.get("login_stored"):
+        return f"● {version}signed in", "g"
+    return f"○ {version}not signed in", "y"
+
+
+def _remote_control_cell(claude, now):
+    state, said = _remote_control(claude, now)
+    if state == "running":
+        return f"● {said}", "g"
+    if state == "down":
+        return f"● {said}", "r"
+    if state in ("not-set-up", "stopped"):
+        return f"○ {said}", "y"
+    return f"○ {said}", "d"
+
+
+def _github_cell(github):
+    if not github.get("installed"):
+        return "○ no gh", "d"
+    if not github.get("readable"):
+        return "? gh too old to say", "y"
+    if github.get("unchecked"):
+        return "? not checked", "r"
+    if github.get("signed_in"):
+        return f"● {github.get('account') or 'signed in'}", "g"
+    if not github.get("managed"):
+        return "○ left alone", "d"
+    return "○ not signed in", "y"
+
+
+TAILSCALE_CELLS = {
+    "off": ("○ off", "d"),
+    "not-ours": ("● installed by hand", "d"),
+    "Running": ("● running", "g"),
+    "NeedsLogin": ("○ needs a login", "y"),
+    "would-join": ("○ needs a login", "y"),
+    "page-pending": ("○ page waiting", "y"),
+    "expired": ("○ key expired", "y"),
+    "refused": ("○ key refused", "y"),
+    "NeedsMachineAuth": ("○ needs approval", "y"),
+    "Stopped": ("○ stopped", "y"),
+    "connecting": ("○ connecting", "y"),
+    "check-no-package": ("○ not installed", "y"),
+    "check-daemon-down": ("● daemon down", "r"),
+}
+
+
+def _tailscale_cell(tailscale):
+    if not tailscale.get("enabled"):
+        return TAILSCALE_CELLS["off"]
+    return TAILSCALE_CELLS.get(tailscale.get("case"), (f"○ {tailscale.get('backend') or 'unknown'}", "y"))
+
+
+def _not_read_cell(vm):
+    """The cell of a VM read over SSH that a part could not be read of: pending while live, else why not."""
+    if vm.get("pending_ssh"):
+        return PENDING, "c"
+    if (vm.get("ssh") or {}).get("unreachable"):
+        return "? not reached", "r"
+    return "? not read", "r"
+
+
+def _signins_lines(model):
+    vms = _ssh_vms(model)
+    if not vms:
+        return []
+    nw = _name_width(vms)
+    first = max(nw + 3, len("SIGN-INS") + 2)
+    widths = (25, 25, 18)
+    head = [
+        seg("SIGN-INS", "h"),
+        seg(
+            " " * (first - len("SIGN-INS"))
+            + "CLAUDE CODE".ljust(widths[0])
+            + "REMOTE CONTROL".ljust(widths[1])
+            + "GITHUB".ljust(widths[2])
+            + "TAILSCALE",
+            "d",
+        ),
+    ]
+    lines = [head]
+    now = model.get("now") or time.time()
+    for vm in vms:
+        ssh = vm.get("ssh") or {}
+        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        claude, github, tailscale = ssh.get("claude"), ssh.get("github"), ssh.get("tailscale")
+        cells = [
+            _claude_cell(claude) if claude else _not_read_cell(vm),
+            _remote_control_cell(claude, now) if claude else _not_read_cell(vm),
+            _github_cell(github) if github else _not_read_cell(vm),
+        ]
+        for (text, style), width in zip(cells, widths, strict=True):
+            row += _cell(text, width, style)
+        text, style = _tailscale_cell(tailscale) if tailscale else _not_read_cell(vm)
+        row.append(seg(text, style))
+        lines.append(row)
+    return lines
+
+
+def _system_lines(model):
+    vms = _ssh_vms(model)
+    if not vms:
+        return []
+    nw = _name_width(vms)
+    first = max(nw + 3, len("SYSTEM") + 4)
+    widths = (16, 29, 17)
+    head = [
+        seg("SYSTEM", "h"),
+        seg(
+            " " * (first - len("SYSTEM"))
+            + "OS".ljust(widths[0])
+            + "KERNEL".ljust(widths[1])
+            + "LOAD 1 / 15 MIN".ljust(widths[2])
+            + "UPDATES",
+            "d",
+        ),
+    ]
+    lines = [head]
+    for vm in vms:
+        system = (vm.get("ssh") or {}).get("system")
+        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        if not system:
+            text, style = _not_read_cell(vm)
+            lines.append(row + [seg(text, style)])
+            continue
+        os_name = re.sub(r"\s+LTS$", "", str(system.get("os") or "—"))
+        running, newest = _short_kernel(system.get("kernel")), _short_kernel(system.get("kernel_newest"))
+        kernel = running or "—"
+        if newest and running and system.get("kernel_newest") != system.get("kernel"):
+            kernel += f" · {newest} waits"
+        load = system.get("load") or []
+        load_text = f"{load[0]:.2f} / {load[2]:.2f}" if len(load) == 3 else "—"
+        upgrades, security = system.get("upgrades"), system.get("security")
+        if not isinstance(upgrades, int):
+            updates, style = "not read", "d"
+        elif upgrades == 0:
+            updates, style = "none", ""
+        else:
+            updates = f"{upgrades}" + (f", {security} of them security" if security else "")
+            style = "y" if security else ""
+        row += _cell(os_name, widths[0]) + _cell(kernel, widths[1], "y" if " waits" in kernel else "")
+        row += _cell(load_text, widths[2]) + [seg(updates, style)]
+        lines.append(row)
+    return lines
+
+
+def _attention_lines(model):
+    counts = model["counts"]
+    items = model["attention"]
+    head = [seg("ATTENTION", "h"), seg("  ")]
+    parts = []
+    if counts["unread"]:
+        parts.append((f"{counts['unread']} not read", "r"))
+    if counts["problem"]:
+        parts.append((plural(counts["problem"], "problem"), "r"))
+    if counts["todo"]:
+        parts.append((f"{counts['todo']} to do", "y"))
+    for i, (text, style) in enumerate(parts):
+        head += ([seg(" · ")] if i else []) + [seg(text, style)]
+    lines = [head]
+    for it in items:
+        style = {"unread": "r", "problem": "r", "todo": "y"}[it["level"]]
+        prefix = f" {it['subject'][:11]:<12}"
+        source = f"{it['source'].split('_')[0]}: " if it.get("source") not in (None, "status") else ""
+        text = textwrap.wrap(source + it["text"], WIDTH - 15, break_on_hyphens=False) or [""]
+        first = [seg(" "), seg("●", style), seg(prefix)]
+        if source:
+            first += [seg(source.rstrip(" "), "m"), seg(" " + text[0][len(source) :])]
+        else:
+            first.append(seg(text[0]))
+        lines.append(first)
+        lines += [[seg(" " * 15 + rest)] for rest in text[1:]]
+        if it.get("command"):
+            wrapped = textwrap.wrap("→ " + it["command"], WIDTH - 15, break_on_hyphens=False, subsequent_indent="  ")
+            lines += [[seg(" " * 15 + part, "c")] for part in wrapped]
+    return lines
+
+
+def _work_lines(model):
+    vms = _ssh_vms(model)
+    if not vms:
+        return []
+    nw = _name_width(vms)
+    first = max(nw + 3, 10)
+    # Narrow enough that the last column's "10 windows" still fits 100 columns after a name of 13: 16 + 73 + 10.
+    widths = (24, 40, 9)
+    directory = next(
+        (((vm.get("ssh") or {}).get("work") or {}).get("dir") for vm in vms if (vm.get("ssh") or {}).get("work")),
+        "~/projects",
+    )
+    lines = [
+        [seg("WORK", "h"), seg(f"  in {directory}, as of each checkout's last fetch", "d")],
+        [
+            seg(
+                " " * first
+                + "CHECKED".ljust(widths[0])
+                + "NOT ON ANY REMOTE, OR NOT COMMITTED".ljust(widths[1])
+                + "CLAUDE".ljust(widths[2])
+                + "EDITOR",
+                "d",
+            )
+        ],
+    ]
+    for vm in vms:
+        ssh = vm.get("ssh") or {}
+        work, system = ssh.get("work"), ssh.get("system")
+        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        if not work:
+            text, style = _not_read_cell(vm)
+            lines.append(row + [seg(text, style)])
+            continue
+        checked = plural(work.get("checkouts") or 0, "checkout")
+        if work.get("worktrees"):
+            checked += f", {plural(work['worktrees'], 'tree')}"
+        said = " · ".join(s for s in (_work_said(r) for r in work.get("repositories") or []) if s) or "nothing"
+        wrapped = textwrap.wrap(said, widths[1] - 2, break_on_hyphens=False) or [""]
+        claude = system.get("claude") if system else None
+        windows = (system.get("editor_windows", system.get("vscode_windows")) if system else None) or None
+        row += _cell(checked, widths[0]) + _cell(wrapped[0], widths[1], "y" if said != "nothing" else "")
+        row += _cell(str(claude) if claude else "—", widths[2])
+        row.append(seg(plural(windows, "window") if windows else "—"))
+        lines.append(row)
+        lines += [[seg(" " * (first + widths[0]) + rest, "y")] for rest in wrapped[1:]]
+    return lines
+
+
+def _footer(model, reading):
+    counts = model["counts"]
+    code = model["exit"]
+    lines = []
+    if reading:
+        lines.append([seg(reading, "d")])
+    if model["proxmox"].get("unread"):
+        said = "Proxmox was not read"
+    elif code == 2:
+        said = f"{counts['unread']} not read"
+    elif code == 1:
+        said = plural(counts["problem"], "problem")
+    else:
+        said = "nothing is wrong" + (
+            f"; {plural(counts['todo'], 'thing')} {'waits' if counts['todo'] == 1 else 'wait'} for you"
+            if counts["todo"]
+            else ""
+        )
+    line = [seg(f"exit {code}", "r" if code else "g"), seg(f" · {said}")]
+    if model["vms"]:
+        line += [seg(" · "), seg("--only, --json: just help status", "d")]
+    lines.append(line)
+    return lines
+
+
+SECTION_LINES = {
+    "vms": _vms_lines,
+    "storage": _storage_lines,
+    "access": _access_lines,
+    "sign-ins": _signins_lines,
+    "system": _system_lines,
+    "work": _work_lines,
+}
+
+
+def status_lines(model, reading=""):
+    """The report as lines of (text, style) pieces; PENDING marks where a value is still being read."""
+    out = [[seg(model["title"], "b")], []]
+    proxmox = model["proxmox"]
+    settings = model.get("settings") or {}
+    if not model["vms"] and not proxmox.get("unread") and not proxmox.get("off") and not settings.get("names"):
+        nodes = ", ".join(proxmox.get("nodes") or []) or "the cluster"
+        tag = settings.get("tag") or "claude-on-proxmox"
+        out += [[seg(f"No VM on {nodes} carries the {tag} tag. Create one with: just deploy alpha")], []]
+    # Without the API there is nothing to show but why.
+    for section in [] if proxmox.get("unread") else model["sections"]:
+        body = SECTION_LINES[section](model)
+        if body:
+            out += body + [[]]
+    if model.get("live"):
+        out += [
+            [seg("ATTENTION", "h"), seg("  "), seg(PENDING, "c"), seg(" ranked once every VM is read", "d")],
+            [],
+        ]
+    elif model["attention"]:
+        out += _attention_lines(model) + [[]]
+    if not model.get("live"):
+        out += _footer(model, reading)
+    return out
+
+
+def status_text(model, color=False, reading="", glyph=None, cols=None):
+    """The report as text: the finished report, or with ``glyph`` a live frame, each line cut to ``cols``."""
+    return "\n".join(render(cut(line, cols or WIDTH), color, glyph) for line in status_lines(model, reading))

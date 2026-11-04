@@ -510,9 +510,10 @@ cols)`** — the report as text, every line within 100 columns, or within `cols`
 
 **The callback** is the stdout callback `just status` chooses (`ANSIBLE_STDOUT_CALLBACK`, and
 `ANSIBLE_CALLBACKS_ENABLED` naming it alone, so `ansible.cfg`'s `profile_tasks` prints nothing into the
-report). It loads `status.py` by path, keeps each `status_found` fact as it lands, and draws the report
+report). It imports the model (`lib/claude_vm/status/model.py`) and its drawing (`tui/status.py`), keeps each
+`status_found` fact as it lands, and draws the report
 live in the region every live output shares (§7.8), redrawn as each fact lands, the lines its frame leaves
-out said to be "shown when the run ends"; `status.py` draws its lines with `screen.py`, as the live runs do.
+out said to be "shown when the run ends"; `tui/status.py` draws its lines with `screen.py`, as the live runs do.
 The region is taken when the callback is made, so a warning before the first frame is drawn above it, and
 spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
 printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
@@ -594,8 +595,8 @@ palette or plain, `PENDING` drawn as the spinner's glyph), `bar`, `spark`, `fill
 East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a frame drawn with them.
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
-each module that needs another loads it by path, once, as `claude_on_proxmox_<stem>` (`_sibling`): the
-status callback shares `status.py`; everything else has moved into `lib/claude_vm/` (§7.10) and is imported.
+what the callbacks, the engines, `tools/` and the filters share is `lib/claude_vm/` (§7.10): each imports it with
+its checkout's `lib/` first on `sys.path`, one module object however it is reached.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
 `just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s

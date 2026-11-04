@@ -120,6 +120,7 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   ansible/engine.py, the engine that draws a playbook run live: Ansible's events in,
                                   the region, the run's own words and the summary out; the stdout callback hands it
                                   every event (§7.5)
+                                  status/model.py, just status's model, and tui/status.py, its report drawn (§7.7)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
@@ -130,7 +131,8 @@ filter_plugins/desktop.py         page_opener, the sign-ins' browser command; co
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe to quote;
                                   one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
                                   module's warnings and errors made plain, which the callbacks import
-filter_plugins/status.py          just status's model and text: status_fleet, status_vm_api, status_report, status_text (§7.7)
+filter_plugins/status.py          the adapter of just status's model and text: status_fleet, status_vm_api, status_report,
+                                  status_text (§7.7)
 filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one

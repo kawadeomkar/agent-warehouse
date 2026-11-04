@@ -1,7 +1,7 @@
 """What every live output draws with: lines of styled text, cut and padded to a width, rendered in one palette.
 
 A line is a list of segments, (text, style): a style is one of PALETTE's keys, or "" for plain. `just status`'s
-report (filter_plugins/status.py) and every live run (tui/run.py) are built as lines and rendered
+report (tui/status.py) and every live run (tui/run.py) are built as lines and rendered
 here, so they cut, pad, colour and measure alike; live_region.py puts them on the screen. PENDING in a
 segment's text marks where the spinner's glyph goes, for a value still being read.
 

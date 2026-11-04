@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import FAKES, REPO, STAND_INS, _run
-from test_status import PROMISED_KEYS, S, status_root
+from test_status import PROMISED_KEYS, T, status_root
 from test_tailscale import DPKG_QUERY, GETENT, NODE, _joined
 
 LIBRARY = REPO / "playbooks" / "library"
@@ -380,7 +380,7 @@ def test_a_vm_just_made_is_told_its_three_sign_ins(read) -> None:
     # The roles' own lines, as just login says them.
     assert "just login fresh --only github" in items[1][2]
     assert "just login fresh --only tailscale" in items[2][2]
-    text = S.status_text(model)
+    text = T.status_text(model)
     row = next(line for line in text.splitlines() if line.startswith(" fresh") and "not signed in" in line)
     assert "waits for the login" in row and "needs a login" in row
     # Its checkout's commit is on no remote: shown in WORK, and never counted.
@@ -405,7 +405,7 @@ def test_what_is_down_and_what_was_not_checked_are_said_for_what_they_are(read) 
         " 2 Zed windows are open there"
     )
     assert model["exit"] == 2
-    row = next(line for line in S.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)
+    row = next(line for line in T.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)
     assert "5 restarts" in row and "? not checked" in row
 
 

@@ -107,14 +107,15 @@ PROXMOX_OWN = re.compile(
 )
 PROXMOX_ELSEWHERE = {
     "deploy.yml": 2,
-    "filter_plugins/status.py": 21,
     "inventory/group_vars/all/defaults.yml": 30,
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 2,
+    "lib/claude_vm/status/model.py": 18,
     "lib/claude_vm/tui/run.py": 3,
+    "lib/claude_vm/tui/status.py": 3,
     "playbooks/code.yml": 2,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,
