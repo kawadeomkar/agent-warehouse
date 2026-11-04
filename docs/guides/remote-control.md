@@ -68,6 +68,15 @@ turn (under `just deploy`, which goes on, NEXT STEPS keeps it, with the command 
 `A` at the prompt ends the run. A sign-in page lasts `claude_code_login_timeout` plus half an hour: a code
 pasted later is said to be too late at once, with the command for a fresh page.
 
+### A run stopped while it waits
+
+Ctrl-C while the run waits for your browser ends the whole run at once, before it can end claude's
+attempt on the VM or the forward. Nothing needs doing about it: the next `just login <vm> --only claude`,
+or `just deploy`, from this machine ends what that run left and starts a fresh sign-in. While another run
+still waits for the same VM - in a second terminal, say - the new one is refused, as it is when the
+attempt was left by a run on another machine; that refusal names the `ssh ... kill <pid>` that ends the
+attempt on the VM, which otherwise ends by itself half an hour after it started.
+
 ### Sign-in settings
 
 Three variables tune it: `claude_code_login_args` passes extra arguments to `claude auth login` (`[--sso]`

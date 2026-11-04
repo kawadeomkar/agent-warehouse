@@ -429,7 +429,24 @@ printed. A pasted code is never written as a bare newline, which claude would an
 go on waiting.
 Before any of it, a sign-in of the same VM still waiting - a run left at its prompt, a second `just
 login --only claude` - is refused by name: its pidfile names a live process whose command line `ps` shows as
-`auth login`, and taking over its pipe and pidfile would hand one run's code to the other's claude. What
+`auth login`, and taking over its pipe and pidfile would hand one run's code to the other's claude. A run
+stopped while it waits - Ctrl-C, a closed terminal - ends there and then, with no `always` section run, so
+its claude would wait out Ansible's async limit (`claude_code_login_timeout` plus half an hour), every sign-in
+of the VM refused meanwhile, and the far end's `sleep` keep the forward, and this machine's port, up for the
+wait and a minute more. Nothing can run at the Ctrl-C, so the next run recovers instead: each attempt
+records, before its pid, the run that waits for it (`claude-login.run`, from the `controller_run` filter,
+[§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) - this machine's name and boot
+(Linux's boot ID, or macOS's PID 1 start), the pid of the run's own `ansible-playbook` (the parent of the
+worker each task is forked into) and that process's start. A sign-in that finds an attempt waiting, or the
+forward's far end still a `sleep`, reads that record and asks this machine about it
+(`controller_run_state`): a run still under way is refused as before; a run of this machine, since it last
+started, whose process of that start is gone leaves nothing waiting, so its claude is ended - a TERM, a KILL
+only while it is still `auth login` a second later - and its far end's `sleep` with a TERM, which ends the
+forward's `ssh` here, each pid asked again before every signal, and the sign-in goes on. A run this machine
+cannot ask about - another machine's, this one's before it last started, or none recorded, as an earlier
+version's - is refused too, with the `ssh <user>@<vm> kill <pid>` that ends the attempt by hand and when it
+ends by itself. The record comes back from the VM, which may have written anything there: only a host name
+and a pid are ever quoted from it, and nothing unreadable is ever taken for gone. What
 claude printed reaches a message only without its control characters (`claude_code_login_said`): the VM
 user controls that text, and 2.21 writes a failure's `[ERROR]` line to this terminal and the run log
 raw.
@@ -497,7 +514,7 @@ the login, stopped, not set up, or off on purpose.
 output, and the check-mode path against a stand-in `systemctl`; `tests/unit/test_claude_login.py` runs
 the sign-in against `tests/molecule/fake_claude.sh`, which behaves as probed, for every outcome claude
 has (accepted, refused, malformed, refused in other words, an error in place of the page, an attempt
-that ended, a sign-in still waiting, a stale earlier attempt) and five times at a pseudo-terminal;
+that ended, a sign-in still waiting, a stale earlier attempt, one a stopped run left waiting) and five times at a pseudo-terminal;
 `tests/unit/test_sign_in_plays.py` runs the playbooks' shape - the reach play, the follow-on play, the
 batches - and deploy's own sign-in steps; the claude_code role scenario lands a login with only the
 path unit waiting and sees the server start; and the configure scenario's side effect signs its

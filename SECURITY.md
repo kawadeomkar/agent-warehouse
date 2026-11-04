@@ -229,16 +229,21 @@ restate them are not treated as vulnerabilities:
   any process on the VM always can. The port is the VM's to choose, read from the page its claude handed
   its browser: it must be between 1024 and 65535, the forward fails rather than share a port already in use
   here on either address, since a browser tries both for `localhost` (so a machine with no IPv6 loopback
-  always pastes the code instead), and its far end ends with the sign-in. On macOS, though, the forward can
+  always pastes the code instead), and its far end ends with the sign-in - or, after a run stopped while it
+  waited, with the next sign-in of the VM from this machine. On macOS, though, the forward can
   bind the port beside a program of yours that listens on every address, and then takes that program's
   connections over loopback at that port to the VM for those minutes; a program of another user's, root's
   included, refuses the bind, and the forward fails. The redirect, a cross-site top-level
   request from Claude's site to `localhost`, carries the browser's `localhost` cookies that are not
   `SameSite=Strict` and whose `Path` matches `/callback`, whichever local web app set them on whichever
   port, to whatever listens on the VM's port - claude, or anything the VM's root puts there; the project
-  cannot strip them, because Claude Code fixes the `localhost` redirect. The page opens here only when it
-  is Claude's own sign-in page; the recycled-address trade-off above applies to it as to the code it
-  replaces.
+  cannot strip them, because Claude Code fixes the `localhost` redirect. To tell a stopped run gone, each
+  attempt records on the VM which run waits for it: this machine's name, this start of it (Linux's boot
+  ID, or when PID 1 started) and the run's pid and start. The VM can read that record and write anything
+  over it, so it is read back as untrusted: only a host name and a pid are ever quoted from it, the check
+  is a read of this machine's process table, and what it decides is only whether the VM's own processes of
+  that attempt are ended. The page opens here only when it is Claude's own sign-in page; the
+  recycled-address trade-off above applies to it as to the code it replaces.
 - **A pending web login.** While Tailscale's web login waits for an approval, its page is readable by
   every local user on the VM (`tailscale status --json`), and whoever approves it first decides which
   tailnet the VM joins. Each report names the tailnet joined, so one that is not yours shows; the key path

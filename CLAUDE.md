@@ -212,8 +212,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   made once either binds; `ExitOnForwardFailure`, so a port held here on either falls back to the paste;
   `AddressFamily=any`, since ssh binds a forward on that option's family and the command line's value
   outranks a user's `AddressFamily inet` or `inet6`, which would otherwise fail one forward every time;
-  the far end a `sleep` whose pid the VM records, killed when the sign-in ends, only while it is a sleep),
-  opens the page
+  the far end a `sleep` whose pid the VM records, killed when the sign-in ends - or by the next, once its
+  run is gone - only while it is a sleep), opens the page
   here only when it matches `claude_code_login_page_pattern`, and waits on the async job
   (`claude_code_login_approval_timeout`) - no prompt. `claude_code_login_redirect` follows
   `login_desktop`; a forward that fails, a page that is not Claude's, a code given, no browser on this
@@ -229,7 +229,16 @@ token; `github_auth_method: token` still fails. The status JSON carries
   path but a pipe (`<>` would create a plain file). Before the hand-over `async_status` checks that the
   attempt still runs; the wait ends on any answer after claude's prompt; `Invalid code` (a code copied
   up to its `#`) is asked for once more; a sign-in of the same VM still waiting is refused by its
-  pidfile; and what claude printed reaches a message only through the `plain_text` filter, which
+  pidfile while the run waiting for it is under way, or cannot be asked about - another machine's, or none
+  recorded - with how to end it by hand. A run stopped while it waits (Ctrl-C) runs no `always`, so each
+  attempt records that run beside its pid (`claude-login.run`, the `controller_run` filter: this machine's
+  name and boot, the run's own `ansible-playbook` pid - the forked worker's parent - and its start, read
+  in C and UTC by `ps`, or from `/proc` on Linux); the next sign-in from this machine, finding that run
+  gone (`controller_run_state`), ends what it left - claude and the far end's sleep, each only while it is
+  still that process, asked again before every signal - rather than refusing the VM for half an hour and
+  leaving the forward up. The record is the VM's to hand back: only a host name and a pid of it are ever
+  said, and only a run of this machine since it last started, no process of that start at its pid, is
+  ever taken for gone. What claude printed reaches a message only through the `plain_text` filter, which
   removes whole escape sequences and then every control character but tab and newline (gh's text and
   `just code`'s SSH error go through it too). A `/dev/tty` probe cannot tell an
   attended run - Ansible runs lookups in workers detached from the terminal - so `pause` returning

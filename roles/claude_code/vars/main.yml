@@ -202,11 +202,27 @@ claude_code_remote_control_bridge_wanted: >-
 # ------------------------------------------------- the browser sign-in -----
 # Internal: where tasks/browser_login.yml keeps its files on the VM, beside the
 # GitHub device flow's: claude's output, the named pipe its input comes
-# through, and the pid that ends an attempt nobody completes. 0700, the user's.
+# through, the pid that ends an attempt nobody completes, and the run that
+# waits for it (the controller_run filter's record). 0700, the user's.
 claude_code_login_dir: "{{ claude_code_home }}/.config/claude-on-proxmox"
 claude_code_login_output: "{{ claude_code_login_dir }}/claude-login.out"
 claude_code_login_pipe: "{{ claude_code_login_dir }}/claude-login.in"
 claude_code_login_pidfile: "{{ claude_code_login_dir }}/claude-login.pid"
+claude_code_login_run_file: "{{ claude_code_login_dir }}/claude-login.run"
+
+# Internal: what browser_login.yml found of an earlier attempt still on the VM -
+# the pid of a claude still waiting for its code, and of the far end of its
+# forward, each only while it is that process - as digits, or '': the VM
+# answers, so nothing else of its answer is kept. And how long that attempt
+# lasts at most, from its start, which ends it by itself.
+claude_code_login_other_claude: "{{ claude_code_login_other.stdout | default('') | regex_search('^[0-9]{1,10}(?=:)') or '' }}"
+claude_code_login_other_forward: "{{ claude_code_login_other.stdout | default('') | regex_search('(?<=:)[0-9]{1,10}$') or '' }}"
+claude_code_login_other_found: "{{ (claude_code_login_other_claude ~ claude_code_login_other_forward) | length > 0 }}"
+claude_code_login_lasts_minutes: "{{ ((claude_code_login_timeout | int + claude_code_login_attempt_seconds | int) / 60) | int }}"
+# Internal: how a sign-in left waiting by a run this machine cannot ask about is
+# ended by hand, on the VM.
+claude_code_login_end_command: >-
+  ssh {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} kill {{ claude_code_login_other_claude }}
 
 # Internal: what claude printed, and the sign-in page in it. Without a terminal
 # it prints the page as a plain URL; under one it wraps it in an OSC 8

@@ -101,7 +101,7 @@ Also takes, as described under `main`: `claude_code_user`, `claude_code_install_
 
 ## Internal values
 
-Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 44 of the 50 are computed during a run, from earlier tasks' results.
+Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 50 of the 56 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -125,6 +125,12 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_login_output` | `{{ claude_code_login_dir }}/claude-login.out` |
 | `claude_code_login_pipe` | `{{ claude_code_login_dir }}/claude-login.in` |
 | `claude_code_login_pidfile` | `{{ claude_code_login_dir }}/claude-login.pid` |
+| `claude_code_login_run_file` | `{{ claude_code_login_dir }}/claude-login.run` |
+| `claude_code_login_other_claude` | <code>{{ claude_code_login_other.stdout &#124; default('') &#124; regex_search('^[0-9]{1,10}(?=:)') or '' }}</code> |
+| `claude_code_login_other_forward` | <code>{{ claude_code_login_other.stdout &#124; default('') &#124; regex_search('(?&lt;=:)[0-9]{1,10}$') or '' }}</code> |
+| `claude_code_login_other_found` | <code>{{ (claude_code_login_other_claude ~ claude_code_login_other_forward) &#124; length > 0 }}</code> |
+| `claude_code_login_lasts_minutes` | <code>{{ ((claude_code_login_timeout &#124; int + claude_code_login_attempt_seconds &#124; int) / 60) &#124; int }}</code> |
+| `claude_code_login_end_command` | <code>ssh {{ claude_code_user }}@{{ ansible_host &#124; default(inventory_hostname) }} kill {{ claude_code_login_other_claude }}</code> |
 | `claude_code_login_text` | <code>{{ (claude_code_login_out.content &#124; b64decode) if claude_code_login_out.content is defined else '' }}</code> |
 | `claude_code_login_url` | <code>{{ claude_code_login_text &#124; regex_search('https://[^\s\x07\x1b]+') or '' }}</code> |
 | `claude_code_login_said` | <code>{{ claude_code_login_text &#124; plain_text }}</code> |
@@ -249,7 +255,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Fail when claude is not on the user's PATH | `ansible.builtin.assert` |  |
 | Make the directory for the sign-in's files | `ansible.builtin.file` |  |
 | Look for a sign-in of this VM still waiting | `ansible.builtin.command` |  |
-| Refuse to start over a sign-in still waiting | `ansible.builtin.fail` | <code>claude_code_login_other.stdout &#124; trim &#124; length > 0</code> |
+| Read which run started it | `ansible.builtin.slurp` | <code>claude_code_login_other_found &#124; bool</code> |
+| Tell whether that run is still under way | `ansible.builtin.set_fact` |  |
+| Refuse to start over a sign-in still waiting | `ansible.builtin.fail` | <code>claude_code_login_other_claude &#124; length > 0 and claude_code_login_other_run.state != 'gone'</code> |
+| End the sign-in a run that is gone left waiting | `ansible.builtin.command` | <code>claude_code_login_other_run.state == 'gone'</code> |
 | Remove the files of an earlier attempt | `ansible.builtin.file` |  |
 | Give claude a browser that hands its page over | `ansible.builtin.copy` |  |
 | Make the pipe claude reads the code from | `ansible.builtin.command` |  |
@@ -308,13 +317,16 @@ classDef rescue stroke:#665352,stroke-width:2px;
   browser_login___Find_claude1-->|Task| browser_login___Fail_when_claude_is_not_on_the_user_s_PATH2[browser login   fail when claude is not on the<br>user s path]:::task
   browser_login___Fail_when_claude_is_not_on_the_user_s_PATH2-->|Task| browser_login___Make_the_directory_for_the_sign_in_s_files3[browser login   make the directory for the sign in<br>s files]:::task
   browser_login___Make_the_directory_for_the_sign_in_s_files3-->|Task| browser_login___Look_for_a_sign_in_of_this_VM_still_waiting4[browser login   look for a sign in of this vm<br>still waiting]:::task
-  browser_login___Look_for_a_sign_in_of_this_VM_still_waiting4-->|Task| browser_login___Refuse_to_start_over_a_sign_in_still_waiting5[browser login   refuse to start over a sign in<br>still waiting<br>When: **claude code login other stdout   trim   length   0**]:::task
-  browser_login___Refuse_to_start_over_a_sign_in_still_waiting5-->|Task| browser_login___Remove_the_files_of_an_earlier_attempt6[browser login   remove the files of an earlier<br>attempt]:::task
-  browser_login___Remove_the_files_of_an_earlier_attempt6-->|Task| browser_login___Give_claude_a_browser_that_hands_its_page_over7[browser login   give claude a browser that hands<br>its page over]:::task
-  browser_login___Give_claude_a_browser_that_hands_its_page_over7-->|Task| browser_login___Make_the_pipe_claude_reads_the_code_from8[browser login   make the pipe claude reads the<br>code from]:::task
-  browser_login___Make_the_pipe_claude_reads_the_code_from8-->|Task| browser_login___Start_the_sign_in_in_the_background9[browser login   start the sign in in the<br>background]:::task
-  browser_login___Start_the_sign_in_in_the_background9-->|Block Start| browser_login___Sign_in__then_clean_up_whatever_happened10_block_start_0[[browser login   sign in  then clean up whatever<br>happened]]:::block
-  browser_login___Sign_in__then_clean_up_whatever_happened10_block_start_0-->|Task| browser_login___Wait_for_claude_to_show_the_sign_in_page0[browser login   wait for claude to show the sign<br>in page]:::task
+  browser_login___Look_for_a_sign_in_of_this_VM_still_waiting4-->|Task| browser_login___Read_which_run_started_it5[browser login   read which run started it<br>When: **claude code login other found   bool**]:::task
+  browser_login___Read_which_run_started_it5-->|Task| browser_login___Tell_whether_that_run_is_still_under_way6[browser login   tell whether that run is still<br>under way]:::task
+  browser_login___Tell_whether_that_run_is_still_under_way6-->|Task| browser_login___Refuse_to_start_over_a_sign_in_still_waiting7[browser login   refuse to start over a sign in<br>still waiting<br>When: **claude code login other claude   length   0 and<br>claude code login other run state     gone**]:::task
+  browser_login___Refuse_to_start_over_a_sign_in_still_waiting7-->|Task| browser_login___End_the_sign_in_a_run_that_is_gone_left_waiting8[browser login   end the sign in a run that is gone<br>left waiting<br>When: **claude code login other run state     gone**]:::task
+  browser_login___End_the_sign_in_a_run_that_is_gone_left_waiting8-->|Task| browser_login___Remove_the_files_of_an_earlier_attempt9[browser login   remove the files of an earlier<br>attempt]:::task
+  browser_login___Remove_the_files_of_an_earlier_attempt9-->|Task| browser_login___Give_claude_a_browser_that_hands_its_page_over10[browser login   give claude a browser that hands<br>its page over]:::task
+  browser_login___Give_claude_a_browser_that_hands_its_page_over10-->|Task| browser_login___Make_the_pipe_claude_reads_the_code_from11[browser login   make the pipe claude reads the<br>code from]:::task
+  browser_login___Make_the_pipe_claude_reads_the_code_from11-->|Task| browser_login___Start_the_sign_in_in_the_background12[browser login   start the sign in in the<br>background]:::task
+  browser_login___Start_the_sign_in_in_the_background12-->|Block Start| browser_login___Sign_in__then_clean_up_whatever_happened13_block_start_0[[browser login   sign in  then clean up whatever<br>happened]]:::block
+  browser_login___Sign_in__then_clean_up_whatever_happened13_block_start_0-->|Task| browser_login___Wait_for_claude_to_show_the_sign_in_page0[browser login   wait for claude to show the sign<br>in page]:::task
   browser_login___Wait_for_claude_to_show_the_sign_in_page0-->|Task| browser_login___Read_what_claude_printed1[browser login   read what claude printed]:::task
   browser_login___Read_what_claude_printed1-->|Task| browser_login___Fail_when_claude_did_not_start_the_sign_in2[browser login   fail when claude did not start the<br>sign in<br>When: **claude code login url   length    0**]:::task
   browser_login___Fail_when_claude_did_not_start_the_sign_in2-->|Task| browser_login___Wait_for_the_page_claude_handed_its_browser3[browser login   wait for the page claude handed<br>its browser<br>When: **claude code login redirect   bool**]:::task
@@ -338,11 +350,11 @@ classDef rescue stroke:#665352,stroke-width:2px;
   browser_login___Read_claude_s_answer20-->|Task| browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname21[browser login   paste the whole code the browser<br>shows  what follows   included  for inventory<br>hostname<br>When: **claude code login code   length    0 and claude<br>code login answer is search  invalid code**]:::task
   browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname21-->|Task| browser_login___Hand_the_whole_code_to_claude22[browser login   hand the whole code to claude<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
   browser_login___Hand_the_whole_code_to_claude22-->|Task| browser_login___Wait_for_claude_to_finish_with_the_whole_code23[browser login   wait for claude to finish with the<br>whole code<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
-  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-.->|End of Block| browser_login___Sign_in__then_clean_up_whatever_happened10_block_start_0
-  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-->|Task| browser_login___Check_the_login_again11[browser login   check the login again]:::task
-  browser_login___Check_the_login_again11-->|Task| browser_login___Fail_when_the_sign_in_did_not_complete12[browser login   fail when the sign in did not<br>complete<br>When: **claude code login responded   bool and not  claude<br>code remote control status loggedin   default<br>false     bool**]:::task
-  browser_login___Fail_when_the_sign_in_did_not_complete12-->|Task| browser_login___Record_that_this_run_signed_the_VM_in13[browser login   record that this run signed the vm<br>in<br>When: **claude code login responded   bool**]:::task
-  browser_login___Record_that_this_run_signed_the_VM_in13-->End
+  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-.->|End of Block| browser_login___Sign_in__then_clean_up_whatever_happened13_block_start_0
+  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-->|Task| browser_login___Check_the_login_again14[browser login   check the login again]:::task
+  browser_login___Check_the_login_again14-->|Task| browser_login___Fail_when_the_sign_in_did_not_complete15[browser login   fail when the sign in did not<br>complete<br>When: **claude code login responded   bool and not  claude<br>code remote control status loggedin   default<br>false     bool**]:::task
+  browser_login___Fail_when_the_sign_in_did_not_complete15-->|Task| browser_login___Record_that_this_run_signed_the_VM_in16[browser login   record that this run signed the vm<br>in<br>When: **claude code login responded   bool**]:::task
+  browser_login___Record_that_this_run_signed_the_VM_in16-->End
 ```
 
 ### `install_native.yml`

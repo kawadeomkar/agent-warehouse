@@ -39,12 +39,14 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2626 tests. By file:
+pytest over `tests/unit/`: 2655 tests. By file:
 
-- **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 45,
+- **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the
-  sign-ins' `page_opener`, `plain_text`, and `banner`'s block.
+  sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
+  gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
+  `banner`'s block.
 - **`just status`** (`test_status.py` 56, `test_status_live.py` 10, `test_status_vms.py` 14,
   `test_status_work.py` 3): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
@@ -201,18 +203,23 @@ pytest over `tests/unit/`: 2626 tests. By file:
   against canned logins and stand-ins, and the harness they share (`tests/unit/harness.py`: an
   allowlisted environment, desktop stand-ins - and this machine's tailscale, gh and claude - that fail a run
   that reaches for them, no terminal).
-- **The Claude sign-in** (`test_claude_login.py` 53): `browser_login.yml` against the stand-in `claude`,
+- **The Claude sign-in** (`test_claude_login.py` 59): `browser_login.yml` against the stand-in `claude`,
   one run of `claude_login.yml` for every sign-in case - a VM whose ssh refuses the connection among them,
   said at once and ending no other VM's turn, a failed sign-in said in its own, one VM per batch and the
   work after the sign-ins waiting for the last - with what each VM records of its answer read after it;
   the end of an attempt, a TERM and a KILL only for a pid that outlives it by a second, run traced;
+  an attempt still waiting refused while its run is under way here, and with how to end it when that run is
+  another machine's or unrecorded, and one a run stopped part way left - killed while it waited for the
+  browser, the forward's far end up - ended by the next sign-in, claude and the far end each only while it is
+  still that process, and the VM signed in;
   five runs at a pseudo-terminal of the test's own - the page before the prompt, a partly copied code,
   an expired attempt, Ctrl-C then A, and keys typed before the prompt is ready - with the code searched
   for in every run at `-vvv` with module arguments injected; and the browser coming back by itself, a
   stand-in `ssh` recording the forward - one from each loopback address, each required, both made under
   an `AddressFamily` the user's ssh config sets (the stand-in takes `-L` and `AddressFamily` as OpenSSH
-  does) - and the test playing the browser at the stand-in's callback: no prompt, a forward refused or a
-  port held here on one address only, a page that is not Claude's, a run over SSH or no browser here falling back
+  does) - and running its far end here, in a session of its own, and the test playing the browser at the
+  stand-in's callback: no prompt, a forward refused or a port held here on one address only, a page that
+  is not Claude's, a run over SSH or no browser here falling back
   to the paste, and a browser that never comes back skipping the VM's later sign-ins.
 - **The GitHub sign-in** (`test_github_auth.py` 132): the `github_projects` role's `auth.yml`,
   `clone.yml`, `device_flow.yml` and `github_login.yml` for real against the stand-in `gh` and the fake

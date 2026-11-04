@@ -117,6 +117,25 @@ the URL as a command line of its own, and a page's query string - in a page the 
 command run here. The page is then printed for the person to open. Covered by
 `tests/unit/test_desktop_filter.py`.
 
+**`controller_run(_)`, `controller_run_state(recorded)`** — the run a Claude sign-in waits for, which the
+attempt records on the VM beside its pid, and whether that run is still under way
+([§5.5](roles.md#the-browser-sign-in)): a run stopped while it waits (Ctrl-C) runs no `always`, so the next
+sign-in of the VM tells a run still at its prompt from one that is gone by this record alone. `controller_run`
+ignores its input and gives `{host, boot, pid, start}`: this machine's name; this start of it (Linux's
+`/proc/sys/kernel/random/boot_id`, or the start of PID 1 elsewhere); the pid of the run's own
+`ansible-playbook` - `multiprocessing.parent_process()` of the worker ansible-core forks for each task, this
+process where there is none - and that process's start (ticks since boot from `/proc/<pid>/stat` on Linux,
+which a clock set since leaves alone; elsewhere `ps -o lstart=` with `LC_ALL=C` and `TZ=UTC0`, since lstart is
+local time in the locale's words, and runs under another zone would read one process's start as two).
+`controller_run_state` reads the record back as JSON text the VM may have written anything into, and gives
+`{state, host, pid}`: `running` - this machine's, and its process still the one of that start; `gone` - this
+machine's, since it last started, and no process of that start at its pid, none or another; `elsewhere` -
+another machine's name or another start of this one, which cannot be asked about; `unknown` - nothing
+recorded, a record that does not parse or lacks a start, or a start that cannot be read now. Only `gone`
+lets the sign-in end what that run left; `host` and `pid` are said only when they are a host name and a pid
+(`''` and `0` otherwise). Covered by `tests/unit/test_desktop_filter.py`, and by `test_claude_login.py`,
+which stops a waiting run and signs the VM in again.
+
 **`plain_text(text)`** — what a VM printed, safe to quote in a message on this machine: every escape
 sequence removed whole (OSC up to its terminator or the end of its line, DCS and the other string
 sequences, CSI with its parameters, two-byte ESC sequences, the 8-bit forms), then every control

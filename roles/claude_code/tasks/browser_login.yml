@@ -68,31 +68,111 @@
   become: true
   become_user: "{{ claude_code_user }}"
 
-# A sign-in of this VM still waiting - a run left at its prompt, or a second
-# just login --only claude started meanwhile - owns the pipe and the pidfile below;
-# taking them over would hand one run's code to the other's claude and end the
-# other's process. Told by the recorded pid's command line, so a pid reused by
-# something else since is no reason to refuse; with no ps to ask, nothing is.
+# A sign-in of this VM still waiting - a run left at its prompt, a second
+# just login --only claude started meanwhile, or what a run stopped while it
+# waited left behind: a Ctrl-C ends a run there and then, no always section
+# runs, and claude would wait out Ansible's async limit, the forward's far end
+# its sleep. The attempt's pipe and pidfiles are its own; taking them over would
+# hand one run's code to the other's claude and end the other's process. Told by
+# each recorded pid's command line - claude's an auth login, the far end's a
+# sleep - so a pid reused by something else since is neither a reason to refuse
+# nor anything to end; with no ps to ask, nothing is. Printed as the two pids,
+# claude's and the far end's, either one empty. ps -ww: Linux's procps cuts
+# piped ps output at 80 columns, which can cut "auth login" off.
 - name: browser_login | Look for a sign-in of this VM still waiting
   ansible.builtin.command:
     argv:
       - sh
       - -c
-      - 'pid=$(cat "$1" 2>/dev/null) && ps -o args= -p "$pid" 2>/dev/null | grep -q "auth login" && echo "$pid"; exit 0'
+      - >-
+        claude=$(cat "$1" 2>/dev/null); forward=$(cat "$2" 2>/dev/null);
+        case $claude in ''|*[!0-9]*) claude= ;; esac; case $forward in ''|*[!0-9]*) forward= ;; esac;
+        [ -n "$claude" ] && ps -ww -o args= -p "$claude" 2>/dev/null | grep -q "auth login" || claude=;
+        [ -n "$forward" ] && ps -o comm= -p "$forward" 2>/dev/null | grep -qx sleep || forward=;
+        echo "$claude:$forward"
       - sh
       - "{{ claude_code_login_pidfile }}"
+      - "{{ claude_code_login_forward_pidfile }}"
   become: true
   become_user: "{{ claude_code_user }}"
   register: claude_code_login_other
   changed_when: false
 
+# Who waits for it: each attempt records the run that started it (the
+# controller_run filter, filter_plugins/desktop.py) - this machine's name and
+# boot, and the pid and start of that run's ansible-playbook - and this machine
+# is asked whether that run is still under way. The VM hands the record back,
+# so it is read as text that may say anything, and only a run of this machine,
+# since it last started, that is gone - no process of that start at its pid -
+# lets this one end what it left.
+- name: browser_login | Read which run started it
+  ansible.builtin.slurp:
+    src: "{{ claude_code_login_run_file }}"
+  become: true
+  become_user: "{{ claude_code_user }}"
+  register: claude_code_login_other_run_read
+  failed_when: false
+  when: claude_code_login_other_found | bool
+
+# Latin-1, which reads any bytes: the record is ASCII when this project wrote it.
+- name: browser_login | Tell whether that run is still under way
+  ansible.builtin.set_fact:
+    claude_code_login_other_run: >-
+      {{ ((claude_code_login_other_run_read.content | default('') | b64decode(encoding='latin-1')) | controller_run_state)
+         if claude_code_login_other_found | bool else {'state': 'none', 'host': '', 'pid': 0} }}
+
+# A run still under way is protected, as ever. One this machine cannot ask
+# about - another machine's, this one's before it last started, or none
+# recorded, as by an earlier version - may be too, so it is refused as well,
+# with how to end the attempt by hand.
 - name: browser_login | Refuse to start over a sign-in still waiting
+  vars:
+    claude_code_login_other_cannot: >-
+      {{ ('the run on ' ~ (claude_code_login_other_run.host | plain_text) ~ ' - another machine, or this one before it last started')
+         if claude_code_login_other_run.state == 'elsewhere'
+         else 'none was recorded that this machine can check' }}
+    claude_code_login_other_from: >-
+      {{ ('from a run still under way on this machine (ansible-playbook, pid ' ~ claude_code_login_other_run.pid
+          ~ '). Finish or stop that run,')
+         if claude_code_login_other_run.state == 'running'
+         else ('from a run this machine cannot ask about (' ~ claude_code_login_other_cannot
+               ~ '). If no run waits for it any more, end it with ' ~ claude_code_login_end_command
+               ~ ' (it ends by itself ' ~ claude_code_login_lasts_minutes ~ ' minutes after it started),') }}
   ansible.builtin.fail:
     msg: >-
       {{ inventory_hostname }}: another sign-in of this VM is still waiting for its code (claude, pid
-      {{ claude_code_login_other.stdout | plain_text | trim }}), from a run still at its prompt. Finish or stop that run, then
-      run {{ claude_code_login_command }} again.
-  when: claude_code_login_other.stdout | trim | length > 0
+      {{ claude_code_login_other_claude | plain_text }}), {{ claude_code_login_other_from }} then run
+      {{ claude_code_login_command }} again.
+  when:
+    - claude_code_login_other_claude | length > 0
+    - claude_code_login_other_run.state != 'gone'
+
+# Nothing waits for what a run that is gone left: it is ended, rather than this
+# sign-in refused until Ansible's async limit ends it, or the forward left
+# holding this machine's port until its sleep runs out. Each pid only while it
+# is still that process, asked again before every signal: the far end's sleep a
+# TERM, which ends the forward's ssh here; claude a TERM, and a KILL only if it
+# is still claude's a second later, as the always section below ends its own.
+# ps -ww, as above: Linux cuts piped ps output at 80 columns.
+- name: browser_login | End the sign-in a run that is gone left waiting
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - >-
+        waiting() { ps -ww -o args= -p "$1" 2>/dev/null | grep -q "auth login"; };
+        [ -n "$2" ] && ps -o comm= -p "$2" 2>/dev/null | grep -qx sleep && kill "$2";
+        [ -n "$1" ] && waiting "$1" && kill "$1" || exit 0;
+        for _ in 1 2 3 4 5 6 7 8 9 10; do sleep 0.1; waiting "$1" || exit 0; done;
+        waiting "$1" && kill -9 "$1"; exit 0
+      - sh
+      - "{{ claude_code_login_other_claude }}"
+      - "{{ claude_code_login_other_forward }}"
+  become: true
+  become_user: "{{ claude_code_user }}"
+  changed_when: false
+  failed_when: false
+  when: claude_code_login_other_run.state == 'gone'
 
 # Unlinked, never truncated, as in device_flow.yml: an attempt a failed run
 # left behind would otherwise share the output file with this one.
@@ -104,6 +184,7 @@
     - "{{ claude_code_login_output }}"
     - "{{ claude_code_login_pipe }}"
     - "{{ claude_code_login_pidfile }}"
+    - "{{ claude_code_login_run_file }}"
     - "{{ claude_code_login_page_file }}"
     - "{{ claude_code_login_forward_pidfile }}"
   become: true
@@ -135,11 +216,14 @@
 
 # A shell for the redirections, and async because claude waits for the code.
 # Generous: the person may read the page for a while before pasting, and an
-# attempt still running past this is ended by Ansible's async timeout.
+# attempt still running past this is ended by Ansible's async timeout. The run
+# waiting for it is recorded before claude's pid, so a sign-in that finds the
+# pid finds the run too.
 - name: browser_login | Start the sign-in in the background
   ansible.builtin.shell:
     cmd: >-
-      umask 077 && exec 0<>{{ claude_code_login_pipe | quote }}
+      umask 077 && printf '%s\n' {{ none | controller_run | to_json | quote }} >{{ claude_code_login_run_file | quote }}
+      && exec 0<>{{ claude_code_login_pipe | quote }}
       && echo $$ >{{ claude_code_login_pidfile | quote }}
       && export BROWSER={{ claude_code_login_browser | quote }}
       && exec {{ ([claude_code_login_which.stdout | trim, 'auth', 'login'] + claude_code_login_args) | map('quote') | join(' ') }}
@@ -385,8 +469,7 @@
       ansible.builtin.fail:
         msg: >-
           {{ inventory_hostname }}: the sign-in had ended before the code was pasted
-          ({{ 'its page expired: an attempt lasts ' ~ ((claude_code_login_timeout | int
-              + claude_code_login_attempt_seconds | int) / 60) | int ~ ' minutes'
+          ({{ 'its page expired: an attempt lasts ' ~ claude_code_login_lasts_minutes ~ ' minutes'
               if claude_code_login_still.msg | default('') is search('Timeout exceeded')
               else 'claude had exited' }}). Run {{ claude_code_login_command }} again for a fresh sign-in page.
       when:
@@ -568,6 +651,7 @@
         - "{{ claude_code_login_output }}"
         - "{{ claude_code_login_pipe }}"
         - "{{ claude_code_login_pidfile }}"
+        - "{{ claude_code_login_run_file }}"
         - "{{ claude_code_login_page_file }}"
         - "{{ claude_code_login_forward_pidfile }}"
         - "{{ claude_code_login_browser }}"
