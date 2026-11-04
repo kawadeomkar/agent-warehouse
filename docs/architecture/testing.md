@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2850 tests. By file:
+pytest over `tests/unit/`: 2851 tests. By file:
 
 - **The package** (`test_claude_vm.py` 27): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` without loading `ansible`, `yaml`, `asyncio` or `subprocess`, and the package itself imports none of
@@ -484,13 +484,15 @@ pytest over `tests/unit/`: 2850 tests. By file:
   command, nor a name after one of its commands, no target only the Makefile had and no misspelt recipe
   is left outside the pages that tell the history, nor make's spelling of an option (`TAGS=`) on a line
   that does not say whose it is.
-- **The wiki** (`test_docs.py` 20): the generated reference sections are up to date, and every setting
+- **The wiki** (`test_docs.py` 21): the generated reference sections are up to date, and every setting
   and role default is documented; the site builds strictly from the pages git knows, every heading
   reaches its built page, and every page renders the same on GitHub as on the site, its diagrams
   included; no page repeats a heading, holds a closing tag in a code span or shows a character reference
   such as `&emsp;` as text outside code; the navigation lists every page and only pages; no relative link
   leaves `docs/`; the root files' links, the pages the repository names and the architecture sections it
-  cites all exist, a section cited from another page is a link, and the README's quick start matches the
+  cites all exist, every repository path the wiki and CLAUDE.md name in a code span is a file or folder of
+  the checkout or one git ignores on purpose (the user's `inventory/hosts.yml`), a section cited from
+  another page is a link, and the README's quick start matches the
   wiki.
 - **What a release must keep, and what may only shrink** (`test_persisted_names.py` 41, `test_ratchets.py` 3): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
