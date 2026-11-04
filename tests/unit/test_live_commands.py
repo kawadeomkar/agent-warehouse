@@ -1,4 +1,4 @@
-"""A run in parts, and a command drawn live: tools/live and filter_plugins/live_commands.py.
+"""A run in parts, and a command drawn live: tools/live and lib/claude_vm/ansible/parts.py.
 
 tools/live decides with the standard library alone whether a part is drawn, and passes it through otherwise: piped, no
 title, a -v, no log, or no engine to draw with - a fresh virtualenv's. Drawn, each part takes over the run's state from
@@ -10,7 +10,6 @@ state and log in the test's directory (docs/architecture/custom-code.md §7.8).
 from __future__ import annotations
 
 import contextlib
-import importlib.util
 import itertools
 import json
 import os
@@ -178,13 +177,10 @@ def test_the_state_is_the_run_s_alone(tmp_path):
 
 
 def _commands():
-    """filter_plugins/live_commands.py, loaded by path as tools/live loads it."""
-    name = "claude_on_proxmox_live_commands"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, REPO / "filter_plugins" / "live_commands.py")
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
+    """lib/claude_vm/ansible/parts.py, as tools/live imports it."""
+    from claude_vm.ansible import parts
+
+    return parts
 
 
 def test_a_save_prunes_only_the_states_a_run_left_behind(tmp_path):

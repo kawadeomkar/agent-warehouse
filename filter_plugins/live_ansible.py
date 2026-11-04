@@ -52,12 +52,11 @@ def _sibling(stem):
 from claude_vm import text  # noqa: E402
 
 plain_text = text.plain_text
+from claude_vm.ansible import parts as commands  # noqa: E402
 from claude_vm.run import model as view  # noqa: E402
 from claude_vm.tui import live_region as live  # noqa: E402
 from claude_vm.tui import run as drawn  # noqa: E402
 from claude_vm.tui import screen  # noqa: E402
-
-commands = _sibling("live_commands")
 
 LIVE_ENV = commands.LIVE_ENV
 STATE_ENV = commands.STATE_ENV

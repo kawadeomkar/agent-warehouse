@@ -628,7 +628,7 @@ is drawn as one run, its parts in turn:
   `ANSIBLE_ARGS`, no run log (`LOG_DIR=`), no state to carry the run between its parts (`LIVE_DIR=`), or no PyYAML
   and ansible-core. Otherwise it runs itself again
   through `tools/run-logged` under the title's recipe, so a command's run has a log under its rules, and hands the
-  command to `filter_plugins/live_commands.py`.
+  command to `lib/claude_vm/ansible/parts.py`.
 - **A command, drawn.** Its child gets `/dev/null` for stdin, one pipe for stdout and stderr, a session of its own
   with no terminal - what would ask at `/dev/tty`, git or ssh as pre-commit fetches its hooks, fails at once and
   says so, where a process group of its own was stopped by the terminal and hung the run - and this environment

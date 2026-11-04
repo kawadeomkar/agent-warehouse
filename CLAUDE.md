@@ -521,7 +521,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   stdout callback is the stream. No test or scenario sets
   the variable: `test_deploy_live.py` runs the callback at a pseudo-terminal of its own against a stand-in deploy,
   holds the log to the stream's, and fails if a tracked file other than the callback, the engines
-  (`filter_plugins/live_ansible.py`, `filter_plugins/live_commands.py` and `tools/live`), the declarations
+  (`filter_plugins/live_ansible.py`, `lib/claude_vm/ansible/parts.py` and `tools/live`), the declarations
   (`lib/claude_vm/run/recipes.py`), the recipes drawn live, the live tests' kit (`tests/unit/live_kit.py`) and
   pytest's plugin (`tests/unit/live_pytest.py`), the live tests that draw a playbook through the engine or a
   command through `tools/live`, each listed by name, and `test_justfile.py`'s recording stand-in names it;
@@ -877,7 +877,7 @@ the error text and `VM 4013 is not running` otherwise reads as a 401.
   sends a SIGINT or SIGTERM on to it, a SIGKILL or SIGHUP it cannot, so `killpg(SIGKILL)` on the playbook's group
   ended the playbook and left that worker reparented to PID 1, idle for good: 46 of them after
   a suite hung (2026-10-27), each listed as `ansible-playbook`. `harness._end` and a part's second Ctrl-C
-  (`filter_plugins/live_commands.py`) end the whole tree, found by `ps` before anything is signalled
+  (`lib/claude_vm/ansible/parts.py`) end the whole tree, found by `ps` before anything is signalled
   (`lib/claude_vm/proc.py`; a part remembers its child's tree, by each process's start, at the first Ctrl-C,
   since a child that ends there leaves it under PID 1 or a subreaper; an outside SIGTERM or SIGHUP goes to the
   whole tree); and every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once,

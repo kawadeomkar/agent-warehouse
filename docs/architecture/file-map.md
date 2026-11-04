@@ -115,6 +115,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.5)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
                                   as the callback and a run in parts say them (§7.5)
+                                  ansible/parts.py, a run in parts: a command drawn as a part, the state between parts,
+                                  the run's end (§7.8)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
@@ -131,7 +133,6 @@ filter_plugins/settings.py        init_answer, the rule each just init answer fo
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/live_ansible.py    the engine that draws a playbook run live: Ansible's events in, the region, the run's own
                                   words and the summary out; the stdout callback hands it every event (§7.5)
-filter_plugins/live_commands.py   a run in parts: a command drawn as a part, the state between parts, the run's end (§7.8)
 filter_plugins/sessions.py        claude_sessions_plan, which session goes to which VM checkout by origin; git_repository
                                   and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,

@@ -21,7 +21,7 @@ and Molecule - and each is drawn as one run (docs/architecture/custom-code.md §
 - The end (end): the summary and NEXT STEPS from the state, whatever ended the run - the recipe's trap runs it - and
   the state removed. A run with no state, every part passed through, ends with nothing said.
 
-Loaded by path as claude_on_proxmox_live_commands, as every module here loads another; it has no filters of its own.
+Imported as claude_vm.ansible.parts, by tools/live and the playbook engine (docs/architecture/custom-code.md §7.10).
 """
 
 from __future__ import annotations
@@ -42,18 +42,13 @@ from pathlib import Path
 from ansible import constants as C
 from ansible.utils.display import Display
 
-_LIB = str(Path(__file__).resolve().parents[1] / "lib")
-if _LIB not in sys.path:
-    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
-
-
-from claude_vm import proc as processes  # noqa: E402
-from claude_vm import text  # noqa: E402
-from claude_vm.run import model as view  # noqa: E402
-from claude_vm.run import next_steps as steps  # noqa: E402
-from claude_vm.tui import live_region as live  # noqa: E402
-from claude_vm.tui import run as drawn  # noqa: E402
-from claude_vm.tui import screen  # noqa: E402
+from .. import proc as processes
+from .. import text
+from ..run import model as view
+from ..run import next_steps as steps
+from ..tui import live_region as live
+from ..tui import run as drawn
+from ..tui import screen
 
 LIVE_ENV = "CLAUDE_ON_PROXMOX_LIVE"
 STATE_ENV = "CLAUDE_ON_PROXMOX_LIVE_STATE"
@@ -732,10 +727,3 @@ def end(title, state_path, rc):
         sys.stdout.flush()
     with contextlib.suppress(OSError):
         os.unlink(state_path)
-
-
-class FilterModule:
-    """No filters: tools/live loads this module by path. Here so the filter loader takes the file."""
-
-    def filters(self):
-        return {}

@@ -605,8 +605,8 @@ def test_no_other_test_or_scenario_draws_a_run():
     assert mentions == [
         "callback_plugins/claude_on_proxmox.py",
         "filter_plugins/live_ansible.py",
-        "filter_plugins/live_commands.py",
         "justfile",
+        "lib/claude_vm/ansible/parts.py",
         "lib/claude_vm/run/recipes.py",
         "tests/unit/live_kit.py",
         "tests/unit/live_pytest.py",

@@ -13,7 +13,7 @@ and the state's path taken out of its environment, nothing else changed - when t
 (CLAUDE_ON_PROXMOX_LIVE), a -v in ANSIBLE_ARGS, no run log (LOG_DIR=), no state to keep the run in between its parts
 (LIVE_DIR=), or no PyYAML and ansible-core to draw with - through tools/run-logged under --log's name where it was
 logged so before, just test's parts. Otherwise it runs itself again through tools/run-logged, under --log's name or
-the title's recipe, and hands the command to filter_plugins/live_commands.py, which draws it with its reader - plain,
+the title's recipe, and hands the command to lib/claude_vm/ansible/parts.py, which draws it with its reader - plain,
 pytest (tests/unit/live_pytest.py's events) or molecule (its action lines) - and keeps the run's state
 (CLAUDE_ON_PROXMOX_LIVE_STATE) for the next part, the run's stages to come (CLAUDE_ON_PROXMOX_LIVE_STAGES) listed
 from its first. `end` says the summary from that state, and removes it; without one it says nothing
@@ -142,12 +142,13 @@ def _logged(args, argv):
 
 
 def _engine():
-    name = "claude_on_proxmox_live_commands"
-    spec = importlib.util.spec_from_file_location(name, REPO / "filter_plugins" / "live_commands.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported only to draw: deciding whether to draw takes the standard library alone.
+    sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
+    from claude_vm import plugin
+    from claude_vm.ansible import parts
+
+    plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
+    return parts
 
 
 def main(argv):
