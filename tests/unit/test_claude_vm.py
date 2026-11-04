@@ -21,6 +21,8 @@ REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "lib"
 # Loaded only inside the function that needs one: each is milliseconds a client that is not Ansible would pay.
 NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
+# What a module may load when imported all the same: the process table is what proc.py is for.
+AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
 
 
 def _tracked(path: str) -> list[str]:
@@ -44,21 +46,18 @@ def test_lib_holds_the_one_package_claude_vm() -> None:
     assert {Path(path).parts[1] for path in _tracked("lib")} == {"claude_vm"}
 
 
-def test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported() -> None:
+@pytest.mark.parametrize("name", _core_modules())
+def test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported(name) -> None:
+    # Each in an interpreter of its own, so one module's imports never hide another's.
     script = f"""
 import importlib, json, sys
 sys.path.insert(0, {str(LIB)!r})
-found = {{}}
-for name in {_core_modules()!r}:
-    importlib.import_module(name)
-    loaded = [m for m in {NEVER_AT_IMPORT!r} if m in sys.modules or any(k.startswith(m + ".") for k in sys.modules)]
-    if loaded:
-        found[name] = loaded
-        break
-print(json.dumps(found))
+importlib.import_module({name!r})
+loaded = {{key.split(".")[0] for key in sys.modules}}
+print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
 """
     run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert json.loads(run.stdout) == {}, "the first core module to load one, and what it loaded"
+    assert set(json.loads(run.stdout)) <= AT_IMPORT.get(name, set())
 
 
 def test_importing_the_package_imports_no_module_of_it() -> None:

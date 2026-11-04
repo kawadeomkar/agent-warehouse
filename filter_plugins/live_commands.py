@@ -58,10 +58,10 @@ def _sibling(stem):
     return sys.modules[name]
 
 
+from claude_vm import proc as processes  # noqa: E402
 from claude_vm import text  # noqa: E402
 from claude_vm.tui import screen  # noqa: E402
 
-processes = _sibling("processes")
 view = _sibling("run_view")
 from claude_vm.tui import live_region as live  # noqa: E402
 

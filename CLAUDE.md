@@ -878,7 +878,7 @@ the error text and `VM 4013 is not running` otherwise reads as a 401.
   ended the playbook and left that worker reparented to PID 1, idle for good: 46 of them after
   a suite hung (2026-10-27), each listed as `ansible-playbook`. `harness._end` and a part's second Ctrl-C
   (`filter_plugins/live_commands.py`) end the whole tree, found by `ps` before anything is signalled
-  (`filter_plugins/processes.py`; a part remembers its child's tree, by each process's start, at the first Ctrl-C,
+  (`lib/claude_vm/proc.py`; a part remembers its child's tree, by each process's start, at the first Ctrl-C,
   since a child that ends there leaves it under PID 1 or a subreaper; an outside SIGTERM or SIGHUP goes to the
   whole tree); and every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once,
   (`tests/unit/interrupts.py`; one ignored on the way in, nohup's SIGHUP, stays so), since `tools/live` and CI's

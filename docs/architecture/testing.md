@@ -27,7 +27,7 @@ and starts with `socket.getfqdn` answering at once (`harness.FAKE_START`): for t
 spent five seconds on it.
 A run a test gives up on - a timeout, a Ctrl-C, a failure on the way -
 is ended whole (`harness._end`): its process group, and every process found under it before any is signalled
-(`filter_plugins/processes.py`), since ansible-core's task worker detaches into a session of its own
+(`lib/claude_vm/proc.py`), since ansible-core's task worker detaches into a session of its own
 (`WorkerProcess._detach`: `setsid`, stdio on `/dev/null`) - a SIGINT or SIGTERM the playbook sends on to it
 itself, a SIGKILL or a SIGHUP it does not - and the group's SIGKILL alone left the task in flight behind,
 reparented to PID 1 and idle for good, 46 of them after a suite that hung; though not an async job's wrapper,
@@ -39,10 +39,11 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2851 tests. By file:
+pytest over `tests/unit/`: 2860 tests. By file:
 
-- **The package** (`test_claude_vm.py` 27): `lib/` holds `claude_vm` alone; every core module imports in a fresh
-  `python -I` without loading `ansible`, `yaml`, `asyncio` or `subprocess`, and the package itself imports none of
+- **The package** (`test_claude_vm.py` 36): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+  `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
+  `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
   copies Ansible's values into exact types, `to_wire` puts `format_version` and `kind` first; an adapter's filter
   imports its module only when called and refuses another checkout's `claude_vm`, known by file, not by spelling.
@@ -190,7 +191,7 @@ pytest over `tests/unit/`: 2851 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **Processes** (`test_processes.py` 15): `filter_plugins/processes.py` listing a grandchild in a session of its own
+- **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
   at it, never once another has it; a root exited, a zombie or reaped, its group still ended - its children moved

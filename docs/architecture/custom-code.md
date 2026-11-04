@@ -643,7 +643,7 @@ is drawn as one run, its parts in turn:
   interrupted before its command runs none and says it stopped. The part sends Ctrl-C to its child's group, reads
   the pipe to its end, so the child's last words reach the log, marks its task stopped (`■`) and exits 130; a second
   Ctrl-C ends everything the child started and reads no more of it: its group, and every process the part found
-  under the child before the first Ctrl-C went out (`filter_plugins/processes.py`, which reads the table `ps`
+  under the child before the first Ctrl-C went out (`lib/claude_vm/proc.py`, which reads the table `ps`
   prints, each process with its start, so a pid another process has by then is left alone), since one in a
   session of its own - ansible-core's task worker, detached by `WorkerProcess._detach`; a nested run's part -
   outlives the group, and a child that ended at the first leaves them under PID 1 or a subreaper, where no walk
@@ -824,8 +824,8 @@ ships a module only with what it imports from `module_utils`, so they never impo
 arguments.
 
 - **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
-  when it is imported, only inside the function that needs one: a client that is not Ansible would pay about 30 ms
-  for `ansible.errors` alone. ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
+  when it is imported, only inside the function that needs one - but `proc.py`, the process table, whose every user
+  runs programs anyway: a client that is not Ansible would pay about 30 ms for `ansible.errors` alone. ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
   is. The package's `__init__.py` imports nothing.
 - **`records.py`** holds `plain`, which copies a value out of Ansible's lazy containers and tagged strings, and
   `Checked`, the base of every record: a frozen slots dataclass whose fields are held to their annotations whenever

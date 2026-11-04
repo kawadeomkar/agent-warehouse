@@ -15,7 +15,7 @@ has exited, a zombie, no longer answers for its group on macOS, and its children
 found under it no more. The interrupts are held off while the table is read
 and the tree signalled, since a second one - a hangup moments after a kill - would otherwise end the end itself.
 
-Loaded by path as claude_on_proxmox_processes (filter_plugins/live_commands.py, tests/unit/harness.py); no filters.
+Imported as claude_vm.proc, by the parts' engine and tests/unit/harness.py (docs/architecture/custom-code.md §7.10).
 """
 
 from __future__ import annotations
@@ -102,10 +102,3 @@ def end(pid: int, *, remembered: dict[int, str] | None = None, signum: int = sig
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, held)
     return pids
-
-
-class FilterModule:
-    """No filters: the engine and the harness load this module by path. Here so the filter loader takes the file."""
-
-    def filters(self):
-        return {}
