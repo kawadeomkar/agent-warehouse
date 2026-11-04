@@ -747,7 +747,7 @@ passes it nothing: `claude_vms` for the roles `configure.yml` runs, `claude_vm_p
 `proxmox_template` - and asks `VariableManager` for a play naming the role, so its defaults sit at the bottom, then
 the templar for each value. `--all` adds a default that lives only in a role's `default()` (`vm_cores`), marked
 trusted as a template. What a setting is - each role's `argument_specs`, main's first, the wiring, the sections of
-`local.yml.example` - comes from `tools/docs.py`'s functions, the reference pages' own model.
+`local.yml.example` - comes from `lib/claude_vm/wiring.py`, the reference pages' own model.
 
 **Where a value was set** is the highest layer that holds the name - `hosts.yml`, `vault.yml`, `local.yml`, or a
 default - and, for a default that is an expression, the names it reads, followed through the wiring (Jinja's own

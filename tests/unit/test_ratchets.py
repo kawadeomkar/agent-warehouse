@@ -116,6 +116,7 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/status/model.py": 18,
     "lib/claude_vm/tui/run.py": 3,
     "lib/claude_vm/tui/status.py": 3,
+    "lib/claude_vm/wiring.py": 1,
     "playbooks/code.yml": 2,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,
@@ -133,7 +134,6 @@ PROXMOX_ELSEWHERE = {
     "playbooks/tasks/vm_addresses.yml": 11,
     "playbooks/tasks/vm_stop.yml": 4,
     "playbooks/templates/vm_session.md.j2": 2,
-    "tools/docs.py": 1,
 }
 
 
