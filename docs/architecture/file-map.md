@@ -109,6 +109,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   aligned, coloured in one palette (§7.8); proc.py, the processes under one, and
                                   their end: what a kill must reach beyond the group it was sent to - ansible-core's
                                   detached task worker, a nested run's parts (§7.8)
+                                  run/recipes.py, every command drawn live, declared: its stages and steps, named
+                                  by its title (§7.8)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
@@ -128,7 +130,6 @@ filter_plugins/run_view.py        a live run as stages, steps and tasks (just de
 filter_plugins/live_ansible.py    the engine that draws a playbook run live: Ansible's events in, the region, the run's own
                                   words and the summary out; the stdout callback hands it every event (§7.5)
 filter_plugins/live_commands.py   a run in parts: a command drawn as a part, the state between parts, the run's end (§7.8)
-filter_plugins/live_recipes.py    every command drawn live, declared: its stages and steps, named by its title (§7.8)
 filter_plugins/sessions.py        claude_sessions_plan, which session goes to which VM checkout by origin; git_repository
                                   and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,

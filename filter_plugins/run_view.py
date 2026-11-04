@@ -6,7 +6,7 @@ unit test (tests/unit/test_run_view.py). Lines are drawn with lib/claude_vm/tui/
 lib/claude_vm/tui/live_region.py, as `just status`'s report is (docs/architecture/custom-code.md §7.8);
 docs/guides/runs.md shows what a person sees, and §7.5 how this works.
 
-What a run is made of is its recipe's declaration in filter_plugins/live_recipes.py, which the title's first word
+What a run is made of is its recipe's declaration in lib/claude_vm/run/recipes.py, which the title's first word
 names; nothing here names a command. A play's stage is the first stage that names it - its file and play name, else
 its file; a play no stage names (discover.yml, which configure and each sign-in import, deploy.yml's first) takes the
 stage of the play after it, else of the one before. Within a stage, a task's step is the declared step its play's
@@ -54,10 +54,9 @@ def _sibling(stem):
     return sys.modules[name]
 
 
-from claude_vm.tui import screen  # noqa: E402
-
-recipes = _sibling("live_recipes")
+from claude_vm.run import recipes  # noqa: E402
 from claude_vm.text import one_line as _one_line  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
 
 
 def stage_files(recipe):

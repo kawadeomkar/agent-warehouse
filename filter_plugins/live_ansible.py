@@ -12,7 +12,7 @@ Either way the default callback still renders every task, sent to the run's log 
 log is what it would be without the engine; the run's own words go to the screen in colour and to the log without;
 and a summary replaces PLAY RECAP on the screen, which the log keeps, followed by NEXT STEPS. What the run is made
 of - its stages and steps, the failures it raises again - is its recipe's declaration
-(filter_plugins/live_recipes.py); nothing here names a command (docs/architecture/custom-code.md §7.5, §7.8).
+(lib/claude_vm/run/recipes.py); nothing here names a command (docs/architecture/custom-code.md §7.5, §7.8).
 
 Loaded by path as claude_on_proxmox_live_ansible, as every module here loads another; it has no filters of its own.
 """

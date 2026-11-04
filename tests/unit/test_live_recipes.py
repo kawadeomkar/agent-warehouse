@@ -1,4 +1,4 @@
-"""Every `just` command drawn live, its declaration held to the playbooks it names (filter_plugins/live_recipes.py).
+"""Every `just` command drawn live, its declaration held to the playbooks it names (lib/claude_vm/run/recipes.py).
 
 A declaration matches plays, blocks and tasks by name, and reads facts by name: a name that no longer exists matches
 nothing, and the run is drawn without a word of it - a stage with no plays, a failure raised again drawn as a
@@ -10,7 +10,6 @@ as that playbook's own tests run it, with every path those pin (docs/architectur
 from __future__ import annotations
 
 import ast
-import importlib.util
 import re
 from pathlib import Path
 
@@ -23,14 +22,8 @@ SET_FACT = {"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"}
 IMPORTS = {f"{prefix}import_{kind}" for prefix in ("", "ansible.builtin.") for kind in ("tasks", "role", "playbook")}
 
 
-def _load(name):
-    spec = importlib.util.spec_from_file_location(f"test_{name}", REPO / "filter_plugins" / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+from claude_vm.run import recipes  # noqa: E402
 
-
-recipes = _load("live_recipes")
 RECIPES = sorted(recipes.RECIPES)
 
 

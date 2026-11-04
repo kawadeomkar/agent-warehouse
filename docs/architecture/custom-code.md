@@ -257,7 +257,7 @@ The callback then keeps only its classic output, which the engine prints through
 variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
 later `just destroy` may run in - inherits it. It is `live` when stdout can take the region every live output
 shares (§7.8, `can_draw`), and `lines` otherwise. The model is `filter_plugins/run_view.py`, which any playbook run
-can be drawn with, and what a run is made of is its recipe's declaration in `filter_plugins/live_recipes.py`, named
+can be drawn with, and what a run is made of is its recipe's declaration in `lib/claude_vm/run/recipes.py`, named
 by the title's first word: `just deploy` is the first, and §7.8 says how another recipe joins it.
 
 - **Stages and steps.** A play's stage is the first of the declaration's stages that names it: by its file and
@@ -599,7 +599,7 @@ callbacks, `status.py`, `run_view.py` and `live_ansible.py` share one copy of ea
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
 `just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s
-does, and its declaration in `filter_plugins/live_recipes.py`, named by the title's first word, says what its run is
+does, and its declaration in `lib/claude_vm/run/recipes.py`, named by the title's first word, says what its run is
 made of - its stages, by playbook or by play, a quiet one counted but never drawn (discovery, a last play that only
 raises), one whose hosts are not VMs (`vms=False`: the template's, on the Proxmox host), and the VMs a fact names on a
 stage's row (`info`); each stage's steps, by playbook, by the blocks around

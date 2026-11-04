@@ -606,8 +606,8 @@ def test_no_other_test_or_scenario_draws_a_run():
         "callback_plugins/claude_on_proxmox.py",
         "filter_plugins/live_ansible.py",
         "filter_plugins/live_commands.py",
-        "filter_plugins/live_recipes.py",
         "justfile",
+        "lib/claude_vm/run/recipes.py",
         "tests/unit/live_kit.py",
         "tests/unit/live_pytest.py",
         "tests/unit/test_deploy_live.py",
@@ -618,7 +618,7 @@ def test_no_other_test_or_scenario_draws_a_run():
         "tests/unit/test_test_live.py",
         "tools/live",
     ], mentions
-    # In the justfile, only the recipes a declaration draws (filter_plugins/live_recipes.py), each its own title.
+    # In the justfile, only the recipes a declaration draws (lib/claude_vm/run/recipes.py), each its own title.
     lines = (REPO / "justfile").read_text().splitlines()
     recipe, naming = None, set()
     for line in lines:
@@ -631,14 +631,9 @@ def test_no_other_test_or_scenario_draws_a_run():
 
 
 def _recipes():
-    import importlib.util
+    from claude_vm.run import recipes
 
-    spec = importlib.util.spec_from_file_location(
-        "test_live_recipes_module", REPO / "filter_plugins" / "live_recipes.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return recipes
 
 
 RAISED = """
