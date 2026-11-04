@@ -83,8 +83,7 @@ REPORTS = {
     ],
     "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
-    "playbooks/tasks/vscode_open.yml": ["vscode_open | Say what was opened"],
-    "playbooks/tasks/zed_open.yml": ["zed_open | Say what was opened"],
+    "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",
@@ -536,7 +535,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
         for task in _tasks(path)
         if "ansible.builtin.set_stats" in task
     ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 32
+    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
 
 

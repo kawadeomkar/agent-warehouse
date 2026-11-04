@@ -18,11 +18,11 @@ WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # an editor's key, a command's
 
 
 def vm_path(value: str, what: str) -> str:
-    """An absolute path on the VM with no . or .. part, written plainly: no "//" or trailing "/"."""
-    parts = value.split("/")
-    if not value.startswith("/") or {".", ".."} & set(parts) or {"\0", "\n"} & set(value):
-        raise ValueError(f"{what} is not an absolute path without . or ..: {value!r}")
-    return "/" + "/".join(part for part in parts if part)
+    """An absolute path on the VM, normalised for comparing: a plan compares paths this way and writes them, and
+    launches them, exactly as code.yml built them, so a "//" or a "." in a setting changes nothing it did."""
+    if not value.startswith("/") or {"\0", "\n"} & set(value):
+        raise ValueError(f"{what} is not an absolute path: {value!r}")
+    return "/" + posixpath.normpath(value).lstrip("/")
 
 
 def relative(path: str, mode: str) -> None:
@@ -40,7 +40,7 @@ class Editor(Checked):
     key: str
     name: str
     family: FamilyName
-    claude_terminal: ClaudeTerminal
+    claude_terminal: ClaudeTerminal = "none"  # a row without it: neither
     window_tasks: bool
     cli_candidates: tuple[str, ...]
     version_re: str = ""
@@ -59,7 +59,7 @@ class Probe(Checked):
     settings_file: str = ""  # the user's editor settings, read and never written: where they are
     settings_exists: bool = False
     settings_text: str | None = ""  # None where the file could not be read
-    tasks_foreign: bool = False  # a tasks file in just code's directory on the VM that is not just code's
+    tasks_head: str | None = None  # the first line of the editor's tasks file in just code's directory, if there
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -95,12 +95,15 @@ class OpenInputs(Checked):
     def validate(self) -> None:
         if not all(map(WORD.fullmatch, self.helpers)):
             raise ValueError(f"not a plain name among the helpers: {self.helpers!r}")
-        if any(vm_path(path, "a path") != path for path in (self.target, self.root, self.files_dir)):
-            raise ValueError("target, root and files_dir are absolute paths, written plainly")
-        if self.files_dir in ("/", self.root) or (self.terminal and self.files_dir == self.target):
-            raise ValueError(f"files_dir cannot be {self.files_dir}")
-        if posixpath.commonpath([self.root, self.target]) != self.root:
+        target, root = vm_path(self.target, "target"), vm_path(self.root, "root")
+        if posixpath.commonpath([root, target]) != root:
             raise ValueError(f"{self.target} is not in {self.root}")
+        # just code's own directory is held to its rules only where something is written in it, as code.yml holds it:
+        # with the terminal and the notes off, a window opens whatever the setting names.
+        if self.terminal or self.notes or self.task_written:
+            files_dir = vm_path(self.files_dir, "files_dir")
+            if files_dir in ("/", root) or (self.terminal and files_dir == target):
+                raise ValueError(f"files_dir cannot be {self.files_dir}")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -139,6 +142,7 @@ class OpenPlan(Checked):
     launch: tuple[str, ...] = ()  # the command run here: the registry's, never a family's
     report: tuple[str, ...] = ()  # said, then what YAML says of the session copies
     report_end: tuple[str, ...] = ()  # said after that
+    claude_task: bool = False  # a Claude task of just code's is in the editor's list once the window opens
     next_steps: tuple[NextStep, ...] = ()
 
 
@@ -149,9 +153,7 @@ def editors_from(raw: object) -> dict[str, Editor]:
 
 
 def inputs_from(raw: object) -> OpenInputs:
-    """code.yml's code_open_inputs, copied out of Ansible, its paths written plainly."""
+    """code.yml's code_open_inputs, copied out of Ansible, its paths as code.yml built them."""
     fields = plain(raw, "inputs")
-    given = [what for what in ("target", "root", "files_dir") if type(fields.get(what)) is str]
-    paths = {what: vm_path(fields[what], what) for what in given}
     records = {"vm": VmRef(**fields.get("vm", {})), "probe": Probe(**fields.get("probe", {}))}
-    return OpenInputs(**(fields | paths | records))
+    return OpenInputs(**(fields | records))

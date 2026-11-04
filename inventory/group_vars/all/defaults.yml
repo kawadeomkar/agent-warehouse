@@ -397,19 +397,20 @@ tailscale_login_timeout: 300
 # starts nothing by itself: claude is a task of the window you pick, or typed
 # in its terminal (docs/guides/zed.md).
 editor: vscode
-# The editors just code can open, by the editor setting's value, one task file
-# pair each (playbooks/tasks/<editor>_check.yml and <editor>_open.yml). Each
-# row says, in literal values only: name, how the editor is said;
-# window_tasks, whether its window runs just code's tasks as it opens (the
-# notes' refresh, the Claude terminal's start); claude_terminal, how its
-# window gets a Claude terminal - started (a task the window runs as it
-# opens), listed (a task the user picks from the editor's list of tasks) or
-# none (neither, the default for a row without it). The last two mean
-# different things, though with these two rows they always agree. family,
-# the module of lib/claude_vm/editors/ that plans its window (a fork of an
-# editor is one more row of that editor's family); cli_candidates, the names
-# its command goes by here, looked for in that order; version_re, what that
-# command's --version must say where another program shares a name.
+# The editors just code can open, by the editor setting's value, a check file
+# each (playbooks/tasks/<editor>_check.yml) and the one apply every editor's
+# plan goes through (playbooks/tasks/editor_open.yml). Each row says, in
+# literal values only: name, how the editor is said; window_tasks, whether its
+# window runs just code's tasks as it opens (the notes' refresh, the Claude
+# terminal's start); claude_terminal, how its window gets a Claude terminal -
+# started (a task the window runs as it opens), listed (a task the user picks
+# from the editor's list of tasks) or none (neither, the default for a row
+# without it). The last two mean different things, though with these two rows
+# they always agree. family, the module of lib/claude_vm/editors/ that plans
+# its window (a fork of an editor is one more row of that editor's family);
+# cli_candidates, the names its command goes by here, looked for in that
+# order; version_re, what that command's --version must say where another
+# program shares a name.
 # Internal, not a setting: tests hold it to those files, to just code's
 # --editor and to the core's records (docs/architecture/custom-code.md §7.10).
 claude_editors:

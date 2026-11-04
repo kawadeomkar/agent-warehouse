@@ -1,4 +1,5 @@
-"""VS Code's own files on this machine, read and never written: the filter of filter_plugins/vscode.py."""
+"""VS Code's family: its settings reader - the user's own settings here, read and never written - and the plan of its
+window, the workspace file and the helpers just code writes on the VM, and what VS Code will ask."""
 
 from __future__ import annotations
 
@@ -7,10 +8,10 @@ import posixpath
 
 from ..refs import NextStep
 from . import common
-from .model import OpenPlan, VmDirectory, VmFile
+from .model import Editor, OpenInputs, OpenPlan, VmDirectory, VmFile, VmWrite
 
 
-def jsonc_loads(text):
+def jsonc_loads(text: str) -> object:
     """Parse JSON with comments and trailing commas, as VS Code writes its settings.
 
     One pass over the text: a string is copied whole, escapes and all, so a
@@ -54,7 +55,7 @@ def jsonc_loads(text):
 _UNSET = object()
 
 
-def _values_tree(settings):
+def _values_tree(settings: dict) -> dict:
     """Expand dotted keys into nested objects the way VS Code's ``toValuesTree`` does.
 
     Keys apply in file order, so the later of a flat and a nested spelling
@@ -77,7 +78,7 @@ def _values_tree(settings):
     return tree
 
 
-def vscode_setting(text, key, default=None, unparsable=_UNSET):
+def vscode_setting(text: str, key: str, default: object = None, unparsable: object = _UNSET) -> object:
     """Return the value VS Code's settings.json ``text`` gives ``key``, or ``default``.
 
     Read-only and forgiving on purpose: a run that only wants to say what VS
@@ -113,7 +114,7 @@ HELPERS = ("claude-terminal.sh", "session-notes.sh", "session_notes.py")
 WORKSPACE_SUFFIX = ".code-workspace"
 
 
-def _workspace_file(inputs):
+def _workspace_file(inputs: OpenInputs) -> str:
     """The workspace file, under just code's directory: one project's in project/, so a repository that shares the
     projects directory's name cannot collide with the whole directory's."""
     if inputs.project:
@@ -121,7 +122,7 @@ def _workspace_file(inputs):
     return f"{posixpath.basename(inputs.root) or 'projects'}{WORKSPACE_SUFFIX}"
 
 
-def _claude_lines(inputs):
+def _claude_lines(inputs: OpenInputs) -> list[str]:
     """The lines the Claude terminal is handed after its helper, in the helper's order."""
     vm = inputs.vm.name
     signed_in_watched = (
@@ -149,7 +150,7 @@ def _claude_lines(inputs):
     ]
 
 
-def _github_said(inputs):
+def _github_said(inputs: OpenInputs) -> str:
     return (
         "Signed in to GitHub. To clone your private repositories here too, run on your machine: just deploy"
         f" {inputs.vm.name} --tags github_projects"
@@ -158,7 +159,7 @@ def _github_said(inputs):
     )
 
 
-def _workspace(inputs):
+def _workspace(inputs: OpenInputs) -> dict:
     """The workspace as data, written as to_nice_json writes it, so no path or message can break its JSON. Absolute
     paths throughout; the notes' folder a second one only where the window's own folder holds it."""
     vm, target, helpers = inputs.vm.name, inputs.target, posixpath.join(inputs.files_dir, common.HELPERS)
@@ -226,7 +227,7 @@ def _workspace(inputs):
     return {"folders": folders, "settings": settings, "tasks": {"version": "2.0.0", "tasks": tasks}}
 
 
-def _said(inputs, auto):
+def _said(inputs: OpenInputs, auto: object, terminal: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """What is said of the window, from what the user's own settings say VS Code will ask."""
     vm, root, probe = inputs.vm.name, inputs.root, inputs.probe
     below = inputs.files_dir.startswith(root + "/")
@@ -302,14 +303,14 @@ def _said(inputs, auto):
         "The first connection installs VS Code Server on the VM and takes a minute.",
         f"A terminal named Claude then starts claude in it, signing in to Claude{github} first if {vm} has not been. "
         + first_time
-        if inputs.terminal
+        if terminal
         else "",
         (
             '"Tasks: Run Task", Shell opens a shell in the same folder beside it.'
             if auto == "off"
             else "A shell in the same folder opens to its left."
         )
-        if inputs.terminal
+        if terminal
         else "",
         notes_said,
     )
@@ -325,8 +326,11 @@ def _said(inputs, auto):
     return said, (session,)
 
 
-def plan_open(editor, inputs):
+def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
     vm = inputs.vm.name
+    # The Claude terminal is the row's to give: a window that starts none (claude_terminal other than started) gets
+    # the bare folder, and nothing is written for it, as code.yml's own gates decide from the same row.
+    terminal = inputs.terminal and editor.claude_terminal == "started"
     if not common.pick_cli(editor, inputs.probe):
         return OpenPlan(
             editor=editor.key,
@@ -337,9 +341,9 @@ def plan_open(editor, inputs):
             ),
         )
     auto = vscode_setting(inputs.probe.settings_text or "", "task.allowAutomaticTasks", "", unparsable="unparsable")
-    writes = ()
+    writes: tuple[VmWrite, ...] = ()
     opens = inputs.target
-    if inputs.terminal:
+    if terminal:
         # The helpers before the workspace file that runs them: one written first, the copy then failing, would run a
         # file that is not there.
         workspace = _workspace_file(inputs)
@@ -351,11 +355,11 @@ def plan_open(editor, inputs):
         )
         # VS Code opens a path ending in .code-workspace as a workspace, not as a file to edit.
         opens = posixpath.join(inputs.files_dir, workspace)
-    report, end = _said(inputs, auto)
+    report, end = _said(inputs, auto, terminal)
     return OpenPlan(
         editor=editor.key,
         vm_writes=writes,
-        helpers=HELPERS if inputs.terminal else (),
+        helpers=HELPERS if terminal else (),
         opens=opens,
         report=report,
         report_end=end,

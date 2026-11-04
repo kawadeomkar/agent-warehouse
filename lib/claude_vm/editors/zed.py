@@ -88,11 +88,16 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
     if refused:
         return OpenPlan(editor=editor.key, refusals=(refused,))
     helper = posixpath.join(inputs.files_dir, common.HELPERS, HELPER)
-    foreign = inputs.probe.tasks_foreign
-    there = inputs.task_written and not foreign
+    # Zed joins a task's args into one bash -i -c command on the VM: the helper's path goes in only as a plain path,
+    # whatever the inputs say, or no task is written at all.
+    written = inputs.task_written and bool(common.HELPER_PATH.fullmatch(helper))
+    # A tasks file there is just code's only where its first line is the marker: one without it is someone else's.
+    head = inputs.probe.tasks_head
+    foreign = head is not None and head != common.MARKER
+    there = written and not foreign
     listed = there and inputs.files_dir.startswith(inputs.target + "/")
     writes: tuple[VmWrite, ...] = ()
-    if inputs.task_written:
+    if written:
         writes = (VmDirectory(kind="directory", path=common.HELPERS),)
         if not foreign:
             # No cwd, so the task runs in the window's folder; a new terminal for every spawn, so a spawn never
@@ -129,8 +134,9 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
     return OpenPlan(
         editor=editor.key,
         vm_writes=writes,
-        helpers=(HELPER,) if inputs.task_written else (),
+        helpers=(HELPER,) if written else (),
         opens=inputs.target,
         report=report,
+        claude_task=there,
         next_steps=(NextStep(vm=inputs.vm, matter="editor", action=None),),
     )

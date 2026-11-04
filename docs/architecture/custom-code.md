@@ -90,22 +90,22 @@ Covered by 28 unit tests in `tests/unit/test_github_repos.py`.
 
 ---
 
-## 7.3 `filter_plugins/vscode.py`
+## 7.3 VS Code's settings reader, `lib/claude_vm/editors/vscode.py`
 
 **`vscode_setting(text, key, default)`** — the value VS Code's `settings.json` gives `key`, for
-`code.yml` to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
+VS Code's plan to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
 `/* */` comments and trailing commas are dropped in one pass that copies strings whole, so a `//`
 in a URL is not a comment and a commented-out `"task.allowAutomaticTasks": "off"` does not count.
 A key is read flat, as VS Code writes it, or nested, and the later spelling wins, as VS Code's own
 reader has it: dotted keys expand into a tree in file order, a nested object replaces what the flat
 keys built before it, and a key whose path runs into a value that is not an object is dropped.
 Empty text gives `default`; text that does not parse, or is not an object, gives `unparsable` when
-the caller passes one, which is how `code.yml` says a file did not parse rather than take it for
+the caller passes one, which is how the plan says a file did not parse rather than take it for
 unset. Either way a run that only reports what the editor will do must not fail on the user's own
 settings. Read-only by construction; nothing in the project writes that file.
 
-Its code is `lib/claude_vm/editors/vscode.py`'s (§7.10), the module VS Code's family is to grow from.
-Covered by unit tests in `tests/unit/test_vscode_filters.py`.
+It is part of VS Code's family (§7.10), and no filter: the plan alone calls it, on the text the family's check read
+(`code_probe`). Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 
 ## 7.4 `filter_plugins/desktop.py` and `filter_plugins/text.py`
 
@@ -870,10 +870,15 @@ arguments.
   (`family.py`), never `@runtime_checkable`. `model.py` holds the records: a row of `claude_editors`, what the
   family's check found here (`Probe`), the inputs (`OpenInputs`, which grow by fields with defaults) and the plan.
   Every plan passes `registry.py` on every call: a refusal leaves alone; every write lies strictly inside just
-  code's directory (`commonpath` on the normalised join); every helper is one YAML lists, with its directory; every
-  NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's fixed shape over
-  the first command `which` printed with one of the row's names whose `--version` says what the row asks, so never
-  ZFS's `zed`. Anything else is a `ValueError`. `filter_plugins/editors.py` gives Ansible `editor_open_plan`.
+  code's directory (`commonpath` on the normalised join), outside the folders YAML writes there itself, the session
+  copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML lists, with its
+  directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's
+  fixed shape over the first command `which` printed with one of the row's names whose `--version` says what the
+  row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised and writes
+  and launches them exactly as `code.yml` built them, and holds just code's directory to its rules only where it
+  writes there, as `code.yml` does; a family gives the Claude terminal only where its row says the window has one
+  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is).
+  `filter_plugins/editors.py` gives Ansible `editor_open_plan`.
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

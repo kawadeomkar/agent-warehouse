@@ -371,13 +371,16 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `terminal.integrated.allowInUntrustedWorkspace`. The editors are one internal list, `claude_editors` in the
   inventory defaults (each one's name, whether its window runs just code's tasks, and how it gets its Claude
   terminal, `claude_terminal`: `started`, `listed` or `none`; its `family`, `cli_candidates` and `version_re`;
-  literal values only, and no Claude task is decided from `window_tasks` alone), held by `test_code_session.py` to the editors' task files and to `--editor`'s pattern. With
-  `editor: zed` (or `--editor zed`) nothing of VS Code's is written and `tasks/zed_open.yml` runs
+  literal values only, and no Claude task is decided from `window_tasks` alone), held by `test_code_session.py` to
+  the editors' task files and to `--editor`'s pattern. The window is the editor's plan, data its family makes in the
+  core (`lib/claude_vm/editors/`, held by `registry.py` to its rules on every call) and `tasks/editor_open.yml`
+  applies after `code.yml`'s refusal of whatever the plan refuses, before any write. With
+  `editor: zed` (or `--editor zed`) nothing of VS Code's is written and Zed's plan runs
   `zed ssh://<alias><folder>` with the first `zeditor` or `zed` on PATH whose `--version` says Zed - ZFS's event
   daemon is `zed` too, and is asked nothing else; it writes no Zed config, keymap, task or trust of the user's,
   only - with the terminal's switch, where just code's directory is inside the projects directory and the helper's
   path matches `code_helper_path_pattern` (`code_claude_task_written`) - the shared helper and one tasks file in
-  that directory (`.zed/tasks.json`: just code's ownership marker, `code_ownership_marker`, on its first line, then
+  that directory (`.zed/tasks.json`: just code's ownership marker, the core's `MARKER`, on its first line, then
   a **Claude (just code)** task of fixed text, `bash <helper>`, a new terminal for every spawn and no tag, which Zed
   lists in a window whose folder holds that directory and never runs by itself); a `tasks.json` there without the
   marker is someone else's, left as it is and said - read by `tasks/zed_check.yml` before the notes, which name the
@@ -397,9 +400,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   be first on `sys.path` and its `json.py` run. Its path is in a task of the user's own, so it stays
   (`test_persisted_names.py`). Anything variable reaches a helper as an argument, and no task file carries script
   text. The allowlist holds a `copy`
-  to `content`, or to `src: "{{ code_helper }}"` over `code_helpers` or `src: "{{ code_shared_helper }}"` over
-  `code_shared_helpers`, which together name each file of `playbooks/files/` once: nothing else of this
-  machine's is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
+  to `content`, or to `src: "{{ code_helper }}"` over `code_shared_helpers + code_helpers`, which together name
+  each file of `playbooks/files/` once, and only a helper the editor's plan names: nothing else of this machine's
+  is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
   no role uses: a role's fact or register outranks a play var in the same `just deploy`, and no task var
   shares a fact's name. In `just deploy` (`code_in_deploy`) every task of the window step is in one
   `block` whose `rescue` says any failure with the `just code` line (`just deploy <vm>
@@ -410,10 +413,13 @@ token; `github_auth_method: token` still fails. The status JSON carries
   every task in `code.yml`, and in the task files it imports, followed all the way down, to an
   allowlist: read-only on this machine (plus `which`/`code`, the session handoff's `rsync` to the VM and
   the alias through `tasks/ssh_config.yml`), the handoff's readers (`claude_sessions_info`,
-  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the thirteen
-  writes (just code's own directory, made first and 0755 where new; the workspace and its directory, VS Code's
-  helpers and theirs, Zed's shared helper and theirs, Zed's tasks file and its directory, the notes and theirs,
-  the sessions' directory and their copies), each under its exact condition in `WRITERS_WHEN`, delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
+  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the eight
+  writes (just code's own directory, made first and 0755 where new; the editor plan's directories, the helpers it
+  names and its files, each written under `{{ code_ws_dir }}/` or `{{ code_helpers_dir }}/`; the notes and theirs,
+  the sessions' directory and their copies), each under its exact condition in `WRITERS_WHEN`, delegated to the VM;
+  the one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal comes before
+  the first write; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against
+  stand-ins with nothing else
   on PATH: never a login shell there, which would put this machine's own `code` and `tailscale` back. The `provision`
   scenario, which runs `code.yml`, points `vscode_user_settings_file` into the ephemeral directory,
   since the message depends on it, and asserts that file's bytes and mtime after every run.

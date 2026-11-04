@@ -13,7 +13,7 @@ from typing import Any, Final, assert_never
 from ..wire import to_wire
 from . import common, vscode, zed
 from .family import Family
-from .model import Editor, FamilyName, OpenInputs, OpenPlan, VmDirectory, VmFile, editors_from, inputs_from
+from .model import Editor, FamilyName, OpenInputs, OpenPlan, VmDirectory, VmFile, editors_from, inputs_from, vm_path
 
 FAMILIES: Final[Mapping[FamilyName, Family]] = {"vscode": vscode, "zed": zed}  # this annotation is the check
 _vscode: Family = vscode  # one line per family, so a type checker names the member that does not conform
@@ -36,9 +36,15 @@ def checked(editor: Editor, inputs: OpenInputs, plan: OpenPlan) -> OpenPlan:
     dirs = {inside(inputs.files_dir, w.path) for w in plan.vm_writes if isinstance(w, VmDirectory)}
     if not set(plan.helpers) <= set(inputs.helpers):
         raise ValueError(f"{editor.key}'s plan copies {sorted(set(plan.helpers) - set(inputs.helpers))}: no helpers")
+    for write in plan.vm_writes:
+        # A plan's writes are its own: never the session copies' or the notes' folders, never over a helper.
+        first = posixpath.normpath(write.path).split("/")[0]
+        if first in common.KEPT or (isinstance(write, VmFile) and first == common.HELPERS):
+            raise ValueError(f"{editor.key}'s plan writes {write.path}, which is just code's own")
     if plan.helpers and inside(inputs.files_dir, common.HELPERS) not in dirs:
         raise ValueError(f"{editor.key}'s plan copies helpers without making {common.HELPERS}/")
-    if plan.launch or (plan.opens != inputs.target and plan.opens not in files):
+    opens = vm_path(plan.opens, f"{editor.key}'s plan's folder to open")
+    if plan.launch or (opens != vm_path(inputs.target, "target") and opens not in files):
         raise ValueError(f"{editor.key}'s plan opens {plan.opens!r} or builds a command of its own")
     if any(step.vm != inputs.vm for step in plan.next_steps):  # by name and VM ID: the stat's key is the record's
         raise ValueError(f"{editor.key}'s plan records NEXT STEPS for a VM it does not open")
@@ -49,7 +55,8 @@ def checked(editor: Editor, inputs: OpenInputs, plan: OpenPlan) -> OpenPlan:
 
 
 def inside(root: str, name: str) -> str:
-    """root/name, strictly inside root: commonpath, on the normalised join."""
+    """root/name, strictly inside root: commonpath, on the normalised join, root normalised as well."""
+    root = vm_path(root, "just code's directory")
     path = posixpath.normpath(posixpath.join(root, name))
     if root == "/" or path == root or posixpath.commonpath([root, path]) != root:
         raise ValueError(f"{name!r} is not inside {root}")

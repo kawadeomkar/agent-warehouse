@@ -64,12 +64,12 @@
   gather_facts: false
   module_defaults:
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
-  # Each editor's own variables, in a file of its own; only its task files
-  # (tasks/vscode_*.yml, later zed_*.yml) read them.
+  # VS Code's own variables, in a file of its own: its check file, the
+  # plan's inputs and the apply's helper copy read them.
   vars_files:
     - vars/vscode.yml
   vars:
-    # The editor whose task files open the window: the editor setting, or
+    # The editor whose plan opens the window: the editor setting, or
     # --editor for one run (vm_editor), among the editors the inventory
     # defaults list (claude_editors): how each is said; whether its window
     # runs just code's tasks when it opens, which is what the notes' refresh
@@ -117,9 +117,9 @@
          and code_start_helper is match(code_helper_path_pattern) }}
     # And whether that task is there once the window opens, which the notes
     # say: written, and over no file of someone else's at its path, which the
-    # editor's own check reads on the VM before the notes are written.
-    code_claude_task_there: >-
-      {{ code_claude_task_written | bool and not code_zed_tasks_foreign | default(false) | bool }}
+    # editor's own check reads on the VM before the notes are written - the
+    # plan's to say (below).
+    code_claude_task_there: "{{ code_plan.claude_task | default(false) }}"
 
     # The helpers' directory, in just code's own directory on the VM, and
     # the helpers any editor's task runs there by path: fixed files in
@@ -137,15 +137,41 @@
     # letters, digits, ".", "_", "-" and "/". Its own, never the folder
     # pattern an editor's URL takes, which allows more.
     code_helper_path_pattern: '^/[A-Za-z0-9._/-]+$'
-    # The first line of every file in JSON with comments that just code
-    # writes for an editor to read, from 1.1 on - a tasks or settings file:
-    # today the task file of the editor that lists its Claude task, any other
-    # editor's later - which says the file is just code's: one there without
-    # it is someone else's, and left as it is. The helpers and the notes, a
-    # script and a page, carry none: they are just code's by where they live,
-    # its helpers' and its notes' directories. Any editor's, and written on
-    # VMs, so it stays (tests/unit/test_persisted_names.py).
-    code_ownership_marker: "// Written by just code (claude-on-proxmox); edits here are overwritten."
+    # The editor's window as a plan (lib/claude_vm/editors/, docs/architecture/custom-code.md §7.10): what it
+    # refuses, writes in just code's directory on the VM, copies there, opens and says, made by the editor's family
+    # from these inputs and held by the core to its rules; tasks/editor_open.yml applies it. A lazy play var, never
+    # a fact: each read makes it again from what the run has read by then, and only its report reads what the
+    # session handoff did, after the refusal. The marker of the files just code writes for an editor to read is
+    # the core's (editors/common.py).
+    code_open_inputs:
+      vm:
+        name: "{{ claude_vm_names[0] }}"
+        vmid: "{{ claude_vm_addressed[0].vmid }}"
+      target: "{{ code_target }}"
+      root: "{{ code_root }}"
+      files_dir: "{{ code_ws_dir }}"
+      project: "{{ code_project }}"
+      reach: "{{ code_reach }}"
+      terminal: "{{ code_terminal | bool }}"
+      notes: "{{ code_notes | bool }}"
+      notes_file: "{{ code_notes_file }}"
+      notes_dir: "{{ code_notes_dir }}"
+      task_written: "{{ code_claude_task_written | bool }}"
+      session_id: "{{ code_session_id }}"
+      session_branch: "{{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}"
+      session_commit: "{{ code_session_commit | default('') if code_session_id | length > 0 else '' }}"
+      session_moved: "{{ code_session_moved | default(false) | bool }}"
+      session_cautions: "{{ code_session_cautions | default('') }}"
+      helpers: "{{ code_shared_helpers + code_helpers }}"
+      probe: "{{ code_probe }}"
+      remote_control: "{{ claude_code_remote_control | default(true) | bool }}"
+      github_signed_in: >-
+        {{ github_projects_auth | default(true) | bool and github_projects_auth_method | default('auto') != 'token' }}
+      clone_protocol: "{{ github_projects_clone_protocol | default('https') }}"
+      login_scopes: "{{ github_projects_login_scopes | default(['workflow']) | join(',') }}"
+      remote_control_unit: "{{ code_remote_control_unit }}"
+      timezone: "{{ code_timezone }}"
+    code_plan: "{{ code_editor | editor_open_plan(code_editors, code_open_inputs) }}"
     # The directories from the first below the projects directory down to
     # just code's own, by name, which the checkout refusal looks in; none
     # for a directory outside the projects directory.
@@ -507,13 +533,6 @@
             # The session notes, one file per VM, in a directory of their own.
             code_notes_dir: "{{ code_ws_dir_given ~ '/session' }}"
             code_notes_file: "{{ code_ws_dir_given ~ '/session/' ~ claude_vm_names[0] ~ '-session.md' }}"
-            # One project's file in project/, so a repository that shares the
-            # projects directory's name cannot collide with the whole directory's.
-            code_ws_file: >-
-              {{ code_ws_dir_given
-                 ~ ('/project/' ~ code_project_given if code_project_given | length > 0
-                    else '/' ~ (code_root_given | basename or 'projects'))
-                 ~ '.code-workspace' }}
 
         # Paths on the VM are absolute here, with no "~" to expand: VS Code is
         # handed them as written, from this machine.
@@ -672,6 +691,15 @@
           ansible.builtin.import_tasks: tasks/zed_check.yml
           when: code_editor == 'zed'
 
+        # Every refusal of the editor's plan, before anything is written on
+        # the VM: its command here, a folder it cannot be handed. A refused
+        # plan holds nothing else.
+        - name: Refuse what the editor's plan refuses
+          ansible.builtin.assert:
+            that: code_plan.refusals | length == 0
+            fail_msg: "{{ code_plan.refusals | join(' ') }}"
+            quiet: true
+
         # The first writes on the VM, after every refusal above. just code's
         # own directory first, wherever anything goes into it: 0755 where it is
         # new - the session copies' and the notes' own directories, 0700, would
@@ -738,16 +766,11 @@
           delegate_to: "{{ claude_vm_names[0] }}"
           when: code_notes | bool
 
-        # The window: each editor's own file, imported for that editor alone -
+        # The window: the editor's plan, applied for every editor alike -
         # what it writes on the VM beside the notes, the window it opens, and
-        # what it says.
-        - name: Open the window in VS Code
-          ansible.builtin.import_tasks: tasks/vscode_open.yml
-          when: code_editor == 'vscode'
-
-        - name: Open the window in Zed
-          ansible.builtin.import_tasks: tasks/zed_open.yml
-          when: code_editor == 'zed'
+        # what it says (tasks/editor_open.yml).
+        - name: Open the window
+          ansible.builtin.import_tasks: tasks/editor_open.yml
 
       rescue:
         # Outside just deploy the failure stands, said once more: for a

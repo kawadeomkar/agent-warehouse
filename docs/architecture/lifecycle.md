@@ -651,16 +651,18 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    directory there is just code's (its first line the marker), before the notes say whether the task is there.
    Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM, and the session notes
    (below).
-8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
-   `playbooks/vars/vscode.yml`; every name an editor's file registers starts with `code_<editor>_`, since
-   a skipped task still overwrites its register). The editors are one list, `claude_editors` in the
+8. Open the window - the editor's plan (`code_plan`, its family's in `lib/claude_vm/editors/`,
+   [§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)), refused before any write where
+   it refuses, applied by `tasks/editor_open.yml`; every name an editor's check
+   registers starts with `code_<editor>_`, since a skipped task still overwrites its register. The editors are one
+   list, `claude_editors` in the
    inventory defaults, literal values only: how each is said, whether its window runs just code's tasks as it
    opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
    `listed` for the user to pick, Zed's; or `none`); its `family`, the core's module that plans its window; the
    names its command goes by here (`cli_candidates`), and what that command's `--version` must say where another
    program shares a name (`version_re`). Where the window runs none (Zed), the notes are written
    without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
-   `claude --resume` to run, with the cautions every editor's report says. Zed's (`tasks/zed_open.yml`) writes,
+   `claude --resume` to run, with the cautions every editor's report says. Zed's plan writes,
    with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the
    helper's path matches `code_helper_path_pattern` (`code_claude_task_written`; the notes name the task where it
    is also over no one else's file, `code_claude_task_there`), the shared helper first - `helpers/claude-start.sh`,
@@ -733,7 +735,7 @@ trusted window, and only once automatic tasks are allowed:
 | Gate | Where VS Code keeps it | What `code.yml` does |
 |---|---|---|
 | Workspace Trust | client-side, by URI, per remote authority; a trusted folder covers its children. A workspace file is trusted when its folders *and* the file itself are | Puts the files under the projects directory, so trusting that directory once covers every project and every file. Says so. |
-| `task.allowAutomaticTasks` | an application setting in the default profile's `settings.json`; unset, VS Code asks once and *Allow* writes `"on"`; only a user-set `"off"` silences both question and task | Reads it with the `vscode_setting` filter (JSONC: comments, trailing commas, flat or nested key) and says which question to expect, or that the terminal will not start. Never writes it. |
+| `task.allowAutomaticTasks` | an application setting in the default profile's `settings.json`; unset, VS Code asks once and *Allow* writes `"on"`; only a user-set `"off"` silences both question and task | VS Code's plan reads it (`vscode_setting`: JSONC, comments, trailing commas, flat or nested key) and says which question to expect, or that the terminal will not start. Never writes it. |
 
 Both are the user's own security decisions, so there is no `security.workspace.trust.enabled:
 false`, no `terminal.integrated.allowInUntrustedWorkspace`, no written setting and no user-level

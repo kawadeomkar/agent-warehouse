@@ -192,7 +192,7 @@ WINDOW = (
     Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),
     Step("the notes", starts=["Read the session notes already on the VM"]),
-    Step("window", starts=["Look for the directory for the helpers on the VM"]),
+    Step("window", starts=["Look for just code's directories on the VM"]),
 )
 # just init's questions, each a step from the include that asks it, and the vault the answers go into.
 INIT_QUESTIONS = (

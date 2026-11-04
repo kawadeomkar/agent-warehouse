@@ -961,7 +961,7 @@ def _code(names=("alpha",)):
                 ("a1", None, {"name": "Write the alias", "file": "/r/playbooks/tasks/ssh_config.yml"}),
                 ("o5", None, {"name": "Look for the folder on the VM"}),
                 ("o6", None, {"name": "Fail when the folder is not there"}),
-                ("w1", None, {"name": "Look for the directory for the helpers on the VM"}),
+                ("w1", None, {"name": "Look for just code's directories on the VM"}),
                 ("r1", None, {"name": "Fail as just code does, outside just deploy"}),
             ],
         )

@@ -39,9 +39,9 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2940 tests. By file:
+pytest over `tests/unit/`: 2941 tests. By file:
 
-- **The package** (`test_claude_vm.py` 71): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
@@ -197,7 +197,7 @@ pytest over `tests/unit/`: 2940 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **The editors' plans** (`test_editor_conformance.py` 36): every family conforms to the seam and every row of
+- **The editors' plans** (`test_editor_conformance.py` 46): every family conforms to the seam and every row of
   `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
   `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
   foreign one is left and said; no write leaves just code's directory; each of the registry's rules bites on a plan
@@ -310,7 +310,7 @@ pytest over `tests/unit/`: 2940 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 271): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 261): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -507,7 +507,7 @@ pytest over `tests/unit/`: 2940 tests. By file:
   the checkout or one git ignores on purpose (the user's `inventory/hosts.yml`), a section cited from
   another page is a link, and the README's quick start matches the
   wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 41, `test_ratchets.py` 3): the
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 43, `test_ratchets.py` 3): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor

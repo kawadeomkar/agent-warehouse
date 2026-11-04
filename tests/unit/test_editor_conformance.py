@@ -17,7 +17,7 @@ import pytest
 import yaml
 from harness import ANSIBLE_PLAYBOOK, ansible_config
 
-from claude_vm.editors import model, registry
+from claude_vm.editors import common, model, registry
 from claude_vm.editors.family import Family
 from claude_vm.editors.model import FamilyName, OpenPlan, VmDirectory, VmFile
 from claude_vm.refs import NextStep, VmRef
@@ -65,6 +65,17 @@ SLIPS = [
     {"launch": ("/bin/sh",)},
     {"opens": "/etc"},
     {"next_steps": (NextStep(vm=VmRef(name="alpha", vmid=4014), matter="editor", action=None),)},  # another VM
+    # A helper the YAML does not list, its directory made: the rule on the names alone, no other rule beside it.
+    {"helpers": ("vault.yml",), "vm_writes": (VmDirectory(kind="directory", path="helpers"),)},
+    # just code's own folders, which YAML writes: the session copies' manifest, the notes', a helper's file.
+    {"vm_writes": (VmFile(kind="file", path="claude-sessions/manifest.json", mode="0600", content="{}"),)},
+    {"vm_writes": (VmDirectory(kind="directory", path="session"),)},
+    {
+        "vm_writes": (
+            VmDirectory(kind="directory", path="helpers"),
+            VmFile(kind="file", path="helpers/claude-start.sh", mode="0644", content=""),
+        )
+    },
 ]
 OUTSIDE = ["/etc/hosts", "../", "../repo/.zed/tasks.json", f"{FD}/../repo/x", "a/../../x", ""]
 BAD_INPUTS = [
@@ -135,9 +146,57 @@ def test_zed_s_task_file_is_marked_and_written_as_to_nice_json_writes_it():
 
 
 def test_a_foreign_task_file_is_left_and_said():
-    plan = registry.editor_open_plan("zed", ROWS, given(probe=FOUND | {"tasks_foreign": True}))
+    plan = registry.editor_open_plan("zed", ROWS, given(probe=FOUND | {"tasks_head": '[{"label": "build"}]'}))
     assert [w["path"] for w in plan["vm_writes"]] == ["helpers"]
     assert any("is not just code's, so it was left as it is" in line for line in plan["report"])
+
+
+def test_with_nothing_written_the_window_opens_whatever_files_dir_names():
+    # code.yml holds editor_files_dir to its rules only where something goes into it, and so does the core.
+    for files_dir in ("/", ROOT, "relative"):
+        for key in ROWS:
+            plan = registry.editor_open_plan(
+                key, ROWS, given(files_dir=files_dir, terminal=False, notes=False, task_written=False)
+            )
+            assert not plan["refusals"] and not plan["vm_writes"] and plan["launch"], (key, files_dir)
+
+
+def test_the_paths_are_written_and_launched_as_code_yml_built_them():
+    # A "//" or a "." in a setting reaches the window as it did before the plan: compared normalised, never rewritten.
+    root, fd = "/home/dev//projects", "/home/dev//projects/./.claude-on-proxmox"
+    notes = {"notes_file": f"{fd}/session/alpha-session.md", "notes_dir": f"{fd}/session"}
+    plan = registry.editor_open_plan("vscode", ROWS, given(target=root, root=root, files_dir=fd, **notes))
+    assert plan["launch"][-1] == f"{fd}/projects.code-workspace"
+    (workspace,) = [w for w in plan["vm_writes"] if w["kind"] == "file"]
+    assert [folder["path"] for folder in json.loads(workspace["content"])["folders"]] == [root, f"{fd}/session"]
+
+
+def test_zed_writes_no_task_where_its_helper_s_path_could_not_be_handed_as_it_is():
+    # Zed joins a task's args into one bash -i -c command: the core keeps such a path out, whatever the inputs say.
+    fd = f"{ROOT}/claude files"
+    plan = registry.editor_open_plan("zed", ROWS, given(files_dir=fd, notes_file=f"{fd}/n.md", notes_dir=f"{fd}/n"))
+    assert plan["vm_writes"] == [] and plan["helpers"] == [] and not plan["claude_task"]
+    assert any("No Claude task was written" in line for line in plan["report"])
+
+
+def test_a_vs_code_row_whose_window_starts_no_claude_terminal_writes_nothing():
+    # The Claude terminal is the row's to give, as code.yml's gates read it: claude_terminal other than started.
+    rows = ROWS | {"vscode": ROWS["vscode"] | {"claude_terminal": "none"}}
+    plan = registry.editor_open_plan("vscode", rows, given())
+    assert plan["vm_writes"] == [] and plan["helpers"] == [] and plan["launch"][-1] == ROOT
+    assert not any("A terminal named Claude" in line for line in plan["report"])
+
+
+def test_vs_code_opens_its_workspace_or_the_folder_over_the_alias():
+    plan = registry.editor_open_plan("vscode", ROWS, given())
+    assert plan["launch"] == [CODE, "--remote", "ssh-remote+alpha", f"{FD}/projects.code-workspace"]
+    bare = registry.editor_open_plan("vscode", ROWS, given(terminal=False))
+    assert bare["launch"] == [CODE, "--remote", "ssh-remote+alpha", ROOT]
+
+
+def test_the_folders_no_plan_writes_are_the_ones_code_yml_writes_itself():
+    code = (REPO / "playbooks" / "code.yml").read_text()
+    assert common.KEPT == ("claude-sessions", "session") and all(f"/{name}" in code for name in common.KEPT)
 
 
 @pytest.mark.parametrize("name", OUTSIDE)
@@ -149,7 +208,19 @@ def test_no_write_leaves_just_code_s_directory(name):
 
 
 @pytest.mark.parametrize(
-    "slip", SLIPS, ids=["a helper not listed", "no helpers directory", "a launch", "opens /etc", "another VM"]
+    "slip",
+    SLIPS,
+    ids=[
+        "a helper not listed",
+        "no helpers directory",
+        "a launch",
+        "opens /etc",
+        "another VM",
+        "a helper not listed, its directory made",
+        "the sessions' manifest",
+        "the notes' folder",
+        "over a helper",
+    ],
 )
 def test_the_core_refuses_a_family_s_slip(slip):
     editor, inputs = model.editors_from(ROWS)["zed"], model.inputs_from(given())

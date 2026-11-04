@@ -57,12 +57,12 @@ def _held(found: dict[str, int], allowed: dict[str, int], what: str) -> None:
     assert fallen == {}, f"fewer lines name {what} than the table allows, so lower it, (now, allowed): {fallen}"
 
 
-# VS Code's own: its role, its two task files of just code's and its variables, and its settings filter. Elsewhere
+# VS Code's own: its role, its check file of just code's and its variables, and its family's module. Elsewhere
 # a line counts that names it or one of its own terms - its CLI's, its workspace files', its task runner's - once the
 # names 1.x promises are taken out of it: the vscode_* settings, the vscode_server role and its variables, its
 # files on every VM, the vscode_windows key of just status --json.
 VSCODE_OWN = re.compile(
-    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|filter_plugins/vscode\.py$|lib/claude_vm/editors/vscode\.py$)"
+    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
     "deploy.yml": 4,
@@ -74,7 +74,7 @@ VSCODE_ELSEWHERE = {
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
     "lib/claude_vm/run/recipes.py": 2,
-    "playbooks/code.yml": 27,
+    "playbooks/code.yml": 23,
     "playbooks/configure.yml": 5,
     "playbooks/destroy.yml": 1,
     "playbooks/files/claude-terminal.sh": 2,
@@ -84,7 +84,6 @@ VSCODE_ELSEWHERE = {
     "playbooks/tasks/session_read.yml": 1,
     "playbooks/tasks/session_write.yml": 1,
     "playbooks/tasks/ssh_config.yml": 2,
-    "playbooks/tasks/zed_check.yml": 2,
     "playbooks/templates/vm_session.md.j2": 6,
     "roles/github_projects/vars/main.yml": 1,
     "roles/tailscale/tasks/main.yml": 1,
@@ -120,7 +119,7 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/tui/run.py": 3,
     "lib/claude_vm/tui/status.py": 3,
     "lib/claude_vm/wiring.py": 1,
-    "playbooks/code.yml": 2,
+    "playbooks/code.yml": 3,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,
     "playbooks/discover.yml": 3,
@@ -158,7 +157,7 @@ ZED_ELSEWHERE = {
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
-    "playbooks/code.yml": 4,
+    "playbooks/code.yml": 2,
     "playbooks/library/vm_status_info.py": 7,
     "playbooks/tasks/session_read.yml": 2,
     "roles/vscode_server/meta/argument_specs.yml": 1,

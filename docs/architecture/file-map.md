@@ -56,14 +56,12 @@ playbooks/
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
-  vars/vscode.yml                 code.yml's VS Code variables: the workspace file and its tasks, its helpers'
-                                  paths, the Claude terminal's lines, the user's VS Code settings (read, never written)
+  vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
+                                  are (read, never written)
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
-  tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
-                                  what VS Code will ask
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
-  tasks/zed_open.yml              just code's Zed window: the Claude (just code) task and its helper on the VM,
-                                  zed ssh://<alias><folder>, and claude in Zed's terminal
+  tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the
+                                  VM, the window opened, what is said (lib/claude_vm/editors/, §7.10)
   files/                          the helpers, copied to the VM unchanged and run there by the window's tasks:
                                   VS Code's claude-terminal.sh (the Claude terminal), session-notes.sh and
                                   session_notes.py (the notes' live section); any editor's claude-start.sh (a
@@ -135,8 +133,6 @@ filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and ch
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
 filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
                                   window as a plan (§7.10)
-filter_plugins/vscode.py          the adapter of lib/claude_vm/editors/vscode.py: vscode_setting (JSONC, read-only), VS
-                                  Code's settings, never written
 filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_opener, the sign-ins' browser command;
                                   controller_run and its state, the run a Claude sign-in waits for (§7.4)
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe

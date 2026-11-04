@@ -1,0 +1,85 @@
+---
+# Every editor's window, for playbooks/code.yml's window step, after the session
+# copies and the notes: the plan the editor's family made (code_plan,
+# lib/claude_vm/editors/, docs/architecture/custom-code.md §7.10), applied
+# with built-in modules. What the plan holds is data - directories and files by
+# their names under just code's own directory on the VM, the helpers by name,
+# the command that opens the window - and the core held it to its rules before
+# code.yml's refusal let anything run: every write lies inside just code's
+# directory, every helper is one these lists hold, and the command is the
+# core's own, over the editor's command as its check found it here. The
+# tasks join each name under {{ code_ws_dir }}/ and copy helpers only from
+# their own lists; nothing is written for another editor.
+
+# Each directory the plan makes, a helpers directory or one for the editor's
+# own files: one that exists keeps its mode, as just code's own directory
+# does, since editor_files_dir may name one of the user's own.
+- name: editor_open | Look for just code's directories on the VM
+  ansible.builtin.stat:
+    path: "{{ code_ws_dir }}/{{ code_plan_dir.path }}"
+    get_checksum: false
+  delegate_to: "{{ claude_vm_names[0] }}"
+  loop: "{{ code_plan.vm_writes | selectattr('kind', 'eq', 'directory') | list }}"
+  loop_control:
+    loop_var: code_plan_dir
+  register: code_plan_dirs
+
+- name: editor_open | Make just code's directories on the VM
+  ansible.builtin.file:
+    path: "{{ code_ws_dir }}/{{ code_plan_dir.code_plan_dir.path }}"
+    state: directory
+    mode: "{{ omit if code_plan_dir.stat.exists else code_plan_dir.code_plan_dir.mode_if_new }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  loop: "{{ code_plan_dirs.results | default([]) }}"
+  loop_control:
+    loop_var: code_plan_dir
+  when: code_plan.vm_writes | length > 0
+
+# What the editor's tasks run, by path, before the files that run them: a
+# task file written first, the copy then failing, would run a file that is
+# not there. The same files every time, so a run that only reopens a window
+# rewrites none; run by an interpreter, never executed themselves, hence 0644.
+- name: editor_open | Write the helpers the plan names on the VM
+  ansible.builtin.copy:
+    src: "{{ code_helper }}"
+    dest: "{{ code_helpers_dir }}/{{ code_helper }}"
+    mode: "0644"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  loop: "{{ code_shared_helpers + code_helpers }}"
+  loop_control:
+    loop_var: code_helper
+  when: code_helper in code_plan.helpers
+
+- name: editor_open | Write just code's files on the VM
+  ansible.builtin.copy:
+    dest: "{{ code_ws_dir }}/{{ code_plan_file.path }}"
+    content: "{{ code_plan_file.content }}"
+    mode: "{{ code_plan_file.mode }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  loop: "{{ code_plan.vm_writes | selectattr('kind', 'eq', 'file') | list }}"
+  loop_control:
+    loop_var: code_plan_file
+  when: code_plan.vm_writes | length > 0
+
+- name: editor_open | Open the window
+  ansible.builtin.command:
+    argv: "{{ code_plan.launch }}"
+  changed_when: true
+
+# What the plan says, and between its words, what the session handoff did,
+# which the plan cannot say: that reads what tasks/session_write.yml did,
+# after the refusal.
+- name: editor_open | Say what was opened
+  ansible.builtin.debug:
+    msg: "{{ (code_plan.report + [code_sessions_said] + code_plan.report_end) | select | join(' ') | trim }}"
+
+# What is left to do, the plan's records: '' where nothing is, as it is once
+# the window opens, else the command its action names.
+- name: editor_open | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      code_next: >-
+        {{ {claude_vm_names[0]: dict(code_plan.next_steps | map(attribute='matter')
+                                     | zip(code_plan.next_steps | map(attribute='action.line', default='')))} }}
+    aggregate: true
+    per_host: false

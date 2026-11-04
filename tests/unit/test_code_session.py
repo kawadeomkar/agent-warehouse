@@ -62,6 +62,9 @@ import pytest
 import yaml
 from harness import _default_signals, _drain, ansible_config
 
+from claude_vm.editors import common as editors_common
+from claude_vm.editors import registry as editors_registry
+
 REPO = Path(__file__).resolve().parents[2]
 CODE = REPO / "playbooks" / "code.yml"
 # The helpers just code copies to the VM unchanged, which the workspace's tasks run there by path.
@@ -156,9 +159,9 @@ def _vars() -> dict:
 # Each editor's task files, as code.yml imports them: for that editor alone.
 EDITOR_FILES = {
     "tasks/vscode_check.yml": "vscode",
-    "tasks/vscode_open.yml": "vscode",
     "tasks/zed_check.yml": "zed",
-    "tasks/zed_open.yml": "zed",
+    # Every editor's window, from its plan.
+    "tasks/editor_open.yml": None,
 }
 
 
@@ -175,7 +178,8 @@ def _inlined(block: list) -> list:
             continue
         for inner in yaml.safe_load((CODE.parent / imported).read_text()):
             own = inner.get("when")
-            inner["when"] = [task["when"], *(own if isinstance(own, list) else [own] if own else [])]
+            given = [task["when"]] if "when" in task else []
+            inner["when"] = [*given, *(own if isinstance(own, list) else [own] if own else [])]
             tasks.append(inner)
     return tasks
 
@@ -318,20 +322,45 @@ def _run_at_a_terminal(tmp_path: Path, keys: bytes, *, after: str, **case) -> tu
     return rc, output.decode(errors="replace"), _asked(tmp_path)
 
 
+PLANNED_FD = "/home/dev/projects/.claude-on-proxmox"
+
+
+def _planned(editor: str, **over) -> dict:
+    """An editor's plan of a window, as the core makes it from inputs as code.yml gives them."""
+    rows = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())["claude_editors"]
+    inputs = {
+        "vm": {"name": "alpha", "vmid": 9001},
+        "target": "/home/dev/projects",
+        "root": "/home/dev/projects",
+        "files_dir": PLANNED_FD,
+        "reach": "192.0.2.51",
+        "terminal": True,
+        "notes": True,
+        "notes_file": f"{PLANNED_FD}/session/alpha-session.md",
+        "notes_dir": f"{PLANNED_FD}/session",
+        "task_written": True,
+        "helpers": sorted(path.name for path in (REPO / "playbooks" / "files").iterdir()),
+        "probe": {
+            "which": ["/usr/local/bin/code", "/usr/local/bin/zed"],
+            "versions": [["/usr/local/bin/zed", "Zed 1"]],
+        },
+    } | over
+    return editors_registry.editor_open_plan(editor, rows, inputs)
+
+
+def _workspace_planned(**over) -> dict:
+    (written,) = [write for write in _planned("vscode", **over)["vm_writes"] if write["kind"] == "file"]
+    return json.loads(written["content"])
+
+
 def test_the_script_and_its_messages_are_not_templates():
     # Ansible templates play vars, so the script must reach the VM as written;
     # VS Code resolves ${...} in a task's arguments before bash sees them.
     script = _script()
     for marker in ("{{", "{%", "{#", "${"):
         assert marker not in script
-    for message in (
-        "code_not_installed",
-        "code_signed_in_watched",
-        "code_signed_in_unwatched",
-        "code_login_watch",
-        "code_github_signed_in",
-    ):
-        assert "${" not in _vars()[message]
+    claude = _workspace_planned()["tasks"]["tasks"][-1]
+    assert [arg for arg in claude["args"] if "${" in arg or "{{" in arg] == [], claude["args"]
 
 
 def test_with_nothing_to_continue_a_fresh_claude_starts(tmp_path):
@@ -493,30 +522,20 @@ def test_github_auth_off_leaves_gh_alone(tmp_path):
 
 
 def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
-    # The role-level names: the inventory wires them, the roles read them, and
-    # an override of one reaches both.
-    task = _vars()["code_claude_task"]
-    assert task["command"] == "/bin/bash"
-    assert task["args"][:2] == ["-l", "{{ code_terminal_helper }}"]
-    assert task["args"][2:] == [
-        "{{ code_not_installed }}",
-        "{{ code_signed_in_watched }}",
-        "{{ code_signed_in_unwatched }}",
-        "{{ code_login_watch }}",
-        "{{ code_github_signed_in }}",
-        "{{ github_projects_clone_protocol | default('https') }}",
-        "{{ github_projects_login_scopes | default(['workflow']) | join(',') }}",
-        "{{ claude_vm_names[0] }}",
-        # The session notes' helper, their path, the Remote Control unit and
-        # the time zone, for the refresh after a sign-in in the terminal.
-        "{{ code_notes_helper if code_notes | bool else '' }}",
-        "{{ code_notes_file if code_notes | bool else '' }}",
-        "{{ code_remote_control_unit }}",
-        "{{ code_timezone }}",
-        # --session, last: the script reads it as the last argument.
-        "{{ code_session_id }}",
+    # The helper by path, then the lines it says (test_the_terminal_is_handed_the_lines_for_this_vm), then the
+    # session notes' helper, their path, the Remote Control unit and the time zone, for the refresh after a sign-in
+    # in the terminal, and --session last: the script reads it as the last argument.
+    claude = _workspace_planned(session_id=SESSION_ID)["tasks"]["tasks"][-1]
+    assert claude["command"] == "/bin/bash"
+    assert claude["args"][:2] == ["-l", f"{PLANNED_FD}/helpers/claude-terminal.sh"]
+    assert claude["args"][10:] == [
+        f"{PLANNED_FD}/helpers/session-notes.sh",
+        f"{PLANNED_FD}/session/alpha-session.md",
+        "claude-remote-control",
+        "UTC",
+        SESSION_ID,
     ]
-    assert task["runOptions"] == {"runOn": "folderOpen"}
+    assert claude["runOptions"] == {"runOn": "folderOpen"}
 
 
 # just code's switches as code.yml reads them, through the inventory defaults: each by its name from 1.1, or its
@@ -555,36 +574,37 @@ EDITOR = ["Refuse an editor just code cannot open"]
 VS_CODE = [
     "vscode_check | Look for VS Code on this machine",
     "vscode_check | Fail when VS Code's command is not on PATH",
+    "vscode_check | Keep what was found",
 ]
 UP = ["Settle where the VM is reached", "Fail when the VM cannot be reached"]
 EXTENSION_TASKS = [
     "vscode_check | List VS Code's extensions",
     "vscode_check | Install the Remote - SSH extension when VS Code lacks it",
 ]
-# VS Code's report of the window it opened.
-OPENED_REPORT = "vscode_open | Say what was opened"
+# The editor's report of the window it opened.
+OPENED_REPORT = "editor_open | Say what was opened"
 ZED = [
     "zed_check | Look for Zed's commands on this machine",
     "zed_check | Ask each whether it is Zed",
-    "zed_check | Keep Zed's command",
-    "zed_check | Fail when Zed's command is not on PATH",
+    "zed_check | Keep what was found",
 ]
-# Zed's check of the folder the window step settled: run where a case gives it one.
-ZED_URL = "zed_check | Refuse a folder an ssh URL cannot carry as it is"
-# Zed's last check, whether the tasks file on the VM is just code's: read only where the "VM" is a directory of the
-# test's own (ZED_WRITES), and its fact kept in every Zed window.
-ZED_FOREIGN = [
-    "zed_check | Read Zed's tasks already on the VM",
-    "zed_check | Keep whether Zed's tasks there are someone else's",
+# The plan's refusals, every editor's: the task right after the editor's check.
+PLAN_REFUSED = "Refuse what the editor's plan refuses"
+# Zed's read on the VM, whether the tasks file there is just code's: run only where the "VM" is a directory of the
+# test's own (ZED_WRITES).
+ZED_READ = "zed_check | Read Zed's tasks already on the VM"
+# The window, without its writes on the VM, whose paths these cases give as a VM's: what is said, and run.
+OPENED_WINDOW = [
+    "editor_open | Open the window",
+    OPENED_REPORT,
+    "editor_open | Keep what is left to do for the end of the run",
 ]
-# Zed's window without its writes on the VM, whose paths these cases give as a VM's: what is said, and run.
-ZED_SAID = [
-    "zed_open | Open the folder in Zed",
-    "zed_open | Say what was opened",
-    "zed_open | Keep what is left to do for the end of the run",
+WINDOW_WRITES = [
+    "editor_open | Look for just code's directories on the VM",
+    "editor_open | Make just code's directories on the VM",
+    "editor_open | Write the helpers the plan names on the VM",
+    "editor_open | Write just code's files on the VM",
 ]
-# The refusal of just code's own directory inside a checkout, and the writes after it, run where the "VM" is a
-# directory of the test's own (ZED_WRITES).
 CHECKOUT = [
     "Look for a checkout around just code's own directory on the VM",
     "Refuse just code's own directory inside a checkout",
@@ -594,28 +614,6 @@ NOTES_WRITTEN = [
     "Read the session notes already on the VM",
     "Make the directory for the session notes on the VM",
     "Write the session notes on the VM",
-]
-ZED_WRITTEN = [
-    *CHECKOUT,
-    *ZED,
-    ZED_URL,
-    *ZED_FOREIGN,
-    *OWN_DIR,
-    *NOTES_WRITTEN,
-    "zed_open | Look for the directory for the helpers on the VM",
-    "zed_open | Make the directory for the helpers on the VM",
-    "zed_open | Write the shared helpers on the VM",
-    "zed_open | Look for the directory for Zed's tasks on the VM",
-    "zed_open | Make the directory for Zed's tasks on the VM",
-    "zed_open | Write Zed's tasks on the VM",
-    *ZED_SAID,
-]
-VSCODE_WRITTEN = [
-    *CHECKOUT,
-    *OWN_DIR,
-    "vscode_open | Look for the directory for the helpers on the VM",
-    "vscode_open | Make the directory for the helpers on the VM",
-    "vscode_open | Write the helpers on the VM",
 ]
 # The editors' own tasks in the window step, grouped by what each group does. The cases name groups, never an editor's
 # task, and a case runs its groups' tasks in code.yml's order: so the files that hold an editor's tasks can be reshaped
@@ -628,32 +626,23 @@ EDITOR_TASKS = {
     "vscode": {
         FIND: VS_CODE,
         EXTENSION: EXTENSION_TASKS,
-        REFUSE: [],
+        REFUSE: [PLAN_REFUSED],
         VM_READS: [],
-        WRITES: [
-            *VSCODE_WRITTEN[len(CHECKOUT) + len(OWN_DIR) :],
-            "vscode_open | Look for the directory for VS Code workspace files on the VM",
-            "vscode_open | Make the directory for VS Code workspace files on the VM",
-            "vscode_open | Write the VS Code workspace on the VM",
-        ],
-        OPEN: [
-            "vscode_open | Open the folder in VS Code",
-            OPENED_REPORT,
-            "vscode_open | Keep what is left to do for the end of the run",
-        ],
+        WRITES: WINDOW_WRITES,
+        OPEN: OPENED_WINDOW,
         SAID: [OPENED_REPORT],
     },
     "zed": {
-        FIND: [*ZED, ZED_FOREIGN[1]],
-        REFUSE: [ZED_URL],
-        VM_READS: [ZED_FOREIGN[0]],
-        WRITES: ZED_WRITTEN[ZED_WRITTEN.index(NOTES_WRITTEN[-1]) + 1 : -len(ZED_SAID)],
-        OPEN: ZED_SAID,
-        SAID: ["zed_open | Say what was opened"],
+        FIND: ZED,
+        REFUSE: [PLAN_REFUSED],
+        VM_READS: [ZED_READ],
+        WRITES: WINDOW_WRITES,
+        OPEN: OPENED_WINDOW,
+        SAID: [OPENED_REPORT],
     },
 }
-# The workspace file VS Code's window is handed, as the window step has it before anything is written.
-WORKSPACE = "code_workspace_file"
+# The workspace file VS Code's window is handed, as the window step has it before anything is written: its plan's.
+WORKSPACE = "code_plan.vm_writes | selectattr('kind', 'eq', 'file') | map(attribute='content') | first | from_json"
 ZED_WRITTEN = [*CHECKOUT, FIND, REFUSE, VM_READS, *OWN_DIR, *NOTES_WRITTEN, WRITES, OPEN]
 VSCODE_WRITTEN = [*CHECKOUT, *OWN_DIR, WRITES]
 STOPPED = [{"name": "beta", "vmid": 9004, "node": "pve", "status": "stopped", "address": ""}]
@@ -1132,6 +1121,18 @@ WINDOWS = {
         "local": {"editor_claude_terminal": False, "editor_session_notes": False},
         "code_ws_dir": "claude-files",
     },
+    # The same through the editor's plan and the window: nothing goes into just code's own directory, so the plan
+    # holds it to nothing either, whatever it names - the VM's root here.
+    "nothing written, the VM's root, through the plan": {
+        "keep": [FIND, REFUSE, OPEN],
+        "in_deploy": False,
+        "zed_here": {"zed": "zed"},
+        "vm_name": "alpha",
+        "vm_editor": "zed",
+        "local": {"editor_claude_terminal": False, "editor_session_notes": False},
+        **OPENED,
+        "code_ws_dir": "/",
+    },
     **{
         f"switches, {case}": {"keep": [], "in_deploy": False, "vm_name": "alpha", "show": SWITCHES, "local": local}
         for case, (local, _) in SWITCH_CASES.items()
@@ -1383,6 +1384,8 @@ def test_just_code_s_own_directory_is_checked_wherever_anything_goes_into_it_the
 def test_just_code_s_own_directory_is_not_checked_where_nothing_goes_into_it(windows):
     run = windows["nothing written, not absolute"]
     assert run["reached"] and run["rc"] == 0, run["output"]
+    run = windows["nothing written, the VM's root, through the plan"]
+    assert run["rc"] == 0 and run["code"] == ["zed ssh://alpha/home/dev/projects"], run["output"]
 
 
 def _claude_said(said: str) -> str:
@@ -1411,30 +1414,25 @@ ZED_TASK = {
     "use_new_terminal": True,
     "show_command": False,
 }
-ZED_WRITES_WHEN = "code_claude_task_written | bool and not code_zed_tasks_foreign | bool"
 MARKER_LINE = "// Written by just code (claude-on-proxmox); edits here are overwritten."
 
 
 def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
-    tasks = {t["name"]: t for t in yaml.safe_load((CODE.parent / "tasks" / "zed_open.yml").read_text())}
-    write = tasks["zed_open | Write Zed's tasks on the VM"]
-    assert write["ansible.builtin.copy"]["dest"] == "{{ code_ws_dir }}/.zed/tasks.json"
-    assert write["ansible.builtin.copy"]["mode"] == "0644"
-    # just code's marker first, which Zed reads as a comment, then the list as data.
-    assert write["ansible.builtin.copy"]["content"] == (
-        "{{ code_ownership_marker }}\n{{ code_zed_tasks | to_nice_json(indent=2) }}\n"
-    )
-    assert _play()["vars"]["code_ownership_marker"] == MARKER_LINE
-    assert (write["delegate_to"], write["when"]) == (ON_VM, ZED_WRITES_WHEN)
+    plan = _planned("zed")
+    (written,) = [write for write in plan["vm_writes"] if write["kind"] == "file"]
+    assert (written["path"], written["mode"]) == (".zed/tasks.json", "0644")
+    # just code's marker first, which Zed reads as a comment, then the list as data, as to_nice_json writes it.
+    head, body = written["content"].split("\n", 1)
+    assert head == MARKER_LINE
+    assert json.loads(body) == [ZED_TASK | {"args": [f"{PLANNED_FD}/helpers/claude-start.sh"]}]
+    assert body == json.dumps(json.loads(body), indent=2, sort_keys=True, separators=(",", ": ")) + "\n"
     # No cwd, so the window's folder; no tag; nothing Zed would substitute, its variables all starting ZED_.
-    assert write["vars"]["code_zed_tasks"] == [ZED_TASK]
     assert "ZED_" not in json.dumps(ZED_TASK)
-    made = tasks["zed_open | Make the directory for Zed's tasks on the VM"]
-    assert made["ansible.builtin.file"]["path"] == "{{ code_ws_dir }}/.zed"
-    assert made["when"] == ZED_WRITES_WHEN
-    # The helper's path reaches Zed only held to a pattern of its own, never the folder's, which takes more.
+    # The helper's path reaches Zed only held to a pattern of its own, never the folder's, which takes more: the
+    # one code.yml decides the task's writing by, and the core's.
     assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+$"
-    assert "code_helper_path_pattern" not in (CODE.parent / "tasks" / "zed_check.yml").read_text()
+    assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}$"
+    assert editors_common.MARKER == MARKER_LINE
 
 
 # The Zed window with its writes, on a "VM" that is a directory of the test's own, reached locally: what it writes
@@ -1644,11 +1642,12 @@ def test_the_task_is_written_and_said_listed_exactly_where_it_is_just_code_s_to_
 def test_no_task_var_of_zed_s_window_is_put_through_bool_by_another_of_the_same_task():
     # A task's vars are rendered lazily in a run, but ansible-lint renders each apart, and a var put through bool in
     # another is then its unrendered text, coerced to False: a warning today, an error from ansible-core 2.23.
-    for task in yaml.safe_load((CODE.parent / "tasks" / "zed_open.yml").read_text()):
-        own = task.get("vars") or {}
-        for name, value in own.items():
-            for other in set(own) - {name}:
-                assert not re.search(rf"\b{other}\s*\|\s*bool\b", str(value)), (task["name"], name, other)
+    for path in EDITOR_FILES:
+        for task in yaml.safe_load((CODE.parent / path).read_text()):
+            own = task.get("vars") or {}
+            for name, value in own.items():
+                for other in set(own) - {name}:
+                    assert not re.search(rf"\b{other}\s*\|\s*bool\b", str(value)), (task["name"], name, other)
 
 
 @pytest.mark.parametrize("name", ["zed, in a checkout", "vscode, in a checkout"])
@@ -1875,6 +1874,8 @@ KEYWORDS = {
     "delay",
     "throttle",
     "run_once",
+    # Only on a read, which --check would otherwise skip and so find nothing (the test below holds it there).
+    "check_mode",
 }
 ON_VM = "{{ claude_vm_names[0] }}"
 READS_HERE = {
@@ -1892,11 +1893,9 @@ COMMANDS_HERE = {
     ("which", "code"),
     ("code", "--list-extensions"),
     ("code", "--install-extension"),
-    ("{{ code_vscode_which.stdout_lines[0] }}", "--remote"),
     # Zed: its command as which found it, given the alias and the folder, and nothing else.
     ("which", "-a"),
     ("{{ code_zed_candidate }}", "--version"),
-    ("{{ code_zed_command }}", "ssh://{{ claude_vm_names[0] }}{{ code_target }}"),
     # The sessions, sent to the VM's mirror: read here, written there.
     ("rsync", "-az"),
 }
@@ -1911,14 +1910,24 @@ WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions
 # copy, and the copies with the sync or --session; a listed task's shared helper where the task is written at all,
 # and its tasks file there unless a file that is not just code's is in its place.
 WRITERS_WHEN = (
-    "code_terminal",
     "code_writes_its_directory | bool",
     "code_notes | bool",
     "code_session_plan.sessions | default([]) | length > 0",
     "code_session_on | bool",
-    "code_claude_task_written | bool",
-    "code_claude_task_written | bool and not code_zed_tasks_foreign | bool",
+    # The editor's plan: what it writes and which of the helpers it names.
+    "code_plan.vm_writes | length > 0",
+    "code_helper in code_plan.helpers",
 )
+# The one command whose argv is no literal list: the window's, which the core built over the editor's command as its
+# check found it, run here.
+LAUNCH = ("editor_open | Open the window", "{{ code_plan.launch }}")
+# Every place an editor's writer writes, whole: the plan's names joined under just code's directory, a helper under the
+# helpers' directory. A prefix alone would pass "{{ code_ws_dir }}/../".
+EDITOR_WRITES = {
+    "{{ code_ws_dir }}/{{ code_plan_dir.code_plan_dir.path }}",
+    "{{ code_helpers_dir }}/{{ code_helper }}",
+    "{{ code_ws_dir }}/{{ code_plan_file.path }}",
+}
 # The task files code.yml imports that other playbooks import too, each held to its own tests: the
 # Proxmox API reads, the alias (test_ssh_config.py) and the refusal of a VM named after an inventory
 # host (test_vm_names.py). Every other import is code.yml's own, and its tasks are held to everything
@@ -1977,8 +1986,8 @@ def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
     # two task files, every task file is an editor's, and --editor takes exactly its names.
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     editors = defaults["claude_editors"]
-    assert set(editors) == set(EDITOR_FILES.values())
-    assert {f"tasks/{editor}_{part}.yml" for editor in editors for part in ("check", "open")} == set(EDITOR_FILES)
+    assert set(editors) == {editor for editor in EDITOR_FILES.values() if editor}
+    assert {f"tasks/{editor}_check.yml" for editor in editors} | {"tasks/editor_open.yml"} == set(EDITOR_FILES)
     assert all(
         {"name", "family", "window_tasks", "claude_terminal", "cli_candidates"} <= set(entry)
         and set(entry) <= {"name", "family", "window_tasks", "claude_terminal", "cli_candidates", "version_re"}
@@ -2002,22 +2011,23 @@ def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
 
 
 def test_each_editor_s_files_are_imported_for_that_editor_alone():
-    # Static imports, so --tags and the walks above reach them, each under its editor's condition; and every name an
-    # editor's file registers is its own, since a skipped task still overwrites its register.
+    # Static imports, so --tags and the walks above reach them, each editor's check under its editor's condition and
+    # the window's apply for every editor; and every name an editor's file registers is its own, since a skipped
+    # task still overwrites its register.
     imports = [
         t for t in _tasks(_the_window(_play())["block"]) if t.get("ansible.builtin.import_tasks") in EDITOR_FILES
     ]
-    assert {t["ansible.builtin.import_tasks"]: t["when"] for t in imports} == {
-        path: f"code_editor == '{editor}'" for path, editor in EDITOR_FILES.items()
+    assert {t["ansible.builtin.import_tasks"]: t.get("when") for t in imports} == {
+        path: f"code_editor == '{editor}'" if editor else None for path, editor in EDITOR_FILES.items()
     }
     # A name, the file and its condition, nothing else: _inlined, which the window cases run them through, carries
     # the condition alone, and a vars, tags, become or delegate_to here would make those cases run another play.
-    assert all(set(t) == {"name", "ansible.builtin.import_tasks", "when"} for t in imports), imports
+    assert all(set(t) <= {"name", "ansible.builtin.import_tasks", "when"} for t in imports), imports
     for path, editor in EDITOR_FILES.items():
         registers = [
             task["register"] for task in _tasks(yaml.safe_load((CODE.parent / path).read_text())) if "register" in task
         ]
-        assert all(name.startswith(f"code_{editor}_") for name in registers), (path, registers)
+        assert all(name.startswith(f"code_{editor or 'plan'}_") for name in registers), (path, registers)
 
 
 def _action(task):
@@ -2029,10 +2039,16 @@ def _action(task):
 @pytest.mark.parametrize("task", list(_every_task()), ids=lambda t: t.get("name", "?"))
 def test_every_task_reads_this_machine_or_is_delegated_to_the_vm(task):
     action = _action(task)
+    if "check_mode" in task:
+        # Run under --check too, and so only a read here: which, or a command asked its version.
+        argv = (task.get("ansible.builtin.command") or {}).get("argv") or []
+        assert task["check_mode"] is False and (argv[:1] == ["which"] or argv[1:] == ["--version"]), task["name"]
     assert "connection" not in task
     assert "ansible_connection" not in (task.get("vars") or {})
     if action in READS_HERE:
         assert "delegate_to" not in task
+    elif action == "ansible.builtin.command" and isinstance(task[action]["argv"], str):
+        assert (task["name"], task[action]["argv"]) == LAUNCH and "delegate_to" not in task
     elif action == "ansible.builtin.command" and "delegate_to" in task:
         assert task["delegate_to"] == ON_VM
         assert tuple(task[action]["argv"][:2]) in COMMANDS_ON_VM
@@ -2053,10 +2069,9 @@ def test_every_task_reads_this_machine_or_is_delegated_to_the_vm(task):
             assert "remote_src" not in args, task["name"]
             if "src" in args:
                 copied = (args["src"], task.get("loop"), (task.get("loop_control") or {}).get("loop_var"))
-                assert copied in {
-                    ("{{ code_helper }}", "{{ code_helpers }}", "code_helper"),
-                    ("{{ code_shared_helper }}", "{{ code_shared_helpers }}", "code_shared_helper"),
-                }, task["name"]
+                assert copied == ("{{ code_helper }}", "{{ code_shared_helpers + code_helpers }}", "code_helper"), task[
+                    "name"
+                ]
             else:
                 assert "content" in args, task["name"]
     elif action == "ansible.builtin.meta":
@@ -2121,15 +2136,32 @@ def test_just_code_writes_exactly_the_directory_and_the_file():
         "session_write | Write the copies the VM resumes",
         "Make the directory for the session notes on the VM",
         "Write the session notes on the VM",
-        "vscode_open | Make the directory for the helpers on the VM",
-        "vscode_open | Write the helpers on the VM",
-        "vscode_open | Make the directory for VS Code workspace files on the VM",
-        "vscode_open | Write the VS Code workspace on the VM",
-        "zed_open | Make the directory for the helpers on the VM",
-        "zed_open | Write the shared helpers on the VM",
-        "zed_open | Make the directory for Zed's tasks on the VM",
-        "zed_open | Write Zed's tasks on the VM",
+        "editor_open | Make just code's directories on the VM",
+        "editor_open | Write the helpers the plan names on the VM",
+        "editor_open | Write just code's files on the VM",
     ]
+
+
+def test_an_editor_s_writers_write_in_just_code_s_directory_by_the_plan_s_names():
+    # The core holds the plan's names inside just code's directory; the writers join them under it, and nothing
+    # else: no editor's writer takes a path of its own.
+    writers = [t for t in _every_task() if t["name"].startswith("editor_open |") and _action(t) in WRITES_ON_VM]
+    assert writers
+    for task in writers:
+        args = task[_action(task)]
+        assert str(args.get("path") or args.get("dest")) in EDITOR_WRITES, task["name"]
+
+
+def test_the_editor_s_plan_is_refused_before_anything_is_written_on_the_vm():
+    tasks = list(_every_task())
+    names = [task["name"] for task in tasks]
+    first_write = next(i for i, task in enumerate(tasks) if _action(task) in WRITES_ON_VM)
+    refusal = names.index(PLAN_REFUSED)
+    assert refusal < first_write and tasks[refusal]["ansible.builtin.assert"]["that"] == (
+        "code_plan.refusals | length == 0"
+    )
+    # Right after the editors' checks: the last task of each check file keeps what the plan reads.
+    assert names[refusal - 1] == ZED[-1] and VS_CODE[-1] in names[:refusal]
 
 
 def test_a_checkout_around_just_code_s_directory_is_refused_before_anything_is_written_on_the_vm():
@@ -2398,10 +2430,9 @@ def test_with_automatic_tasks_off_the_notes_are_named_with_how_to_open_them(wind
 def test_no_task_of_the_workspace_depends_on_another():
     # VS Code looks a dependency of a workspace-file task up, misses it, and
     # asks every task provider instead: 7.5 s before Claude started, live.
-    found = _vars()
-    for name in ("code_claude_task", "code_notes_task", "code_shell_task"):
-        assert "dependsOn" not in found[name], name
-    assert "dependsOn" not in str(found["code_workspace_file"])
+    tasks = _workspace_planned()["tasks"]["tasks"]
+    assert [task["label"] for task in tasks] == ["Session notes", "Shell", "Claude"]
+    assert all("dependsOn" not in task for task in tasks)
 
 
 @pytest.mark.parametrize("case", SWITCH_CASES)

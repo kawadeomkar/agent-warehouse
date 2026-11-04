@@ -1,4 +1,4 @@
-"""Unit tests for lib/claude_vm/editors/vscode.py, the filter of filter_plugins/vscode.py."""
+"""Unit tests for VS Code's settings reader, lib/claude_vm/editors/vscode.py's vscode_setting, which its plan calls."""
 
 from __future__ import annotations
 

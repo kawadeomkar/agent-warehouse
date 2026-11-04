@@ -57,8 +57,6 @@ VALUES = [
     # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path (their directory,
     # code_helpers_dir, is code.yml's, below).
     ("playbooks/vars/vscode.yml", "code_helpers", ["claude-terminal.sh", "session-notes.sh", "session_notes.py"]),
-    ("playbooks/vars/vscode.yml", "code_terminal_helper", "{{ code_helpers_dir }}/claude-terminal.sh"),
-    ("playbooks/vars/vscode.yml", "code_notes_helper", "{{ code_helpers_dir }}/session-notes.sh"),
     # On this machine: the managed SSH config.
     (
         "inventory/group_vars/all/defaults.yml",
@@ -90,8 +88,17 @@ LINES = [
         "playbooks/code.yml",
         "code_notes_file: \"{{ code_ws_dir_given ~ '/session/' ~ claude_vm_names[0] ~ '-session.md' }}\"",
     ),
-    ("playbooks/code.yml", "~ ('/project/' ~ code_project_given if code_project_given | length > 0"),
-    ("playbooks/code.yml", "~ '.code-workspace' }}"),
+    # VS Code's workspace files, one project's in project/, and the helpers its tasks run, by path.
+    ("lib/claude_vm/editors/vscode.py", 'WORKSPACE_SUFFIX = ".code-workspace"'),
+    ("lib/claude_vm/editors/vscode.py", 'return f"project/{inputs.project}{WORKSPACE_SUFFIX}"'),
+    (
+        "lib/claude_vm/editors/vscode.py",
+        "return f\"{posixpath.basename(inputs.root) or 'projects'}{WORKSPACE_SUFFIX}\"",
+    ),
+    ("lib/claude_vm/editors/vscode.py", 'f"{helpers}/claude-terminal.sh",'),
+    ("lib/claude_vm/editors/vscode.py", 'notes_helper = f"{helpers}/session-notes.sh"'),
+    # Zed's tasks file in just code's directory, which Zed reads from the window's tree.
+    ("lib/claude_vm/editors/zed.py", 'TASKS: Final = ".zed/tasks.json"'),
     # The helpers' directory, which every editor's helpers are in, and the shared helper, whose path is in the
     # tasks file just code writes and in a task of the user's own (docs/guides/zed.md): <projects>/.claude-on-proxmox/
     # helpers/claude-start.sh by default.
@@ -101,8 +108,8 @@ LINES = [
     # The first line of every file in JSON with comments just code writes for an editor to read from 1.1 on
     # (.zed/tasks.json today), by which a later run tells its own from a file that is someone else's.
     (
-        "playbooks/code.yml",
-        'code_ownership_marker: "// Written by just code (claude-on-proxmox); edits here are overwritten."',
+        "lib/claude_vm/editors/common.py",
+        'MARKER: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."',
     ),
     # The notes' live section, as the template writes it and the helper finds it.
     ("playbooks/templates/vm_session.md.j2", "<!-- claude-on-proxmox:live -->"),
