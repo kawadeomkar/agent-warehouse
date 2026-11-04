@@ -7,7 +7,7 @@ and Molecule - and each is drawn as one run (docs/architecture/custom-code.md §
   claude_vm.run.model's Run.dump keeps it - draws them as done, works, and saves it for the next. It is a file in
   LIVE_DIR named for the run's stamp and its top recipe, both from checked parts only, made by the run's first part,
   0600 in a 0700 directory, and a part takes over only a state of its own run's title. The playbook engine
-  (filter_plugins/live_ansible.py) does the same for a playbook that is a part.
+  (engine.py) does the same for a playbook that is a part.
 - A command (run): the child's stdin is /dev/null, its stdout and stderr one pipe, its environment this one without the
   live switch, the state's path or the run log's, with colour off and Python unbuffered. Every line it prints goes to
   the run's log through Ansible's Display, in the log's format and order; the region shows the part's step running,

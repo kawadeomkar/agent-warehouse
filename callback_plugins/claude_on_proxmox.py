@@ -21,7 +21,7 @@ get_option, and Ansible only warns while each task's result disappears. Only
 ansible.cfg wires this in; the tests and Molecule run their own callbacks.
 
 A recipe drawn live sets CLAUDE_ON_PROXMOX_LIVE to what it runs (deploy alpha, say), and with it, at verbosity
-0 and with a run log, every event goes to filter_plugins/live_ansible.py's engine, which draws the run rather than
+0 and with a run log, every event goes to lib/claude_vm/ansible/engine.py, which draws the run rather than
 streaming it (docs/guides/runs.md); this module then keeps only its classic output, the blocks and NEXT STEPS, which
 the engine prints through it too. Any -v, or ANSIBLE_STDOUT_CALLBACK=default, is the stream as before.
 """
@@ -45,7 +45,6 @@ DOCUMENTATION = """
       - set as stdout_callback in ansible.cfg
 """
 
-import importlib.util
 import sys
 from pathlib import Path
 
@@ -60,21 +59,9 @@ from claude_vm import plugin, text  # noqa: E402
 plugin.own(_LIB)
 
 
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>, since a callback cannot ask for a
-    # filter module by name (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        path = Path(__file__).resolve().parents[1] / "filter_plugins" / f"{stem}.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
-
-
 # The filter the prompts use, so a prompt's block and a message's look the same.
 banner = text.banner
-live = _sibling("live_ansible")
+from claude_vm.ansible import engine as live  # noqa: E402
 
 WAITING_TAG = live.WAITING_TAG
 DEBUG_ACTIONS = live.DEBUG_ACTIONS

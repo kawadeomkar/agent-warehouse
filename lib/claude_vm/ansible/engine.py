@@ -14,14 +14,13 @@ and a summary replaces PLAY RECAP on the screen, which the log keeps, followed b
 of - its stages and steps, the failures it raises again - is its recipe's declaration
 (lib/claude_vm/run/recipes.py); nothing here names a command (docs/architecture/custom-code.md §7.5, §7.8).
 
-Loaded by path as claude_on_proxmox_live_ansible, as every module here loads another; it has no filters of its own.
+Imported as claude_vm.ansible.engine by the stdout callback (docs/architecture/custom-code.md §7.10).
 """
 
 from __future__ import annotations
 
 import atexit
 import contextlib
-import importlib.util
 import ipaddress
 import json
 import os
@@ -34,29 +33,14 @@ from ansible import constants as C
 from ansible import context
 from ansible.utils import display as ansible_display
 
-_LIB = str(Path(__file__).resolve().parents[1] / "lib")
-if _LIB not in sys.path:
-    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
-
-
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem> (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().with_name(f"{stem}.py"))
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
-
-
-from claude_vm import text  # noqa: E402
+from .. import text
+from ..run import model as view
+from ..tui import live_region as live
+from ..tui import run as drawn
+from ..tui import screen
+from . import parts as commands
 
 plain_text = text.plain_text
-from claude_vm.ansible import parts as commands  # noqa: E402
-from claude_vm.run import model as view  # noqa: E402
-from claude_vm.tui import live_region as live  # noqa: E402
-from claude_vm.tui import run as drawn  # noqa: E402
-from claude_vm.tui import screen  # noqa: E402
 
 LIVE_ENV = commands.LIVE_ENV
 STATE_ENV = commands.STATE_ENV
@@ -829,10 +813,3 @@ class Engine:
         commands.say_end(self.out, self.display, self.run, now, failed, lines, self._width(), self.cb.COLOR)
         if self.mode == "live":
             self.out.bell()
-
-
-class FilterModule:
-    """No filters: the stdout callback loads this module by path. Here so the filter loader takes the file."""
-
-    def filters(self):
-        return {}

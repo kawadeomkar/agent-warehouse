@@ -60,7 +60,7 @@ def visible_text(text):
     """Return ``text`` through plain_text, each Unicode format or separator character a space.
 
     Its lines, tabs and indents stay: what a report keeps line by line (every
-    live run's, filter_plugins/live_ansible.py) reads in the order it was
+    live run's, claude_vm.ansible.engine) reads in the order it was
     written, as one_line's does.
     """
     return "".join(" " if unicodedata.category(ch) in _FORMAT_CATEGORIES else ch for ch in plain_text(text))

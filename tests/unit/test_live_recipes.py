@@ -134,8 +134,8 @@ def test_every_task_a_step_starts_at_is_one_ansible_starts_and_every_task_file_i
     files = [path.as_posix() for path in _yaml_files()]
     for stage in recipe.stages:
         items = [item for play in stage.plays for item in _with_imports(_playbook(play.partition(":")[0]))]
-        # By name as the engine draws it, without a task file's prefix (live_ansible.drawn_name), which is how a step
-        # matches the task it starts at.
+        # By name as the engine draws it, without a task file's prefix (claude_vm.ansible.engine.drawn_name), which
+        # is how a step matches the task it starts at.
         tasks = {
             re.sub(r"^[a-z0-9_]+ \| ", "", item["name"]): item
             for item in items
@@ -217,9 +217,9 @@ ADD_HOST = {"add_host", "ansible.builtin.add_host", "ansible.legacy.add_host"}
 
 
 def test_a_vms_address_and_id_are_where_the_engine_reads_them():
-    # The engine takes a VM's address and ID from two names alone (live_ansible.Engine._discovered): discovery's
-    # add_host, its ansible_host and proxmox_vm_id, and vm_addresses.yml's claude_vm_addressed. A rename in either
-    # would leave every summary without its VM's address and ID, and nothing would fail.
+    # The engine takes a VM's address and ID from two names alone (claude_vm.ansible.engine.Engine._discovered):
+    # discovery's add_host, its ansible_host and proxmox_vm_id, and vm_addresses.yml's claude_vm_addressed. A rename
+    # in either would leave every summary without its VM's address and ID, and nothing would fail.
     files = {name for recipe in recipes.RECIPES.values() for name in recipe.addresses_from}
     assert files == {"discover.yml", "vm_addresses.yml"}, files
     added = [

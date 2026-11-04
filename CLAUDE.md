@@ -489,7 +489,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   (segments cut to the width, one palette): `just status`'s callback and every live run's, and each recipe
   drawn live after them - a playbook run joins through `CLAUDE_ON_PROXMOX_LIVE` and its declaration in
   `lib/claude_vm/run/recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette
-  or cut. A command's live output is its declaration: the engine (`filter_plugins/live_ansible.py`), the model
+  or cut. A command's live output is its declaration: the engine (`lib/claude_vm/ansible/engine.py`), the model
   (`lib/claude_vm/run/model.py`, drawn by `tui/run.py`) and the region know no command, and what a declaration cannot say becomes a new field there,
   never code of one command's own. A recipe of several processes is one run in parts: each command goes through
   `tools/live`, which passes it through unchanged, without the variable or the state's path, unless it can draw -
@@ -521,7 +521,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   stdout callback is the stream. No test or scenario sets
   the variable: `test_deploy_live.py` runs the callback at a pseudo-terminal of its own against a stand-in deploy,
   holds the log to the stream's, and fails if a tracked file other than the callback, the engines
-  (`filter_plugins/live_ansible.py`, `lib/claude_vm/ansible/parts.py` and `tools/live`), the declarations
+  (`lib/claude_vm/ansible/engine.py`, `lib/claude_vm/ansible/parts.py` and `tools/live`), the declarations
   (`lib/claude_vm/run/recipes.py`), the recipes drawn live, the live tests' kit (`tests/unit/live_kit.py`) and
   pytest's plugin (`tests/unit/live_pytest.py`), the live tests that draw a playbook through the engine or a
   command through `tools/live`, each listed by name, and `test_justfile.py`'s recording stand-in names it;

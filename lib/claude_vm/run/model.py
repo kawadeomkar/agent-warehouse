@@ -1,7 +1,7 @@
 """A playbook run as a person reads it: its stages, steps and tasks, from the plays it will run and Ansible's events,
 every drawn recipe's.
 
-The model reads and draws nothing. The engine (filter_plugins/live_ansible.py) feeds it the playbook's plays and
+The model reads and draws nothing. The engine (claude_vm.ansible.engine) feeds it the playbook's plays and
 Ansible's events, with the time passed in, and claude_vm.tui.run draws it, so every frame is a unit test
 (tests/unit/test_run_view.py); docs/architecture/custom-code.md §7.5 says how this works, §7.10 where it lives.
 

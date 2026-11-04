@@ -66,10 +66,10 @@ VSCODE_OWN = re.compile(
 )
 VSCODE_ELSEWHERE = {
     "deploy.yml": 4,
-    "filter_plugins/live_ansible.py": 1,
     "inventory/group_vars/all/defaults.yml": 22,
     "inventory/group_vars/all/local.yml.example": 11,
     "justfile": 2,
+    "lib/claude_vm/ansible/engine.py": 1,
     "lib/claude_vm/run/recipes.py": 2,
     "playbooks/code.yml": 27,
     "playbooks/configure.yml": 5,
@@ -107,11 +107,11 @@ PROXMOX_OWN = re.compile(
 )
 PROXMOX_ELSEWHERE = {
     "deploy.yml": 2,
-    "filter_plugins/live_ansible.py": 4,
     "filter_plugins/status.py": 21,
     "inventory/group_vars/all/defaults.yml": 30,
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
+    "lib/claude_vm/ansible/engine.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 2,
     "lib/claude_vm/tui/run.py": 3,

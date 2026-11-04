@@ -162,7 +162,7 @@ test of the status callback's hooks.
 **`visible_text(text)`** — `plain_text`, then every Unicode format, line or paragraph separator (bidi
 controls and zero-width characters among them) replaced by a space, its lines, tabs and indents kept: a
 line that reads in the order it was written. What every live run keeps of a report's lines
-(`filter_plugins/live_ansible.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
+(`lib/claude_vm/ansible/engine.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
 
 **`one_line(text, limit=120)`** — `visible_text`, then every newline and every other control character
 replaced by a space, runs of spaces collapsed, and the whole cut to `limit`, ending in "…". What
@@ -251,7 +251,7 @@ JSON report (`_left_to_do`), in every state they already run.
 ### `just deploy`, drawn live
 
 `CLAUDE_ON_PROXMOX_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
-set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run to an engine, `filter_plugins/live_ansible.py`, at
+set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
 The callback then keeps only its classic output, which the engine prints through it too. The engine takes the
 variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
@@ -595,8 +595,7 @@ East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a f
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
 each module that needs another loads it by path, once, as `claude_on_proxmox_<stem>` (`_sibling`): the
-callbacks, `status.py` and `live_ansible.py` share one copy of each; what has moved into `lib/claude_vm/` (§7.10) is
-imported instead.
+status callback shares `status.py`; everything else has moved into `lib/claude_vm/` (§7.10) and is imported.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
 `just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s
