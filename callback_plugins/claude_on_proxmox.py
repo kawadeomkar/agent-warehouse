@@ -49,6 +49,7 @@ import sys
 from pathlib import Path
 
 from ansible.plugins.callback.default import CallbackModule as DefaultCallback
+from ansible.plugins.loader import filter_loader
 from ansible.utils.vars import merge_hash
 
 _LIB = str(Path(__file__).resolve().parents[1] / "lib")
@@ -192,6 +193,10 @@ class CallbackModule(DefaultCallback):
 
     # --- the playbook, each hook handed to the live engine when the run is drawn ------------------------------------
     def v2_playbook_on_start(self, playbook):
+        # One filter lookup here, before the first worker is forked: the loader keeps the filters it found, and every
+        # worker inherits them, rather than executing filter_plugins/ again at its first lookup, task by task
+        # (docs/architecture/custom-code.md §7.10).
+        filter_loader.get("bool")
         self._live = live.from_environment(self, playbook)
         super().v2_playbook_on_start(playbook)
 

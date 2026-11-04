@@ -853,6 +853,11 @@ arguments.
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
   given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+- **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
+  starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
+  inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds
+  a task. It rests on ansible-core forking its workers (not `forkserver`) and on the loader's cache; the adapters stay
+  thin all the same, for the runs no callback of the project's warms (the unit harness, Molecule).
 
 Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
 `python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's

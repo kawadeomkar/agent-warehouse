@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import configparser
 import importlib.util
+import os
 import re
 import subprocess
 import sys
@@ -373,6 +374,38 @@ def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
     (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
     out, _, _ = _play(tmp_path, VM_PLAY, "default", ANSIBLE_SHOW_CUSTOM_STATS="1")
     assert "evil.example" in out[out.index("PLAY RECAP") :], out
+
+
+PROBE = """import os
+with open(os.environ["PROBE_LOG"], "a") as log:
+    log.write(f"{os.getpid()}\\n")
+
+
+class FilterModule:
+    def filters(self):
+        return {"probe": lambda value: value}
+"""
+PROBE_PLAY = """
+- name: Tasks that each template a filter
+  hosts: localhost
+  gather_facts: false
+  tasks:
+""" + "".join(
+    f"    - name: Task {n}\n      ansible.builtin.debug:\n        msg: '{{{{ {n} | probe }}}}'\n" for n in range(8)
+)
+
+
+@pytest.mark.parametrize("callback", ["claude_on_proxmox", "claude_on_proxmox_status"])
+def test_the_callback_looks_up_a_filter_before_the_first_worker_so_filter_files_run_once(tmp_path, callback):
+    # Each worker would otherwise execute every file in filter_plugins/ at its first lookup, task by task: a few
+    # milliseconds each time. A probe file beside them says each process that executed it.
+    probe = tmp_path / "probe"
+    probe.mkdir()
+    (probe / "probe.py").write_text(PROBE)
+    log = tmp_path / "probe.log"
+    filters = f"{REPO / 'filter_plugins'}{os.pathsep}{probe}"
+    _play(tmp_path, PROBE_PLAY, callback, ANSIBLE_FILTER_PLUGINS=filters, PROBE_LOG=str(log))
+    assert len(set(log.read_text().split())) == 1, log.read_text()
 
 
 def test_colour_on_the_screen_never_in_the_log(tmp_path):

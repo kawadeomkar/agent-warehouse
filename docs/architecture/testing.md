@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2890 tests. By file:
+pytest over `tests/unit/`: 2892 tests. By file:
 
 - **The package** (`test_claude_vm.py` 63): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -112,10 +112,11 @@ pytest over `tests/unit/`: 2890 tests. By file:
   `local.yml`, and no host-pattern warning.
   The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
   taking the old one's line out, `--reset` on either taking both.
-- **The stdout callback** (`test_attention_callback.py` 21): `callback_plugins/claude_on_proxmox.py` run
+- **The stdout callback** (`test_attention_callback.py` 23): `callback_plugins/claude_on_proxmox.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
-  the log, `just init`'s two matters before a VM's - and statically, the six tasks that carry `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
+  the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many
+  tasks template it, under either stdout callback - and statically, the six tasks that carry `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
   and every report followed by its record, `just init`'s two among them. Each role's own tests then assert what it records, in every
   state they run.
 - **What every live output draws with** (`test_live_region.py` 17, `test_screen.py` 17, `test_vt.py` 4): the

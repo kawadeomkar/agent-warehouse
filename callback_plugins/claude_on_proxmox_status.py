@@ -43,6 +43,7 @@ from pathlib import Path
 
 from ansible import constants as C
 from ansible.plugins.callback import CallbackBase
+from ansible.plugins.loader import filter_loader
 
 _LIB = str(Path(__file__).resolve().parents[1] / "lib")
 if _LIB not in sys.path:
@@ -145,6 +146,10 @@ class CallbackModule(CallbackBase):
 
     # --- Ansible's events --------------------------------------------------------------------------------------
     def v2_playbook_on_start(self, playbook):
+        # One filter lookup here, before the first worker is forked: the loader keeps the filters it found, and every
+        # worker inherits them, rather than executing filter_plugins/ again at its first lookup, task by task
+        # (docs/architecture/custom-code.md §7.10).
+        filter_loader.get("bool")
         if self._live:
             self._out.spin()
 
