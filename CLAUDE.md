@@ -490,7 +490,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   drawn live after them - a playbook run joins through `CLAUDE_ON_PROXMOX_LIVE` and its declaration in
   `lib/claude_vm/run/recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette
   or cut. A command's live output is its declaration: the engine (`lib/claude_vm/ansible/engine.py`), the model
-  (`lib/claude_vm/run/model.py`, drawn by `tui/run.py`) and the region know no command, and what a declaration cannot say becomes a new field there,
+  (`lib/claude_vm/run/model.py`, drawn by `tui/run.py`) and the region know no command, and what a declaration
+  cannot say becomes a new field there,
   never code of one command's own. A recipe of several processes is one run in parts: each command goes through
   `tools/live`, which passes it through unchanged, without the variable or the state's path, unless it can draw -
   a terminal, a title, no `-v`, a log, a state, the engine's packages, decided with the standard library alone -
@@ -514,7 +515,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   without a log (`LOG_DIR=`) the run is the stream; the reports, browser blocks, diffs, warnings and failures
   print above the region for good, whole - a report is wrapped, never cut, a failure says its output's end and
   each failed loop item, and only a failure among a rescued block's own tasks - at any depth, through imports and
-  includes too - is the block's. What a VM said reaches the screen through `plain_text`, and only `proxmox_vm`
+  includes too - is the block's; each is kept in the run's model as it is said, and drawn from it (`tui/run.py`).
+  What a VM said reaches the screen through `plain_text`, and only `proxmox_vm`
   gives the summary a VM's address - or, for a recipe whose declaration names discovery (`login`) or
   `vm_addresses.yml` (`code`), the address and VM ID discovery's `add_host` or `claude_vm_addressed` read from
   Proxmox and the guest agent, and nothing else of them. Any `-v` or another

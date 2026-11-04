@@ -255,14 +255,22 @@ JSON report (`_left_to_do`), in every state they already run.
 ### `just deploy`, drawn live
 
 `CLAUDE_ON_PROXMOX_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
-set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run to an engine, `lib/claude_vm/ansible/engine.py`, at
+set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run
+to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
 The callback then keeps only its classic output, which the engine prints through it too. The engine takes the
 variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
 later `just destroy` may run in - inherits it. It is `live` when stdout can take the region every live output
 shares (§7.8, `can_draw`), and `lines` otherwise. The model is `lib/claude_vm/run/model.py`, which `tui/run.py`
-draws and any playbook run can be drawn with, and what a run is made of is its recipe's declaration in `lib/claude_vm/run/recipes.py`, named
+draws and any playbook run can be drawn with, and what a run is made of is its recipe's declaration in
+`lib/claude_vm/run/recipes.py`, named
 by the title's first word: `just deploy` is the first, and §7.8 says how another recipe joins it.
+
+What the run says above the region is the model's too, as data, in the order said: each report (its VM, its lines
+and their marks), each failure (the step, the VM, the task, how long, how, what it said and its failed loop items;
+or the causes a raise repeats), what each rescue took, the diffs of a dry run and the warnings and deprecations
+modules returned, as the callback prints them, with the log's path. The engine records each and prints what
+`tui/run.py` draws from the record, so another renderer of the model reads the same.
 
 - **Stages and steps.** A play's stage is the first of the declaration's stages that names it: by its file and
   play name (`deploy.yml:Fail each VM whose work after a sign-in failed`, deploy's `finish`), else by its file
@@ -381,7 +389,8 @@ only records, names it - so nothing a test pins is drawn.
 
 What `just code` carries of this machine's Claude Code sessions to a VM
 ([§4.9](lifecycle.md#49-playbookscodeyml), **The session handoff**), and what `just destroy` brings
-back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)). The filters'
+back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+The filters'
 code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
 files; the filters decide from what they read, and touch no file.
@@ -833,7 +842,8 @@ arguments.
 
 - **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
   when it is imported, only inside the function that needs one - but `proc.py`, the process table, whose every user
-  runs programs anyway: a client that is not Ansible would pay about 30 ms for `ansible.errors` alone. ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
+  runs programs anyway: a client that is not Ansible would pay about 30 ms for `ansible.errors` alone.
+  ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
   is. The package's `__init__.py` imports nothing.
 - **`records.py`** holds `plain`, which copies a value out of Ansible's lazy containers and tagged strings, and
   `Checked`, the base of every record: a frozen slots dataclass whose fields are held to their annotations whenever

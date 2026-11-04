@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2892 tests. By file:
+pytest over `tests/unit/`: 2893 tests. By file:
 
 - **The package** (`test_claude_vm.py` 63): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -116,7 +116,8 @@ pytest over `tests/unit/`: 2892 tests. By file:
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
   the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many
-  tasks template it, under either stdout callback - and statically, the six tasks that carry `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
+  tasks template it, under either stdout callback - and statically, the six tasks that carry
+  `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
   and every report followed by its record, `just init`'s two among them. Each role's own tests then assert what it records, in every
   state they run.
 - **What every live output draws with** (`test_live_region.py` 17, `test_screen.py` 17, `test_vt.py` 4): the
@@ -128,7 +129,7 @@ pytest over `tests/unit/`: 2892 tests. By file:
   reading status's and deploy's streams the same cut anywhere. Every test that runs something at a terminal opens
   it through `harness._at_a_pseudo_terminal`, and every live test through `tests/unit/live_kit.py`, which gives
   each run a `HOME` of its own.
-- **The live output** (`test_run_view.py` 109, `test_deploy_live.py` 19, `test_login_live.py` 3,
+- **The live output** (`test_run_view.py` 110, `test_deploy_live.py` 19, `test_login_live.py` 3,
   `test_destroy_live.py` 4, `test_code_live.py` 4, `test_lint_live.py` 5, `test_init_live.py` 2,
   `test_test_live.py` 11, `test_live_recipes.py` 39, `test_live_commands.py` 29): the model, fed
   events with the time given - a running, a waiting, a failed, a dry and a fleet run's frame, a wait known

@@ -730,3 +730,55 @@ class Run(model.Run):
             line[-1] = (line[-1][0].rstrip(), line[-1][1])
         lines.append(line)
         return lines
+
+
+# --- what the run says above the region, drawn from the model's records ----------------------------------------
+def wrapped(head, lines, width, color, style="", styles=None):
+    """head, then lines wrapped under where head ends, whole - never cut: (coloured, plain) pairs to print. A line
+    keeps its own indent, its wrapped pieces under where its words start; styles, one for each line, colour each its
+    own way."""
+    column = screen.width(head)
+    room = max(20, width - 1 - column)
+    out = []
+    first = True
+    for number, line in enumerate(lines):
+        style_ = (styles[number] if styles else "") or style
+        indent = len(line) - len(line.lstrip(" "))
+        pieces = screen.fill(line.strip(), max(10, room - indent)) if line.strip() else [""]
+        for piece in pieces:
+            lead = head if first else [(" " * column, "")]
+            first = False
+            runs = [*lead, (" " * indent + piece, style_)]
+            out.append((screen.render(runs, color), screen.render(runs, False)))
+    return out
+
+
+def report_lines(report, width, color):
+    """A report, whole: under its VM, which leads unless the report names it itself."""
+    who = [(report["host"], "b"), ("  ", "")] if report["named"] else []
+    return wrapped([("  ", ""), *who], report["lines"], width, color, styles=report["styles"])
+
+
+def _block(where, who, task, took, how, said, width, color):
+    out = [("", "")]
+    out += wrapped([("✗ ", "r")], [f"{where} · {who}: {task}{took}{how}"], width, color, "r")
+    out += wrapped([("    ", "")], [line for line in said if line.strip()][: model.FAILURE_LINES * 2], width, color)
+    return out
+
+
+def failure_lines(failure, width, color):
+    """A failure, for good above the region: the step, the VM, the task, what it said, and where the log has it; a
+    raise of earlier failures, each cause so, then its own words."""
+    if "causes" in failure:
+        out = []
+        for cause in failure["causes"]:
+            out += _block(cause["where"], cause["who"], cause["name"], "", "", cause["said"], width, color)
+        if failure["own"]:
+            out += wrapped([("    ", "")], failure["own"], width, color)
+    else:
+        took = f" ({screen.duration(failure['seconds'])})" if failure["seconds"] is not None else ""
+        how = "" if failure["how"] == "failed" else f" · {failure['how']}"
+        out = _block(failure["where"], failure["who"], failure["task"], took, how, failure["said"], width, color)
+    if failure["log"]:
+        out += wrapped([("    ", "")], [f"the whole output: {failure['log']}"], width, color, "d")
+    return [*out, ("", "")]

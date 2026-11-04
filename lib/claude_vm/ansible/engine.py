@@ -37,7 +37,6 @@ from .. import text
 from ..run import model as view
 from ..tui import live_region as live
 from ..tui import run as drawn
-from ..tui import screen
 from . import parts as commands
 
 plain_text = text.plain_text
@@ -55,7 +54,6 @@ ADD_HOST = frozenset({"add_host", "ansible.builtin.add_host", "ansible.legacy.ad
 META = frozenset({"meta", "ansible.builtin.meta", "ansible.legacy.meta"})
 # The facts the provision stage says a VM by.
 VM_FACTS = ("proxmox_vm_resolved_id", "proxmox_vm_address", "proxmox_vm_exists")
-FAILURE_LINES = 20
 # A prompt rings the bell when the person has had nothing to answer for this long: they may have looked away.
 QUIET_SECONDS = 10.0
 # A task name's file prefix, as an included file's tasks are named: "session_read | Read the sessions".
@@ -267,7 +265,6 @@ class Engine:
         self.plan_play = None
         self.title = title
         self._failed_items = {}  # (task ID, host): the results of a loop's items that failed, said with the task
-        self._rescued = {}  # host: what each failure a rescue took said, for a later raise of it
         self._attended = self._now()  # when the person last had something to answer: the start, a bell, a prompt
         self._facts = set()  # the facts the declaration reads each VM's outcome from
         self._infos = {}  # stage key: the fact its row's info names VMs from
@@ -293,23 +290,8 @@ class Engine:
         return time.monotonic()
 
     def _wrapped(self, head, lines, style="", styles=None):
-        """head, then lines wrapped under where head ends, whole - never cut: (coloured, plain) pairs for print. A
-        line keeps its own indent, its wrapped pieces under where its words start; styles, one for each line, colour
-        each its own way."""
-        column = screen.width(head)
-        room = max(20, self._width() - 1 - column)
-        out = []
-        first = True
-        for number, line in enumerate(lines):
-            style_ = (styles[number] if styles else "") or style
-            indent = len(line) - len(line.lstrip(" "))
-            pieces = screen.fill(line.strip(), max(10, room - indent)) if line.strip() else [""]
-            for piece in pieces:
-                lead = head if first else [(" " * column, "")]
-                first = False
-                runs = [*lead, (" " * indent + piece, style_)]
-                out.append((screen.render(runs, self.color), screen.render(runs, False)))
-        return out
+        """head, then lines wrapped under it, at this terminal's width (tui/run.py's wrapped)."""
+        return drawn.wrapped(head, lines, self._width(), self.color, style, styles)
 
     def _frame(self, cols, rows, glyph):
         with self.display._lock:
@@ -344,6 +326,19 @@ class Engine:
             return os.path.relpath(path) if not os.path.relpath(path).startswith("..") else path
         except ValueError:
             return path
+
+    def diffed(self, said):
+        """A dry run's diff, as the callback prints it."""
+        with self.display._lock:
+            if self.run is not None:
+                self.run.diff(said)
+
+    def warned(self, said):
+        """What a module returned as warnings and deprecations, plain, as the callback prints them."""
+        with self.display._lock:
+            if self.run is not None:
+                for each in said:
+                    self.run.warning(each)
 
     def _who(self, host):
         """Whom a line is about: a VM, or for this machine the run's one VM, else this machine."""
@@ -605,11 +600,8 @@ class Engine:
             listed = task is not None and task.stage in self.run.checklists and any(styles)
             if not listed:
                 self.run.note(host, note, plan=plan, task=task, lines=len(kept))
-        # A play on this machine names the VM in its words; anywhere else the VM leads, once.
-        if lines[0].startswith(host + ": "):
-            lines[0] = lines[0][len(host) + 2 :]
-        who = [] if host == "localhost" or lines[0].startswith(host + " ") else [(host, "b"), ("  ", "")]
-        self.print(self._wrapped([("  ", ""), *who], lines, styles=styles))
+            said = self.run.report(host, lines, styles, plan)
+        self.print(drawn.report_lines(said, self._width(), self.color))
 
     def skipped(self, result):
         self._result(result, "skipped")
@@ -636,23 +628,25 @@ class Engine:
             self._failure(result, "failed")
 
     def _remember(self, result, unreachable=False):
-        """A failure a rescue took, or an unreachable result a task ignored, kept for the task that may raise it again
-        later."""
+        """A failure a rescue took, or an unreachable result a task ignored, kept in the model for the task that may
+        raise it again later."""
+        said = self._said(result.result)
         with self.display._lock:
             task = self.run.find(result.task._uuid)
             where = (task.step or task.stage) if task is not None else ""
-        self._rescued.setdefault(result.host.get_name(), []).append(
-            {
-                "name": self._name(result.task),
-                "where": where,
-                "stage": task.stage if task is not None else None,
-                "step": task.step if task is not None else None,
-                "blocks": set(blocks_of(result.task)),
-                "said": self._said(result.result),
-                "unreachable": unreachable,
-                "host": result.host.get_name(),
-            }
-        )
+            self.run.rescue(
+                result.host.get_name(),
+                {
+                    "name": self._name(result.task),
+                    "where": where,
+                    "stage": task.stage if task is not None else None,
+                    "step": task.step if task is not None else None,
+                    "blocks": set(blocks_of(result.task)),
+                    "said": said,
+                    "unreachable": unreachable,
+                    "host": result.host.get_name(),
+                },
+            )
 
     def _causes(self, result):
         """The failures a declared raise repeats: those rescued on its host inside the blocks it names, and the
@@ -671,11 +665,11 @@ class Engine:
                 {"name": text, "where": stage, "stage": stage, "step": None, "said": [], "host": host}
                 for text in failed
             ]
-        hosts = list(self._rescued) if declared.hosts == "any" else [result.host.get_name()]
+        hosts = list(self.run.rescued) if declared.hosts == "any" else [result.host.get_name()]
         return [
             kept
             for host in hosts
-            for kept in self._rescued.get(host, [])
+            for kept in self.run.rescued.get(host, [])
             if kept["blocks"] & declared.blocks or (declared.unreachable and kept.get("unreachable"))
         ]
 
@@ -693,52 +687,41 @@ class Engine:
         else:
             self._failure(result, "could not be reached")
 
-    def _block(self, where, who, name, took, how, said):
-        """A failure's lines: where and whom, the task, and what it said."""
-        out = [("", "")]
-        out += self._wrapped([("✗ ", "r")], [f"{where} · {who}: {name}{took}{how}"], "r")
-        out += self._wrapped([("    ", "")], [line for line in said if line.strip()][: FAILURE_LINES * 2])
-        return out
-
     def _failure(self, result, how):
         """A failed task, for good above the region: the step, the VM, the task, what it said, and where the log has
         it."""
         with self.display._lock:
             task = self.run.find(result.task._uuid)
             where = (task.step or task.stage) if task is not None else ""
-            took = f" ({screen.duration(task.seconds(self._now()))})" if task is not None else ""
+            seconds = task.seconds(self._now()) if task is not None else None
             name = task.name if task is not None else self._name(result.task)
         said = self._said(result.result)
         # A loop's own msg is "One or more items failed": what each failed item said is the failure.
         for item in self._failed_items.pop((result.task._uuid, result.host.get_name()), []):
             said.append(f"{view.one_line(self.cb._get_item_label(item))}:")
             said += [f"  {line}" for line in self._said(item)]
-        said_how = "" if how == "failed" else f" · {how}"
-        out = self._block(where, self._who(result.host.get_name()), name, took, said_how, said)
-        if self.run.log:
-            out += self._wrapped([("    ", "")], [f"the whole output: {self.run.log}"], "d")
-        self.print([*out, ("", "")])
+        host = result.host.get_name()
+        with self.display._lock:
+            failure = self.run.failure(where, host, self._who(host), name, seconds, how, said, self.run.log)
+        self.print(drawn.failure_lines(failure, self._width(), self.color))
 
     def _raised(self, result, causes, first):
         """A failure that raises again what rescues took earlier: drawn under each cause, then its own words, but
         those that only repeat a cause's."""
-        out = []
         repeated = set()
         for cause in causes:
-            out += self._block(cause["where"], self._who(cause["host"]), cause["name"], "", "", cause["said"])
             repeated |= {line.strip() for line in cause["said"]}
             with self.display._lock:
                 self.run.raised(cause["stage"], cause["step"], cause["host"])
                 self.run.blame(cause["host"])
         own = [line for line in self._said(result.result) if line.strip() and line.strip() not in repeated]
-        if own:
-            out += self._wrapped([("    ", "")], own)
-        if self.run.log:
-            out += self._wrapped([("    ", "")], [f"the whole output: {self.run.log}"], "d")
-        if first:
-            with self.display._lock:
+        with self.display._lock:
+            said = [{key: cause[key] for key in ("where", "host", "name", "said")} for cause in causes]
+            said = [cause | {"who": self._who(cause["host"])} for cause in said]
+            if first:
                 self.run.first_failure = causes[0]["where"]
-        self.print([*out, ("", "")])
+            failure = self.run.raised_again(said, own, self.run.log)
+        self.print(drawn.failure_lines(failure, self._width(), self.color))
 
     @staticmethod
     def _said(res):
@@ -752,7 +735,7 @@ class Engine:
             value = res.get(key)
             if value:
                 lines = value if isinstance(value, list) else str(value).splitlines()
-                said += [plain_text(str(line)) for line in lines][-FAILURE_LINES:]
+                said += [plain_text(str(line)) for line in lines][-view.FAILURE_LINES :]
                 break
         return said
 

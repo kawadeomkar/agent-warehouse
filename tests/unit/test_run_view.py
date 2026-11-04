@@ -1033,3 +1033,44 @@ def test_a_run_in_parts_shows_no_percentage_while_a_listed_stage_has_no_size():
     run.expect("unit", None, 2000)
     run.parallel("test:a", "test_a", 2.0)
     assert re.fullmatch(r"test · unit \d+%", run.title_text(2.5)), run.title_text(2.5)
+
+
+def test_what_is_said_above_the_region_is_kept_in_the_model_and_drawn_from_it():
+    # Everything a person reads of a run is the model's, as data, so any renderer can draw it; the terminal's is
+    # tui/run.py's, from the records alone.
+    run = drawn.Run("deploy alpha", 0.0)
+    report = run.report("alpha", ["alpha: VS Code opens next", "  then the notes"], ["", ""])
+    assert report == {
+        "host": "alpha",
+        "lines": ["VS Code opens next", "  then the notes"],
+        "styles": ["", ""],
+        "plan": False,
+        "named": True,
+    }
+    assert run.report("localhost", ["alpha is new"], [""])["named"] is False
+    assert [plain for _, plain in drawn.report_lines(report, 80, False)] == [
+        "  alpha  VS Code opens next",
+        "           then the notes",
+    ]
+    failure = run.failure("the VM", "alpha", "alpha", "Start the VM", 3.0, "failed", ["refused", ""], "log.txt")
+    rescued = {"where": "Claude", "host": "alpha", "who": "alpha", "name": "Sign in", "said": ["no code"]}
+    raised = run.raised_again([rescued], ["one failed"], "")
+    assert run.failures == [failure, raised]
+    assert [plain for _, plain in drawn.failure_lines(failure, 80, False)] == [
+        "",
+        "✗ the VM · alpha: Start the VM (3.0 s)",
+        "    refused",
+        "    the whole output: log.txt",
+        "",
+    ]
+    assert [plain for _, plain in drawn.failure_lines(raised, 80, False)] == [
+        "",
+        "✗ Claude · alpha: Sign in",
+        "    no code",
+        "    one failed",
+        "",
+    ]
+    run.rescue("alpha", rescued)
+    run.diff("--- before\n+++ after\n")
+    run.warning("a warning")
+    assert run.rescued == {"alpha": [rescued]} and run.diffs and run.warnings == ["a warning"]

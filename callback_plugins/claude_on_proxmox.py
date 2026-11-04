@@ -172,6 +172,12 @@ class CallbackModule(DefaultCallback):
     # --- what the VM chose to say ----------------------------------------------------------------------------------
     def _handle_warnings(self, res):
         with text.plain_events(self):
+            current = self._current_task_result
+            if self._live and current is not None:
+                # Kept in the run's model as they are said: what a person reads of the run, plain.
+                said = [each.event.msg for each in (current.warnings or [])] if res.get("warnings") else []
+                said += [each.event.msg for each in (current.deprecations or [])] if res.get("deprecations") else []
+                self._live.warned(said)
             super()._handle_warnings(res)
 
     def _handle_exception(self, result, use_stderr=False):
@@ -180,7 +186,10 @@ class CallbackModule(DefaultCallback):
 
     def _get_diff(self, difflist):
         diffs = difflist if isinstance(difflist, list) else [difflist]
-        return super()._get_diff([self._plain_diff(diff) for diff in diffs])
+        said = super()._get_diff([self._plain_diff(diff) for diff in diffs])
+        if self._live and said:
+            self._live.diffed(said)
+        return said
 
     @staticmethod
     def _plain_diff(diff):

@@ -79,6 +79,8 @@ WAIT_AFTER = 2.0
 
 # The state a run in parts keeps between its parts: a part never takes over one of another version.
 STATE_VERSION = 1
+# How much of a failed task's output the run keeps: its last lines, and twice that drawn.
+FAILURE_LINES = 20
 
 
 def stages_for(plays, recipe=None):
@@ -458,6 +460,13 @@ class Run:
         self.stopped = False  # a run in parts that Ctrl-C, or anything but a failed part, ended part way
         self.blamed = []  # the VMs a raise on this machine repeated failures of
         self.frame_vms = None  # the run's VMs while a frame is drawn, worked out once for it
+        # Everything said above the region, as data, in the order said: what a person reads of the run, which the
+        # terminal draws (tui/run.py) and any other renderer can.
+        self.reports = []  # a report: its VM, its lines and their marks, and whether it names the VM itself
+        self.failures = []  # a failure: where, whom, the task, how long, how, what it said; or causes raised again
+        self.rescued = {}  # host: each failure a rescue took, for a later task that raises it again
+        self.diffs = []  # a dry run's diffs, as text
+        self.warnings = []  # what modules returned as warnings and deprecations, as text
 
     # --- what the playbook is ---------------------------------------------------------------------------------
     def plays(self, plays):
@@ -785,6 +794,40 @@ class Run:
     def decline(self, line):
         """An answer that ended the run: said as itself, never as a failure."""
         self.declined = one_line(line)
+
+    def report(self, host, lines, styles, plan=False):
+        """A report said above the region: its lines whole, a play on this machine naming the VM in its words and
+        anywhere else the VM leading, once."""
+        if lines and lines[0].startswith(host + ": "):
+            lines = [lines[0][len(host) + 2 :], *lines[1:]]
+        named = host != "localhost" and not (lines and lines[0].startswith(host + " "))
+        said = {"host": host, "lines": list(lines), "styles": list(styles), "plan": plan, "named": named}
+        self.reports.append(said)
+        return said
+
+    def failure(self, where, host, who, task, seconds, how, said, log=""):
+        """A failed task said above the region: the step, the VM, the task, how long it took, how it failed ("failed",
+        "could not be reached"), and what it said."""
+        record = {"where": where, "host": host, "who": who, "task": task, "seconds": seconds, "how": how}
+        record |= {"said": list(said), "log": log}
+        self.failures.append(record)
+        return record
+
+    def raised_again(self, causes, own, log=""):
+        """A failure that raises again what rescues took: each cause, then its own words but those that repeat one."""
+        record = {"causes": [dict(cause) for cause in causes], "own": list(own), "log": log}
+        self.failures.append(record)
+        return record
+
+    def rescue(self, host, kept):
+        """A failure a rescue took, or an unreachable result a task ignored, kept for a task that may raise it."""
+        self.rescued.setdefault(host, []).append(kept)
+
+    def diff(self, text):
+        self.diffs.append(text)
+
+    def warning(self, text):
+        self.warnings.append(text)
 
     def blame(self, host):
         """A VM a raise on this machine repeated a failure of."""
