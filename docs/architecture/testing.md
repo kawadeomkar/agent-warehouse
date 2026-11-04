@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2941 tests. By file:
+pytest over `tests/unit/`: 2948 tests. By file:
 
 - **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -56,7 +56,7 @@ pytest over `tests/unit/`: 2941 tests. By file:
   sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
   gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
-- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 15,
+- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 17,
   `test_status_work.py` 3): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
   `local.yml`, the twelve buckets of a day at Proxmox VE 9's resolution and 8's, the ranking and exit code,
@@ -71,16 +71,17 @@ pytest over `tests/unit/`: 2941 tests. By file:
   holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux
   pty takes the rest of a run's output without blocking it, and the run could end before the frame it acts
   on is read. The Ctrl-C is sent only once each running VM waits in that `ssh`: a SIGINT that lands while
-  Ansible forks a worker is lost (`CLAUDE.md`, things that have bitten this repo). Inside the VMs (`test_status_vms.py`): `vm_status_info` on fixture trees, in this process; status
-  over stand-in VMs with discovery off, each running the three roles' `status` entry points with the gh and
-  tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after and the
-  fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
-  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for
-  what it is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches
-  a VM or this machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway
-  repositories - a worktree under `.claude/worktrees/` and one outside the projects directory, a branch with
-  no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file of them, `.git`
-  included, as it was after.
+  Ansible forks a worker is lost (`CLAUDE.md`, things that have bitten this repo). Inside the VMs
+  (`test_status_vms.py`): `vm_status_info` on fixture trees, in this process, each editor's windows by the rows'
+  matches, a process under the first it meets, and the module's `editors` argument held to the core's `ProcessMatch`
+  field for field; status over stand-in VMs with discovery off, each running the three roles' `status` entry points
+  with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after
+  and the fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
+  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for what it
+  is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this
+  machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway repositories - a
+  worktree under `.claude/worktrees/` and one outside the projects directory, a branch with no upstream, a detached
+  HEAD with commits of its own, a stash, untracked files - every file of them, `.git` included, as it was after.
   Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
   ACCESS line names the editor that is set.
 - **`just settings`** (`test_settings.py` 112): `tools/settings` against inventories of its own, made from the
@@ -197,11 +198,12 @@ pytest over `tests/unit/`: 2941 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **The editors' plans** (`test_editor_conformance.py` 46): every family conforms to the seam and every row of
+- **The editors' plans** (`test_editor_conformance.py` 51): every family conforms to the seam and every row of
   `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
   `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
   foreign one is left and said; no write leaves just code's directory; each of the registry's rules bites on a plan
-  built to break it; the inputs and rows are held to their types; and the filter takes Ansible's own values, through
+  built to break it; the inputs and rows are held to their types, a row's window match naming its program first; each
+  row's match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
   `ansible-playbook`.
 - **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group

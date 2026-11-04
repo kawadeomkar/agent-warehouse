@@ -123,8 +123,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
-                                  editors/: model.py, the editors' records; family.py, the seam; vscode.py and
-                                  zed.py, each family's plan of its window; registry.py, which every plan passes
+                                  editors/: model.py, the editors' records; family.py, the seam; common.py, what
+                                  more than one family uses, the helpers' directory and the marker among it; vscode.py
+                                  and zed.py, each family's plan of its window; registry.py, which every plan passes
                                   (§7.10)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_address, guest_addresses;
@@ -132,7 +133,8 @@ filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and ch
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
 filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
-                                  window as a plan (§7.10)
+                                  window as a plan, and editor_servers, each editor's window as vm_status_info knows
+                                  it (§7.10)
 filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_opener, the sign-ins' browser command;
                                   controller_run and its state, the run a Claude sign-in waits for (§7.4)
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe

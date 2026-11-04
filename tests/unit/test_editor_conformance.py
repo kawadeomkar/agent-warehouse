@@ -245,6 +245,22 @@ def test_inputs_and_rows_are_held_to_their_types(bad):
         model.editors_from({"emacs": ROWS["zed"] | {"family": "emacs"}})
 
 
+@pytest.mark.parametrize(
+    "server", [{"argv1": "run"}, {"argv_has": ["--type=extensionHost"]}, {"argv0_contains": 1}, {"argv0": "zed"}]
+)
+def test_a_row_s_window_match_names_its_program_and_no_more(server):
+    # A match on the arguments alone would count any of the user's programs that takes them (vm_status_info).
+    with pytest.raises((ValueError, TypeError)):
+        model.editors_from({"zed": ROWS["zed"] | {"server": server}})
+
+
+def test_each_row_s_window_match_goes_to_the_module_as_its_fields_alone():
+    assert [match["key"] for match in registry.editor_servers(ROWS)] == list(ROWS)
+    assert registry.editor_servers({"x": ROWS["zed"] | {"server": {}}}) == [
+        {"key": "x", "argv0_contains": "", "argv0_name_prefix": "", "argv1": "", "argv_has": []}
+    ]
+
+
 def test_the_filter_takes_ansible_s_own_values(tmp_path):
     # Lazy and tagged values, as code.yml hands them; the plan kept as a fact, as the window step keeps none.
     inputs = given(terminal="{{ switch }}", target="{{ where }}", vm={"name": "alpha", "vmid": "{{ listed.vmid }}"})
@@ -255,6 +271,7 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
         "tasks": [
             {"ansible.builtin.set_fact": {"kept": "{{ 'zed' | editor_open_plan(rows, inputs) }}"}},
             {"name": "Say", "ansible.builtin.debug": {"msg": "{{ [kept.kind] + kept.launch }}"}},
+            {"name": "Servers", "ansible.builtin.debug": {"msg": "{{ rows | editor_servers | map(attribute='key') }}"}},
         ],
     }
     (tmp_path / "plan.yml").write_text(yaml.safe_dump([play]))
@@ -278,5 +295,5 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
     )
     assert run.returncode == 0, run.stdout + run.stderr
     tasks = json.loads(run.stdout)["plays"][0]["tasks"]
-    said = next(task for task in tasks if task["task"]["name"] == "Say")["hosts"]["localhost"]["msg"]
-    assert said == ["open_plan", ZED, f"ssh://alpha{ROOT}"]
+    said = {task["task"]["name"]: task["hosts"]["localhost"].get("msg") for task in tasks}
+    assert said["Say"] == ["open_plan", ZED, f"ssh://alpha{ROOT}"] and said["Servers"] == list(ROWS)

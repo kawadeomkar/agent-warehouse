@@ -29,6 +29,16 @@ def editor_open_plan(key: object, rows: object, inputs: object) -> dict[str, Any
     return to_wire(checked(editor, given, FAMILIES[editor.family].plan_open(editor, given)))
 
 
+def editor_servers(rows: object) -> list[dict[str, Any]]:
+    """Each editor's window as vm_status_info knows it, the module's editors argument: every row, in its order, each
+    match as the wire carries it but for the envelope, which the module's arguments do not take."""
+    bare = ("format_version", "kind")
+    return [
+        {"key": key} | {name: value for name, value in to_wire(row.server).items() if name not in bare}
+        for key, row in editors_from(rows).items()
+    ]
+
+
 def checked(editor: Editor, inputs: OpenInputs, plan: OpenPlan) -> OpenPlan:
     if plan.refusals:  # a refusal writes, copies and launches nothing, and records nothing
         return OpenPlan(editor=editor.key, refusals=plan.refusals)

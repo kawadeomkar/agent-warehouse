@@ -1,6 +1,6 @@
-"""Ansible's filter of lib/claude_vm/editors/registry.py: editor_open_plan, the plan of just code's window that
-tasks/editor_open.yml applies (docs/architecture/custom-code.md §7.10): an adapter, which imports the core only when
-the filter is called."""
+"""Ansible's filters of lib/claude_vm/editors/registry.py (docs/architecture/custom-code.md §7.10): editor_open_plan,
+the plan of just code's window that tasks/editor_open.yml applies, and editor_servers, each editor's window as just
+status's vm_status_info knows it; an adapter, which imports the core only when a filter is called."""
 
 import sys
 from pathlib import Path
@@ -14,4 +14,4 @@ class FilterModule:
     def filters(self):
         from claude_vm import plugin
 
-        return plugin.filters(_LIB, "editors.registry", ("editor_open_plan",))
+        return plugin.filters(_LIB, "editors.registry", ("editor_open_plan", "editor_servers"))

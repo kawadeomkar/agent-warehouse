@@ -540,7 +540,9 @@ without a report.
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
 refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
-editor's windows: VS Code's extension hosts and the daemons of Zed's remote server, one per window, kept by the
+editor's windows, a process of the user's counted once, under the first editor whose `server` match in the
+editors list it meets: the module cannot import the core, so status hands it the rows' matches as its `editors`
+argument (`editor_servers`, §7.10), checked by Ansible's own argument spec. They are kept by the
 editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
 `vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
 as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
@@ -877,8 +879,10 @@ arguments.
   row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised and writes
   and launches them exactly as `code.yml` built them, and holds just code's directory to its rules only where it
   writes there, as `code.yml` does; a family gives the Claude terminal only where its row says the window has one
-  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is).
-  `filter_plugins/editors.py` gives Ansible `editor_open_plan`.
+  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is). A row's `server`
+  (`ProcessMatch`) is how `just status` knows one of the editor's windows on the VM, a program named first, since a
+  match on the arguments alone would count any of the user's programs. `filter_plugins/editors.py` gives Ansible
+  `editor_open_plan` and `editor_servers`, the rows' matches as `vm_status_info`'s `editors` argument (§7.7).
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

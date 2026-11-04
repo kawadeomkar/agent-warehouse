@@ -34,8 +34,25 @@ def relative(path: str, mode: str) -> None:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ProcessMatch(Checked):
+    """How just status knows one of the editor's windows on the VM: a process of the user's whose argv holds every
+    field given. vm_status_info is sent these as its arguments, since a module on the VM cannot import the core."""
+
+    argv0_contains: str = ""  # in the program's path
+    argv0_name_prefix: str = ""  # the start of the program's own name
+    argv1: str = ""  # its first argument, whole
+    argv_has: tuple[str, ...] = ()  # arguments it has, anywhere
+
+    def validate(self) -> None:
+        # A match on the arguments alone would count any of the user's programs that takes them.
+        if (self.argv1 or self.argv_has) and not (self.argv0_contains or self.argv0_name_prefix):
+            raise ValueError("a window's process is matched by its program first, then by its arguments")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Editor(Checked):
-    """One row of the inventory defaults' claude_editors; a fork of an editor is one more row of its family."""
+    """One row of the inventory defaults' claude_editors; a fork of an editor is a row of its family, with a check file
+    of its own and its key in just code's --editor."""
 
     key: str
     name: str
@@ -44,6 +61,7 @@ class Editor(Checked):
     window_tasks: bool
     cli_candidates: tuple[str, ...]
     version_re: str = ""
+    server: ProcessMatch = ProcessMatch()  # none given: no window of it is counted
 
     def validate(self) -> None:
         if not self.cli_candidates or not all(map(WORD.fullmatch, (self.key, *self.cli_candidates))):
@@ -149,7 +167,9 @@ class OpenPlan(Checked):
 def editors_from(raw: object) -> dict[str, Editor]:
     """The inventory defaults' claude_editors, as tools/settings reads it: parsed on every call."""
     rows = plain(raw, "claude_editors")
-    return {key: Editor(key=key, **row) for key, row in rows.items()}
+    return {
+        key: Editor(key=key, **(row | {"server": ProcessMatch(**row.get("server", {}))})) for key, row in rows.items()
+    }
 
 
 def inputs_from(raw: object) -> OpenInputs:

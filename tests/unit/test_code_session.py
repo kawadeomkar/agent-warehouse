@@ -1990,14 +1990,15 @@ def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
     assert {f"tasks/{editor}_check.yml" for editor in editors} | {"tasks/editor_open.yml"} == set(EDITOR_FILES)
     assert all(
         {"name", "family", "window_tasks", "claude_terminal", "cli_candidates"} <= set(entry)
-        and set(entry) <= {"name", "family", "window_tasks", "claude_terminal", "cli_candidates", "version_re"}
+        and set(entry)
+        <= {"name", "family", "window_tasks", "claude_terminal", "cli_candidates", "version_re", "server"}
         for entry in editors.values()
     ), editors
     # How each gets its Claude terminal: started as its window opens, listed for the user to pick, or none. Every
     # value is a literal - the rows are read as data, by tools/settings and the docs too - never an expression.
     assert all(entry["claude_terminal"] in {"started", "listed", "none"} for entry in editors.values()), editors
     assert all(
-        isinstance(value, (str, bool, list)) and "{{" not in str(value) and "{%" not in str(value)
+        isinstance(value, (str, bool, list, dict)) and "{{" not in str(value) and "{%" not in str(value)
         for entry in editors.values()
         for value in entry.values()
     ), editors

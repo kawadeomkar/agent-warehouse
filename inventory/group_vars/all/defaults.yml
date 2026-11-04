@@ -407,10 +407,18 @@ editor: vscode
 # from the editor's list of tasks) or none (neither, the default for a row
 # without it). The last two mean different things, though with these two rows
 # they always agree. family, the module of lib/claude_vm/editors/ that plans
-# its window (a fork of an editor is one more row of that editor's family);
+# its window (a fork of an editor is a row of that editor's family, with a
+# check file of its own and its key in just code's --editor);
 # cli_candidates, the names its command goes by here, looked for in that
 # order; version_re, what that command's --version must say where another
-# program shares a name.
+# program shares a name; server, how just status knows one of its windows on
+# the VM - a process of the VM user's whose program's path contains
+# argv0_contains, whose program's name starts with argv0_name_prefix, whose
+# first argument is argv1 and which has every argument of argv_has, each given
+# one holding: VS Code's extension host, one per window, and the daemon of
+# Zed's remote server, one per project it opens
+# (~/.zed_server/zed-remote-server-<channel>-<version> run ...; from Zed's
+# source, and seen on Zed 1.26.2), its proxies beside it not counted.
 # Internal, not a setting: tests hold it to those files, to just code's
 # --editor and to the core's records (docs/architecture/custom-code.md §7.10).
 claude_editors:
@@ -420,6 +428,9 @@ claude_editors:
     window_tasks: true
     claude_terminal: started
     cli_candidates: [code]
+    server:
+      argv0_contains: .vscode-server
+      argv_has: [--type=extensionHost]
   zed:
     name: Zed
     family: zed
@@ -427,6 +438,9 @@ claude_editors:
     claude_terminal: listed
     cli_candidates: [zeditor, zed]
     version_re: "^Zed "
+    server:
+      argv0_name_prefix: zed-remote-server
+      argv1: run
 # The editor setting as every playbook reads it: an empty one is the
 # default's. Internal, not a setting.
 claude_editor_key: "{{ editor | default('vscode', true) | string }}"
