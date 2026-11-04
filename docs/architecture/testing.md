@@ -39,9 +39,9 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2898 tests. By file:
+pytest over `tests/unit/`: 2940 tests. By file:
 
-- **The package** (`test_claude_vm.py` 65): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py` 71): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
@@ -197,6 +197,12 @@ pytest over `tests/unit/`: 2898 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
+- **The editors' plans** (`test_editor_conformance.py` 36): every family conforms to the seam and every row of
+  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
+  `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
+  foreign one is left and said; no write leaves just code's directory; each of the registry's rules bites on a plan
+  built to break it; the inputs and rows are held to their types; and the filter takes Ansible's own values, through
+  `ansible-playbook`.
 - **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is

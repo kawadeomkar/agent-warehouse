@@ -863,6 +863,17 @@ arguments.
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
   given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories
+  and files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by
+  name), the folder or file it opens, and what it says. Each editor family is a module of free functions with one,
+  `plan_open(editor, inputs)` (`vscode.py`, `zed.py`), the seam a `typing.Protocol` of that one member
+  (`family.py`), never `@runtime_checkable`. `model.py` holds the records: a row of `claude_editors`, what the
+  family's check found here (`Probe`), the inputs (`OpenInputs`, which grow by fields with defaults) and the plan.
+  Every plan passes `registry.py` on every call: a refusal leaves alone; every write lies strictly inside just
+  code's directory (`commonpath` on the normalised join); every helper is one YAML lists, with its directory; every
+  NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's fixed shape over
+  the first command `which` printed with one of the row's names whose `--version` says what the row asks, so never
+  ZFS's `zed`. Anything else is a `ValueError`. `filter_plugins/editors.py` gives Ansible `editor_open_plan`.
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

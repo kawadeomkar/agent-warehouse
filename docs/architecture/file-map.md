@@ -125,11 +125,16 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  editors/: model.py, the editors' records; family.py, the seam; vscode.py and
+                                  zed.py, each family's plan of its window; registry.py, which every plan passes
+                                  (§7.10)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
+filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
+                                  window as a plan (§7.10)
 filter_plugins/vscode.py          the adapter of lib/claude_vm/editors/vscode.py: vscode_setting (JSONC, read-only), VS
                                   Code's settings, never written
 filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_opener, the sign-ins' browser command;

@@ -70,6 +70,9 @@ VSCODE_ELSEWHERE = {
     "inventory/group_vars/all/local.yml.example": 11,
     "justfile": 2,
     "lib/claude_vm/ansible/engine.py": 1,
+    "lib/claude_vm/editors/model.py": 1,
+    "lib/claude_vm/editors/registry.py": 5,
+    "lib/claude_vm/editors/zed.py": 1,
     "lib/claude_vm/run/recipes.py": 2,
     "playbooks/code.yml": 27,
     "playbooks/configure.yml": 5,
@@ -146,12 +149,14 @@ def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
     _held(_lines_naming(PROXMOX_TERMS, PROXMOX_OWN), PROXMOX_ELSEWHERE, "Proxmox's API")
 
 
-# Zed's own: its two task files of just code's. Elsewhere, a line that names it.
-ZED_OWN = re.compile(r"^playbooks/tasks/zed_[a-z_]+\.yml$")
+# Zed's own: its two task files of just code's, and its family's module in the core. Elsewhere, a line that names it.
+ZED_OWN = re.compile(r"^(playbooks/tasks/zed_[a-z_]+\.yml|lib/claude_vm/editors/zed\.py)$")
 ZED_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 8,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
+    "lib/claude_vm/editors/model.py": 1,
+    "lib/claude_vm/editors/registry.py": 4,
     "lib/claude_vm/run/recipes.py": 1,
     "playbooks/code.yml": 4,
     "playbooks/library/vm_status_info.py": 7,
