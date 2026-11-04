@@ -20,7 +20,8 @@ from harness import ANSIBLE_PLAYBOOK, ansible_config
 from claude_vm.editors import common, model, registry
 from claude_vm.editors.family import Family
 from claude_vm.editors.model import FamilyName, OpenPlan, VmDirectory, VmFile
-from claude_vm.refs import NextStep, VmRef
+from claude_vm.refs import Action, NextStep, VmRef
+from claude_vm.wire import to_wire
 
 REPO = Path(__file__).resolve().parents[2]
 ROWS = yaml.safe_load((REPO / "inventory/group_vars/all/defaults.yml").read_text())["claude_editors"]
@@ -262,16 +263,36 @@ def test_each_row_s_window_match_goes_to_the_module_as_its_fields_alone():
 
 
 def test_the_filter_takes_ansible_s_own_values(tmp_path):
-    # Lazy and tagged values, as code.yml hands them; the plan kept as a fact, as the window step keeps none.
+    # Lazy and tagged values, as code.yml hands them; the plan kept as a fact, as the window step keeps none. And the
+    # apply's NEXT STEPS record, as tasks/editor_open.yml writes it, from steps with an action and without: the line
+    # is the action's own, on the wire, and '' once nothing is left.
     inputs = given(terminal="{{ switch }}", target="{{ where }}", vm={"name": "alpha", "vmid": "{{ listed.vmid }}"})
+    apply = yaml.safe_load((REPO / "playbooks/tasks/editor_open.yml").read_text())
+    (record,) = [
+        task["ansible.builtin.set_stats"]["data"]["code_next"] for task in apply if "ansible.builtin.set_stats" in task
+    ]
+    vm = VmRef(name="alpha", vmid=4013)
+    steps = (
+        NextStep(vm=vm, matter="editor", action=Action(recipe="code", args=("alpha", "--project", "my repo"))),
+        NextStep(vm=vm, matter="window", action=None),
+    )
     play = {
         "hosts": "localhost",
         "gather_facts": False,
-        "vars": {"rows": ROWS, "inputs": inputs, "switch": True, "where": ROOT, "listed": {"vmid": 4013}},
+        "vars": {
+            "rows": ROWS,
+            "inputs": inputs,
+            "switch": True,
+            "where": ROOT,
+            "listed": {"vmid": 4013},
+            "claude_vm_names": ["alpha"],
+            "code_plan": {"next_steps": [to_wire(step) for step in steps]},
+        },
         "tasks": [
             {"ansible.builtin.set_fact": {"kept": "{{ 'zed' | editor_open_plan(rows, inputs) }}"}},
             {"name": "Say", "ansible.builtin.debug": {"msg": "{{ [kept.kind] + kept.launch }}"}},
             {"name": "Servers", "ansible.builtin.debug": {"msg": "{{ rows | editor_servers | map(attribute='key') }}"}},
+            {"name": "Next", "ansible.builtin.debug": {"msg": record}},
         ],
     }
     (tmp_path / "plan.yml").write_text(yaml.safe_dump([play]))
@@ -281,13 +302,19 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
         "ANSIBLE_CONFIG": ansible_config(tmp_path),
         "ANSIBLE_FILTER_PLUGINS": str(REPO / "filter_plugins"),
         "ANSIBLE_STDOUT_CALLBACK": "ansible.builtin.json",
+    } | {
         # The checkout's own collections, as every recipe exports them: the json callback is ansible.posix's.
-        "ANSIBLE_COLLECTIONS_PATH": os.environ["ANSIBLE_COLLECTIONS_PATH"],
+        name: os.environ[name]
+        for name in ("ANSIBLE_COLLECTIONS_PATH",)
+        if name in os.environ
     }
     run = subprocess.run(
         [str(ANSIBLE_PLAYBOOK), "-i", str(tmp_path / "hosts"), str(tmp_path / "plan.yml")],
         env=env,
         cwd=tmp_path,
+        # As the harness runs every playbook: nothing to read on stdin, and a process group of its own.
+        stdin=subprocess.DEVNULL,
+        start_new_session=True,
         capture_output=True,
         text=True,
         timeout=120,
@@ -297,3 +324,4 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
     tasks = json.loads(run.stdout)["plays"][0]["tasks"]
     said = {task["task"]["name"]: task["hosts"]["localhost"].get("msg") for task in tasks}
     assert said["Say"] == ["open_plan", ZED, f"ssh://alpha{ROOT}"] and said["Servers"] == list(ROWS)
+    assert said["Next"] == {"alpha": {"editor": "just code alpha --project 'my repo'", "window": ""}}

@@ -201,10 +201,15 @@ pytest over `tests/unit/`: 2951 tests. By file:
 - **The editors' plans** (`test_editor_conformance.py` 51): every family conforms to the seam and every row of
   `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
   `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
-  foreign one is left and said; no write leaves just code's directory; each of the registry's rules bites on a plan
-  built to break it; the inputs and rows are held to their types, a row's window match naming its program first; each
+  foreign one is left and said, and none is written at a helper path a task cannot be handed as it is; VS Code opens
+  its workspace, or the bare folder, over the alias, and a row of its family whose window starts no Claude terminal
+  writes nothing; the paths are written and launched as `code.yml` built them, and with nothing written the window
+  opens whatever `editor_files_dir` names; no write leaves just code's directory or goes into the folders YAML writes
+  itself; each of the registry's rules bites, alone, on a plan built to break it; the inputs and rows are held to
+  their types, a row's window match naming its program first; each
   row's match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
-  `ansible-playbook`.
+  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once
+  nothing is left.
 - **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
