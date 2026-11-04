@@ -49,9 +49,7 @@ import difflib
 import json
 import os
 import re
-import stat
 import sys
-import tempfile
 from pathlib import Path
 
 # The yaml inventory plugin alone, set before Ansible reads its configuration: the default list has script, which
@@ -107,8 +105,10 @@ from ansible.template import Templar, trust_as_template  # noqa: E402
 from ansible.vars.manager import VariableManager  # noqa: E402
 from jinja2 import Environment, meta  # noqa: E402
 
-from claude_vm import text, wiring  # noqa: E402
+from claude_vm import plugin, store, text, wiring  # noqa: E402
 from claude_vm.tui import screen  # noqa: E402
+
+plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
 
 
 class Refused(Exception):
@@ -559,7 +559,7 @@ class Settings:
     def _replace(self, before: dict, result: str, changed: dict) -> None:
         """Replace local.yml with result, once it reads back holding changed - {name: value}, or None for a name
         taken out - and every other key as it was, an inline !vault included; else write nothing. Atomically,
-        with the file's mode, never leaving a scratch file."""
+        with the file's mode, never leaving a scratch file (store.replace)."""
         try:
             after = tagged(result)
         except yaml.YAMLError:
@@ -574,18 +574,7 @@ class Settings:
             raise Refused(
                 f"{LOCAL} is not laid out so {', '.join(sorted(names))} can be changed safely: nothing was written"
             )
-        mode = stat.S_IMODE(self.local_file.stat().st_mode)
-        handle, scratch = tempfile.mkstemp(dir=self.local_file.parent, prefix=".local.yml.", suffix=".tmp")
-        try:
-            with os.fdopen(handle, "w") as stream:
-                stream.write(result)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(scratch, mode)
-            os.replace(scratch, self.local_file)
-        except BaseException:
-            Path(scratch).unlink(missing_ok=True)
-            raise
+        store.replace(self.local_file, result)
 
     def named_anew(self) -> dict[str, str]:
         """Each setting's name from 1.1, by its name in 1.0, which the inventory defaults feed it from: a default that
@@ -611,6 +600,11 @@ class Settings:
         return True
 
     def write(self, name: str, raw: str) -> dict:
+        """write_, under the lock every writer of local.yml through store.py takes: of two writes, neither is lost."""
+        with store.locked(self.local_file):
+            return self.write_(name, raw)
+
+    def write_(self, name: str, raw: str) -> dict:
         """Write one setting into local.yml, or refuse with nothing written. Either name of a pair 1.1 named anew is
         written under its new name, and the old name's line taken out, so the two never stand side by side, one of
         them ignored."""
@@ -685,6 +679,11 @@ class Settings:
         return [] if start is None else lines[start : self._value_end(lines, start, commented=True)]
 
     def reset(self, name: str) -> dict:
+        """reset_, under the same lock as write."""
+        with store.locked(self.local_file):
+            return self.reset_(name)
+
+    def reset_(self, name: str) -> dict:
         """Put a setting back to its default: its line out of local.yml - a role variable's own too, where one was
         set by hand beside the setting that feeds it - and its example's commented line back in its place, as
         just init found it. Refused with nothing written, as write() is."""

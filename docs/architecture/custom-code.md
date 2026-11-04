@@ -795,7 +795,9 @@ in both the same way - and holds the rest to the type the role's
 the line that set it (with its value's further lines), else of its example's commented line, else at the end. The
 result is read back with every tag kept as text before it replaces the file - every other key as it was, an inline
 `!vault` included, or nothing is written (an alias whose anchor the edit removes, two lines of one name) - and it
-replaces it atomically, with its mode. Then the files are read again: what outranks `local.yml` (a `hosts.yml`
+replaces it atomically, with its mode (`lib/claude_vm/store.py`): the read and the replace hold one lock, on the
+file's folder rather than a lock file beside it, so of two writes at once neither is lost. Then the files are
+read again: what outranks `local.yml` (a `hosts.yml`
 variable, a run) is said, with what applies the change - `just deploy --only configure --tags <role>`, or a VM's
 creation for `proxmox_vm`.
 
@@ -838,6 +840,10 @@ arguments.
   one is built (an exact `str`, `int` or `bool`, a `Literal` by membership, a tuple item by item), then by the
   record's own `validate`. **`wire.py`**'s `to_wire` is the one way a record leaves: `format_version` and `kind`
   first, then its fields and the values its properties derive, through JSON, so a tuple arrives as a list.
+- **`store.py`** is the core's one module that writes a file that persists, and only `tools/` import it:
+  `replace` swaps a file for new text atomically, keeping its mode (through a symlink, the file it names), and
+  `locked`, around a read and a replace, holds an exclusive `flock` on the file's folder, so two writers never
+  lose one's change.
 - **`refs.py`** names a VM and a command: `VmRef` (a name as `just` takes one, and a VM ID in Proxmox's range),
   `Action` (a recipe and its words, `line` its one display form, `command_line`) and `NextStep`.
 - **The adapters.** Each file in `filter_plugins/` is an adapter: it puts its checkout's `lib/` first on `sys.path`,

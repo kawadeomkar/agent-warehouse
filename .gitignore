@@ -16,6 +16,10 @@ inventory/**/*proxmox.y*ml
 !inventory/**/group_vars/**/proxmox.y*ml
 # Local and secret variable files.
 **/group_vars/**/local*
+# The scratch file a just settings write leaves for a moment, and an editor's swap file.
+**/group_vars/**/.local*
+**/group_vars/**/.vault*
+**/group_vars/**/.secret*
 **/group_vars/**/vault*
 **/group_vars/**/secret*
 host_vars/

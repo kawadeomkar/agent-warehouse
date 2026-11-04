@@ -26,8 +26,9 @@ patterns=(
   '^inventory/(.+/)?[^/]*proxmox\.ya?ml$'
   # Anything named local*, vault* or secret* in a group_vars tree, whatever its
   # extension: Ansible loads extensionless files there too, and a plaintext
-  # vault.yml.bak leaks as surely as vault.yml.
-  '(^|/)group_vars/(.+/)?(local|vault|secret)[^/]*(/|$)'
+  # vault.yml.bak leaks as surely as vault.yml. A leading dot too: just
+  # settings' scratch file, an editor's swap file.
+  '(^|/)group_vars/(.+/)?\.?(local|vault|secret)[^/]*(/|$)'
   # host_vars/ holds nothing but per-host data - the Proxmox host's address, or
   # overrides for one VM - and no host is ever committed to an inventory.
   '(^|/)host_vars/'

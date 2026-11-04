@@ -213,3 +213,46 @@ print(json.dumps({{"loaded": loaded, "found": found}}))
     said = json.loads(run.stdout)
     assert said["loaded"] == []
     assert said["found"] and all(made == [name, name, True] for name, made in said["found"].items()), said["found"]
+
+
+def test_two_writers_through_the_store_lose_none_of_each_other_s_changes(tmp_path) -> None:
+    # Read, change, replace, 300 times in each of two processes at once, as tools/settings writes local.yml:
+    # unlocked, about half were lost.
+    counter = tmp_path / "counter"
+    counter.write_text("0")
+    script = f"""
+import sys
+sys.path.insert(0, {str(LIB)!r})
+from pathlib import Path
+from claude_vm import store
+for _ in range(300):
+    with store.locked({str(counter)!r}):
+        store.replace({str(counter)!r}, str(int(Path({str(counter)!r}).read_text()) + 1))
+"""
+    writers = [subprocess.Popen([sys.executable, "-I", "-c", script]) for _ in range(2)]
+    assert [writer.wait(timeout=120) for writer in writers] == [0, 0]
+    assert counter.read_text() == "600"
+
+
+def test_a_replace_keeps_the_file_s_mode_and_leaves_no_scratch_file(tmp_path) -> None:
+    from claude_vm import store
+
+    path = tmp_path / "local.yml"
+    path.write_text("a: 1\n")
+    path.chmod(0o640)
+    store.replace(path, "a: 2\n")
+    assert path.read_text() == "a: 2\n" and (path.stat().st_mode & 0o777) == 0o640
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["local.yml"]
+
+
+def test_a_replace_through_a_symlink_replaces_the_file_it_names(tmp_path) -> None:
+    from claude_vm import store
+
+    (tmp_path / "kept").mkdir()
+    target = tmp_path / "kept" / "local.yml"
+    target.write_text("a: 1\n")
+    link = tmp_path / "local.yml"
+    link.symlink_to(target)
+    store.replace(link, "a: 2\n")
+    assert link.is_symlink() and target.read_text() == "a: 2\n"
+    assert sorted(p.name for p in (tmp_path / "kept").iterdir()) == ["local.yml"]

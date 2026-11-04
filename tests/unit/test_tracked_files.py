@@ -30,6 +30,9 @@ MUST_BLOCK = [
     "inventory/group_vars/local.yml",
     "inventory/group_vars/vault.yml",
     "inventory/group_vars/prod/local.yaml",
+    # The scratch file a just settings write leaves for a moment, and an editor's swap file of the vault.
+    "inventory/group_vars/all/.local.yml.k2x9q1.tmp",
+    "inventory/group_vars/all/.vault.yml.swp",
     "inventory/host_vars/pve.yml",
     "inventory/prod/host_vars/vm1.yml",
     "inventory/prod/hosts.ini",

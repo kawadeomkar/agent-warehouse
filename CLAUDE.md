@@ -618,7 +618,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   are refused - each looked for in the text and again in the value it parses to, since YAML decodes escapes
   (`"\x7b{"`) - a secret's value never said back. The rest is held to its `argument_specs` type by Ansible's
   `ArgumentSpecValidator`, written as `just init` writes (JSON in place of its line or its example's line), read
-  back with every other key unchanged before it replaces the file atomically, or nothing is written. `--reset`
+  back with every other key unchanged before it replaces the file atomically, under a lock on its folder held from
+  the read (`lib/claude_vm/store.py`), so of two writes at once neither is lost, or nothing is written. `--reset`
   takes the setting's line out and puts its example's commented line back (set then reset leaves a file that has
   its example's line, as `just init` makes it, byte for byte as it was), refused only a secret and the host's address, since taking a line out makes no value wrong. The vault's
   password file is the recipe's (`vault_args`),

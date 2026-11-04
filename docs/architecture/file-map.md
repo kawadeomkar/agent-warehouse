@@ -123,6 +123,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   status/model.py, just status's model, and tui/status.py, its report drawn (§7.7)
                                   wiring.py, the settings' wiring, which tools/docs.py renders and tools/settings reads
                                   (§7.9)
+                                  store.py, a file replaced atomically under a lock on its folder: tools/settings'
+                                  write of local.yml (§7.9)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:

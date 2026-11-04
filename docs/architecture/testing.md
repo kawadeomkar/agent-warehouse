@@ -39,14 +39,15 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2883 tests. By file:
+pytest over `tests/unit/`: 2890 tests. By file:
 
-- **The package** (`test_claude_vm.py` 59): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py` 63): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
   copies Ansible's values into exact types, `to_wire` puts `format_version` and `kind` first; an adapter's filter
   imports its module only when called and refuses another checkout's `claude_vm`, known by file, not by spelling;
+  two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
@@ -82,14 +83,15 @@ pytest over `tests/unit/`: 2883 tests. By file:
   included, as it was after.
   Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
   ACCESS line names the editor that is set.
-- **`just settings`** (`test_settings.py` 111): `tools/settings` against inventories of its own, made from the
+- **`just settings`** (`test_settings.py` 112): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
   are its `argument_specs`; every line within 100 columns. The attacks: a `pipe` lookup behind a group
   variable in `hosts.yml` (refused, never run), an executable in `inventory/` (never run), a secret vaulted
   inline in `local.yml` and a setting reading `vault_vm_password` (masked), a GitHub username of `local` (no report
   refused), a secret copied in under a computed name (nothing printed, exit 1), a control sequence in a
-  value. Where values come from: `proxmox_vm` evaluated on `claude_vm_pending`, `proxmox_template` on the
+  value; a write started while another holds `local.yml`'s lock waits for it, then writes. Where values come
+  from: `proxmox_vm` evaluated on `claude_vm_pending`, `proxmox_template` on the
   Proxmox host with its host variable, a short setting followed to the role variable it feeds, what `just
   deploy`, `just login` and `just destroy` set beside the value other runs use, a default that lives in a
   role's `default()`. The vault refused without a password and with a wrong one, opened from
