@@ -536,12 +536,15 @@
           ansible.builtin.assert:
             that:
               - code_ws_dir is match('/')
+              - code_ws_dir != '/'
               - code_ws_dir != code_root
               - code_target != code_ws_dir or not code_terminal
             fail_msg: >-
               {{ 'editor_files_dir is a path on the VM, and must be an absolute one, not "' ~ code_ws_dir
                  ~ '": ' ~ code_editor_name ~ ' is handed it as written.'
                  if not code_ws_dir is match('/')
+                 else 'editor_files_dir is /, the whole of the VM: name a directory of its own for the files just code keeps.'
+                 if code_ws_dir == '/'
                  else 'editor_files_dir is the projects directory, ' ~ code_root
                       ~ ', whose folders are the projects; name a directory of its own.'
                  if code_ws_dir == code_root

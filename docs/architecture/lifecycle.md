@@ -629,8 +629,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
 5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
    machine, so `~` would not expand) and, wherever anything goes into just code's own directory (the
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
-   copies on, an `editor_files_dir` that is not absolute or is the projects directory (its files would sit
-   among the repositories), and with the terminal, one that is the folder being opened
+   copies on, an `editor_files_dir` that is not absolute, is `/` (the whole of the VM) or is the projects
+   directory (its files would sit among the repositories), and with the terminal, one that is the folder being opened
    (`--project .claude-on-proxmox`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
    with `stat` on the VM. Read-only. Unreachable, missing and not-a-folder are each their own

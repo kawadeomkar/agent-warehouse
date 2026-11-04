@@ -1126,6 +1126,7 @@ WINDOWS = {
     },
     "notes only, the projects directory": {**NOTES_ONLY, "code_ws_dir": "/home/dev/projects"},
     "notes only, not absolute": {**NOTES_ONLY, "code_ws_dir": "claude-files"},
+    "notes only, the VM's root": {**NOTES_ONLY, "code_ws_dir": "/"},
     "nothing written, not absolute": {
         **NOTES_ONLY,
         "local": {"editor_claude_terminal": False, "editor_session_notes": False},
@@ -1362,8 +1363,12 @@ def test_zed_opens_the_folder_through_the_alias_and_claude_is_a_task_of_it(windo
             'editor_files_dir is a path on the VM, and must be an absolute one, not "claude-files": Zed is handed it'
             " as written.",
         ),
+        (
+            "notes only, the VM's root",
+            "editor_files_dir is /, the whole of the VM: name a directory of its own for the files just code keeps.",
+        ),
     ],
-    ids=["the projects directory", "not absolute"],
+    ids=["the projects directory", "not absolute", "the VM's root"],
 )
 def test_just_code_s_own_directory_is_checked_wherever_anything_goes_into_it_the_notes_alone_too(
     windows, name, refused
