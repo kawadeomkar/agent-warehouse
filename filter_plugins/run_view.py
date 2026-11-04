@@ -2,8 +2,8 @@
 
 Loaded by path by filter_plugins/live_ansible.py, the engine the stdout callback hands a drawn run to, which feeds a
 Run the playbook's plays and Ansible's events; everything here is pure, with the time passed in, so every frame is a
-unit test (tests/unit/test_run_view.py). Lines are drawn with filter_plugins/screen.py and put on the screen by
-filter_plugins/live_region.py, as `just status`'s report is (docs/architecture/custom-code.md §7.8);
+unit test (tests/unit/test_run_view.py). Lines are drawn with lib/claude_vm/tui/screen.py and put on the screen by
+lib/claude_vm/tui/live_region.py, as `just status`'s report is (docs/architecture/custom-code.md §7.8);
 docs/guides/runs.md shows what a person sees, and §7.5 how this works.
 
 What a run is made of is its recipe's declaration in filter_plugins/live_recipes.py, which the title's first word
@@ -54,7 +54,8 @@ def _sibling(stem):
     return sys.modules[name]
 
 
-screen = _sibling("screen")
+from claude_vm.tui import screen  # noqa: E402
+
 recipes = _sibling("live_recipes")
 from claude_vm.text import one_line as _one_line  # noqa: E402
 

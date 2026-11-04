@@ -445,7 +445,7 @@ within a second, a spinner wherever a value is still being read, and redraws it 
 when the run ends the live region is erased and the finished report printed once. Piped, in the log,
 under `--json` or at a terminal that cannot take it, only the finished report appears, or nothing. It is
 drawn in the region every live output shares
-([§7.8](custom-code.md#78-filter_pluginslive_regionpy-and-filter_pluginsscreenpy--every-live-output)), as
+([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)), as
 `just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
 the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
 at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of

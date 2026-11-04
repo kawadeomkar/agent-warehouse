@@ -14,7 +14,7 @@ ansible-core 2.19 travel on the task result, are printed in every hook, or a std
 without a word - through lib/claude_vm/text.py's plain_summary, since a module on a VM chooses their text. The
 finished report is taken only from the report play's own set_fact on this machine: any module's result can carry facts.
 
-The live region is every live output's (filter_plugins/live_region.py, docs/architecture/custom-code.md §7.8): one
+The live region is every live output's (lib/claude_vm/tui/live_region.py, docs/architecture/custom-code.md §7.8): one
 write per redraw in synchronized-output marks, nothing wrapped, a resize pushing the screen into the scrollback,
 every other message erasing it first and drawing it after, the echo off while it is up, the cursor never hidden.
 """
@@ -64,7 +64,8 @@ def _sibling(stem):
     return sys.modules[name]
 
 
-live = _sibling("live_region")
+from claude_vm.tui import live_region as live  # noqa: E402
+
 # The report play's task that makes the finished report: a set_fact on this machine (playbooks/status.yml).
 REPORT_ACTIONS = frozenset({"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"})
 

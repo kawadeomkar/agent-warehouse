@@ -541,7 +541,7 @@ narrow one, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a warning be
 change nothing there, and the host key's options and refusals), and `tests/unit/test_status_work.py`
 (`git_checkouts_info`'s `work` over real throwaway repositories, which it leaves as they were).
 
-## 7.8 `filter_plugins/live_region.py` and `filter_plugins/screen.py` — every live output
+## 7.8 `lib/claude_vm/tui/live_region.py` and `screen.py` — every live output
 
 `just status`'s report (§7.7) and every live run (§7.5) are drawn the same way, with the same code, so each
 new live output adds only what it shows. Two modules hold what they share, and `lib/claude_vm/text.py`'s

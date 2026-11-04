@@ -103,7 +103,10 @@ roles/                            one role per concern, each with defaults/, met
 
 lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,
                                   and wire.py, its one way out; refs.py, a VM and a command as data; plugin.py, what
-                                  every adapter in filter_plugins/ shares
+                                  every adapter in filter_plugins/ shares; text.py, what a VM said made plain (§7.4);
+                                  tui/live_region.py, every live output's region: drawn in place at the bottom of a
+                                  terminal, all else above, and tui/screen.py, its lines: styled segments, cut,
+                                  aligned, coloured in one palette (§7.8)
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
@@ -126,8 +129,6 @@ filter_plugins/live_commands.py   a run in parts: a command drawn as a part, the
 filter_plugins/live_recipes.py    every command drawn live, declared: its stages and steps, named by its title (§7.8)
 filter_plugins/processes.py       the processes under one, and their end: what a kill must reach beyond the group it
                                   was sent to - ansible-core's detached task worker, a nested run's parts (§7.8)
-filter_plugins/live_region.py     every live output's region: drawn in place at the bottom of a terminal, all else above (§7.8)
-filter_plugins/screen.py          every live output's lines: styled segments, cut, aligned, coloured in one palette (§7.8)
 filter_plugins/sessions.py        claude_sessions_plan, which session goes to which VM checkout by origin; git_repository
                                   and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,

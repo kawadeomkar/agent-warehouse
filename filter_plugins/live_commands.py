@@ -59,11 +59,11 @@ def _sibling(stem):
 
 
 from claude_vm import text  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
 
-screen = _sibling("screen")
 processes = _sibling("processes")
 view = _sibling("run_view")
-live = _sibling("live_region")
+from claude_vm.tui import live_region as live  # noqa: E402
 
 LIVE_ENV = "CLAUDE_ON_PROXMOX_LIVE"
 STATE_ENV = "CLAUDE_ON_PROXMOX_LIVE_STATE"

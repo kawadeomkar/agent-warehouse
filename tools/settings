@@ -104,7 +104,6 @@ def _load(stem: str, path: Path):
 
 
 docs = _load("docs", REPO / "tools" / "docs.py")
-screen = _load("screen", REPO / "filter_plugins" / "screen.py")
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 import yaml  # noqa: E402
 from ansible import constants as C  # noqa: E402
@@ -122,6 +121,7 @@ from ansible.vars.manager import VariableManager  # noqa: E402
 from jinja2 import Environment, meta  # noqa: E402
 
 from claude_vm import text  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
 
 
 class Refused(Exception):

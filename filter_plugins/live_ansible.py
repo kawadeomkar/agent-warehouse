@@ -3,7 +3,7 @@
 The stdout callback (callback_plugins/claude_on_proxmox.py) hands every event to an Engine when a recipe has exported
 CLAUDE_ON_PROXMOX_LIVE, its title, and keeps only its classic output for itself. Everything a live run does is here:
 
-- live, at a terminal that can draw (filter_plugins/live_region.py): the run's model (filter_plugins/run_view.py)
+- live, at a terminal that can draw (lib/claude_vm/tui/live_region.py): the run's model (filter_plugins/run_view.py)
   drawn in place at the bottom of the screen, with the reports, the blocks, the diffs, warnings and failures printed
   above it for good;
 - lines, any other output: a line as each step ends, and the same reports, blocks and failures.
@@ -52,9 +52,11 @@ def _sibling(stem):
 from claude_vm import text  # noqa: E402
 
 plain_text = text.plain_text
-screen = _sibling("screen")
+from claude_vm.tui import screen  # noqa: E402
+
 view = _sibling("run_view")
-live = _sibling("live_region")
+from claude_vm.tui import live_region as live  # noqa: E402
+
 commands = _sibling("live_commands")
 
 LIVE_ENV = commands.LIVE_ENV

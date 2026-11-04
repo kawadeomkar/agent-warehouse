@@ -2,14 +2,13 @@
 
 A line is a list of segments, (text, style): a style is one of PALETTE's keys, or "" for plain. `just status`'s
 report (filter_plugins/status.py) and every live run (filter_plugins/run_view.py) are built as lines and rendered
-here, so they cut, pad, colour and measure alike; filter_plugins/live_region.py puts them on the screen. PENDING in a
+here, so they cut, pad, colour and measure alike; live_region.py puts them on the screen. PENDING in a
 segment's text marks where the spinner's glyph goes, for a value still being read.
 
 A line is measured in characters: one each, which East Asian ambiguous-width characters (█ ● ○ – · …) are not in a
 terminal set to draw them double (docs/architecture/custom-code.md §7.8).
 
-Pure, nothing read or written. Loaded by path as claude_on_proxmox_screen, as every module here loads another; it
-has no filters of its own.
+Pure, nothing read or written. Imported as claude_vm.tui.screen (docs/architecture/custom-code.md §7.10).
 """
 
 from __future__ import annotations
@@ -114,10 +113,3 @@ def clock(seconds):
     """A running timer: 0:07, 12:30."""
     minutes, rest = divmod(int(max(0, seconds)), 60)
     return f"{minutes}:{rest:02d}"
-
-
-class FilterModule:
-    """No filters: loaded by path. Here so the filter loader takes the file as a plugin."""
-
-    def filters(self):
-        return {}

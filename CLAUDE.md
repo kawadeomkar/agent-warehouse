@@ -484,8 +484,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   the `Include` off, the Vagrantfile sets `claude_ssh_config: false`, and
   `tests/unit/test_ssh_config.py` fails if any of them stops.
 
-- **Every live output draws through one region and one way of drawing.** `filter_plugins/live_region.py`'s
-  `LiveRegion` puts a frame at the bottom of the terminal and `filter_plugins/screen.py` builds its lines
+- **Every live output draws through one region and one way of drawing.** `lib/claude_vm/tui/live_region.py`'s
+  `LiveRegion` puts a frame at the bottom of the terminal and `lib/claude_vm/tui/screen.py` builds its lines
   (segments cut to the width, one palette): `just status`'s callback and every live run's, and each recipe
   drawn live after them - a playbook run joins through `CLAUDE_ON_PROXMOX_LIVE` and its declaration in
   `filter_plugins/live_recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette

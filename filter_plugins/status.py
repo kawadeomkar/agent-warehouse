@@ -40,8 +40,9 @@ def _sibling(stem):
 
 from claude_vm.text import one_line  # noqa: E402
 
-# The report is drawn as every live output is: lines of styled segments (filter_plugins/screen.py).
-_screen = _sibling("screen")
+# The report is drawn as every live output is: lines of styled segments (lib/claude_vm/tui/screen.py).
+from claude_vm.tui import screen as _screen  # noqa: E402
+
 seg, plain, pad, cut, render, bar, spark, plural = (
     _screen.seg,
     _screen.plain,
