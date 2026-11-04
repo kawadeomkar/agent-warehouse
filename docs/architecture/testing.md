@@ -39,8 +39,13 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2823 tests. By file:
+pytest over `tests/unit/`: 2850 tests. By file:
 
+- **The package** (`test_claude_vm.py` 27): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+  `python -I` without loading `ansible`, `yaml`, `asyncio` or `subprocess`, and the package itself imports none of
+  its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
+  copies Ansible's values into exact types, `to_wire` puts `format_version` and `kind` first; an adapter's filter
+  imports its module only when called and refuses another checkout's `claude_vm`, known by file, not by spelling.
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the

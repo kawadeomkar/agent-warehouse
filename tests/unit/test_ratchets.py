@@ -15,7 +15,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 # The code: what runs, and what decides how it runs. Not the docs, the tests or the scenarios, which describe it.
-CODE = ["playbooks", "roles", "filter_plugins", "callback_plugins", "tools", "justfile", "deploy.yml", "inventory"]
+CODE = [
+    "playbooks",
+    "roles",
+    "lib",
+    "filter_plugins",
+    "callback_plugins",
+    "tools",
+    "justfile",
+    "deploy.yml",
+    "inventory",
+]
 
 
 def _lines_naming(pattern: str, own: re.Pattern, kept: str = "") -> dict[str, int]:
@@ -103,6 +113,7 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/defaults.yml": 30,
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
+    "lib/claude_vm/refs.py": 3,
     "playbooks/code.yml": 2,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,

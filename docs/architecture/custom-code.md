@@ -810,3 +810,34 @@ name although no setting is per VM.
 
 Covered by `tests/unit/test_settings.py`, against inventories made from the example files with fake values, and the
 recipe by `tests/unit/test_justfile.py` against a stand-in `python`.
+
+## 7.10 `lib/claude_vm/` — the controller's Python as one package
+
+The Python that runs on this machine is moving into one package, `claude_vm`, in `lib/`, under one import name, so a
+module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
+The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
+ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
+arguments.
+
+- **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
+  when it is imported, only inside the function that needs one: a client that is not Ansible would pay about 30 ms
+  for `ansible.errors` alone. ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
+  is. The package's `__init__.py` imports nothing.
+- **`records.py`** holds `plain`, which copies a value out of Ansible's lazy containers and tagged strings, and
+  `Checked`, the base of every record: a frozen slots dataclass whose fields are held to their annotations whenever
+  one is built (an exact `str`, `int` or `bool`, a `Literal` by membership, a tuple item by item), then by the
+  record's own `validate`. **`wire.py`**'s `to_wire` is the one way a record leaves: `format_version` and `kind`
+  first, then its fields and the values its properties derive, through JSON, so a tuple arrives as a list.
+- **`refs.py`** names a VM and a command: `VmRef` (a name as `just` takes one, and a VM ID in Proxmox's range),
+  `Action` (a recipe and its words, `line` its one display form, `command_line`) and `NextStep`.
+- **The adapters.** Each file in `filter_plugins/` is an adapter: it puts its checkout's `lib/` first on `sys.path`,
+  relative to its own file (never `PYTHONPATH`, a `.pth` file or an editable install, which would point every
+  checkout sharing a virtualenv at one checkout's code), and its `FilterModule` returns `plugin.filters`, functions
+  that import their core module only when one is called: every worker executes every file in `filter_plugins/` at
+  its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
+  adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
+  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+
+Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
+`python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's
+filter imports its module only when called and refuses another checkout's `claude_vm`.

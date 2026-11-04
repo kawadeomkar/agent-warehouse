@@ -101,6 +101,9 @@ roles/                            one role per concern, each with defaults/, met
                                   report.yml, absent.yml, login.yml and web_login.yml (the sign-in), status.yml (just status);
                                   files/tailscale.asc (the vendored signing key)
 
+lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,
+                                  and wire.py, its one way out; refs.py, a VM and a command as data; plugin.py, what
+                                  every adapter in filter_plugins/ shares
 filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,

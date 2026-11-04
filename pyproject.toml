@@ -60,8 +60,9 @@ default-groups = ["dev", "docs"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
-# The test modules share tests/unit/harness.py, imported by name in any import mode.
-pythonpath = ["tests/unit"]
+# The test modules share tests/unit/harness.py, imported by name in any import mode, and import the
+# controller's package, claude_vm, from lib/ (docs/architecture/custom-code.md §7.10).
+pythonpath = ["tests/unit", "lib"]
 addopts = "-ra -q"
 # Registered here too, so a run without xdist (-p no:xdist) knows the mark tests/unit/conftest.py sets.
 markers = ["xdist_group(name): run every test of the group on one xdist worker"]
@@ -71,6 +72,9 @@ line-length = 120
 # Module code runs on the managed VM's Python (Ubuntu jammy ships 3.10), not
 # the controller's (3.12+ for the pinned ansible-core).
 target-version = "py310"
+# lib/ is the controller's alone, and is imported as claude_vm (docs/architecture/custom-code.md §7.10).
+per-file-target-version = { "lib/**" = "py312" }
+src = [".", "lib"]
 extend-exclude = [".venv", ".ansible", ".cache", ".vagrant"]
 # The tools that are Python with no .py, which ruff finds by extension only: just lint checks them as the rest.
 extend-include = ["tools/live", "tools/settings", "tools/status-exit"]
