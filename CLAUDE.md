@@ -207,8 +207,13 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `http://localhost:<port>/callback`, listens on the VM's `127.0.0.1:<port>`, and takes a code from that
   callback or from stdin, whichever comes first (one attempt: both pages share state and challenge).
   `browser_login.yml` gives it a `BROWSER` that only records the page, forwards that port from the
-  controller with `ssh -f -L localhost:<port>:127.0.0.1:<port>` (`ExitOnForwardFailure`, the far end a
-  `sleep` whose pid the VM records, killed when the sign-in ends, only while it is a sleep), opens the page
+  controller with `ssh -f -L 127.0.0.1:<port>:127.0.0.1:<port> -L [::1]:<port>:127.0.0.1:<port>` (one forward
+  per loopback family, since a browser tries `::1` for `localhost` and OpenSSH counts a `localhost` forward
+  made once either binds; `ExitOnForwardFailure`, so a port held here on either falls back to the paste;
+  `AddressFamily=any`, since ssh binds a forward on that option's family and the command line's value
+  outranks a user's `AddressFamily inet` or `inet6`, which would otherwise fail one forward every time;
+  the far end a `sleep` whose pid the VM records, killed when the sign-in ends, only while it is a sleep),
+  opens the page
   here only when it matches `claude_code_login_page_pattern`, and waits on the async job
   (`claude_code_login_approval_timeout`) - no prompt. `claude_code_login_redirect` follows
   `login_desktop`; a forward that fails, a page that is not Claude's, a code given, no browser on this

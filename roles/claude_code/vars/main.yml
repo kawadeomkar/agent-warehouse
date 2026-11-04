@@ -290,15 +290,28 @@ claude_code_login_redirecting: >-
   {{ claude_code_login_redirect_ready | bool and (claude_code_login_forward.rc | default(1)) == 0 }}
 # Internal: the ssh that makes the forward, on its own connection to the VM as
 # Ansible reaches it, and how long its far end lasts: the wait, and a minute.
-# Bound to this machine's loopback; ExitOnForwardFailure fails it when the port
-# is taken here, and -f returns once it is up. A stand-in replaces ssh in tests.
+# Bound to this machine's loopback by two forwards, one on 127.0.0.1 and one on
+# ::1, and ExitOnForwardFailure fails the ssh unless both are made, so a port
+# taken here on either address means the code is pasted instead. Never one
+# forward on localhost: ssh makes that once any one address binds, while a
+# browser tries both for localhost whatever this machine's resolver says
+# (Chromium ::1 first), so it could reach another program holding the port on
+# the other - and for that reason the two addresses are fixed, never read from
+# the resolver. A machine with no IPv6 loopback therefore always pastes.
+# AddressFamily=any, because ssh binds every forward on the family that option
+# names: an AddressFamily inet (or inet6) in the user's ssh config would fail
+# the ::1 (or 127.0.0.1) forward on every sign-in, and ssh keeps the command
+# line's value over the config's. It changes nothing of the connection, which
+# is to the VM's IPv4 address anyway. -f returns once both are up.
+# A stand-in replaces ssh in tests.
 claude_code_login_ssh: ssh
 claude_code_login_forward_argv: >-
   {{ ['sh', '-c', 'exec "$@" >/dev/null 2>&1', 'sh', claude_code_login_ssh, '-f', '-n', '-T',
-      '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ConnectTimeout=15',
+      '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'AddressFamily=any', '-o', 'ConnectTimeout=15',
       '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
       '-p', (hostvars[inventory_hostname].ansible_port | default(22)) | string,
-      '-L', 'localhost:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port]
+      '-L', '127.0.0.1:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port,
+      '-L', '[::1]:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port]
      + (['-i', hostvars[inventory_hostname].ansible_ssh_private_key_file]
         if hostvars[inventory_hostname].ansible_ssh_private_key_file is defined else [])
      + [(hostvars[inventory_hostname].ansible_user | default(claude_code_user)) ~ '@'

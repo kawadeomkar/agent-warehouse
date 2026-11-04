@@ -392,8 +392,17 @@ recorded pid is claude's because the shell exec's into it (in a `( ... )` subshe
 `wait_for` the URL. With `claude_code_login_redirect` (which follows `login_desktop`), claude's
 `BROWSER` is a script that only records the page it is handed; the run reads it, takes the callback
 port from its `redirect_uri` (1024-65535), and forwards that port from the controller with `ssh -f -n -T
--o ExitOnForwardFailure=yes -L localhost:<port>:127.0.0.1:<port> <user>@<vm> 'echo $$ >pidfile && exec
-sleep <wait+60>'` on a connection of its own, from `delegate_to: localhost`. Up, it opens that page
+-o ExitOnForwardFailure=yes -o AddressFamily=any -L 127.0.0.1:<port>:127.0.0.1:<port> -L
+[::1]:<port>:127.0.0.1:<port> <user>@<vm> 'echo $$ >pidfile && exec sleep <wait+60>'` on a connection of
+its own, from `delegate_to: localhost`. Two forwards, one per loopback address, never one on `localhost`:
+OpenSSH listens on every loopback address for that one and counts it made once any one binds, so a port
+another program holds here on one address does not fail it, while a browser tries both addresses for
+`localhost`, whatever this machine's resolver says (Chromium `::1` first, Firefox both). With two,
+`ExitOnForwardFailure` fails the ssh unless each binds; the cost is that a machine with no IPv6 loopback
+always pastes. `AddressFamily=any`, because ssh binds each forward on the family that option names, so a
+user's `AddressFamily inet` (or `inet6`) would fail the `::1` (or `127.0.0.1`) forward on every sign-in;
+ssh keeps the command line's value over the config's, and the connection, to the VM's IPv4 address, is the
+same either way. Up, it opens that page
 here - only when it matches `claude_code_login_page_pattern`, Claude's own authorize URL, since the VM
 chooses it - and waits on the async job with no prompt (`claude_code_login_approval_timeout`); the
 `always` section kills the far end's `sleep` by its pid, only while `ps` names it a sleep, which ends the

@@ -50,9 +50,12 @@ What these guard:
   prompt ends the run there.
 - The browser coming back by itself: claude's callback port is forwarded from
   this machine, and once the browser brings the code back, the VM is signed in
-  with no prompt shown; a forward that fails, and a page that is not Claude's,
-  fall back to the code; a browser that never comes back ends the attempt and
-  skips the VM's later sign-ins; and it is on only where the page opens here.
+  with no prompt shown, by a forward from each of this machine's loopback
+  addresses, whatever address family the user's ssh config sets; a forward
+  that fails - a port held here on one address only among them - and a page
+  that is not Claude's fall back to the code; a browser that never comes back
+  ends the attempt and skips the VM's later sign-ins; and it is on only where
+  the page opens here.
 """
 
 from __future__ import annotations
@@ -576,21 +579,58 @@ def test_the_work_after_the_sign_ins_waits_for_the_last_one_then_runs_for_every_
 # so the callback is reachable as it is: a stand-in ssh records the forward it
 # was asked for, and the test plays the browser, calling the callback with a
 # code and the page's state - and never following its redirect to Anthropic.
+# It takes -L as OpenSSH does: a forward on localhost listens on every loopback
+# address and is made once any one binds, a forward on an address only there,
+# and ExitOnForwardFailure ends ssh unless every forward is made. Another
+# program holds the port here on each address with a held-<address> file. And
+# it takes AddressFamily as OpenSSH does for the listeners (the connection is
+# not modelled): each forward binds on that family alone, inet or inet6, and
+# the first value given wins, the command line's (-o AddressFamily=...) over
+# the user's ssh config's, which an address-family file stands for.
 FORWARD = """#!/bin/sh
-printf '%s\\n' "$*" >> "$(dirname "$0")/forward.log"
-[ -e "$(dirname "$0")/forward-refused" ] && exit 255
+dir=$(dirname "$0")
+printf '%s\\n' "$*" >> "$dir/forward.log"
+[ -e "$dir/forward-refused" ] && exit 255
+all=" $* " made=yes family=
+for word in "$@"; do
+    case $family$word in AddressFamily=*) family=${word#AddressFamily=} ;; esac
+done
+[ -n "$family" ] || family=$(cat "$dir/address-family" 2>/dev/null || echo any)
+while [ $# -gt 0 ]; do
+    if [ "$1" = -L ]; then
+        case $family:$2 in
+            any:localhost:*) [ -e "$dir/held-127.0.0.1" ] && [ -e "$dir/held-::1" ] && made=no ;;
+            any:127.0.0.1:* | inet:127.0.0.1:* | inet:localhost:*) [ -e "$dir/held-127.0.0.1" ] && made=no ;;
+            any:"[::1]":* | inet6:"[::1]":* | inet6:localhost:*) [ -e "$dir/held-::1" ] && made=no ;;
+            inet6:127.0.0.1:* | inet:"[::1]":*) made=no ;;
+        esac
+    fi
+    shift
+done
+case $made$all in
+    no*" ExitOnForwardFailure=yes "*) exit 255 ;;
+esac
 exit 0
 """
 
 
-def _forwarding(root: Path, hosts: dict, refused: bool = False, wait: int = 30) -> Path:
-    """A stand-in ssh for the forward, and every host set to come back by itself; returns the stand-in, for _extra."""
+def _forwarding(
+    root: Path, hosts: dict, refused: bool = False, wait: int = 30, held: tuple = (), family: str = ""
+) -> Path:
+    """A stand-in ssh for the forward, and every host set to come back by itself; returns the stand-in, for _extra.
+
+    family is the AddressFamily the user's ssh config sets, if any.
+    """
     ssh = root / "forward" / "ssh"
     ssh.parent.mkdir()
     ssh.write_text(FORWARD)
     ssh.chmod(0o755)
     if refused:
         (ssh.parent / "forward-refused").touch()
+    for address in held:
+        (ssh.parent / f"held-{address}").touch()
+    if family:
+        (ssh.parent / "address-family").write_text(family + "\n")
     for host in hosts.values():
         host.update(claude_code_login_redirect=True, claude_code_login_approval_timeout=wait)
     return ssh
@@ -647,12 +687,38 @@ def test_the_browser_coming_back_signs_the_vm_in_with_nothing_pasted(tmp_path):
         "this run carries on by itself once your browser comes back, waiting up to 30 seconds;"
         " Ctrl-C ends the whole run."
     ), said
-    # One forward, of that port, on this machine's loopback, to the VM user at the VM.
+    # One ssh, to the VM user at the VM, forwarding that port from each of this
+    # machine's loopback addresses, never from localhost, each forward required.
     (forwarded,) = (ssh.parent / "forward.log").read_text().splitlines()
-    assert f"-L localhost:{port}:127.0.0.1:{port}" in forwarded, forwarded
-    assert " -f " in f" {forwarded} " and "ExitOnForwardFailure=yes" in forwarded, forwarded
+    assert re.findall(r"(?:^| )-L (\S+)", forwarded) == [
+        f"127.0.0.1:{port}:127.0.0.1:{port}",
+        f"[::1]:{port}:127.0.0.1:{port}",
+    ], forwarded
+    assert " -f " in f" {forwarded} " and " -o ExitOnForwardFailure=yes " in forwarded, forwarded
+    # Both families whatever the user's ssh config sets: the command line's value wins.
+    assert " -o AddressFamily=any " in forwarded, forwarded
     assert "dev@192.0.2.10 " in forwarded and "exec sleep 90" in forwarded, forwarded
     assert _leftovers(tmp_path, "browser") == []
+
+
+@pytest.mark.parametrize("family", ["inet", "inet6"])
+def test_an_address_family_in_the_user_s_ssh_config_still_brings_the_browser_back(tmp_path, family):
+    # An ssh config that sets AddressFamily - inet is a common cure for a slow
+    # IPv6 - makes ssh bind every forward on that family alone, so one of the
+    # two would fail, every time, and the code would always be pasted. The
+    # forward's own AddressFamily=any comes first, on the command line, and
+    # ssh keeps the first value it gets: both are made, and nothing is pasted.
+    hosts = _hosts(tmp_path, {"family": {}})
+    ssh = _forwarding(tmp_path, hosts, family=family)
+    answers: list = []
+    thread = _browser(tmp_path, "family", answers)
+    report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("family", ssh=str(ssh))))
+    thread.join(timeout=5)
+    assert report["rc"] == 0, _failures(report)
+    ((_, status),) = answers
+    assert status == 302
+    assert (tmp_path / "family" / ".claude" / ".credentials.json").read_text().count(CREDENTIALS) == 1
+    assert not _task_ran(report, "family", "Paste the code the browser shows for")
 
 
 def test_a_forward_that_cannot_be_made_falls_back_to_the_code(tmp_path):
@@ -669,6 +735,29 @@ def test_a_forward_that_cannot_be_made_falls_back_to_the_code(tmp_path):
         " prompt below. Enter alone skips this VM."
     ), said
     assert not (tmp_path / "taken" / ".claude" / ".credentials.json").exists()
+
+
+@pytest.mark.parametrize("held", ["127.0.0.1", "::1"])
+def test_a_port_held_here_on_one_address_only_falls_back_to_the_code(tmp_path, held):
+    # Another program holds the callback's port here on one loopback address.
+    # A forward on localhost would still be made, on the other address, and a
+    # browser that tried the held one would reach that program; a forward on
+    # each address, each required, fails instead, and the code is pasted -
+    # here with no terminal, so nothing is entered.
+    hosts = _hosts(tmp_path, {"held": {}})
+    ssh = _forwarding(tmp_path, hosts, held=(held,))
+    report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("held", ssh=str(ssh))))
+    assert report["rc"] == 0, _failures(report)
+    (forwarded,) = (ssh.parent / "forward.log").read_text().splitlines()
+    assert " -o ExitOnForwardFailure=yes " in forwarded, forwarded
+    assert not _task_ran(report, "held", "Wait for your browser to come back")
+    assert _task_ran(report, "held", "Paste the code the browser shows for")
+    said = _messages(report, "browser_login | Say the page and what happens next")["held"]
+    assert (
+        said == f"held: sign Claude Code in at {URL} Authorise there, then paste the code the page shows at the"
+        " prompt below. Enter alone skips this VM."
+    ), said
+    assert not (tmp_path / "held" / ".claude" / ".credentials.json").exists()
 
 
 @pytest.mark.parametrize(

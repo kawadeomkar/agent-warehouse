@@ -221,10 +221,12 @@
     # claude's callback listens on the VM's own 127.0.0.1, and the page sends
     # your browser to localhost: that one port is forwarded from this machine
     # for the length of the sign-in, by ssh on a connection of its own, bound
-    # to this machine's loopback. ExitOnForwardFailure fails it when the port
-    # is taken here, and the code is then pasted instead; -f returns once it is
-    # up. Its far end is a sleep whose pid the VM records, so the forward ends
-    # with the sign-in, or by itself a minute after the wait.
+    # to both of this machine's loopback addresses, 127.0.0.1 and ::1, since a
+    # browser tries either for localhost. ExitOnForwardFailure fails it when
+    # the port is taken here on either, and the code is then pasted instead;
+    # -f returns once it is up. Its far end is a sleep whose pid the VM
+    # records, so the forward ends with the sign-in, or by itself a minute
+    # after the wait.
     - name: browser_login | Forward the sign-in's callback from this machine to the VM
       ansible.builtin.command:
         argv: "{{ claude_code_login_forward_argv }}"

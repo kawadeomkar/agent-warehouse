@@ -186,6 +186,18 @@ when gh named a page `github_projects_login_page_pattern` does not match, which 
 failure quoting gh's own lines puts a placeholder in its place: a VM whose gh does that may not be yours
 ([§5.6](roles.md#56-github_projects--sign-in-to-github-clone-an-accounts-repositories)).
 
+Claude's browser sign-in forwards one port of this machine's loopback to claude's callback on the VM
+while it waits ([§5.5](roles.md#55-claude_code--install-claude-code)), by two forwards, one on `127.0.0.1`
+and one on `::1`, each required by `ExitOnForwardFailure`. A browser tries both addresses for `localhost`,
+whatever this machine's resolver says, and ssh makes a single forward on `localhost` once either address
+binds, so a single forward would let a port another program holds here on one address take the callback,
+or hand that program's connections to the VM. With two, a port in use on either address, or a machine with
+no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the command line keeps an
+`AddressFamily` in the user's ssh config from failing one of them every time. What the forward still
+exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
+every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
+[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
+
 ## In the editor
 
 `just code`'s workspace file starts a terminal running `claude` when the window
