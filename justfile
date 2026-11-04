@@ -122,9 +122,13 @@ vault_args := '[ ! -f ' + quote(VAULT_PASS) + ' ] || set -- "$@" --vault-passwor
 # A run with no terminal on stdin has nobody to approve a sign-in: no page
 # opens and nothing reaches the clipboard, since nobody is there to use them,
 # and just deploy skips its sign-ins, which would otherwise start by themselves
-# and wait for a browser. A login_desktop or deploy_sign_in given in
-# ANSIBLE_ARGS still wins: it comes later on the command line.
-no_tty_args := '[ -t 0 ] || set -- "$@" -e ' + quote('{"login_desktop":false,"deploy_sign_in":false}')
+# and wait for a browser. Nor is a VM asked whether to sign in now (with
+# github_login_auto_start or tailscale_login_auto_start off): pause would come
+# back at once with nothing, which is Enter, so the VM is left and said instead
+# (claude_vm_login_terminal, in github_login.yml and tailscale_login.yml). Any
+# of the three given in ANSIBLE_ARGS still wins: it comes later on the command
+# line.
+no_tty_args := '[ -t 0 ] || set -- "$@" -e ' + quote('{"login_desktop":false,"deploy_sign_in":false,"claude_vm_login_terminal":false}')
 
 # deploy's stages, which deploy asks about when one is given as a VM name
 # (below). A recipe's name is a VM name there like any other: deploy takes

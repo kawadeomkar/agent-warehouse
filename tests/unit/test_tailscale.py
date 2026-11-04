@@ -1019,9 +1019,11 @@ def test_without_names_every_vm_is_reported_at_once_and_none_signed_in(tmp_path)
 # What deploy.yml's Tailscale import decides, VM by VM, from what each VM's
 # Claude step left. With tailscale_login_auto_start, the default, the web login
 # starts by itself for every VM but one whose Claude sign-in was skipped. Off,
-# every VM but that one is asked first: Enter - here, no terminal, which pause
-# reads as nothing - signs in one whose Claude sign-in was answered, and one
-# that showed no Claude prompt needs "y".
+# every VM but that one is asked first: Enter - here stdin is /dev/null, which
+# pause reads as nothing, as it does Enter - signs in one whose Claude sign-in
+# was answered, and one that showed no Claude prompt needs "y". In a run the
+# justfile found no terminal for (claude_vm_login_terminal: false) none is
+# asked, and none of those signed in.
 AFTER_CLAUDE = {
     "typed": {"claude_code_login_answered": True, "claude_code_login_skipped": False},
     "quiet": {"claude_code_login_answered": False, "claude_code_login_skipped": False},
@@ -1149,6 +1151,44 @@ def test_asking_first_signs_in_only_where_someone_is(tmp_path):
     assert report["rc"] == 0, _failures(report)
     # quiet was asked, and its answer is the reason: only skipped is told why.
     assert _not_started(report) == [("skipped", NOT_STARTED)]
+
+
+def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_web_login_it_would_have_asked_about(tmp_path):
+    # pause would come back with nothing at once, which is Enter for typed:
+    # a web login nobody watches. Each VM is told why instead, and NEXT STEPS
+    # keeps that line in place of the role's own report of the sign-out.
+    report = _deploy_step(tmp_path, tailscale_login_auto_start=False, claude_vm_login_terminal=False)
+    assert report["rc"] == 0, _failures(report)
+    assert _asked(report) == set()
+    for host in AFTER_CLAUDE:
+        assert _ups(_calls(tmp_path, host)) == [], host
+    no_terminal = (
+        "{0}: Tailscale's sign-in was not started, since this run has no terminal to ask at:"
+        " just login {0} --only tailscale starts it."
+    )
+    assert _not_started(report) == [
+        ("typed", no_terminal.format("typed")),
+        ("quiet", no_terminal.format("quiet")),
+        ("skipped", NOT_STARTED),
+    ]
+    left = _left_to_do(report)
+    assert {host: left[host]["tailscale"] for host in AFTER_CLAUDE} == dict(_not_started(report))
+
+
+@pytest.mark.parametrize(("answer", "ups"), [("", 1), ("n", 0)], ids=["enter", "n"])
+def test_asking_first_at_a_terminal_signs_a_vm_whose_claude_code_was_entered_in_on_enter_and_leaves_it_on_n(
+    tmp_path, answer, ups
+):
+    hosts = _hosts(tmp_path, {"typed": {"ts": LATE, "tailscale_login_timeout": 30}})
+    hosts["typed"].update(AFTER_CLAUDE["typed"])
+    settings = {**WEB_EXTRA, "vm_name": "typed", "deploy_sign_in": True, "tailscale_login_auto_start": False}
+    rc, output, _ = _run_at_a_terminal(
+        tmp_path, _deploy_tailscale(tmp_path), hosts, settings, answer, prompt=b"type n and Enter to skip it"
+    )
+    assert rc == 0, output
+    assert "Enter signs it in now" in output
+    assert len(_ups(_calls(tmp_path, "typed"))) == ups, output
+    assert "no terminal to ask at" not in output, output
 
 
 def test_asking_first_at_a_terminal_asks_under_a_block(tmp_path):

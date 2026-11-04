@@ -156,7 +156,7 @@ name, so one `just test` is one file.
 
 ## On the controller
 
-The project writes exactly three things outside the repository:
+The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
 checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum>`
@@ -165,13 +165,38 @@ virtualenv, the Python environment ([§13](toolchain.md)), and which `just clean
 only where you point `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves
 ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)), which otherwise go into the
 checkout's git-ignored `.sessions/`. Those are the VM's writing and are unpacked as plain files and
-folders only, never a link the VM made. Every
+folders only, never a link the VM made. The fourth is VS Code's own: when VS Code lacks the Remote - SSH
+extension, `just code` (and `just deploy`'s window step) runs
+`code --install-extension ms-vscode-remote.remote-ssh`, and VS Code's CLI writes that extension, Microsoft's,
+from VS Code's own marketplace into VS Code's extensions folder (`~/.vscode/extensions/`); nothing else of
+VS Code's is changed. Every
 alias write is validated by the real ssh client before it lands, an
 alias the user's own config already names is refused, and the Molecule scenarios point the managed
 file into the ephemeral directory with the `Include` off, guarded by a unit test, because the
 `configure` scenario's `localhost` is the developer's machine. SSH agent forwarding to the VM is off
 and documented as a choice: the VM user is root-equivalent and runs an AI agent, and `ForwardAgent`
 would hand it every key in the user's agent.
+
+The sign-ins open a page in this machine's browser, and the VM chooses what its `claude`, `gh` and
+`tailscale` print. Claude's page opens only when it matches `claude_code_login_page_pattern`
+([§5.5](roles.md#55-claude_code--install-claude-code)) and Tailscale's only when it is Tailscale's own
+([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)). GitHub's device flow opens and shows
+`https://github.com/login/device` whatever gh printed, since gh signs in to github.com alone, and says so
+when gh named a page `github_projects_login_page_pattern` does not match, which no message quotes - a
+failure quoting gh's own lines puts a placeholder in its place: a VM whose gh does that may not be yours
+([§5.6](roles.md#56-github_projects--sign-in-to-github-clone-an-accounts-repositories)).
+
+Claude's browser sign-in forwards one port of this machine's loopback to claude's callback on the VM
+while it waits ([§5.5](roles.md#55-claude_code--install-claude-code)), by two forwards, one on `127.0.0.1`
+and one on `::1`, each required by `ExitOnForwardFailure`. A browser tries both addresses for `localhost`,
+whatever this machine's resolver says, and ssh makes a single forward on `localhost` once either address
+binds, so a single forward would let a port another program holds here on one address take the callback,
+or hand that program's connections to the VM. With two, a port in use on either address, or a machine with
+no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the command line keeps an
+`AddressFamily` in the user's ssh config from failing one of them every time. What the forward still
+exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
+every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
+[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
 
 ## In the editor
 

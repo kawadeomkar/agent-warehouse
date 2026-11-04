@@ -392,8 +392,17 @@ recorded pid is claude's because the shell exec's into it (in a `( ... )` subshe
 `wait_for` the URL. With `claude_code_login_redirect` (which follows `login_desktop`), claude's
 `BROWSER` is a script that only records the page it is handed; the run reads it, takes the callback
 port from its `redirect_uri` (1024-65535), and forwards that port from the controller with `ssh -f -n -T
--o ExitOnForwardFailure=yes -L localhost:<port>:127.0.0.1:<port> <user>@<vm> 'echo $$ >pidfile && exec
-sleep <wait+60>'` on a connection of its own, from `delegate_to: localhost`. Up, it opens that page
+-o ExitOnForwardFailure=yes -o AddressFamily=any -L 127.0.0.1:<port>:127.0.0.1:<port> -L
+[::1]:<port>:127.0.0.1:<port> <user>@<vm> 'echo $$ >pidfile && exec sleep <wait+60>'` on a connection of
+its own, from `delegate_to: localhost`. Two forwards, one per loopback address, never one on `localhost`:
+OpenSSH listens on every loopback address for that one and counts it made once any one binds, so a port
+another program holds here on one address does not fail it, while a browser tries both addresses for
+`localhost`, whatever this machine's resolver says (Chromium `::1` first, Firefox both). With two,
+`ExitOnForwardFailure` fails the ssh unless each binds; the cost is that a machine with no IPv6 loopback
+always pastes. `AddressFamily=any`, because ssh binds each forward on the family that option names, so a
+user's `AddressFamily inet` (or `inet6`) would fail the `::1` (or `127.0.0.1`) forward on every sign-in;
+ssh keeps the command line's value over the config's, and the connection, to the VM's IPv4 address, is the
+same either way. Up, it opens that page
 here - only when it matches `claude_code_login_page_pattern`, Claude's own authorize URL, since the VM
 chooses it - and waits on the async job with no prompt (`claude_code_login_approval_timeout`); the
 `always` section kills the far end's `sleep` by its pid, only while `ps` names it a sleep, which ends the
@@ -420,7 +429,24 @@ printed. A pasted code is never written as a bare newline, which claude would an
 go on waiting.
 Before any of it, a sign-in of the same VM still waiting - a run left at its prompt, a second `just
 login --only claude` - is refused by name: its pidfile names a live process whose command line `ps` shows as
-`auth login`, and taking over its pipe and pidfile would hand one run's code to the other's claude. What
+`auth login`, and taking over its pipe and pidfile would hand one run's code to the other's claude. A run
+stopped while it waits - Ctrl-C, a closed terminal - ends there and then, with no `always` section run, so
+its claude would wait out Ansible's async limit (`claude_code_login_timeout` plus half an hour), every sign-in
+of the VM refused meanwhile, and the far end's `sleep` keep the forward, and this machine's port, up for the
+wait and a minute more. Nothing can run at the Ctrl-C, so the next run recovers instead: each attempt
+records, before its pid, the run that waits for it (`claude-login.run`, from the `controller_run` filter,
+[§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) - this machine's name and boot
+(Linux's boot ID, or macOS's PID 1 start), the pid of the run's own `ansible-playbook` (the parent of the
+worker each task is forked into) and that process's start. A sign-in that finds an attempt waiting, or the
+forward's far end still a `sleep`, reads that record and asks this machine about it
+(`controller_run_state`): a run still under way is refused as before; a run of this machine, since it last
+started, whose process of that start is gone leaves nothing waiting, so its claude is ended - a TERM, a KILL
+only while it is still `auth login` a second later - and its far end's `sleep` with a TERM, which ends the
+forward's `ssh` here, each pid asked again before every signal, and the sign-in goes on. A run this machine
+cannot ask about - another machine's, this one's before it last started, or none recorded, as an earlier
+version's - is refused too, with the `ssh <user>@<vm> kill <pid>` that ends the attempt by hand and when it
+ends by itself. The record comes back from the VM, which may have written anything there: only a host name
+and a pid are ever quoted from it, and nothing unreadable is ever taken for gone. What
 claude printed reaches a message only without its control characters (`claude_code_login_said`): the VM
 user controls that text, and 2.21 writes a failure's `[ERROR]` line to this terminal and the run log
 raw.
@@ -488,7 +514,7 @@ the login, stopped, not set up, or off on purpose.
 output, and the check-mode path against a stand-in `systemctl`; `tests/unit/test_claude_login.py` runs
 the sign-in against `tests/molecule/fake_claude.sh`, which behaves as probed, for every outcome claude
 has (accepted, refused, malformed, refused in other words, an error in place of the page, an attempt
-that ended, a sign-in still waiting, a stale earlier attempt) and five times at a pseudo-terminal;
+that ended, a sign-in still waiting, a stale earlier attempt, one a stopped run left waiting) and five times at a pseudo-terminal;
 `tests/unit/test_sign_in_plays.py` runs the playbooks' shape - the reach play, the follow-on play, the
 batches - and deploy's own sign-in steps; the claude_code role scenario lands a login with only the
 path unit waiting and sees the server start; and the configure scenario's side effect signs its
@@ -613,8 +639,12 @@ own inode to die on. gh runs in the job's background, its pid recorded, and the 
 `gh exited: N` once gh ends however it ends; both waits end on it. A `wait_for` reads the code out of
 the file - a word of its own in GitHub's shape, `XXXX-XXXX` - the run prints it with GitHub's own page,
 `https://github.com/login/device`, and never a URL out of gh's output, which the VM chooses (a page of the
-VM's choosing would open in your browser just as the run asks you to sign in to GitHub), and on the
-controller that page is opened by the `page_opener` filter
+VM's choosing would open in your browser just as the run asks you to sign in to GitHub). The pages gh
+printed are read only to say, when `github_projects_login_page_pattern` (`^https://github[.]com/login/device$`,
+gh signing in to github.com alone) does not match one, that gh named another, a sign the VM may not be yours:
+such a page is never opened, and the failures that quote gh's own lines (`github_projects_login_said`: gh
+started no flow, or ended unapproved) have `<a page that is not GitHub's own>` in its place, so no message
+quotes it. On the controller GitHub's page is opened by the `page_opener` filter
 (`filter_plugins/desktop.py`, shared with the Claude sign-in: the first `BROWSER` command, `%s`
 substituted, else `open`, else `xdg-open`) and the code copied (`pbcopy`, `wl-copy`, `xclip`), both
 best effort and both gated by `github_projects_login_desktop`, which every
@@ -635,8 +665,14 @@ flow asks for `github_projects_login_scopes` on top of gh's own and tells gh the
 
 ### Under `just deploy`, one VM at a time
 
-`just deploy` asks first: Enter goes for a VM whose Claude code was entered and `n` skips it; any other
-VM goes on `y` only, and with no terminal a question returns nothing at once. One VM at a time:
+With `github_login_auto_start: false`, `just deploy` (and `just login` with names) asks first: Enter goes
+for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. With no terminal
+a question would return nothing at once, which is Enter, and start a fifteen-minute flow nobody watches,
+so the justfile passes `claude_vm_login_terminal: false` then (`no_tty_args`), and `github_login.yml` asks
+no VM: one it would have asked (`claude_vm_login_unasked`) gets neither switch, so no flow, and is told
+so where the flow would have run (`github_projects_login_due`), with `just login <vm> --only github`, the
+line NEXT STEPS keeps in place of the report's. A `/dev/tty` probe could not tell (§5.5), so the run is
+told. One VM at a time:
 `github_login.yml` runs its sign-in play `serial: 1` where it can prompt (names given, or `just
 deploy`), and the fleet at once for a report, and `device_flow.yml` refuses a batch of
 more than one, since the browser step would otherwise run for each before any waiting began. The
@@ -757,7 +793,9 @@ plan's research record.
   user's own device.
 - **The web login** (`tasks/login.yml`, `web_login.yml`), where `tailscale_login_possible` holds, as the
   fact `tailscale_login_due` that the question and the login go on, and that `tailscale_login.yml` reads
-  after the role to say, for a VM whose Claude sign-in nobody answered, why it was not started - in NEXT STEPS
+  after the role to say, for a VM whose Claude sign-in nobody answered, or one a run with no terminal would
+  have asked about with `tailscale_login_auto_start: false` (`claude_vm_login_unasked`: never asked, since
+  `pause` would answer at once with nothing, which is Enter; as for GitHub, §5.6), why it was not started - in NEXT STEPS
   in place of the report's line only where the VM is merely signed out (`tailscale_login_signed_out`, the
   report's `NeedsLogin` case), never over a page still waiting, an expired login or a refused key. One `up --timeout=5s` per attempt - each keyless
   `up` mints a new page - then the page is read from `AuthURL` once and opened here, only when it is

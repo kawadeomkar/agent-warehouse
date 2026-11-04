@@ -40,24 +40,32 @@ What these guard:
   sequences - end the wait at once and are quoted without their control
   characters; an error where the page should be, and an attempt that ended
   before its code, are named failures that end with the command to retry.
-- A sign-in started while another of the same VM still waits is refused, and
-  leaves the other's files and process alone; the files of an attempt a dead
-  run left behind are cleared, and nothing still writing to them reaches the
-  new attempt. The code goes only into the pipe.
+- A sign-in started while another of the same VM still waits is refused while
+  the run waiting for it is under way here, or cannot be asked about (another
+  machine's, none recorded: then with how to end it), and leaves the other's
+  files and process alone; one a run that is gone left waiting - a Ctrl-C runs
+  no always section - is ended, claude and the forward's far end each only
+  while it is still that process, and the sign-in goes ahead; the files of an
+  attempt a dead run left behind are cleared, and nothing still writing to them
+  reaches the new attempt. The code goes only into the pipe.
 - At a terminal: the page comes before the prompt, the code stays out of the
   run log even at -vvv, a partly copied code is asked for again, a code typed
   after the attempt expired is said to be too late, and Ctrl-C then A at the
   prompt ends the run there.
 - The browser coming back by itself: claude's callback port is forwarded from
   this machine, and once the browser brings the code back, the VM is signed in
-  with no prompt shown; a forward that fails, and a page that is not Claude's,
-  fall back to the code; a browser that never comes back ends the attempt and
-  skips the VM's later sign-ins; and it is on only where the page opens here.
+  with no prompt shown, by a forward from each of this machine's loopback
+  addresses, whatever address family the user's ssh config sets; a forward
+  that fails - a port held here on one address only among them - and a page
+  that is not Claude's fall back to the code; a browser that never comes back
+  ends the attempt and skips the VM's later sign-ins; and it is on only where
+  the page opens here.
 """
 
 from __future__ import annotations
 
 import http.client
+import importlib.util
 import json
 import os
 import re
@@ -71,9 +79,26 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, STAND_INS, _failures, _left_to_do, _messages, _results, _run, _run_at_a_terminal
+from harness import (
+    ANSIBLE_PLAYBOOK,
+    REPO,
+    STAND_INS,
+    _end,
+    _env,
+    _failures,
+    _inventory,
+    _left_to_do,
+    _messages,
+    _results,
+    _run,
+    _run_at_a_terminal,
+)
 
 ROLE = REPO / "roles" / "claude_code"
+# filter_plugins/desktop.py, whose controller_run the sign-in records the run waiting for it with.
+_SPEC = importlib.util.spec_from_file_location("claude_on_proxmox_desktop", REPO / "filter_plugins" / "desktop.py")
+DESKTOP = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(DESKTOP)
 FAKE_CLAUDE = REPO / "tests" / "molecule" / "fake_claude.sh"
 PLAYBOOK = REPO / "playbooks" / "claude_login.yml"
 # The page the stand-in claude prints.
@@ -576,21 +601,70 @@ def test_the_work_after_the_sign_ins_waits_for_the_last_one_then_runs_for_every_
 # so the callback is reachable as it is: a stand-in ssh records the forward it
 # was asked for, and the test plays the browser, calling the callback with a
 # code and the page's state - and never following its redirect to Anthropic.
-FORWARD = """#!/bin/sh
-printf '%s\\n' "$*" >> "$(dirname "$0")/forward.log"
-[ -e "$(dirname "$0")/forward-refused" ] && exit 255
-exit 0
+# It takes -L as OpenSSH does: a forward on localhost listens on every loopback
+# address and is made once any one binds, a forward on an address only there,
+# and ExitOnForwardFailure ends ssh unless every forward is made. Another
+# program holds the port here on each address with a held-<address> file. And
+# it takes AddressFamily as OpenSSH does for the listeners (the connection is
+# not modelled): each forward binds on that family alone, inet or inet6, and
+# the first value given wins, the command line's (-o AddressFamily=...) over
+# the user's ssh config's, which an address-family file stands for.
+# Up, it runs the far end as ssh has the VM run it - here, where the VM is this
+# machine - in a session of its own, as ssh -f leaves its own process: the
+# sleep, whose pid the far end records on the VM and the stand-in in
+# far-end.log.
+FORWARD = f"""#!{sys.executable}
+import os, subprocess, sys
+here = os.path.dirname(os.path.abspath(sys.argv[0]))
+args = sys.argv[1:]
+with open(os.path.join(here, "forward.log"), "a") as log:
+    log.write(" ".join(args) + "\\n")
+if os.path.exists(os.path.join(here, "forward-refused")):
+    sys.exit(255)
+held = [address for address in ("127.0.0.1", "::1") if os.path.exists(os.path.join(here, "held-" + address))]
+given = [word.split("=", 1)[1] for word in args if word.startswith("AddressFamily=")]
+if not given and os.path.exists(os.path.join(here, "address-family")):
+    with open(os.path.join(here, "address-family")) as configured:
+        given = [configured.read().strip()]
+family = given[0] if given else "any"
+binds = {{"inet": ["127.0.0.1"], "inet6": ["::1"]}}.get(family, ["127.0.0.1", "::1"])
+made = True
+for flag, spec in zip(args, args[1:]):
+    if flag == "-L":
+        address = spec[1 : spec.index("]")] if spec.startswith("[") else spec.split(":", 1)[0]
+        tried = binds if address == "localhost" else ([address] if address in binds else [])
+        made = made and any(each not in held for each in tried)
+if not made and "ExitOnForwardFailure=yes" in args:
+    sys.exit(255)
+far = subprocess.Popen(
+    ["sh", "-c", sys.argv[-1]],
+    stdin=subprocess.DEVNULL,
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+)
+with open(os.path.join(here, "far-end.log"), "a") as log:
+    log.write(f"{{far.pid}}\\n")
 """
 
 
-def _forwarding(root: Path, hosts: dict, refused: bool = False, wait: int = 30) -> Path:
-    """A stand-in ssh for the forward, and every host set to come back by itself; returns the stand-in, for _extra."""
+def _forwarding(
+    root: Path, hosts: dict, refused: bool = False, wait: int = 30, held: tuple = (), family: str = ""
+) -> Path:
+    """A stand-in ssh for the forward, and every host set to come back by itself; returns the stand-in, for _extra.
+
+    family is the AddressFamily the user's ssh config sets, if any.
+    """
     ssh = root / "forward" / "ssh"
     ssh.parent.mkdir()
     ssh.write_text(FORWARD)
     ssh.chmod(0o755)
     if refused:
         (ssh.parent / "forward-refused").touch()
+    for address in held:
+        (ssh.parent / f"held-{address}").touch()
+    if family:
+        (ssh.parent / "address-family").write_text(family + "\n")
     for host in hosts.values():
         host.update(claude_code_login_redirect=True, claude_code_login_approval_timeout=wait)
     return ssh
@@ -647,12 +721,38 @@ def test_the_browser_coming_back_signs_the_vm_in_with_nothing_pasted(tmp_path):
         "this run carries on by itself once your browser comes back, waiting up to 30 seconds;"
         " Ctrl-C ends the whole run."
     ), said
-    # One forward, of that port, on this machine's loopback, to the VM user at the VM.
+    # One ssh, to the VM user at the VM, forwarding that port from each of this
+    # machine's loopback addresses, never from localhost, each forward required.
     (forwarded,) = (ssh.parent / "forward.log").read_text().splitlines()
-    assert f"-L localhost:{port}:127.0.0.1:{port}" in forwarded, forwarded
-    assert " -f " in f" {forwarded} " and "ExitOnForwardFailure=yes" in forwarded, forwarded
+    assert re.findall(r"(?:^| )-L (\S+)", forwarded) == [
+        f"127.0.0.1:{port}:127.0.0.1:{port}",
+        f"[::1]:{port}:127.0.0.1:{port}",
+    ], forwarded
+    assert " -f " in f" {forwarded} " and " -o ExitOnForwardFailure=yes " in forwarded, forwarded
+    # Both families whatever the user's ssh config sets: the command line's value wins.
+    assert " -o AddressFamily=any " in forwarded, forwarded
     assert "dev@192.0.2.10 " in forwarded and "exec sleep 90" in forwarded, forwarded
     assert _leftovers(tmp_path, "browser") == []
+
+
+@pytest.mark.parametrize("family", ["inet", "inet6"])
+def test_an_address_family_in_the_user_s_ssh_config_still_brings_the_browser_back(tmp_path, family):
+    # An ssh config that sets AddressFamily - inet is a common cure for a slow
+    # IPv6 - makes ssh bind every forward on that family alone, so one of the
+    # two would fail, every time, and the code would always be pasted. The
+    # forward's own AddressFamily=any comes first, on the command line, and
+    # ssh keeps the first value it gets: both are made, and nothing is pasted.
+    hosts = _hosts(tmp_path, {"family": {}})
+    ssh = _forwarding(tmp_path, hosts, family=family)
+    answers: list = []
+    thread = _browser(tmp_path, "family", answers)
+    report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("family", ssh=str(ssh))))
+    thread.join(timeout=5)
+    assert report["rc"] == 0, _failures(report)
+    ((_, status),) = answers
+    assert status == 302
+    assert (tmp_path / "family" / ".claude" / ".credentials.json").read_text().count(CREDENTIALS) == 1
+    assert not _task_ran(report, "family", "Paste the code the browser shows for")
 
 
 def test_a_forward_that_cannot_be_made_falls_back_to_the_code(tmp_path):
@@ -669,6 +769,29 @@ def test_a_forward_that_cannot_be_made_falls_back_to_the_code(tmp_path):
         " prompt below. Enter alone skips this VM."
     ), said
     assert not (tmp_path / "taken" / ".claude" / ".credentials.json").exists()
+
+
+@pytest.mark.parametrize("held", ["127.0.0.1", "::1"])
+def test_a_port_held_here_on_one_address_only_falls_back_to_the_code(tmp_path, held):
+    # Another program holds the callback's port here on one loopback address.
+    # A forward on localhost would still be made, on the other address, and a
+    # browser that tried the held one would reach that program; a forward on
+    # each address, each required, fails instead, and the code is pasted -
+    # here with no terminal, so nothing is entered.
+    hosts = _hosts(tmp_path, {"held": {}})
+    ssh = _forwarding(tmp_path, hosts, held=(held,))
+    report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("held", ssh=str(ssh))))
+    assert report["rc"] == 0, _failures(report)
+    (forwarded,) = (ssh.parent / "forward.log").read_text().splitlines()
+    assert " -o ExitOnForwardFailure=yes " in forwarded, forwarded
+    assert not _task_ran(report, "held", "Wait for your browser to come back")
+    assert _task_ran(report, "held", "Paste the code the browser shows for")
+    said = _messages(report, "browser_login | Say the page and what happens next")["held"]
+    assert (
+        said == f"held: sign Claude Code in at {URL} Authorise there, then paste the code the page shows at the"
+        " prompt below. Enter alone skips this VM."
+    ), said
+    assert not (tmp_path / "held" / ".claude" / ".credentials.json").exists()
 
 
 @pytest.mark.parametrize(
@@ -852,23 +975,88 @@ def _state(files: dict) -> dict:
     }
 
 
-def test_a_sign_in_is_refused_while_another_of_the_vm_still_waits(tmp_path):
+# A process standing in for a run of this machine, or for a claude of the VM (with its command line's "auth login").
+WAITS = [sys.executable, "-c", "import time; time.sleep(600)"]
+
+
+def _process(pid: int) -> str:
+    """The command line ps says pid runs: '' once there is no process there, or only what is left of one."""
+    # -ww: Linux's procps cuts piped ps output at 80 columns.
+    said = subprocess.run(
+        ["ps", "-ww", "-o", "stat=,args=", "-p", str(pid)], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    stat, _, args = said.partition(" ")
+    return "" if not said or "Z" in stat else args.strip()
+
+
+def _ended(pid: int, within: float = 10) -> bool:
+    """Whether the process at pid has ended, or does within so many seconds."""
+    deadline = time.monotonic() + within
+    while _process(pid):
+        if time.monotonic() > deadline:
+            return False
+        time.sleep(0.1)
+    return True
+
+
+def _gone_run() -> dict:
+    """The record of a run of this machine that has ended: a process recorded while it ran, then ended."""
+    run = subprocess.Popen(WAITS)
+    try:
+        return DESKTOP._record(run.pid)
+    finally:
+        run.kill()
+        run.wait()
+
+
+# How long an attempt lasts at most, which a refusal says: the hosts' answer timeout and half an hour.
+LASTS = (TIMEOUT + 1800) // 60
+
+
+@pytest.mark.parametrize("recorded", ["here", "elsewhere", "none"])
+def test_a_sign_in_is_refused_while_another_of_the_vm_still_waits(tmp_path, recorded):
+    # here: a second terminal's run, still at its prompt. elsewhere: a run of
+    # another machine's, which this one cannot ask about. none: an attempt an
+    # earlier version started, which recorded no run.
     hosts = _hosts(tmp_path, {"busy": {"code": CODES["accepted"]}})
     # The other run's claude, still waiting: what its command line says is
-    # what tells it from a pid reused since.
-    other = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)", "auth", "login"])
+    # what tells it from a pid reused since. And the run waiting for it.
+    other = subprocess.Popen([*WAITS, "auth", "login"])
+    run = subprocess.Popen(WAITS)
     try:
         files = _seed_attempt(tmp_path, "busy", other.pid)
+        if recorded != "none":
+            record = DESKTOP._record(run.pid)
+            if recorded == "elsewhere":
+                record["host"] = "another-machine.example"
+            files["run"] = _login_dir(tmp_path, "busy") / "claude-login.run"
+            files["run"].write_text(json.dumps(record) + "\n")
         before = _state(files)
         report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("busy")))
         assert other.poll() is None, "the waiting sign-in's claude was ended"
         assert _state(files) == before
     finally:
-        other.kill()
-        other.wait()
+        for process in (other, run):
+            process.kill()
+            process.wait()
     failure = _failures(report)["busy"]
-    assert f"another sign-in of this VM is still waiting for its code (claude, pid {other.pid})" in failure
-    assert failure.endswith("run just login busy --only claude again.")
+    waiting = f"busy: another sign-in of this VM is still waiting for its code (claude, pid {other.pid}), from a run"
+    assert waiting in failure, failure
+    assert failure.endswith(", then run just login busy --only claude again."), failure
+    if recorded == "here":
+        assert f"from a run still under way on this machine (ansible-playbook, pid {run.pid}). Finish" in failure
+    else:
+        assert (
+            f"If no run waits for it any more, end it with ssh dev@{hosts['busy']['ansible_host']} kill {other.pid}"
+            " (it ends by itself"
+            f" {LASTS} minutes after it started)"
+        ) in failure, failure
+        assert (
+            "from a run this machine cannot ask about (the run on another-machine.example - another machine, or this"
+            " one before it last started)"
+            if recorded == "elsewhere"
+            else "from a run this machine cannot ask about (none was recorded that this machine can check)"
+        ) in failure, failure
     assert "auth login" not in _calls(tmp_path, "busy")
 
 
@@ -914,6 +1102,140 @@ def test_a_sign_in_over_what_a_dead_run_left_behind_starts_afresh(tmp_path):
     assert "stale.example" not in json.dumps(report)
     assert taken.read_bytes() == b""
     assert _leftovers(tmp_path, "stale") == []
+
+
+@pytest.mark.parametrize("pids", ["theirs", "another's"])
+def test_what_a_run_that_is_gone_left_waiting_is_ended_and_the_sign_in_goes_ahead(tmp_path, pids):
+    # A run stopped while it waited - a Ctrl-C, a closed terminal - runs no
+    # always section: its claude waited out Ansible's async limit, half an
+    # hour, refusing every sign-in of the VM meanwhile, and the forward's far
+    # end its sleep. theirs: the recorded pids are still that claude and that
+    # sleep, which are ended. another's: each is another process's by now,
+    # neither a sign-in nor a sleep, and is left alone.
+    hosts = _hosts(tmp_path, {"left": {"code": CODES["accepted"]}})
+    claude = subprocess.Popen([*WAITS, "auth", "login"] if pids == "theirs" else WAITS)
+    far_end = subprocess.Popen(["sleep", "600"] if pids == "theirs" else WAITS)
+    try:
+        files = _seed_attempt(tmp_path, "left", claude.pid)
+        login_dir = _login_dir(tmp_path, "left")
+        (login_dir / "claude-login.forward.pid").write_text(f"{far_end.pid}\n")
+        (login_dir / "claude-login.run").write_text(json.dumps(_gone_run()) + "\n")
+        report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("left")))
+        if pids == "theirs":
+            assert claude.wait(timeout=10) == -signal.SIGTERM
+            assert far_end.wait(timeout=10) == -signal.SIGTERM
+        else:
+            assert claude.poll() is None and far_end.poll() is None, "a process that was not the sign-in was ended"
+    finally:
+        for process in (claude, far_end):
+            process.kill()
+            process.wait()
+    assert report["rc"] == 0, _failures(report)
+    assert (tmp_path / "left" / ".claude" / ".credentials.json").exists()
+    assert "stale.example" not in json.dumps(report)
+    assert not any(path.exists() for path in files.values())
+    assert _leftovers(tmp_path, "left") == []
+
+
+def _left_running(root: Path, playbook: Path, hosts: dict, *args: str) -> subprocess.Popen:
+    """A run as _run starts it, left running for the test to stop: what it prints goes nowhere."""
+    return subprocess.Popen(
+        [str(ANSIBLE_PLAYBOOK), "-i", str(_inventory(root, hosts, False)), *args, str(playbook)],
+        cwd=root,
+        env=_env(root, ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json"),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        process_group=0,
+    )
+
+
+def test_a_sign_in_a_stopped_run_left_waiting_is_ended_by_the_next(tmp_path):
+    # The whole of it: a run waiting for the browser, its claude's attempt and
+    # the forward's far end up, stopped there with nothing of it cleaned up -
+    # killed, as a Ctrl-C leaves a run's always sections unrun - and the next
+    # sign-in of the VM, which ended both and signed the VM in, where it was
+    # refused for half an hour.
+    hosts = _hosts(tmp_path, {"left": {}})
+    ssh = _forwarding(tmp_path, hosts, wait=LONG)
+    login_dir = _login_dir(tmp_path, "left")
+    far_ends = ssh.parent / "far-end.log"
+    first = _left_running(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("left", ssh=str(ssh))))
+    claude = far_end = 0
+
+    def waiting() -> bool:
+        # claude's attempt, and the far end up, its pid recorded on the VM.
+        forward = login_dir / "claude-login.forward.pid"
+        return far_ends.exists() and forward.exists() and forward.read_text().strip() == far_ends.read_text().strip()
+
+    try:
+        deadline = time.monotonic() + 90
+        while not waiting():
+            assert time.monotonic() < deadline and first.poll() is None, "the first sign-in never came to its wait"
+            time.sleep(0.2)
+        recorded = login_dir / "claude-login.run"
+        record = recorded.read_text() if recorded.exists() else ""
+        claude = int((login_dir / "claude-login.pid").read_text())
+        (far_end,) = map(int, far_ends.read_text().split())
+        under_way = DESKTOP.controller_run_state(record)["state"]
+        _end(first)
+        stopped = DESKTOP.controller_run_state(record)["state"]
+        assert "auth login" in _process(claude) and _process(far_end).startswith("sleep ")
+        hosts["left"]["claude_code_login_code"] = CODES["accepted"]
+        report = _run(tmp_path, PLAYBOOK, hosts, "-e", json.dumps(_extra("left", ssh=str(ssh))))
+        assert report["rc"] == 0, _failures(report)
+        assert _ended(claude) and _ended(far_end)
+    finally:
+        if first.poll() is None:
+            _end(first)
+        for pid, what in ((claude, "auth login"), (far_end, "sleep ")):
+            if pid and what in _process(pid):
+                os.kill(pid, signal.SIGKILL)
+    # The run recorded was the playbook's own process: under way while it waited, gone once stopped.
+    assert json.loads(record)["pid"] == first.pid, record
+    assert (under_way, stopped) == ("running", "gone")
+    assert (tmp_path / "left" / ".claude" / ".credentials.json").exists()
+    calls = _calls(tmp_path, "left")
+    # The first attempt ended, by its TERM, before the second began; the code was the second's.
+    started = [index for index, call in enumerate(calls) if call == "auth login"]
+    assert len(started) == 2 and started[0] < calls.index("TERM") < started[1] < calls.index("accepted"), calls
+    # Its files went with it: only the job file of the first attempt's async job is left, which no run collected.
+    assert [name for name in _leftovers(tmp_path, "left") if name.startswith("claude-login.")] == []
+
+
+def test_what_a_run_that_is_gone_left_is_ended_only_while_it_is_still_that_process():
+    # Asked again before every signal: a pid another process has by now is
+    # never signalled, a sleep is ended by a TERM, and a claude by a TERM, or a
+    # KILL a second later, once it is still claude's then.
+    (task,) = [t for t in _flow() if t["name"] == "browser_login | End the sign-in a run that is gone left waiting"]
+    argv = task["ansible.builtin.command"]["argv"]
+    assert argv[:2] == ["sh", "-c"] and argv[3:] == [
+        "sh",
+        "{{ claude_code_login_other_claude }}",
+        "{{ claude_code_login_other_forward }}",
+    ], argv
+    others = [subprocess.Popen(WAITS) for _ in range(2)]
+    ignores_term = (
+        "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('up', flush=True); time.sleep(60)"
+    )
+    claude = subprocess.Popen([sys.executable, "-c", ignores_term, "auth", "login"], stdout=subprocess.PIPE, text=True)
+    sleep = subprocess.Popen(["sleep", "60"])
+    try:
+        assert claude.stdout.readline() == "up\n"
+        ended = subprocess.run([*argv[:4], str(others[0].pid), str(others[1].pid)], check=False, timeout=30)
+        assert ended.returncode == 0
+        assert all(other.poll() is None for other in others), "a process that was not the sign-in was ended"
+        started = time.monotonic()
+        ended = subprocess.run([*argv[:4], str(claude.pid), str(sleep.pid)], check=False, timeout=30)
+        assert ended.returncode == 0
+        assert sleep.wait(timeout=10) == -signal.SIGTERM
+        assert claude.wait(timeout=10) == -signal.SIGKILL
+        assert time.monotonic() - started >= 1
+    finally:
+        for process in (*others, claude, sleep):
+            process.kill()
+            process.wait()
+        claude.stdout.close()
 
 
 # ------------------------------------------------------------- at a terminal

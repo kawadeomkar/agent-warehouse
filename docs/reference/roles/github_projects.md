@@ -43,7 +43,7 @@ Reads gh's login state on the VM and prints it, with the one command to run when
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `github_projects_login_interactive` | bool | `false` | Run the device flow for a signed-out VM. Set by playbooks/github_login.yml when names were given, and by just deploy for a VM whose Claude code was entered in the same run. |
-| `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer is nothing. |
+| `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer would be nothing, which is Enter, so playbooks/github_login.yml never sets it in a run without one. |
 | `github_projects_login_role_follows` | bool | `false` | The whole role runs for this VM next, in the same run, so a vault token gh is not yet signed in with is said to be signed in by it rather than by a command to run. |
 
 ## Entry point `status`
@@ -70,7 +70,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 55 of the 59 are computed during a run, from earlier tasks' results.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 57 of the 63 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -97,7 +97,11 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_login_text` | <code>{{ ((github_projects_login_out.content &#124; b64decode) if github_projects_login_out.content is defined else '') &#124; plain_text }}</code> |
 | `github_projects_login_code` | <code>{{ github_projects_login_text &#124; regex_search('(?&lt;![A-Za-z0-9-])[A-Z0-9]{4}-[A-Z0-9]{4}(?![A-Za-z0-9-])') or '' }}</code> |
 | `github_projects_login_page` | `https://github.com/login/device` |
-| `github_projects_login_said` | <code>{{ github_projects_login_text.splitlines() &#124; map('trim') &#124; select &#124; reject('match', 'gh exited: ') &#124; list }}</code> |
+| `github_projects_login_page_pattern` | `^https://github[.]com/login/device$` |
+| `github_projects_login_pages_foreign` | <code>{{ github_projects_login_text &#124; regex_findall('https?://[^ \t\n]+') &#124; reject('match', github_projects_login_page_pattern) &#124; unique &#124; list }}</code> |
+| `github_projects_login_page_foreign` | <code>{{ github_projects_login_pages_foreign &#124; length > 0 }}</code> |
+| `github_projects_login_page_withheld` | `<a page that is not GitHub's own>` |
+| `github_projects_login_said` | <code>{{ (github_projects_login_text &#124; regex_replace('(?:' ~ github_projects_login_pages_foreign &#124; map('regex_escape') &#124; join('&#124;') ~ ')(?![^ \t\n])', github_projects_login_page_withheld) if github_projects_login_pages_foreign &#124; length > 0 else github_projects_login_text).splitlines() &#124; map('trim') &#124; select &#124; reject('match', 'gh exited: ') &#124; list }}</code> |
 | `github_projects_login_expired` | <code>{{ (github_projects_login_result.msg &#124; default('')) is search('Timeout exceeded') or (github_projects_login_finished.finished &#124; default(1) &#124; int) != 1 }}</code> |
 | `github_projects_login_answer` | <code>{{ (github_projects_login_asked &#124; default({})).user_input &#124; default('', true) &#124; trim &#124; lower }}</code> |
 | `github_projects_login_go` | <code>{{ github_projects_login_answer in (['', 'y', 'yes'] if github_projects_login_interactive &#124; bool else ['y', 'yes']) if github_projects_login_ask &#124; bool else github_projects_login_interactive &#124; bool }}</code> |

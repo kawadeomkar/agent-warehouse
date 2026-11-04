@@ -28,8 +28,11 @@ what it stores:
   which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
   (`filter_plugins/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
   `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
-  module's result can carry custom stats and facts. GitHub's device flow opens and prints GitHub's own
-  page, `https://github.com/login/device`, never a URL out of gh's output, and no page opens through a
+  module's result can carry custom stats and facts. GitHub's device flow opens and shows GitHub's own
+  page, `https://github.com/login/device`, whatever gh printed: a page gh prints that
+  `github_projects_login_page_pattern` does not match is said to be another, and is neither opened nor
+  quoted - where a failure quotes gh's own lines, `<a page that is not GitHub's own>` stands in its place;
+  Claude's and Tailscale's pages likewise open only when they are their own. No page opens through a
   `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
   a command line. The GitHub token is also stored on the VM, by `gh`
   (`~/.config/gh/hosts.yml`, mode 0600), so that `git` and `gh` there can push; a device-flow login
@@ -77,6 +80,10 @@ what it stores:
   `github.com`, gets one only when the user names it, never from a fleet-wide refresh. A VM named after a host of the inventory is kept
   out wherever a name becomes a host (`localhost`, or the Proxmox host's, which would hand the VM the
   API token).
+  One more write is VS Code's own, at the project's request: when VS Code lacks the Remote - SSH
+  extension (`ms-vscode-remote.remote-ssh`), which `just code` needs to open a VM, `just code` and
+  `just deploy`'s window step run `code --install-extension` for it, and VS Code's CLI installs it from
+  VS Code's marketplace into VS Code's extensions folder; no other extension, and no VS Code setting.
   Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there
   as on screen, but the files name hosts and addresses, so the directory is git-ignored, blocked by
   `tests/check_no_local_files.sh`, created `0700`, and pruned after `LOG_RETENTION_DAYS`. A secret
@@ -188,7 +195,8 @@ restate them are not treated as vulnerabilities:
   a genuine sign-in page or device code of its own receives a claude.ai login, or a GitHub OAuth token
   with gh's scopes (`repo`, `read:org`, `gist`) and `workflow` that does not expire until revoked - with
   no GitHub token in the vault as much as with one. Authorise only a page or code for a VM you have just
-  created or know to be yours. Keeping
+  created or know to be yours; a run that says gh on the VM named another page, not GitHub's own, is one
+  more sign that the VM is not. Keeping
   the key instead would only trade this for a failure every time a lease is recycled, so the removal is
   deliberate. On a network where you do not trust every device, put the VMs on a bridge that only
   trusted devices can reach (`proxmox_bridge`, set before `just deploy --only template`, since every clone inherits
@@ -216,12 +224,26 @@ restate them are not treated as vulnerabilities:
   now answers - an SSH host key it does not hold fails the connection first, and nothing is sent to it but
   the release's own commands.
 - **The Claude sign-in's forward.** While Claude's browser sign-in waits, one port on this machine's
-  loopback (`ssh -L localhost:<port>`) reaches claude's callback on the VM's own `127.0.0.1`, so any process
-  on this machine can reach that callback for those minutes - as any process on the VM always can. The
-  port is the VM's to choose, read from the page its claude handed its browser: it must be between 1024 and
-  65535, the forward fails rather than share a port already in use here, and its far end ends with the
-  sign-in. The page opens here only when it is Claude's own sign-in page; the recycled-address trade-off
-  above applies to it as to the code it replaces.
+  loopback, on both its addresses (`ssh -L 127.0.0.1:<port>:… -L [::1]:<port>:…`), reaches claude's callback
+  on the VM's own `127.0.0.1`, so any process on this machine can reach that callback for those minutes - as
+  any process on the VM always can. The port is the VM's to choose, read from the page its claude handed
+  its browser: it must be between 1024 and 65535, the forward fails rather than share a port already in use
+  here on either address, since a browser tries both for `localhost` (so a machine with no IPv6 loopback
+  always pastes the code instead), and its far end ends with the sign-in - or, after a run stopped while it
+  waited, with the next sign-in of the VM from this machine. On macOS, though, the forward can
+  bind the port beside a program of yours that listens on every address, and then takes that program's
+  connections over loopback at that port to the VM for those minutes; a program of another user's, root's
+  included, refuses the bind, and the forward fails. The redirect, a cross-site top-level
+  request from Claude's site to `localhost`, carries the browser's `localhost` cookies that are not
+  `SameSite=Strict` and whose `Path` matches `/callback`, whichever local web app set them on whichever
+  port, to whatever listens on the VM's port - claude, or anything the VM's root puts there; the project
+  cannot strip them, because Claude Code fixes the `localhost` redirect. To tell a stopped run gone, each
+  attempt records on the VM which run waits for it: this machine's name, this start of it (Linux's boot
+  ID, or when PID 1 started) and the run's pid and start. The VM can read that record and write anything
+  over it, so it is read back as untrusted: only a host name and a pid are ever quoted from it, the check
+  is a read of this machine's process table, and what it decides is only whether the VM's own processes of
+  that attempt are ended. The page opens here only when it is Claude's own sign-in page; the
+  recycled-address trade-off above applies to it as to the code it replaces.
 - **A pending web login.** While Tailscale's web login waits for an approval, its page is readable by
   every local user on the VM (`tailscale status --json`), and whoever approves it first decides which
   tailnet the VM joins. Each report names the tailnet joined, so one that is not yours shows; the key path

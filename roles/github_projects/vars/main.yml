@@ -129,12 +129,29 @@ github_projects_login_code: >-
 # Internal: the page the code is entered at, opened on this machine. GitHub's
 # own, never a URL out of gh's output: the VM chooses what gh prints there, and
 # a page of its choosing would open in your browser just as the run asks you to
-# sign in to GitHub. gh signs in to github.com alone (github_projects_login_args).
+# sign in to GitHub. gh signs in to github.com alone (github_projects_login_args),
+# so this is the one page the pattern matches.
 github_projects_login_page: https://github.com/login/device
+github_projects_login_page_pattern: '^https://github[.]com/login/device$'
+# Internal: every page gh printed that the pattern does not match, each once,
+# and whether there is one, which the message showing the code says: never
+# shown or opened, and quoted only as the placeholder below. gh on a VM you made
+# names GitHub's own alone; one that names another may not be gh, or the VM yours.
+github_projects_login_pages_foreign: >-
+  {{ github_projects_login_text | regex_findall('https?://[^ \t\n]+')
+     | reject('match', github_projects_login_page_pattern) | unique | list }}
+github_projects_login_page_foreign: "{{ github_projects_login_pages_foreign | length > 0 }}"
+github_projects_login_page_withheld: "<a page that is not GitHub's own>"
 # Internal: gh's own lines, without the closing line the start task writes
-# after it ("gh exited: N"), for the messages that quote what gh said.
+# after it ("gh exited: N"), for the messages that quote what gh said - a
+# failure's among them - with each of those pages replaced, whole, by the
+# placeholder: a page of the VM's choosing is never printed for you to follow.
 github_projects_login_said: >-
-  {{ github_projects_login_text.splitlines() | map('trim') | select | reject('match', 'gh exited: ') | list }}
+  {{ (github_projects_login_text
+      | regex_replace('(?:' ~ github_projects_login_pages_foreign | map('regex_escape') | join('|') ~ ')(?![^ \t\n])',
+                      github_projects_login_page_withheld)
+      if github_projects_login_pages_foreign | length > 0 else github_projects_login_text).splitlines()
+     | map('trim') | select | reject('match', 'gh exited: ') | list }}
 # Internal: whether the code ran out: Ansible's async limit ended the job, or
 # the run had to end gh itself once the wait for the approval was over.
 github_projects_login_expired: >-
@@ -142,14 +159,17 @@ github_projects_login_expired: >-
      or (github_projects_login_finished.finished | default(1) | int) != 1 }}
 
 # Internal: what was typed at login.yml's question, if it was asked. Enter
-# alone, or no terminal to ask at, is nothing.
+# alone is nothing - and so would be a question asked with no terminal, which
+# pause answers at once.
 github_projects_login_answer: >-
   {{ (github_projects_login_asked | default({})).user_input | default('', true) | trim | lower }}
 # Internal: whether login.yml runs the device flow. Asked about a VM someone
 # is here for (github_projects_login_interactive: just deploy, for a VM whose
 # Claude code was entered), Enter or "y" goes and anything else - "n" - stays;
-# asked about any other, only "y" goes, so that a run with no terminal skips
-# it. Not asked, the switch alone decides.
+# asked about any other, only "y" goes. Since nothing is Enter, the question is
+# put only where someone can answer it: playbooks/github_login.yml sets
+# neither switch for such a VM in a run with no terminal
+# (claude_vm_login_unasked). Not asked, the switch alone decides.
 github_projects_login_go: >-
   {{ github_projects_login_answer in (['', 'y', 'yes'] if github_projects_login_interactive | bool else ['y', 'yes'])
      if github_projects_login_ask | bool

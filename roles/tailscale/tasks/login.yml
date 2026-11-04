@@ -52,8 +52,10 @@
 # just deploy, for every VM but one whose Claude prompt got Enter: the web
 # login waits up to tailscale_login_timeout for a browser, so it can always be
 # left for later. Where a Claude code was entered someone is here, and Enter
-# goes; elsewhere only "y" does. With no terminal pause returns at once with
-# nothing (vars/main.yml, tailscale_login_go).
+# goes; elsewhere only "y" does. Never asked in a run with no terminal, where
+# pause would return at once with nothing, which is Enter:
+# playbooks/tailscale_login.yml leaves the VM then (claude_vm_login_unasked;
+# vars/main.yml, tailscale_login_go).
 - name: login | Ask whether to sign this VM in to Tailscale now
   vars:
     tailscale_login_question: >-

@@ -202,11 +202,27 @@ claude_code_remote_control_bridge_wanted: >-
 # ------------------------------------------------- the browser sign-in -----
 # Internal: where tasks/browser_login.yml keeps its files on the VM, beside the
 # GitHub device flow's: claude's output, the named pipe its input comes
-# through, and the pid that ends an attempt nobody completes. 0700, the user's.
+# through, the pid that ends an attempt nobody completes, and the run that
+# waits for it (the controller_run filter's record). 0700, the user's.
 claude_code_login_dir: "{{ claude_code_home }}/.config/claude-on-proxmox"
 claude_code_login_output: "{{ claude_code_login_dir }}/claude-login.out"
 claude_code_login_pipe: "{{ claude_code_login_dir }}/claude-login.in"
 claude_code_login_pidfile: "{{ claude_code_login_dir }}/claude-login.pid"
+claude_code_login_run_file: "{{ claude_code_login_dir }}/claude-login.run"
+
+# Internal: what browser_login.yml found of an earlier attempt still on the VM -
+# the pid of a claude still waiting for its code, and of the far end of its
+# forward, each only while it is that process - as digits, or '': the VM
+# answers, so nothing else of its answer is kept. And how long that attempt
+# lasts at most, from its start, which ends it by itself.
+claude_code_login_other_claude: "{{ claude_code_login_other.stdout | default('') | regex_search('^[0-9]{1,10}(?=:)') or '' }}"
+claude_code_login_other_forward: "{{ claude_code_login_other.stdout | default('') | regex_search('(?<=:)[0-9]{1,10}$') or '' }}"
+claude_code_login_other_found: "{{ (claude_code_login_other_claude ~ claude_code_login_other_forward) | length > 0 }}"
+claude_code_login_lasts_minutes: "{{ ((claude_code_login_timeout | int + claude_code_login_attempt_seconds | int) / 60) | int }}"
+# Internal: how a sign-in left waiting by a run this machine cannot ask about is
+# ended by hand, on the VM.
+claude_code_login_end_command: >-
+  ssh {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} kill {{ claude_code_login_other_claude }}
 
 # Internal: what claude printed, and the sign-in page in it. Without a terminal
 # it prints the page as a plain URL; under one it wraps it in an OSC 8
@@ -290,15 +306,28 @@ claude_code_login_redirecting: >-
   {{ claude_code_login_redirect_ready | bool and (claude_code_login_forward.rc | default(1)) == 0 }}
 # Internal: the ssh that makes the forward, on its own connection to the VM as
 # Ansible reaches it, and how long its far end lasts: the wait, and a minute.
-# Bound to this machine's loopback; ExitOnForwardFailure fails it when the port
-# is taken here, and -f returns once it is up. A stand-in replaces ssh in tests.
+# Bound to this machine's loopback by two forwards, one on 127.0.0.1 and one on
+# ::1, and ExitOnForwardFailure fails the ssh unless both are made, so a port
+# taken here on either address means the code is pasted instead. Never one
+# forward on localhost: ssh makes that once any one address binds, while a
+# browser tries both for localhost whatever this machine's resolver says
+# (Chromium ::1 first), so it could reach another program holding the port on
+# the other - and for that reason the two addresses are fixed, never read from
+# the resolver. A machine with no IPv6 loopback therefore always pastes.
+# AddressFamily=any, because ssh binds every forward on the family that option
+# names: an AddressFamily inet (or inet6) in the user's ssh config would fail
+# the ::1 (or 127.0.0.1) forward on every sign-in, and ssh keeps the command
+# line's value over the config's. It changes nothing of the connection, which
+# is to the VM's IPv4 address anyway. -f returns once both are up.
+# A stand-in replaces ssh in tests.
 claude_code_login_ssh: ssh
 claude_code_login_forward_argv: >-
   {{ ['sh', '-c', 'exec "$@" >/dev/null 2>&1', 'sh', claude_code_login_ssh, '-f', '-n', '-T',
-      '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ConnectTimeout=15',
+      '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'AddressFamily=any', '-o', 'ConnectTimeout=15',
       '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
       '-p', (hostvars[inventory_hostname].ansible_port | default(22)) | string,
-      '-L', 'localhost:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port]
+      '-L', '127.0.0.1:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port,
+      '-L', '[::1]:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port]
      + (['-i', hostvars[inventory_hostname].ansible_ssh_private_key_file]
         if hostvars[inventory_hostname].ansible_ssh_private_key_file is defined else [])
      + [(hostvars[inventory_hostname].ansible_user | default(claude_code_user)) ~ '@'

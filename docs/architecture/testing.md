@@ -39,12 +39,14 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2613 tests. By file:
+pytest over `tests/unit/`: 2661 tests. By file:
 
-- **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 45,
+- **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the
-  sign-ins' `page_opener`, `plain_text`, and `banner`'s block.
+  sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
+  gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
+  `banner`'s block.
 - **`just status`** (`test_status.py` 56, `test_status_live.py` 10, `test_status_vms.py` 14,
   `test_status_work.py` 3): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
@@ -201,24 +203,35 @@ pytest over `tests/unit/`: 2613 tests. By file:
   against canned logins and stand-ins, and the harness they share (`tests/unit/harness.py`: an
   allowlisted environment, desktop stand-ins - and this machine's tailscale, gh and claude - that fail a run
   that reaches for them, no terminal).
-- **The Claude sign-in** (`test_claude_login.py` 49): `browser_login.yml` against the stand-in `claude`,
+- **The Claude sign-in** (`test_claude_login.py` 59): `browser_login.yml` against the stand-in `claude`,
   one run of `claude_login.yml` for every sign-in case - a VM whose ssh refuses the connection among them,
   said at once and ending no other VM's turn, a failed sign-in said in its own, one VM per batch and the
   work after the sign-ins waiting for the last - with what each VM records of its answer read after it;
   the end of an attempt, a TERM and a KILL only for a pid that outlives it by a second, run traced;
+  an attempt still waiting refused while its run is under way here, and with how to end it when that run is
+  another machine's or unrecorded, and one a run stopped part way left - killed while it waited for the
+  browser, the forward's far end up - ended by the next sign-in, claude and the far end each only while it is
+  still that process, and the VM signed in;
   five runs at a pseudo-terminal of the test's own - the page before the prompt, a partly copied code,
   an expired attempt, Ctrl-C then A, and keys typed before the prompt is ready - with the code searched
   for in every run at `-vvv` with module arguments injected; and the browser coming back by itself, a
-  stand-in `ssh` recording the forward and the test playing the browser at the stand-in's callback: no
-  prompt, a forward refused, a page that is not Claude's, a run over SSH or no browser here falling back
+  stand-in `ssh` recording the forward - one from each loopback address, each required, both made under
+  an `AddressFamily` the user's ssh config sets (the stand-in takes `-L` and `AddressFamily` as OpenSSH
+  does) - and running its far end here, in a session of its own, and the test playing the browser at the
+  stand-in's callback: no prompt, a forward refused or a port held here on one address only, a page that
+  is not Claude's, a run over SSH or no browser here falling back
   to the paste, and a browser that never comes back skipping the VM's later sign-ins.
-- **The GitHub sign-in** (`test_github_auth.py` 123): the `github_projects` role's `auth.yml`,
+- **The GitHub sign-in** (`test_github_auth.py` 134): the `github_projects` role's `auth.yml`,
   `clone.yml`, `device_flow.yml` and `github_login.yml` for real against the stand-in `gh` and the fake
   GitHub API on a loopback port, one host per sign-in state, twice over for idempotence, with `git
   credential fill` proving that git itself gets the token through the config written, deploy's GitHub
-  step per VM - starting by itself, and asking first with `github_login_auto_start: false` - every task
-  that renders a token held to `no_log`, and the whole output searched for every canned token.
-- **The sign-in playbooks** (`test_sign_in_plays.py` 36): `claude_login.yml`, `github_login.yml` and
+  step per VM - starting by itself, and asking first with `github_login_auto_start: false`: Enter and `n`
+  at a pseudo-terminal, and with no terminal (`claude_vm_login_terminal: false`) no question and no flow,
+  each VM told why - every task that renders a token held to `no_log`, and the whole output searched for
+  every canned token; and two device flows with the desktop steps on, against recorders of the test's own
+  first on PATH, opening GitHub's own page whether gh named it or another, which is said and never shown,
+  nor quoted where a failure quotes gh's own lines - gh's status page among them.
+- **The sign-in playbooks** (`test_sign_in_plays.py` 37): `claude_login.yml`, `github_login.yml` and
   `deploy.yml`'s own sign-in steps end to end - a VM whose ssh refuses the connection among VMs that
   sign in (for `claude_login.yml` alone, in `test_claude_login.py`'s run), a failed sign-in said in its
   turn, a failure after a sign-in (Remote Control's start, a clone) told apart from a failed one and
@@ -227,10 +240,11 @@ pytest over `tests/unit/`: 2613 tests. By file:
   refused code and `deploy_sign_in: false`, and one VM per batch only where a sign-in prompts; and
   `login.yml` - `just login` - running the three in deploy's order and by its rules, held to deploy.yml's
   own decisions: no device flow for a VM whose Claude sign-in nobody answered, said once for it and in
-  no report, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
+  no report, nor, with no terminal, for one a code signed in that `github_login_auto_start: false` would
+  have asked about, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
   and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
-- **Tailscale** (`test_tailscale.py` 91): the role's files from `ownership.yml` on, and
+- **Tailscale** (`test_tailscale.py` 94): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and
   `getent`: a first join once, with the key on stdin and in no report, argument or file; no key for a node
   whose key expired, and a node logged out by hand joined again - unless Proxmox records the VM as having
@@ -251,7 +265,8 @@ pytest over `tests/unit/`: 2613 tests. By file:
   login made by hand left to whoever made it, never signed in again by the web; a page still waiting reported
   before an expired or refused key, just deploy's two plays included; a Tailscale dpkg does not know only
   read; `tailscale_auth_method` `key` and `web`; deploy's step VM by VM, starting by itself and asking
-  first with `tailscale_login_auto_start: false`, and NEXT STEPS keeping the role's line for a refused key or a
+  first with `tailscale_login_auto_start: false` - Enter and `n` at a pseudo-terminal, and with no terminal
+  no question and no web login - and NEXT STEPS keeping the role's line for a refused key or a
   page still waiting where Claude's sign-in was skipped; `configure.yml`'s rescue and last play; and the guards
   that keep every scenario, the Vagrantfile and this harness off Tailscale, and the role in the justfile's `scenario_roles` and CI.
 - **Destroy's release** (`test_release.py` 51): `destroy.yml`'s release play and report against the
@@ -622,7 +637,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
 | `fake_github_api.py` | the GitHub REST API | serves local bare repositories, in paginated responses; `/user` and `/user/repos` answer a token, private repositories included; `POST /credentials/revoke` takes credentials unauthenticated and refuses an authenticated call, as GitHub does, and `/fake/revoked` lists what it took, so a test can hold that nothing reaches it |
 | `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went |
-| `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's |
+| `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's, and `fake-quit` end unapproved right after naming it |
 | `fake_tailscale.sh` | `tailscale` | output that is Tailscale's own, as the research and a Headscale run recorded it, for the commands the role runs, against a node whose state is files under HOME: `status --json` and `debug prefs` shaped as a Running and a signed-out node really print, a join with a canned key on stdin, a refused or slow key, the web login's page and an approval that lands after `up` has exited (by the clock, `approve-after`, or at the Nth status read after the page, `approve-at-read`, which no loaded machine can outrun; `up-waits` shortens `up`'s own wait), `NeedsMachineAuth`, a taken name, `NoState` reads after a start, logout resetting the prefs, a node ID (`node-id`), and with `real-daemon` an answer only while the real daemon's socket exists; a key is never written, and `calls.log` shows `KEY` in its place |
 | `fake_anthropic_api.py` | the Anthropic Messages API | for the real `claude` in the `configure` scenario: one short answer to every request, streamed or not, on 127.0.0.1 only, with each request's body logged, so a test reads the system prompt and the history a resume sent |
 | `fake_claude.sh` | `claude` | `auth status` and `auth login` as probed against Claude Code: the page, the `Paste code here if prompted >` prompt, then `Login successful.`, `Login failed: ...` or `Invalid code` for the line read from stdin, writing `~/.claude/.credentials.json` on success; given `BROWSER`, it hands it the page that redirects to its own callback on `127.0.0.1` and takes a code from there as from stdin; `auth logout`; `fake-refusal`, `fake-no-page`, `fake-gone` and `fake-foreign-page` in its state directory make it refuse in other words, print an error in place of the page, exit before reading a code, or hand its browser a page that is not Claude's |

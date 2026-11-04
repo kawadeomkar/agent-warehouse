@@ -171,7 +171,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `github_projects_login_desktop`, `claude_code_login_desktop`, `tailscale_login_desktop`, all wired from
   it in `inventory/group_vars/all/defaults.yml`) gates those steps; every scenario and the harnesses set
   it false, and `tests/unit/test_github_auth.py`, `test_claude_login.py` and `test_tailscale.py` fail if
-  one stops, if the wiring goes, or if a desktop step runs. Behind that, `tests/unit/harness.py` puts stand-ins for
+  one stops, if the wiring goes, or if a desktop step runs - but for `test_github_auth.py`'s two `opened_*`
+  runs, which turn GitHub's desktop steps on with recorders of their own first on PATH (they log and succeed,
+  the harness's failing stand-ins behind them) to see which page would open. Behind that, `tests/unit/harness.py` puts stand-ins for
   `open`, `xdg-open`, `pbcopy`, `wl-copy` and `xclip` first on every run's PATH and points `BROWSER` at
   one: they record the call and fail, and a run that made one fails its test. A run inherits only the
   variables the harness names (`PASSED_ON`), and a stand-in host's modules get its own directory as
@@ -205,8 +207,13 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `http://localhost:<port>/callback`, listens on the VM's `127.0.0.1:<port>`, and takes a code from that
   callback or from stdin, whichever comes first (one attempt: both pages share state and challenge).
   `browser_login.yml` gives it a `BROWSER` that only records the page, forwards that port from the
-  controller with `ssh -f -L localhost:<port>:127.0.0.1:<port>` (`ExitOnForwardFailure`, the far end a
-  `sleep` whose pid the VM records, killed when the sign-in ends, only while it is a sleep), opens the page
+  controller with `ssh -f -L 127.0.0.1:<port>:127.0.0.1:<port> -L [::1]:<port>:127.0.0.1:<port>` (one forward
+  per loopback family, since a browser tries `::1` for `localhost` and OpenSSH counts a `localhost` forward
+  made once either binds; `ExitOnForwardFailure`, so a port held here on either falls back to the paste;
+  `AddressFamily=any`, since ssh binds a forward on that option's family and the command line's value
+  outranks a user's `AddressFamily inet` or `inet6`, which would otherwise fail one forward every time;
+  the far end a `sleep` whose pid the VM records, killed when the sign-in ends - or by the next, once its
+  run is gone - only while it is a sleep), opens the page
   here only when it matches `claude_code_login_page_pattern`, and waits on the async job
   (`claude_code_login_approval_timeout`) - no prompt. `claude_code_login_redirect` follows
   `login_desktop`; a forward that fails, a page that is not Claude's, a code given, no browser on this
@@ -222,7 +229,16 @@ token; `github_auth_method: token` still fails. The status JSON carries
   path but a pipe (`<>` would create a plain file). Before the hand-over `async_status` checks that the
   attempt still runs; the wait ends on any answer after claude's prompt; `Invalid code` (a code copied
   up to its `#`) is asked for once more; a sign-in of the same VM still waiting is refused by its
-  pidfile; and what claude printed reaches a message only through the `plain_text` filter, which
+  pidfile while the run waiting for it is under way, or cannot be asked about - another machine's, or none
+  recorded - with how to end it by hand. A run stopped while it waits (Ctrl-C) runs no `always`, so each
+  attempt records that run beside its pid (`claude-login.run`, the `controller_run` filter: this machine's
+  name and boot, the run's own `ansible-playbook` pid - the forked worker's parent - and its start, read
+  in C and UTC by `ps`, or from `/proc` on Linux); the next sign-in from this machine, finding that run
+  gone (`controller_run_state`), ends what it left - claude and the far end's sleep, each only while it is
+  still that process, asked again before every signal - rather than refusing the VM for half an hour and
+  leaving the forward up. The record is the VM's to hand back: only a host name and a pid of it are ever
+  said, and only a run of this machine since it last started, no process of that start at its pid, is
+  ever taken for gone. What claude printed reaches a message only through the `plain_text` filter, which
   removes whole escape sequences and then every control character but tab and newline (gh's text and
   `just code`'s SSH error go through it too). A `/dev/tty` probe cannot tell an
   attended run - Ansible runs lookups in workers detached from the terminal - so `pause` returning
@@ -234,7 +250,12 @@ token; `github_auth_method: token` still fails. The status JSON carries
   `n` leaves it, while one that showed no Claude sign-in (signed in already, an API key) signs in on `y`
   only - never one fact for the whole run, which made one answer start every VM's flow. A run with no
   terminal gets `deploy_sign_in: false` from the justfile (`no_tty_args`), since sign-ins that start by
-  themselves would otherwise wait for a browser nobody watches. The path unit that starts Remote
+  themselves would otherwise wait for a browser nobody watches, and `claude_vm_login_terminal: false`, since
+  `pause` there answers a `*_login_ask` question at once with nothing, which is Enter: `github_login.yml` and
+  `tailscale_login.yml` then ask no VM, start nothing for one they would have asked
+  (`claude_vm_login_unasked`), and say so with its `just login <vm> --only github|tailscale` line, kept for
+  NEXT STEPS - the run's one fact, which only ever holds a flow back; unset, a person is taken to be there,
+  as for `ansible-playbook` by hand and the harnesses, whose `/dev/null` is Enter. The path unit that starts Remote
   Control when a login lands is `PathChanged=`, never `PathExists=`, which restarts a stopped service
   instantly, and exists only while the login is the one thing missing (docs/architecture/roles.md §5.5).
 - **Tests never touch a real Proxmox, GitHub, Tailscale or hypervisor.** `tests/molecule/` holds the
@@ -293,7 +314,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   that runs the role installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the
   Vagrantfile is keyless with logs off, and a guard holds each - and the role's scenario to `scenario_roles` and
   CI's matrix. The template is never signed in to anything.
-- **The project writes exactly three things outside the repo on the controller:** `~/.ssh/known_hosts`,
+- **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
+  write a fourth:** `~/.ssh/known_hosts`,
   the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include` line at the top of
   `~/.ssh/config` that is added once and never removed), and the checkout's own folder. Nothing else in
   `~/.ssh` is ever edited. (The Claude Code sessions `just destroy` saves go into the checkout's
@@ -301,7 +323,11 @@ token; `github_auth_method: token` still fails. The status JSON carries
   folder is `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
   (`tools/env-run --data`): `just install` puts the Galaxy collections there, and the Python environment
   when the user brings no virtualenv (uv keeps the Python it downloads for it in uv's own folders), and
-  `just clean env` deletes that folder and nothing beside it.
+  `just clean env` deletes that folder and nothing beside it. The fourth: when `code --list-extensions`
+  lacks the Remote - SSH extension, `just code`, and `just deploy`'s window step, run
+  `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/code.yml`), and VS Code's CLI writes
+  that extension, from VS Code's marketplace, into VS Code's extensions folder (`~/.vscode/extensions/`),
+  with what VS Code records of an install in its own data folder: no other extension, and no VS Code setting.
   Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with
   `ssh -G`, refuses an alias the user's own config already names, refuses a name or address that
   is not one plain word, and refuses a name ssh would take for another host (`ssh_alias_refusal`: a name
@@ -401,7 +427,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   made the VM's links here as links, nor a `file` with `recurse`, whose `follow` chmodded their targets.
   Into `destroy_sessions_dir` (absolute or `~`, refused otherwise before any VM starts;
   `.sessions/<vm>-<time>/` in the checkout: git-ignored, refused by `tests/check_no_local_files.sh`, inside
-  the repo, so the controller still writes only the two SSH files outside it), edited in nothing,
+  the repo, so it adds nothing to what the controller writes outside it), edited in nothing,
   0700/0600, with `sessions.json` naming the `claude --resume <path>` that continues each, its version and
   that its content is the VM's. The save runs as the VM user, never through sudo, Remote Control paused
   for it (`claude_code`'s `release_pause`, `release_resume` on a VM kept), and a VM that stops answering

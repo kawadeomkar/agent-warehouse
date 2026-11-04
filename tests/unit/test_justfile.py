@@ -680,6 +680,9 @@ SIGN_INS = {
     "github": "playbooks/github_login.yml",
     "tailscale": "playbooks/tailscale_login.yml",
 }
+# What a run with no terminal is given (no_tty_args): no page opened here, none of deploy's sign-ins, and no
+# per-VM "sign in now?" question, whose empty answer would read as Enter.
+OFF = '{"login_desktop":false,"deploy_sign_in":false,"claude_vm_login_terminal":false}'
 
 
 @pytest.mark.parametrize(("stage", "playbook"), DEPLOY_STAGES.items())
@@ -702,7 +705,7 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
 def test_deploy_without_options_runs_deploy_yml_with_the_no_terminal_switch(tmp_path: Path) -> None:
     run = _playbook(tmp_path, "deploy", "alpha")
     assert run[-1] == "deploy.yml", run
-    assert '{"login_desktop":false,"deploy_sign_in":false}' in run
+    assert OFF in run
 
 
 @pytest.mark.parametrize(
@@ -746,7 +749,7 @@ def test_each_sign_in_runs_its_playbook_and_none_all_three(tmp_path: Path, only:
     run = _playbook(tmp_path, "login", "alpha", "beta", *(["--only", only] if only else []))
     assert run[-1] == playbook, run
     assert '{"vm_name": "alpha,beta"}' in run
-    assert '{"login_desktop":false,"deploy_sign_in":false}' in run
+    assert OFF in run
 
 
 @pytest.mark.parametrize(
@@ -1152,7 +1155,6 @@ def test_only_code_takes_a_session(tmp_path: Path, recipe: str) -> None:
 
 # ---------------------------------------------------------------- a terminal, or none ----
 
-OFF = '{"login_desktop":false,"deploy_sign_in":false}'
 SIGNING_IN = [["deploy", "alpha"], ["login", "alpha"], *(["login", "alpha", "--only", only] for only in SIGN_INS)]
 
 

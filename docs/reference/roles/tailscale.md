@@ -50,7 +50,7 @@ With tailscale_login_interactive, or the answer to the question tailscale_login_
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `tailscale_login_interactive` | bool | `false` | Sign in; the question below, when asked, takes Enter as yes. |
-| `tailscale_login_ask` | bool | `false` | Ask first, at a prompt here. With no terminal it returns at once with no answer. |
+| `tailscale_login_ask` | bool | `false` | Ask first, at a prompt here. With no terminal it would return at once with no answer, which is Enter, so playbooks/tailscale_login.yml never sets it in a run without one. |
 | `tailscale_auth_method` | str | `auto` | Under key, a VM is joined by just deploy --only configure with the key, never by the web login. One of `auto`, `key`, `web`. |
 | `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the report never says the key will join it again. |
 | `tailscale_joined_tag` | str | `claude-on-proxmox-tailscale` | The tag in Proxmox that records a VM's join, which the report names. |

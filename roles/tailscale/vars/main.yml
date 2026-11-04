@@ -174,8 +174,10 @@ tailscale_joined_now: >-
 # --- The web login (login.yml, web_login.yml) ---
 # Asked about a VM someone is here for (just deploy, a Claude code entered),
 # Enter or "y" goes and anything else - "n" - stays; asked about any other,
-# only "y" goes, so that a run with no terminal, where pause returns at once
-# with nothing, skips it. Not asked, the switch alone decides.
+# only "y" goes. A run with no terminal, where pause would return at once with
+# nothing, which is Enter, never asks: playbooks/tailscale_login.yml sets
+# neither switch for such a VM then (claude_vm_login_unasked). Not asked, the
+# switch alone decides.
 tailscale_login_answer: "{{ (tailscale_login_asked | default({})).user_input | default('', true) | trim | lower }}"
 tailscale_login_go: >-
   {{ tailscale_login_answer in (['', 'y', 'yes'] if tailscale_login_interactive | bool else ['y', 'yes'])

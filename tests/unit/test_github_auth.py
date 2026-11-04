@@ -46,7 +46,11 @@ What these guard:
   and a gh that hangs are named failures with the retry command, and every
   ending ends gh and leaves no job file or output behind. The browser and
   clipboard steps never run in a test: every scenario and this harness
-  switch them off, and a test here keeps it so.
+  switch them off, and a test here keeps it so - but for two runs that turn
+  them on against recorders of their own, first on PATH, which show that the
+  page opened is GitHub's own whatever page gh named, and that another page
+  gh named is said, never shown or opened - nor quoted where a failure
+  quotes gh's own lines.
 - just deploy asks VM by VM: Enter goes where a Claude code was entered, and
   "n" skips; elsewhere only "y" goes.
 """
@@ -67,7 +71,20 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import STAND_INS, _failures, _left_to_do, _messages, _results, _run, _run_at_a_terminal, _serve
+from ansible.parsing.dataloader import DataLoader
+from ansible.template import Templar, trust_as_template
+from harness import (
+    DESKTOP_TOOLS,
+    STAND_INS,
+    _desktop,
+    _failures,
+    _left_to_do,
+    _messages,
+    _results,
+    _run,
+    _run_at_a_terminal,
+    _serve,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 ROLE = REPO / "roles" / "github_projects"
@@ -96,8 +113,12 @@ NOREPLY = f"4242+{USERNAME}@users.noreply.github.com"
 # Control characters a VM's user could put in what gh prints: a title, a
 # clipboard write (OSC 52) and a colour.
 ESCAPES = "\x1b]0;owned\x07\x1b]52;c;b3duZWQ=\x07\x1b[31m"
-# A page a VM's gh could name instead of GitHub's, made to look like it.
+# A page a VM's gh could name instead of GitHub's, made to look like it, and
+# what the run says of it in its place.
 FOREIGN_PAGE = "https://github.com.login-device.example/device"
+FOREIGN_NAMED = "gh on the VM named another page, not GitHub's own, so it is neither shown nor opened here"
+# What a failure quoting gh's lines says in place of any such page.
+WITHHELD = "<a page that is not GitHub's own>"
 CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 # One host per state the role can meet: the vault token, what gh holds
@@ -290,6 +311,8 @@ def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) ->
                 (state / file_name).write_text("" if case[key] is True else case[key])
         if case.get("hang"):
             (state / "fake-hang").touch()
+        if case.get("quit"):
+            (state / "fake-quit").touch()
         if case.get("said"):
             (state / "fake-said").write_text(case["said"] + "\n")
         if case.get("page"):
@@ -928,11 +951,47 @@ os.write(fd, b"failed to authenticate via web browser: context deadline exceeded
 """
 
 
-def _device_flow(tmp_path_factory, fake_github, name: str, case: dict, extra: dict | None = None) -> tuple[Path, dict]:
-    """just login <name> --only github for one signed-out host; extra vars (the flow's limits) on top."""
+# What opens a page or fills a clipboard, for the runs that turn the desktop
+# steps on: each records its call beside itself and succeeds.
+RECORDER = """#!/bin/sh
+printf '%s %s\\n' "${0##*/}" "$*" >> "$(dirname "$0")/opened.log"
+"""
+
+
+def _recorders(root: Path) -> dict:
+    """The environment of a run whose desktop steps run: recorders of its own first on PATH, and BROWSER one of them.
+
+    The harness's stand-ins, which fail a run that reaches them, come next, and
+    only then this machine's PATH: a step that ran finds a recorder, never this
+    machine's browser or clipboard.
+    """
+    recorders = root / "recorders"
+    recorders.mkdir()
+    for tool in DESKTOP_TOOLS:
+        (recorders / tool).write_text(RECORDER)
+        (recorders / tool).chmod(0o755)
+    path = os.pathsep.join([str(recorders), str(_desktop(root)), os.environ.get("PATH", os.defpath)])
+    return {"PATH": path, "BROWSER": str(recorders / "open")}
+
+
+def _opened(root: Path) -> list[str]:
+    """What the recorders under root were asked to do, a call a line: the tool, then its arguments."""
+    log = root / "recorders" / "opened.log"
+    return log.read_text().splitlines() if log.exists() else []
+
+
+def _device_flow(
+    tmp_path_factory, fake_github, name: str, case: dict, extra: dict | None = None, *, desktop: bool = False
+) -> tuple[Path, dict]:
+    """just login <name> --only github for one signed-out host; extra vars (the flow's limits) on top.
+
+    With desktop, the steps on this machine's desktop run, against recorders (_recorders).
+    """
     root = tmp_path_factory.mktemp("device_" + name)
     hosts = _hosts(root, {name: {"token": "", **case}}, fake_github, home_given=False)
     hosts[name]["github_projects_user"] = ME
+    if desktop:
+        hosts[name]["github_projects_login_desktop"] = True
     if case.get("stale"):
         out = root / name / ".config" / "claude-on-proxmox" / "gh-login.out"
         subprocess.Popen([sys.executable, "-c", STALE_GH, str(out)], stdin=subprocess.DEVNULL)
@@ -942,6 +1001,7 @@ def _device_flow(tmp_path_factory, fake_github, name: str, case: dict, extra: di
         hosts,
         "-e",
         json.dumps({"claude_vm_discovery": False, "ansible_become": False, "vm_name": name, **(extra or {})}),
+        env=_recorders(root) if desktop else None,
     )
     return root, report
 
@@ -956,6 +1016,18 @@ def approved(tmp_path_factory, fake_github):
     return _device_flow(
         tmp_path_factory, fake_github, "approved", {"said": "✓ Authentication complete.", "page": FOREIGN_PAGE}
     )
+
+
+@pytest.fixture(scope="module")
+def opened_genuine(tmp_path_factory, fake_github):
+    """The device flow with the desktop steps on, against recorders, from a gh that names GitHub's own page."""
+    return _device_flow(tmp_path_factory, fake_github, "genuine", {}, desktop=True)
+
+
+@pytest.fixture(scope="module")
+def opened_foreign(tmp_path_factory, fake_github):
+    """The device flow with the desktop steps on, against recorders, from a gh that names a page of its own."""
+    return _device_flow(tmp_path_factory, fake_github, "foreign", {"page": FOREIGN_PAGE}, desktop=True)
 
 
 @pytest.fixture(scope="module")
@@ -978,6 +1050,12 @@ def nocode(tmp_path_factory, fake_github):
         + "error connecting to api.github.com\x1b[0m\ncheck your internet connection or https://githubstatus.com\n"
     )
     return _device_flow(tmp_path_factory, fake_github, "nocode", {"no_code": said})
+
+
+@pytest.fixture(scope="module")
+def quit_after_page(tmp_path_factory, fake_github):
+    """gh that shows its code with a page of its own and exits at once, unapproved: its page is its last line."""
+    return _device_flow(tmp_path_factory, fake_github, "quit", {"page": FOREIGN_PAGE, "quit": True})
 
 
 @pytest.fixture(scope="module")
@@ -1095,6 +1173,8 @@ def test_the_device_flow_runs_gh_with_no_terminal_and_shows_the_code(approved):
     # GitHub's own page, whatever page gh named: the VM chooses what gh prints.
     assert "https://github.com/login/device" in shown
     assert FOREIGN_PAGE not in shown and "example" not in shown, shown
+    # The page gh named is said to be another, never quoted.
+    assert FOREIGN_NAMED in shown, shown
     # The choices there are: approve, wait for the code to expire, or Ctrl-C.
     assert "the wait ends by itself when the code expires" in shown
     assert "Ctrl-C ends the whole run" in shown
@@ -1137,6 +1217,37 @@ def test_the_desktop_steps_never_run_in_a_test(approved):
         assert result is not None and result.get("skipped"), (name, result)
 
 
+@pytest.mark.parametrize("fixture", ["opened_genuine", "opened_foreign"])
+def test_the_page_opened_here_is_github_s_own_whatever_page_gh_named(request, fixture):
+    # The VM chooses what gh prints there: GitHub's own page opens as before
+    # for a gh that names it, and for one that names another, never that one.
+    root, report = request.getfixturevalue(fixture)
+    host = fixture.removeprefix("opened_")
+    assert DEVICE_LOGIN in _calls(root, host), _calls(root, host)
+    for name in ("Look for a browser opener and a clipboard on this machine", "Open the page in your browser"):
+        result = _task(report, name, host)
+        assert result is not None and not result.get("skipped"), (name, result)
+    opened = _opened(root)
+    assert [call for call in opened if call.startswith("open ")] == ["open https://github.com/login/device"], opened
+    assert not [call for call in opened if FOREIGN_PAGE in call or "example" in call], opened
+    # The code went to the clipboard, which here is a recorder too.
+    assert "pbcopy " in opened, opened
+
+
+def test_another_page_gh_named_is_said_and_neither_shown_nor_opened(opened_genuine, opened_foreign):
+    said = {
+        host: _messages(report, "Say the code and the page")[host]
+        for host, (_, report) in (("genuine", opened_genuine), ("foreign", opened_foreign))
+    }
+    for host, shown in said.items():
+        assert shown.startswith(f"{host}: enter the code FAKE-C0DE at https://github.com/login/device and"), shown
+        assert "(the page opens in your browser and the code is on your clipboard" in shown, shown
+        assert FOREIGN_PAGE not in shown and "example" not in shown, shown
+        assert "\n" not in shown and shown.endswith("Ctrl-C ends the whole run."), repr(shown)
+    assert FOREIGN_NAMED in said["foreign"], said
+    assert "named another page" not in said["genuine"], said
+
+
 def test_an_expired_code_is_a_named_failure(expired):
     # gh's own words once its code has expired, which the wait outlasts.
     root, report = expired
@@ -1157,11 +1268,70 @@ def test_a_gh_that_shows_no_code_is_a_named_failure_with_the_retry_command(nocod
     failure = _failures(report)["nocode"]
     assert "gh on nocode did not start the device flow:" in failure
     assert "error connecting to api.github.com" in failure
-    assert "; check your internet connection or https://githubstatus.com." in failure
+    # A page gh named that is not GitHub's own is not quoted, here gh's own status page among them.
+    assert f"; check your internet connection or {WITHHELD}." in failure
+    assert "githubstatus" not in failure
     assert "gh exited" not in failure
     assert failure.endswith("Run just login nocode --only github again."), failure
     assert not CONTROL.search(failure), repr(failure)
     _flow_files_are_gone(root, "nocode")
+
+
+def test_a_gh_that_quits_after_naming_another_page_fails_without_quoting_it(quit_after_page):
+    # The failure quotes gh's last line, which here is the one naming its page:
+    # the page goes, the rest of the line stays.
+    root, report = quit_after_page
+    assert FOREIGN_NAMED in _messages(report, "Say the code and the page")["quit"]
+    failures = _failures(report)
+    assert set(failures) == {"quit"}, failures
+    assert failures["quit"].endswith(
+        f"quit: the GitHub sign-in did not complete. Open this URL to continue in your web browser: {WITHHELD}."
+        " Run just login quit --only github again for a fresh code."
+    ), failures
+    # Nothing the run said names the page: not the code's message, not the failure.
+    said = [str(result["msg"]) for _, host, result in _results(report) if host == "quit" and "msg" in result]
+    assert said and not [text for text in said if FOREIGN_PAGE in text or "example" in text], said
+    assert not (root / "quit" / ".config" / "gh" / "fake-token").exists()
+    _flow_files_are_gone(root, "quit")
+
+
+def test_gh_s_lines_keep_github_s_own_page_and_lose_every_other():
+    # What the messages quote of gh: each page the pattern does not match goes
+    # whole, wherever it is in a line, and GitHub's own page stays.
+    internal = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())
+    names = (
+        "github_projects_login_page_pattern",
+        "github_projects_login_pages_foreign",
+        "github_projects_login_page_foreign",
+        "github_projects_login_page_withheld",
+        "github_projects_login_said",
+    )
+
+    def render(text: str, name: str):
+        variables = {"github_projects_login_text": text, **{key: trust_as_template(internal[key]) for key in names}}
+        return Templar(loader=DataLoader(), variables=variables).template(variables[name])
+
+    own = "https://github.com/login/device"
+    for text, said in (
+        (
+            f"Open this URL to continue in your web browser: {own}\ngh exited: 1",
+            [f"Open this URL to continue in your web browser: {own}"],
+        ),
+        (
+            f"Open this URL to continue in your web browser: {FOREIGN_PAGE}",
+            [f"Open this URL to continue in your web browser: {WITHHELD}"],
+        ),
+        (
+            "check your internet connection or https://githubstatus.com",
+            [f"check your internet connection or {WITHHELD}"],
+        ),
+        # GitHub's own page, but another: a lookalike that starts as it does, or ends a sentence.
+        (f"{own}/x and {own}. and http://github.com/login/device", [f"{WITHHELD} and {WITHHELD} and {WITHHELD}"]),
+        (f"first {own} then {FOREIGN_PAGE}?a=1\n  {FOREIGN_PAGE}", [f"first {own} then {WITHHELD}", WITHHELD]),
+        ("nothing to see\n", ["nothing to see"]),
+    ):
+        assert render(text, "github_projects_login_said") == said, text
+        assert render(text, "github_projects_login_page_foreign") is (WITHHELD in "".join(said)), text
 
 
 def _seconds(report: dict, task: str, host: str) -> float:
@@ -1317,6 +1487,25 @@ def test_the_page_opened_and_shown_is_github_s_own_never_one_gh_named():
     assert opener["vars"]["github_projects_login_opener"].split("|")[0].strip() == "{{ github_projects_login_page"
 
 
+def test_only_github_s_own_device_page_is_github_s_own():
+    internal = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())
+    pattern = internal["github_projects_login_page_pattern"]
+    # Jinja's match test is re.match.
+    assert re.match(pattern, internal["github_projects_login_page"])
+    for page in (
+        FOREIGN_PAGE,
+        "http://github.com/login/device",
+        "https://github.com/login/device/",
+        "https://github.com/login/device?code=AB12-CD34",
+        "https://github.com/login/device.example",
+        "https://github.com.example/login/device",
+        "https://githubXcom/login/device",
+        "https://gist.github.com/login/device",
+        "https://example.com/?https://github.com/login/device",
+    ):
+        assert re.match(pattern, page) is None, page
+
+
 def test_the_code_is_a_word_of_its_own_in_github_s_shape():
     expression = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())["github_projects_login_code"]
     pattern = re.search(r"regex_search\('([^']+)'\)", expression).group(1)
@@ -1357,9 +1546,12 @@ REPORT_FIXTURES = [
     "login_run",
     "pending_named",
     "approved",
+    "opened_genuine",
+    "opened_foreign",
     "expired",
     "stale",
     "nocode",
+    "quit_after_page",
     "hang",
     "timed_out",
     "abandoned",
@@ -1451,7 +1643,10 @@ def test_the_harness_keeps_the_device_flow_off_the_developer_s_desktop(tmp_path)
 # With github_login_auto_start, the default, the device flow starts by itself
 # for every VM but one whose Claude sign-in was skipped. Off, every VM but that
 # one is asked first: Enter signs in one whose Claude sign-in was answered, and
-# "y" one that showed no Claude prompt (signed in already, or an API key).
+# "y" one that showed no Claude prompt (signed in already, or an API key). With
+# no terminal to ask at (claude_vm_login_terminal: false, as the justfile passes
+# it then) none is asked, and none of those signed in: pause would answer at
+# once with nothing, which is Enter.
 AFTER_CLAUDE = {
     "typed": {"claude_code_login_answered": True, "claude_code_login_skipped": False},
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
@@ -1483,7 +1678,7 @@ def _deploy_github_step(root: Path) -> Path:
 
 
 def _deploy_github(root: Path, fake_github, **extra) -> tuple[Path, dict]:
-    """just deploy's GitHub step for three signed-out VMs, with no terminal to ask at."""
+    """just deploy's GitHub step for three signed-out VMs, stdin /dev/null: every question answered with Enter."""
     hosts = _hosts(root, {name: {"token": ""} for name in AFTER_CLAUDE}, fake_github, home_given=False)
     for name, facts in AFTER_CLAUDE.items():
         hosts[name].update(facts, github_projects_user=ME)
@@ -1509,6 +1704,17 @@ def deployed_asking(tmp_path_factory, fake_github):
     return _deploy_github(tmp_path_factory.mktemp("deploy_github_ask"), fake_github, github_login_auto_start=False)
 
 
+@pytest.fixture(scope="module")
+def deployed_asking_no_terminal(tmp_path_factory, fake_github):
+    """The same, in a run the justfile found no terminal for: what no_tty_args passes."""
+    return _deploy_github(
+        tmp_path_factory.mktemp("deploy_github_ask_no_terminal"),
+        fake_github,
+        github_login_auto_start=False,
+        claude_vm_login_terminal=False,
+    )
+
+
 def test_deploy_starts_gh_s_sign_in_by_itself_for_every_vm_but_one_whose_claude_sign_in_was_skipped(deployed):
     root, report = deployed
     # A failure after the sign-in (the role's directory task, without a group
@@ -1529,8 +1735,10 @@ def test_github_login_auto_start_defaults_to_on():
 
 
 def test_asking_first_signs_gh_in_only_where_a_claude_code_was_entered(deployed_asking):
-    # With no terminal the question comes back with nothing: Enter, for the
-    # VM someone entered a Claude code for; no "y", for the other.
+    # stdin is /dev/null, so each question comes back with nothing, as Enter
+    # does at a terminal - in a run the justfile saw one for, which passes no
+    # claude_vm_login_terminal: Enter, for the VM someone entered a Claude code
+    # for; no "y", for the other.
     root, report = deployed_asking
     assert report["rc"] == 0, _failures(report)
     started = {name for name in AFTER_CLAUDE if DEVICE_LOGIN in _calls(root, name)}
@@ -1560,6 +1768,56 @@ def test_deploy_says_once_why_gh_s_sign_in_was_not_started_where_the_claude_sign
     # One NEXT STEPS line for it, this one, in place of the role's own report
     # of the same sign-out.
     assert _left_to_do(report)["skipped"]["github"] == line
+
+
+NO_TERMINAL = (
+    "{0}: GitHub's sign-in was not started, since this run has no terminal to ask at:"
+    " just login {0} --only github starts it."
+)
+
+
+def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_have_asked_about(
+    deployed_asking_no_terminal,
+):
+    # A scripted run with a Claude code given: pause would come back with
+    # nothing at once, which is Enter for typed, and start a fifteen-minute
+    # device flow nobody watches.
+    root, report = deployed_asking_no_terminal
+    assert report["rc"] == 0, _failures(report)
+    assert _asked(report) == set()
+    assert {name for name in AFTER_CLAUDE if DEVICE_LOGIN in _calls(root, name)} == set()
+    # Each said, once, with what starts it, and NEXT STEPS keeps that line in
+    # place of the role's own report of the sign-out; skipped for its own reason.
+    said = {
+        host: result["msg"]
+        for name, host, result in _results(report)
+        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+    }
+    assert said == {
+        "typed": NO_TERMINAL.format("typed"),
+        "quiet": NO_TERMINAL.format("quiet"),
+        "skipped": "skipped: GitHub's sign-in was not started, since its Claude sign-in was skipped:"
+        " just login skipped --only github starts it.",
+    }, said
+    left = _left_to_do(report)
+    assert {host: left[host]["github"] for host in AFTER_CLAUDE} == said
+
+
+def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_terminal(tmp_path, fake_github):
+    hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
+    hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
+    rc, output, _ = _run_at_a_terminal(
+        tmp_path,
+        _deploy_github_step(tmp_path),
+        hosts,
+        {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
+        "",
+        prompt=b"type n and Enter to skip it",
+    )
+    assert rc == 0, output
+    assert "Enter signs it in now" in output
+    assert DEVICE_LOGIN in _calls(tmp_path, "typed"), output
+    assert "no terminal to ask at" not in output, output
 
 
 def test_asking_first_signs_a_vm_that_showed_no_claude_prompt_in_on_a_typed_y(tmp_path, fake_github):

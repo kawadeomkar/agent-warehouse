@@ -106,6 +106,7 @@
         - /home/dev/.config/claude-on-proxmox/claude-login.out
         - /home/dev/.config/claude-on-proxmox/claude-login.in
         - /home/dev/.config/claude-on-proxmox/claude-login.pid
+        - /home/dev/.config/claude-on-proxmox/claude-login.run
       register: verify_sign_in
 
     # Gone means unloaded, not only a missing file: a unit deleted without

@@ -30,7 +30,8 @@ to a browser), and `web` is the web login only, with a key in the vault left unu
   logged out before the next run - leaves no record. An OAuth client secret (`tskey-client-...`) works too, with
   `tailscale_advertise_tags` set and `?ephemeral=false` on the secret.
 - **The web login**, with no secret at all. `just login alpha --only tailscale` - and `just deploy`'s
-  step, which starts by itself (`tailscale_login_auto_start`; `false` asks first) - opens Tailscale's
+  step, which starts by itself (`tailscale_login_auto_start`; `false` asks first, and a run with no
+  terminal then leaves the VM, saying so) - opens Tailscale's
   sign-in page here and waits up to five minutes (`tailscale_login_timeout`) for you to sign in and
   approve the VM. A VM you approve later joins by itself: the page stays valid for 7 days. `just deploy`
   leaves out a VM whose Claude sign-in nobody answered, and says so, with

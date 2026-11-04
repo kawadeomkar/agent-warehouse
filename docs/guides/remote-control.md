@@ -55,8 +55,10 @@ terminal the run is drawn live, a row per sign-in with each VM's state and whose
 
 ### When the browser cannot come back
 
-Where the browser could not come back - the port is already taken on this machine, `login_desktop:
-false`, nothing here to open a browser with, a `BROWSER` that runs a shell, `cmd.exe` or PowerShell (which
+Where the browser could not come back - the port is already taken on this machine on either of its
+loopback addresses, `127.0.0.1` or `::1` (the run forwards both, since a browser may try either for
+`localhost`), this machine has no IPv6 loopback, `login_desktop: false`, nothing here to open a browser
+with, a `BROWSER` that runs a shell, `cmd.exe` or PowerShell (which
 would read the page as a command line of its own), or `just` run over SSH, where the browser is on another
 machine and the page would send it to that machine's own localhost - claude's other page opens instead,
 which shows a code once you authorise: paste it at the `Code:` prompt and the run hands it to claude
@@ -65,6 +67,15 @@ at the prompt skips a VM, and a code claude refuses fails that VM by name once t
 turn (under `just deploy`, which goes on, NEXT STEPS keeps it, with the command that retries it); a code copied only up to its `#` (a double-click stops there) is asked for again, and Ctrl-C then
 `A` at the prompt ends the run. A sign-in page lasts `claude_code_login_timeout` plus half an hour: a code
 pasted later is said to be too late at once, with the command for a fresh page.
+
+### A run stopped while it waits
+
+Ctrl-C while the run waits for your browser ends the whole run at once, before it can end claude's
+attempt on the VM or the forward. Nothing needs doing about it: the next `just login <vm> --only claude`,
+or `just deploy`, from this machine ends what that run left and starts a fresh sign-in. While another run
+still waits for the same VM - in a second terminal, say - the new one is refused, as it is when the
+attempt was left by a run on another machine; that refusal names the `ssh ... kill <pid>` that ends the
+attempt on the VM, which otherwise ends by itself half an hour after it started.
 
 ### Sign-in settings
 

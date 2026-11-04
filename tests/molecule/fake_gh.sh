@@ -15,7 +15,8 @@
 # seconds in that file (default 1) standing in for the code's fifteen minutes;
 # with fake-no-code it prints an error (the file's content, or gh's own when
 # GitHub cannot be reached) and no code; with fake-hang it prints nothing and
-# waits until it is ended; and fake-said is printed in place of its "Logged in
+# waits until it is ended; with fake-quit it exits unapproved right after its
+# page, saying nothing more; and fake-said is printed in place of its "Logged in
 # as" line. With fake-two-accounts, `auth logout` without --user fails as gh
 # does with two accounts on github.com and no terminal to ask which. With
 # fake-unchecked the login's check never reached GitHub, and with fake-refused
@@ -99,6 +100,8 @@ case "$*" in
     # The page gh names, which a VM's root could make any it likes (fake-page).
     page=$(cat "$state/fake-page" 2>/dev/null || echo https://github.com/login/device)
     echo "Open this URL to continue in your web browser: $page"
+    # Its page its last word: what a failure then quotes of it (fake-quit).
+    [ ! -e "$state/fake-quit" ] || exit 1
     if [ -e "$state/fake-expire" ]; then
       # gh polls until its own deadline, the code's lifetime, and says so.
       nap "$(grep . "$state/fake-expire" 2>/dev/null || echo 1)"

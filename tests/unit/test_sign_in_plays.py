@@ -52,6 +52,11 @@ What these guard:
   rules: GitHub's device flow is not started for a VM whose Claude sign-in
   nobody answered, a VM whose Claude sign-in failed sits out the sign-ins after
   it and fails the run, and with no names every step reports, starting nothing.
+- A scripted just login, with no terminal and a Claude code given, asks no
+  "sign in now?" question with github_login_auto_start off: pause would answer
+  at once with nothing, which is Enter for that VM, and start GitHub's
+  fifteen-minute device flow for nobody. The VM is left, said once, and NEXT
+  STEPS names the command that starts it.
 """
 
 from __future__ import annotations
@@ -677,6 +682,26 @@ def test_just_login_says_once_why_github_s_sign_in_was_not_started_and_only_for_
     # NEXT STEPS holds one GitHub line for it, naming that command; the whole
     # role, which just login with names runs after, may say it last.
     assert "just login a-unanswered --only github" in _left_to_do(report)["a-unanswered"]["github"]
+
+
+def test_just_login_with_no_terminal_starts_no_device_flow_it_would_have_asked_about(tmp_path, github):
+    # The justfile passes claude_vm_login_terminal: false with no terminal
+    # (no_tty_args); the code signs Claude in, so the VM would be asked, and
+    # Enter - what pause reads with no terminal - would start the flow.
+    hosts = _hosts(tmp_path, {"alpha": {"code": CODE, "vars": {"github_projects_exclude": ["gone"]}}}, github)
+    settings = _extra(vm_name="alpha", github_login_auto_start=False, claude_vm_login_terminal=False)
+    report = _run(tmp_path, LOGIN, hosts, "-e", settings)
+    assert report["rc"] == 0, _failed(report)
+    assert _signed_in(tmp_path, "alpha")
+    assert not _ran(report, "Ask whether to sign gh in to GitHub now for alpha", "alpha")
+    assert not _device_flow(tmp_path, "alpha")
+    assert _said(report, "Say why GitHub's sign-in was not started", "alpha") == [
+        "alpha: GitHub's sign-in was not started, since this run has no terminal to ask at:"
+        " just login alpha --only github starts it."
+    ]
+    # NEXT STEPS holds one GitHub line for it, naming that command; the whole
+    # role, which just login with names runs after, may say it last.
+    assert "just login alpha --only github" in _left_to_do(report)["alpha"]["github"]
 
 
 def test_just_login_keeps_what_failed_for_next_steps(logged_in):
