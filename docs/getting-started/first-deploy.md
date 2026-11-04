@@ -239,10 +239,10 @@ SYSTEM    OS              KERNEL                     LOAD 1 / 15 MIN   UPDATES
  beta     Ubuntu 24.04.3  6.8.0-87                   0.02 / 0.00       none
 
 WORK  in ~/projects, as of each checkout's last fetch
-          CHECKED                 NOT ON ANY REMOTE, OR NOT COMMITTED             CLAUDE   VS CODE
- alpha    2 checkouts, 1 tree     claude-on-proxmox: 2 commits on 1 branch,       1        1 window
-                                  changes in 1 worktree
- beta     1 checkout              nothing                                         —        —
+          CHECKED                 NOT ON ANY REMOTE, OR NOT COMMITTED     CLAUDE   VS CODE
+ alpha    2 checkouts, 1 tree     claude-on-proxmox: 2 commits on 1       1        1 window
+                                  branch, changes in 1 worktree
+ beta     1 checkout              nothing                                 —        —
 
 read in 7.9 s · proxmox 0.9 s · vms 3 of 3 6.1 s
 exit 0 · nothing is wrong · --only, --json: just help status

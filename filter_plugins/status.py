@@ -1494,7 +1494,8 @@ def _work_lines(model):
         return []
     nw = _name_width(vms)
     first = max(nw + 3, 10)
-    widths = (24, 48, 9)
+    # Narrow enough that the last column's "10 windows" still fits 100 columns after a name of 13: 16 + 73 + 10.
+    widths = (24, 40, 9)
     directory = next(
         (((vm.get("ssh") or {}).get("work") or {}).get("dir") for vm in vms if (vm.get("ssh") or {}).get("work")),
         "~/projects",

@@ -464,6 +464,18 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
     assert lines[5].split()[2] == "a-name-longer-than-any-…"
 
 
+def test_the_vs_code_cell_is_whole_beside_the_longest_name() -> None:
+    # A live run cut "1 window" to "1 wind…" beside a 9-letter name: the row ran past 100 columns.
+    def vm(name: str, windows: int) -> dict:
+        system = {"claude": 1, "vscode_windows": windows}
+        return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
+
+    model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
+    lines = [S.plain(line) for line in S._work_lines(model)]
+    assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
+    assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
+
+
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
     fleet = _fleet()
     found = {"localhost": {"fleet": fleet}}
