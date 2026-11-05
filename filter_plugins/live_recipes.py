@@ -176,17 +176,23 @@ CONFIGURE_FAILURES = Causes(
 
 
 # The window, as just code and just deploy open it: code.yml's own tasks between its imports, each run starting at a
-# task, and the task files it imports. The folder is looked for here and then on the VM, around the alias: one step.
-VS_CODE = (
-    Step("find the VM", starts=["Refuse anything but one VM"]),
+# task, and the task files it imports. Each editor's two files are steps by their first task, as drawn, without its
+# file's prefix: it begins the step for the rest of the file and for the rescue after it, where a file's step would
+# leave the rescue to the step before. Every editor's window file begins with the helpers' directory, so one name
+# begins the window for each of them.
+# The folder is looked for here and then on the VM, around the alias, and so is a checkout around just code's own
+# directory: one step.
+WINDOW = (
+    Step("find the VM", starts=["Refuse an editor just code cannot open", "Refuse anything but one VM"]),
     Step("reach it", starts=["Reach the VM the way just deploy --only configure does"]),
     Step("read the sessions", files=["tasks/session_read.yml"]),
     Step("the folder", starts=["Settle the folder to open", "Look for the folder on the VM"]),
     Step("alias", files=["tasks/ssh_config.yml"]),
-    Step("VS Code here", starts=["Look for VS Code on this machine"]),
+    Step("the editor here", starts=["Look for VS Code on this machine", "Look for Zed's commands on this machine"]),
+    Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),
-    Step("workspace", starts=["Read the session notes already on the VM"]),
-    Step("window", starts=["Open the folder in VS Code"]),
+    Step("the notes", starts=["Read the session notes already on the VM"]),
+    Step("window", starts=["Look for the directory for the helpers on the VM"]),
 )
 # just init's questions, each a step from the include that asks it, and the vault the answers go into.
 INIT_QUESTIONS = (
@@ -201,7 +207,7 @@ INIT_QUESTIONS = (
 # just lint's checks, as its parts name them.
 LINT = ("lock", "yaml", "ansible", "python", "just", "syntax", "hooks")
 # What code.yml's rescue raises again outside just deploy: whatever stopped the window, which the block's rescue took.
-WINDOW_FAILURES = Causes(blocks=["Open the VM in VS Code"])
+WINDOW_FAILURES = Causes(blocks=["Open the VM in the editor"])
 
 
 RECIPES = {
@@ -213,7 +219,7 @@ RECIPES = {
             Stage("configure", plays=["configure.yml"]),
             Stage("SSH aliases", plays=["ssh_config.yml"]),
             Stage("sign in", steps=SIGN_INS),
-            Stage("VS Code", plays=["code.yml"], steps=VS_CODE),
+            Stage("editor", plays=["code.yml"], steps=WINDOW),
             # deploy.yml's last play, which raises what failed after the sign-ins once VS Code has opened.
             Stage("finish", plays=["deploy.yml:Fail each VM whose work after a sign-in failed"], quiet=True),
         ],
@@ -287,7 +293,7 @@ RECIPES = {
     # just code: one stage, so its steps are the rows, and the VM it opens is said in the header - its ID and address
     # as vm_addresses.yml read them from Proxmox and the guest agent.
     "code": Recipe(
-        stages=[Stage("VS Code", plays=["code.yml"], steps=VS_CODE, info="vm")],
+        stages=[Stage("editor", plays=["code.yml"], steps=WINDOW, info="vm")],
         window=1,
         raises={"Fail as just code does, outside just deploy": WINDOW_FAILURES},
         columns=("time", "tasks"),

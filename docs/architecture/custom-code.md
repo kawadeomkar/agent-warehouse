@@ -269,9 +269,10 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   sign-in, for every play of its file; else the step the last task a declared step `starts` at began, in this play
   (`code.yml`'s phases, runs of its own tasks between its imports, a rescue running in the step that failed); else
   its role. An include's tasks are counted in the step they will run in, by the same rule, when the playbook
-  starts and when it announces them. `VS Code`, `just code`'s one stage and deploy's, is declared so: find the VM,
-  reach it, read the sessions, the folder (here and then on the VM), alias, VS Code here, copy the sessions,
-  workspace, window. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
+  starts and when it announces them. `editor`, `just code`'s one stage and deploy's, is declared so: find the VM,
+  reach it, read the sessions, the folder (here and then on the VM), alias, the editor here, the directory
+  (just code's own on the VM), copy the sessions, the notes, window - the editor's two task files each a step
+  from its first task, named as drawn, without its file's prefix. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
   beta`, from `claude_vm_release_started`). A quiet stage - `finish`, deploy's last play, which only
   raises again what failed after the sign-ins - is counted but never drawn, unless one of its tasks fails; a step
   whose every task was skipped reads `–`, never `✓`. A run of one stage (`--only configure`) is drawn as that
@@ -448,7 +449,7 @@ alike, the host not compared: this machine's side, where a clone may reach GitHu
 **`github_repository(url)`** is the same of a GitHub origin only, and `""` of any other: the VM's side,
 whose checkouts just deploy cloned from GitHub, so that a local path or another host's repository there
 claims nothing. **`just_code_dir(projects, given)`** is just code's own directory on a VM -
-`vscode_workspaces_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
+`editor_files_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
 destroy's save, which reads the manifest there. **`claude_project_folder(path)`** is Claude Code's folder name for a path - every character
 but an ASCII letter or digit as `-` - refusing one over 200 characters, which Claude Code shortens with
 a hash of its own. **`claude_session_dirs(sessions)`** is the directories to ask git about for them:
@@ -519,8 +520,11 @@ without a report.
 **`vm_status_info`** (`playbooks/library/`), the one module status runs on a VM, as the VM user and
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
-refreshes nothing) would make and how many are security ones, and the user's own claude processes and VS
-Code extension hosts, one per window. Every read is fixed in its code, runs in a thread of its own with
+refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
+editor's windows: VS Code's extension hosts and the daemons of Zed's remote server, one per window, kept by the
+editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
+`vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
+as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
 its own time limit - one that runs out is said by name and the rest still land - and the one program it
 runs, `/usr/bin/apt-get`, by its absolute path: the VM user's PATH over SSH starts with directories the user
 owns. Its `root` option reads a fixture tree in the tests.

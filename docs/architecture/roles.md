@@ -711,6 +711,14 @@ two, and proves the sshd one.
   raised until the next boot: a limit is harmless to leave high, and lowering it under a running
   watcher is not.
 
+**Every editor's, not VS Code's alone.** The role runs whichever editor `just code` opens,
+since nothing it sets up is VS Code's own: Claude's sign-in in the browser forwards its callback to the
+VM with `ssh -L` for every editor and for none, and this check is the one thing that says when forwarding
+is off, where the sign-in would only fall back to the paste; Zed's port forwards are `ssh -L` too; the
+keepalives reap any editor's session; any file watcher needs the inotify limit. Skipping it for another
+editor would also skip its own removal half. It keeps VS Code's name, and its files theirs, through 1.x:
+`vscode_server` is a `--tags` name 1.0 promised, and the files are on VMs already.
+
 Deliberately absent: a pre-installed server (its build is tied to the client's exact commit, so a
 pre-warmed copy is stale on the first VS Code update), a `.code-workspace` file (opening `~/projects`
 already shows every clone as a nested repository), and extensions (`remote.SSH.defaultExtensions` is

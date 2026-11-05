@@ -5,6 +5,13 @@
 # is reached through; and an inotify limit large enough to watch a workspace.
 # The image and the common role provide the first two; this role writes the
 # other two, and checks the sshd one against what sshd actually runs with.
+#
+# None of it is VS Code's alone, so the role runs whichever editor just code
+# opens: Claude's sign-in in the browser forwards its callback to the VM over
+# `ssh -L` for every editor (roles/claude_code/tasks/browser_login.yml), Zed's
+# port forwards are `ssh -L` too, the keepalives reap any editor's session left
+# on a sleeping laptop, and any file watcher needs the inotify limit. Its name
+# is VS Code's through 1.x, the --tags name 1.0 promised.
 
 - name: Look for the tools the server installer needs
   ansible.builtin.command:
@@ -129,7 +136,8 @@
     fail_msg: >-
       sshd on {{ inventory_hostname }} applies "{{ vscode_server_effective | join('", "') }}" to
       {{ vscode_server_user }}'s connections, so VS Code's Remote - SSH cannot reach the server it
-      starts there. sshd keeps the first value it reads for a keyword and a Match block sets its own,
+      starts there, an editor's port forward cannot open, and Claude's sign-in in the browser falls
+      back to pasting its code. sshd keeps the first value it reads for a keyword and a Match block sets its own,
       so something other than /etc/ssh/sshd_config.d/20-vscode-server.conf decides it{{
         ': ' ~ (vscode_server_culprits | join(', ')) if vscode_server_culprits | length > 0
         else ' - a drop-in sorted before it, /etc/ssh/sshd_config itself, or a Match block' }}.

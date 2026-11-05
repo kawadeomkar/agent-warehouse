@@ -277,7 +277,7 @@ sessions exists only there: Claude Code keeps a session on the disk of the machi
 copy it can resume, and auto memory is machine-local too, so the deletion would end them.
 `claude_sessions_info` reads the VM's `~/.claude` with every session whatever its age and just code's
 manifest, from just code's own directory as code.yml names it (the `just_code_dir` filter, which follows
-`vscode_workspaces_dir`), and `claude_sessions_saved` keeps each session that holds a message and is not
+`editor_files_dir`), and `claude_sessions_saved` keeps each session that holds a message and is not
 a copy still as just code wrote it - this machine has that one - with the folder beside it (subagents,
 tool results, MCP tasks), and every auto memory folder. What the VM reports is the VM's to make up, so
 nothing it names is trusted: a folder not named as Claude Code names one (ASCII letters, digits and `-`)
@@ -395,7 +395,7 @@ for needs it (`access`, `sign-ins`, `system`, `work`) and the VM runs and has an
 with `ignore_unreachable` first, whose refusal is said for what it is - no host key held here, a host key
 changed, a timeout, a refusal - and leaves the VM there; then each read in a block of its own whose rescue
 records it as not read: `vm_status_info` (the OS, the kernels, a reboot waiting, the load, apt's
-simulation, the user's claude processes and VS Code windows), `git_checkouts_info` with `work` over the
+simulation, the user's claude processes and each editor's windows), `git_checkouts_info` with `work` over the
 projects directory `just code` resolves, as the VM user (what of each checkout is on no remote or not
 committed, as of its last fetch, [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)),
 and the `status` entry points of
@@ -431,7 +431,7 @@ code is the highest found:
 |---|---|
 | not read | Proxmox did not answer, or refused the token. A name given that matches no tagged VM. A VM on a node that is down. A running VM whose agent reports no address on `proxmox_nic` after three minutes. A VM whose reads Proxmox did not answer. A VM that did not answer SSH, or whose host key is not held here or changed. A read inside a VM that failed or ran past 30 s. gh's login that could not be checked with GitHub |
 | problem | Two tagged VMs of one name. A root disk or a storage 90% full. Remote Control failed or restarting. `tailscaled` not running where the role installed it |
-| to do | The VM's settings differ from `local.yml`'s, with the `proxmox_vm_force_update` run that sends them and what else it does. A change waiting for a restart. A first deploy that did not finish (the unfinished tag). A VM with no SSH alias. A root disk or a storage 80% full. A reboot waiting, with the claude processes and VS Code windows open. Security upgrades waiting. Claude Code not signed in or not installed. Remote Control stopped or not set up. The GitHub and Tailscale roles' own lines, wherever NEXT STEPS would give them |
+| to do | The VM's settings differ from `local.yml`'s, with the `proxmox_vm_force_update` run that sends them and what else it does. A change waiting for a restart. A first deploy that did not finish (the unfinished tag). A VM with no SSH alias. A root disk or a storage 80% full. A reboot waiting, with the claude processes and each editor's windows open. Security upgrades waiting. Claude Code not signed in or not installed. Remote Control stopped or not set up. The GitHub and Tailscale roles' own lines, wherever NEXT STEPS would give them |
 
 Stopped VMs, CPU pressure over a tenth of the last hour, other VMs, a thin pool provisioned beyond its
 size, the template's age, Remote Control off on purpose, a gh left alone and work on no remote or not
@@ -627,8 +627,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `vm_projects_dir` or `<home>/projects`. Then the session handoff's reads (`tasks/session_read.yml`),
    which with `--session` settle the project to open.
 5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
-   machine, so `~` would not expand) and, with the terminal or the session copies on, a
-   `vscode_workspaces_dir` that is not absolute or is the projects directory (its files would sit
+   machine, so `~` would not expand) and, wherever anything goes into just code's own directory (the
+   notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
+   copies on, an `editor_files_dir` that is not absolute or is the projects directory (its files would sit
    among the repositories), and with the terminal, one that is the folder being opened
    (`--project .claude-on-proxmox`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
@@ -636,13 +637,45 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    message: a missing project lists what the workspace holds and, for a name that differs only in
    case, suggests the right one, since the VM's paths are case-sensitive; a missing workspace means a
    VM never configured, and says to run `just deploy --only configure`. These are there so a typo is said in the
-   terminal, not in a VS Code window opened on a folder that does not exist.
-7. Check `code` is on `PATH`, and install `ms-vscode-remote.remote-ssh` if `code --list-extensions`
-   lacks it. Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM.
-8. With `vscode_claude_terminal` (the default), write a workspace file on the VM and open that:
+   terminal, not in a VS Code window opened on a folder that does not exist. Then, wherever anything goes into
+   just code's own directory, refuse one inside a checkout of the projects directory, for every editor: a `.git`
+   in any folder from the first below the projects directory down to that directory, looked for with `stat` on
+   the VM by the path as written. Only those folders, so a home directory kept in git refuses nothing - nor does
+   a projects directory that is itself a checkout, a directory outside the projects directory, or a repository a
+   symlink on the way leads into, which is not resolved.
+7. Check the editor on this machine - each editor's own file, imported for it alone
+   (`tasks/vscode_check.yml`): `code` on `PATH`, and `ms-vscode-remote.remote-ssh` installed if
+   `code --list-extensions` lacks it; for Zed (`tasks/zed_check.yml`), every `zeditor` and `zed` on `PATH`
+   (`which -a`), `zeditor`s first, asked `--version`, and the first that says Zed taken: ZFS's event daemon is
+   `zed` too, and is never handed the VM; then, read on the VM, whether a `.zed/tasks.json` in just code's
+   directory there is just code's (its first line the marker), before the notes say whether the task is there.
+   Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM, and the session notes
+   (below).
+8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
+   `playbooks/vars/vscode.yml`; every name an editor's file registers starts with `code_<editor>_`, since
+   a skipped task still overwrites its register). The editors are one list, `claude_editors` in the
+   inventory defaults, literal values only: how each is said, whether its window runs just code's tasks as it
+   opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
+   `listed` for the user to pick, Zed's; or `none`). Where the window runs none (Zed), the notes are written
+   without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
+   `claude --resume` to run, with the cautions every editor's report says. Zed's (`tasks/zed_open.yml`) writes,
+   with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the
+   helper's path matches `code_helper_path_pattern` (`code_claude_task_written`; the notes name the task where it
+   is also over no one else's file, `code_claude_task_there`), the shared helper first - `helpers/claude-start.sh`,
+   any editor's (`code_shared_helpers`), copied unchanged - and then `.zed/tasks.json`: just code's ownership
+   marker on its first line, then a **Claude (just code)** task of fixed text, `bash <helper>`, a new terminal
+   for every spawn and no tag. A `tasks.json` there without the marker is someone else's, left as it is, and
+   said. The helper starts a fresh `claude` where Claude Code's registry names a running `claude` of a terminal
+   in the folder, and otherwise `claude --continue`, and a fresh `claude` where that fails at once. Zed lists the
+   task in a window whose folder holds the directory. Then it runs `zed ssh://<alias><folder>`, one path (Zed
+   1.26.2 refuses a second, so the notes are not opened with it), Zed reading the alias from `~/.ssh/config`;
+   Zed runs no task when a window opens, so its report says to run that task where the window lists it, or
+   `claude` (or `claude --resume <id>`) in Zed's terminal, which is the VM's, and why no task was written where
+   none was; Zed's Agent Panel runs Claude Agent on the VM too, said as a Claude Code of its own. For VS Code, with
+   `editor_claude_terminal` (the default), write a workspace file on the VM and open that:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
-   `vscode_workspaces_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
+   `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,
    it opens the folder itself and writes nothing.
 9. Say what VS Code will do, from the user's VS Code settings, read and never written: looked for
@@ -662,7 +695,7 @@ outranks a play var, and no task var shares a fact's name.
 from the explorer of the window that shows it, and holds a `Shell` task - `/bin/bash -l` in the folder,
 `folderOpen` too, in the same presentation group as Claude's so the two share a terminal as split panes,
 the shell on the left because it is listed, and so started, first - and the `Claude` task: a `process` task,
-`/bin/bash -lc <script> just-code` and eight arguments (the line without `claude`, the two lines a
+`/bin/bash -l <helpers>/claude-terminal.sh` and eight arguments (the line without `claude`, the two lines a
 sign-in ends with, the path unit's file, GitHub's line, the git protocol, the scopes, the VM's name),
 the session notes' four (below) and `--session`, read as the last word by a `for` loop,
 `cwd` the folder, `runOptions.runOn:
@@ -675,7 +708,13 @@ given `--session`, `claude --resume <id>` and nothing after it, or else
 `claude --continue` - the folder's latest conversation; where there is none, Claude Code 2.1 exits 1 at once ("No conversation found to continue"), and a `--continue` that fails within five seconds starts a fresh `claude` instead, the script ending `exit 0` either way - because a task terminal
 does not survive a window reload, after which the task runs again; its messages arrive as arguments,
 never as script text, and
-`tests/unit/test_code_session.py` runs it against a stand-in `claude`. `${workspaceFolder}`
+`tests/unit/test_code_session.py` runs it against a stand-in `claude`. **The helpers** - that script,
+the notes' `session-notes.sh` and `session_notes.py`, VS Code's alone, their paths in `playbooks/vars/vscode.yml`,
+beside the one every editor shares, `claude-start.sh` (`code_shared_helpers` in `code.yml`, which Zed's task runs) -
+are fixed files in `playbooks/files/`, copied
+unchanged into `helpers/` of just code's own directory on the VM, and run there by path, so the workspace
+file carries no script text; the `provision` scenario checks the copies byte for byte against the files
+the unit tests run. `${workspaceFolder}`
 is not used: in a task that belongs to a workspace file rather than a folder it is ambiguous.
 
 Sign-in is not scripted, because it cannot be: it is a browser flow. VS Code Server puts its
@@ -701,16 +740,16 @@ include a workspace file's tasks, and a path ending in `.code-workspace` given t
 workspace. The defaults moved twice in 2026 (1.109, 1.126); CI cannot watch the user's editor, so a
 manual run of `just code` is the check when they move again.
 
-The workspace file, the session notes (below) and the session copies (below) are all that is written
-on the VM, last, as the VM user, so every refusal above leaves the VM as it was - with `--session`, so is
+The workspace file, the helpers, the session notes (below) and the session copies (below) are all that
+is written on the VM, last, as the VM user, so every refusal above leaves the VM as it was - with `--session`, so is
 one checkout's fast-forward; a workspace directory that already exists keeps its mode, since
-`vscode_workspaces_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
+`editor_files_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
 every task in `code.yml` to an allowlist - read-only here, or delegated to the VM - and the
 `provision` scenario checks the settings file it planted is byte-for-byte untouched after every
 run. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
-**The session notes.** With `vscode_session_notes` (the default, with the terminal), a page about the
+**The session notes.** With `editor_session_notes` (the default, with the terminal), a page about the
 VM opens beside the Claude terminal every time the window opens - from `just code`, *Open Recent*, a
 restart that restores the window, or a reload - as a rendered preview, with its sign-in status read from
 the VM at that moment. VS Code has no workspace setting that opens a file, and a file named in the
@@ -721,8 +760,8 @@ both. Not the Claude task's `dependsOn`, which was the first design: VS Code loo
 workspace-file task up, misses it, and asks every task provider instead - npm, gulp (which runs `gulp`),
 grunt, jake - which held Claude back about 7.5 s on a projects directory of 22 repositories, measured
 live. Side by side, the notes open a moment after the Claude terminal and usually take the keyboard
-focus from it. The helper's bash (`code_notes_script`) is in charge whatever its Python part does:
-Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
+focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its Python part
+(`session_notes.py`, beside it) does: Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
 open and VS Code never prints the command line. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
 --json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
@@ -735,7 +774,7 @@ links into a zoneinfo directory for (macOS, most Linux), then `/etc/timezone` (D
 play runs nothing here but `which` and `code`; the helper gets it as an argument and says UTC for a zone
 the VM's tzdata lacks. The Claude task gets four more arguments - the
 helper, the notes' path, the unit, the zone - and after a sign-in that succeeded in its terminal starts the helper
-once more, `refresh-only`, in the background (`shift 8`: `${10}` would be VS Code's to resolve).
+once more, `refresh-only`, in the background (reached by `shift 8`).
 
 `just code` writes the rest from `playbooks/templates/vm_session.md.j2` into
 `<workspaces>/session/<vm>-session.md` (0600; `session/` 0700): the VM's facts from the cluster listing,
@@ -746,16 +785,16 @@ settings opens them as a preview; the key holds a `/`, so VS Code matches it aga
 and path.
 
 The notes' directory is a **second workspace folder only where the window's own folder contains it** -
-the whole projects directory's window under the default `vscode_workspaces_dir`. VS Code computes trust
+the whole projects directory's window under the default `editor_files_dir`. VS Code computes trust
 over every folder and the saved workspace file, each `isEqualOrParent` of a URI the user trusted, and
 trusting stores exactly those URIs (`workspaceTrust.ts`): a folder added to a workspace trusted before
 is untrusted, and the window drops to Restricted Mode without its Claude terminal. A one-project window,
-and every window under a `vscode_workspaces_dir` outside the projects directory, keep their one folder;
+and every window under a `editor_files_dir` outside the projects directory, keep their one folder;
 they open the notes from outside it, which VS Code asks about once per workspace
 (`requestOpenFilesTrust`, remembered on *Open*) unless a trusted folder covers them - the projects
 directory, trusted in its own window - and `just code`'s message says so.
 
-**The session handoff.** With `vscode_claude_sessions` (the default) every run copies this machine's
+**The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's
 Claude Code sessions of the last 30 days - Claude Code's own `cleanupPeriodDays` by default, by their file
 time, so Claude Desktop's, which Claude Code keeps here at any age, come over within it like the rest - to
 the VM, those of the repositories it has checked out; `--session <id>` (`vm_session`) copies that one whatever its age, the
@@ -853,7 +892,8 @@ holds uncommitted or untracked changes; a branch that is detached, gone, untrack
 remote than `origin`, or not where `origin`'s is; no VM checkout of the repository (`--project` must name
 it when given); a VM checkout with changes, on a detached `HEAD` that no branch, remote-tracking branch
 or tag holds (a switch away would leave its commits to garbage collection, and `--quiet` would not say
-so), or with a `claude` of the VM user working in it (from `/proc`). `session_write.yml` then copies,
+so), with a `claude` of the VM user working in it (from `/proc`), or in a folder whose name `--project` would
+refuse (the VM names it, and it becomes the window's folder). `session_write.yml` then copies,
 refuses a session changed on both machines since the last copy - naming the folder its copy is in -
 fetches `+refs/heads/<upstream>` - a refspec, never an option - refuses a move that would replace a path
 git does not track there (`git_checkouts_info`'s `target`: an ignored file the commit adds, which `git

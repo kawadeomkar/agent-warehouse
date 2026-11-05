@@ -74,6 +74,12 @@ WIDTH = 100
 # What --value refuses in a value: an expression, which Ansible would template - run, for a lookup - and a control
 # character or a line break, which no setting of one line holds.
 TEMPLATE = re.compile(r"\{\{|\{%|\{#")
+# A default that is another setting's value and nothing else, as a setting's name from 1.1 is fed its name from 1.0
+# (editor_claude_terminal: "{{ vscode_claude_terminal }}"): it takes that setting's type.
+ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$")
+# A setting that names one entry of an internal list of the inventory defaults takes that list's names as its
+# choices: the editor setting, one of claude_editors (what just code has files for).
+CHOICES_FROM = {"editor": "claude_editors"}
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # The roles configure.yml runs, which just deploy --only configure --tags <role> applies.
 CONFIGURED = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
@@ -465,8 +471,9 @@ class Settings:
             return None, f"{name} takes any value, so --value cannot hold it to a type", LOCAL
         return target, "", ""
 
-    def spec_for(self, target: str, name: str) -> dict:
-        """The type a setting takes: its own argument_specs, the first role variable's it feeds, or its default's."""
+    def spec_for(self, target: str, name: str, seen: frozenset = frozenset()) -> dict:
+        """The type a setting takes: its own argument_specs, the first role variable's it feeds, the setting its default
+        is the value of, or its default's."""
         for each in (name, target, *docs.set_by(target, self.feeds, self.specs)):
             role = docs.role_of(each, self.specs)
             if role:
@@ -476,6 +483,12 @@ class Settings:
                     if key in ("type", "elements", "choices")
                 }
         default = self.defaults.get(target)
+        listed = self.defaults.get(CHOICES_FROM.get(target, ""))
+        if isinstance(listed, dict) and listed:
+            return {"type": "str", "choices": sorted(listed)}
+        alias = ALIAS.match(default) if isinstance(default, str) else None
+        if alias and alias.group(1) in self.defaults and alias.group(1) not in seen | {target}:
+            return self.spec_for(alias.group(1), alias.group(1), seen | {target})
         for kind, python in (("bool", bool), ("int", int), ("list", list), ("dict", dict)):
             if isinstance(default, python):
                 return {"type": kind} | ({"elements": "str"} if kind == "list" else {})
@@ -586,8 +599,33 @@ class Settings:
             Path(scratch).unlink(missing_ok=True)
             raise
 
+    def named_anew(self) -> dict[str, str]:
+        """Each setting's name from 1.1, by its name in 1.0, which the inventory defaults feed it from: a default that
+        is the other setting's value and nothing else, and neither a role's variable (as ALIAS above has it). The new
+        name is the one read, and wins whenever both are set."""
+        found = {}
+        for name, default in self.defaults.items():
+            alias = ALIAS.match(default) if isinstance(default, str) else None
+            if alias and alias.group(1) in self.defaults and not docs.role_of(name, self.specs):
+                if not docs.role_of(alias.group(1), self.specs):
+                    found[alias.group(1)] = name
+        return found
+
+    def _take_out(self, lines: list[str], name: str) -> bool:
+        """name's line out of lines, its example's commented line back where the file has none of its own left; False
+        where nothing sets it on a line of its own."""
+        start = self._line_of(lines, name)
+        if start is None:
+            return False
+        commented = re.compile(rf"^#\s?{re.escape(name)}:")
+        restore = [] if any(commented.match(line) for line in lines) else self.example_lines(name)
+        lines[start : self._value_end(lines, start)] = restore
+        return True
+
     def write(self, name: str, raw: str) -> dict:
-        """Write one setting into local.yml, or refuse with nothing written."""
+        """Write one setting into local.yml, or refuse with nothing written. Either name of a pair 1.1 named anew is
+        written under its new name, and the old name's line taken out, so the two never stand side by side, one of
+        them ignored."""
         target, why, where = self.settable(name)
         if target is None:
             said = self.why_not(why, where)
@@ -606,6 +644,9 @@ class Settings:
             # local.yml sets the role variable itself, which outranks the setting that feeds it: write it there,
             # or the value written would change nothing.
             target = name
+        anew = self.named_anew()
+        old = target if target in anew else next((was for was, now in anew.items() if now == target), None)
+        target = anew.get(target, target)
         value = self.coerce(target, name, raw)
         texts = [json.dumps(value, ensure_ascii=False), *(str(leaf) for leaf in _leaves(value))]
         if any(secret in text for secret in self.hunted for text in texts):
@@ -614,11 +655,15 @@ class Settings:
                 f"that value is a secret the vault holds, so {target} would hold it in the clear: not written"
             )
         lines = source.splitlines(keepends=True)
+        # The 1.0 name's line out first, so the new name's is placed among what is left.
+        if old is not None and old in before and not self._take_out(lines, old):
+            raise Refused(f"{LOCAL} sets {old}, but not on a line of its own: change it by hand")
+        migrated = old if old is not None and old in before else None
         found = self._line_of(lines, target)
         if found is None and target in before:
             # Set, but not on a line of its own (a quoted key, a flow mapping): a line added would be a second key.
             raise Refused(f"{LOCAL} sets {target}, but not on a line of its own: change it by hand")
-        if found is not None and before.get(target) == value:
+        if found is not None and before.get(target) == value and migrated is None:
             return {"asked": name, "wrote": None, "name": target, "value": value, "line": found + 1}
         if found is not None:
             start, end = found, self._value_end(lines, found)
@@ -631,7 +676,8 @@ class Settings:
             if start == len(lines) and lines and not lines[-1].endswith("\n"):
                 lines[-1] += "\n"
         written = f"{target}: {json.dumps(value, ensure_ascii=False)}\n"
-        self._replace(before, "".join([*lines[:start], written, *lines[end:]]), {target: value})
+        changed = {target: value} | ({migrated: None} if migrated else {})
+        self._replace(before, "".join([*lines[:start], written, *lines[end:]]), changed)
         return {
             "asked": name,
             "wrote": written.rstrip("\n"),
@@ -640,6 +686,7 @@ class Settings:
             "line": start + 1,
             "how": how,
             "by_hand": by_hand,
+            "migrated": migrated,
         }
 
     def example_lines(self, name: str) -> list[str]:
@@ -658,7 +705,10 @@ class Settings:
             raise Refused(self.why_not(why, where))
         source, before = self._read_local()
         lines = source.splitlines(keepends=True)
-        names = [each for each in dict.fromkeys((target, name)) if each in before]
+        # Both names of a pair 1.1 named anew: back to the default is back from either.
+        anew = self.named_anew()
+        partner = anew.get(target) or next((was for was, now in anew.items() if now == target), None)
+        names = [each for each in dict.fromkeys((target, name, partner)) if each and each in before]
         if not names:
             return {"asked": name, "name": target, "removed": [], "restored": [], "line": None}
         first, restored = None, []
@@ -1137,9 +1187,14 @@ def written(settings: Settings, result: dict, as_json: bool, inventory: Path, pa
     if result["wrote"] is None:
         notes.append(f"{LOCAL} sets it already, on line {result['line']}: nothing was written")
     else:
-        if result.get("by_hand"):
+        if result.get("migrated"):
+            notes.append(
+                f"{target} is the name 1.1 gave {result['migrated']}: written under it, and "
+                f"{result['migrated']}'s line taken out, since the new name wins where both are set"
+            )
+        elif result.get("by_hand"):
             notes.append(f"{LOCAL} sets {asked} itself, which outranks the setting that feeds it: written there")
-        elif asked != target:
+        elif asked != target and asked not in fresh.named_anew():
             notes.append(f"{asked} is set through {target}, the setting local.yml.example names for it")
         if now and now["kind"] == "value" and now["value"] != result["value"]:
             notes.append(f"but {source(now)[0]} outranks it: {asked} is still {shown(now)}")

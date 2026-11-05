@@ -47,6 +47,46 @@ checks and provisioning stop at a `vm_password` in the vault that still holds a 
 under the old name. One set to `""` or left empty, as `vault.yml.example` had `vm_password`, sets nothing and is
 left alone.
 
+## Names 1.1 added
+
+1.1 gives the settings of `just code` that are about any editor, or about none, names of their own, beside the
+`editor` setting that picks the editor (VS Code by default):
+
+| 1.0's name, still read | From 1.1 |
+|---|---|
+| `vscode_claude_terminal` | `editor_claude_terminal` |
+| `vscode_workspaces_dir` | `editor_files_dir` |
+| `vscode_session_notes` | `editor_session_notes` |
+| `vscode_claude_sessions` | `claude_sessions_sync` |
+
+Each 1.0 name still works through 1.x: the new name is fed from it, so a `local.yml` or `hosts.yml` that sets one
+keeps doing what it did, and so does `-e` of one, while the new name is not set. Every recipe that reads the settings
+says so while one is set (`tools/check settings`), naming the new name. Rename it there to quiet it:
+
+- **The new name wins.** Once it is set - in `local.yml`, in `hosts.yml` - it is the one read, and the old name
+  beside it changes nothing, even given with `-e` (`ANSIBLE_ARGS='-e vscode_claude_terminal=false'` then does
+  nothing: give `-e editor_claude_terminal=false` instead). The warning says so while both are set.
+- **`just settings` moves it for you.** `--value` on either name writes the new name and takes the old name's line
+  out; `--reset` on either takes both out.
+- **An empty `editor_files_dir` is the default** (`.claude-on-proxmox` in the projects directory), never the old
+  name's value: the old name is read only while the new one is not set at all.
+
+`vscode_remote` and `vscode_user_settings_file` keep their names: the first still sets up the VM for any editor, the
+second is VS Code's own.
+
+## What just code writes and says from 1.1
+
+The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace files and notes, and puts
+VS Code's helpers beside them (`helpers/` in just code's directory there), each `changed` once. A window opened from
+VS Code's recent list before that still runs 1.0's workspace file, which works as it did. An `editor_files_dir`
+inside a checkout of the projects directory - a folder there with a `.git` - is refused from then on, before
+anything is written: `just code` writes beside the repositories, never in one, so move it out of the repository.
+
+The live output says the window's stage as "editor", where it said "VS Code", and two of its steps as "the editor
+here" and "the notes" ("VS Code here" and "workspace" before); `just deploy`'s first line says "opening alpha in VS
+Code". Wording, which the promise leaves free, but a script that read the line-per-step output by those names must
+follow them.
+
 ## A template built before its record
 
 From PR #126, `just deploy` compares the template with what its settings would build, and rebuilds it when it

@@ -111,6 +111,52 @@ def test_the_sections_in_order_with_the_placeholder_until_the_window_has_opened(
     assert text.startswith("# alpha\n\nVM 101 on Proxmox node **pve** · written by `just code` on your machine")
 
 
+# An editor whose window runs no task, and lists its Claude task (Zed), as code.yml says it.
+LISTED = {"code_editor": "zed", "code_editor_name": "Zed", "code_editor_tasks": False, "code_editor_claude": "listed"}
+LISTED_TASK = (
+    "- In the window of `just code alpha`, the task **Claude (just code)** runs Claude Code in a terminal of Zed's,"
+    " which is this VM's: it picks the folder's conversation up, or starts a fresh one where a `claude` already has it"
+    " open; `/clear` starts afresh. In any other window, run `claude` in its terminal. How to start the task:"
+    " `docs/guides/zed.md` in the project."
+)
+
+
+def test_in_an_editor_whose_window_runs_no_task_the_notes_say_what_to_do_instead(tmp_path):
+    # Zed runs nothing as its window opens: no Claude terminal below, no Session notes task to refresh the live
+    # section or to run by hand, and none of VS Code's own fixes.
+    zed = _render(tmp_path, **LISTED, code_claude_task_there=False)
+    live = zed[zed.index(START) : zed.index(END) + len(END)]
+    placeholder = "Zed does not fill this in: `just status alpha` on your machine says what is signed in."
+    assert live == f"{START}\n## Signed in\n\n{placeholder}\n{END}"
+    assert "| Zed | `just code alpha`, or one repository: `just code alpha --project <repo>` |" in zed
+    assert "- Run `claude` in Zed's terminal, which is this VM's:" in zed
+    for vs_code in ("Tasks:", "VS Code", "The terminal below", "Restricted Mode", "Session notes**"):
+        assert vs_code not in zed, vs_code
+    # VS Code's notes, as before, whether the editor is said or left to the template's default.
+    vscode = {"code_editor_name": "VS Code", "code_editor_tasks": True, "code_editor_claude": "started"}
+    assert _render(tmp_path, **vscode) == _render(tmp_path)
+
+
+def test_the_notes_say_a_listed_claude_task_only_where_just_code_wrote_it(tmp_path):
+    # There - written, just code's directory inside the projects directory, and over no tasks file of someone else's
+    # - the task is named by its label, with the editor's guide for how to start it and no key; every window of the
+    # VM opens these notes, so they say which window lists it, and nothing of one window's.
+    written = _render(tmp_path, **LISTED, code_claude_task_there=True)
+    assert LISTED_TASK in written
+    assert "Run `claude` in Zed's terminal" not in written
+    assert _render(tmp_path, **LISTED, code_claude_task_there=True, code_target="/home/dev/projects/repo") == written
+    # Not there - the directory outside the projects directory, the terminal's switch off, a path the task could
+    # not be handed, a tasks file of someone else's - no word of a task.
+    for name, value in (("not written", False), ("unset", None)):
+        given = {"code_claude_task_there": value} if value is not None else {}
+        text = _render(tmp_path, **LISTED, **given)
+        start_here = text.split("## Start here", 1)[1].split("##", 1)[0]
+        assert "task" not in start_here and "Run `claude` in Zed's terminal" in start_here, name
+    # No key of the project's, and nothing of Zed's own words in the template: the editor's name and guide come in.
+    assert "ctrl-" not in written and "cmd-" not in written
+    assert not re.search(r"\bzed\b", TEMPLATE.read_text(), re.I)
+
+
 def test_what_the_window_wrote_is_carried_over_as_it_is(tmp_path):
     text = _render(tmp_path, code_notes_live=LIVE)
     assert LIVE in text and text.count(START) == 1

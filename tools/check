@@ -11,7 +11,8 @@
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
-#   tools/check settings <bin> <file>... no setting under a name 1.0 renamed, in local.yml or hosts.yml
+#   tools/check settings <bin> <file>... no setting under a name 1.0 renamed, in local.yml or hosts.yml; a name
+#                                        1.1 gave a new one is still read, and said
 set -eu
 # The character sets below are spelt out rather than written as ranges, so
 # no locale can widen them (a UTF-8 one may collate accented letters into
@@ -142,6 +143,13 @@ RENAMED = {
     "claude_vm_default_name": ("vm_default_name", "rename it there"),
     "vm_password": ("vault_vm_password", "it is a secret, so move it to vault.yml under that name, with just vault"),
 }
+# Each name 1.1 gave a new one: its new name. Still read through 1.x, so a file that sets one is told, never refused.
+NAMED_ANEW = {
+    "vscode_claude_terminal": "editor_claude_terminal",
+    "vscode_workspaces_dir": "editor_files_dir",
+    "vscode_session_notes": "editor_session_notes",
+    "vscode_claude_sessions": "claude_sessions_sync",
+}
 
 
 class Loader(yaml.SafeLoader):
@@ -191,7 +199,16 @@ for path in sys.argv[1:]:
               file=sys.stderr)
         found = True
         continue
+    named = {name for name, _ in settings(data)}
     for name, value in settings(data):
+        if name in NAMED_ANEW and value not in ("", None):
+            if NAMED_ANEW[name] in named:
+                # The new name is the one read: the old one beside it changes nothing.
+                print(f"warning: {path} sets both {name} and {NAMED_ANEW[name]}: {NAMED_ANEW[name]} is the one "
+                      f"used, and {name} is ignored, so take it out (docs/guides/upgrading.md)", file=sys.stderr)
+            else:
+                print(f"warning: {path} sets {name}, which 1.1 calls {NAMED_ANEW[name]}: it is still read, but "
+                      "rename it there (docs/guides/upgrading.md)", file=sys.stderr)
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",

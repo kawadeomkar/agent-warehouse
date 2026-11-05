@@ -82,7 +82,8 @@ in as each value is read; piped, or in `just logs`, only the finished report app
 - **STORAGE** - the storage your VMs' disks are on, how full it is and this project's share of it, and
   the template and when it was built, or that the next `just deploy` rebuilds it: it differs from what its
   settings would build, each difference said under ATTENTION.
-- **ACCESS** - each VM's LAN address, whether it has its SSH alias, and its tailnet name and address.
+- **ACCESS** - each VM's LAN address, whether it has its SSH alias, and its tailnet name and address, then the
+  `just code` line, named for the editor you set (`editor`).
 - **SIGN-INS** - Claude Code's version and whether it is signed in, Remote Control, gh's GitHub account,
   and Tailscale.
 - **SYSTEM** - the OS, the kernel running and a newer one waiting for a reboot, the load, and the
@@ -90,7 +91,7 @@ in as each value is read; piped, or in `just logs`, only the finished report app
 - **WORK** - in the projects directory (`vm_projects_dir`, else `~/projects`), how many checkouts and
   extra worktrees, and what of each is on no remote or not committed - commits on branches no remote has,
   commits on a detached HEAD, stashes, changes in a worktree - as of each checkout's last fetch, with the
-  claude processes and VS Code windows open. It is shown, never counted: a branch kept local is often on
+  claude processes and every editor's windows open. It is shown, never counted: a branch kept local is often on
   purpose.
 - **ATTENTION** - what needs you, most pressing first, each with the command that deals with it: what
   could not be read (Proxmox did not answer or refused the token, a name that matches no VM, a node that

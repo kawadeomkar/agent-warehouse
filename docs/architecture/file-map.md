@@ -56,6 +56,18 @@ playbooks/
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
+  vars/vscode.yml                 code.yml's VS Code variables: the workspace file and its tasks, its helpers'
+                                  paths, the Claude terminal's lines, the user's VS Code settings (read, never written)
+  tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
+  tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
+                                  what VS Code will ask
+  tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
+  tasks/zed_open.yml              just code's Zed window: the Claude (just code) task and its helper on the VM,
+                                  zed ssh://<alias><folder>, and claude in Zed's terminal
+  files/                          the helpers, copied to the VM unchanged and run there by the window's tasks:
+                                  VS Code's claude-terminal.sh (the Claude terminal), session-notes.sh and
+                                  session_notes.py (the notes' live section); any editor's claude-start.sh (a
+                                  Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias

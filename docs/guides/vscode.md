@@ -7,6 +7,10 @@ VM. Nothing new is opened, relayed or logged into. The one thing it needs that `
 does not have is a name that follows the address DHCP gave the VM, and that is what this project
 keeps for you.
 
+VS Code is the editor `just code` and `just deploy` open by default. The `editor` setting picks the one they
+open, one at a time (`just settings editor`), and `just code alpha --editor <editor>` picks it for one run;
+the other is [Zed](zed.md).
+
 ## Opening a VM
 
 ```bash
@@ -125,7 +129,9 @@ forwarding ends up off, limited to the remote direction, or removed by `DisableF
 keeps the first value it reads, so a `05-*.conf` of yours wins over ours without a word, and a
 `Match User dev` block applies whatever sorts first. It also raises
 `fs.inotify.max_user_watches` to the 524288 VS Code recommends, or the editor warns that it cannot
-watch a large workspace. `vscode_remote: false` removes both files. The Claude Code extension
+watch a large workspace. None of it is VS Code's alone - Claude's sign-in in the browser comes back to the
+VM over the same forwarding - so the VM gets it whichever editor you choose. `vscode_remote: false` removes
+both files. The Claude Code extension
 (`anthropic.claude-code`) installs on the VM's side of the connection like any other extension and
 uses the VM's `claude` and its login; `remote.SSH.defaultExtensions` in your VS Code settings
 installs it on every VM you open.
@@ -245,11 +251,11 @@ To leave Claude working for longer than that:
 
 ### Switches
 
-`vscode_claude_terminal: false` opens the bare folder, as before, and writes nothing
-on the VM; for one run, `ANSIBLE_ARGS='-e vscode_claude_terminal=false' just code alpha`.
-`vscode_session_notes: false` keeps the terminal and leaves the session notes out.
-`vscode_claude_sessions: false` keeps this machine's Claude sessions here (below).
-`vscode_workspaces_dir` moves the workspace files to an absolute path of its own on the VM (outside
+`editor_claude_terminal: false` opens the bare folder, as before, and writes nothing
+on the VM; for one run, `ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha`.
+`editor_session_notes: false` keeps the terminal and leaves the session notes out.
+`claude_sessions_sync: false` keeps this machine's Claude sessions here (below).
+`editor_files_dir` moves the workspace files to an absolute path of its own on the VM (outside
 the projects directory, each window is trusted on its own; a directory that exists keeps its
 mode). Switching off, or moving them, leaves the files written before where they were: harmless,
 and `rm -r ~/projects/.claude-on-proxmox` on the VM removes them. `vscode_user_settings_file`
@@ -340,7 +346,7 @@ which makes it another prompt, and a cache entry lasts only minutes after its la
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of
-its project, and copies it whatever its age. It needs that terminal: with `vscode_claude_terminal: false`
+its project, and copies it whatever its age. It needs that terminal: with `editor_claude_terminal: false`
 it refuses, naming the `claude --resume <id>` to run there yourself. The ID is its transcript's name, as `/resume` and
 `/status` show it. The session's code comes through git, not the transcript, so before anything is
 written `just code` checks, and refuses with what to do:
@@ -373,7 +379,7 @@ things to know:
     check for a `claude` working in it cannot see them; the run says when Remote Control is running.
 
 A transcript holds whatever its tools printed - command output, tokens, the contents of files - so
-every VM `just code` opens gets those of its repositories' sessions. `vscode_claude_sessions: false` in
+every VM `just code` opens gets those of its repositories' sessions. `claude_sessions_sync: false` in
 `local.yml` keeps them here; `--session` still copies its one session.
 
 ## Session notes
@@ -410,11 +416,11 @@ the whole directory's window, which covers it. The folder is not added to the pr
 purpose: VS Code trusts a workspace only as far as the folders you trusted, so a folder added later
 would put a window you trusted back in Restricted Mode, without its Claude terminal. Like the
 terminal, the notes need a trusted window and automatic tasks; until then `just code` says where
-they are. `vscode_session_notes: false` turns them off.
+they are. `editor_session_notes: false` turns them off.
 
 ## See also
 
-- Settings: [VS Code and SSH](../reference/settings.md#vs-code-and-ssh)
+- Settings: [Editor and SSH](../reference/settings.md#editor-and-ssh)
 - Role: [`vscode_server`](../reference/roles/vscode_server.md)
 - How it works: the aliases in [§4.8](../architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml),
   `just code`, its workspace file and the session notes in

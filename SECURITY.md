@@ -149,26 +149,53 @@ restate them are not treated as vulnerabilities:
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
   root-equivalent and runs an AI agent.
 - `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
-  (`vscode_claude_terminal`, on by default). The file is written by this project beside the
-  repositories, never in one, and its command is fixed in `playbooks/code.yml`. VS Code still runs
+  (`editor_claude_terminal`, on by default). The file is written by this project beside the
+  repositories, never in one, and what its tasks run is fixed: VS Code's helpers, files of
+  `playbooks/files/` that `just code` copies to the VM unchanged, everything variable an argument. VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own
   `folderOpen` tasks run, as it would without this project.
-- The same file's "Session notes" task writes a page about the VM next to it (`vscode_session_notes`,
+- The same file's "Session notes" task writes a page about the VM next to it (`editor_session_notes`,
   on by default): its addresses, and the Claude, GitHub and Tailscale accounts signed in there, read
   from the VM as the window opens. It is the VM user's alone (0600, in a 0700 directory), never in a
   repository; no command the task runs prints a token, and what the VM reports is stripped of escape
   sequences and control characters before it is written. A window it would put back in Restricted
   Mode never gets the notes' folder: the project does not change what a window you trusted covers.
 - `just code` copies this machine's Claude Code sessions of the last 30 days to the VM it opens
-  (`vscode_claude_sessions`, on by default): the transcripts of the repositories that VM has checked
+  (`claude_sessions_sync`, on by default): the transcripts of the repositories that VM has checked
   out, matched by git origin. A transcript holds whatever its tools printed - command output, the
   contents of files, tokens - so every VM you open gets those of its repositories' sessions, in the VM
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
   them in `just code`'s own directory there (`<projects>/.claude-on-proxmox/claude-sessions/`, 0700);
   `false` keeps them here from then on, and leaves what is on the VM already - mirror and copies - for you
-  to delete, or for `just destroy` to take with the VM.
+  to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
+  it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
+  (`docs/guides/zed.md`).
+- `just code` refuses to write in its own directory on the VM where that directory is inside a checkout of the
+  projects directory - a `.git` in any folder from the first below the projects directory down to it, by the path
+  as written - for every editor. It looks nowhere else: not outside the projects directory, where
+  `editor_files_dir` may point, not in a projects directory that is itself a checkout, and not where a symlink on
+  the way leads. Keep `editor_files_dir` out of every repository.
+- With `editor: zed`, `just code` runs `zed ssh://<alias><folder>` and writes two files for Zed, in its own
+  directory on the VM and only where that is inside the projects directory - `.zed/tasks.json`, a
+  **Claude (just code)** task of fixed text with no tag, and the helper it runs, `helpers/claude-start.sh` - and no
+  Zed setting, keymap, task or trust of yours: no task starts on its own, and you start that one, or `claude` in
+  Zed's terminal, which is the VM's. The tasks file starts with just code's marker line, and one there without it
+  is left as it is, and said. The helper starts a fresh `claude` where one of a terminal already has the folder
+  open, never a second on its conversation. Zed lists a folder's tasks in Restricted Mode too (seen on Zed
+  1.26.2), your repositories' own beside it. The project binds no key and publishes no tag, which any repository
+  could put on a task of its own; the key `docs/guides/zed.md` shows is yours, with a tag of yours, and reaches
+  every window. Trusting the projects directory's window trusts every checkout in it, so do not trust it for the
+  Claude task alone. It
+  runs only a `zeditor` or `zed` that says it is Zed when asked its version, so ZFS's event daemon, also
+  named `zed`, is never handed the VM. Zed's Agent Panel runs its Claude Agent on the VM as well: Zed's
+  remote server installs it there and starts it as the VM's user, with the VM's `~/.claude` and claude.ai
+  login, so its tools have the VM's files in reach and not this machine's (seen on Zed 1.26.2; Zed's
+  documentation does not say). Its Claude Code is the one its npm package bundles, at the version Zed's
+  registry installs, not the one `just deploy` keeps current. Zed's remote server, in the VM's
+  `~/.zed_server`, and that agent, in `~/.local/share/zed/`, are the VM user's to replace, as VS Code
+  Server's is.
   `just code` copies nothing back, the copy's own tasks print nothing a transcript holds, and a session
   continued on the VM is never overwritten. `--session <id>` moves the VM's checkout of that session's
   repository to the commit it is pushed at, by fast-forward only: never over changes of the VM's own, an

@@ -61,12 +61,17 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
     }
     playbook = tmp_path / "deploy_report.yml"
     playbook.write_text(yaml.safe_dump([play], sort_keys=False))
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     variables = {
         "proxmox_template_name": "ubuntu-24.04-cloudinit",
         "proxmox_node": "pve",
         "claude_vm_names": ["alpha"],
         "deploy_sign_in": True,
         "deploy_code": True,
+        # The editors as the inventory defaults list them, and the editor setting as every playbook reads it, which
+        # the report says the editor by.
+        "claude_editors": defaults["claude_editors"],
+        "claude_editor_key": defaults["claude_editor_key"],
         **extra,
     }
     # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
@@ -177,7 +182,7 @@ KEY = "tskey-auth-kDeploy0CNTRL-TestOnly000000000000000"
 )
 def test_only_the_sign_ins_that_open_a_page_are_said(tmp_path, settings, sign_ins):
     said = _said(tmp_path, built=True, **settings)
-    assert f"several minutes, then signing in to {sign_ins}, and opening VS Code on alpha." in said, said
+    assert f"several minutes, then signing in to {sign_ins}, and opening alpha in VS Code." in said, said
     each = "Each sign-in" if "," in sign_ins or " and " in sign_ins else "The sign-in"
     assert said.endswith(f" {each} {WAITS}"), said
 
@@ -186,8 +191,14 @@ def test_a_run_with_no_page_to_open_says_no_sign_in(tmp_path):
     settings = {"anthropic_api_key": "an-api-key", "github_token": "a-token", "tailscale_auth_key": KEY}
     said = _said(tmp_path, built=True, **settings)
     assert said.endswith(
-        "Then provisioning and configuring alpha, which takes several minutes, and opening VS Code on alpha."
+        "Then provisioning and configuring alpha, which takes several minutes, and opening alpha in VS Code."
     ), said
+
+
+def test_the_window_is_said_in_the_editor_chosen(tmp_path):
+    settings = {"anthropic_api_key": "an-api-key", "github_token": "a-token", "tailscale_auth_key": KEY}
+    said = _said(tmp_path, built=True, editor="zed", **settings)
+    assert said.endswith("which takes several minutes, and opening alpha in Zed."), said
 
 
 # The VMs were joined with commas only, so two read as three things to do:

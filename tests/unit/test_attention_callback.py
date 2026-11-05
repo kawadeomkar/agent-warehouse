@@ -81,7 +81,9 @@ REPORTS = {
         "Say why, and go on with the next VM",
     ],
     "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
-    "playbooks/code.yml": ["Say how to open each VM", "Say what was opened", "Say how to open the VM later"],
+    "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
+    "playbooks/tasks/vscode_open.yml": ["vscode_open | Say what was opened"],
+    "playbooks/tasks/zed_open.yml": ["zed_open | Say what was opened"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",
@@ -261,7 +263,7 @@ def test_next_steps_after_the_recap_by_vm_then_matter_each_line_once(tmp_path):
     - name: The same line for two matters
       ansible.builtin.set_stats:
         data:
-          code_next: "{{ {'beta': {'vscode': 'beta: run just login beta --only github'}} }}"
+          code_next: "{{ {'beta': {'editor': 'beta: run just login beta --only github'}} }}"
     - name: Under a name nobody reads
       ansible.builtin.set_stats:
         data:
@@ -407,7 +409,7 @@ def test_colour_on_the_screen_never_in_the_log(tmp_path):
         ),
         # Not a record: ignored, never a failure at the end of the run.
         ({"github_projects_next": {"a": "flat", "b": {"github": 3}}}, []),
-        ({"code_next": {"a": {"something_new": "new", "vscode": "open"}}}, ["open", "new"]),
+        ({"code_next": {"a": {"something_new": "new", "editor": "open"}}}, ["open", "new"]),
         # just init's, the settings' before the checks'.
         ({"claude_vm_next": {"just init": {"init_check": "deploy", "init_settings": "set"}}}, ["set", "deploy"]),
     ],
@@ -501,7 +503,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
         for task in _tasks(path)
         if "ansible.builtin.set_stats" in task
     ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
+    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 32
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
 
 

@@ -91,7 +91,7 @@ def github_repository(url):
 
 
 def just_code_dir(projects, given=""):
-    """just code's own directory on a VM: ``given`` (vscode_workspaces_dir), else .claude-on-proxmox in ``projects``.
+    """just code's own directory on a VM: ``given`` (editor_files_dir), else .claude-on-proxmox in ``projects``.
 
     code.yml keeps the workspace files and the session copies' manifest there, and just destroy's
     save reads the manifest from it: one definition, so the two cannot disagree. No trailing "/".

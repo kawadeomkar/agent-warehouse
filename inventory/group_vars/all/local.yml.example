@@ -110,10 +110,15 @@
 # dev_tools_install_rust: true
 # dev_tools_node_major: 22
 
-# -------------------------------------------------------- VS Code and SSH ---
-# VS Code over SSH (docs/guides/vscode.md). On the VM: an sshd
-# drop-in with forwarding and keepalives, checked against what sshd runs
-# with, and a higher inotify limit. Set false to remove both files.
+# --------------------------------------------------------- Editor and SSH ---
+# The editor just code opens, and just deploy at its end: one at a time,
+# vscode by default (docs/guides/vscode.md), or zed (docs/guides/zed.md). For
+# one run: just code alpha --editor <editor>.
+# editor: vscode
+# An editor over SSH. On the VM, whichever editor is chosen: an sshd drop-in
+# with forwarding (which Claude's sign-in in the browser uses too) and
+# keepalives, checked against what sshd runs with, and a higher inotify limit.
+# Set false to remove both files.
 # vscode_remote: true
 # On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf,
 # included from the top of ~/.ssh/config, so `ssh alpha` and VS Code's host
@@ -138,21 +143,33 @@
 # Where the code lives on the VM: cloned into, opened by Remote Control, and
 # what VS Code is pointed at. Empty means ~/projects of the VM user.
 # vm_projects_dir: ""
-# `just code` opens a workspace file that starts claude in a terminal of the
-# window, once you have trusted the folder and allowed automatic tasks. Set
-# false to open the bare folder and write nothing on the VM; for one run,
-# ANSIBLE_ARGS='-e vscode_claude_terminal=false' just code alpha.
-# vscode_claude_terminal: true
-# Where those files go on the VM, as an absolute path of its own. Empty:
+# In VS Code, `just code` opens a workspace file that starts claude in a
+# terminal of the window, once you have trusted the folder and allowed
+# automatic tasks. In Zed (docs/guides/zed.md) it writes a task, Claude
+# (just code), which the window of the projects directory lists under "task:
+# spawn", and the helper it runs: nothing starts by itself there. Set false to
+# open the bare folder and write none of them; for one run,
+# ANSIBLE_ARGS='-e editor_claude_terminal=false' just code alpha.
+# editor_claude_terminal: true
+# Where those files go on the VM, as an absolute path of its own, never inside
+# a repository: just code refuses one in a checkout of vm_projects_dir. Empty:
 # .claude-on-proxmox in vm_projects_dir.
-# vscode_workspaces_dir: ""
+# editor_files_dir: ""
 # A page about the VM - addresses, what is signed in, the just commands - opened
 # beside the Claude terminal each time the window opens, its sign-in status read
-# from the VM then. Needs vscode_claude_terminal.
-# vscode_session_notes: true
+# from the VM then. In VS Code it needs editor_claude_terminal; in Zed it is
+# written without that refresh.
+# editor_session_notes: true
 # Copy this machine's Claude Code sessions of the VM's repositories, the last 30
 # days of them, to the VM on every just code, so /resume there lists them. Their
 # transcripts hold whatever their tools printed: false keeps them here.
+# claude_sessions_sync: true
+# The four above by their names in 1.0, still read through 1.x while the new
+# name is not set; where both are, the new one wins. `just settings <name>
+# --value` writes the new name and takes the old one out.
+# vscode_claude_terminal: true
+# vscode_workspaces_dir: ""
+# vscode_session_notes: true
 # vscode_claude_sessions: true
 # The VS Code settings read (never written) to say whether the terminal starts
 # on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it
@@ -199,7 +216,7 @@
 # open in VS Code; the sign-ins each open a page and wait for you, one VM at a
 # time. false leaves them to just login.
 # deploy_sign_in: true
-# Open the VM in VS Code at the end of a one-VM just deploy.
+# Open the VM in the editor (editor, above) at the end of a one-VM just deploy.
 # deploy_code: true
 # Before just destroy deletes a VM, sign it out of Claude and of gh, and take it
 # off your tailnet. A stopped VM is started for it. false deletes the VMs

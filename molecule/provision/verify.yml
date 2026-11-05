@@ -1456,16 +1456,14 @@
         verify_ws_project: >-
           {{ lookup('ansible.builtin.file', verify_code_ws_dir ~ '/project/discord-music-bot.code-workspace') | from_json }}
 
-    # The scripts in the file are the ones the unit tests run, byte for byte.
+    # The helpers the tasks run by path are the ones the unit tests run, byte for byte (below).
     - name: Assert each workspace opens its folder and starts Claude in it when the window opens
       vars:
         verify_ws: "{{ verify_ssh_dir }}/projects"
         verify_notes_task: "{{ verify_ws_project.tasks.tasks[0] }}"
         verify_shell_task: "{{ verify_ws_project.tasks.tasks[1] }}"
         verify_task: "{{ verify_ws_project.tasks.tasks[2] }}"
-        verify_code_play: "{{ (lookup('ansible.builtin.file', verify_code_playbook) | from_yaml)[0] }}"
-        verify_code_script: "{{ verify_code_play.vars.code_terminal_script }}"
-        verify_notes_script: "{{ verify_code_play.vars.code_notes_script }}"
+        verify_helpers: "{{ verify_code_ws_dir }}/helpers"
         verify_notes: "{{ verify_code_ws_dir }}/session/alpha-session.md"
         verify_preview: "{{ {'**/.claude-on-proxmox/session/*-session.md': 'vscode.markdown.preview.editor'} }}"
       ansible.builtin.assert:
@@ -1496,29 +1494,46 @@
           # The notes' task, run beside Claude's when the window opens: quietly, its terminal closing when it ends.
           - verify_notes_task.label == 'Session notes'
           # The time zone last: TZ, as molecule.yml sets it for the run.
-          - verify_notes_task.args == ['-lc', verify_notes_script, 'session-notes', verify_notes, 'alpha', 'claude-remote-control', 'Asia/Kolkata']
+          - verify_notes_task.args == ['-l', verify_helpers ~ '/session-notes.sh', verify_notes, 'alpha', 'claude-remote-control', 'Asia/Kolkata']
           - "verify_notes_task.presentation == {'reveal': 'never', 'focus': false, 'echo': false, 'close': true, 'showReuseMessage': false}"
           - "verify_notes_task.runOptions == {'runOn': 'folderOpen'}"
           - verify_task.dependsOn is not defined
           - verify_task.label == 'Claude'
           - verify_task.type == 'process'
           - verify_task.command == '/bin/bash'
-          - verify_task.args == ['-lc', verify_code_script, 'just-code', verify_task.args[3], verify_task.args[4],
-                                 verify_task.args[5], '/etc/systemd/system/claude-remote-control.path', verify_task.args[7],
-                                 'https', 'workflow', 'alpha', verify_notes_script, verify_notes, 'claude-remote-control',
-                                 'Asia/Kolkata', '']
-          - verify_task.args[3] is search('just deploy alpha --only configure,')
+          - verify_task.args == ['-l', verify_helpers ~ '/claude-terminal.sh', verify_task.args[2], verify_task.args[3],
+                                 verify_task.args[4], '/etc/systemd/system/claude-remote-control.path', verify_task.args[6],
+                                 'https', 'workflow', 'alpha', verify_helpers ~ '/session-notes.sh', verify_notes,
+                                 'claude-remote-control', 'Asia/Kolkata', '']
+          - verify_task.args[2] is search('just deploy alpha --only configure,')
           # What a sign-in there says: Remote Control started by the path unit that watches for the login, or not.
-          - verify_task.args[4] is search('starts by itself.* just deploy alpha --tags claude_code$')
-          - verify_task.args[5] is search('start Remote Control from your machine. just deploy alpha --tags claude_code$')
+          - verify_task.args[3] is search('starts by itself.* just deploy alpha --tags claude_code$')
+          - verify_task.args[4] is search('start Remote Control from your machine. just deploy alpha --tags claude_code$')
           # The GitHub sign-in message, empty when github_auth is off.
-          - verify_task.args[7] is search('just deploy alpha --tags github_projects$')
+          - verify_task.args[6] is search('just deploy alpha --tags github_projects$')
           - verify_task.options.cwd == verify_ws ~ '/discord-music-bot'
           - "verify_task.runOptions == {'runOn': 'folderOpen'}"
           - "verify_task.presentation == {'reveal': 'always', 'focus': true, 'panel': 'dedicated', 'group': 'claude', 'clear': true, 'showReuseMessage': true}"
           - verify_task.problemMatcher == []
         fail_msg: "just code wrote {{ verify_ws_whole }} and {{ verify_ws_project }}"
         quiet: true
+
+    - name: Read the helpers just code wrote beside the workspace files
+      ansible.builtin.slurp:
+        src: "{{ verify_code_ws_dir }}/helpers/{{ item }}"
+      loop: [claude-terminal.sh, session-notes.sh, session_notes.py]
+      register: verify_helpers_written
+
+    # Copied unchanged: no templating, nothing variable in them, the same bytes the unit tests run.
+    - name: Assert the helpers are playbooks/files/ as they are
+      ansible.builtin.assert:
+        that:
+          - (item.content | b64decode) == lookup('ansible.builtin.file', playbook_dir ~ '/../../playbooks/files/' ~ item.item, rstrip=false)
+        fail_msg: "{{ item.item }} on the VM differs from playbooks/files/{{ item.item }}"
+        quiet: true
+      loop: "{{ verify_helpers_written.results }}"
+      loop_control:
+        label: "{{ item.item }}"
 
     - name: Stat the project's workspace file before it is opened again
       ansible.builtin.stat:
@@ -1680,8 +1695,11 @@
           - verify_code_log_now[-1] == '--remote ssh-remote+alpha ' ~ verify_ws ~ '/ParkBnb'
           - verify_bare.stdout is search(('VS Code is opening ' ~ verify_ws ~ '/ParkBnb on alpha') | regex_escape)
           - verify_bare.stdout is not search('terminal named Claude')
+          # The helpers the workspaces' tasks run, beside them.
           - verify_ws_files.files | map(attribute='path') | sort
-            == [verify_code_ws_dir ~ '/project/discord-music-bot.code-workspace', verify_code_ws_dir ~ '/projects.code-workspace',
+            == [verify_code_ws_dir ~ '/helpers/claude-terminal.sh', verify_code_ws_dir ~ '/helpers/session-notes.sh',
+                verify_code_ws_dir ~ '/helpers/session_notes.py',
+                verify_code_ws_dir ~ '/project/discord-music-bot.code-workspace', verify_code_ws_dir ~ '/projects.code-workspace',
                 verify_code_ws_dir ~ '/session/alpha-session.md']
         fail_msg: >-
           just code exited {{ [verify_code_allowed.rc, verify_off.rc, verify_bare.rc] }}, asked for {{ verify_code_log_now[-5:] }},
@@ -1731,12 +1749,12 @@
           - expect: '--project names one project folder on the VM.*"\.\." is not one'
             vars: {vm_project: ".."}
           # The workspace files' own directory, though a valid name.
-          - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its VS Code workspace files, not a project\.'
+          - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its own files, not a project\.'
             vars: {vm_project: .claude-on-proxmox}
-          - expect: 'vscode_workspaces_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
+          - expect: 'editor_files_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
             vars: {vscode_workspaces_dir: relative/files}
           # Not the projects directory: its files would sit among the repositories.
-          - expect: 'vscode_workspaces_dir is the projects directory, \S+/projects, whose folders are the projects'
+          - expect: 'editor_files_dir is the projects directory, \S+/projects, whose folders are the projects'
             vars: {vscode_workspaces_dir: "{{ verify_ssh_dir }}/projects"}
           # A "~" is not expanded on the way to VS Code, and is refused by its own name.
           - expect: 'vm_projects_dir is a path on the VM, and must be an absolute one, not \W+~/projects'
@@ -1837,10 +1855,10 @@
             quiet: true
 
     # The session notes too: a refusal writes none.
-    - name: Find the workspace files and session notes on the VM after the refusals
+    - name: Find the workspace files, helpers and session notes on the VM after the refusals
       ansible.builtin.find:
         paths: "{{ verify_ssh_dir }}"
-        patterns: ["*.code-workspace", "*-session.md"]
+        patterns: ["*.code-workspace", "*-session.md", claude-terminal.sh, session-notes.sh, session_notes.py]
         recurse: true
         hidden: true
       register: verify_ws_files_final
@@ -1851,7 +1869,7 @@
           - lookup('ansible.builtin.file', verify_ssh_dir ~ '/code.log').splitlines() | length == 13
           - verify_ws_files_final.files | map(attribute='path') | sort | list == verify_ws_files.files | map(attribute='path') | sort | list
         fail_msg: >-
-          VS Code was asked for more than the six runs above, or a refusal left a workspace file or notes
+          VS Code was asked for more than the six runs above, or a refusal left a workspace file, helper or notes
           ({{ verify_ws_files_final.files | map(attribute='path') | list }}): {{ lookup('ansible.builtin.file', verify_ssh_dir ~ '/code.log') }}
         quiet: true
 

@@ -95,7 +95,7 @@ MATTERS = (
     "github_identity",
     "tailscale",
     "tailscale_record",
-    "vscode",
+    "editor",
     "destroy",
 )
 # Bright, so the blocks stand out from ok's green and changed's yellow.

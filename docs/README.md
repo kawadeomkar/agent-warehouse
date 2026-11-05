@@ -27,6 +27,7 @@ else is here. It reads the same in the repository and as a site with search, at
   an API key instead.
 - [Tailscale](guides/tailscale.md) - each VM on your tailnet, and keeping it off your other devices.
 - [VS Code](guides/vscode.md) - the SSH alias, `just code`, the Claude terminal and the session notes.
+- [Zed](guides/zed.md) - `just code` in Zed instead, and Claude in its terminal on the VM.
 - [During a run](guides/runs.md) - the prompts, NEXT STEPS, and the run logs.
 - [Tearing down](guides/destroy.md) - `just destroy`, and what it releases first.
 - [What the VM trusts](guides/what-the-vm-trusts.md) - the defaults a development box runs with.

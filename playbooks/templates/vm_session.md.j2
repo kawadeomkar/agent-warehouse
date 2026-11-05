@@ -6,6 +6,14 @@
 {%- set name = claude_vm_names[0] -%}
 {%- set vm = claude_vm_addressed[0] -%}
 {%- set gib = 1024 * 1024 * 1024 -%}
+{#- The editor the window is in, and whether it runs just code's tasks as it opens: VS Code's does, and so refreshes
+    the live section; another's runs nothing, and the page says what to do instead. How the editor gets its Claude
+    terminal is the editors list's (claude_terminal): started as the window opens, or listed for the user to pick
+    where the task is there (code_claude_task_there, the VM's and not one window's): written, and not kept out by a
+    tasks file of someone else's, which the editor's check reads before these notes are written. -#}
+{%- set editor_name = code_editor_name | default('VS Code') -%}
+{%- set window_tasks = code_editor_tasks | default(true) | bool -%}
+{%- set claude_terminal = code_editor_claude | default('started' if window_tasks else 'none') -%}
 # {{ name }}
 
 VM {{ vm.vmid }} on Proxmox node **{{ vm.node }}** · written by `just code` on your machine · not in any repository · edits here are overwritten
@@ -16,7 +24,11 @@ VM {{ vm.vmid }} on Proxmox node **{{ vm.node }}** · written by `just code` on 
 <!-- claude-on-proxmox:live -->
 ## Signed in
 
+{% if window_tasks %}
 Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes it.
+{% else %}
+{{ editor_name }} does not fill this in: `just status {{ name }}` on your machine says what is signed in.
+{% endif %}
 <!-- /claude-on-proxmox:live -->
 {% endif %}
 
@@ -35,7 +47,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 
 | From | Run |
 |---|---|
-| VS Code | `just code {{ name }}`, or one repository: `just code {{ name }} --project <repo>` |
+| {{ editor_name }} | `just code {{ name }}`, or one repository: `just code {{ name }} --project <repo>` |
 | SSH, by alias | `ssh {{ name }}` |
 | SSH, by address | `ssh {{ vm_user }}@{{ vm.address }}` |
 {% if tailscale_enabled | default(true) | bool %}
@@ -48,7 +60,13 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 
 ## Start here
 
+{% if claude_terminal == 'started' %}
 - The terminal below runs Claude Code: `claude --continue` picks this folder's conversation up; `/clear` starts afresh.
+{% elif claude_terminal == 'listed' and code_claude_task_there | default(false) | bool %}
+- In the window of `just code {{ name }}`, the task **Claude (just code)** runs Claude Code in a terminal of {{ editor_name }}'s, which is this VM's: it picks the folder's conversation up, or starts a fresh one where a `claude` already has it open; `/clear` starts afresh. In any other window, run `claude` in its terminal. How to start the task: `docs/guides/{{ code_editor }}.md` in the project.
+{% else %}
+- Run `claude` in {{ editor_name }}'s terminal, which is this VM's: `claude --continue` picks the folder's conversation up; `/clear` starts afresh.
+{% endif %}
 - Your repositories are in `{{ code_root }}`: `cd {{ code_root }}/<repo>`.
 - `gh pr create` and `gh pr checks` work once `gh` is signed in.
 - Docker runs without sudo: `docker ps`.
@@ -71,9 +89,11 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 
 ## When something is off
 
+{% if window_tasks %}
 - **No Claude terminal, and no notes?** Trust the window (the Restricted Mode banner, Manage, Trust), then allow automatic tasks ("Tasks: Manage Automatic Tasks"), or run "Tasks: Run Task", Claude.
 - **Signed in is stale?** "Tasks: Run Task", **Session notes** refreshes it.
 - **VS Code asked whether to open this file?** In a one-project window it lies outside the window's folder. Open is remembered for that window; trusting the window of `just code {{ name }}` once avoids the question in every project's.
+{% endif %}
 - **"REMOTE HOST IDENTIFICATION HAS CHANGED"** after a rebuild: `ssh-keygen -R {{ vm.address }}` on your machine.
 {% if claude_code_remote_control | default(true) | bool %}
 - **Not in the Claude apps?** `systemctl status {{ code_remote_control_unit }}` here, then `just deploy {{ name }} --tags claude_code` on your machine.
@@ -82,4 +102,4 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 
 ## About this file
 
-Written by `just code` and `just deploy` into `{{ code_notes_dir }}`; its "Signed in" section is rewritten by the window's **Session notes** task each time the window opens. Delete it any time; `vscode_session_notes: false` in your inventory stops it.
+Written by `just code` and `just deploy` into `{{ code_notes_dir }}`{% if window_tasks %}; its "Signed in" section is rewritten by the window's **Session notes** task each time the window opens{% endif %}. Delete it any time; `editor_session_notes: false` in your inventory stops it.

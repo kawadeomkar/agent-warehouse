@@ -168,7 +168,9 @@
                  else claude_deploy_pages | join))
              if claude_deploy_pages | length > 0 else '' }}
         claude_deploy_window: >-
-          {{ (', and opening VS Code on ' ~ claude_vm_names[0]) if deploy_code | bool and claude_vm_names | length == 1 else '' }}
+          {{ (', and opening ' ~ claude_vm_names[0] ~ ' in '
+              ~ (claude_editors[claude_editor_key] | default({})).name | default(claude_editor_key))
+             if deploy_code | bool and claude_vm_names | length == 1 else '' }}
         claude_deploy_wait: >-
           {{ ('' if claude_deploy_pages | length == 0
               else ' Each sign-in' if (claude_deploy_pages | length) * (claude_vm_names | length) > 1
@@ -258,7 +260,7 @@
 # just code, for the one VM this run was for: an alias that follows the VM,
 # then a VS Code window whose terminal starts claude. A fleet is not opened
 # window by window: code.yml ends at once with each VM's just code line.
-- name: Open the VM in VS Code
+- name: Open the VM in the editor
   ansible.builtin.import_playbook: playbooks/code.yml
   vars:
     code_in_deploy: true
