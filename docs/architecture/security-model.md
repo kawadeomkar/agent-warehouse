@@ -134,7 +134,7 @@ overwrite a file the user cannot. `ansible.cfg` uses
 `StrictHostKeyChecking=accept-new`: trust a freshly provisioned VM on first contact, but still refuse
 if a known host's key changes later. The `vscode_server` drop-in keeps TCP and Unix-socket
 forwarding on, which OpenSSH defaults to anyway; the role then asserts the values sshd runs with,
-so a hardening drop-in of the user's own that turns them off is a named failure, not a VS Code
+so a hardening drop-in of the user's own that turns them off is a named failure, not an editor
 window that cannot connect. `common`'s PATH drop-in puts the VM user's `~/.local/bin` and `~/.cargo/bin`
 first on the PATH of that user's ssh sessions, under `Match User`: what the user installs there can
 shadow a system program in their own sessions, which their own shell profile could already do, while
@@ -200,7 +200,7 @@ every address, and the browser's `localhost` cookies that the redirect carries t
 
 ## In the editor
 
-`just code`'s workspace file starts a terminal running `claude` when the window
+In VS Code, `just code`'s workspace file starts a terminal running `claude` when the window
 opens, which is exactly the kind of code-on-open VS Code guards with Workspace Trust and the
 automatic-tasks question. Both stay the user's to answer ([§4.9](lifecycle.md#49-playbookscodeyml)):
 the project reads `task.allowAutomaticTasks` to say what will happen and never writes it, sets no

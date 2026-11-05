@@ -425,4 +425,4 @@ they are. `editor_session_notes: false` turns them off.
 - How it works: the aliases in [§4.8](../architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml),
   `just code`, its workspace file and the session notes in
   [§4.9](../architecture/lifecycle.md#49-playbookscodeyml), and the VM's side in
-  [§5.7](../architecture/roles.md#57-vscode_server--what-vs-codes-remote---ssh-needs-on-the-host)
+  [§5.7](../architecture/roles.md#57-vscode_server--what-an-editors-remote-server-needs-on-the-host)

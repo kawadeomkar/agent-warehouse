@@ -52,9 +52,10 @@ pytest over `tests/unit/`: 2953 tests. By file:
   the core's function of that name.
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
-  does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the
-  sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
-  gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
+  does not parse as one IPv4 address, the managed SSH config's blocks, VS Code's settings reader (since 1.1
+  its plan's own `vscode_setting`, not a filter, though its test file keeps the name), the sign-ins'
+  `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running, gone, a pid
+  another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
 - **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 17,
   `test_status_work.py` 3): the report's filters on canned

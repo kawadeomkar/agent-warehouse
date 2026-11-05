@@ -125,9 +125,10 @@ just deploy alpha
 ```
 
 `just deploy` is the whole thing in one command. It builds the template if it is missing, creates
-and configures the VM, signs it in to Claude, GitHub and Tailscale, and opens it in VS Code, where a
-terminal of the window starts a Claude session. The sign-ins are yours, because no vendor lets anything
-else take them: each opens a page in your browser, and the run waits for you there.
+and configures the VM, signs it in to Claude, GitHub and Tailscale, and opens it in your editor: VS Code by
+default, where a terminal of the window starts a Claude session, or Zed (`just settings editor --value zed`),
+where Claude is a task of the window ([Zed](../guides/zed.md)). The sign-ins are yours, because no vendor
+lets anything else take them: each opens a page in your browser, and the run waits for you there.
 
 ## The three sign-ins
 
@@ -140,7 +141,7 @@ else take them: each opens a page in your browser, and the run waits for you the
 2. **GitHub**, when there is no `vault_github_token` in the vault. It starts by itself: the page opens,
    the code is on your clipboard, you paste it on the page and authorise, and the private repositories
    are cloned in the same run. The run waits until the code is approved or expires, after fifteen
-   minutes, and Ctrl-C there ends the whole deploy, its VS Code window included.
+   minutes, and Ctrl-C there ends the whole deploy, its editor window included.
 3. **Tailscale**, when there is no `vault_tailscale_auth_key` (with one, configuration joined the VM
    already). It starts by itself too: the page opens, you sign in and connect the VM, and the run waits up
    to five minutes (`tailscale_login_timeout`). A VM you approve later joins by itself. See
@@ -159,7 +160,7 @@ every sign-in left. [During a run](../guides/runs.md) shows how each of these wa
 ## Running it again, and the stages one by one
 
 Every stage is idempotent, so `just deploy` is also what you re-run after changing a variable: a VM
-already signed in is only reported, and VS Code brings its window to the front. (VM hardware — cores,
+already signed in is only reported, and in VS Code the window comes to the front. (VM hardware — cores,
 memory and its minimum, disk — is applied only when the VM is created; changing it for a VM that already exists needs
 `proxmox_vm_force_update`, see [Re-running](../guides/vms.md#re-running).) It works on the VMs it is given and
 nothing else: it configures exactly what it has just provisioned, never the rest of your VMs, and
@@ -172,7 +173,7 @@ just deploy --only template             # build it, or rebuild it (over SSH, as 
 just deploy alpha --only provision      # create + start a VM     (via the API)
 just deploy alpha --only configure      # set it up               (over SSH, as the VM user)
 just login alpha                        # sign Claude, gh and Tailscale in; --only claude, github or tailscale for one
-just code alpha                         # open it in VS Code
+just code alpha                         # open it in your editor; --editor zed for Zed
 ```
 
 A second `just deploy` rebuilds nothing. It checks through the API whether the template exists and is
@@ -239,7 +240,7 @@ SYSTEM    OS              KERNEL                     LOAD 1 / 15 MIN   UPDATES
  beta     Ubuntu 24.04.3  6.8.0-87                   0.02 / 0.00       none
 
 WORK  in ~/projects, as of each checkout's last fetch
-          CHECKED                 NOT ON ANY REMOTE, OR NOT COMMITTED             CLAUDE   VS CODE
+          CHECKED                 NOT ON ANY REMOTE, OR NOT COMMITTED             CLAUDE   EDITOR
  alpha    2 checkouts, 1 tree     claude-on-proxmox: 2 commits on 1 branch,       1        1 window
                                   changes in 1 worktree
  beta     1 checkout              nothing                                         —        —
@@ -252,8 +253,8 @@ It exits 0 when nothing is wrong, 1 for a problem, 2 when something could not be
 ask it; `--json` prints the report as JSON, and `--only vms,storage` the sections named. `just status
 alpha` reads one VM. [VMs and fleets](../guides/vms.md#what-just-status-shows) says what each part means.
 
-Later, `just code alpha` opens the VM in VS Code again, and the alias the run wrote, named
-after the VM, makes `ssh alpha` work too (see [VS Code](../guides/vscode.md)).
+Later, `just code alpha` opens the VM in your editor again, and the alias the run wrote, named
+after the VM, makes `ssh alpha` work too (see [VS Code](../guides/vscode.md) or [Zed](../guides/zed.md)).
 [VMs and fleets](../guides/vms.md) covers naming, several VMs at once, and re-running.
 
 ## If a run fails

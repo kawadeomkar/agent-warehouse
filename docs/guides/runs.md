@@ -21,12 +21,12 @@ claude-on-proxmox  deploy alpha · started 18:22
          ⠴ Write the motd                                                           0:02
      ○ dev_tools         3 tasks
  ○ sign in      4 tasks
- ○ VS Code      3 tasks
+ ○ editor       3 tasks
 
 ⠴ 1:59 · stage 3 of 5 · .logs/20261025-182200-deploy.log
 ```
 
-- **Stages**: deploy's five - template, provision, configure, sign in, VS Code - each with a bar of the tasks
+- **Stages**: deploy's five - template, provision, configure, sign in, editor - each with a bar of the tasks
   it has reached, skipped ones included, of those it will reach, what it changed, and its time.
 - **Steps**: the running stage's roles, or its sign-ins (Claude, GitHub, Tailscale), the same way, with the
   running step's last five tasks under it: the newest with its timer, a skipped one dim. A task that several
@@ -63,7 +63,7 @@ STAGES          TIME    TASKS  CHANGED
  ✓ configure    3:58       96       41   common 1:12 · vscode_server 9.8 s · dev_tools 1:40 · claude_code 52 s
                                          github_projects 8.1 s · tailscale 6.0 s
  ✓ sign in      1:13       12        2   Claude 1:05 (58 s yours) · GitHub 4.2 s · Tailscale 3.0 s
- ✓ VS Code     3.1 s        6        1
+ ✓ editor      3.1 s        6        1
 
 ALPHA  192.0.2.51 · VM 104 · new
  alpha is up at 192.0.2.51

@@ -144,11 +144,11 @@ restate them are not treated as vulnerabilities:
   one you use nowhere else; a password of each VM's own is not built yet.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
   can be reached without manual steps. Changed keys are still refused.
-- The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH needs and OpenSSH
-  defaults to anyway; the VM user can forward ports, as a user with passwordless sudo always could.
+- The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH, Claude's sign-in in the
+  browser and Zed's port forwards use, and OpenSSH defaults to anyway; the VM user can forward ports, as a user with passwordless sudo always could.
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
   root-equivalent and runs an AI agent.
-- `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
+- In VS Code, `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
   (`editor_claude_terminal`, on by default). The file is written by this project beside the
   repositories, never in one, and what its tasks run is fixed: VS Code's helpers, files of
   `playbooks/files/` that `just code` copies to the VM unchanged, everything variable an argument. VS Code still runs
@@ -161,7 +161,8 @@ restate them are not treated as vulnerabilities:
   from the VM as the window opens. It is the VM user's alone (0600, in a 0700 directory), never in a
   repository; no command the task runs prints a token, and what the VM reports is stripped of escape
   sequences and control characters before it is written. A window it would put back in Restricted
-  Mode never gets the notes' folder: the project does not change what a window you trusted covers.
+  Mode never gets the notes' folder: the project does not change what a window you trusted covers. In
+  Zed, `just code` alone writes the page, and nothing rereads its sign-ins as the window opens.
 - `just code` copies this machine's Claude Code sessions of the last 30 days to the VM it opens
   (`claude_sessions_sync`, on by default): the transcripts of the repositories that VM has checked
   out, matched by git origin. A transcript holds whatever its tools printed - command output, the

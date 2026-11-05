@@ -17,7 +17,8 @@ name would be:
    into `~/projects`. Then it signs the VM in: to Claude, which starts Remote Control so the session is on
    your phone too; `gh` to GitHub, ready to push; and Tailscale, to reach the VM from anywhere. Each
    sign-in is a page in your browser.
-3. **VS Code** – opens the VM, with a terminal running Claude.
+3. **Your editor** – opens the VM: VS Code by default, with a terminal running Claude, or
+   [Zed](docs/guides/zed.md), where Claude is a task of the window.
 
 Every step is idempotent and everything specific to
 your environment (the Proxmox address, tokens, etc.), lives as git-ignored files, with secrets stored in Ansible vault.
@@ -48,8 +49,8 @@ a first deploy.
   it, and a storage for VM disks ([what the project assumes](docs/getting-started/requirements.md)).
 - **On your machine** (macOS or Linux): [just](https://github.com/casey/just) 1.59+ and
   [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4+ (`brew install just uv`, or each one's
-  installer), an SSH key at `~/.ssh/id_ed25519.pub`, and VS Code with the `code` command (optional). No
-  Python of your own: uv downloads the one the project runs on.
+  installer), an SSH key at `~/.ssh/id_ed25519.pub`, and, optionally, VS Code with the `code` command or Zed with
+  `zed` (`zeditor` on some Linux distributions). No Python of your own: uv downloads the one the project runs on.
 - **Accounts:** a Claude Pro, Max, Team or Enterprise login, which Remote Control needs - on Team and
   Enterprise an Owner turns Remote Control on for the organisation first - or an Anthropic API key, with
   Remote Control off; GitHub; and Tailscale, which is optional: `just init` asks whether to use it, and
@@ -114,8 +115,9 @@ The run stops for you at most three times, each at a page it opens in your brows
 3. **Tailscale** - sign in and connect the VM. Skipped when the vault has a Tailscale auth key, which
    `just init` asks for after a `y` to Tailscale, or with `tailscale_enabled: false`.
 
-Then VS Code opens on the VM, in `~/projects`, with Claude running in a terminal. The first time, VS Code
-asks you to trust the folder and to allow automatic tasks; both are yours to answer.
+Then your editor opens on the VM, in `~/projects`. In VS Code, the default, Claude runs in a terminal; the
+first time, VS Code asks you to trust the folder and to allow automatic tasks, both yours to answer. In Zed
+(`just settings editor --value zed`), Claude is a task of the window you start ([Zed](docs/guides/zed.md)).
 [Your first deploy](docs/getting-started/first-deploy.md) walks through each stop, and what to do when
 one is skipped or fails.
 
@@ -131,8 +133,8 @@ of roles, `tailscale_ssh` is a setting's, and `repo` a repository's on the VM.
 
 | Command | What it does |
 |---|---|
-| `just deploy alpha beta` | Create and configure VMs and sign them in, then open VS Code on a lone one. Re-run it after changing a setting (VM size applies when a VM is created) |
-| `just code alpha [--project repo] [--session <id>]` | Open a VM, or one repository on it, in VS Code with a Claude terminal; this machine's recent Claude sessions are copied there, and `--session` goes on with one of them |
+| `just deploy alpha beta` | Create and configure VMs and sign them in, then open a lone one in your editor. Re-run it after changing a setting (VM size applies when a VM is created) |
+| `just code alpha [--project repo] [--session <id>]` | Open a VM, or one repository on it, in your editor - VS Code with a Claude terminal by default, Zed with `--editor zed`; this machine's recent Claude sessions are copied there, and `--session` goes on with one of them |
 | `just login alpha` | Sign the VM in to Claude, GitHub and Tailscale where a sign-in was skipped; `--only claude`, `github` or `tailscale` for one of them |
 | `just status` | What every VM this project created is doing, and what needs doing next: read-only, live at a terminal, `--json` for scripts |
 | `just settings tailscale` | Each of a role's settings, its value and where it was set; one setting (`just settings tailscale_ssh`), or every one (`--all`, `--changed` for yours). `just settings tailscale_ssh --value true` sets one in `local.yml`, and `--reset` puts it back to its default; a secret is only said set or not set, and changes with `just vault` |

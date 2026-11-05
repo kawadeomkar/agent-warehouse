@@ -1,13 +1,13 @@
 # Tailscale
 
 You can reach a VM over [Tailscale](https://tailscale.com): it puts each VM on your tailnet - the private
-network your other devices are on - so `ssh`, VS Code's Remote - SSH and a dev server on any port reach the
-VM from anywhere, not only from the LAN Proxmox sits on. It is optional: `just init` asks whether to use it
-and writes your answer into `local.yml` as `tailscale_enabled`, which every VM deployed from then on
-follows, and which you can change there any time; after a `y` it asks for an auth key for the vault
-(below). Until it is answered, it is on, and `just init` says so; `just init --tailscale on` or `off`
-answers it without a terminal. Off, no VM gets anything of Tailscale's: configuration only looks for what
-this project installed earlier, to remove it.
+network your other devices are on - so `ssh`, your editor (VS Code's Remote - SSH, or Zed) and a dev
+server on any port reach the VM from anywhere, not only from the LAN Proxmox sits on. It is optional:
+`just init` asks whether to use it and writes your answer into `local.yml` as `tailscale_enabled`, which
+every VM deployed from then on follows, and which you can change there any time; after a `y` it asks for
+an auth key for the vault (below). Until it is answered, it is on, and `just init` says so;
+`just init --tailscale on` or `off` answers it without a terminal. Off, no VM gets anything of Tailscale's:
+configuration only looks for what this project installed earlier, to remove it.
 
 ## Joining a VM to your tailnet
 
@@ -47,7 +47,7 @@ alpha: on Tailscale in the tailnet you@example.com as alpha.tail1234.ts.net (100
 ## Connecting
 
 From any device on the tailnet: `ssh dev@alpha.tail1234.ts.net` (or its `100.x` address),
-VS Code's Remote - SSH to the same host, `http://alpha.tail1234.ts.net:3000` for a dev server. It is the
+your editor to the same host, `http://alpha.tail1234.ts.net:3000` for a dev server. It is the
 same sshd and the same keys as on the LAN (`vm_ssh_public_keys`). With `claude_ssh_host_domain:
 tail1234.ts.net`, the aliases this project writes and `just code` use `<VM name>.tail1234.ts.net` in place
 of the LAN address; the machine running Ansible must be on the tailnet then, and Ansible itself keeps
