@@ -997,6 +997,12 @@ WINDOWS = {
         "code_reach": "alpha.lan",
         "code_home": REFUSED,
     },
+    "a home with a control character": {
+        "keep": ["Refuse a home on the VM that is not one plain path"],
+        "in_deploy": False,
+        "vm_name": "alpha",
+        "code_home": {"ansible_facts": {"getent_passwd": {"dev": ["x", "1000", "1000", "", "/home/de\x1b]0;x\x07v"]}}},
+    },
     "deploy, no extension": {"keep": [EXTENSION], "in_deploy": True, "code_here": True, "vm_name": "alpha"},
     "just code, no extension": {"keep": [EXTENSION], "in_deploy": False, "code_here": True, "vm_name": "alpha"},
     "deploy, no name, beside others": {
@@ -1263,6 +1269,13 @@ def test_every_failure_of_the_window_step_is_said_on_one_line(windows):
     assert failures["just code, stopped"] and failures["deploy, ssh refused"]
     for name, said in failures.items():
         assert not [one for one in said if re.search(r"[\x00-\x1f\x7f]", one)], (name, said)
+
+
+def test_a_home_the_vm_reports_with_a_control_character_is_refused(windows):
+    # The home begins every path just code says or hands the editor: refused before any of them is said.
+    run = windows["a home with a control character"]
+    assert run["rc"] != 0 and not run["reached"], run["output"]
+    assert any("holds a control character" in failure for failure in _failures(run["output"])), run["output"]
 
 
 def test_just_code_fails_where_just_deploy_goes_on_and_names_the_command_that_failed(windows):
