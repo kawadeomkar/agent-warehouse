@@ -3,7 +3,7 @@
 # fake GitHub API (systemd unit) that lists them, and a stand-in gh ahead of
 # the real one on PATH, so github_projects can be exercised offline, sign-in
 # included. Expects `prepare_github_repos` (list of
-# name[:fork][:archived][:empty][:private]), `prepare_github_username` and
+# name[:fork][:archived][:empty][:fresh][:private]), `prepare_github_username` and
 # `prepare_github_owner` (the local user that clones; git refuses to serve
 # repositories owned by someone else over file://).
 - name: molecule | prepare_github | Install git and python
@@ -12,11 +12,18 @@
     state: present
     update_cache: true
 
-- name: molecule | prepare_github | Create source repositories with one commit on main
+# A fresh repository is a bare one with no commit, as GitHub's is before its
+# first push: a clone of it has no main to check out.
+- name: molecule | prepare_github | Create the repositories, each with one commit on main but a fresh one
   ansible.builtin.shell:
     cmd: |
       set -e
       name="$REPO_NAME"
+      if [ "$REPO_FRESH" = true ]; then
+        rm -rf "/srv/git/$name.git"
+        git init -q --bare -b main "/srv/git/$name.git"
+        exit 0
+      fi
       src=/tmp/src/$name
       rm -rf "$src"
       git init -q -b main "$src"
@@ -28,6 +35,7 @@
     creates: "/srv/git/{{ item.split(':')[0] }}.git"
   environment:
     REPO_NAME: "{{ item.split(':')[0] }}"
+    REPO_FRESH: "{{ 'true' if 'fresh' in item.split(':')[1:] else 'false' }}"
   loop: "{{ prepare_github_repos }}"
 
 - name: molecule | prepare_github | Give the bare repositories to the cloning user

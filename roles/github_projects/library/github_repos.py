@@ -14,6 +14,8 @@ description:
   - Queries the GitHub REST API for every repository owned by a user and returns
     a compact list suitable for looping over with M(ansible.builtin.git).
   - Handles pagination via the C(Link) header.
+  - A repository GitHub sizes at 0 costs one more request, for its branches, which say whether it has
+    anything to clone.
   - With a token that belongs to the queried user, private repositories are
     included; otherwise only public ones are visible.
   - Can also return the account a git identity is derived from (O(account)).
@@ -100,7 +102,9 @@ repos:
       description: Whether the repository is private.
       type: bool
     empty:
-      description: True when the repository has never been pushed to (nothing to clone).
+      description:
+        - True when the repository has no branch, so nothing to clone - never pushed to, or created and given no
+          commit yet, which GitHub lists with its creation's push time.
       type: bool
 total:
   description: Number of repositories returned by the API before filtering.
@@ -221,7 +225,28 @@ def fetch_all_pages(module, url, headers, api_url):
     return repos
 
 
-def filter_repos(repos, include_forks, include_archived):
+def branchless(module, api_url, repo, headers):
+    """Whether GitHub lists no branch for a repository: asked only of one GitHub sizes at 0, a request each.
+
+    GitHub gives a repository a push time when it is created, so one created and given no commit yet carries a
+    pushed_at like any other, and its default branch does not exist to check out. Its size is 0, as is one GitHub has
+    not sized yet, so its branches decide; a repository with content costs no request. An answer that is not a list
+    of branches says nothing, and the repository is cloned as before.
+    """
+    owner, _slash, name = str(repo.get("full_name") or "").partition("/")
+    if not owner or not name:
+        return False
+    url = f"{api_url}/repos/{quote(owner, safe='')}/{quote(name, safe='')}/branches?per_page=1"
+    response, info = fetch_url(module, url, headers=headers, method="GET", timeout=30)
+    if info.get("status") != 200 or response is None:
+        return False
+    try:
+        return json.loads(response.read()) == []
+    except ValueError:
+        return False
+
+
+def filter_repos(repos, include_forks, include_archived, no_branch=lambda repo: False):
     selected = []
     for repo in repos:
         if repo.get("fork") and not include_forks:
@@ -229,9 +254,9 @@ def filter_repos(repos, include_forks, include_archived):
         if repo.get("archived") and not include_archived:
             continue
         entry = {field: repo.get(field) for field in FIELDS}
-        # GitHub leaves pushed_at unset until the first push; such repositories
-        # have no branch to check out.
-        entry["empty"] = repo.get("pushed_at") is None
+        # Nothing to check out: never pushed to (GitHub leaves pushed_at unset), or no branch yet (no_branch, asked
+        # only of a repository GitHub sizes at 0).
+        entry["empty"] = repo.get("pushed_at") is None or (repo.get("size") == 0 and no_branch(repo))
         selected.append(entry)
     return sorted(selected, key=lambda r: str(r["name"]).lower())
 
@@ -273,7 +298,12 @@ def run_module():
 
     url, account = resolve_listing(module, api_url, params["username"], token, headers, per_page, params["account"])
     all_repos = fetch_all_pages(module, url, headers, api_url)
-    repos = filter_repos(all_repos, params["include_forks"], params["include_archived"])
+    repos = filter_repos(
+        all_repos,
+        params["include_forks"],
+        params["include_archived"],
+        lambda repo: branchless(module, api_url, repo, headers),
+    )
     user = {field: account.get(field) for field in USER_FIELDS} if account else {}
 
     module.exit_json(changed=False, repos=repos, total=len(all_repos), user=user)

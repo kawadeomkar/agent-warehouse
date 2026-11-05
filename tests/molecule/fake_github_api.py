@@ -9,6 +9,8 @@ repositories so the role can be tested without network access:
   /users/<name>/repos    the public repositories, with or without a token
   /user                  the account the token belongs to, 401 without one
   /user/repos            every repository of that account, private included
+  /repos/<name>/<repo>/branches
+                         a repository's branches: main, or none for an empty or fresh one
   /meta                  GitHub's published SSH host keys (a placeholder key)
   /users/acme-org        an organisation, which owns no repositories here
   POST /credentials/revoke
@@ -21,8 +23,9 @@ A token is a stand-in too: "bad-token" is refused, one starting with "stranger"
 belongs to another account, and anything else is <name>'s own.
 
 Usage: fake_github_api.py <port> <username> <git_root> <repo-spec>...
-  repo-spec: name[:fork][:archived][:empty][:private]
-    empty = never pushed, like a fresh GitHub repo; private = listed only to its owner
+  repo-spec: name[:fork][:archived][:empty][:fresh][:private]
+    empty = never pushed (no pushed_at, as GitHub listed new repositories once); fresh = created and given no
+    commit, as GitHub lists one now: its creation's push time, size 0, no branch; private = listed only to its owner
 """
 
 import json
@@ -59,9 +62,18 @@ def repos(private_too):
                 "archived": "archived" in flags,
                 "private": "private" in flags,
                 "pushed_at": None if "empty" in flags else "2026-01-01T00:00:00Z",
+                "size": 0 if "empty" in flags or "fresh" in flags else 12,
             }
         )
     return out
+
+
+def branches(name, private_too):
+    """A listed repository's branches, or None for one this caller is not shown."""
+    for repo in repos(private_too):
+        if repo["name"] == name:
+            return [] if repo["size"] == 0 else [{"name": "main", "protected": False}]
+    return None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -115,6 +127,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(401, {"message": "Requires authentication"})
             else:
                 self._page(repos(private_too=account is ACCOUNT), url)
+        elif url.path.startswith(f"/repos/{USERNAME}/") and url.path.endswith("/branches"):
+            name = url.path[len(f"/repos/{USERNAME}/") : -len("/branches")]
+            found = branches(name, private_too=self._account() is ACCOUNT)
+            self._send(200, found) if found is not None else self._send(404, {"message": "Not Found"})
         else:
             self._send(404, {"message": "Not Found"})
 

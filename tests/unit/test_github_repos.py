@@ -110,6 +110,26 @@ def test_filter_repos_flags_never_pushed_repositories_as_empty():
     assert [(r["name"], r["empty"]) for r in result] == [("fresh", True), ("used", False)]
 
 
+def test_filter_repos_asks_for_branches_only_of_a_repository_sized_at_zero():
+    # GitHub gives a repository its creation's push time: one created and given no commit is known by its branches.
+    asked = []
+
+    def no_branch(entry):
+        asked.append(entry["name"])
+        return entry["name"] == "created"
+
+    repos = [repo("created", size=0), repo("unsized", size=0), repo("sized", size=12), repo("never", pushed_at=None)]
+    result = github_repos.filter_repos(repos, False, False, no_branch)
+
+    assert [(r["name"], r["empty"]) for r in result] == [
+        ("created", True),
+        ("never", True),
+        ("sized", False),
+        ("unsized", False),
+    ]
+    assert asked == ["created", "unsized"]
+
+
 def test_build_headers_with_and_without_token():
     assert "Authorization" not in github_repos.build_headers(None)
     assert github_repos.build_headers("tok")["Authorization"] == "Bearer tok"
@@ -332,6 +352,60 @@ def test_include_archived_through_module_entry_point(fake_api, patch_module):
     result = run({"username": "octo", "include_archived": True})
 
     assert [r["name"] for r in result["repos"]] == ["live", "old"]
+
+
+def test_a_repository_created_with_no_commit_is_listed_as_empty(fake_api, patch_module):
+    listing = f"{API}/users/octo/repos?type=owner&per_page=100"
+    created = f"{API}/repos/octo/created/branches?per_page=1"
+    unsized = f"{API}/repos/octo/unsized/branches?per_page=1"
+    api = fake_api(
+        {
+            listing: (200, [repo("created", size=0), repo("unsized", size=0), repo("sized", size=12)], {}),
+            created: (200, [], {}),
+            unsized: (200, [{"name": "main", "protected": False}], {}),
+        }
+    )
+
+    result = run({"username": "octo"})
+
+    assert [(r["name"], r["empty"]) for r in result["repos"]] == [
+        ("created", True),
+        ("sized", False),
+        ("unsized", False),
+    ]
+    # One request for each repository sized at 0, none for one with content.
+    assert [c[0] for c in api.calls] == [listing, created, unsized]
+
+
+def test_a_branches_answer_that_fails_leaves_the_repository_to_clone(fake_api, patch_module):
+    listing = f"{API}/users/octo/repos?type=owner&per_page=100"
+    fake_api(
+        {
+            listing: (200, [repo("created", size=0)], {}),
+            f"{API}/repos/octo/created/branches?per_page=1": (403, {"message": "API rate limit exceeded"}, {}),
+        }
+    )
+
+    result = run({"username": "octo"})
+
+    assert [(r["name"], r["empty"]) for r in result["repos"]] == [("created", False)]
+
+
+def test_branches_are_asked_of_the_api_with_the_token(fake_api, patch_module):
+    branches = f"{API}/repos/octo/created/branches?per_page=1"
+    api = fake_api(
+        {
+            f"{API}/user": (200, OCTO, {}),
+            f"{API}/user/repos?affiliation=owner&per_page=100": (200, [repo("created", size=0, private=True)], {}),
+            branches: (200, [], {}),
+        }
+    )
+
+    result = run({"username": "octo", "token": "tok"})
+
+    assert result["repos"][0]["empty"] is True
+    assert api.calls[-1][0] == branches
+    assert api.calls[-1][1]["Authorization"] == "Bearer tok"
 
 
 def test_username_is_url_escaped(fake_api, patch_module):

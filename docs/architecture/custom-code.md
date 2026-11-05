@@ -81,12 +81,15 @@ listing rather than carry it there. With a
 token belonging to the queried user it uses the authenticated endpoint and includes private repos;
 otherwise it falls back to the public listing, which GitHub documents as public repositories only.
 Returns a compact, sorted list carrying `name`, `full_name`, `clone_url`, `ssh_url`,
-`default_branch`, `fork`, `archived`, `private` and `empty` (never pushed to, so nothing to clone),
+`default_branch`, `fork`, `archived`, `private` and `empty` (no branch, so nothing to clone: never pushed to, or
+created and given no commit yet, which GitHub lists with its creation's push time and a size of 0 - so a repository
+GitHub sizes at 0 costs one more request, for its branches, and one with content none; an answer that is not a
+list of branches leaves it to clone, as before),
 and the account as `user` (`login`, `name`, `id`), from `/user` when the token is the user's own and
 `/users/<login>` otherwise, for the git identity the role derives.
 
 Written against the managed VM's Python — `ruff` targets `py310`, not the controller's 3.12+.
-Covered by 28 unit tests in `tests/unit/test_github_repos.py`.
+Covered by 32 unit tests in `tests/unit/test_github_repos.py`.
 
 ---
 
