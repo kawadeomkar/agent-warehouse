@@ -98,7 +98,7 @@ Login user on the VM.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vm_user` | `dev` | Sets `proxmox_vm_user` ([`proxmox_vm`](roles/proxmox_vm.md)): Cloud-init user created on the VM. Sets `common_user` ([`common`](roles/common.md)): Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Sets `vscode_server_user` ([`vscode_server`](roles/vscode_server.md)): The user VS Code connects as, whose connection the sshd check evaluates Match blocks for. Sets `dev_tools_user` ([`dev_tools`](roles/dev_tools.md)): User added to the docker group. Sets `claude_code_user` ([`claude_code`](roles/claude_code.md)): User Claude Code is set up for. Sets `github_projects_user` ([`github_projects`](roles/github_projects.md)): Local user that owns the checkouts. |
+| `vm_user` | `dev` | Sets `proxmox_vm_user` ([`proxmox_vm`](roles/proxmox_vm.md)): Cloud-init user created on the VM. Sets `common_user` ([`common`](roles/common.md)): Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Sets `vscode_server_user` ([`vscode_server`](roles/vscode_server.md)): The user the editor connects as, whose connection the sshd check evaluates Match blocks for. Sets `dev_tools_user` ([`dev_tools`](roles/dev_tools.md)): User added to the docker group. Sets `claude_code_user` ([`claude_code`](roles/claude_code.md)): User Claude Code is set up for. Sets `github_projects_user` ([`github_projects`](roles/github_projects.md)): Local user that owns the checkouts. |
 
 Public keys cloud-init installs for that user. Default: this machine's ~/.ssh/id_ed25519.pub; list your own here if yours is another key.
 

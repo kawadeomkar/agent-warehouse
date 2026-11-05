@@ -3,7 +3,7 @@ galaxy_info:
   author: claude-on-proxmox contributors
   namespace: claude_on_proxmox
   role_name: vscode_server
-  description: Make a VM ready for VS Code's Remote - SSH extension, and check that it is
+  description: Make a VM ready for a remote editor over SSH, and check that it is
   license: MIT
   min_ansible_version: "2.19"
   platforms:

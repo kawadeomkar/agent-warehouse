@@ -1,10 +1,12 @@
 ---
-# What VS Code's Remote - SSH extension needs on the host, from its own
-# documentation: bash, tar and curl or wget to install the server; a glibc
-# system on x86_64 or aarch64; an sshd that allows the port forward the server
-# is reached through; and an inotify limit large enough to watch a workspace.
-# The image and the common role provide the first two; this role writes the
-# other two, and checks the sshd one against what sshd actually runs with.
+# What a remote editor needs on the host. VS Code's Remote - SSH documents
+# bash, tar and curl or wget to install its server, and a glibc system on
+# x86_64 or aarch64; VS Code's server, an editor's port forwards and Claude's
+# sign-in in the browser need an sshd that allows port forwards over the
+# connection; and any file watcher needs an inotify limit large enough to
+# watch a workspace. The image and the common role provide the first two; this
+# role writes the other two, and checks the sshd one against what sshd
+# actually runs with.
 #
 # None of it is VS Code's alone, so the role runs whichever editor just code
 # opens: Claude's sign-in in the browser forwards its callback to the VM over
@@ -48,7 +50,7 @@
 
 # A drop-in of its own, after the common role's 10-claude-on-proxmox.conf: one
 # file per owner, and sshd reads sshd_config.d in lexical order.
-- name: Allow the port forward VS Code Server is reached through
+- name: Allow port forwarding over the editor's SSH connection
   ansible.builtin.template:
     src: 20-vscode-server.conf.j2
     dest: /etc/ssh/sshd_config.d/20-vscode-server.conf
@@ -57,16 +59,16 @@
     mode: "0644"
     validate: /usr/sbin/sshd -t -f %s
   when: vscode_server_enabled | bool
-  notify: Restart ssh for VS Code
+  notify: Restart ssh for the editor's drop-in
 
 - name: Remove the sshd drop-in
   ansible.builtin.file:
     path: /etc/ssh/sshd_config.d/20-vscode-server.conf
     state: absent
   when: not vscode_server_enabled | bool
-  notify: Restart ssh for VS Code
+  notify: Restart ssh for the editor's drop-in
 
-# Where VS Code's connection will come from: this machine, as Ansible's own
+# Where the editor's connection will come from: this machine, as Ansible's own
 # SSH connection shows. sudo drops SSH_CONNECTION, hence no become. Without
 # an SSH connection - a container, a local run - there is nothing to read,
 # and the loopback address stands in.
@@ -102,9 +104,10 @@
 
 # Only to name the culprit when the check below fails. Every setting that can
 # take the forwarding away: either keyword turned off or limited to the
-# remote direction (VS Code forwards from the client, which sshd calls
-# local), and DisableForwarding, which overrides both. Indented lines count,
-# because that is how a setting under a Match block is usually written.
+# remote direction (VS Code, an editor's port forwards and Claude's sign-in
+# all forward from the client, which sshd calls local), and DisableForwarding,
+# which overrides both. Indented lines count, because that is how a setting
+# under a Match block is usually written.
 - name: Find what turns forwarding off, if anything does
   ansible.builtin.find:
     paths: [/etc/ssh, /etc/ssh/sshd_config.d]
@@ -118,8 +121,10 @@
 # its own for the connections it matches, so a drop-in sorted before ours,
 # sshd_config itself or a Match block for this user can each override the
 # file this role just wrote - silently. Reading the result back is what turns
-# that into a named failure instead of a VS Code window that cannot connect.
-- name: Fail when sshd does not allow the forwarding VS Code needs
+# that into a named failure instead of a VS Code window that cannot connect,
+# an editor's port forward that cannot open, or a sign-in that falls back to
+# pasting its code.
+- name: Fail when sshd does not allow port forwarding
   vars:
     vscode_server_blocking:
       - allowtcpforwarding no
@@ -147,7 +152,7 @@
 
 # Written for the record wherever the role runs, applied only where /proc/sys
 # is writable. ansible.posix.sysctl reads the live value only when it sets it.
-- name: Raise the inotify watch limit for VS Code's file watcher
+- name: Raise the inotify watch limit for the editor's file watcher
   ansible.posix.sysctl:
     name: fs.inotify.max_user_watches
     value: "{{ vscode_server_inotify_watches }}"

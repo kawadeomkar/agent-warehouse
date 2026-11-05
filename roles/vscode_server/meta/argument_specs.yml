@@ -1,11 +1,12 @@
 ---
 argument_specs:
   main:
-    short_description: Make a VM ready for a remote editor, VS Code's Remote - SSH first
+    short_description: Make a VM ready for a remote editor over SSH, and for Claude's sign-in
     description:
-      - Writes an sshd drop-in that keeps the port forwarding VS Code Server is reached through
-        enabled and adds keepalives, asserts the values sshd actually runs with, and raises the
-        inotify watch limit VS Code's file watcher needs. Disabled, it removes both files.
+      - Writes an sshd drop-in that keeps port forwarding enabled - VS Code's server is reached
+        through it, and an editor's port forwards and Claude's sign-in in the browser use it - and
+        adds keepalives, asserts the values sshd actually runs with, and raises the inotify watch
+        limit an editor's file watcher needs. Disabled, it removes both files.
       - It runs whichever editor just code opens - Claude's sign-in in the browser and Zed's port
         forwards use the same forwarding, and any editor's file watcher the same limit - and keeps
         VS Code's name through 1.x, the --tags name 1.0 promised.
@@ -19,7 +20,7 @@ argument_specs:
       vscode_server_user:
         type: str
         default: dev
-        description: The user VS Code connects as, whose connection the sshd check evaluates Match blocks for. Set through vm_user in local.yml.
+        description: The user the editor connects as, whose connection the sshd check evaluates Match blocks for. Set through vm_user in local.yml.
       vscode_server_client_alive_interval:
         type: int
         default: 60
@@ -35,7 +36,7 @@ argument_specs:
       vscode_server_inotify_watches:
         type: int
         default: 524288
-        description: fs.inotify.max_user_watches, raised for VS Code's file watcher on a large workspace.
+        description: fs.inotify.max_user_watches, raised for an editor's file watcher on a large workspace.
       vscode_server_container_virt_types:
         type: list
         elements: str

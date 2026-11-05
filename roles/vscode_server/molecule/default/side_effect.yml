@@ -1,6 +1,6 @@
 ---
 # What converge.yml cannot show: that the role refuses an sshd on which
-# something else has taken VS Code's forwarding away, naming the file, and
+# something else has taken the forwarding away, naming the file, and
 # that vscode_server_enabled: false removes what an earlier run wrote. The
 # container is left as converge.yml made it, so verify.yml checks that state.
 - name: Side effect
