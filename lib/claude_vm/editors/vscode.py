@@ -227,8 +227,9 @@ def _workspace(inputs: OpenInputs) -> dict:
     return {"folders": folders, "settings": settings, "tasks": {"version": "2.0.0", "tasks": tasks}}
 
 
-def _said(inputs: OpenInputs, auto: object, terminal: bool) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """What is said of the window, from what the user's own settings say VS Code will ask."""
+def _said(inputs: OpenInputs, auto: object, terminal: bool, again: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """What is said of the window, from what the user's own settings say VS Code will ask; again is the just code
+    line that opens the whole projects directory's window."""
     vm, root, probe = inputs.vm.name, inputs.root, inputs.probe
     below = inputs.files_dir.startswith(root + "/")
     trust_once = (
@@ -236,7 +237,7 @@ def _said(inputs: OpenInputs, auto: object, terminal: bool) -> tuple[tuple[str, 
         if not below
         else f"Trusting this window trusts every project in {root}."
         if not inputs.project
-        else f"Trusting the window of just code {vm} instead trusts every project in {root} at once."
+        else f"Trusting the window of {again} instead trusts every project in {root} at once."
     )
     if not probe.settings_file:
         settings_note = (
@@ -290,7 +291,7 @@ def _said(inputs: OpenInputs, auto: object, terminal: bool) -> tuple[tuple[str, 
             else f"The session notes open beside it each time ({inputs.notes_file})."
         )
         if not folder:
-            covers = f", or trust the window of just code {vm}, which covers them" if below else ""
+            covers = f", or trust the window of {again}, which covers them" if below else ""
             notes_said += (
                 " VS Code may ask once whether to open them, as a file outside this window's folder: Open"
                 + covers
@@ -355,7 +356,7 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
         )
         # VS Code opens a path ending in .code-workspace as a workspace, not as a file to edit.
         opens = posixpath.join(inputs.files_dir, workspace)
-    report, end = _said(inputs, auto, terminal)
+    report, end = _said(inputs, auto, terminal, common.just_code(inputs))
     return OpenPlan(
         editor=editor.key,
         vm_writes=writes,

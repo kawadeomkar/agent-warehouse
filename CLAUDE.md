@@ -364,7 +364,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   Python. The notes' directory is a
   second workspace folder only where the window's own folder contains it: VS Code stores the folders a
   user trusted, not their parents, so a folder added to a trusted workspace drops it to Restricted Mode.
-  `just code` slurps the notes to carry their live section over, so an unchanged VM rewrites nothing.
+  `just code` slurps the notes to carry their live section over, so an unchanged VM opened in the same editor
+  rewrites nothing.
   VS Code runs that task only in a trusted window and once the user has allowed automatic tasks;
   `code.yml` reads `task.allowAutomaticTasks` from the user's VS Code settings to say which to
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or

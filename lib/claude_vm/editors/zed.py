@@ -71,8 +71,8 @@ def _claude(editor: Editor, inputs: OpenInputs, there: bool, listed: bool, helpe
         )
     if there:
         return terminal + (
-            f" The window of just code {vm} lists a task, Claude (just code), that does it; docs/guides/zed.md: one"
-            " key, or Claude with no key."
+            f" The window of {common.just_code(inputs)} lists a task, Claude (just code), that does it;"
+            " docs/guides/zed.md: one key, or Claude with no key."
         )
     below = inputs.files_dir.startswith(inputs.root + "/")
     if inputs.terminal and editor.claude_terminal == "listed" and below and not common.HELPER_PATH.fullmatch(helper):

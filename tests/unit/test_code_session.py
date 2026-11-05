@@ -986,6 +986,8 @@ WINDOWS = {
     "just code, no name": {"keep": ONE_VM, "in_deploy": False},
     "deploy, fleet": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta"},
     "just code, fleet": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta"},
+    "deploy, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta", "vm_editor": "zed"},
+    "just code, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta", "vm_editor": "zed"},
     "deploy, stopped": {"keep": UP, "in_deploy": True, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "just code, stopped": {"keep": UP, "in_deploy": False, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "deploy, no address": {"keep": UP, "in_deploy": True, "vm_name": "alpha", "claude_vm_addressed": NO_ADDRESS},
@@ -1217,6 +1219,19 @@ def test_a_deploy_for_a_fleet_ends_at_its_first_task_with_each_vm_s_just_code_li
     assert run["left"] == {"alpha, beta": {"editor": "\n".join(run["fleet"])}}
 
 
+def test_a_fleet_s_lines_and_the_one_vm_refusal_name_the_editor_a_run_chose_against_the_setting(windows):
+    # The setting is VS Code's (unset) and the run's editor Zed: a bare just code alpha would open VS Code.
+    run = windows["deploy, fleet, --editor zed"]
+    assert run["rc"] == 0 and not run["reached"], run["output"]
+    assert run["fleet"] == [
+        "Zed opens one VM at a time, so this deploy for 2 VMs opened none. To open one:",
+        "just code alpha --editor zed",
+        "just code beta --editor zed",
+    ]
+    run = windows["just code, fleet, --editor zed"]
+    assert run["rc"] != 0 and "Zed opens one VM at a time: just code <name> --editor zed." in run["output"]
+
+
 def test_a_deploy_that_left_its_vm_stopped_names_the_deploy_that_starts_it(windows):
     # just code alone would open a VM this deploy never configured or signed in.
     run = windows["deploy, stopped"]
@@ -1416,7 +1431,8 @@ def test_zed_says_to_run_claude_in_its_terminal_where_the_window_lists_no_claude
     assert one["code"] == ["zed ssh://alpha/home/dev/projects/repo"], one["output"]
     said = _opened(one["output"])
     assert "run claude: the terminal is the VM's" in said
-    assert "The window of just code alpha lists a task, Claude (just code), that does it;" in said
+    # --editor zed, the setting VS Code's: the line that opens the projects window again names Zed.
+    assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
     said = _opened(none["output"])
     assert "run claude: the terminal is the VM's" in said
     assert "task" not in _claude_said(said), said
@@ -1578,7 +1594,21 @@ def test_a_one_project_window_has_the_task_written_and_says_the_projects_window_
     assert (_ws(run) / ".zed" / "tasks.json").is_file()
     said = _claude_said(_opened(run["output"]))
     assert "run claude: the terminal is the VM's" in said
-    assert "The window of just code alpha lists a task, Claude (just code), that does it;" in said
+    assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
+
+
+def test_the_notes_of_a_run_whose_editor_is_not_the_setting_s_name_it(zed_writes):
+    # The setting is VS Code's (unset) and the run's --editor zed: a bare just code alpha would open VS Code, so the
+    # notes' lines that open this window again name Zed.
+    run = zed_writes["one project"]
+    (notes,) = run["vm"].rglob("session/alpha-session.md")
+    text = notes.read_text()
+    assert (
+        "| Zed | `just code alpha --editor zed`, or one repository: `just code alpha --editor zed --project <repo>` |"
+        in text
+    ), text
+    assert "| `just code alpha --editor zed` | open this window again |" in text, text
+    assert "`just code alpha`" not in text, text
 
 
 def test_just_code_s_directory_outside_the_projects_directory_gets_no_task_and_no_word_of_one(zed_writes):

@@ -787,8 +787,11 @@ refresh, and Zed reopens their tab with the window once they have been opened ([
 `just code` writes the rest from `playbooks/templates/vm_session.md.j2` into
 `<workspaces>/session/<vm>-session.md` (0600; `session/` 0700): the VM's facts from the cluster listing,
 its addresses and alias, and the commands with its name - nothing of one window's, since every window of
-the VM opens the one file, and no time, so an unchanged VM gives an unchanged file. It `slurp`s the
-notes first and carries their live section over. `workbench.editorAssociations` in the workspace's
+the VM opens the one file, and no time. What they say of the editor is the last run's: its name, and `just code`
+lines that carry `--editor <editor>` where the run's editor is `--editor`'s and not the setting's, since a bare one
+opens the setting's editor (`code_editor_flag`, which the alias line, the report, the failures and a fleet's lines
+take too). So an unchanged VM opened in the same editor gives an unchanged file, and with windows of both
+editors open, the earlier one shows the later run's lines. It `slurp`s the notes first and carries their live section over. `workbench.editorAssociations` in the workspace's
 settings opens them as a preview; the key holds a `/`, so VS Code matches it against the file's scheme
 and path.
 

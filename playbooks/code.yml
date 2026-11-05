@@ -83,6 +83,11 @@
     code_editor_name: "{{ (code_editors[code_editor] | default({})).name | default(code_editor) }}"
     code_editor_tasks: "{{ (code_editors[code_editor] | default({})).window_tasks | default(false) | bool }}"
     code_editor_claude: "{{ (code_editors[code_editor] | default({})).claude_terminal | default('none') }}"
+    # A bare just code opens the setting's editor, so where --editor chose
+    # another, every just code line that opens its window carries it: the
+    # notes, the plan's report, the alias line, the failures and a fleet's
+    # lines all take this one flag.
+    code_editor_flag: "{{ '' if code_editor == (claude_editor_key | string) else ' --editor ' ~ code_editor }}"
     # code_ssh is the result of whichever task connected. ssh's error can hold
     # line breaks, and text the VM sent before the login: said on one line,
     # with no control character reaching this terminal.
@@ -159,6 +164,7 @@
       notes_file: "{{ code_notes_file }}"
       notes_dir: "{{ code_notes_dir }}"
       task_written: "{{ code_claude_task_written | bool }}"
+      editor_flag: "{{ code_editor_flag }}"
       session_id: "{{ code_session_id }}"
       session_branch: "{{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}"
       session_commit: "{{ code_session_commit | default('') if code_session_id | length > 0 else '' }}"
@@ -329,7 +335,7 @@
       {{ claude_vm_names[0] ~ ' is stopped, and this deploy left it so: it was not configured, signed in or opened in'
          ~ ' ' ~ code_editor_name ~ '. To start it and finish the deploy: just deploy ' ~ claude_vm_names[0] ~ ' --start'
          if code_status | default('') == 'stopped'
-         else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0] }}
+         else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0] ~ code_editor_flag }}
 
   tasks:
     # The editor opens one VM at a time, so a deploy for several opens none, and
@@ -344,7 +350,8 @@
             msg: >-
               {{ [code_editor_name ~ ' opens one VM at a time, so this deploy for ' ~ claude_vm_names | length
                   ~ ' VMs opened none. To open one:']
-                 + claude_vm_names | map('regex_replace', '^', 'just code ') | list }}
+                 + claude_vm_names | map('regex_replace', '^', 'just code ') | map('regex_replace', '$', code_editor_flag)
+                 | list }}
           register: code_fleet_reported
 
         # NEXT STEPS (callback_plugins/claude_on_proxmox.py): the lines above,
@@ -390,7 +397,7 @@
             that:
               - vm_name is defined or code_in_deploy | default(false) | bool
               - claude_vm_names | length == 1
-            fail_msg: "{{ code_editor_name }} opens one VM at a time: just code <name>."
+            fail_msg: "{{ code_editor_name }} opens one VM at a time: just code <name>{{ code_editor_flag }}."
             quiet: true
 
         # A GitHub repository name: ASCII letters, digits, ".", "-" and "_", at
@@ -598,6 +605,7 @@
                 address: "{{ claude_vm_addressed[0].address }}"
                 user: "{{ vm_user }}"
                 workspace: "{{ code_root }}"
+                editor_flag: "{{ code_editor_flag }}"
             claude_vm_names_chosen: "{{ claude_vm_names }}"
 
         - name: Look for the folder on the VM

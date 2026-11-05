@@ -255,6 +255,16 @@ def test_identity_file_agent_forwarding_and_options_are_written_when_set(tmp_pat
     assert resolved["connecttimeout"] == "5"
 
 
+def test_the_connect_line_names_the_editor_a_run_chose_against_the_setting(tmp_path: Path) -> None:
+    # just code --editor zed, the setting VS Code's: a bare just code alpha opens VS Code (code.yml's editor_flag).
+    result = _run(tmp_path, [{**ALPHA, "editor_flag": " --editor zed"}, {**BETA, "editor_flag": ""}])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "alpha: ssh alpha   |   just code alpha --editor zed   (opens /home/dev/projects)" in result.stdout
+    assert "beta: ssh beta   |   just code beta" in result.stdout and "beta --editor" not in result.stdout
+    # The block is ssh's alone: the editor is the connect line's, never written.
+    assert "zed" not in _managed(tmp_path)
+
+
 def test_without_a_workspace_the_connect_line_says_just_code_and_guesses_no_path(tmp_path: Path) -> None:
     result = _run(tmp_path, [{"name": "solo", "address": "192.0.2.60", "user": "dev"}])
     assert result.returncode == 0, result.stdout + result.stderr

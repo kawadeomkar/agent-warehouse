@@ -157,6 +157,34 @@ def test_the_notes_say_a_listed_claude_task_only_where_just_code_wrote_it(tmp_pa
     assert not re.search(r"\bzed\b", TEMPLATE.read_text(), re.I)
 
 
+# A bare just code opens the editor setting's editor: where --editor chose another, code.yml's code_editor_flag puts
+# it on every just code line of the notes, so they open this run's window again.
+RUNS = {
+    "no --editor": ({}, "just code alpha", "trusting the window of `just code alpha` once"),
+    "the setting vscode, --editor zed": (
+        {**LISTED, "code_claude_task_there": True, "code_editor_flag": " --editor zed"},
+        "just code alpha --editor zed",
+        "- In the window of `just code alpha --editor zed`, the task **Claude (just code)**",
+    ),
+    "the setting zed, --editor vscode": (
+        {"code_editor": "vscode", "code_editor_flag": " --editor vscode"},
+        "just code alpha --editor vscode",
+        "trusting the window of `just code alpha --editor vscode` once",
+    ),
+}
+
+
+@pytest.mark.parametrize("run", RUNS)
+def test_the_notes_just_code_lines_open_the_window_of_the_run_s_editor(tmp_path, run):
+    given, line, also = RUNS[run]
+    text = _render(tmp_path, **given)
+    assert f"`{line}`, or one repository: `{line} --project <repo>` |" in text, text
+    assert f"| `{line}` | open this window again |" in text, text
+    assert also in text, text
+    if line != "just code alpha":
+        assert "`just code alpha`" not in text, text
+
+
 def test_what_the_window_wrote_is_carried_over_as_it_is(tmp_path):
     text = _render(tmp_path, code_notes_live=LIVE)
     assert LIVE in text and text.count(START) == 1
