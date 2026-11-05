@@ -83,7 +83,7 @@ destroy one it was given ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-r
 **`proxmox_tags(tags)`** — a VM's tags as a list of whole tags, each trimmed, an empty one left out, their
 case as given: split on `;`, as Proxmox joins them on the wire, or `,`, as `proxmox_kvm` sends them and
 some versions echo them back ([§3](README.md#3-the-identity-model)). The one parser of them:
-`proxmox_vm`'s lookup, the Tailscale record (`tasks/tailscale_record.yml`), which writes them back as
+`proxmox_vm`'s lookup, the VMs' marks (`tasks/vm_marks.yml`, Tailscale's record among them), which write them back as
 Proxmox gave them, and `just status`'s model; the whole-tag patterns in
 `inventory/group_vars/all/defaults.yml` match the joined form.
 
@@ -258,8 +258,8 @@ A run waits for the person in three ways, and each is set apart:
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
   Each of the 24 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
-  `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
-  `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
+  `github_projects_next`, `tailscale_next`, `vpn_next` (a VPN's marks, `tasks/vm_marks.yml`), `claude_vm_next`
+  (provision, destroy and `just init`) and `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
   A record about no VM is keyed by words no VM is named, a VM's name being one plain word: destroy's `kept
   SSH aliases`, and `just init`. Its two playbooks each record under a matter of their own: `init_settings`,
   the values still to set or a vault that cannot be opened, and nothing once every value is set, the checks
@@ -996,3 +996,17 @@ and `tests/unit/test_choices.py` holds the three equal.
   defaults. `tailscale_off_setting` names, in its messages, the setting that turned Tailscale off. Each member's role
   runs where it is chosen, or where its installed marker says it put something there to take off again; its release
   runs at `just destroy` whatever is chosen.
+- **The VPN's members** (`vpn/`). Who is on a VPN's network is a plan, data: the marks to keep on each VM in
+  Proxmox, and what is said. Each VPN family is a module of free functions with one, `plan_members(vpn, inputs)`
+  (`tailscale.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
+  `claude_vpns`, each VM a run plans (`Member`: its name and VM ID from Proxmox, its marks, what its roles saw), the
+  inputs (`MemberInputs`, which grow by fields with defaults) and the plan (`MemberPlan`). Every plan passes
+  `registry.py` on every call: a refusal holds nothing else; marks only for the VMs it was given, only of the
+  family's own (`common.marks_of`), never Tailscale's record taken off; NEXT STEPS only under the family's own
+  matters, for the VMs it was given. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left
+  and refuses what the plan refuses; `tasks/vpn_apply.yml` applies it, each VM's marks through `tasks/vm_marks.yml`.
+- **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
+  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login.
+  `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and written back as read with the marks
+  added or taken off, only on the VM of that name and VM ID that carries the ownership tag, never in check mode, a
+  VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).

@@ -90,8 +90,10 @@ playbooks/
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
   tasks/vms_requested.yml         the tagged VMs asked for and their addresses, those named after a host of the
                                   inventory left out and said, two of one name refused (discover, ssh_config)
-  tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
-                                  key is never sent to it again (configure.yml, tailscale_login.yml)
+  tasks/vpn_members.yml           a VPN's plan of who is on its network (lib/claude_vm/vpn/), its refusals first
+  tasks/vpn_apply.yml             the plan applied: each VM's marks (configure.yml, tailscale_login.yml)
+  tasks/vm_marks.yml              each VM's marks as tags in Proxmox, VM by VM, the one writer of one: that its
+                                  Tailscale has had a login, so the vault's key is never sent to it again
   tasks/sign_in_failed.yml        a VM a sign-in did not sign in - not reached, or its sign-in failed - remembered,
                                   said and kept for NEXT STEPS (claude_login.yml, github_login.yml, tailscale_login.yml)
   tasks/sign_in_held.yml          GitHub's or Tailscale's sign-in held back for a VM, said and kept for NEXT STEPS

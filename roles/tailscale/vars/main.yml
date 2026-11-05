@@ -90,7 +90,7 @@ tailscale_login_ours: >-
 # Whether the Tailscale this role installed has had a login - any: the role's,
 # one made by hand, one expired (each leaves a node key) - or has a sign-in under
 # way (the role's pending marker, or a page tailscaled holds): what Proxmox
-# records (tasks/tailscale_record.yml), so that the vault's key is never sent to
+# records (tasks/vpn_members.yml), so that the vault's key is never sent to
 # the VM again. A node logged out reads like one that never joined, so a login is
 # recorded wherever it is seen, and a sign-in before it ends, since its page may
 # be approved after the run. Nothing the VM can make this say gets it the key:

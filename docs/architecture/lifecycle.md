@@ -173,7 +173,8 @@ hosts: claude_vms, become: true
 ```yaml
   post_tasks (tagged always): getent vm_user → claude_vm_workspace fact
 hosts: localhost  (tagged tailscale)
-  import tasks/tailscale_record.yml   → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
+  import tasks/vpn_members.yml  Tailscale's plan → tasks/vpn_apply.yml → tasks/vm_marks.yml
+                                 → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
 hosts: localhost  (tagged always)
   collect {name, address, user, vmid, workspace} for every claude_vms host that has the fact
   import tasks/ssh_config.yml  state: present   → the connect line per VM
@@ -188,8 +189,9 @@ recoverable errors").
 
 The third play records in Proxmox, as a tag the VM cannot change, each VM whose Tailscale has had a login, so
 that the vault's auth key is never sent to it again ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)):
-`tasks/tailscale_record.yml`, which `tailscale_login.yml` runs too, after its sign-ins. It reads each VM's tags
-and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
+Tailscale's plan of its members (`tasks/vpn_members.yml`, [§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)),
+applied by `tasks/vpn_apply.yml` through `tasks/vm_marks.yml`, which `tailscale_login.yml` runs too, after its
+sign-ins. It reads each VM's tags and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
 STEPS, while the others are still recorded.
 
 The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and the editor -

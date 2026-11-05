@@ -115,7 +115,7 @@
             claude_vm_sign_in_why: "{{ ansible_failed_result.msg | default('the sign-in failed', true) | string | trim }}"
 
 # Records in Proxmox each VM whose Tailscale has had a login, as configure.yml
-# does after the role (tasks/tailscale_record.yml): a login this sign-in made, a
+# does after the role (tasks/vpn_members.yml): a login this sign-in made, a
 # page still waiting, one found. After the last prompt, so that it holds no VM's
 # sign-in back, and before the last play, since a play in which every VM fails
 # ends the run.
@@ -126,10 +126,15 @@
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
   tasks:
-    - name: Record each VM
-      ansible.builtin.import_tasks: tasks/tailscale_record.yml
+    - name: Plan Tailscale's record of each VM
+      ansible.builtin.import_tasks: tasks/vpn_members.yml
       vars:
-        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
+        claude_vpn_planned: tailscale
+        claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
+        claude_vpn_phase: configure
+
+    - name: Record each VM
+      ansible.builtin.import_tasks: tasks/vpn_apply.yml
 
 # just deploy carries on past a sign-in that failed - the person's to finish
 # later with just login --only tailscale; this command exists to sign in, so here the

@@ -124,8 +124,9 @@ PROXMOX_ELSEWHERE = {
     "playbooks/tasks/cluster_vms.yml": 17,
     "playbooks/tasks/init_choose.yml": 2,
     "playbooks/tasks/init_local_setting.yml": 1,
-    "playbooks/tasks/tailscale_record.yml": 6,
     "playbooks/tasks/vm_addresses.yml": 11,
+    "playbooks/tasks/vm_marks.yml": 6,
+    "playbooks/tasks/vpn_members.yml": 2,
     "playbooks/tasks/vm_stop.yml": 4,
     "playbooks/templates/vm_session.md.j2": 2,
 }

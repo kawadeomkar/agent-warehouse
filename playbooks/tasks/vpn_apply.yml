@@ -1,0 +1,9 @@
+---
+# A VPN's plan applied (tasks/vpn_members.yml made it, and refused what it
+# refuses): each VM's marks in Proxmox (tasks/vm_marks.yml), the one writer of a
+# mark. What the plan holds is data, held by the core to its rules before it
+# reached here: marks only for the VMs it was given, only of the family's own.
+- name: vpn_apply | Keep each VM's marks in Proxmox
+  ansible.builtin.import_tasks: vm_marks.yml
+  vars:
+    claude_vm_marks_changes: "{{ claude_vpn_plan.marks | default([]) }}"

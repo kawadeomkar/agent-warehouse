@@ -85,7 +85,7 @@
 
 # Whether the VM's Tailscale has had a login, or has a sign-in under way - the
 # web login above, approved or still waiting, or one found - for the play after
-# the sign-ins to record in Proxmox (tasks/tailscale_record.yml), as connect.yml
+# the sign-ins to record in Proxmox (tasks/vpn_members.yml), as connect.yml
 # says it for configure's. Set every time this entry point runs.
 - name: login | Say whether the VM has had a login, for Proxmox to record
   ansible.builtin.set_fact:

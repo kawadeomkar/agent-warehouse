@@ -63,7 +63,7 @@ REPORTS = {
     "playbooks/github_login.yml": ["Say why"],
     "playbooks/tasks/sign_in_failed.yml": ["sign_in_failed | Say why, and go on with the next VM"],
     "playbooks/tasks/sign_in_held.yml": ["sign_in_held | Say why the sign-in was not started"],
-    "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
+    "playbooks/tasks/vm_marks.yml": ["vm_marks | Say each VM whose marks could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
     "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],

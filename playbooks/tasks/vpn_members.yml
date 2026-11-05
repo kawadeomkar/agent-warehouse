@@ -1,0 +1,46 @@
+---
+# The plan of who is on a VPN's network (docs/architecture/custom-code.md §7.11),
+# from localhost: each VM as Proxmox and its roles left it, the family's plan
+# (vpn_member_plan, lib/claude_vm/vpn/), and its refusal before anything is
+# applied (tasks/vpn_apply.yml). Only a VM that is a Proxmox VM is planned:
+# Vagrant and the scenarios have none, and nothing is kept for them.
+#
+# Input, through vars: on the import: claude_vpn_planned, the VPN whose members
+# are planned (a key of claude_vpns); claude_vpn_hosts, the names of the VMs;
+# claude_vpn_phase, configure or release.
+# Begun empty on every import, so that neither is ever an earlier one's: with
+# no Proxmox VM to plan, the plan is nothing and nothing is applied.
+- name: vpn_members | Begin the VMs to plan, and the plan
+  ansible.builtin.set_fact:
+    claude_vpn_members: []
+    claude_vpn_plan: {}
+
+# Each VM by its name and the VM ID discovery read from Proxmox, never what the
+# VM says: its marks as Proxmox holds them, and what its roles saw.
+- name: vpn_members | Add each VM as Proxmox and its roles left it
+  ansible.builtin.set_fact:
+    claude_vpn_members: >-
+      {{ claude_vpn_members + [{
+           'vm': {'name': claude_vpn_host, 'vmid': hostvars[claude_vpn_host].proxmox_vm_id | int},
+           'leaving': claude_vpn_phase == 'release',
+           'marks': ['tailscale'] if hostvars[claude_vpn_host].tailscale_joined_before | default(false) | bool else [],
+           'login_seen': hostvars[claude_vpn_host].tailscale_login_to_record | default(false) | bool}] }}
+  when: hostvars[claude_vpn_host].proxmox_vm_id is defined
+  loop: "{{ claude_vpn_hosts | select('in', hostvars) | list }}"
+  loop_control:
+    loop_var: claude_vpn_host
+
+- name: vpn_members | Plan each VM's place on the network
+  ansible.builtin.set_fact:
+    claude_vpn_plan: >-
+      {{ claude_vpn_planned | vpn_member_plan(claude_vpns, {
+           'phase': claude_vpn_phase,
+           'tag': claude_vm_tag | lower,
+           'members': claude_vpn_members}) }}
+  when: claude_vpn_members | length > 0
+
+- name: vpn_members | Refuse what the plan refuses
+  ansible.builtin.assert:
+    that: claude_vpn_plan.refusals | default([]) | length == 0
+    fail_msg: "{{ claude_vpn_plan.refusals | default([]) | join(' ') }}"
+    quiet: true

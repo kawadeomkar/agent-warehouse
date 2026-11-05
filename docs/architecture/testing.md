@@ -286,7 +286,7 @@ pytest over `tests/unit/`, file by file:
   joined (`tailscale_joined_before`, its tag matched whole in a `;`- or `,`-joined list), when the key is
   held back, under `key` by name; any login the role's
   Tailscale has had, or a sign-in under way, held to be recorded, by configure and by the sign-in alike, and
-  the record (`tasks/tailscale_record.yml`) after each, against the fake Proxmox: tagging only the VM of that
+  the record (`tasks/vpn_members.yml`, `tasks/vm_marks.yml`) after each, against the fake Proxmox: tagging only the VM of that
   name and VMID that is the project's, its tags written back as read, never in check mode, and VM by VM -
   one Proxmox cannot answer for said and kept for NEXT STEPS while the others are written; a refused
   key and an OAuth secret without tags as reports; one `set` for drift; a login or a Tailscale made by hand only read; tags compared only

@@ -742,7 +742,7 @@ def test_a_web_login_runs_one_up_reads_the_page_once_and_joins_when_approved_aft
 
 
 def test_every_login_and_page_the_sign_in_meets_is_for_proxmox_to_record(web_logins):
-    # The play after the sign-ins tags them in Proxmox (tasks/tailscale_record.yml), as configure's does
+    # The play after the sign-ins tags them in Proxmox (tasks/vpn_members.yml), as configure's does
     # after the role: a login made here, a page still waiting - approved after the run, it would be a
     # login nothing saw - and one found. Never a VM whose Tailscale is not the role's, or not there.
     root, report = web_logins
@@ -773,9 +773,14 @@ def test_the_record_follows_the_sign_ins_and_comes_before_the_last_play():
         plays = yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text())
         names = [play.get("name") for play in plays]
         assert names.index(after) < names.index(record) < names.index(before), playbook
-        (task,) = plays[names.index(record)]["tasks"]
-        assert task["ansible.builtin.import_tasks"] == "tasks/tailscale_record.yml", playbook
-        assert task["vars"] == {"claude_vm_tailscale_record_vms": "{{ groups['claude_vms'] | default([]) }}"}
+        plan, apply = plays[names.index(record)]["tasks"]
+        assert plan["ansible.builtin.import_tasks"] == "tasks/vpn_members.yml", playbook
+        assert plan["vars"] == {
+            "claude_vpn_planned": "tailscale",
+            "claude_vpn_hosts": "{{ groups['claude_vms'] | default([]) }}",
+            "claude_vpn_phase": "configure",
+        }
+        assert apply["ansible.builtin.import_tasks"] == "tasks/vpn_apply.yml", playbook
 
 
 def test_the_page_is_said_before_the_wait(web_logins):
@@ -1362,7 +1367,7 @@ def test_a_record_proxmox_cannot_write_is_said_and_the_others_are_still_written(
     said = [
         item["msg"]
         for name, host, result in _results(report)
-        if name.endswith("tailscale_record | Say each VM whose record could not be written")
+        if name.endswith("vm_marks | Say each VM whose marks could not be written")
         for item in result.get("results", [])
         if "msg" in item
     ]

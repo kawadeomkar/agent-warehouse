@@ -790,7 +790,8 @@ plan's research record.
   one expired, each of which leaves a node key, and a sign-in under way, the role's pending marker or a page
   tailscaled holds, which may be approved after the run - and the play after each of them,
   `configure.yml`'s after the role and `tailscale_login.yml`'s after the sign-ins, runs
-  `tasks/tailscale_record.yml`, which tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
+  Tailscale's plan (`tasks/vpn_members.yml`) and `tasks/vm_marks.yml`, which tags each such VM
+  `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
   through the API - VM by VM, reading its tags first and writing them back as read, on the VM of that name
   and VMID that carries the ownership tag, never in check mode, and saying, with a NEXT STEPS line, a VM
   Proxmox could not read or write for - and discovery, provisioning's publish (from the role's lookup) and

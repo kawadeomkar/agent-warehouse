@@ -1,0 +1,123 @@
+---
+# Each VM's marks kept in Proxmox: facts about a VM that the VM cannot change,
+# each a tag beside the ownership tag, <ownership tag>-<mark> - that its
+# Tailscale has held a login (claude_vm_tailscale_tag), which discovery,
+# provisioning and just status read back as tailscale_joined_before, so that a
+# VM logged out from inside, which reads like one that never joined, is never
+# handed the vault's key again. The one writer of a mark: a VPN's plan says
+# which to add and which to take off (tasks/vpn_members.yml), and this is
+# Proxmox's side of it, as the host's OS keeps them
+# (docs/architecture/custom-code.md §7.11). From localhost, since playbooks own
+# the API. Only where there is a Proxmox VM (the plan has none for Vagrant and
+# the scenarios), never in check mode, and only on the VM of that name and VMID
+# that carries the ownership tag. Its tags are read again first and written
+# back as they are, the marks added or taken off: Proxmox replaces the whole
+# list.
+#
+# Each VM on its own: one whose tags Proxmox cannot read or write - its node
+# down, the VM gone, a tag User Tag Access refuses - is said, and kept for NEXT
+# STEPS, and the others are still written. Not a failure of the run: the VM is
+# configured, and only its record is missing, which the next run writes.
+#
+# Input, through vars: on the import: claude_vm_marks_changes, the plan's marks:
+# each VM ({name, vmid}), the marks to add and to take off, what is said when
+# Proxmox cannot write them ({reason} where its words go) and the NEXT STEPS
+# matter it is kept under.
+
+# A read that failed holds no proxmox_vms: said below.
+- name: vm_marks | Read the tags of each VM whose marks change
+  community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
+    type: qemu
+    vmid: "{{ claude_vm_mark.vm.vmid }}"
+    config: current
+  register: claude_vm_marks_info
+  failed_when: false
+  when: not ansible_check_mode
+  loop: "{{ claude_vm_marks_changes }}"
+  loop_control:
+    loop_var: claude_vm_mark
+    label: "{{ claude_vm_mark.vm.name }}"
+
+# The tags compared in lowercase, as the ownership tag is matched, and written
+# back as Proxmox gave them. An update that went through is always changed, so
+# one that is not failed: said below.
+- name: vm_marks | Write each VM's marks in Proxmox, keeping its other tags
+  vars:
+    claude_vm_marks_vm: >-
+      {{ claude_vm_marks_read.proxmox_vms | default([], true) | first | default({}, true) }}
+    claude_vm_marks_now: >-
+      {{ (claude_vm_marks_vm.config | default({}, true)).tags | default('', true) | proxmox_tags }}
+    claude_vm_marks_now_lower: "{{ claude_vm_marks_now | map('lower') | list }}"
+    claude_vm_marks_add: >-
+      {{ claude_vm_marks_read.claude_vm_mark.add | map('regex_replace', '^', claude_vm_tag | lower ~ '-') | list }}
+    claude_vm_marks_off: >-
+      {{ claude_vm_marks_read.claude_vm_mark.remove | map('regex_replace', '^', claude_vm_tag | lower ~ '-') | list }}
+  community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+    node: "{{ claude_vm_marks_vm.node }}"
+    vmid: "{{ claude_vm_marks_vm.vmid }}"
+    name: "{{ claude_vm_marks_vm.name }}"
+    update: true
+    tags: >-
+      {{ (claude_vm_marks_now | zip(claude_vm_marks_now_lower) | rejectattr('1', 'in', claude_vm_marks_off)
+          | map(attribute='0') | list)
+         + (claude_vm_marks_add | reject('in', claude_vm_marks_now_lower) | list) }}
+  register: claude_vm_marks_written
+  failed_when: false
+  when:
+    - claude_vm_marks_read is not skipped
+    - claude_vm_marks_read.proxmox_vms is defined
+    - claude_vm_marks_vm.name | default('') == claude_vm_marks_read.claude_vm_mark.vm.name
+    - claude_vm_tag | lower in claude_vm_marks_now_lower
+    - >-
+      claude_vm_marks_add | reject('in', claude_vm_marks_now_lower) | list | length > 0
+      or claude_vm_marks_off | select('in', claude_vm_marks_now_lower) | list | length > 0
+  loop: "{{ claude_vm_marks_info.results | default([]) }}"
+  loop_control:
+    loop_var: claude_vm_marks_read
+    label: "{{ claude_vm_marks_read.claude_vm_mark.vm.name }}"
+
+# Every VM whose tags were read, so that the record below says, VM by VM, what
+# is left: this line, or nothing once the marks are written or were there.
+- name: vm_marks | Say each VM whose marks could not be written
+  vars:
+    claude_vm_marks_read_of: >-
+      {{ claude_vm_marks_info.results
+         | selectattr('claude_vm_mark.vm.name', 'equalto', claude_vm_marks_vm_name) | first }}
+    claude_vm_marks_write_of: >-
+      {{ claude_vm_marks_written.results | default([])
+         | selectattr('claude_vm_marks_read.claude_vm_mark.vm.name', 'equalto', claude_vm_marks_vm_name)
+         | first | default({'skipped': true}, true) }}
+    claude_vm_marks_unread: "{{ claude_vm_marks_read_of.proxmox_vms is not defined }}"
+    claude_vm_marks_unwritten: >-
+      {{ claude_vm_marks_write_of is not skipped and claude_vm_marks_write_of is not changed }}
+    claude_vm_marks_said: >-
+      {{ ((claude_vm_marks_read_of if claude_vm_marks_unread | bool else claude_vm_marks_write_of).msg
+          | default('no reason given', true) | one_line(none))[:200] }}
+  ansible.builtin.debug:
+    msg: "{{ claude_vm_marks_read_of.claude_vm_mark.unwritten | replace('{reason}', claude_vm_marks_said) }}"
+  register: claude_vm_marks_unrecorded
+  when: claude_vm_marks_unread | bool or claude_vm_marks_unwritten | bool
+  loop: >-
+    {{ claude_vm_marks_info.results | default([]) | reject('skipped')
+       | map(attribute='claude_vm_mark.vm.name') | list }}
+  loop_control:
+    loop_var: claude_vm_marks_vm_name
+
+# NEXT STEPS (callback_plugins/agent_warehouse.py), under each change's own
+# matter beside its VPN role's report, which it neither replaces nor clears.
+- name: vm_marks | Keep what is left to do for the end of the run
+  vars:
+    claude_vm_marks_change_of: >-
+      {{ claude_vm_marks_changes | selectattr('vm.name', 'equalto', claude_vm_marks_said_of.claude_vm_marks_vm_name)
+         | first }}
+  ansible.builtin.set_stats:
+    data:
+      vpn_next: >-
+        {{ {claude_vm_marks_said_of.claude_vm_marks_vm_name:
+            {claude_vm_marks_change_of.matter: claude_vm_marks_said_of.msg | default('')}} }}
+    aggregate: true
+    per_host: false
+  loop: "{{ claude_vm_marks_unrecorded.results | default([]) }}"
+  loop_control:
+    loop_var: claude_vm_marks_said_of
+    label: "{{ claude_vm_marks_said_of.claude_vm_marks_vm_name }}"

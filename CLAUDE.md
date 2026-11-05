@@ -259,8 +259,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The key is used from a settled `NeedsLogin` with no `HaveNodeKey` only, on a VM whose Tailscale never
       had a login, and never sent to a node that has a login: one Tailscale no longer accepts logs the node out
       (tailscale#19501).
-    - That a VM's Tailscale had a login is kept in Proxmox, where the VM cannot change it:
-      `tasks/tailscale_record.yml` tags the VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever
+    - That a VM's Tailscale had a login is kept in Proxmox, where the VM cannot change it: Tailscale's plan of
+      its members (`tasks/vpn_members.yml`, `lib/claude_vm/vpn/tailscale.py`), applied by `tasks/vm_marks.yml`,
+      the one writer of a mark, tags the VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever
       the role saw a login or a sign-in under way (`tailscale_login_seen`, `tailscale_login_to_record`), and the
       role reads it as `tailscale_joined_before` from the listing, never from the VM, whose root can make
       `tailscale` say anything to be handed the fleet's key. `proxmox_vm` keeps the tag (`proxmox_vm_kept_tags`).

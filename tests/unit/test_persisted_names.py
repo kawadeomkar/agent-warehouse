@@ -137,6 +137,8 @@ LINES = [
         "playbooks/files/session_notes.py",
         'START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
     ),
+    # In Proxmox, beside the ownership tag: the mark of a VM whose Tailscale has held a login, <tag>-tailscale.
+    ("lib/claude_vm/vpn/common.py", 'TAILSCALE: Final = "tailscale"'),
     # On the Proxmox host: the record of the template's build in its notes.
     ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
     # On this machine: the managed SSH config's blocks, written and read, and the checkout's own folder.
