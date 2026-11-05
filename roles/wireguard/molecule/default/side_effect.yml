@@ -1,0 +1,62 @@
+---
+# The hub, made by hand as a user's server would be, with the VM's peer added
+# from the key its role made; the handshake waited for; a WireGuard link of the
+# user's own beside it; then WireGuard off, which verify.yml checks took off the
+# role's link, files, key and package, and nothing of the user's.
+- name: The hub, the handshake, then WireGuard off
+  hosts: all
+  become: true
+  tasks:
+    - name: Read the key and the files the role wrote
+      ansible.builtin.stat:
+        path: /etc/systemd/network/claude-wg.key
+      register: wireguard_molecule_key
+
+    - name: Check the key is root's and systemd-network's alone
+      ansible.builtin.assert:
+        that:
+          - wireguard_molecule_key.stat.exists
+          - wireguard_molecule_key.stat.mode == '0640'
+          - wireguard_molecule_key.stat.pw_name == 'root'
+          - wireguard_molecule_key.stat.gr_name == 'systemd-network'
+        quiet: true
+
+    - name: Read the VM's public key from its link
+      ansible.builtin.command:
+        argv: [wg, show, claude-wg, public-key]
+      register: wireguard_molecule_vm_key
+      changed_when: false
+
+    - name: Make the hub's link, the VM its one peer
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -c
+          - >-
+            ip link add hubwg type wireguard &&
+            wg set hubwg listen-port 51820 private-key /root/hub.key peer "$1" allowed-ips 198.51.100.130/32 &&
+            ip link set hubwg up
+          - sh
+          - "{{ wireguard_molecule_vm_key.stdout | trim }}"
+      changed_when: true
+
+    - name: Wait for the VM's link to shake hands with the hub
+      ansible.builtin.command:
+        argv: [wg, show, claude-wg, latest-handshakes]
+      register: wireguard_molecule_handshake
+      changed_when: false
+      until: (wireguard_molecule_handshake.stdout.split() | last | default('0') | int) > 0
+      retries: 40
+      delay: 1
+
+    - name: Make a WireGuard link of the user's own
+      ansible.builtin.command:
+        argv: [ip, link, add, wg0, type, wireguard]
+      changed_when: true
+
+    - name: Turn WireGuard off
+      ansible.builtin.import_role:
+        name: wireguard
+      vars:
+        wireguard_wanted: false
+        wireguard_off_why: vpn is none

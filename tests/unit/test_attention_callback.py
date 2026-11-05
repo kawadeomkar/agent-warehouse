@@ -64,12 +64,14 @@ REPORTS = {
     "playbooks/tasks/sign_in_failed.yml": ["sign_in_failed | Say why, and go on with the next VM"],
     "playbooks/tasks/sign_in_held.yml": ["sign_in_held | Say why the sign-in was not started"],
     "playbooks/tasks/vm_marks.yml": ["vm_marks | Say each VM whose marks could not be written"],
+    "playbooks/tasks/vpn_apply.yml": ["vpn_apply | Say each VM's place on the network"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
     "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",
         "Say which aliases were kept, and why",
+        "Say the peer each deleted VM leaves, which WireGuard's plan could not",
     ],
     "playbooks/init_settings.yml": ["Say what was written, and what is left"],
     "playbooks/init_check.yml": ["Say what each check found"],
@@ -531,7 +533,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
     records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
-    assert len(records) == sum(len(names) for names in REPORTS.values()) == 24
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 26
     for record in records:
         data = record["ansible.builtin.set_stats"]["data"]
         assert len(data) == 1, record

@@ -1,0 +1,32 @@
+---
+# Internal: the names this role leaves on a VM, each its own, so a WireGuard of
+# the user's (wg0, /etc/wireguard) is never touched. Persisted: a later run
+# finds them by these names (tests/unit/test_persisted_names.py).
+wireguard_installed_marker_path: "{{ wireguard_marker_dir }}/wireguard-installed"
+wireguard_link: claude-wg
+wireguard_key_path: /etc/systemd/network/claude-wg.key
+wireguard_netdev_path: /etc/systemd/network/50-claude-wg.netdev
+wireguard_network_path: /etc/systemd/network/50-claude-wg.network
+
+# Internal: what the marker says, written before the role's first change on a
+# VM: whether the role installed wireguard-tools there, so off removes the
+# package only then.
+wireguard_marker_installed: installed wireguard-tools
+wireguard_marker_found: found wireguard-tools
+
+# Internal: whether wireguard-tools is installed, and the role's marker is there.
+wireguard_package_present: "{{ (wireguard_dpkg.stdout | default('')) == 'installed' }}"
+wireguard_ours: "{{ wireguard_installed_marker.stat.exists | default(false) }}"
+
+# Internal: the link's last handshake with the hub, read on the VM
+# (state.yml): its age in seconds, or -1 for none since the link was made. A
+# handshake is renewed every two minutes while the keepalive runs, so one
+# older than three is a hub out of reach.
+wireguard_state_lines: "{{ (wireguard_state.stdout | default('')).splitlines() }}"
+wireguard_now: "{{ wireguard_state_lines[0] | default(0) | int }}"
+wireguard_handshake_at: >-
+  {{ (wireguard_state_lines[1:] | map('split') | map('last') | map('int') | list | max)
+     if wireguard_state_lines | length > 1 else 0 }}
+wireguard_handshake_age: >-
+  {{ (wireguard_now | int - wireguard_handshake_at | int) if wireguard_handshake_at | int > 0 else -1 }}
+wireguard_address_read: "{{ (wireguard_address.stdout | default('')).split() | select('match', '^[0-9.]+/[0-9]+$') | first | default('') }}"

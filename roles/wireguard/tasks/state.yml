@@ -1,0 +1,20 @@
+---
+# The link as the kernel has it, read and never changed: the VM's own clock
+# and the last handshake of each peer (the hub, the link's one), and the
+# address it has. A link that is not there answers nothing, which reads as
+# none.
+- name: state | Read the link's last handshake with the hub
+  ansible.builtin.command:
+    argv: [sh, -c, 'date +%s; wg show "$1" latest-handshakes 2>/dev/null || true', sh, "{{ wireguard_link }}"]
+  register: wireguard_state
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: state | Read the link's address
+  ansible.builtin.command:
+    argv: [ip, "-4", -o, addr, show, dev, "{{ wireguard_link }}"]
+  register: wireguard_address
+  changed_when: false
+  failed_when: false
+  check_mode: false

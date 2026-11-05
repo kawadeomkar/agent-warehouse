@@ -265,9 +265,24 @@ claude_vpns:
     role: tailscale
     sign_in: true
     reach: [lan]
+  wireguard:
+    name: WireGuard
+    family: wireguard
+    role: wireguard
+    sign_in: false
+    reach: [lan]
 # The vpn setting as every playbook reads it: an empty one is none. Internal,
 # not a setting.
 claude_vpn_key: "{{ vpn | default('none', true) | string }}"
+
+# ------------------------------------------------------------ WireGuard -----
+# Each setting's description: local.yml.example, under WireGuard.
+wireguard_hub: manual
+wireguard_hub_network: ""
+wireguard_vm_prefix: ""
+wireguard_hub_public_key: ""
+wireguard_hub_endpoint: ""
+wireguard_keepalive: 25
 
 # ------------------------------------------------------------ Tailscale -----
 # Each setting's description: local.yml.example, under Tailscale.
@@ -434,3 +449,8 @@ tailscale_wanted: "{{ claude_vpn_key == 'tailscale' }}"
 tailscale_off_setting: >-
   {{ {'name': 'tailscale_enabled', 'value': 'false'} if not (tailscale_enabled | bool)
      else {'name': 'vpn', 'value': claude_vpn_key} }}
+
+# Whether WireGuard is the VPN, from the vpn setting, and why it is off where it
+# is, as the role's messages name it.
+wireguard_wanted: "{{ claude_vpn_key == 'wireguard' }}"
+wireguard_off_why: "vpn is {{ claude_vpn_key }}"

@@ -65,6 +65,35 @@ def tailnet_ipv4(addresses):
     return ""
 
 
+# A mark: a fact about a VM that the VM cannot change, kept as a tag beside the ownership tag, <tag>-<mark>
+# (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>.
+MARK_RE = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}")
+
+
+def _tag_list(tags):
+    """A VM's tags as proxmox_tags reads them, from its string or a list of them, each lowercased, as the ownership
+    tag is matched."""
+    return [tag.lower() for tag in proxmox_tags(tags if isinstance(tags, str) else ";".join(map(str, tags or ())))]
+
+
+def proxmox_marks(tags, tag):
+    """The marks a VM's tags hold, the ownership tag's prefix taken off, in the order Proxmox gave them."""
+    prefix = f"{str(tag).lower()}-"
+    return [t[len(prefix) :] for t in _tag_list(tags) if t.startswith(prefix) and MARK_RE.fullmatch(t[len(prefix) :])]
+
+
+def proxmox_wireguard_taken(resources, tag, but=()):
+    """Every WireGuard address a VM of the project holds in Proxmox, from the cluster's listing, but the VMs whose VM
+    IDs are given: the addresses no other VM may be given."""
+    taken, but = [], {int(vmid) for vmid in but}
+    for vm in resources or ():
+        if not isinstance(vm, dict) or vm.get("vmid") in but:
+            continue
+        if str(tag).lower() in _tag_list(vm.get("tags", "")):
+            taken += [mark[3:] for mark in proxmox_marks(vm.get("tags", ""), tag) if mark.startswith("wg-")]
+    return taken
+
+
 def guest_addresses(vms, configs, networks, nic="net0"):
     """Pair each VM of a cluster listing with the address its agent reports.
 

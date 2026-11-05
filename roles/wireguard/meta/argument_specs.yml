@@ -1,0 +1,52 @@
+---
+argument_specs:
+  main:
+    short_description: Set the VM's WireGuard link up as the members' plan has it, or take it off
+    description:
+      - Writes systemd-networkd's netdev and network for the link claude-wg - the hub its one peer, the VM's address
+        on the tunnel - from wireguard_tunnel, the members' plan for this VM, and makes the link again only when its
+        netdev changed. With wireguard_wanted false it takes off what it set up, where its marker is, and
+        wireguard-tools only where it installed it. A WireGuard of the user's own is left alone.
+    options:
+      wireguard_wanted:
+        type: bool
+        default: false
+        description: Whether WireGuard is the VPN; wired from the vpn setting.
+      wireguard_tunnel:
+        type: dict
+        default: {}
+        description:
+          - The plan's tunnel for this VM - address, hub_public_key, endpoint, allowed_ips, keepalive - made and held
+            to its rules by the core (lib/claude_vm/vpn/). Empty, nothing is set up.
+      wireguard_off_why:
+        type: str
+        default: wireguard_wanted is false
+        description: The setting that turned WireGuard off, as the messages name it.
+      wireguard_marker_dir:
+        type: path
+        default: /var/lib/claude-on-proxmox
+        description: Where the role's marker lives on the VM.
+  # tasks_from: key, which playbooks/configure.yml runs before the members' plan.
+  key:
+    short_description: Make the VM's WireGuard key on the VM, and read its public key
+    description:
+      - Installs wireguard-tools, makes the VM's key pair once (root and systemd-network may read it, nobody else),
+        and keeps its public key and whether the link has reached the hub in facts, for the members' plan. The
+        private key never leaves the VM.
+    options:
+      wireguard_marker_dir:
+        type: path
+        default: /var/lib/claude-on-proxmox
+  # tasks_from: status, which playbooks/status.yml (just status) runs on each VM.
+  status:
+    short_description: Say how the VM is on its WireGuard network, changing nothing
+    description:
+      - Reads whose WireGuard is installed, the link's address and its last handshake with the hub, and keeps what
+        just status shows in wireguard_status_found. Never makes a key, writes a file or changes the link.
+    options:
+      wireguard_wanted:
+        type: bool
+        default: false
+      wireguard_marker_dir:
+        type: path
+        default: /var/lib/claude-on-proxmox

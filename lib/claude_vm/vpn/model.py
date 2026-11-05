@@ -13,7 +13,7 @@ from ..catalogue import rows_from
 from ..records import Checked, plain
 from ..refs import NAME, NextStep, VmRef
 
-FamilyName = Literal["tailscale"]  # one value per family module
+FamilyName = Literal["tailscale", "wireguard"]  # one value per family module
 Reach = Literal["lan", "tunnel"]  # the guest agent's address, or the VPN's
 HubKind = Literal["none", "manual", "opnsense"]  # who administers the members: no one the plan writes to, or a hub
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -58,6 +58,7 @@ class Member(Checked):
         False  # Tailscale: its role saw a login on the Tailscale it installed (tailscale_login_to_record)
     )
     public_key: str = ""  # WireGuard: what its role's key entry point read on the VM; '' where it was not read
+    handshake: bool = False  # WireGuard: its link has shaken hands with the hub, as its role read it
     lan: str = ""  # WireGuard: the network of the VM's own address, where it was read
 
     def validate(self) -> None:
@@ -99,6 +100,7 @@ class MemberInputs(Checked):
     fleet: tuple[VmRef, ...] = ()  # every tagged VM of a complete listing, for pruning; empty, none is pruned
     hub: Hub = Hub()
     vm_prefix: str = ""  # the range of the hub's network reserved for the VMs
+    taken: tuple[str, ...] = ()  # the addresses VMs outside the members hold, from Proxmox's listing
     reach: Reach = "lan"
     keepalive: int = 25
 

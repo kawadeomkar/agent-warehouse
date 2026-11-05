@@ -171,6 +171,7 @@ def test_to_wire_puts_format_version_and_kind_first_and_derived_values_after_the
         "vm": {"name": "alpha", "vmid": 4013},
         "matter": "editor",
         "action": {"recipe": "code", "args": ["alpha"], "line": "just code alpha"},
+        "text": "",
     }
     assert wire.to_wire(NextStep(vm=step.vm, matter="vm", action=None))["action"] is None
 

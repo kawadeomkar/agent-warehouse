@@ -2369,10 +2369,11 @@ def test_a_scenario_that_fails_beside_the_others_fails_the_run_and_says_where_it
     assert result.returncode != 0, _output(result)
     said = _output(result)
     # Every scenario ran, the one that failed among them, and it is said with its log and how its output ended.
-    assert sorted(_lanes_ran(tmp_path)) == sorted(_evaluate("scenario_roles").split())
+    roles = _evaluate("scenario_roles").split()
+    assert sorted(_lanes_ran(tmp_path)) == sorted(roles)
     log = tmp_path / "logs" / "20261106-120000-test-common.log"
     assert re.search(rf"^common failed \(exit 3\) after \d+ s; its log: {re.escape(str(log))}$", said, flags=re.M), said
-    assert "    it broke here" in said and "common failed, 8 of 8 ran" in said, said
+    assert "    it broke here" in said and f"common failed, {len(roles)} of {len(roles)} ran" in said, said
 
 
 @pytest.mark.parametrize(

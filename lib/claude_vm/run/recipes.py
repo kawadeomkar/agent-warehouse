@@ -165,10 +165,12 @@ SIGN_IN_FAILURES = Causes(
 )
 
 # What configuration and the sign-ins rescue and record in claude_vm_configure_failures, for a last play to raise:
-# Tailscale's role in configure, and the work after a sign-in.
+# the VPNs' roles in configure, and the work after a sign-in.
 CONFIGURE_FAILURES = Causes(
     blocks=[
         "Install Tailscale and keep it joined",
+        "Make the VM's WireGuard key, or take WireGuard off",
+        "Join the WireGuard network",
         "Start Remote Control as just deploy --only configure would",
         "Configure the repositories now that gh is signed in",
     ]

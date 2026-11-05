@@ -256,7 +256,7 @@ A run waits for the person in three ways, and each is set apart:
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 24 reports that can say what to do later registers its message and records it straight
+  Each of the 26 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
   `github_projects_next`, `tailscale_next`, `vpn_next` (a VPN's marks, `tasks/vm_marks.yml`), `claude_vm_next`
   (provision, destroy and `just init`) and `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
@@ -998,15 +998,26 @@ and `tests/unit/test_choices.py` holds the three equal.
   runs at `just destroy` whatever is chosen.
 - **The VPN's members** (`vpn/`). Who is on a VPN's network is a plan, data: the marks to keep on each VM in
   Proxmox, and what is said. Each VPN family is a module of free functions with one, `plan_members(vpn, inputs)`
-  (`tailscale.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
+  (`tailscale.py`, `wireguard.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
   `claude_vpns`, each VM a run plans (`Member`: its name and VM ID from Proxmox, its marks, what its roles saw), the
   inputs (`MemberInputs`, which grow by fields with defaults) and the plan (`MemberPlan`). Every plan passes
   `registry.py` on every call: a refusal holds nothing else; marks only for the VMs it was given, only of the
   family's own (`common.marks_of`), never Tailscale's record taken off; NEXT STEPS only under the family's own
-  matters, for the VMs it was given. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left
-  and refuses what the plan refuses; `tasks/vpn_apply.yml` applies it, each VM's marks through `tasks/vm_marks.yml`.
+  matters, for the VMs it was given. For WireGuard, besides: one tunnel per VM that stays, at a host of the VMs'
+  range no other VM of the project holds (`taken`, from Proxmox's listing), to the hub the inputs name; a peer only
+  by the name `<tag>-<vm>` of a VM it was given, with that VM's own key, used by no other peer, and its own address
+  alone, as a /32; a peer removed only for a VM that is leaving. WireGuard's family gives each VM its marked
+  address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free, and
+  refuses, before anything is written, settings that cannot work: a range outside the hub's network, a network that
+  overlaps a VM's own, a key that is not one, an endpoint that is not a name or an address and a port, a peer name a
+  hub would refuse. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
+  the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through `tasks/vm_marks.yml`, what it says, and
+  its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`).
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
-  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login.
+  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login, `wg-<address>`
+  for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone). Discovery,
+  provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, and
+  `proxmox_vm` keeps them whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`).
   `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and written back as read with the marks
   added or taken off, only on the VM of that name and VM ID that carries the ownership tag, never in check mode, a
   VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).

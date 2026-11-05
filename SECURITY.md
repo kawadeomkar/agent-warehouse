@@ -210,6 +210,12 @@ restate them are not treated as vulnerabilities:
   default the VM keeps its own resolver (`tailscale_accept_dns: false`): a tailnet's DNS settings that
   override local DNS would otherwise answer every lookup on the VM. Tailscale's log upload is on, as
   Tailscale ships it; `tailscale_upload_logs: false` turns it off.
+- **WireGuard reach.** With `vpn: wireguard`, each VM is a peer of your own WireGuard server, which the project
+  never writes, and what a VM can reach through it is your server's firewall's to decide. Forwarding between peers
+  lets a VM, which runs an agent with passwordless sudo, open connections to your devices unless the server drops
+  them: [the guide's rules](docs/guides/wireguard.md#what-your-server-must-already-do) pass devices to the VMs'
+  range and drop new connections from it. The VM's private key never leaves it, and the peer allows it its own
+  address alone.
 - **What a destroyed VM tells the controller.** `just destroy` releases a VM before deleting it, from
   what the VM reports - and the VM runs an agent with sudo. The Tailscale node ID the device is deleted by
   is the VM's to report, and the API credential can delete any device in the tailnet, so the device is

@@ -1,9 +1,36 @@
 ---
 # A VPN's plan applied (tasks/vpn_members.yml made it, and refused what it
 # refuses): each VM's marks in Proxmox (tasks/vm_marks.yml), the one writer of a
-# mark. What the plan holds is data, held by the core to its rules before it
-# reached here: marks only for the VMs it was given, only of the family's own.
+# mark; what the plan says of each VM; and what is left to do, kept for NEXT
+# STEPS. What the plan holds is data, held by the core to its rules before it
+# reached here: marks only for the VMs it was given, only of the family's own;
+# lines and records of those VMs alone. A hub of kind manual is written by
+# nobody but the user: its peers to add and remove are what the plan says.
 - name: vpn_apply | Keep each VM's marks in Proxmox
   ansible.builtin.import_tasks: vm_marks.yml
   vars:
     claude_vm_marks_changes: "{{ claude_vpn_plan.marks | default([]) }}"
+
+- name: vpn_apply | Say each VM's place on the network
+  ansible.builtin.debug:
+    msg: "{{ claude_vpn_said.text }}"
+  loop: "{{ claude_vpn_plan.report | default([]) }}"
+  loop_control:
+    loop_var: claude_vpn_said
+    label: "{{ claude_vpn_said.vm }}"
+
+# NEXT STEPS (callback_plugins/agent_warehouse.py): each record's line - a just
+# command, or a step outside the project said as it is - and '' once nothing is
+# left, so a peer added since the last run clears its line.
+- name: vpn_apply | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      vpn_next: >-
+        {{ {claude_vpn_step.vm.name:
+            {claude_vpn_step.matter: (claude_vpn_step.action.line if claude_vpn_step.action else claude_vpn_step.text)}} }}
+    aggregate: true
+    per_host: false
+  loop: "{{ claude_vpn_plan.next_steps | default([]) }}"
+  loop_control:
+    loop_var: claude_vpn_step
+    label: "{{ claude_vpn_step.vm.name }}"

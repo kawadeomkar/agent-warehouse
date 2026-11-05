@@ -1,21 +1,25 @@
 """Every family's plan passes here, and leaves only as the core allows: a refusal alone; marks only for the inputs'
-VMs, only of the family's own, and never the Tailscale record taken off; nothing a family does not write; NEXT STEPS
-of the family's own matters, for the inputs' VMs alone. Anything else is a family's bug, a ValueError, which fails
-the first task that reads the plan, before any write."""
+VMs, only of the family's own, never the Tailscale record taken off, and a WireGuard address only inside the VMs'
+range; one tunnel per VM that stays, at an address of the range no other VM holds, to the hub the inputs name; a
+peer only by the name of a VM it was given, with that VM's own key and address alone; nothing a family does not
+write; NEXT STEPS of the family's own matters, for the inputs' VMs alone. Anything else is a family's bug, a
+ValueError, which fails the first task that reads the plan, before any write."""
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping
 from typing import Any, Final
 
 from ..catalogue import pick
 from ..wire import to_wire
-from . import common, tailscale
+from . import common, tailscale, wireguard
 from .family import Family
-from .model import FamilyName, MemberInputs, MemberPlan, Vpn, inputs_from, vpns_from
+from .model import FamilyName, MemberInputs, MemberPlan, Vpn, inputs_from, ipv4_network, vpns_from
 
-FAMILIES: Final[Mapping[FamilyName, Family]] = {"tailscale": tailscale}  # this annotation is the check
+FAMILIES: Final[Mapping[FamilyName, Family]] = {"tailscale": tailscale, "wireguard": wireguard}  # the check
 _tailscale: Family = tailscale  # one line per family, so a type checker names the member that does not conform
+_wireguard: Family = wireguard
 
 
 def vpn_member_plan(key: object, rows: object, inputs: object) -> dict[str, Any]:
@@ -49,12 +53,18 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
         if common.TAILSCALE in change.remove:
             raise ValueError(f"{vpn.key}'s plan takes {change.vm.name}'s Tailscale record off, which stays for good")
         after = (set(members[change.vm.name].marks) - set(change.remove)) | set(change.add)
-        if sum(mark.startswith("wg-") for mark in after) > 1:
+        if sum(mark.startswith(common.WIREGUARD) for mark in after) > 1:
             raise ValueError(f"{vpn.key}'s plan leaves {change.vm.name} more than one WireGuard address")
+        for mark in change.add:
+            if mark.startswith(common.WIREGUARD) and not _in_range(inputs, common.mark_address(mark)):
+                raise ValueError(f"{vpn.key}'s plan marks {change.vm.name} with {mark}, outside the VMs' range")
         if change.matter not in common.MATTERS[vpn.family]:
             raise ValueError(f"{vpn.key}'s plan keeps NEXT STEPS under {change.matter}, which is not its own")
     if vpn.family == "tailscale" and (plan.peers or plan.tunnels or plan.aliases):
         raise ValueError(f"{vpn.key}'s plan writes peers or tunnels, which Tailscale's coordination server keeps")
+    if vpn.family == "wireguard":
+        _tunnels(vpn, inputs, plan, member_of)
+        _peers(vpn, inputs, plan, member_of)
     for said in plan.report:
         if said.vm not in members:
             raise ValueError(f"{vpn.key}'s plan says something of {said.vm!r}, which is no VM it was given")
@@ -63,3 +73,56 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
         if step.matter not in common.MATTERS[vpn.family]:
             raise ValueError(f"{vpn.key}'s plan keeps NEXT STEPS under {step.matter}, which is not its own")
     return plan
+
+
+def _in_range(inputs: MemberInputs, address: str) -> bool:
+    """A host of the VMs' range: neither its network's address nor its broadcast's, unless it has no others."""
+    if not address or not inputs.vm_prefix:
+        return False
+    prefix, host = ipv4_network(inputs.vm_prefix, "the VM prefix"), ipaddress.IPv4Address(address)
+    return host in prefix and (prefix.prefixlen >= 31 or host not in (prefix.network_address, prefix.broadcast_address))
+
+
+def _tunnels(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
+    held, taken = set(), set(inputs.taken)
+    for tunnel in plan.tunnels:
+        member_of(tunnel.vm)
+        name = tunnel.vm.name
+        if any(member.vm.name == name and member.leaving for member in inputs.members):
+            raise ValueError(f"{vpn.key}'s plan sets {name} up on the tunnel as it leaves")
+        address = tunnel.address.partition("/")[0]
+        if name in {vm for vm, _ in held} or not _in_range(inputs, address) or address in taken | {a for _, a in held}:
+            raise ValueError(f"{vpn.key}'s plan gives {name} {tunnel.address}: not a free address of the VMs' range")
+        held.add((name, address))
+        if (tunnel.hub_public_key, tunnel.endpoint) != (inputs.hub.public_key, inputs.hub.endpoint):
+            raise ValueError(f"{vpn.key}'s plan points {name} at a hub it was not given")
+        if tunnel.keepalive != inputs.keepalive or tunnel.allowed_ips != (inputs.hub.network,):
+            raise ValueError(f"{vpn.key}'s plan routes {name} into more than the hub's network")
+
+
+def _peers(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
+    tunnels = {tunnel.vm.name: tunnel.address.partition("/")[0] for tunnel in plan.tunnels}
+    keys = {peer.public_key for peer in inputs.hub.peers}
+    named = set()
+    for peer in plan.peers:
+        if peer.vm is None:
+            raise ValueError(f"{vpn.key}'s plan changes {peer.name}, a peer of no VM it was given")
+        member_of(peer.vm)
+        member = next(member for member in inputs.members if member.vm == peer.vm)
+        if peer.name != common.peer_name(inputs.tag, peer.vm.name) or not common.PEER_NAME.fullmatch(peer.name):
+            raise ValueError(f"{vpn.key}'s plan names {peer.vm.name}'s peer {peer.name}")
+        if peer.name in named:
+            raise ValueError(f"{vpn.key}'s plan changes {peer.name} twice")
+        named.add(peer.name)
+        if peer.kind == "delete":
+            if not member.leaving:
+                raise ValueError(f"{vpn.key}'s plan removes {peer.name}, whose VM stays")
+            continue
+        if member.leaving:
+            raise ValueError(f"{vpn.key}'s plan adds {peer.name}, whose VM is leaving")
+        if peer.public_key != member.public_key or not common.public_key(peer.public_key):
+            raise ValueError(f"{vpn.key}'s plan gives {peer.name} a key that is not its VM's")
+        if peer.public_key == inputs.hub.public_key or (peer.kind == "add" and peer.public_key in keys):
+            raise ValueError(f"{vpn.key}'s plan gives {peer.name} a key the hub has already")
+        if peer.address != f"{tunnels.get(peer.vm.name)}/32":
+            raise ValueError(f"{vpn.key}'s plan allows {peer.name} more, or other, than its VM's own address")

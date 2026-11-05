@@ -157,7 +157,7 @@ and only that:
 - the settings `local.yml.example` and `vault.yml.example` list, and the shape of `inventory/hosts.yml`: the
   `proxmox` group, its host and that host's `ansible_host`;
 - the role names `just deploy --tags` takes: `common`, `vscode_server`, `dev_tools`, `claude_code`,
-  `github_projects` and `tailscale`;
+  `github_projects`, `tailscale` and `wireguard`;
 - the settings every recipe takes from the environment or before its name: `ANSIBLE_ARGS`, `LOG_DIR`,
   `LOG_RETENTION_DAYS`, `PYTHON` and `UV`;
 - the path of the helper `just code` copies to a VM for any editor's Claude task, which a task of your own may

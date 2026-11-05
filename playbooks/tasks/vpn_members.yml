@@ -16,16 +16,28 @@
     claude_vpn_plan: {}
 
 # Each VM by its name and the VM ID discovery read from Proxmox, never what the
-# VM says: its marks as Proxmox holds them, and what its roles saw.
+# VM says: its marks as Proxmox holds them (claude_vm_marks; a host added
+# without them carries Tailscale's record alone, as tailscale_joined_before),
+# what its roles saw, and the network of its own address.
 - name: vpn_members | Add each VM as Proxmox and its roles left it
+  vars:
+    claude_vpn_of: "{{ hostvars[claude_vpn_host] }}"
+    claude_vpn_lan: "{{ (claude_vpn_of.ansible_facts | default({})).default_ipv4 | default({}) }}"
   ansible.builtin.set_fact:
     claude_vpn_members: >-
       {{ claude_vpn_members + [{
-           'vm': {'name': claude_vpn_host, 'vmid': hostvars[claude_vpn_host].proxmox_vm_id | int},
+           'vm': {'name': claude_vpn_host, 'vmid': claude_vpn_of.proxmox_vm_id | default(claude_vpn_of.claude_vm_listed_id) | int},
            'leaving': claude_vpn_phase == 'release',
-           'marks': ['tailscale'] if hostvars[claude_vpn_host].tailscale_joined_before | default(false) | bool else [],
-           'login_seen': hostvars[claude_vpn_host].tailscale_login_to_record | default(false) | bool}] }}
-  when: hostvars[claude_vpn_host].proxmox_vm_id is defined
+           'marks': claude_vpn_of.claude_vm_marks
+                    | default(['tailscale'] if claude_vpn_of.tailscale_joined_before | default(false) | bool else []),
+           'login_seen': claude_vpn_of.tailscale_login_to_record | default(false) | bool,
+           'public_key': claude_vpn_of.wireguard_public_key | default(''),
+           'handshake': claude_vpn_of.wireguard_handshake | default(false) | bool,
+           'lan': (claude_vpn_lan.network ~ '/' ~ claude_vpn_lan.prefix)
+                  if claude_vpn_lan.network is defined and claude_vpn_lan.prefix is defined else ''}] }}
+  when: >-
+    hostvars[claude_vpn_host].proxmox_vm_id is defined
+    or hostvars[claude_vpn_host].claude_vm_listed_id | default(0) | int > 0
   loop: "{{ claude_vpn_hosts | select('in', hostvars) | list }}"
   loop_control:
     loop_var: claude_vpn_host
@@ -36,8 +48,28 @@
       {{ claude_vpn_planned | vpn_member_plan(claude_vpns, {
            'phase': claude_vpn_phase,
            'tag': claude_vm_tag | lower,
-           'members': claude_vpn_members}) }}
+           'members': claude_vpn_members} | combine(claude_vpn_wireguard if claude_vpn_planned == 'wireguard' else {})) }}
+  vars:
+    # WireGuard's hub and range, from the settings, and every address another
+    # VM of the project holds, from Proxmox's listing (claude_vm_all), the
+    # members' own left out.
+    claude_vpn_wireguard:
+      hub:
+        kind: "{{ wireguard_hub }}"
+        network: "{{ wireguard_hub_network }}"
+        public_key: "{{ wireguard_hub_public_key }}"
+        endpoint: "{{ wireguard_hub_endpoint }}"
+      vm_prefix: "{{ wireguard_vm_prefix }}"
+      keepalive: "{{ wireguard_keepalive | int }}"
+      taken: >-
+        {{ claude_vm_all.json.data | default([], true)
+           | proxmox_wireguard_taken(claude_vm_tag, claude_vpn_members | map(attribute='vm.vmid') | list) }}
   when: claude_vpn_members | length > 0
+
+# Each VPN's plan by its key, for a later play: the VMs' own reads it there.
+- name: vpn_members | Keep the plan by its VPN
+  ansible.builtin.set_fact:
+    claude_vpn_plans: "{{ claude_vpn_plans | default({}) | combine({claude_vpn_planned: claude_vpn_plan}) }}"
 
 - name: vpn_members | Refuse what the plan refuses
   ansible.builtin.assert:

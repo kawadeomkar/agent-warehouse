@@ -137,8 +137,21 @@ LINES = [
         "playbooks/files/session_notes.py",
         'START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
     ),
-    # In Proxmox, beside the ownership tag: the mark of a VM whose Tailscale has held a login, <tag>-tailscale.
+    # In Proxmox, beside the ownership tag: the mark of a VM whose Tailscale has held a login, <tag>-tailscale, and
+    # of the address a VM keeps on its WireGuard network, <tag>-wg-<address>.
     ("lib/claude_vm/vpn/common.py", 'TAILSCALE: Final = "tailscale"'),
+    ("lib/claude_vm/vpn/common.py", 'WIREGUARD: Final = "wg-"'),
+    # On a VM: WireGuard's marker, key, link and its files, which a later run finds by these names.
+    ("roles/wireguard/defaults/main.yml", "wireguard_marker_dir: /var/lib/claude-on-proxmox"),
+    (
+        "roles/wireguard/vars/main.yml",
+        'wireguard_installed_marker_path: "{{ wireguard_marker_dir }}/wireguard-installed"',
+    ),
+    ("roles/wireguard/vars/main.yml", "wireguard_link: claude-wg"),
+    ("roles/wireguard/vars/main.yml", "wireguard_key_path: /etc/systemd/network/claude-wg.key"),
+    ("roles/wireguard/vars/main.yml", "wireguard_netdev_path: /etc/systemd/network/50-claude-wg.netdev"),
+    ("roles/wireguard/vars/main.yml", "wireguard_network_path: /etc/systemd/network/50-claude-wg.network"),
+    ("roles/wireguard/vars/main.yml", "wireguard_marker_installed: installed wireguard-tools"),
     # On the Proxmox host: the record of the template's build in its notes.
     ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
     # On this machine: the managed SSH config's blocks, written and read, and the checkout's own folder.

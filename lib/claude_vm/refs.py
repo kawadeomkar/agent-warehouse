@@ -51,3 +51,4 @@ class NextStep(Checked):
     vm: VmRef
     matter: str
     action: Action | None
+    text: str = ""  # what is left, said as it is, where it is no just command: a step taken outside the project

@@ -143,6 +143,47 @@
           ansible.builtin.debug:
             msg: "{{ claude_vm_configure_failures | last }}"
 
+    # WireGuard's key, made on the VM, and its public key read for the members'
+    # plan in the play after this one, which gives each VM its address; the
+    # link itself is set up by the play after that. Off (vpn not wireguard:
+    # wireguard_wanted), the role runs only on a VM where its marker is, to take
+    # off what it set up. Like Tailscale's: a failure is recorded and raised at
+    # the end of the run, the import static for --tags wireguard, and the
+    # conditions on the tasks rather than the block.
+    - name: Make the VM's WireGuard key, or take WireGuard off
+      tags: [wireguard]
+      block:
+        - name: Look for a WireGuard this project set up, now that it is off
+          ansible.builtin.stat:
+            path: "{{ wireguard_installed_marker_path }}"
+          register: claude_vm_wireguard_marker
+          when: not (wireguard_wanted | bool)
+
+        - name: Make the VM's WireGuard key
+          ansible.builtin.import_role:
+            name: wireguard
+            tasks_from: key
+          when: wireguard_wanted | bool
+
+        - name: Take WireGuard off
+          ansible.builtin.import_role:
+            name: wireguard
+          when: not (wireguard_wanted | bool) and claude_vm_wireguard_marker.stat.exists | default(false)
+      rescue:
+        - name: Remember that WireGuard failed, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ claude_vm_configure_failures | default([])
+                 + [(inventory_hostname ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags wireguard')] }}
+
+        - name: Say why WireGuard failed, and go on
+          ansible.builtin.debug:
+            msg: "{{ claude_vm_configure_failures | last }}"
+
   # What the editor opens: vm_projects_dir, or ~/projects of the VM user,
   # resolved here on the VM where the home directory is known rather than
   # guessed on the controller (Ansible's own user_dir fact is the connecting
@@ -183,6 +224,100 @@
 
     - name: Record each VM
       ansible.builtin.import_tasks: tasks/vpn_apply.yml
+
+# WireGuard's plan of its members (tasks/vpn_members.yml): each VM's address,
+# kept as a mark in Proxmox, its tunnel, and the peer its server is to have,
+# said (docs/guides/wireguard.md). After the configure play, which read each
+# VM's public key; the plan refuses before anything is written when the
+# settings cannot work (wireguard_hub_network, wireguard_vm_prefix, the
+# server's key and endpoint).
+- name: Plan each VM's place on the WireGuard network
+  hosts: localhost
+  gather_facts: false
+  tags: [wireguard]
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+
+  # In a block whose rescue records the failure on every VM, raised at the end
+  # of the run like the roles': a refusal of the settings, or a hub that cannot
+  # be read or written, never costs a VM its SSH alias, nor deploy its editor.
+  tasks:
+    - name: Plan and apply WireGuard's members
+      block:
+        - name: Plan WireGuard's members
+          ansible.builtin.import_tasks: tasks/vpn_members.yml
+          vars:
+            claude_vpn_planned: wireguard
+            claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
+            claude_vpn_phase: configure
+          when: wireguard_wanted | bool
+
+        - name: Apply WireGuard's plan
+          ansible.builtin.import_tasks: tasks/vpn_apply.yml
+          when: wireguard_wanted | bool
+      rescue:
+        # No plan: the play below changes no VM's link this run.
+        - name: Drop WireGuard's plan
+          ansible.builtin.set_fact:
+            claude_vpn_plans: "{{ claude_vpn_plans | default({}) | combine({'wireguard': {}}) }}"
+
+        - name: Remember that WireGuard's plan failed, on each VM, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ hostvars[claude_vm_wireguard_of].claude_vm_configure_failures | default([])
+                 + [(claude_vm_wireguard_of ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ claude_vm_wireguard_of ~ ' --tags wireguard')] }}
+          delegate_to: "{{ claude_vm_wireguard_of }}"
+          delegate_facts: true
+          loop: "{{ groups['claude_vms'] | default([]) }}"
+          loop_control:
+            loop_var: claude_vm_wireguard_of
+
+        - name: Say why WireGuard's plan failed, and go on
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.debug:
+            msg: >-
+              WireGuard failed at "{{ ansible_failed_task.name | default('a task') }}":
+              {{ claude_vm_wireguard_why | full_stop }} No VM's link is changed this run.
+
+# Each VM's link, as the plan has it: the role's main, in a block whose rescue
+# records a failure, raised at the end of the run, so the VM still gets its
+# alias.
+- name: Join each VM to the WireGuard network
+  hosts: claude_vms
+  gather_facts: false
+  become: true
+  tags: [wireguard]
+
+  tasks:
+    - name: Join the WireGuard network
+      block:
+        - name: Set the VM's link up as the plan has it
+          ansible.builtin.import_role:
+            name: wireguard
+          vars:
+            wireguard_tunnel: >-
+              {{ (hostvars['localhost'].claude_vpn_plans | default({})).wireguard.tunnels | default([])
+                 | selectattr('vm.name', 'equalto', inventory_hostname) | first | default({}, true) }}
+          when: wireguard_wanted | bool
+      rescue:
+        - name: Remember that WireGuard's link failed, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ claude_vm_configure_failures | default([])
+                 + [(inventory_hostname ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags wireguard')] }}
+
+        - name: Say why WireGuard's link failed, and go on
+          ansible.builtin.debug:
+            msg: "{{ claude_vm_configure_failures | last }}"
 
 # One SSH alias per VM on this machine, so `ssh alpha` and the editor follow
 # the address DHCP gave it (docs/guides/vscode.md). A localhost play after the

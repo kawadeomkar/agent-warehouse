@@ -168,6 +168,9 @@ hosts: claude_vms, become: true
   roles: common → vscode_server → dev_tools → claude_code → github_projects   (each tagged)
   tasks: block (tagged tailscale): import_role tailscale
          rescue: append the failure to claude_vm_configure_failures, say it
+         block (tagged wireguard): import_role wireguard tasks_from: key (vpn: wireguard),
+                                   or import_role wireguard, off, where its marker is
+         rescue: the same
 ```
 
 ```yaml
@@ -175,6 +178,12 @@ hosts: claude_vms, become: true
 hosts: localhost  (tagged tailscale)
   import tasks/vpn_members.yml  Tailscale's plan → tasks/vpn_apply.yml → tasks/vm_marks.yml
                                  → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
+hosts: localhost  (tagged wireguard; vpn: wireguard)
+  block: import tasks/vpn_members.yml  WireGuard's plan → tasks/vpn_apply.yml
+                                 → each VM's address as <ownership tag>-wg-<address>, the peer to add said
+  rescue: no plan, so no link changed; the failure appended to each VM's claude_vm_configure_failures
+hosts: claude_vms  (tagged wireguard; vpn: wireguard)
+  block: import_role wireguard   → the link claude-wg, as the plan has it   rescue: as above
 hosts: localhost  (tagged always)
   collect {name, address, user, vmid, workspace} for every claude_vms host that has the fact
   import tasks/ssh_config.yml  state: present   → the connect line per VM
@@ -354,6 +363,14 @@ VM deleted and released with no GitHub token or Tailscale device left. The kept 
 recorded `''` while every VM it names has a line of its own there, which every VM still there has: it
 named each VM and its rerun a second time. The report once looped over the deleted VMs alone, so a VM
 released and then refused its deletion, or kept by its save, had no line of its own.
+
+**Between the delete play and play 3 — the WireGuard peers left (localhost).** WireGuard's release plan of the VMs deleted
+(`tasks/vpn_members.yml`, `phase: release`), whatever the `vpn` setting is: for each one Proxmox recorded a
+WireGuard address for (`claude_vm_marks`, read from the listing as each VM was added), the peer to remove from the
+user's server, said and kept for NEXT STEPS (`vpn_next`, matter `wireguard_peer`). The project never writes that
+server, and the VM's key went with it. In a block whose rescue says, for each deleted VM with an address, that its
+peer stays, and keeps that for NEXT STEPS: play 3 still runs, so a VM the run started is stopped again and every
+deleted VM's alias goes.
 
 ## 4.6 `playbooks/status.yml` — read-only, drawn live
 

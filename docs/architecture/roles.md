@@ -874,3 +874,32 @@ plan's research record.
   the network came back - and the joined marker stays with the login that may be left: turned on again,
   the daemon starts on that state, and the login is still the role's. A device the API no longer has
   (404) is said as gone already, as the release says it.
+
+## 5.9 `wireguard` — each VM a peer of your WireGuard server
+
+Run with `vpn: wireguard` ([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)): the
+VM a peer of a WireGuard server the user already runs, its hub, which the project never writes. The role is the VM's
+half; who is on the network - each VM's address, the peer its server is to have - is the members' plan, made on the
+controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`).
+
+- **Ownership.** `/var/lib/claude-on-proxmox/wireguard-installed` is written before the role's first change on a VM,
+  saying whether the role installed `wireguard-tools` there; everything else the role makes has a name of its own -
+  the key `/etc/systemd/network/claude-wg.key`, the files `50-claude-wg.netdev` and `50-claude-wg.network`, the link
+  `claude-wg` - so a WireGuard of the user's (`wg0`, `/etc/wireguard`) is never touched.
+- **The key** (`tasks_from: key`, in configure's play, before the plan). `wireguard-tools` installed, and the key
+  made once with `wg genkey` under `umask 077`, `root:systemd-network` 0640 - what systemd-networkd's
+  `PrivateKeyFile=` reads - and never read by Ansible: `wg pubkey` reads it on the VM, and only the public key is
+  printed. The public key and whether the link has shaken hands with the hub are facts the plan reads through
+  `hostvars`.
+- **The link** (`main`, in the play after the plan). Two files of systemd-networkd's, every value the plan's, held
+  by the core to its rules: the hub its one peer, its endpoint and the networks routed to it (`AllowedIPs`, the
+  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, whose prefix route is
+  the one route needed, since networkd makes none for `AllowedIPs`. networkd applies a netdev only when it makes
+  the link, so a changed one deletes the link first, and the reload makes it again; a changed network alone is
+  reconfigured. An endpoint name is looked up once, when the link is made.
+- **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
+  removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
+- **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the
+  hub, read and never changed, kept in `wireguard_status_found`; a link that has never reached the hub, or not in
+  three minutes, is a line to act on.
+- **No handlers**: the role runs in blocks whose rescue records a failure, and a handler would run out of its reach.

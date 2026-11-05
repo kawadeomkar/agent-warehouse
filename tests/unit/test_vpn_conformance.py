@@ -5,6 +5,7 @@ this shows they hold and that they bite."""
 
 from __future__ import annotations
 
+import base64
 import inspect
 import json
 import os
@@ -18,6 +19,7 @@ import pytest
 import yaml
 from harness import ANSIBLE_PLAYBOOK, ansible_config
 
+from claude_vm import proxmox
 from claude_vm.refs import NextStep, VmRef
 from claude_vm.vpn import model, registry
 from claude_vm.vpn.family import Family
@@ -186,3 +188,201 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
     tasks = json.loads(run.stdout)["plays"][0]["tasks"]
     said = {task["task"]["name"]: task["hosts"]["localhost"].get("msg") for task in tasks}
     assert said["Say"] == ["member_plan", ["tailscale"]]
+
+
+# ------------------------------------------------------------------- WireGuard ---
+# Keys of no real peer: 32 bytes each, in base64 - the hub's and two VMs'.
+HUB_KEY, KEY_A, KEY_B = (base64.b64encode(bytes([n] * 32)).decode() for n in (1, 2, 3))
+HUB = {"kind": "manual", "network": "198.51.100.0/24", "public_key": HUB_KEY, "endpoint": "vpn.example.net:51820"}
+WG = {"hub": HUB, "vm_prefix": "198.51.100.128/25"}
+WG_A = {"vm": ALPHA, "public_key": KEY_A, "lan": "192.0.2.0/24"}
+WG_B = {"vm": BETA, "public_key": KEY_B, "lan": "192.0.2.0/24"}
+
+
+def wg(*members, **over):
+    return given(*members, **(WG | over))
+
+
+def test_wireguard_gives_each_vm_the_lowest_free_address_of_the_range_and_marks_it():
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, WG_B, taken=["198.51.100.129"]))
+    assert not plan["refusals"]
+    assert [(t["vm"]["name"], t["address"]) for t in plan["tunnels"]] == [
+        ("alpha", "198.51.100.130/24"),
+        ("beta", "198.51.100.131/24"),
+    ]
+    assert [(m["vm"]["name"], m["add"], m["matter"]) for m in plan["marks"]] == [
+        ("alpha", ["wg-198.51.100.130"], "wireguard_address"),
+        ("beta", ["wg-198.51.100.131"], "wireguard_address"),
+    ]
+    assert plan["tunnels"][0] | {"vm": None} == {
+        "vm": None,
+        "address": "198.51.100.130/24",
+        "hub_public_key": HUB_KEY,
+        "endpoint": "vpn.example.net:51820",
+        "allowed_ips": ["198.51.100.0/24"],
+        "keepalive": 25,
+    }
+    assert [(p["kind"], p["name"], p["public_key"], p["address"]) for p in plan["peers"]] == [
+        ("add", "claude-on-proxmox-alpha", KEY_A, "198.51.100.130/32"),
+        ("add", "claude-on-proxmox-beta", KEY_B, "198.51.100.131/32"),
+    ]
+    # The peer to add, said and kept for NEXT STEPS until the VM reaches its hub.
+    assert "PublicKey = " + KEY_A in plan["report"][0]["text"]
+    assert [s["matter"] for s in plan["next_steps"]] == ["wireguard_peer", "wireguard_peer"]
+    assert KEY_A in plan["next_steps"][0]["text"]
+
+
+def test_a_vm_keeps_its_marked_address_and_a_vm_that_reached_its_hub_has_nothing_left():
+    kept = WG_A | {"marks": ["tailscale", "wg-198.51.100.200"], "handshake": True}
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(kept))
+    assert plan["tunnels"][0]["address"] == "198.51.100.200/24" and plan["marks"] == []
+    assert plan["next_steps"][0]["text"] == "" and plan["next_steps"][0]["action"] is None
+
+
+def test_an_address_two_vms_are_marked_with_stays_the_lower_vm_id_s_and_one_outside_the_range_is_given_again():
+    plan = registry.vpn_member_plan(
+        "wireguard",
+        ROWS,
+        wg(WG_B | {"marks": ["wg-198.51.100.129"]}, WG_A | {"marks": ["wg-198.51.100.129"]}),
+    )
+    given_to = {t["vm"]["name"]: t["address"] for t in plan["tunnels"]}
+    assert given_to == {"alpha": "198.51.100.129/24", "beta": "198.51.100.130/24"}
+    (change,) = plan["marks"]
+    assert change["vm"] == BETA and change["add"] == ["wg-198.51.100.130"] and change["remove"] == ["wg-198.51.100.129"]
+    moved = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A | {"marks": ["wg-203.0.113.9"]}))
+    assert moved["marks"][0]["remove"] == ["wg-203.0.113.9"] and moved["marks"][0]["add"] == ["wg-198.51.100.129"]
+
+
+def test_a_vm_whose_key_was_not_read_is_said_and_not_joined():
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A | {"public_key": ""}))
+    assert not plan["tunnels"] and not plan["peers"] and not plan["marks"]
+    assert "its WireGuard key was not read" in plan["report"][0]["text"]
+
+
+@pytest.mark.parametrize(
+    ("over", "said"),
+    [
+        ({"vm_prefix": ""}, "wireguard_vm_prefix is not an IPv4 network"),
+        ({"vm_prefix": "203.0.113.0/25"}, "is not inside wireguard_hub_network"),
+        ({"hub": HUB | {"network": ""}}, "wireguard_hub_network is not an IPv4 network"),
+        ({"hub": HUB | {"public_key": "not a key"}}, "wireguard_hub_public_key is not a WireGuard public key"),
+        ({"hub": HUB | {"endpoint": "vpn.example.net"}}, "not host:port"),
+        # Nothing but a name or an address goes into the VM's networkd file.
+        ({"hub": HUB | {"endpoint": "a\n[WireGuardPeer]:51820"}}, "not host:port"),
+        ({"hub": HUB | {"network": "192.0.2.0/24"}, "vm_prefix": "192.0.2.128/25"}, "overlaps alpha's own network"),
+    ],
+)
+def test_settings_that_cannot_work_are_refused_before_anything(over, said):
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, **over))
+    assert len(plan["refusals"]) == 1 and said in plan["refusals"][0], plan["refusals"]
+    assert not any(plan[name] for name in ("marks", "peers", "tunnels", "report", "next_steps"))
+
+
+def test_a_peer_name_a_hub_would_refuse_is_refused():
+    long = {"vm": {"name": "v" * 50, "vmid": 4020}, "public_key": KEY_A}
+    assert "Give the VM a shorter name" in registry.vpn_member_plan("wireguard", ROWS, wg(long))["refusals"][0]
+
+
+def test_at_destroy_each_leaving_vm_with_an_address_has_its_peer_to_remove_said_and_kept():
+    leaving = {"vm": ALPHA, "leaving": True, "marks": ["wg-198.51.100.140"]}
+    plan = registry.vpn_member_plan("wireguard", ROWS, given(leaving, {"vm": BETA, "leaving": True}, phase="release"))
+    assert [(p["kind"], p["name"], p["address"]) for p in plan["peers"]] == [
+        ("delete", "claude-on-proxmox-alpha", "198.51.100.140/32")
+    ]
+    assert "remove its peer" in plan["report"][0]["text"]
+    assert plan["next_steps"][0]["vm"] == ALPHA and "198.51.100.140/32" in plan["next_steps"][0]["text"]
+
+
+WVPN = model.vpns_from(ROWS)["wireguard"]
+WINPUTS = model.inputs_from(wg(WG_A, WG_B | {"leaving": True}, taken=["198.51.100.140"]))
+TUNNEL = Tunnel(
+    vm=A,
+    address="198.51.100.130/24",
+    hub_public_key=HUB_KEY,
+    endpoint="vpn.example.net:51820",
+    allowed_ips=("198.51.100.0/24",),
+    keepalive=25,
+)
+PEER = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A)
+WSLIPS = {
+    "a tunnel outside the range": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, address="203.0.113.5/24"),)),
+    "a tunnel at the range's network address": MemberPlan(
+        vpn="wireguard", tunnels=(replace(TUNNEL, address="198.51.100.128/24"),)
+    ),
+    "a tunnel at an address another VM holds": MemberPlan(
+        vpn="wireguard", tunnels=(replace(TUNNEL, address="198.51.100.140/24"),)
+    ),
+    "a tunnel for a VM that is leaving": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, vm=B),)),
+    "two tunnels at one address": MemberPlan(vpn="wireguard", tunnels=(TUNNEL, TUNNEL)),
+    "a tunnel to another hub": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, hub_public_key=KEY_B),)),
+    "a tunnel routing more than the hub's network": MemberPlan(
+        vpn="wireguard", tunnels=(replace(TUNNEL, allowed_ips=("0.0.0.0/0",)),)
+    ),
+    "a peer of no VM": MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, vm=None),)),
+    "a peer by another name": MemberPlan(
+        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, name="claude-on-proxmox-beta"),)
+    ),
+    "a peer with another VM's key": MemberPlan(
+        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=KEY_B),)
+    ),
+    "a peer with the hub's key": MemberPlan(
+        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=HUB_KEY),)
+    ),
+    "a peer allowed more than its address": MemberPlan(
+        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, address="198.51.100.0/24"),)
+    ),
+    "a peer twice": MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(PEER, PEER)),
+    "a peer removed whose VM stays": MemberPlan(vpn="wireguard", peers=(replace(PEER, kind="delete"),)),
+    "a peer added for a VM that is leaving": MemberPlan(
+        vpn="wireguard", peers=(replace(PEER, vm=B, name="claude-on-proxmox-beta", public_key=KEY_B),)
+    ),
+    "a mark outside the range": MemberPlan(
+        vpn="wireguard",
+        marks=(MarkChange(vm=A, add=("wg-203.0.113.5",), unwritten="({reason})", matter="wireguard_address"),),
+    ),
+    "a Tailscale mark": MemberPlan(
+        vpn="wireguard",
+        marks=(MarkChange(vm=A, add=("tailscale",), unwritten="({reason})", matter="wireguard_address"),),
+    ),
+    "two WireGuard addresses on one VM": MemberPlan(
+        vpn="wireguard",
+        marks=(
+            MarkChange(
+                vm=A, add=("wg-198.51.100.130", "wg-198.51.100.131"), unwritten="({reason})", matter="wireguard_address"
+            ),
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("slip", sorted(WSLIPS))
+def test_the_core_refuses_wireguard_s_slips(slip):
+    with pytest.raises(ValueError):
+        registry.checked(WVPN, WINPUTS, WSLIPS[slip])
+
+
+def test_the_core_takes_wireguard_s_own_plan_whole():
+    plan = MemberPlan(
+        vpn="wireguard",
+        marks=(MarkChange(vm=A, add=("wg-198.51.100.130",), unwritten="({reason})", matter="wireguard_address"),),
+        tunnels=(TUNNEL,),
+        peers=(PEER, PeerWrite(kind="delete", name="claude-on-proxmox-beta", address="198.51.100.140/32", vm=B)),
+    )
+    assert registry.checked(WVPN, WINPUTS, plan) is plan
+
+
+def test_proxmox_s_tags_give_each_vm_its_marks_and_the_addresses_taken():
+    tags = (
+        "claude-on-proxmox;claude-on-proxmox-tailscale;Claude-On-Proxmox-WG-198.51.100.130;keepme;claude-on-proxmox-x"
+    )
+    assert proxmox.proxmox_marks(tags, "claude-on-proxmox") == ["tailscale", "wg-198.51.100.130"]
+    assert proxmox.proxmox_marks(["claude-on-proxmox-wg-198.51.100.131"], "claude-on-proxmox") == ["wg-198.51.100.131"]
+    listing = [
+        {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130"},
+        {"vmid": 4014, "tags": "claude-on-proxmox,claude-on-proxmox-wg-198.51.100.131"},
+        # Not the project's: its mark is no mark.
+        {"vmid": 4015, "tags": "claude-on-proxmox-wg-198.51.100.132"},
+        {"type": "storage", "storage": "local"},
+    ]
+    assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox") == ["198.51.100.130", "198.51.100.131"]
+    assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox", [4013]) == ["198.51.100.131"]

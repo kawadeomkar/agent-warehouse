@@ -1,0 +1,44 @@
+---
+# The role as configure.yml runs it: the key first, then the link as the
+# members' plan would have it, pointed at the stand-in hub on the loopback.
+- name: Converge
+  hosts: all
+  become: true
+  vars:
+    wireguard_wanted: true
+  pre_tasks:
+    # The hub's public key, worked out on the controller from prepare.yml's
+    # private key, so no key of the hub's is written in the repository.
+    - name: Work out the stand-in hub's public key
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - -I
+          - -c
+          - >-
+            import base64;
+            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey;
+            from cryptography.hazmat.primitives import serialization as s;
+            key = X25519PrivateKey.from_private_bytes(bytes([1] * 32)).public_key();
+            print(base64.b64encode(key.public_bytes(s.Encoding.Raw, s.PublicFormat.Raw)).decode())
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+      register: wireguard_molecule_hub
+  tasks:
+    - name: Make the VM's key
+      ansible.builtin.import_role:
+        name: wireguard
+        tasks_from: key
+
+    - name: Set the link up
+      ansible.builtin.import_role:
+        name: wireguard
+      vars:
+        wireguard_tunnel:
+          address: 198.51.100.130/24
+          hub_public_key: "{{ wireguard_molecule_hub.stdout }}"
+          endpoint: 127.0.0.1:51820
+          allowed_ips: [198.51.100.0/24]
+          keepalive: 5

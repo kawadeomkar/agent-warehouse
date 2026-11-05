@@ -81,7 +81,7 @@ def test_rows_parse_in_their_order_and_a_value_that_is_no_member_is_refused_nami
     rows = catalogue.rows_from(DEFAULTS["claude_vpns"], "claude_vpns", lambda key, row: (key, row["name"]))
     assert list(rows) == list(DEFAULTS["claude_vpns"])
     assert catalogue.pick("tailscale", rows, "a VPN")[1] == "Tailscale"
-    with pytest.raises(ValueError, match=r"^openvpn is not a VPN: tailscale$"):
+    with pytest.raises(ValueError, match=r"^openvpn is not a VPN: tailscale, wireguard$"):
         catalogue.pick("openvpn", rows, "a VPN")
     with pytest.raises(ValueError, match="not a mapping of rows"):
         catalogue.rows_from({"tailscale": "Tailscale"}, "claude_vpns", lambda key, row: row)
@@ -124,6 +124,7 @@ def _read(tmp_path: Path, local: dict) -> dict:
         pytest.param({"vpn": "none"}, "none", {"name": "vpn", "value": "none"}, id="vpn-none"),
         pytest.param({"vpn": "tailscale", "tailscale_enabled": False}, "tailscale", None, id="vpn-wins"),
         pytest.param({"vpn": ""}, "none", {"name": "vpn", "value": "none"}, id="vpn-empty"),
+        pytest.param({"vpn": "wireguard"}, "wireguard", {"name": "vpn", "value": "wireguard"}, id="vpn-wireguard"),
     ],
 )
 def test_the_vpn_setting_follows_tailscale_enabled_until_it_is_set_and_the_role_is_handed_what_it_decided(
@@ -167,7 +168,7 @@ def _check(tmp_path: Path, text: str) -> subprocess.CompletedProcess:
     )
 
 
-@pytest.mark.parametrize("value", ["tailscale", "none", "", "{{ 'none' }}"])
+@pytest.mark.parametrize("value", ["tailscale", "wireguard", "none", "", "{{ 'none' }}"])
 def test_check_settings_takes_a_vpn_that_is_one_of_its_choices(tmp_path, value):
     result = _check(tmp_path, f"vpn: {json.dumps(value)}\n")
     assert result.returncode == 0, result.stderr
@@ -177,5 +178,5 @@ def test_check_settings_takes_a_vpn_that_is_one_of_its_choices(tmp_path, value):
 def test_check_settings_refuses_a_vpn_that_is_none_of_them_naming_them_and_never_the_value(tmp_path):
     result = _check(tmp_path, "vpn: s3cret-typed-here\n")
     assert result.returncode == 1
-    assert "sets vpn to something that is none of its choices: tailscale, none" in result.stderr
+    assert "sets vpn to something that is none of its choices: tailscale, wireguard, none" in result.stderr
     assert "s3cret" not in result.stderr
