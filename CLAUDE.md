@@ -298,8 +298,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `registry.py`): each VM's address from `wireguard_vm_prefix`, kept for its life as the mark
       `<ownership tag>-wg-<address>` in Proxmox (`tasks/vm_marks.yml`, the one writer of a mark), its link's every
       value, and the peer its server is to have - only by the name `<tag>-<vm>`, the VM's own key and its own
-      address as a /32 - which the run says, and `just destroy` the one to remove. Settings that cannot work are
-      refused before anything is written.
+      address as a /32 - which the run says (`wireguard_hub: manual`), or writes through the router's API
+      (`opnsense`: `playbooks/library/opnsense_wireguard.py`, the certificate pinned, OPNsense 26.7.2 or later,
+      every `privkey` the API answers with dropped), changing only a peer with every mark of the project's,
+      removing one only from a complete listing, and `just destroy` the one to remove. Settings that cannot work
+      are refused before anything is written.
     - The plan runs between the role's two entry points: `key` in configure's play, the plan on localhost, `main`
       in a play of its own, each in a block whose rescue records a failure raised at the end of the run.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI

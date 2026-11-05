@@ -1006,7 +1006,8 @@ and `tests/unit/test_choices.py` holds the three equal.
   matters, for the VMs it was given. For WireGuard, besides: one tunnel per VM that stays, at a host of the VMs'
   range no other VM of the project holds (`taken`, from Proxmox's listing), to the hub the inputs name; a peer only
   by the name `<tag>-<vm>` of a VM it was given, with that VM's own key, used by no other peer, and its own address
-  alone, as a /32; a peer removed only for a VM that is leaving. WireGuard's family gives each VM its marked
+  alone, as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
+  were read only in part. WireGuard's family gives each VM its marked
   address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free, and
   refuses, before anything is written, settings that cannot work: a range outside the hub's network, a network that
   overlaps a VM's own, a key that is not one, an endpoint that is not a name or an address and a port, a peer name a

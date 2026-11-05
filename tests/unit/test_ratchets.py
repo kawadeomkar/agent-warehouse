@@ -106,6 +106,7 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
     "lib/claude_vm/refs.py": 3,
+    "lib/claude_vm/vpn/model.py": 1,
     "lib/claude_vm/vpn/wireguard.py": 2,
     "lib/claude_vm/run/model.py": 4,
     "lib/claude_vm/status/model.py": 18,
@@ -127,7 +128,7 @@ PROXMOX_ELSEWHERE = {
     "playbooks/tasks/init_local_setting.yml": 1,
     "playbooks/tasks/vm_addresses.yml": 11,
     "playbooks/tasks/vm_marks.yml": 6,
-    "playbooks/tasks/vpn_members.yml": 5,
+    "playbooks/tasks/vpn_members.yml": 7,
     "playbooks/tasks/vm_stop.yml": 4,
     "playbooks/templates/vm_session.md.j2": 2,
 }

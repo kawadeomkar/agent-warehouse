@@ -199,7 +199,19 @@ def inputs_from(raw: object) -> MemberInputs:
     hub = plain(fields.get("hub", {}), "inputs.hub")
     records = {
         "members": tuple(Member(**(member | {"vm": VmRef(**member["vm"])})) for member in fields.get("members", ())),
-        "fleet": tuple(VmRef(**vm) for vm in fields.get("fleet", ())),
-        "hub": Hub(**(hub | {"peers": tuple(HubPeer(**peer) for peer in hub.get("peers", ()))})),
+        # The listing's entries carry more than a VM's name and ID: only those are kept.
+        "fleet": tuple(VmRef(name=vm["name"], vmid=vm["vmid"]) for vm in fields.get("fleet", ())),
+        # A hub's reader says more of each peer than the plan reads (enabled, keepalive): only these are kept.
+        "hub": Hub(
+            **(
+                hub
+                | {
+                    "peers": tuple(
+                        HubPeer(**{key: peer[key] for key in HubPeer.__dataclass_fields__ if key in peer})
+                        for peer in hub.get("peers", ())
+                    )
+                }
+            )
+        ),
     }
     return MemberInputs(**(fields | records))

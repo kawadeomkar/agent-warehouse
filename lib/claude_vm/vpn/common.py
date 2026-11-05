@@ -78,3 +78,28 @@ def vpn_alias_address(lan: str, marks: object, vpn: str, reach: str) -> str:
             if mark_reached(str(mark)):
                 return mark_address(str(mark))
     return lan
+
+
+def hub_network(value: str) -> ipaddress.IPv4Network:
+    """The hub's tunnel network, from the network or from the hub's own address on it (198.51.100.1/24, as OPNsense
+    keeps an instance's tunnel address)."""
+    try:
+        return ipaddress.IPv4Interface(value).network if "/" in value else ipaddress.IPv4Network(value)
+    except ValueError as error:
+        raise ValueError(f"wireguard_hub_network is not an IPv4 network such as 198.51.100.0/24: {value!r}") from error
+
+
+def owned(
+    tag: str, prefix: str, instance: str, name: str, addresses: tuple[str, ...], instances: tuple[str, ...]
+) -> bool:
+    """Whether a hub's peer is the project's: every mark of it - its name the ownership tag's, every address it holds
+    inside the VMs' range, on the user's instance where the hub has instances. A peer with some marks but not all is
+    nobody's to change."""
+    if not name.startswith(f"{tag}-") or not addresses or not prefix:
+        return False
+    range_ = ipaddress.IPv4Network(prefix)
+    try:
+        inside = all(ipaddress.IPv4Network(address, strict=False).subnet_of(range_) for address in addresses)
+    except (ValueError, TypeError):
+        return False
+    return inside and (not instance or instance in instances)

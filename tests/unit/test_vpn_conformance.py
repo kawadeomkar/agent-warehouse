@@ -507,3 +507,166 @@ def test_an_alias_under_lan_reach_is_refused():
 )
 def test_an_alias_uses_the_marked_tunnel_address_only_under_wireguard_s_tunnel_reach(marks, vpn, reach, address):
     assert common.vpn_alias_address("192.0.2.61", marks, vpn, reach) == address
+
+
+# ------------------------------------------------------- a hub with an API: OPNsense ---
+KEY_C, KEY_D = (base64.b64encode(bytes([n] * 32)).decode() for n in (4, 5))
+OPN = {
+    "kind": "opnsense",
+    "listed": True,
+    "instance": "home",
+    # As OPNsense keeps an instance's tunnel network: the hub's own address on it.
+    "network": "198.51.100.1/24",
+    "public_key": HUB_KEY,
+    "endpoint": "192.0.2.1:51820",
+}
+
+
+def opn_peer(ref, name, key, address, instances=("home",)):
+    return {"ref": ref, "name": name, "public_key": key, "addresses": [address], "instances": list(instances)}
+
+
+def test_an_opnsense_hub_gets_a_peer_added_one_as_it_should_be_left_and_one_changed_updated():
+    peers = [
+        opn_peer("u-beta", "claude-on-proxmox-beta", KEY_B, "198.51.100.130/32"),
+        opn_peer("u-gamma", "claude-on-proxmox-gamma", KEY_C, "198.51.100.140/32"),
+    ]
+    gamma = {"vm": {"name": "gamma", "vmid": 4016}, "public_key": KEY_D, "marks": ["wg-198.51.100.140"]}
+    plan = registry.vpn_member_plan(
+        "wireguard",
+        ROWS,
+        wg(WG_A, WG_B | {"marks": ["wg-198.51.100.130"]}, gamma, hub=OPN | {"peers": peers}),
+    )
+    assert not plan["refusals"]
+    changes = [(p["kind"], p["name"], p["ref"], p["public_key"], p["address"]) for p in plan["peers"]]
+    assert changes == [
+        ("add", "claude-on-proxmox-alpha", "", KEY_A, "198.51.100.129/32"),
+        ("update", "claude-on-proxmox-gamma", "u-gamma", KEY_D, "198.51.100.140/32"),
+    ]
+    # Routed into the network the router keeps, from its own address on it; nothing left for the person to add.
+    assert {t["allowed_ips"][0] for t in plan["tunnels"]} == {"198.51.100.0/24"}
+    assert all(step["text"] == "" for step in plan["next_steps"])
+
+
+def test_a_peer_of_a_vm_gone_is_pruned_only_from_a_complete_listing():
+    peers = [opn_peer("u-old", "claude-on-proxmox-old", KEY_C, "198.51.100.150/32")]
+    fleet = [{"name": "alpha", "vmid": 4013, "tags": "claude-on-proxmox"}]
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": peers}, fleet=fleet))
+    assert [(p["kind"], p["ref"], p["vm"]) for p in plan["peers"] if p["kind"] == "delete"] == [
+        ("delete", "u-old", None)
+    ]
+    for partial in ({"fleet": []}, {"hub": OPN | {"peers": peers, "listed": False}, "fleet": fleet}):
+        kept = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, **({"hub": OPN | {"peers": peers}} | partial)))
+        assert not [p for p in kept["peers"] if p["kind"] == "delete"]
+
+
+def test_a_peer_with_some_marks_but_not_all_is_said_and_never_touched():
+    peers = [
+        # The project's name, but an address outside the VMs' range: someone else's.
+        opn_peer("u-x", "claude-on-proxmox-alpha", KEY_C, "198.51.100.10/32"),
+        # The project's name and range, but another instance.
+        opn_peer("u-y", "claude-on-proxmox-beta", KEY_D, "198.51.100.131/32", instances=("work",)),
+    ]
+    fleet = [{"name": "alpha", "vmid": 4013}]
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": peers}, fleet=fleet))
+    assert plan["peers"] == [] and plan["tunnels"] == []
+    said = " ".join(line["text"] for line in plan["report"])
+    assert "claude-on-proxmox-alpha on home carries the project's name but not every mark" in said
+    assert "alpha: a peer named claude-on-proxmox-alpha on home is not the project's" in said
+
+
+def test_a_key_someone_else_s_peer_holds_is_not_joined():
+    peers = [opn_peer("u-z", "laptop", KEY_A, "198.51.100.5/32")]
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": peers}))
+    assert plan["peers"] == [] and "is a peer's on home already" in plan["report"][0]["text"]
+
+
+def test_a_renamed_vm_is_not_joined_beside_its_old_peer_which_a_fleet_wide_run_removes():
+    # alpha renamed alpha2 in Proxmox: its key, on the VM's disk, is the old peer's, which the hub would refuse twice.
+    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    renamed = WG_A | {"vm": {"name": "alpha2", "vmid": 4013}, "marks": ["wg-198.51.100.129"]}
+    named = registry.vpn_member_plan("wireguard", ROWS, wg(renamed, hub=OPN | {"peers": peers}))
+    assert named["peers"] == [] and named["tunnels"] == []
+    assert "its WireGuard key is claude-on-proxmox-alpha's on home already" in named["report"][0]["text"]
+    assert "a fleet-wide just deploy --only configure removes the old peer" in named["next_steps"][0]["text"]
+    fleet = [{"name": "alpha2", "vmid": 4013}]
+    whole = registry.vpn_member_plan("wireguard", ROWS, wg(renamed, hub=OPN | {"peers": peers}, fleet=fleet))
+    assert [(p["kind"], p["ref"]) for p in whole["peers"]] == [("delete", "u-alpha")]
+
+
+def test_a_vm_cloned_with_another_s_key_is_not_joined_and_the_other_keeps_its_peer():
+    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    alpha = WG_A | {"marks": ["wg-198.51.100.129"]}
+    clone = WG_A | {"vm": BETA}
+    fleet = [{"name": "alpha", "vmid": 4013}, {"name": "beta", "vmid": 4014}]
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, clone, hub=OPN | {"peers": peers}, fleet=fleet))
+    assert plan["peers"] == [] and [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
+    said = {line["vm"]: line["text"] for line in plan["report"]}
+    assert "is as it should be" in said["alpha"] and "delete /etc/systemd/network/claude-wg.key on beta" in said["beta"]
+
+
+def test_nothing_is_written_on_a_hub_whose_peers_were_read_only_in_part():
+    # A peer not read may be the VM's own: an add would make a second, an update would touch one the core never saw.
+    peers = [opn_peer("u-beta", "claude-on-proxmox-beta", KEY_C, "198.51.100.130/32")]
+    beta = WG_B | {"marks": ["wg-198.51.100.130"]}
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, beta, hub=OPN | {"peers": peers, "listed": False}))
+    assert plan["peers"] == [] and len(plan["tunnels"]) == 2
+    for step in plan["next_steps"]:
+        assert step["text"].endswith(f"just deploy {step['vm']['name']} --only configure tries again.")
+
+
+def test_the_core_refuses_any_write_on_a_hub_read_only_in_part():
+    partial = model.inputs_from(wg(WG_A, hub=OPN | {"listed": False}))
+    add = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.129/32", vm=A)
+    tunnel = replace(TUNNEL, address="198.51.100.129/24", endpoint="192.0.2.1:51820")
+    with pytest.raises(ValueError, match="could not read whole"):
+        registry.checked(WVPN, partial, MemberPlan(vpn="wireguard", tunnels=(tunnel,), peers=(add,)))
+
+
+def test_at_destroy_an_opnsense_hub_has_the_leaving_vm_s_own_peer_removed_by_its_ref():
+    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    leaving = {"vm": ALPHA, "leaving": True, "marks": ["wg-198.51.100.129"]}
+    plan = registry.vpn_member_plan(
+        "wireguard", ROWS, given(leaving, phase="release", vm_prefix="198.51.100.128/25", hub=OPN | {"peers": peers})
+    )
+    assert [(p["kind"], p["ref"]) for p in plan["peers"]] == [("delete", "u-alpha")]
+    assert plan["next_steps"][0]["text"] == ""
+
+
+OINPUTS = model.inputs_from(
+    wg(
+        WG_A,
+        hub=OPN
+        | {
+            "peers": [
+                opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_C, "198.51.100.130/32"),
+                opn_peer("u-laptop", "laptop", KEY_D, "198.51.100.5/32"),
+                opn_peer("u-old", "claude-on-proxmox-old", KEY_B, "198.51.100.150/32"),
+            ]
+        },
+        fleet=[{"name": "alpha", "vmid": 4013}, {"name": "old", "vmid": 4030}],
+    )
+)
+OTUNNEL = replace(TUNNEL, endpoint="192.0.2.1:51820")
+OUPDATE = PeerWrite(
+    kind="update", name="claude-on-proxmox-alpha", ref="u-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A
+)
+OSLIPS = {
+    "an update of a peer that is not the project's": replace(OUPDATE, ref="u-laptop"),
+    "an update by another peer's name": replace(OUPDATE, name="claude-on-proxmox-old"),
+    "an add beside a peer of the same name": replace(OUPDATE, kind="add", ref=""),
+    "an update to a key another peer holds": replace(OUPDATE, public_key=KEY_D),
+    "a prune of a VM that is there": PeerWrite(kind="delete", name="claude-on-proxmox-old", ref="u-old", address=""),
+    "a prune of someone else's peer": PeerWrite(kind="delete", name="laptop", ref="u-laptop", address=""),
+}
+
+
+@pytest.mark.parametrize("slip", sorted(OSLIPS))
+def test_the_core_refuses_an_opnsense_hub_s_slips(slip):
+    with pytest.raises(ValueError):
+        registry.checked(WVPN, OINPUTS, MemberPlan(vpn="wireguard", tunnels=(OTUNNEL,), peers=(OSLIPS[slip],)))
+
+
+def test_the_core_takes_an_update_of_the_vm_s_own_peer():
+    plan = MemberPlan(vpn="wireguard", tunnels=(OTUNNEL,), peers=(OUPDATE,))
+    assert registry.checked(WVPN, OINPUTS, plan) is plan

@@ -17,7 +17,7 @@ import pytest
 import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
-from harness import ANSIBLE_PLAYBOOK, _every_task, ansible_config
+from harness import ANSIBLE_PLAYBOOK, _every_task, _messages, _run, ansible_config
 
 from claude_vm.vpn import model
 
@@ -154,6 +154,49 @@ def test_destroy_says_the_peer_each_deleted_vm_leaves_whatever_the_vpn_is():
     assert record["ansible.builtin.set_stats"]["data"]["vpn_next"].count("'wireguard_peer'") == 1
     names = [play.get("name") for play in plays]
     assert names.index(play["name"]) == names.index("Forget the SSH alias of each deleted VM") - 1
+
+
+def test_a_plan_that_fails_is_dropped_and_raised_on_every_vm_at_the_end(tmp_path):
+    # configure.yml's plan play, as it is, with the inventory's defaults: an OPNsense hub whose router cannot be read
+    # (none in the inventory) fails the plan. The rescue drops it - the play after it changes no VM's link - and
+    # records the failure on each VM, which the last play raises: the alias play between them still runs.
+    plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+    (plan,) = [play for play in plays if play.get("name") == "Plan each VM's place on the WireGuard network"]
+    plan = json.loads(json.dumps(plan).replace('"tasks/', f'"{REPO / "playbooks" / "tasks"}/'))
+    plan = {key: value for key, value in plan.items() if key != "module_defaults"}
+    plan["vars_files"] = [str(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")]
+    said = {
+        "name": "Say what is left",
+        "hosts": "claude_vms:localhost",
+        "gather_facts": False,
+        "tasks": [
+            {
+                "name": "Say the failures",
+                "ansible.builtin.debug": {
+                    "msg": "{{ claude_vm_configure_failures | default(hostvars['localhost'].claude_vpn_plans) }}"
+                },
+            }
+        ],
+    }
+    (tmp_path / "plan.yml").write_text(yaml.safe_dump([plan, said]))
+    key = base64.b64encode(bytes([2] * 32)).decode()
+    hosts = {
+        "alpha": {
+            "ansible_connection": "local",
+            "ansible_python_interpreter": sys.executable,
+            "claude_vm_listed_id": 4013,
+            "claude_vm_marks": [],
+            "wireguard_public_key": key,
+        }
+    }
+    extra = {"vpn": "wireguard", "wireguard_hub": "opnsense", "wireguard_hub_instance": "home"}
+    report = _run(tmp_path, tmp_path / "plan.yml", hosts, "-e", json.dumps(extra))
+    assert report["rc"] == 0, report["stderr"]
+    messages = _messages(report, "Say the failures")
+    (failure,) = messages["alpha"]
+    assert failure.startswith('alpha: WireGuard failed at "vpn_members | Read the hub\'s instance and its peers":')
+    assert failure.endswith("Retry it with: just deploy alpha --tags wireguard")
+    assert messages["localhost"] == {"wireguard": {}}
 
 
 def test_the_plan_s_inputs_are_the_core_s_fields():

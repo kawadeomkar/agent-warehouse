@@ -11,6 +11,27 @@
   vars:
     claude_vm_marks_changes: "{{ claude_vpn_plan.marks | default([]) }}"
 
+# A hub with an API: the plan's peers written there, and the instance applied
+# once, only when something changed; nothing in check mode. Only the
+# project's own peers reach here, held by the core to every mark of theirs.
+- name: vpn_apply | Write the plan's peers on the hub
+  opnsense_wireguard:
+    url: "https://{{ hostvars[groups['wireguard_hub'][0]].ansible_host }}"
+    cert_sha256: "{{ wireguard_hub_cert_sha256 }}"
+    api_key: "{{ wireguard_hub_api_key }}"
+    api_secret: "{{ wireguard_hub_api_secret }}"
+    instance: "{{ wireguard_hub_instance }}"
+    state: apply
+    # Each change as the module takes it: what it is and the peer's own fields, those the plan left empty out.
+    changes: >-
+      {{ claude_vpn_plan.peers | default([]) | map('dict2items')
+         | map('selectattr', 'key', 'in', ['kind', 'name', 'ref', 'public_key', 'address'])
+         | map('selectattr', 'value') | map('items2dict') | list }}
+  when:
+    - claude_vpn_planned | default('') == 'wireguard'
+    - wireguard_hub | default('manual') == 'opnsense'
+    - claude_vpn_plan.peers | default([]) | length > 0
+
 - name: vpn_apply | Say each VM's place on the network
   ansible.builtin.debug:
     msg: "{{ claude_vpn_said.text }}"

@@ -525,7 +525,10 @@
             msg: >-
               {{ claude_vm_wireguard_of }}: WireGuard failed at "{{ ansible_failed_task.name | default('a task') }}":
               {{ claude_vm_wireguard_why | full_stop }} Its peer, {{ claude_vm_tag | lower }}-{{ claude_vm_wireguard_of }}
-              (AllowedIPs {{ claude_vm_wireguard_address }}/32), stays on your WireGuard server until you remove it.
+              (AllowedIPs {{ claude_vm_wireguard_address }}/32), stays on your WireGuard server until you remove it{{
+              ', or a just deploy --only configure without names removes it from ' ~ wireguard_hub_instance
+              if wireguard_hub | default('manual') == 'opnsense' and claude_vpn_key | default('none') == 'wireguard'
+              else '' }}.
           loop: "{{ claude_vm_wireguard_gone }}"
           loop_control:
             loop_var: claude_vm_wireguard_of

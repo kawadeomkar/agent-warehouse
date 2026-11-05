@@ -284,6 +284,10 @@ wireguard_vm_prefix: ""
 wireguard_hub_public_key: ""
 wireguard_hub_endpoint: ""
 wireguard_keepalive: 25
+wireguard_hub_instance: ""
+wireguard_hub_cert_sha256: ""
+wireguard_hub_api_key: "{{ vault_wireguard_hub_api_key | default('', true) }}"
+wireguard_hub_api_secret: "{{ vault_wireguard_hub_api_secret | default('', true) }}"
 
 # ------------------------------------------------------------ Tailscale -----
 # Each setting's description: local.yml.example, under Tailscale.

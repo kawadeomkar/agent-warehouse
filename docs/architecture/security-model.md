@@ -37,7 +37,12 @@ another's address, or a device's. Every value written into the VM's networkd fil
 the core to its rules: the server's key base64, its endpoint a name or an address and a port, every address one
 Python parsed - nothing the VM reports reaches them but its public key, held to its form. The address a VM keeps is
 recorded in Proxmox, where the VM cannot change it. What the server lets a VM reach is the server's firewall's to
-decide; the guide's rules let devices reach the VMs and keep the VMs from opening connections to devices.
+decide; the guide's rules let devices reach the VMs and keep the VMs from opening connections to devices. With
+`wireguard_hub: opnsense` the project writes its VMs' peers through the router's API, as a user whose one privilege,
+"VPN: WireGuard", covers the whole of WireGuard: its module (`playbooks/library/opnsense_wireguard.py`) pins the
+router's certificate by SHA-256 before the key is sent, refuses a router below OPNsense 26.7.2, drops every private
+key the API answers with before anything is kept, and the core refuses any change to a peer without every mark of the
+project's.
 
 ## Secrets
 

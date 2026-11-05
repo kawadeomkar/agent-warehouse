@@ -78,7 +78,8 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
         _tunnels(vpn, inputs, plan, member_of)
         _peers(vpn, inputs, plan, member_of)
     for said in plan.report:
-        if said.vm not in members:
+        # A line of no VM is about a hub's peer, where the hub is read: one pruned, or one with some marks only.
+        if said.vm not in members and (said.vm or inputs.hub.kind != "opnsense"):
             raise ValueError(f"{vpn.key}'s plan says something of {said.vm!r}, which is no VM it was given")
     for step in plan.next_steps:
         member_of(step.vm)
@@ -117,7 +118,7 @@ def _tunnels(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> Non
         held.add((name, address))
         if (tunnel.hub_public_key, tunnel.endpoint) != (inputs.hub.public_key, inputs.hub.endpoint):
             raise ValueError(f"{vpn.key}'s plan points {name} at a hub it was not given")
-        routed = (inputs.hub.network,) if inputs.reach == "lan" else ("0.0.0.0/0",)
+        routed = (str(common.hub_network(inputs.hub.network)),) if inputs.reach == "lan" else ("0.0.0.0/0",)
         if tunnel.keepalive != inputs.keepalive or tunnel.allowed_ips != routed or tunnel.reach != inputs.reach:
             raise ValueError(f"{vpn.key}'s plan routes {name} other than vpn_reach says")
     tunnels = {tunnel.vm.name: tunnel.address.partition("/")[0] for tunnel in plan.tunnels}
@@ -135,16 +136,39 @@ def _tunnels(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> Non
 def _peers(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
     tunnels = {tunnel.vm.name: tunnel.address.partition("/")[0] for tunnel in plan.tunnels}
     keys = {peer.public_key for peer in inputs.hub.peers}
+    hub = inputs.hub
+    # The hub's peers that are the project's: every mark of it, by its handle on the hub.
+    ours = {
+        peer.ref: peer
+        for peer in hub.peers
+        if common.owned(inputs.tag, inputs.vm_prefix, hub.instance, peer.name, peer.addresses, peer.instances)
+    }
+    alive = {vm.name for vm in inputs.fleet} | {member.vm.name for member in inputs.members}
     named = set()
     for peer in plan.peers:
+        if peer.name in named:
+            raise ValueError(f"{vpn.key}'s plan changes {peer.name} twice")
+        if hub.kind == "opnsense" and not hub.listed:
+            # A peer not read may be the very one: nothing is written on a hub read only in part.
+            raise ValueError(f"{vpn.key}'s plan changes {peer.name} on a hub it could not read whole")
+        if peer.kind != "add" and hub.kind == "opnsense":
+            # A change to a peer the hub has: only one of the project's, by its own handle and name, read whole.
+            if peer.ref not in ours or ours[peer.ref].name != peer.name or not hub.listed:
+                raise ValueError(f"{vpn.key}'s plan changes {peer.name}, which is no peer of the project's on the hub")
+        elif peer.kind == "update":
+            raise ValueError(f"{vpn.key}'s plan updates {peer.name} on a hub it cannot read")
         if peer.vm is None:
-            raise ValueError(f"{vpn.key}'s plan changes {peer.name}, a peer of no VM it was given")
+            # A peer pruned: its VM gone from a complete listing of the fleet.
+            if peer.kind != "delete" or hub.kind != "opnsense" or not inputs.fleet:
+                raise ValueError(f"{vpn.key}'s plan changes {peer.name}, a peer of no VM it was given")
+            if peer.name[len(inputs.tag) + 1 :] in alive:
+                raise ValueError(f"{vpn.key}'s plan removes {peer.name}, whose VM is there")
+            named.add(peer.name)
+            continue
         member_of(peer.vm)
         member = next(member for member in inputs.members if member.vm == peer.vm)
         if peer.name != common.peer_name(inputs.tag, peer.vm.name) or not common.PEER_NAME.fullmatch(peer.name):
             raise ValueError(f"{vpn.key}'s plan names {peer.vm.name}'s peer {peer.name}")
-        if peer.name in named:
-            raise ValueError(f"{vpn.key}'s plan changes {peer.name} twice")
         named.add(peer.name)
         if peer.kind == "delete":
             if not member.leaving:
@@ -154,7 +178,14 @@ def _peers(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
             raise ValueError(f"{vpn.key}'s plan adds {peer.name}, whose VM is leaving")
         if peer.public_key != member.public_key or not common.public_key(peer.public_key):
             raise ValueError(f"{vpn.key}'s plan gives {peer.name} a key that is not its VM's")
-        if peer.public_key == inputs.hub.public_key or (peer.kind == "add" and peer.public_key in keys):
+        others = keys - ({ours[peer.ref].public_key} if peer.ref in ours else set())
+        if (
+            peer.public_key == hub.public_key
+            or (peer.kind == "add" and peer.public_key in keys)
+            or (peer.kind == "update" and peer.public_key in others)
+        ):
             raise ValueError(f"{vpn.key}'s plan gives {peer.name} a key the hub has already")
+        if peer.kind == "add" and any(other.name == peer.name for other in hub.peers):
+            raise ValueError(f"{vpn.key}'s plan adds {peer.name} beside a peer of that name")
         if peer.address != f"{tunnels.get(peer.vm.name)}/32":
             raise ValueError(f"{vpn.key}'s plan allows {peer.name} more, or other, than its VM's own address")

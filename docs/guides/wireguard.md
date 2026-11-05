@@ -89,6 +89,48 @@ Your server's side, for this: pass your LAN to the VMs' range on port 22 (and an
 dropping what the VMs' range opens itself. Tailscale offers no `tunnel` reach yet; the setting is refused with it.
 
 
+## On OPNsense
+
+With `wireguard_hub: opnsense`, on OPNsense 26.7.2 or later, the run writes each VM's peer on your instance through
+the router's API instead of saying it, and `just destroy` removes it there. It writes only peers with every mark of
+the project's - named `claude-on-proxmox-<vm>`, an address in `wireguard_vm_prefix`, on your instance - and never
+the instance, your devices, a rule, NAT or DNS. A peer with the project's name but not every mark is said and left
+alone. On a run without names and a complete listing of the VMs, a peer whose VM is gone is removed. A router that
+lists its peers only in part gets no write that run: a peer it did not list may be the VM's own.
+
+A VM renamed in Proxmox keeps its key, which its old peer holds: it is said and not joined beside that peer until a
+fleet-wide `just deploy --only configure` has removed the old one. A VM cloned from another has that VM's key too:
+delete `/etc/systemd/network/claude-wg.key` on the clone and run again, and it makes its own.
+
+Before the first run:
+
+1. **An API user** with the privilege "VPN: WireGuard", and a key for it (System, Access, Users). The run reads
+   the router's version first (`/api/core/firmware/info`), which may need a firmware page's read privilege too: a
+   key refused there is said by name. Put the key and
+   secret in the vault as `vault_wireguard_hub_api_key` and `vault_wireguard_hub_api_secret` (`just vault`). That
+   privilege covers all of WireGuard, the instance and its private key included: what keeps the project to its own
+   peers is its code, which reads the instance and refuses any change to a peer that is not its own.
+2. **The router in `hosts.yml`**, where the API answers, as below.
+3. **The certificate's SHA-256**, since the router's certificate is self-signed: `wireguard_hub_cert_sha256` in
+   `local.yml`, from `openssl s_client -connect 192.0.2.1:443 < /dev/null | openssl x509 -noout -fingerprint -sha256`.
+   The run refuses any other certificate before it sends the key.
+4. **`wireguard_hub_instance`**, your instance's name. Its tunnel network and public key are read from the router;
+   `wireguard_vm_prefix` must be a part of that network no device of yours uses.
+
+In `hosts.yml`, beside the Proxmox host:
+
+```yaml
+    wireguard_hub:
+      hosts:
+        router:
+          ansible_host: 192.0.2.1
+          ansible_connection: local
+```
+
+The run reads the router's version first and refuses one below 26.7.2, before any write and in check mode too.
+Every answer the API gives is stripped of the instance's private key, which the API returns in plain text, before
+anything is kept or said.
+
 ## What the role touches
 
 Only what it made, by names of its own: the marker `/var/lib/claude-on-proxmox/wireguard-installed`, written before

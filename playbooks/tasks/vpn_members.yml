@@ -42,6 +42,30 @@
   loop_control:
     loop_var: claude_vpn_host
 
+# A hub with an API (wireguard_hub: opnsense): its instance and every peer it
+# has, read from this machine through the project's own module, which pins the
+# router's certificate, refuses a router below OPNsense 26.7.2 and drops every
+# private key the API answers with before anything is kept
+# (playbooks/library/opnsense_wireguard.py). At a release, only where a VM
+# leaving has an address: a router that cannot be read has nothing to say then.
+- name: vpn_members | Read the hub's instance and its peers
+  opnsense_wireguard:
+    url: "https://{{ hostvars[groups['wireguard_hub'][0]].ansible_host }}"
+    cert_sha256: "{{ wireguard_hub_cert_sha256 }}"
+    api_key: "{{ wireguard_hub_api_key }}"
+    api_secret: "{{ wireguard_hub_api_secret }}"
+    instance: "{{ wireguard_hub_instance }}"
+    state: read
+  register: claude_vpn_hub
+  check_mode: false
+  when:
+    - claude_vpn_planned == 'wireguard'
+    - wireguard_hub | default('manual') == 'opnsense'
+    - claude_vpn_members | length > 0
+    - >-
+      claude_vpn_phase != 'release'
+      or claude_vpn_members | map(attribute='marks') | flatten | select('match', 'wg-') | list | length > 0
+
 - name: vpn_members | Plan each VM's place on the network
   ansible.builtin.set_fact:
     claude_vpn_plan: >-
@@ -55,16 +79,35 @@
     # VM of the project holds, from Proxmox's listing (claude_vm_all), the
     # members' own left out.
     claude_vpn_wireguard:
-      hub:
-        kind: "{{ wireguard_hub }}"
-        network: "{{ wireguard_hub_network }}"
-        public_key: "{{ wireguard_hub_public_key }}"
-        endpoint: "{{ wireguard_hub_endpoint }}"
+      hub: "{{ claude_vpn_hub_read if wireguard_hub == 'opnsense' else claude_vpn_hub_set }}"
       vm_prefix: "{{ wireguard_vm_prefix }}"
       keepalive: "{{ wireguard_keepalive | int }}"
       taken: >-
         {{ claude_vm_all.json.data | default([], true)
            | proxmox_wireguard_taken(claude_vm_tag, claude_vpn_members | map(attribute='vm.vmid') | list) }}
+      # Every tagged VM of a complete listing, so that a hub's peer whose VM is gone is pruned: only fleet-wide, and
+      # only while every VM the listing holds has its name (a node down leaves one without), never by a named run.
+      fleet: >-
+        {{ claude_vm_tagged
+           if vm_name is not defined and claude_vm_all.json is defined
+              and claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | rejectattr('name', 'defined')
+                  | list | length == 0
+           else [] }}
+    # The hub as the settings say it (manual), or as the router read it (opnsense): its instance's tunnel network
+    # and key are the router's own.
+    claude_vpn_hub_set:
+      kind: "{{ wireguard_hub }}"
+      network: "{{ wireguard_hub_network }}"
+      public_key: "{{ wireguard_hub_public_key }}"
+      endpoint: "{{ wireguard_hub_endpoint }}"
+    claude_vpn_hub_read:
+      kind: opnsense
+      listed: "{{ claude_vpn_hub.listed | default(false) }}"
+      instance: "{{ wireguard_hub_instance }}"
+      network: "{{ (claude_vpn_hub.instance | default({})).addresses | default([''], true) | first }}"
+      public_key: "{{ (claude_vpn_hub.instance | default({})).public_key | default('') }}"
+      endpoint: "{{ wireguard_hub_endpoint }}"
+      peers: "{{ claude_vpn_hub.peers | default([]) }}"
   when: claude_vpn_members | length > 0
 
 # Each VPN's plan by its key, for a later play: the VMs' own reads it there.

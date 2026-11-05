@@ -13,6 +13,7 @@ from ..refs import NextStep
 from . import common
 from .model import (
     AliasAddress,
+    HubPeer,
     MarkChange,
     Member,
     MemberInputs,
@@ -34,7 +35,7 @@ def _refusal(inputs: MemberInputs) -> str:
     """The first of the settings' refusals: what no VM can join with."""
     hub = inputs.hub
     try:
-        network = ipv4_network(hub.network, "wireguard_hub_network")
+        network = common.hub_network(hub.network)
         prefix = ipv4_network(inputs.vm_prefix, "wireguard_vm_prefix")
     except ValueError as error:
         return f"{error}: set it in local.yml (docs/guides/wireguard.md)."
@@ -99,13 +100,115 @@ def _peer_block(inputs: MemberInputs, member: Member, address: str) -> str:
     )
 
 
+def _owned(inputs: MemberInputs, peer: HubPeer) -> bool:
+    hub = inputs.hub
+    return common.owned(inputs.tag, inputs.vm_prefix, hub.instance, peer.name, peer.addresses, peer.instances)
+
+
+def _hub_peer(inputs: MemberInputs, member: Member, address: str) -> tuple[PeerWrite | None, str, str]:
+    """The change a hub with an API needs for a VM's peer, what is said of it, and what is left to do: an add, an
+    update of the peer it has by the VM's name and every mark of the project's, or nothing where it is as the plan has
+    it - or where the hub's peers were read only in part, since one not read may be the VM's."""
+    vm, name, instance = member.vm.name, common.peer_name(inputs.tag, member.vm.name), inputs.hub.instance
+    mine = [peer for peer in inputs.hub.peers if peer.name == name and _owned(inputs, peer)]
+    if mine and mine[0].public_key == member.public_key and mine[0].addresses == (f"{address}/32",):
+        return None, f"its peer {name} on {instance} is as it should be", ""
+    if not inputs.hub.listed:
+        return (
+            None,
+            f"its peer {name} is not written this run: the router listed {instance}'s peers only in part",
+            f"{vm}: its peer {name} on {instance} is not written yet: just deploy {vm} --only configure tries again.",
+        )
+    if not mine:
+        wanted = PeerWrite(kind="add", name=name, public_key=member.public_key, address=f"{address}/32", vm=member.vm)
+        return wanted, f"its peer {name} is added to {instance}", ""
+    return (
+        PeerWrite(
+            kind="update",
+            name=name,
+            ref=mine[0].ref,
+            public_key=member.public_key,
+            address=f"{address}/32",
+            vm=member.vm,
+        ),
+        f"its peer {name} on {instance} is updated",
+        "",
+    )
+
+
 def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
-    network = ipv4_network(inputs.hub.network, "wireguard_hub_network")
+    network = common.hub_network(inputs.hub.network)
     addresses = _addresses(inputs)
     marks, peers, tunnels, aliases, report, steps = [], [], [], [], [], []
+    api = inputs.hub.kind == "opnsense"
+    # A key a peer of someone else's holds already: the hub would refuse a second peer with it.
+    foreign = {peer.public_key for peer in inputs.hub.peers if not _owned(inputs, peer)}
+    for peer in inputs.hub.peers:
+        if api and peer.name.startswith(f"{inputs.tag}-") and not _owned(inputs, peer):
+            report.append(
+                Said(
+                    vm="",
+                    text=f"{peer.name} on {inputs.hub.instance} carries the project's name but not every mark of its"
+                    " own (an address in wireguard_vm_prefix, the instance), so it is left as it is.",
+                )
+            )
     for member in inputs.members:
         vm = member.vm.name
         if member.leaving:
+            continue
+        name = common.peer_name(inputs.tag, vm)
+        if api and any(peer.name == name and not _owned(inputs, peer) for peer in inputs.hub.peers):
+            report.append(
+                Said(
+                    vm=vm,
+                    text=f"{vm}: a peer named {name} on {inputs.hub.instance} is not the project's (said above),"
+                    " so it is not joined beside it.",
+                )
+            )
+            continue
+        # Its key on a peer of the project's under another VM's name: a VM renamed, its old peer still there, or one
+        # cloned with another's key. The hub refuses a second peer with one key, so it is not joined beside that one.
+        twin = next(
+            (
+                peer
+                for peer in inputs.hub.peers
+                if api
+                and member.public_key
+                and peer.public_key == member.public_key
+                and peer.name != name
+                and _owned(inputs, peer)
+            ),
+            None,
+        )
+        if twin is not None:
+            report.append(
+                Said(
+                    vm=vm,
+                    text=f"{vm}: its WireGuard key is {twin.name}'s on {inputs.hub.instance} already, so it is not"
+                    f" joined beside it. If {vm} was renamed, a fleet-wide just deploy --only configure removes"
+                    f" {twin.name} once its VM is gone, and the next run joins {vm}; if {vm} is a clone of that VM,"
+                    f" delete /etc/systemd/network/claude-wg.key on {vm} and run again.",
+                )
+            )
+            steps.append(
+                NextStep(
+                    vm=member.vm,
+                    matter=PEER,
+                    action=None,
+                    text=f"{vm}: its WireGuard key is {twin.name}'s on {inputs.hub.instance}: renamed, a fleet-wide"
+                    f" just deploy --only configure removes the old peer; a clone, delete"
+                    f" /etc/systemd/network/claude-wg.key on {vm} and run again.",
+                )
+            )
+            continue
+        if api and member.public_key in foreign:
+            report.append(
+                Said(
+                    vm=vm,
+                    text=f"{vm}: its WireGuard key is a peer's on {inputs.hub.instance} already, one not the"
+                    " project's, so it is not joined: remove that peer, or the VM's key on it, and run again.",
+                )
+            )
             continue
         if not member.public_key:
             report.append(
@@ -167,6 +270,15 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
             aliases.append(AliasAddress(vm=member.vm, address=address))
         elif inputs.reach == "tunnel":
             moves = f"just deploy {vm} --only configure moves its SSH alias to {address} once it has reached the server"
+        if api:
+            change, said, left = _hub_peer(inputs, member, address)
+            peers += [change] if change else []
+            report.append(
+                Said(vm=vm, text=f"{vm}: on WireGuard at {address}; {said}." + (f" {moves}." if moves else ""))
+            )
+            left = left or (f"{vm}: {moves}." if moves else "")
+            steps.append(NextStep(vm=member.vm, matter=PEER, action=None, text=left))
+            continue
         peers.append(
             PeerWrite(
                 kind="add",
@@ -200,6 +312,8 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                     + (f"; {moves}." if moves else "."),
                 )
             )
+    if api:
+        peers += _pruned(inputs, report)
     return MemberPlan(
         vpn=vpn.key,
         marks=tuple(marks),
@@ -211,6 +325,23 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
     )
 
 
+def _pruned(inputs: MemberInputs, report: list[Said]) -> list[PeerWrite]:
+    """The project's peers on the hub whose VM is gone: only from a complete listing of the hub and of the fleet,
+    since a VM missing from a partial one is not gone."""
+    if not inputs.hub.listed or not inputs.fleet:
+        return []
+    alive = {vm.name for vm in inputs.fleet} | {member.vm.name for member in inputs.members}
+    gone = []
+    for peer in inputs.hub.peers:
+        vm = peer.name[len(inputs.tag) + 1 :]
+        if _owned(inputs, peer) and vm not in alive:
+            gone.append(PeerWrite(kind="delete", name=peer.name, ref=peer.ref, address=peer.addresses[0]))
+            report.append(
+                Said(vm="", text=f"{peer.name}: its VM is gone, so its peer is removed from {inputs.hub.instance}.")
+            )
+    return gone
+
+
 def _release(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
     peers, report, steps = [], [], []
     for member in inputs.members:
@@ -218,6 +349,22 @@ def _release(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
         if not member.leaving or not marked:
             continue
         name = common.peer_name(inputs.tag, member.vm.name)
+        if inputs.hub.kind == "opnsense":
+            # Removed on the hub, by the peer it has under the VM's name with every mark of the project's; one it
+            # does not have is gone already, and the next fleet-wide configure removes one this run could not read.
+            mine = [peer for peer in inputs.hub.peers if peer.name == name and _owned(inputs, peer)]
+            if inputs.hub.listed and mine:
+                peers.append(
+                    PeerWrite(kind="delete", name=name, ref=mine[0].ref, address=f"{marked[0]}/32", vm=member.vm)
+                )
+                report.append(
+                    Said(
+                        vm=member.vm.name,
+                        text=f"{member.vm.name}: its peer {name} is removed from {inputs.hub.instance}.",
+                    )
+                )
+            steps.append(NextStep(vm=member.vm, matter=PEER, action=None))
+            continue
         peers.append(PeerWrite(kind="delete", name=name, address=f"{marked[0]}/32", vm=member.vm))
         report.append(
             Said(
