@@ -624,8 +624,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
 4. Read the VM user's home on the VM with `getent`, delegated over SSH, unless `vm_projects_dir`
    says where the code is (and the sessions' directory there is given or not needed). Nothing is
    guessed on the controller, and nothing is read back out of the alias: the workspace is
-   `vm_projects_dir` or `<home>/projects`. Then the session handoff's reads (`tasks/session_read.yml`),
-   which with `--session` settle the project to open.
+   `vm_projects_dir` or `<home>/projects`. A home with a control character in it is refused there, since
+   every path just code says or hands the editor starts with it. Then the session handoff's reads
+   (`tasks/session_read.yml`), which with `--session` settle the project to open.
 5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
    machine, so `~` would not expand) and, wherever anything goes into just code's own directory (the
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session

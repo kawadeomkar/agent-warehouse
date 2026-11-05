@@ -506,6 +506,18 @@
             fail_msg: "{{ code_ssh_failed }}"
             quiet: true
 
+        # The home is the VM's to report, and every path just code says or
+        # hands the editor starts with it: one with a control character in it
+        # is refused here, so nothing after quotes it raw.
+        - name: Refuse a home on the VM that is not one plain path
+          ansible.builtin.assert:
+            that: code_vm_home is not search('[\x00-\x1f\x7f]')
+            fail_msg: >-
+              {{ vm_user }}'s home on {{ claude_vm_names[0] }} holds a control character, so just code neither says it
+              nor hands it to the editor. Set vm_projects_dir to the projects directory there instead.
+            quiet: true
+          when: code_home.ansible_facts is defined
+
         # Which of this machine's sessions go to which checkout on the VM, and
         # with --session whether it can be opened there; read-only at both ends.
         - name: Read the sessions to carry to the VM
