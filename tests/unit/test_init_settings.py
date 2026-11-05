@@ -67,6 +67,8 @@ SECRET_PROMPT = b"API token secret"
 GITHUB_PROMPT = b"GitHub username:"
 TAILSCALE_PROMPT = b"Use Tailscale on the VMs? y or n:"
 TAILSCALE_KEY_PROMPT = b"Tailscale auth key (output is hidden):"
+# Asked after an n to Tailscale: each VM a peer of a WireGuard server the person already runs.
+WIREGUARD_PROMPT = b"Join the VMs to a WireGuard server you run instead? y or n:"
 ACCESS_PROMPT = b"Set it up now? y or n"
 
 
@@ -244,7 +246,9 @@ def test_every_answer_typed_writes_the_three_files_and_the_same_again_changes_no
     # At -vvv with every module's arguments in its result, as the most a run can
     # print or log: the secret typed is in neither.
     loud = {"ansible_inject_invocation": True}
-    rc, output, log = _init_at_a_terminal(tmp_path, files, EVERY_ANSWER, loud, args=["-vvv"])
+    # WireGuard's question follows the n to Tailscale, and is answered n.
+    steps = [*EVERY_ANSWER[:2], (WIREGUARD_PROMPT, b"n\n"), *EVERY_ANSWER[2:]]
+    rc, output, log = _init_at_a_terminal(tmp_path, files, steps, loud, args=["-vvv"])
     assert rc == 0, output
     # The person's accounts first, then every Proxmox question together: no other question between the
     # token's ID and its secret (the offer, here refused root SSH, asks nothing), and the ID's question
@@ -995,7 +999,8 @@ OPTIONAL = "Optional, with just vault: vault_github_token, vault_anthropic_api_k
 
 def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), *THE_PROXMOX_QUESTIONS]
+    # Enter at WireGuard's question, which follows an n, decides later and writes nothing of it.
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), (WIREGUARD_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
@@ -1008,6 +1013,34 @@ def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
     assert TAILSCALE_PROMPT.decode() not in output
+
+
+def test_y_to_wireguard_after_n_to_tailscale_writes_vpn_and_what_the_vms_need_of_the_server(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"n\n"),
+        (WIREGUARD_PROMPT, b"y\n"),
+        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
+        (b"The part of it kept for the VMs:", b"198.51.100.1/25\n"),  # host bits: asked again
+        (b"The part of it kept for the VMs:", b"198.51.100.128/25\n"),
+        (b"The server's public key:", key.encode() + b"\n"),
+        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    local = Path(files["init_local_file"]).read_text()
+    for line in (
+        'vpn: "wireguard"',
+        'wireguard_hub_network: "198.51.100.0/24"',
+        'wireguard_vm_prefix: "198.51.100.128/25"',
+        f'wireguard_hub_public_key: "{key}"',
+        'wireguard_hub_endpoint: "192.0.2.1:51820"',
+        "tailscale_enabled: false",
+    ):
+        assert line in local.splitlines(), line
 
 
 def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: Path) -> None:
@@ -1225,9 +1258,9 @@ def test_every_write_is_at_a_terminal_or_of_a_given_value():
         if guard and isinstance(guards.get(guard.group(1)), str):
             named.append(guard.group(1))
             when = guards[guard.group(1)].removeprefix("{{").strip()
-        # Its first condition: a terminal, or (the rest of it) a value given.
-        assert re.match(r"\(?init_ask \| bool or ", when), task["name"]
-    assert len(writers) == 5, writers
+        # Its first condition: a terminal, or (the rest of it) a value given; or a terminal alone.
+        assert re.match(r"\(?init_ask \| bool (or|and) ", when), task["name"]
+    assert len(writers) == 6, writers
     # The address, and the vault's password and text, each through its guard.
     assert sorted(named) == ["init_host_writing", "init_vault_writing", "init_vault_writing"], named
 

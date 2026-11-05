@@ -556,6 +556,79 @@
         and not init_tailscale_key_set | default(false) | bool
         and init_local_settings.tailscale_auth_method | default('auto') != 'web'
 
+    # -------------------------------------------------------------- WireGuard ---
+    # Asked at a terminal once Tailscale was answered n here, while local.yml
+    # sets no vpn: each VM a peer of a WireGuard server the person already runs
+    # (docs/guides/wireguard.md), which the project never writes. y asks what
+    # the VMs need of it, each held to its kind; all four given, they are
+    # written into local.yml with vpn: wireguard, which outranks the
+    # tailscale_enabled just written. Enter at any of them decides later, and
+    # nothing of WireGuard's is written.
+    - name: Ask whether the VMs join a WireGuard server instead
+      ansible.builtin.include_tasks: tasks/init_ask.yml
+      vars:
+        init_ask_name: wireguard
+        init_ask_label: Join the VMs to a WireGuard server you run instead? y or n
+        init_ask_kind: yes_no
+        init_ask_hidden: false
+        init_ask_given: ""
+        init_ask_flag: ""
+        init_ask_text:
+          - WireGuard makes each VM a peer of a WireGuard server you already run - wg-quick on a Linux
+          - box, your router's - so your devices on its tunnel reach the VMs. The project never changes
+          - the server; each deploy says the peer to add there. y asks four things about it. n, or
+          - Enter, leaves the VMs on the LAN alone.
+      when: init_ask | bool and init_answers.tailscale | default('') == 'n' and init_local_settings.vpn is not defined
+
+    - name: Ask what the VMs need of the WireGuard server
+      ansible.builtin.include_tasks: tasks/init_ask.yml
+      vars:
+        init_ask_name: "{{ init_wireguard_question.name }}"
+        init_ask_label: "{{ init_wireguard_question.label }}"
+        init_ask_kind: "{{ init_wireguard_question.kind }}"
+        init_ask_hidden: false
+        init_ask_given: ""
+        init_ask_flag: ""
+        init_ask_text: "{{ init_wireguard_question.text }}"
+      loop:
+        - name: wireguard_hub_network
+          label: The server's tunnel network
+          kind: ipv4_network
+          text: ["The network of the server's WireGuard interface, which your devices are on: 198.51.100.0/24."]
+        - name: wireguard_vm_prefix
+          label: The part of it kept for the VMs
+          kind: ipv4_network
+          text: ["A part of that network no device of yours uses, for the VMs' addresses: 198.51.100.128/25."]
+        - name: wireguard_hub_public_key
+          label: The server's public key
+          kind: wireguard_key
+          text: ["The server's public key, as wg show <its interface> public-key prints it there."]
+        - name: wireguard_hub_endpoint
+          label: What the VMs dial
+          kind: endpoint
+          text:
+            - The server's address or name and its port, as the VMs reach it - on their own LAN, its LAN
+            - "address: 192.0.2.1:51820."
+      loop_control:
+        loop_var: init_wireguard_question
+        label: "{{ init_wireguard_question.name }}"
+      when: init_ask | bool and init_answers.wireguard | default('') == 'y'
+
+    - name: Write WireGuard's settings into local.yml
+      ansible.builtin.include_tasks: tasks/init_local_setting.yml
+      vars:
+        init_setting_key: "{{ init_wireguard_setting }}"
+        init_setting_value: >-
+          {{ 'wireguard' if init_wireguard_setting == 'vpn' else init_answers[init_wireguard_setting] }}
+      loop: [vpn, wireguard_hub_network, wireguard_vm_prefix, wireguard_hub_public_key, wireguard_hub_endpoint]
+      loop_control:
+        loop_var: init_wireguard_setting
+      when: >-
+        init_ask | bool and init_answers.wireguard | default('') == 'y'
+        and [init_answers.wireguard_hub_network | default(''), init_answers.wireguard_vm_prefix | default(''),
+             init_answers.wireguard_hub_public_key | default(''), init_answers.wireguard_hub_endpoint | default('')]
+            | select | list | length == 4
+
     # Unanswered, the default flows through defaults.yml as before, so a later
     # change to the project's default still reaches the person.
     - name: Say that Tailscale is on by default
