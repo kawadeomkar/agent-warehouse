@@ -48,6 +48,7 @@
       {{ claude_vpn_planned | vpn_member_plan(claude_vpns, {
            'phase': claude_vpn_phase,
            'tag': claude_vm_tag | lower,
+           'reach': vpn_reach | default('lan') if claude_vpn_planned == claude_vpn_key | default('none') else 'lan',
            'members': claude_vpn_members} | combine(claude_vpn_wireguard if claude_vpn_planned == 'wireguard' else {})) }}
   vars:
     # WireGuard's hub and range, from the settings, and every address another

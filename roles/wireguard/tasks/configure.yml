@@ -2,7 +2,9 @@
 # The link, claude-wg, as two files of systemd-networkd's beside the key: the
 # hub its one peer, the networks routed into it, the keepalive that keeps a hub
 # on the internet able to reach a VM behind NAT; and the VM's address on the
-# tunnel, whose prefix route is the one route needed. Every value is the plan's,
+# tunnel, whose prefix route is the one route needed - and, under vpn_reach:
+# tunnel, a rule and a table that answer from that address through the
+# tunnel (docs/guides/wireguard.md). Every value is the plan's,
 # held by the core to its rules (lib/claude_vm/vpn/registry.py): the hub's key
 # is base64, its endpoint a name or an address and a port, every address one
 # Python parsed. networkd adds no route for AllowedIPs (its RouteTable= is off)
@@ -47,6 +49,19 @@
 
       [Network]
       Address={{ wireguard_tunnel.address }}
+      {% if wireguard_tunnel.reach | default('lan') == 'tunnel' %}
+
+      # vpn_reach: tunnel - what reached the VM at its tunnel address is answered back through the tunnel, from
+      # wherever it came: the LAN's devices too, whose replies would otherwise leave on the LAN, off the tunnel.
+      [RoutingPolicyRule]
+      From={{ wireguard_tunnel.address | split('/') | first }}/32
+      Table={{ wireguard_route_table }}
+      Priority={{ wireguard_rule_priority }}
+
+      [Route]
+      Destination=0.0.0.0/0
+      Table={{ wireguard_route_table }}
+      {% endif %}
     owner: root
     group: systemd-network
     mode: "0644"

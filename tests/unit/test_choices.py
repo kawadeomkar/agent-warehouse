@@ -180,3 +180,29 @@ def test_check_settings_refuses_a_vpn_that_is_none_of_them_naming_them_and_never
     assert result.returncode == 1
     assert "sets vpn to something that is none of its choices: tailscale, wireguard, none" in result.stderr
     assert "s3cret" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("text", "refused"),
+    [
+        ("vpn_reach: tunnel\n", True),  # tailscale, by tailscale_enabled's default: no tunnel reach
+        ("vpn: none\nvpn_reach: tunnel\n", True),
+        ("vpn: wireguard\nvpn_reach: tunnel\n", False),
+        ("vpn: tailscale\nvpn_reach: lan\n", False),
+        ("vpn: wireguard\nvpn_reach: everywhere\n", True),
+    ],
+)
+def test_check_settings_holds_vpn_reach_to_what_the_vpn_offers(tmp_path, text, refused):
+    result = _check(tmp_path, text)
+    assert (result.returncode == 1) is refused, result.stderr
+    assert ("sets vpn_reach to something" in result.stderr) is refused
+
+
+def test_only_the_chosen_vpn_s_plan_is_handed_the_reach():
+    # Tailscale's record is planned on every configure, whatever the VPN: handed vpn_reach: tunnel beside WireGuard,
+    # it would refuse a reach it does not offer and fail the run.
+    members = (REPO / "playbooks" / "tasks" / "vpn_members.yml").read_text()
+    assert (
+        "'reach': vpn_reach | default('lan') if claude_vpn_planned == claude_vpn_key | default('none') else 'lan'"
+        in members
+    )

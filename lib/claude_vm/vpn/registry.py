@@ -27,6 +27,18 @@ def vpn_member_plan(key: object, rows: object, inputs: object) -> dict[str, Any]
     it."""
     vpns, given = vpns_from(rows), inputs_from(inputs)
     vpn = pick(key, vpns, "a VPN this project joins VMs to")
+    if given.reach not in vpn.reach:
+        # A refusal of the core's own, before any family plans: the row says what the VPN offers.
+        offers = [other.key for other in vpns.values() if given.reach in other.reach]
+        return to_wire(
+            MemberPlan(
+                vpn=vpn.key,
+                refusals=(
+                    f"vpn_reach is {given.reach}, which {vpn.name} does not offer: an SSH alias reaches its VMs at"
+                    f" their LAN address (vpn_reach: lan). {', '.join(offers) or 'No VPN'} offers it.",
+                ),
+            )
+        )
     return to_wire(checked(vpn, given, FAMILIES[vpn.family].plan_members(vpn, given)))
 
 
@@ -75,6 +87,15 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
     return plan
 
 
+def _marks_after(inputs: MemberInputs, plan: MemberPlan, vm: str) -> set[str]:
+    """A VM's marks once the plan's are applied."""
+    marks = {mark for member in inputs.members if member.vm.name == vm for mark in member.marks}
+    for change in plan.marks:
+        if change.vm.name == vm:
+            marks = (marks - set(change.remove)) | set(change.add)
+    return marks
+
+
 def _in_range(inputs: MemberInputs, address: str) -> bool:
     """A host of the VMs' range: neither its network's address nor its broadcast's, unless it has no others."""
     if not address or not inputs.vm_prefix:
@@ -96,8 +117,19 @@ def _tunnels(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> Non
         held.add((name, address))
         if (tunnel.hub_public_key, tunnel.endpoint) != (inputs.hub.public_key, inputs.hub.endpoint):
             raise ValueError(f"{vpn.key}'s plan points {name} at a hub it was not given")
-        if tunnel.keepalive != inputs.keepalive or tunnel.allowed_ips != (inputs.hub.network,):
-            raise ValueError(f"{vpn.key}'s plan routes {name} into more than the hub's network")
+        routed = (inputs.hub.network,) if inputs.reach == "lan" else ("0.0.0.0/0",)
+        if tunnel.keepalive != inputs.keepalive or tunnel.allowed_ips != routed or tunnel.reach != inputs.reach:
+            raise ValueError(f"{vpn.key}'s plan routes {name} other than vpn_reach says")
+    tunnels = {tunnel.vm.name: tunnel.address.partition("/")[0] for tunnel in plan.tunnels}
+    for alias in plan.aliases:
+        member_of(alias.vm)
+        if inputs.reach != "tunnel" or tunnels.get(alias.vm.name) != alias.address:
+            raise ValueError(f"{vpn.key}'s plan points {alias.vm.name}'s alias at {alias.address}, not its tunnel")
+        # Only to an address the VM has reached its hub at, as its marks say once the plan is applied.
+        if common.wireguard_mark(alias.address, reached=True) not in _marks_after(inputs, plan, alias.vm.name):
+            raise ValueError(f"{vpn.key}'s plan points {alias.vm.name}'s alias at {alias.address}, not yet reached")
+    if len({alias.vm.name for alias in plan.aliases}) != len(plan.aliases):
+        raise ValueError(f"{vpn.key}'s plan points an alias twice")
 
 
 def _peers(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:

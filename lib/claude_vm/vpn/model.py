@@ -18,7 +18,7 @@ Reach = Literal["lan", "tunnel"]  # the guest agent's address, or the VPN's
 HubKind = Literal["none", "manual", "opnsense"]  # who administers the members: no one the plan writes to, or a hub
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 # A mark: a fact about a VM that the VM cannot change, kept beside the ownership tag as <tag>-<mark>.
-MARK = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}")
+MARK = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:-reached)?")
 
 
 def ipv4_network(value: str, what: str) -> ipaddress.IPv4Network:
@@ -154,6 +154,7 @@ class Tunnel(Checked):
     endpoint: str
     allowed_ips: tuple[str, ...]
     keepalive: int
+    reach: Reach = "lan"  # tunnel: the VM answers what reached it at its tunnel address back through the tunnel
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -12,6 +12,7 @@ from typing import Final
 from ..refs import NextStep
 from . import common
 from .model import (
+    AliasAddress,
     MarkChange,
     Member,
     MemberInputs,
@@ -101,7 +102,7 @@ def _peer_block(inputs: MemberInputs, member: Member, address: str) -> str:
 def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
     network = ipv4_network(inputs.hub.network, "wireguard_hub_network")
     addresses = _addresses(inputs)
-    marks, peers, tunnels, report, steps = [], [], [], [], []
+    marks, peers, tunnels, aliases, report, steps = [], [], [], [], [], []
     for member in inputs.members:
         vm = member.vm.name
         if member.leaving:
@@ -126,7 +127,10 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
             )
             continue
         old = [mark for mark in member.marks if mark.startswith(common.WIREGUARD)]
-        new = common.wireguard_mark(address)
+        kept = [mark for mark in old if common.mark_address(mark) == address]
+        # Reached: the VM has shaken hands with its hub at this address, this run or a run before it.
+        reached = bool(kept) and (member.handshake or any(common.mark_reached(mark) for mark in kept))
+        new = common.wireguard_mark(address, reached)
         if old != [new]:
             marks.append(
                 MarkChange(
@@ -143,16 +147,26 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                     matter=ADDRESS,
                 )
             )
+        # Under vpn_reach: tunnel the VM answers whatever reached it at its tunnel address, from wherever, back
+        # through the tunnel, so the hub's peer is every address; under lan, only the hub's network is routed to it.
         tunnels.append(
             Tunnel(
                 vm=member.vm,
                 address=f"{address}/{network.prefixlen}",
                 hub_public_key=inputs.hub.public_key,
                 endpoint=inputs.hub.endpoint,
-                allowed_ips=(str(network),),
+                allowed_ips=(str(network),) if inputs.reach == "lan" else ("0.0.0.0/0",),
                 keepalive=inputs.keepalive,
+                reach=inputs.reach,
             )
         )
+        # Under tunnel, the alias only once the VM has reached its hub at the address: before, it would lead nowhere,
+        # and ssh and the editor with it.
+        moves = ""
+        if inputs.reach == "tunnel" and reached:
+            aliases.append(AliasAddress(vm=member.vm, address=address))
+        elif inputs.reach == "tunnel":
+            moves = f"just deploy {vm} --only configure moves its SSH alias to {address} once it has reached the server"
         peers.append(
             PeerWrite(
                 kind="add",
@@ -163,14 +177,17 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
             )
         )
         if member.handshake:
-            report.append(Said(vm=vm, text=f"{vm}: on WireGuard at {address}, its hub reached."))
-            steps.append(NextStep(vm=member.vm, matter=PEER, action=None))
+            report.append(
+                Said(vm=vm, text=f"{vm}: on WireGuard at {address}, its hub reached." + (f" {moves}." if moves else ""))
+            )
+            steps.append(NextStep(vm=member.vm, matter=PEER, action=None, text=f"{vm}: {moves}." if moves else ""))
         else:
             report.append(
                 Said(
                     vm=vm,
                     text=f"{vm}: on WireGuard at {address} once your server has its peer. Add it there:"
-                    f" {_peer_block(inputs, member, address)}. just status {vm} says when it has connected.",
+                    f" {_peer_block(inputs, member, address)}. just status {vm} says when it has connected"
+                    + (f"; {moves}." if moves else "."),
                 )
             )
             steps.append(
@@ -179,7 +196,8 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                     matter=PEER,
                     action=None,
                     text=f"{vm}: add its peer to your WireGuard server - PublicKey {member.public_key}, AllowedIPs"
-                    f" {address}/32 - then just status {vm} says when it has connected.",
+                    f" {address}/32 - then just status {vm} says when it has connected"
+                    + (f"; {moves}." if moves else "."),
                 )
             )
     return MemberPlan(
@@ -187,6 +205,7 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
         marks=tuple(marks),
         peers=tuple(peers),
         tunnels=tuple(tunnels),
+        aliases=tuple(aliases),
         report=tuple(report),
         next_steps=tuple(steps),
     )

@@ -336,11 +336,19 @@
     - name: Collect each configured VM's name, address and workspace
       vars:
         claude_ssh_vm_vars: "{{ hostvars[claude_ssh_host] }}"
+        # Under vpn_reach: tunnel, the address WireGuard's plan gave the VM this run, which its marks read at
+        # discovery may not hold yet; else the one they hold, else its LAN address (vpn_alias_address).
+        claude_ssh_planned_alias: >-
+          {{ ((claude_vpn_plans | default({})).get('wireguard') or {}).get('aliases', [])
+             | selectattr('vm.name', 'equalto', claude_ssh_host) | map(attribute='address') | first | default('') }}
       ansible.builtin.set_fact:
         claude_ssh_configured: >-
           {{ claude_ssh_configured | default([]) + [{
                'name': claude_ssh_host,
-               'address': claude_ssh_vm_vars.ansible_host | default(claude_ssh_host),
+               'address': claude_ssh_planned_alias
+                          or (claude_ssh_vm_vars.ansible_host | default(claude_ssh_host)
+                              | vpn_alias_address(claude_ssh_vm_vars.claude_vm_marks | default([]),
+                                                  claude_vpn_key | default('none'), vpn_reach | default('lan'))),
                'user': claude_ssh_vm_vars.vm_user | default(vm_user),
                'workspace': claude_ssh_vm_vars.claude_vm_workspace,
              }] }}

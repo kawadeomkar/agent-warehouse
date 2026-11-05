@@ -384,6 +384,12 @@ The VPN each VM joins: tailscale, wireguard (each VM a peer of a WireGuard serve
 |---|---|---|
 | `vpn` | computed | For example `tailscale`. |
 
+Which address each VM's SSH alias uses: lan (its LAN address, as its guest agent reports it) or, for a VPN that offers it - WireGuard ([docs/guides/wireguard.md](../guides/wireguard.md)) - tunnel, its address on the VPN: one address that works at home and away.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `vpn_reach` | `lan` |  |
+
 ### WireGuard
 
 With vpn: wireguard ([docs/guides/wireguard.md](../guides/wireguard.md)), each VM is a peer of a WireGuard server you already run, its hub: its key is made on the VM and never leaves it, and its address on the tunnel is given from the range below and kept for its life, recorded in Proxmox. The project never changes the server: each run says the peer to add there (wireguard_hub: manual), and just destroy the one to remove.

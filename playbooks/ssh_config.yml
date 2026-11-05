@@ -56,7 +56,9 @@
         claude_ssh_refresh: >-
           {{ claude_ssh_refresh | default([]) + [{
                'name': claude_ssh_vm.name,
-               'address': claude_ssh_vm.address,
+               'address': claude_ssh_vm.address
+                          | vpn_alias_address(claude_ssh_vm.tags | default('') | proxmox_marks(claude_vm_tag),
+                                              claude_vpn_key | default('none'), vpn_reach | default('lan')),
                'user': vm_user,
                'workspace': vm_projects_dir | default('', true),
              }] }}

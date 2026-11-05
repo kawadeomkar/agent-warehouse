@@ -273,3 +273,22 @@ def test_proxmox_vm_keeps_the_wireguard_address_whenever_it_replaces_a_vm_s_tags
         **{name: trust_as_template(role_vars[name]) for name in ("proxmox_vm_tailscale_tag", "proxmox_vm_kept_tags")},
     }
     assert Templar(loader=DataLoader(), variables=variables).template(variables["proxmox_vm_kept_tags"]) == kept
+
+
+def test_under_tunnel_reach_the_vm_answers_from_its_tunnel_address_through_the_tunnel():
+    (network,) = [
+        task
+        for task in _tasks(ROLE / "tasks" / "configure.yml")
+        if task.get("name") == "configure | Write the link's network"
+    ]
+    text = network["ansible.builtin.copy"]["content"]
+    rule = text.index("[RoutingPolicyRule]")
+    assert text.index("{% if wireguard_tunnel.reach | default('lan') == 'tunnel' %}") < rule < text.index("{% endif %}")
+    assert "From={{ wireguard_tunnel.address | split('/') | first }}/32" in text
+    assert text.count("Table={{ wireguard_route_table }}") == 2 and "Destination=0.0.0.0/0" in text
+    assert VARS["wireguard_route_table"] not in (253, 254, 255)  # default, main, local
+
+
+def test_every_alias_writer_uses_the_tunnel_address_under_tunnel_reach():
+    for playbook in ("playbooks/configure.yml", "playbooks/ssh_config.yml", "playbooks/code.yml"):
+        assert "vpn_alias_address(" in (REPO / playbook).read_text(), playbook

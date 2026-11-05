@@ -64,7 +64,30 @@ On a `wg-quick` server, add it to `/etc/wireguard/wg0.conf` and run `wg syncconf
 `wg set wg0 peer <key> allowed-ips 198.51.100.129/32` for the running interface alone.
 
 `just status <vm>` shows the VM's address and when it last reached the server. From a device on the tunnel,
-`ssh <vm user>@198.51.100.129` reaches it; the SSH alias keeps the VM's LAN address.
+`ssh <vm user>@198.51.100.129` reaches it; the SSH alias keeps the VM's LAN address, unless you ask for one address
+everywhere (below).
+
+## One address at home and away
+
+`vpn_reach: tunnel` puts each VM's tunnel address in its SSH alias, so `ssh alpha` and your editor reach the VM the
+same way at home and away: away through your device's tunnel, at home through your router's route to the tunnel
+network, when your server is the router or the router routes that network to it.
+
+At home, the request then comes from your laptop's LAN address, and the VM would answer it from its tunnel address
+straight over the LAN, which your router's firewall drops as half a connection. So under `tunnel` the VM answers
+whatever reached it at its tunnel address back through the tunnel: a rule of its own (`From=<its tunnel
+address>/32`), a table whose one route is the tunnel, and the server its peer for every address. Its own traffic,
+from its LAN address, still leaves on its LAN.
+
+A VM's alias moves to its tunnel address only once the VM has reached your server there: until then the address
+leads nowhere, and `ssh alpha` and your editor would fail. Proxmox records it beside the address
+(`claude-on-proxmox-wg-198.51.100.129-reached`), so `just deploy`, `just deploy --only ssh-config` and `just code`
+agree. The run that first sees the handshake records it: after you add a VM's peer, `just deploy <vm> --only
+configure` moves its alias, as its NEXT STEPS line says.
+
+Your server's side, for this: pass your LAN to the VMs' range on port 22 (and any port you work on), and keep
+dropping what the VMs' range opens itself. Tailscale offers no `tunnel` reach yet; the setting is refused with it.
+
 
 ## What the role touches
 

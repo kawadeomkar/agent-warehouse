@@ -20,14 +20,16 @@ MATTERS: Final[Mapping[FamilyName, frozenset[str]]] = {
     "tailscale": frozenset({"tailscale_record"}),
     "wireguard": frozenset({"wireguard_address", "wireguard_peer"}),
 }
-# The mark of a VM's WireGuard address, wg-<address>: the address it keeps for its life, wherever its hub is.
+# The mark of a VM's WireGuard address, wg-<address>: the address it keeps for its life, wherever its hub is; and
+# wg-<address>-reached once the VM has reached its hub at that address, from when an SSH alias may use it.
 WIREGUARD: Final = "wg-"
+REACHED: Final = "-reached"
 # A peer's name as every hub takes it (OPNsense's Client.xml: 1 to 64 of these).
 PEER_NAME: Final = re.compile(r"[0-9A-Za-z._-]{1,64}")
 
 
-def wireguard_mark(address: str) -> str:
-    return f"{WIREGUARD}{address}"
+def wireguard_mark(address: str, reached: bool = False) -> str:
+    return f"{WIREGUARD}{address}{REACHED if reached else ''}"
 
 
 def mark_address(mark: str) -> str:
@@ -35,9 +37,14 @@ def mark_address(mark: str) -> str:
     if not mark.startswith(WIREGUARD):
         return ""
     try:
-        return str(ipaddress.IPv4Address(mark[len(WIREGUARD) :]))
+        return str(ipaddress.IPv4Address(mark[len(WIREGUARD) :].removesuffix(REACHED)))
     except ValueError:
         return ""
+
+
+def mark_reached(mark: str) -> bool:
+    """Whether a WireGuard mark says the VM has reached its hub at the address it holds."""
+    return bool(mark_address(mark)) and mark.endswith(REACHED)
 
 
 def public_key(value: str) -> bool:
@@ -60,3 +67,14 @@ def marks_of(family: FamilyName, mark: str) -> bool:
             return mark == TAILSCALE
         case "wireguard":
             return bool(mark_address(mark))
+
+
+def vpn_alias_address(lan: str, marks: object, vpn: str, reach: str) -> str:
+    """The address a VM's SSH alias uses: its WireGuard address, from its mark in Proxmox, under vpn: wireguard and
+    vpn_reach: tunnel once the VM has reached its hub there; its LAN address otherwise - before then too, when the
+    address leads nowhere yet."""
+    if str(vpn) == "wireguard" and str(reach) == "tunnel":
+        for mark in marks if isinstance(marks, (list, tuple)) else ():
+            if mark_reached(str(mark)):
+                return mark_address(str(mark))
+    return lan

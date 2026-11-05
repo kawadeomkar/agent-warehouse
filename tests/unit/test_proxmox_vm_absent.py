@@ -30,12 +30,14 @@ FORGET = "absent | Forget the VM's SSH host key"
 
 def _forget(tmp_path: Path, **extra) -> set[str]:
     """Run absent.yml's forget task with the role's vars and `extra`; return the hosts left in known_hosts."""
+    extra = {"proxmox_vm_found_tags": ["claude-on-proxmox"], **extra}
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(tmp_path / "key")], check=True)
     key = (tmp_path / "key.pub").read_text().split()[:2]
     known = home / ".ssh" / "known_hosts"
-    known.write_text("".join(f"{host} {key[0]} {key[1]}\n" for host in ("192.0.2.10", "alpha.lan", "beta.lan")))
+    hosts = ("192.0.2.10", "alpha.lan", "beta.lan", "198.51.100.129")
+    known.write_text("".join(f"{host} {key[0]} {key[1]}\n" for host in hosts))
 
     task = next(t for t in yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()) if t["name"] == FORGET)
     playbook = tmp_path / "forget.yml"
@@ -52,17 +54,19 @@ VM = {"proxmox_vm_name": "alpha", "proxmox_vm_forget_address": "192.0.2.10"}
 
 
 def test_with_a_domain_the_name_is_forgotten_with_the_address(tmp_path):
-    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="lan") == {"beta.lan"}
+    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="lan") == {"beta.lan", "198.51.100.129"}
 
 
 def test_without_a_domain_only_the_address_is_forgotten(tmp_path):
-    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="") == {"alpha.lan", "beta.lan"}
+    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="") == {"alpha.lan", "beta.lan", "198.51.100.129"}
 
 
 @pytest.mark.parametrize("domain", ["lan", ""])
 def test_a_vm_whose_address_is_unknown_still_loses_its_name(tmp_path, domain):
     left = _forget(tmp_path, **{**VM, "proxmox_vm_forget_address": ""}, proxmox_vm_known_hosts_domain=domain)
-    assert left == ({"192.0.2.10", "beta.lan"} if domain else {"192.0.2.10", "alpha.lan", "beta.lan"})
+    assert left == {"198.51.100.129"} | (
+        {"192.0.2.10", "beta.lan"} if domain else {"192.0.2.10", "alpha.lan", "beta.lan"}
+    )
 
 
 def test_the_inventory_wires_the_domain_into_the_role():
@@ -72,12 +76,17 @@ def test_the_inventory_wires_the_domain_into_the_role():
 
 def test_the_proxmox_host_s_key_is_never_forgotten(tmp_path):
     left = _forget(tmp_path, **VM, proxmox_vm_api_host="192.0.2.10", proxmox_vm_known_hosts_domain="lan")
-    assert left == {"192.0.2.10", "beta.lan"}
+    assert left == {"192.0.2.10", "beta.lan", "198.51.100.129"}
 
 
 def test_an_address_kept_for_the_inventory_is_never_forgotten(tmp_path):
     kept = {"proxmox_vm_api_host": "198.51.100.1", "proxmox_vm_known_hosts_kept": ["192.0.2.10"]}
-    assert _forget(tmp_path, **VM, **kept, proxmox_vm_known_hosts_domain="") == {"192.0.2.10", "alpha.lan", "beta.lan"}
+    assert _forget(tmp_path, **VM, **kept, proxmox_vm_known_hosts_domain="") == {
+        "192.0.2.10",
+        "alpha.lan",
+        "beta.lan",
+        "198.51.100.129",
+    }
 
 
 @pytest.mark.parametrize("kept", [{"proxmox_vm_known_hosts_kept": ["beta.lan"]}, {"proxmox_vm_api_host": "beta.lan"}])
@@ -87,7 +96,7 @@ def test_a_kept_name_is_never_forgotten_as_the_vm_s_name_either(tmp_path, kept):
     left = _forget(
         tmp_path, **{"proxmox_vm_api_host": "198.51.100.1", **kept}, **vm, proxmox_vm_known_hosts_domain="lan"
     )
-    assert left == {"alpha.lan", "beta.lan"}
+    assert left == {"alpha.lan", "beta.lan", "198.51.100.129"}
 
 
 def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
@@ -97,3 +106,17 @@ def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
     assert "ansible_host" in defaults["claude_vm_inventory_addresses"]
     # The same list an SSH alias may never take.
     assert "claude_vm_inventory_addresses" in defaults["claude_vm_inventory_names"]
+
+
+@pytest.mark.parametrize("mark", ["claude-on-proxmox-wg-198.51.100.129", "claude-on-proxmox-wg-198.51.100.129-reached"])
+def test_the_tunnel_address_its_mark_holds_is_forgotten_too(tmp_path, mark):
+    # Under vpn_reach: tunnel the alias connects to the WireGuard address, so known_hosts holds the key there, and
+    # the next VM is soon given the address: the lowest free one.
+    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=["claude-on-proxmox", mark], proxmox_vm_known_hosts_domain="")
+    assert left == {"alpha.lan", "beta.lan"}
+
+
+def test_another_tag_s_wireguard_address_is_not_the_vm_s(tmp_path):
+    found = ["claude-on-proxmox", "someone-wg-198.51.100.129"]
+    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=found, proxmox_vm_known_hosts_domain="")
+    assert left == {"alpha.lan", "beta.lan", "198.51.100.129"}

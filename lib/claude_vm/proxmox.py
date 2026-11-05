@@ -66,8 +66,9 @@ def tailnet_ipv4(addresses):
 
 
 # A mark: a fact about a VM that the VM cannot change, kept as a tag beside the ownership tag, <tag>-<mark>
-# (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>.
-MARK_RE = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}")
+# (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>, with -reached after it
+# once the VM has reached its hub there.
+MARK_RE = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:-reached)?")
 
 
 def _tag_list(tags):
@@ -90,7 +91,11 @@ def proxmox_wireguard_taken(resources, tag, but=()):
         if not isinstance(vm, dict) or vm.get("vmid") in but:
             continue
         if str(tag).lower() in _tag_list(vm.get("tags", "")):
-            taken += [mark[3:] for mark in proxmox_marks(vm.get("tags", ""), tag) if mark.startswith("wg-")]
+            taken += [
+                mark[3:].removesuffix("-reached")
+                for mark in proxmox_marks(vm.get("tags", ""), tag)
+                if mark.startswith("wg-")
+            ]
     return taken
 
 

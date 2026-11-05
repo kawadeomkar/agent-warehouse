@@ -251,6 +251,7 @@ login_desktop: true
 # Unset, it follows tailscale_enabled below, the setting it replaces, which is
 # still read: tailscale while that is true, else none.
 vpn: "{{ 'tailscale' if tailscale_enabled | bool else 'none' }}"
+vpn_reach: lan
 # The VPNs a VM can be on, by the vpn setting's value: each one's name, the
 # family of the core that plans its members (lib/claude_vm/vpn/), the role
 # that runs it on each VM, whether it has a sign-in of its own (a stage of
@@ -270,7 +271,7 @@ claude_vpns:
     family: wireguard
     role: wireguard
     sign_in: false
-    reach: [lan]
+    reach: [lan, tunnel]
 # The vpn setting as every playbook reads it: an empty one is none. Internal,
 # not a setting.
 claude_vpn_key: "{{ vpn | default('none', true) | string }}"

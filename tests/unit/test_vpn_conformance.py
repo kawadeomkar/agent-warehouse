@@ -21,9 +21,9 @@ from harness import ANSIBLE_PLAYBOOK, ansible_config
 
 from claude_vm import proxmox
 from claude_vm.refs import NextStep, VmRef
-from claude_vm.vpn import model, registry
+from claude_vm.vpn import common, model, registry
 from claude_vm.vpn.family import Family
-from claude_vm.vpn.model import FamilyName, MarkChange, MemberPlan, PeerWrite, Said, Tunnel
+from claude_vm.vpn.model import AliasAddress, FamilyName, MarkChange, MemberPlan, PeerWrite, Said, Tunnel
 
 REPO = Path(__file__).resolve().parents[2]
 ROWS = yaml.safe_load((REPO / "inventory/group_vars/all/defaults.yml").read_text())["claude_vpns"]
@@ -221,6 +221,7 @@ def test_wireguard_gives_each_vm_the_lowest_free_address_of_the_range_and_marks_
         "endpoint": "vpn.example.net:51820",
         "allowed_ips": ["198.51.100.0/24"],
         "keepalive": 25,
+        "reach": "lan",
     }
     assert [(p["kind"], p["name"], p["public_key"], p["address"]) for p in plan["peers"]] == [
         ("add", "claude-on-proxmox-alpha", KEY_A, "198.51.100.130/32"),
@@ -233,7 +234,7 @@ def test_wireguard_gives_each_vm_the_lowest_free_address_of_the_range_and_marks_
 
 
 def test_a_vm_keeps_its_marked_address_and_a_vm_that_reached_its_hub_has_nothing_left():
-    kept = WG_A | {"marks": ["tailscale", "wg-198.51.100.200"], "handshake": True}
+    kept = WG_A | {"marks": ["tailscale", "wg-198.51.100.200-reached"], "handshake": True}
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(kept))
     assert plan["tunnels"][0]["address"] == "198.51.100.200/24" and plan["marks"] == []
     assert plan["next_steps"][0]["text"] == "" and plan["next_steps"][0]["action"] is None
@@ -377,8 +378,12 @@ def test_proxmox_s_tags_give_each_vm_its_marks_and_the_addresses_taken():
     )
     assert proxmox.proxmox_marks(tags, "claude-on-proxmox") == ["tailscale", "wg-198.51.100.130"]
     assert proxmox.proxmox_marks(["claude-on-proxmox-wg-198.51.100.131"], "claude-on-proxmox") == ["wg-198.51.100.131"]
+    assert proxmox.proxmox_marks("claude-on-proxmox-wg-198.51.100.131-reached", "claude-on-proxmox") == [
+        "wg-198.51.100.131-reached"
+    ]
+    assert proxmox.proxmox_marks("claude-on-proxmox-wg-198.51.100.131-other", "claude-on-proxmox") == []
     listing = [
-        {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130"},
+        {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130-reached"},
         {"vmid": 4014, "tags": "claude-on-proxmox,claude-on-proxmox-wg-198.51.100.131"},
         # Not the project's: its mark is no mark.
         {"vmid": 4015, "tags": "claude-on-proxmox-wg-198.51.100.132"},
@@ -386,3 +391,119 @@ def test_proxmox_s_tags_give_each_vm_its_marks_and_the_addresses_taken():
     ]
     assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox") == ["198.51.100.130", "198.51.100.131"]
     assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox", [4013]) == ["198.51.100.131"]
+
+
+# ------------------------------------------------------- one address at home and away ---
+def test_under_vpn_reach_tunnel_each_vm_s_alias_is_its_tunnel_address_and_it_answers_through_the_tunnel():
+    reached = WG_A | {"marks": ["wg-198.51.100.129"], "handshake": True}
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(reached, reach="tunnel"))
+    (tunnel,) = plan["tunnels"]
+    assert tunnel["reach"] == "tunnel" and tunnel["allowed_ips"] == ["0.0.0.0/0"]
+    assert plan["aliases"] == [{"vm": ALPHA, "address": "198.51.100.129"}]
+    (mark,) = plan["marks"]
+    assert mark["add"] == ["wg-198.51.100.129-reached"] and mark["remove"] == ["wg-198.51.100.129"]
+    lan = registry.vpn_member_plan("wireguard", ROWS, wg(reached))
+    assert lan["aliases"] == [] and lan["tunnels"][0]["allowed_ips"] == ["198.51.100.0/24"]
+
+
+@pytest.mark.parametrize(
+    ("member", "taken", "alias"),
+    [
+        (WG_A, [], False),  # a first run: no address recorded yet, and no link to shake hands
+        (WG_A | {"marks": ["wg-198.51.100.129"]}, [], False),  # recorded, but the server has no peer yet
+        (WG_A | {"handshake": True}, [], False),  # a handshake, but at no address recorded yet
+        (WG_A | {"marks": ["wg-198.51.100.129"], "handshake": True}, [], True),
+        (WG_A | {"marks": ["wg-198.51.100.129-reached"]}, [], True),  # reached before, quiet this run: it stays
+        # Its address is another VM's now: the one it is given has never been reached.
+        (WG_A | {"marks": ["wg-198.51.100.129-reached"], "handshake": True}, ["198.51.100.129"], False),
+    ],
+)
+def test_an_alias_moves_to_the_tunnel_only_once_the_vm_has_reached_its_hub_there(member, taken, alias):
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(member, reach="tunnel", taken=taken))
+    (tunnel,) = plan["tunnels"]
+    address = tunnel["address"].partition("/")[0]
+    assert plan["aliases"] == ([{"vm": ALPHA, "address": address}] if alias else [])
+    marks = set(member.get("marks", []))
+    for change in plan["marks"]:
+        marks = (marks - set(change["remove"])) | set(change["add"])
+    assert marks == {f"wg-{address}-reached" if alias else f"wg-{address}"}
+    (said,) = plan["report"]
+    (step,) = plan["next_steps"]
+    moves = f"just deploy alpha --only configure moves its SSH alias to {address} once it has reached the server"
+    assert (moves in said["text"]) is (moves in step["text"]) is (not alias)
+
+
+def test_a_reach_a_vpn_does_not_offer_is_refused_naming_the_ones_that_do():
+    plan = registry.vpn_member_plan("tailscale", ROWS, given(SEEN, reach="tunnel"))
+    (refusal,) = plan["refusals"]
+    assert "vpn_reach is tunnel, which Tailscale does not offer" in refusal and "wireguard offers it" in refusal
+    assert plan["marks"] == []
+
+
+TINPUTS = model.inputs_from(wg(WG_A, reach="tunnel"))
+TTUNNEL = replace(TUNNEL, allowed_ips=("0.0.0.0/0",), reach="tunnel")
+REACHED = MarkChange(
+    vm=A, add=("wg-198.51.100.130-reached",), unwritten="alpha: ({reason})", matter="wireguard_address"
+)
+
+
+def test_the_core_takes_an_alias_to_an_address_the_vm_has_reached():
+    plan = MemberPlan(
+        vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),), marks=(REACHED,)
+    )
+    assert registry.checked(WVPN, TINPUTS, plan) is plan
+
+
+@pytest.mark.parametrize(
+    "slip",
+    [
+        MemberPlan(vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.131"),)),
+        MemberPlan(vpn="wireguard", tunnels=(replace(TTUNNEL, allowed_ips=("198.51.100.0/24",)),)),
+        MemberPlan(vpn="wireguard", tunnels=(replace(TTUNNEL, reach="lan"),)),
+        MemberPlan(
+            vpn="wireguard",
+            tunnels=(TTUNNEL,),
+            aliases=(AliasAddress(vm=A, address="198.51.100.130"), AliasAddress(vm=A, address="198.51.100.130")),
+            marks=(REACHED,),
+        ),
+        MemberPlan(vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),)),
+        MemberPlan(
+            vpn="wireguard",
+            tunnels=(TTUNNEL,),
+            aliases=(AliasAddress(vm=A, address="198.51.100.130"),),
+            marks=(replace(REACHED, add=("wg-198.51.100.130",)),),
+        ),
+    ],
+    ids=[
+        "an alias at another address",
+        "a tunnel routing too little",
+        "a tunnel of the other reach",
+        "two aliases",
+        "an alias with no address recorded",
+        "an alias to an address not reached",
+    ],
+)
+def test_the_core_refuses_a_tunnel_reach_slip(slip):
+    with pytest.raises(ValueError):
+        registry.checked(WVPN, TINPUTS, slip)
+
+
+def test_an_alias_under_lan_reach_is_refused():
+    plan = MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),))
+    with pytest.raises(ValueError):
+        registry.checked(WVPN, WINPUTS, plan)
+
+
+@pytest.mark.parametrize(
+    ("marks", "vpn", "reach", "address"),
+    [
+        (["tailscale", "wg-198.51.100.130-reached"], "wireguard", "tunnel", "198.51.100.130"),
+        (["wg-198.51.100.130"], "wireguard", "tunnel", "192.0.2.61"),  # recorded, but never reached: leads nowhere
+        (["wg-198.51.100.130-reached"], "wireguard", "lan", "192.0.2.61"),
+        (["wg-198.51.100.130-reached"], "tailscale", "tunnel", "192.0.2.61"),
+        (["tailscale"], "wireguard", "tunnel", "192.0.2.61"),  # no address marked yet
+        ("wg-198.51.100.130", "wireguard", "tunnel", "192.0.2.61"),  # not a list: nothing read from it
+    ],
+)
+def test_an_alias_uses_the_marked_tunnel_address_only_under_wireguard_s_tunnel_reach(marks, vpn, reach, address):
+    assert common.vpn_alias_address("192.0.2.61", marks, vpn, reach) == address

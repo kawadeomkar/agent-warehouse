@@ -1012,10 +1012,17 @@ and `tests/unit/test_choices.py` holds the three equal.
   overlaps a VM's own, a key that is not one, an endpoint that is not a name or an address and a port, a peer name a
   hub would refuse. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
   the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through `tasks/vm_marks.yml`, what it says, and
-  its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`).
+  its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`). Under `vpn_reach:
+  tunnel`, which only a row whose `reach` lists it may have (the registry refuses it before any family plans), each
+  tunnel routes every address to the hub and the VM answers from its tunnel address through it, and each VM's alias
+  is its tunnel address once the VM has reached its hub there - before, the address leads nowhere: the plan's, this
+  run, which the registry holds to a VM whose marks say so once applied, and `vpn_alias_address` over its marks in
+  every other alias writer (`playbooks/ssh_config.yml`, `just code`'s refresh).
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
   the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login, `wg-<address>`
-  for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone). Discovery,
+  for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone), and
+  `wg-<address>-reached` once it has shaken hands with its hub at that address (this run, read by the role's key
+  step, or a run before). Discovery,
   provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, and
   `proxmox_vm` keeps them whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`).
   `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and written back as read with the marks

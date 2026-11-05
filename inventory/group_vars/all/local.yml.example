@@ -264,6 +264,11 @@
 # and a VPN this project set up is taken off a VM again when another is chosen,
 # saying so. Unset, it follows tailscale_enabled below.
 # vpn: tailscale
+# Which address each VM's SSH alias uses: lan (its LAN address, as its guest
+# agent reports it) or, for a VPN that offers it - WireGuard
+# (docs/guides/wireguard.md) - tunnel, its address on the VPN: one address that
+# works at home and away.
+# vpn_reach: lan
 
 # -------------------------------------------------------------- WireGuard ---
 # With vpn: wireguard (docs/guides/wireguard.md), each VM is a peer of a

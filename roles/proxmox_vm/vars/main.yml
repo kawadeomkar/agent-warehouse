@@ -121,5 +121,13 @@ proxmox_vm_forget_address: >-
 proxmox_vm_forget_names: >-
   {{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address | length > 0 else [])
       + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain]
-         if proxmox_vm_known_hosts_domain | length > 0 else []))
+         if proxmox_vm_known_hosts_domain | length > 0 else [])
+      + proxmox_vm_forget_tunnel)
      | reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) | list }}
+
+# Internal: the WireGuard address Proxmox recorded for the VM (its mark,
+# <tag>-wg-<address>), which its SSH alias connects to under vpn_reach: tunnel.
+# Addresses are given lowest free first, so the next VM is soon given it.
+proxmox_vm_forget_tunnel: >-
+  {{ proxmox_vm_found_tags | select('match', (proxmox_vm_sent_tags[0] ~ '-wg-') | regex_escape)
+     | map('regex_replace', '^.*-wg-([0-9.]+)(-reached)?$', '\1') | list }}
