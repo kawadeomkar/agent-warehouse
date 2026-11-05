@@ -6,7 +6,7 @@ one Include line at the top of the user's own ssh config. A bug there breaks
 every `ssh` on the developer's machine, so the task file is run here as it is
 run by configure.yml, destroy.yml and ssh_config.yml - against paths under
 tmp_path, never ~/.ssh - and the result is resolved with the real ssh client,
-the way VS Code's Remote - SSH extension reads it.
+the way an editor's SSH connection reads it, VS Code's Remote - SSH or Zed's.
 
 The last tests guard the tests: every playbook scenario and the Vagrantfile
 must point the managed file into Molecule's ephemeral directory or switch the
@@ -111,7 +111,7 @@ def _blocks(text: str) -> list[str]:
 
 
 def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
-    """What the real ssh client makes of the managed file, as VS Code would."""
+    """What the real ssh client makes of the managed file, as an editor's ssh would."""
     result = subprocess.run(
         [SSH, "-G", "-F", _paths(tmp_path)["claude_ssh_config_file"], alias],
         capture_output=True,

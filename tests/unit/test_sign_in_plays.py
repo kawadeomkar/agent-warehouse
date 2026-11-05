@@ -237,7 +237,7 @@ def _deploy_sign_ins(root: Path) -> Path:
     its step only reports them: what that step decides is test_tailscale.py's.
 
     The template, provision, configure and code stages are left out: the
-    stand-in VMs are configured already, and nothing here opens VS Code.
+    stand-in VMs are configured already, and nothing here opens an editor.
     """
     entries = []
     for entry in yaml.safe_load(DEPLOY.read_text()):
