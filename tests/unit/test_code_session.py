@@ -10,20 +10,25 @@ record what they were asked: PATH holds the stand-ins alone, and the script
 uses only shell builtins besides them, so nothing on this machine is reached.
 One run has a pseudo-terminal of its own, to press Ctrl-C during GitHub's
 device flow. The Molecule provision scenario checks the workspace file and the
-task around it.
+task around it. Zed is handed a task file instead, whose Claude task runs the
+shared playbooks/files/claude-start.sh, which the window cases here write and
+check.
 
 The window step is run too, a few of code.yml's own tasks at a time, inside
 its block and with its rescue, its play vars, deploy.yml's for its import and
 the inventory defaults: as just code and as just deploy's last step, for one
 VM, none named and a fleet, a VM left stopped, no `code` command, no alias, a
-refused SSH connection and an extension that would not install. `which` and
-`code` are stand-ins there, first on a PATH that holds no other, so no VS Code
-of this machine's is ever started.
+refused SSH connection and an extension that would not install; and Zed's: no
+Zed command, ZFS's `zed` in its place, a folder its URL cannot carry, a tasks
+file that is not just code's. `which`, `code` and Zed's commands are stand-ins
+there, first on a PATH that holds no other, so no editor of this machine's is
+ever started.
 
 The rest holds every task in `code.yml` to an allowlist, because the playbook
 reads the user's own VS Code settings and must never write them. On this
 machine a task may assert, fail, debug, set facts, add the host, import the
-project's task files, or run `which`, `code` and rsync; on the VM, reached only
+project's task files, or run `which`, an editor's `--version`, `code`, the
+window's launch the plan built, and rsync; on the VM, reached only
 through `delegate_to`, it may stat, getent and find, make its directories and
 files, write the session copies, and run git in --session's checkout. The session
 handoff's own task files are followed and held to the same list; the shared
@@ -670,7 +675,7 @@ NOTES = {**OPENED, "show": WORKSPACE, "code_here": True}
 SESSION = "/home/dev/projects/.claude-on-proxmox/session"
 LATER = " VS Code was not opened; to open it later: just code alpha"
 # The check of just code's own directory: absolute, not the projects directory, not the folder opened.
-WS_CHECK = "Refuse a workspace directory that is not absolute, is the projects directory, or is the folder"
+WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
 # Zed with the terminal and the sessions off, so the notes are all that goes into just code's own directory.
 NOTES_ONLY = {
     "keep": [WS_CHECK],

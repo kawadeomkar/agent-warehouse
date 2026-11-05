@@ -121,8 +121,8 @@
 # Set false to remove both files.
 # vscode_remote: true
 # On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf,
-# included from the top of ~/.ssh/config, so `ssh alpha` and VS Code's host
-# picker follow the VM's address. Set false to keep out of ~/.ssh entirely,
+# included from the top of ~/.ssh/config, so `ssh alpha` and your editor
+# follow the VM's address. Set false to keep out of ~/.ssh entirely,
 # or claude_ssh_config_include false to write the file but not the Include line.
 # claude_ssh_config: true
 # claude_ssh_config_include: true
@@ -136,12 +136,12 @@
 # agent forwarding hands them every key in your agent.
 # claude_ssh_forward_agent: false
 # Extra "Key value" lines written into each alias, as they are.
-# ServerAliveInterval keeps a VS Code connection from going stale behind a NAT
-# or a laptop that slept.
+# ServerAliveInterval keeps the editor's connection from going stale behind a
+# NAT or a laptop that slept.
 # claude_ssh_options:
 #   ServerAliveInterval: "30"
 # Where the code lives on the VM: cloned into, opened by Remote Control, and
-# what VS Code is pointed at. Empty means ~/projects of the VM user.
+# what the editor opens. Empty means ~/projects of the VM user.
 # vm_projects_dir: ""
 # In VS Code, `just code` opens a workspace file that starts claude in a
 # terminal of the window, once you have trusted the folder and allowed
@@ -155,10 +155,11 @@
 # a repository: just code refuses one in a checkout of vm_projects_dir. Empty:
 # .claude-on-proxmox in vm_projects_dir.
 # editor_files_dir: ""
-# A page about the VM - addresses, what is signed in, the just commands - opened
-# beside the Claude terminal each time the window opens, its sign-in status read
-# from the VM then. In VS Code it needs editor_claude_terminal; in Zed it is
-# written without that refresh.
+# A page about the VM - addresses, what is signed in, the just commands - that
+# just code writes on the VM. In VS Code it opens beside the Claude terminal
+# each time the window opens, its sign-in status read from the VM then, so it
+# needs editor_claude_terminal; in Zed it is written without that refresh, for
+# you to open once.
 # editor_session_notes: true
 # Copy this machine's Claude Code sessions of the VM's repositories, the last 30
 # days of them, to the VM on every just code, so /resume there lists them. Their
@@ -213,8 +214,8 @@
 
 # ------------------------------------------------ Sign-ins and teardown ---
 # just deploy ends with the VM signed in to Claude, GitHub and Tailscale and
-# open in VS Code; the sign-ins each open a page and wait for you, one VM at a
-# time. false leaves them to just login.
+# open in your editor (editor, above); the sign-ins each open a page and wait
+# for you, one VM at a time. false leaves them to just login.
 # deploy_sign_in: true
 # Open the VM in the editor (editor, above) at the end of a one-VM just deploy.
 # deploy_code: true

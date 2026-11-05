@@ -6,7 +6,7 @@ run, and each one that runs Ansible keeps a log of the whole run in `.logs/` ([R
 `just` prints the same list in the terminal, and `just help <recipe>` one recipe's options.
 
 There are few recipes, and each does the whole of its job by default: `just deploy` everything from the
-template to VS Code, `just login` all three sign-ins, `just lint` every linter, `just test` every test.
+template to the editor's window, `just login` all three sign-ins, `just lint` every linter, `just test` every test.
 An option or a word narrows one to a part of it - `just deploy alpha --only configure`, `just test
 integration` - and the indented rows below are each recipe's options and words. Options go after the
 recipe's name, before or after its words; `just help deploy` lists `deploy`'s. Anything a recipe does not
@@ -71,7 +71,7 @@ environment where `python3` is not it.
 | `just code <name>` | Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
 | &emsp;`--editor IDE` | Open it in this editor for this run, rather than the one the editor setting names: vscode or zed |
-| &emsp;`--session SESSION` | Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, then claude --resume |
+| &emsp;`--session SESSION` | Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, ready for claude --resume |
 | &emsp;`<name>` | The one VM to open |
 | `just login [<name>...]` | Sign the VM(s) in to Claude, GitHub and Tailscale, or report how each is signed in |
 | &emsp;`--only SIGN_IN` | One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private repositories) or tailscale (its web login) |

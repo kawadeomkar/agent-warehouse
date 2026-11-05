@@ -102,7 +102,7 @@
 
   # Tailscale last, and never the VM's undoing: it is optional, so a failure in
   # it is recorded here and raised at the end of the run - by the last play
-  # below, or under just deploy by deploy's own, after VS Code - while the VM
+  # below, or under just deploy by deploy's own, after the editor - while the VM
   # still gets its alias. From tasks:, which run after roles: and before
   # post_tasks:. import_role, not include_role: a static import takes the
   # block's tag, so just deploy <vm> --tags tailscale runs every task of the role,
@@ -144,7 +144,7 @@
           ansible.builtin.debug:
             msg: "{{ claude_vm_configure_failures | last }}"
 
-  # Where VS Code is pointed: vm_projects_dir, or ~/projects of the VM user,
+  # What the editor opens: vm_projects_dir, or ~/projects of the VM user,
   # resolved here on the VM where the home directory is known rather than
   # guessed on the controller (Ansible's own user_dir fact is the connecting
   # user's home, which under Molecule is root's). Last, so a host that failed
@@ -179,11 +179,11 @@
       vars:
         claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
 
-# One SSH alias per VM on this machine, so `ssh alpha` and the host picker of
-# VS Code's Remote - SSH extension follow the address DHCP gave it
-# (docs/guides/vscode.md). A localhost play after the roles: the alias must
-# not exist before the VM is ready, and the configure play has just recorded
-# where each VM's code lives. Only a VM that finished that play gets one.
+# One SSH alias per VM on this machine, so `ssh alpha` and the editor follow
+# the address DHCP gave it (docs/guides/vscode.md). A localhost play after the
+# roles: the alias must not exist before the VM is ready, and the configure play
+# has just recorded where each VM's code lives. Only a VM that finished that
+# play gets one.
 # Tagged "always" like discovery, so `just deploy <vm> --tags ...` still
 # refreshes an address that moved; `claude_ssh_config: false` keeps this
 # project out of ~/.ssh entirely.
@@ -223,7 +223,7 @@
 # What failed in a configured VM - Tailscale's role, which configure carries on
 # past - fails it here, at the end, after its alias is written. just deploy
 # imports this playbook with claude_vm_configure_in_deploy and raises the same
-# list in its own last play, after the sign-ins and VS Code.
+# list in its own last play, after the sign-ins and the editor's window.
 - name: Fail each VM whose configuration failed past a rescue
   hosts: claude_vms
   gather_facts: false

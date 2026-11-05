@@ -220,7 +220,7 @@ RECIPES = {
             Stage("SSH aliases", plays=["ssh_config.yml"]),
             Stage("sign in", steps=SIGN_INS),
             Stage("editor", plays=["code.yml"], steps=WINDOW),
-            # deploy.yml's last play, which raises what failed after the sign-ins once VS Code has opened.
+            # deploy.yml's last play, which raises what failed after the sign-ins once the editor has opened.
             Stage("finish", plays=["deploy.yml:Fail each VM whose work after a sign-in failed"], quiet=True),
         ],
         plan=["deploy.yml"],

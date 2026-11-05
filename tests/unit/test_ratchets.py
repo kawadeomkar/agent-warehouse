@@ -67,28 +67,23 @@ VSCODE_OWN = re.compile(
     r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
-    "deploy.yml": 4,
-    "inventory/group_vars/all/defaults.yml": 25,
-    "inventory/group_vars/all/local.yml.example": 11,
+    "inventory/group_vars/all/defaults.yml": 19,
+    "inventory/group_vars/all/local.yml.example": 7,
     "justfile": 2,
-    "lib/claude_vm/ansible/engine.py": 1,
     "lib/claude_vm/editors/model.py": 1,
     "lib/claude_vm/editors/registry.py": 5,
     "lib/claude_vm/editors/zed.py": 1,
-    "lib/claude_vm/run/recipes.py": 2,
-    "playbooks/code.yml": 23,
-    "playbooks/configure.yml": 5,
+    "lib/claude_vm/run/recipes.py": 1,
+    "playbooks/code.yml": 14,
+    "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 1,
     "playbooks/files/claude-terminal.sh": 2,
     "playbooks/files/session-notes.sh": 3,
-    "playbooks/init_settings.yml": 1,
     "playbooks/library/vm_status_info.py": 2,
     "playbooks/tasks/session_read.yml": 1,
-    "playbooks/tasks/session_write.yml": 1,
-    "playbooks/tasks/ssh_config.yml": 2,
+    "playbooks/tasks/ssh_config.yml": 1,
     "playbooks/templates/vm_session.md.j2": 6,
     "roles/github_projects/vars/main.yml": 1,
-    "roles/tailscale/tasks/main.yml": 1,
 }
 
 

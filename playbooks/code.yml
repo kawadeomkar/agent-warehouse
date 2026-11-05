@@ -1,5 +1,5 @@
 ---
-# Open one VM in VS Code, over SSH: its whole projects directory, or one
+# Open one VM in the editor, over SSH: its whole projects directory, or one
 # project in it.
 #
 #   just code alpha                              -> ~/projects
@@ -11,22 +11,22 @@
 # followed by the one step those never do, launching the editor. The folder is
 # looked for on the VM first, read-only and over SSH as the VM user, so a
 # --project that is mistyped, or a VM never configured and so without a projects
-# directory yet, is said here, with what is there, rather than in a VS Code
-# window opened on a folder that does not exist. The Remote - SSH extension is
-# installed first if VS Code does not have it.
+# directory yet, is said here, with what is there, rather than in an editor
+# window opened on a folder that does not exist. For VS Code, its Remote - SSH
+# extension is installed first where it is missing.
 #
 # `just deploy` ends with this playbook (code_in_deploy) for its one VM: the
 # one vm_name names, or the default VM of a bare deploy. There, whatever stops
-# the window - a VM the deploy left stopped, no alias, no `code` command, an
+# the window - a VM the deploy left stopped, no alias, no editor command, an
 # SSH failure, an extension that would not install - is said with the command
 # that opens it later, instead of failing a deploy whose VM is done. A deploy
 # for several VMs opens none: this ends at once with each VM's just code line.
 #
-# With editor_claude_terminal (the default), VS Code is handed a workspace
-# file rather than the folder. It names the folder and holds one task, run when
-# the window opens: a terminal named Claude that starts claude there, signing
-# in to Claude, and to GitHub, first on a VM that has not been. With
-# editor_session_notes (the default) it also holds a "Session notes" task,
+# In VS Code, with editor_claude_terminal (the default), the window is handed
+# a workspace file rather than the folder. It names the folder and holds one
+# task, run when the window opens: a terminal named Claude that starts claude
+# there, signing in to Claude, and to GitHub, first on a VM that has not been.
+# With editor_session_notes (the default) it also holds a "Session notes" task,
 # run beside the Claude task, which opens a page about the VM beside the
 # terminal each time the window opens, its "Signed in" section read from the
 # VM then (docs/guides/vscode.md). The workspace file, those notes and the
@@ -37,6 +37,8 @@
 # tasks only in a window the user has trusted, and only once they have
 # allowed automatic tasks; this playbook reads their VS Code settings to say
 # which of those to expect, and never writes them (docs/guides/vscode.md).
+# Another editor gets what its own plan writes instead (lib/claude_vm/editors/,
+# docs/guides/), and the same notes and sessions.
 #
 # With claude_sessions_sync (the default) it also copies this machine's
 # Claude Code sessions of the last 30 days to the VM, the ones of the
@@ -51,7 +53,7 @@
 #
 # vm_project (--project) is one folder name, as a GitHub repository is named,
 # and is checked again here so that a direct ansible-playbook run cannot point
-# VS Code outside the projects directory either.
+# the editor outside the projects directory either.
 #
 # Every name this playbook sets starts with code_, a prefix no role uses: just
 # deploy runs the roles in the same run, and a fact or register of theirs
@@ -206,7 +208,7 @@
     code_session_upstream: "{{ code_session_git_here.checkouts[0].upstream_branch }}"
     # Where the code lives on the VM, read there as configure reads it: the VM
     # user's home, unless vm_projects_dir says it outright. A trailing "/" is
-    # dropped so the path VS Code is given is the one listed.
+    # dropped so the path the editor is given is the one listed.
     code_vm_home: "{{ code_home.ansible_facts.getent_passwd[vm_user][4] }}"
     code_projects_dir: >-
       {{ (vm_projects_dir | default('', true) or code_vm_home ~ '/projects') | regex_replace('(.)/+$', '\1') }}
@@ -330,7 +332,7 @@
          else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0] }}
 
   tasks:
-    # VS Code opens one VM at a time, so a deploy for several opens none, and
+    # The editor opens one VM at a time, so a deploy for several opens none, and
     # gives each VM's line here, at the end of the run where it is seen.
     - name: Leave the windows of a fleet for later
       when:
@@ -447,7 +449,7 @@
           vars:
             claude_vm_query: "{{ code_vm_tagged }}"
 
-        # What VS Code will connect to is the alias's HostName - the address, or
+        # What the editor will connect to is the alias's HostName - the address, or
         # <name>.<domain> - and this run connects to the same, so the two cannot
         # disagree about whether the VM is reachable. The status is a fact, as
         # the rescue reads it too.
@@ -472,7 +474,7 @@
             quiet: true
 
         # The connection Ansible makes to configure the VM: its own ssh settings
-        # and accept-new, not the user's ssh config, which is VS Code's business.
+        # and accept-new, not the user's ssh config, which is the editor's business.
         # In claude_vms, so connection variables set on that group in the
         # inventory - a key, a port - apply here as they do to just deploy --only configure.
         - name: Reach the VM the way just deploy --only configure does
@@ -546,7 +548,7 @@
             code_notes_dir: "{{ code_ws_dir_given ~ '/session' }}"
             code_notes_file: "{{ code_ws_dir_given ~ '/session/' ~ claude_vm_names[0] ~ '-session.md' }}"
 
-        # Paths on the VM are absolute here, with no "~" to expand: VS Code is
+        # Paths on the VM are absolute here, with no "~" to expand: the editor is
         # handed them as written, from this machine.
         - name: Refuse a projects directory that is not an absolute path
           ansible.builtin.assert:
@@ -562,8 +564,8 @@
         # anything goes into it (code_writes_its_directory: the notes alone, for
         # an editor whose window runs no tasks, too), and with the terminal or the
         # sessions on, whose tasks use it even where nothing new goes in; it is
-        # the folder opened only for the terminal, whose workspace files it holds.
-        - name: Refuse a workspace directory that is not absolute, is the projects directory, or is the folder
+        # the folder opened only for the terminal, whose files it holds.
+        - name: Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder
           ansible.builtin.assert:
             that:
               - code_ws_dir is match('/')

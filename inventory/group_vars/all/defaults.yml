@@ -286,8 +286,9 @@ claude_code_login_approval_timeout: 300
 
 # -------------------------------------------------------------- Sign-in -----
 # just deploy ends with the VM signed in to Claude, GitHub and Tailscale and
-# open in VS Code. The sign-ins are the steps only you can take: each opens a
-# page in your browser, and the run waits for you there, one VM at a time.
+# open in your editor (editor, below). The sign-ins are the steps only you can
+# take: each opens a page in your browser, and the run waits for you there, one
+# VM at a time.
 #   Claude: authorise, and the browser comes back to the VM by itself (where
 #           it cannot, paste the code the page shows at the prompt).
 #   GitHub: paste the code that is already on your clipboard, and authorise.
@@ -298,8 +299,9 @@ claude_code_login_approval_timeout: 300
 # no terminal skips them all; just login does them later. false leaves the
 # sign-ins to that command.
 deploy_sign_in: true
-# Open the VM in VS Code at the end of just deploy, as just code does, when the
-# run was for one VM; a deploy for several ends with each VM's just code line.
+# Open the VM in the editor (editor, below) at the end of just deploy, as just
+# code does, when the run was for one VM; a deploy for several ends with each
+# VM's just code line.
 deploy_code: true
 # Before just destroy deletes a VM, release it from what it signed in to: Claude
 # signs out there and Remote Control stops, gh signs out (its token stays valid:
@@ -328,7 +330,7 @@ destroy_sessions_dir: ""
 login_desktop: true
 
 # ------------------------------------------------------------ Tailscale -----
-# Each VM joins your tailnet, so you can reach it - ssh, VS Code, a dev server -
+# Each VM joins your tailnet, so you can reach it - ssh, your editor, a dev server -
 # from anywhere your other devices are, not only from this LAN
 # (docs/guides/tailscale.md). Optional: just init asks, and writes the answer
 # into local.yml; on by default until then. false installs nothing, and turns
@@ -445,14 +447,15 @@ claude_editors:
 # default's. Internal, not a setting.
 claude_editor_key: "{{ editor | default('vscode', true) | string }}"
 
-# Make each VM ready for VS Code's Remote - SSH extension: an sshd drop-in that
-# keeps the port forward the VS Code Server is reached through enabled, a
-# check that sshd really runs with it, and a higher inotify limit for the file
-# watcher (docs/guides/vscode.md). Set false to remove both files.
+# Make each VM ready for any editor over SSH: an sshd drop-in that keeps port
+# forwarding on - VS Code's server is reached through it, and Claude's sign-in
+# in the browser uses it - with keepalives, a check that sshd really runs with
+# it, and a higher inotify limit for the editor's file watcher
+# (docs/guides/vscode.md). Set false to remove both files.
 vscode_remote: true
 
 # Where the code lives on each VM: what github_projects clones into, where a
-# Remote Control session opens, and what VS Code is pointed at. Empty means
+# Remote Control session opens, and what the editor opens. Empty means
 # ~/projects of vm_user, resolved on the VM itself. One value, because three
 # things read it and they must agree.
 vm_projects_dir: ""
@@ -536,7 +539,8 @@ claude_ssh_identity_file: ""
 # connection. Pushes go through gh, signed in on the VM itself (github_auth).
 claude_ssh_forward_agent: false
 # Extra "Key value" lines for each alias, verbatim. ServerAliveInterval keeps
-# a VS Code connection from going stale behind a NAT or a sleeping laptop.
+# the editor's connection, or any ssh, from going stale behind a NAT or a
+# sleeping laptop.
 claude_ssh_options:
   ServerAliveInterval: "30"
 

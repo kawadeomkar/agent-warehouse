@@ -24,8 +24,8 @@
 # justfile then passes deploy_sign_in: false, which also skips them on purpose.
 # Either way the VM is deployed: just login finishes the job later. What a
 # sign-in leads to - Remote Control's start, the private repositories - failing
-# is raised at the end, after VS Code, and so is a Tailscale failure during
-# configuration.
+# is raised at the end, after the editor's window, and so is a Tailscale
+# failure during configuration.
 #
 # Every stage is idempotent, so this is also the command to re-run after
 # changing a variable - not only the one to run first. A second run rebuilds
@@ -206,7 +206,7 @@
     github_projects_sign_in_follows: "{{ deploy_sign_in }}"
     tailscale_sign_in_follows: "{{ deploy_sign_in }}"
     # A Tailscale failure is raised by this playbook's last play, after the
-    # sign-ins and VS Code, rather than by configure's own.
+    # sign-ins and the editor's window, rather than by configure's own.
     claude_vm_configure_in_deploy: true
 
 # The VMs configuration reached, as for configure: a VM left stopped or whose
@@ -258,7 +258,7 @@
   when: deploy_sign_in | bool and tailscale_enabled | default(true) | bool
 
 # just code, for the one VM this run was for: an alias that follows the VM,
-# then a VS Code window whose terminal starts claude. A fleet is not opened
+# then the editor's window. A fleet is not opened
 # window by window: code.yml ends at once with each VM's just code line.
 - name: Open the VM in the editor
   ansible.builtin.import_playbook: playbooks/code.yml
@@ -268,9 +268,9 @@
 
 # What a sign-in leads to - Remote Control's start, the private repositories'
 # clones - is not a sign-in: when it failed, the deploy is not done, and says
-# so here, at its end, after VS Code has opened, with the command that retries
-# it. Tailscale, configured last and optional, fails the same way. A sign-in
-# that failed or was skipped was said where it happened.
+# so here, at its end, after the editor's window has opened, with the command
+# that retries it. Tailscale, configured last and optional, fails the same way.
+# A sign-in that failed or was skipped was said where it happened.
 - name: Fail each VM whose work after a sign-in failed
   hosts: claude_vms
   gather_facts: false
