@@ -1014,7 +1014,17 @@ def status_report(found, read_at="", now=None, live=False):
         "counts": counts,
         "settings": {
             k: settings.get(k)
-            for k in ("names", "tag", "tailscale_enabled", "nic", "aliases_enabled", "vm_user", "editor", "editor_name")
+            for k in (
+                "names",
+                "tag",
+                "tailscale_enabled",
+                "vpn",
+                "nic",
+                "aliases_enabled",
+                "vm_user",
+                "editor",
+                "editor_name",
+            )
         },
         "now": now,
     }

@@ -45,7 +45,7 @@
     claude_vm_discovery: false
     claude_vm_login_raised_later: true
     claude_vm_login_after_claude: true
-  when: tailscale_enabled | default(true) | bool
+  when: tailscale_wanted | default(tailscale_enabled | default(true)) | bool
 
 # just login exists to sign in: a VM any of whose sign-ins failed, or whose
 # work after one did, fails here, once every VM has had all three turns.

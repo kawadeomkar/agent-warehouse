@@ -1,6 +1,6 @@
 ---
 # Tailscale on the VM: installed, joined and kept as configured, or - with
-# tailscale_enabled false - removed again, wherever this role installed it.
+# tailscale_wanted false (the vpn setting is not tailscale) - removed again, wherever this role installed it.
 # What the role made is all it touches (ownership.yml): a Tailscale installed
 # or signed in by hand is reported and left as it is.
 #
@@ -16,7 +16,7 @@
       tailscale_hostname is {{ tailscale_hostname | to_json }}, which Tailscale refuses as a machine name: it must be
       one DNS label - letters, digits and hyphens, at most 63, not starting or ending with a hyphen.
     quiet: true
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: Fail when tailscale_auth_method is key and there is no key
   ansible.builtin.assert:
@@ -26,7 +26,7 @@
       join with. Put a key in the vault, or set tailscale_auth_method to auto or web for the web login.
     quiet: true
   when:
-    - tailscale_enabled | bool
+    - tailscale_wanted | bool
     - tailscale_auth_method == 'key'
 
 - name: Read what is installed, and who installed it
@@ -35,7 +35,7 @@
 - name: Install Tailscale where this role installed it, or nothing has
   ansible.builtin.include_tasks: install.yml
   when:
-    - tailscale_enabled | bool
+    - tailscale_wanted | bool
     - tailscale_ours | bool
 
 # The files below are included whenever the role is on, and carry their own
@@ -44,20 +44,20 @@
 # task overwrites it.
 - name: Read Tailscale's state
   ansible.builtin.include_tasks: state.yml
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: Join the tailnet with the vault key, the first time
   ansible.builtin.include_tasks: connect.yml
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: Keep the settings of a login this role made
   ansible.builtin.include_tasks: settings.yml
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: Report how the VM is on Tailscale
   ansible.builtin.include_tasks: report.yml
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: Turn Tailscale off where this role turned it on
   ansible.builtin.include_tasks: absent.yml
-  when: not (tailscale_enabled | bool)
+  when: not (tailscale_wanted | bool)

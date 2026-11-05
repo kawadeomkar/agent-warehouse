@@ -131,7 +131,8 @@ works as before.
 
 ## Turning it off
 
-`tailscale_enabled: false`, then `just deploy --only configure`: on each VM this project installed
+`vpn: none` (or `tailscale_enabled: false`, its form before the `vpn` setting, still read while `vpn` is not set),
+then `just deploy --only configure`: on each VM this project installed
 Tailscale on, the run says it is removing it, then logs it out - a `tailscaled` you stopped is started for
 that - and removes `tailscaled`, the package and its repository. A VM it never installed Tailscale on gets
 one check for the marker an install leaves, and nothing else; a Tailscale you installed yourself is left

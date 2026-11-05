@@ -376,9 +376,17 @@ Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run on
 |---|---|---|
 | `login_desktop` | `true` | Sets `claude_code_login_desktop` ([`claude_code`](roles/claude_code.md)): Open the sign-in page in the controller's browser. Sets `github_projects_login_desktop` ([`github_projects`](roles/github_projects.md)): During the device flow, open the page and copy the code on the controller. Sets `tailscale_login_desktop` ([`tailscale`](roles/tailscale.md)): Open the sign-in page in a browser on the machine running Ansible. Sets `claude_code_login_redirect` ([`claude_code`](roles/claude_code.md)): Bring the browser back to the VM by itself once you authorise, with nothing to paste - claude's callback port forwarded from the controller over SSH for the sign-in. |
 
+### VPN
+
+The VPN each VM joins: tailscale or none. Every VM deployed from then on follows it, and a VPN this project installed is taken off a VM again when another is chosen, saying so. Unset, it follows tailscale_enabled below.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `vpn` | computed | For example `tailscale`. |
+
 ### Tailscale
 
-Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). just init asks, and writes your answer here; on until it is answered. Every VM deployed from then on follows it: false installs nothing of Tailscale's, takes it off again where this project installed it, saying so, and leaves a Tailscale installed by hand alone.
+Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). The old form of vpn above, still read for vpn's default: true is vpn: tailscale, false is vpn: none. just init wrote your answer here. Off installs nothing of Tailscale's, takes it off again where this project installed it, saying so, and leaves a Tailscale installed by hand alone.
 
 | Setting | Default | Notes |
 |---|---|---|

@@ -111,6 +111,20 @@ secret gets a canned value and a place in those searches.
 4. Add it to the role table in `docs/reference/roles/README.md` and to the `nav` in `zensical.toml`,
    and run `just docs`, which writes its reference page from its files.
 
+## Adding a member to a choice
+
+The editor and the VPN are choices: a setting naming one row of a list in the inventory defaults
+(`docs/architecture/custom-code.md` §7.11). A new editor or VPN is:
+
+1. Its row, literal values only, in `claude_editors` or `claude_vpns`, and its value in the setting's description in
+   `inventory/group_vars/all/defaults.yml` and `local.yml.example`.
+2. Its code: an editor's check file (`playbooks/tasks/<editor>_check.yml`) and its family's plan
+   (`lib/claude_vm/editors/<family>.py`); a VPN's role (Adding a role, above), imported in `playbooks/configure.yml`
+   with a literal name and its `when`, its `status` and `release` entry points beside the others'.
+3. Its cases in the choice's conformance tests (`tests/unit/test_editor_conformance.py`, `tests/unit/test_choices.py`),
+   and its guide in `docs/guides/`.
+4. `just docs`, and the guide in `docs/README.md` and `zensical.toml`.
+
 ## Pull requests
 
 CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, plus a

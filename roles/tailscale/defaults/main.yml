@@ -1,6 +1,6 @@
 ---
 # Tailscale on the VM: installed from Tailscale's apt repository, joined to the
-# tailnet, and kept as configured - or, with tailscale_enabled false, removed
+# tailnet, and kept as configured - or, with tailscale_wanted false, removed
 # again. Only what this role made is ever touched: a Tailscale installed or
 # signed in by hand is reported and left as it is (docs/architecture/roles.md
 # §5.8).
@@ -8,6 +8,14 @@
 # The feature. false turns it off again on a VM where this role installed it:
 # logged out, stopped, and the package and repository removed.
 tailscale_enabled: true
+# What the role reads: the feature as the project decides it, from the vpn
+# setting (tailscale_wanted in the inventory defaults), and the setting that
+# turned it off, as the messages name it. Alone, the role follows
+# tailscale_enabled.
+tailscale_wanted: "{{ tailscale_enabled }}"
+tailscale_off_setting:
+  name: tailscale_enabled
+  value: "false"
 
 # A key for the VM's first join (tskey-auth-..., or an OAuth client secret,
 # tskey-client-..., which needs tailscale_advertise_tags). Empty means the web

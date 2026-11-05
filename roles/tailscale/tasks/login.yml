@@ -12,29 +12,30 @@
 - name: login | Read Tailscale's state
   ansible.builtin.include_tasks: state.yml
   when:
-    - tailscale_enabled | bool
+    - tailscale_wanted | bool
     - tailscale_installed | bool
 
 - name: login | Say why there is nothing to sign in
   ansible.builtin.debug:
     msg: >-
       {{ inventory_hostname }}:
-      {{ 'Tailscale is off (tailscale_enabled: false), so there is nothing to sign in.'
-         if not (tailscale_enabled | bool)
+      {{ 'Tailscale is off (' ~ tailscale_off_setting.name ~ ': ' ~ tailscale_off_setting.value
+         ~ '), so there is nothing to sign in.'
+         if not (tailscale_wanted | bool)
          else 'Tailscale is not installed; ' ~ tailscale_configure_command ~ ' installs it, and '
               ~ tailscale_login_command ~ ' then signs it in.' }}
   register: tailscale_nothing_reported
-  when: not (tailscale_enabled | bool) or not (tailscale_installed | bool)
+  when: not (tailscale_wanted | bool) or not (tailscale_installed | bool)
 
 # NEXT STEPS: an install to run is left to do; Tailscale off is a choice.
 - name: login | Keep what is left to do for the end of the run
   ansible.builtin.set_stats:
     data:
       tailscale_next: >-
-        {{ {inventory_hostname: {'tailscale': tailscale_nothing_reported.msg if tailscale_enabled | bool else ''}} }}
+        {{ {inventory_hostname: {'tailscale': tailscale_nothing_reported.msg if tailscale_wanted | bool else ''}} }}
     aggregate: true
     per_host: false
-  when: not (tailscale_enabled | bool) or not (tailscale_installed | bool)
+  when: not (tailscale_wanted | bool) or not (tailscale_installed | bool)
 
 # Whether the web login is what would sign this VM in (tailscale_login_possible).
 # The question and the login below go on it, and playbooks/tailscale_login.yml
@@ -89,7 +90,7 @@
 - name: login | Say whether the VM has had a login, for Proxmox to record
   ansible.builtin.set_fact:
     tailscale_login_to_record: >-
-      {{ tailscale_enabled | bool and tailscale_installed | bool and tailscale_login_seen | bool }}
+      {{ tailscale_wanted | bool and tailscale_installed | bool and tailscale_login_seen | bool }}
 
 # The report configuration gives - which, for a page still waiting for its
 # approval, says so: the node's state holds the page.
@@ -101,5 +102,5 @@
     # registers are still there, and are not this play's to say again.
     tailscale_report_from_login: true
   when:
-    - tailscale_enabled | bool
+    - tailscale_wanted | bool
     - tailscale_installed | bool

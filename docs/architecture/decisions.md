@@ -208,3 +208,27 @@ user's choice. What was decided, and why:
   fails it, and is the place to write that name's migration.
 - **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
   and how many read Proxmox's API outside its own roles, file by file, to what they are, and fails when one grows.
+
+## 15.5 The VPN as a choice, beside the editor
+
+*Decided 5 November 2026, for 1.x releases: each step only adds.*
+
+The VPN each VM joins becomes the user's choice the way the editor did, and in the long term the project has three
+such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the editor
+([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)).
+
+- **One VPN at a time**, the `vpn` setting: Tailscale or none, and WireGuard next, each VM a peer of a WireGuard
+  server the user already runs. Unset, it follows `tailscale_enabled`, which 1.0 promised and which stays read through 1.x; `vpn: none` is
+  a value, not a member, since there is nothing to plan for it.
+- **The pattern is the editor's, in two halves.** What a VPN decides on this machine is a plan of who is on the
+  network, made by a family module and held by a registry to the ownership rules; what it does on a VM stays its
+  role, imported statically per member. Rejected: a class hierarchy per choice (a module cannot inherit a default,
+  so a new member of the seam fails every family at once, which is the check wanted); finding members at run time,
+  by an entry point or a templated role name (the static walks of the tests need literal names, and a templated
+  `include_role`'s tasks never run under `--tags`); one engine for every choice (a window, a service and a fleet
+  share a shape, not a lifecycle); and the Tailscale role's VM-side decisions moved into Python, which read the VM's
+  live state and keep the auth key from ever reaching a node that joined.
+- **What a VM must not change about itself is kept by the host's OS**: on Proxmox a tag beside the ownership tag
+  (`<tag>-tailscale` today), on Unraid later in the domain's metadata. A VPN says which marks to keep; it never
+  calls the hypervisor's API itself.
+- **The host's OS will be the setting `os`**, the third choice, `proxmox` by default.

@@ -1624,9 +1624,9 @@ def test_configure_runs_the_role_last_in_a_rescued_block_and_deploy_defers_its_f
     # block, whose condition its rescue would share.
     marker, role = block["block"]
     assert marker["ansible.builtin.stat"] == {"path": "{{ tailscale_installed_marker_path }}"}
-    assert marker["when"] == "not (tailscale_enabled | bool)"
+    assert marker["when"] == "not (tailscale_wanted | bool)"
     assert role["ansible.builtin.import_role"] == {"name": "tailscale"}
-    assert role["when"] == "tailscale_enabled | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
+    assert role["when"] == "tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
     assert "when" not in block
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in block["rescue"])
     assert "tailscale" not in [role["role"] for role in play["roles"]]

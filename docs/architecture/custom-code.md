@@ -968,3 +968,31 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
 Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
 `python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's
 filter imports its module only when called and refuses another checkout's `claude_vm`.
+
+## 7.11 The choices: the editor, the VPN, and later the host's OS
+
+A checkout makes a few choices once, each a setting naming one row of a list in the inventory defaults: `editor`
+(`claude_editors`), `vpn` (`claude_vpns`), and, with Unraid, the host's OS. Each is read by every playbook through
+one internal key (`claude_editor_key`, `claude_vpn_key`), never the setting itself, so an empty value is the
+default's. `lib/claude_vm/catalogue.py` holds what they share and nothing more: `CHOICES`, each setting with its list
+and the values it takes that are no row (`vpn: none`); `rows_from`, the one way a list's rows are parsed into their
+records; and `pick`, the one refusal of a value that is none of them, naming them. `tools/settings` (`CHOICES_FROM`,
+`CHOICES_ALSO`) and `tools/check settings` (`CHOICES`), which cannot import the package before a run, say the same,
+and `tests/unit/test_choices.py` holds the three equal.
+
+- **A choice splits in two, each half with its pattern.** What is decided on this machine is data: a family module
+  turns a row and the run's inputs into a plan, a registry holds every plan to the choice's rules, and YAML applies
+  it - the editors' windows ([§7.10](#710-libclaude_vm--the-controllers-python-as-one-package)). What converges on a
+  host stays a role with named entry points, imported statically with a literal name and a `when`, so a role's tag
+  reaches every task of it. The editor uses the first half; the VPN uses the second, its role per member, and gains
+  the first as its members' plan.
+- **No choice imports another's code.** What one gives another travels through the playbook as data.
+- **The rows are literal data**, read as they are by `tools/settings` and the tests: a row names its role, its
+  family and what it offers, and no behaviour is decided from such a field alone.
+- **The VPN.** `vpn: tailscale | none`. Unset, it follows `tailscale_enabled`, the setting it replaces, still read:
+  `tailscale` while that is true. The Tailscale role reads `tailscale_wanted`, which the inventory sets from the key
+  (`claude_vpn_key == 'tailscale'`): the role cannot be handed `tailscale_enabled` from the key, since the key's
+  default reads it, and alone it follows `tailscale_enabled`, as do the playbooks run without the inventory's
+  defaults. `tailscale_off_setting` names, in its messages, the setting that turned Tailscale off. Each member's role
+  runs where it is chosen, or where its installed marker says it put something there to take off again; its release
+  runs at `just destroy` whatever is chosen.

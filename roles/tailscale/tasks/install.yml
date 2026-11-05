@@ -4,7 +4,7 @@
 
 # First, so that no run - one that fails at the package included - can leave a
 # repository or a drop-in this role does not know to be its own: with the
-# marker in place, the next run finishes the install, or tailscale_enabled:
+# marker in place, the next run finishes the install, or tailscale_wanted:
 # false removes whatever is there.
 - name: install | Make the directory for this project's markers
   ansible.builtin.file:

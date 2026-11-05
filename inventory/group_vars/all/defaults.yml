@@ -246,6 +246,29 @@ destroy_sessions_dir: ""
 # test_claude_login.py and test_tailscale.py fail if one does not.
 login_desktop: true
 
+# ---------------------------------------------------------------- VPN -----
+# Each setting's description: local.yml.example, under VPN.
+# Unset, it follows tailscale_enabled below, the setting it replaces, which is
+# still read: tailscale while that is true, else none.
+vpn: "{{ 'tailscale' if tailscale_enabled | bool else 'none' }}"
+# The VPNs a VM can be on, by the vpn setting's value: each one's name, the
+# family of the core that plans its members (lib/claude_vm/vpn/), the role
+# that runs it on each VM, whether it has a sign-in of its own (a stage of
+# just login and just deploy), and the addresses an SSH alias can reach it
+# at. Literal values only. Internal, not a setting: tests hold it to each
+# role's static import in configure.yml and to the settings' checks
+# (docs/architecture/custom-code.md §7.11).
+claude_vpns:
+  tailscale:
+    name: Tailscale
+    family: tailscale
+    role: tailscale
+    sign_in: true
+    reach: [lan]
+# The vpn setting as every playbook reads it: an empty one is none. Internal,
+# not a setting.
+claude_vpn_key: "{{ vpn | default('none', true) | string }}"
+
 # ------------------------------------------------------------ Tailscale -----
 # Each setting's description: local.yml.example, under Tailscale.
 tailscale_enabled: true
@@ -404,3 +427,10 @@ github_projects_git_user_email: "{{ git_user_email }}"
 
 tailscale_login_desktop: "{{ login_desktop }}"
 tailscale_joined_tag: "{{ claude_vm_tailscale_tag }}"
+# Whether Tailscale is the VPN, from the vpn setting: the role's own input,
+# since vpn's default reads tailscale_enabled, which the role cannot then be
+# handed. And the setting that turned it off, as its messages name it.
+tailscale_wanted: "{{ claude_vpn_key == 'tailscale' }}"
+tailscale_off_setting: >-
+  {{ {'name': 'tailscale_enabled', 'value': 'false'} if not (tailscale_enabled | bool)
+     else {'name': 'vpn', 'value': claude_vpn_key} }}

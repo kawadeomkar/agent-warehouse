@@ -89,7 +89,7 @@ PROMISED_KEYS = {
     "attention": {"command", "level", "source", "subject", "text", "vm"},
     "proxmox": {"nodes", "unread", "version"},
     "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
-    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user", "vpn"},
     # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
     "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "work"},
     "system": {

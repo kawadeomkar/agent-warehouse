@@ -30,7 +30,9 @@
       template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
-      tailscale_enabled: "{{ tailscale_enabled | bool }}"
+      # Whether Tailscale is the VPN (a promised key, from before the vpn setting), and the setting itself.
+      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(true)) | bool }}"
+      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(true) | bool else 'none') }}"
       vm_user: "{{ vm_user }}"
       discovery: "{{ claude_vm_discovery | bool }}"
       # The editor just code opens, by its key and its name, for the line under ACCESS.

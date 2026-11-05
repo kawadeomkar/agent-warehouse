@@ -124,12 +124,15 @@ settings)
   # files are read as YAML by the environment's Python (<bin>): at the top of
   # local.yml, and in hosts.yml in every group's and host's vars. vault.yml is
   # encrypted here, so its vm_password is checked where Ansible reads it.
+  # A choice's setting (vpn) set to a value that is none of its choices is
+  # refused too, naming them: its rows are literal data in the defaults.
   bin=$2
   shift 2
   any=
   for file in "$@"; do [ ! -e "$file" ] || any=1; done
   [ -n "$any" ] || exit 0
-  # The checkout first, whose inventory defaults name what 1.1 renamed.
+  # The checkout first, whose inventory defaults name what 1.1 renamed and
+  # each choice's members.
   exec "$bin/python" -I - "$(dirname "$0")/.." "$@" << 'PYTHON'
 import os
 import re
@@ -146,6 +149,10 @@ RENAMED = {
     "claude_vm_default_name": ("vm_default_name", "rename it there"),
     "vm_password": ("vault_vm_password", "it is a secret, so move it to vault.yml under that name, with just vault"),
 }
+
+
+# Each choice's setting checked here: the defaults' list of its members, and the values that are no member.
+CHOICES = {"vpn": ("claude_vpns", ("none",))}
 
 
 class Loader(yaml.SafeLoader):
@@ -201,6 +208,11 @@ def group(data):
 
 
 found = False
+try:
+    with open(os.path.join(sys.argv[1], "inventory", "group_vars", "all", "defaults.yml"), encoding="utf-8") as stream:
+        DEFAULTS = yaml.load(stream, Loader=Loader) or {}
+except (OSError, yaml.YAMLError):
+    DEFAULTS = {}
 for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -229,6 +241,14 @@ for path in sys.argv[2:]:
             else:
                 print(f"warning: {path} sets {name}, which 1.1 calls {NAMED_ANEW[name]}: it is still read, but "
                       "rename it there (docs/guides/upgrading.md)", file=sys.stderr)
+        if name in CHOICES and isinstance(value, str) and value and "{{" not in value:
+            rows, also = CHOICES[name]
+            members = [*sorted(DEFAULTS.get(rows) or {}), *also]
+            if value not in members:
+                # Never the value said back: it is one line of the user's file.
+                print(f"error: {path} sets {name} to something that is none of its choices: "
+                      f"{', '.join(members)}", file=sys.stderr)
+                found = True
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",

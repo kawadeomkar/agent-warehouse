@@ -88,6 +88,13 @@ says so while one is set (`tools/check settings`), naming the new name. Rename i
 `vscode_remote` and `vscode_user_settings_file` keep their names: the first still sets up the VM for any editor, the
 second is VS Code's own.
 
+## The vpn setting
+
+The VPN each VM joins is the `vpn` setting from 1.x: `tailscale` or `none`. `tailscale_enabled`, which `just init`
+wrote into `local.yml`, keeps working: while `vpn` is not set, `true` is `vpn: tailscale` and `false` is `vpn: none`.
+Once `vpn` is set it is the one read, and `tailscale_enabled` beside it changes nothing. `just status --json` keeps
+`settings.tailscale_enabled`, now whether Tailscale is the VPN, and adds `settings.vpn`.
+
 ## What just code writes and says from 1.1
 
 The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace files and notes, and puts

@@ -194,7 +194,7 @@ tailscale_login_go: >-
 tailscale_login_expired_elsewhere: >-
   {{ tailscale_joined | bool and not (tailscale_login_ours | bool) and not (tailscale_login_pending | bool) }}
 tailscale_login_possible: >-
-  {{ tailscale_enabled | bool and tailscale_package_present | bool and tailscale_ours | bool
+  {{ tailscale_wanted | bool and tailscale_package_present | bool and tailscale_ours | bool
      and tailscale_backend == 'NeedsLogin' and tailscale_auth_method != 'key'
      and not (tailscale_login_expired_elsewhere | bool) }}
 tailscale_login_wait_said: >-

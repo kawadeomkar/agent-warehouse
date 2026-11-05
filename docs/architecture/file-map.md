@@ -148,6 +148,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  catalogue.py, what the choices a checkout makes once share - the editor, the
+                                  VPN: each a setting naming a row of a list of the defaults (§7.11)
                                   editors/: model.py, the editors' records; family.py, the seam; common.py, what
                                   more than one family uses, the helpers' directory and the marker among it; vscode.py
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes

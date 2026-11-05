@@ -55,7 +55,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 | {{ editor_name }} | `{{ again }}`, or one repository: `{{ again }} --project <repo>` |
 | SSH, by alias | `ssh {{ name }}` |
 | SSH, by address | `ssh {{ vm_user }}@{{ vm.address }}` |
-{% if tailscale_enabled | default(true) | bool %}
+{% if tailscale_wanted | default(tailscale_enabled | default(true)) | bool %}
 | SSH, over Tailscale | the command in the Tailscale row of **Signed in**, once the VM is on your tailnet |
 {% endif %}
 {% if claude_code_remote_control | default(true) | bool %}
@@ -85,7 +85,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 {% if github_auth | default(true) | bool %}
 | `just login {{ name }} --only github` | sign `gh` in, then clone the private repositories |
 {% endif %}
-{% if tailscale_enabled | default(true) | bool %}
+{% if tailscale_wanted | default(tailscale_enabled | default(true)) | bool %}
 | `just login {{ name }} --only tailscale` | sign it in to Tailscale |
 {% endif %}
 | `just deploy {{ name }} --only configure` | run the configuration again; `--tags <role>` for one part of it |
