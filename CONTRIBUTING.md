@@ -85,6 +85,13 @@ secret gets a canned value and a place in those searches.
   enforces this. Every variable needs a default in `defaults/main.yml` and an entry in
   `meta/argument_specs.yml`, with `no_log: true` if it can hold a secret.
 - **Task names** in an included task file are prefixed with the file name: `- name: node | Install Node.js`.
+- **The controller's Python** goes in `lib/claude_vm/`, the one package: a file in `filter_plugins/` is a thin
+  adapter whose filters import their core module only when called (`plugin.filters`); nothing outside
+  `claude_vm/ansible/` imports `ansible`, and no module imports `yaml`, `asyncio` or `subprocess` when it is
+  imported; a record is a frozen `Checked` dataclass and leaves the core only through `to_wire`. What runs on a VM
+  (`playbooks/library/`, `playbooks/files/`) never imports it and is handed data instead
+  ([docs/architecture/custom-code.md](docs/architecture/custom-code.md) §7.10). `tests/unit/test_claude_vm.py`
+  holds these.
 - **User-facing variables** are wired in `inventory/group_vars/all/defaults.yml` and documented in
   `local.yml.example` (or `vault.yml.example`), so a user sets `github_username` rather than
   `github_projects_username`. The comment above each one is its entry in the wiki's settings
