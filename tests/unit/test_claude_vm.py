@@ -155,6 +155,17 @@ def test_to_wire_puts_format_version_and_kind_first_and_derived_values_after_the
     assert wire.to_wire(NextStep(vm=step.vm, matter="vm", action=None))["action"] is None
 
 
+def test_a_model_imports_nothing_of_its_drawing() -> None:
+    # The run's and just status's models are data; tui/ draws them, from public names. A second renderer (the events
+    # of phase 3) then needs the model alone.
+    lib = REPO / "lib" / "claude_vm"
+    for model in ("run/model.py", "status/model.py"):
+        source = (lib / model).read_text()
+        assert not re.search(r"^from \.\.tui|^from claude_vm\.tui|^import claude_vm\.tui", source, re.M), model
+    drawing = (lib / "tui" / "status.py").read_text()
+    assert not re.search(r"from \.\.status\.model import [^\n]*\b_[a-z]", drawing), "a private name of the model"
+
+
 def test_a_vm_name_is_matched_whole_wherever_the_core_checks_one() -> None:
     # refs.NAME has no anchors of its own: re.match would take any name that only starts like one.
     lib = REPO / "lib" / "claude_vm"

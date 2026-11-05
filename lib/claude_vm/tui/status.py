@@ -10,7 +10,7 @@ import re
 import textwrap
 import time
 
-from ..status.model import _fmt_gib, _remote_control, _short_kernel, _uptime, _work_said
+from ..status.model import fmt_gib, remote_control, short_kernel, uptime_said, work_said
 from . import screen as _screen
 
 seg, plain, pad, cut, render, bar, spark, plural = (
@@ -47,7 +47,7 @@ def _vms_lines(model):
                     seg("VMS", "h"),
                     seg(
                         f"  + {plural(others['count'], 'other VM')} on {nodes}, not this project's:"
-                        f" {plural(others['vcpus'], 'vCPU')}, {_fmt_gib(others['mem'])} GiB,"
+                        f" {plural(others['vcpus'], 'vCPU')}, {fmt_gib(others['mem'])} GiB,"
                         f" {others['running']} running",
                         "d",
                     ),
@@ -61,8 +61,8 @@ def _vms_lines(model):
         [
             seg("VMS", "h"),
             seg(
-                f"  {nodes} · this project: {plural(len(vms), 'VM')}, {plural(vcpus, 'vCPU')}, {_fmt_gib(mem)} GiB,"
-                f" {_fmt_gib(disk)} GiB of disk"
+                f"  {nodes} · this project: {plural(len(vms), 'VM')}, {plural(vcpus, 'vCPU')}, {fmt_gib(mem)} GiB,"
+                f" {fmt_gib(disk)} GiB of disk"
             ),
         ]
     )
@@ -86,22 +86,22 @@ def _vms_lines(model):
         row = [seg(f" {vm.get('vmid', ''):>4}  "), seg(dot, style), seg(f" {name:<{nw}}  ")]
         if state != "running" or vm.get("skipped") == "node":
             word = "stopped" if state == "stopped" else "node down" if vm.get("skipped") == "node" else state
-            mem = "— / " + _fmt_gib(vm.get("maxmem"))
+            mem = "— / " + fmt_gib(vm.get("maxmem"))
             rest = f"{word:<10}{vm.get('vcpus') or '':>4} {'':4}  {'':12}  {mem:<18}  "
-            rest += f"{'— / ' + _fmt_gib(vm.get('maxdisk')):<9}  {vm.get('created_ago', '')}"
+            rest += f"{'— / ' + fmt_gib(vm.get('maxdisk')):<9}  {vm.get('created_ago', '')}"
             lines.append(row + [seg(rest, "d")])
             continue
         pending = vm.get("pending_api")
         cpu = vm.get("cpu")
         cpu_text = f"{cpu * 100:.0f}%" if isinstance(cpu, (int, float)) else "—"
         cpu_spark = PENDING if pending else spark((vm.get("api") or {}).get("cpu_24h"))
-        mem_text = f"{_fmt_gib(vm.get('mem_used', vm.get('mem')))} / {_fmt_gib(vm.get('mem_total', vm.get('maxmem')))}"
+        mem_text = f"{fmt_gib(vm.get('mem_used', vm.get('mem')))} / {fmt_gib(vm.get('mem_total', vm.get('maxmem')))}"
         if vm.get("min_mem"):
-            mem_text += f", min {_fmt_gib(vm['min_mem'])}"
+            mem_text += f", min {fmt_gib(vm['min_mem'])}"
         root = vm.get("root")
-        root_text = PENDING if pending else f"{_fmt_gib(root['used'])} / {_fmt_gib(root['total'])}" if root else "—"
+        root_text = PENDING if pending else f"{fmt_gib(root['used'])} / {fmt_gib(root['total'])}" if root else "—"
         row += [
-            seg(f"{_uptime(vm.get('uptime')):<10}{vm.get('vcpus') or '':>4} {cpu_text:>4}  "),
+            seg(f"{uptime_said(vm.get('uptime')):<10}{vm.get('vcpus') or '':>4} {cpu_text:>4}  "),
             seg(f"{cpu_spark:<12}", "c"),
             seg(f"  {mem_text:<18}  {root_text:<9}  {vm.get('created_ago', '') or '—'}"),
         ]
@@ -115,7 +115,7 @@ def _vms_lines(model):
                 seg(
                     f"       + {plural(others['count'], 'other VM')} on"
                     f" {', '.join(others.get('nodes') or []) or nodes},"
-                    f" not this project's: {plural(others['vcpus'], 'vCPU')}, {_fmt_gib(others['mem'])} GiB,"
+                    f" not this project's: {plural(others['vcpus'], 'vCPU')}, {fmt_gib(others['mem'])} GiB,"
                     f" {others['running']} running",
                     "d",
                 )
@@ -133,16 +133,16 @@ def _storage_lines(model):
         line = [seg(f" {s['storage']:<10} {s.get('type', ''):<8} ")]
         if isinstance(used, (int, float)) and total:
             fraction = used / total
-            line += bar(fraction) + [seg(f"  {fraction:>3.0%}  {_fmt_gib(used)} / {_fmt_gib(total)} GiB")]
+            line += bar(fraction) + [seg(f"  {fraction:>3.0%}  {fmt_gib(used)} / {fmt_gib(total)} GiB")]
         else:
             line.append(seg("not read", "d"))
-        line.append(seg(f" · this project's disks {_fmt_gib(s['ours']) + ' GiB' if s.get('ours') else 'none'}"))
+        line.append(seg(f" · this project's disks {fmt_gib(s['ours']) + ' GiB' if s.get('ours') else 'none'}"))
         lines.append(line)
         if s.get("provisioned") and total and s.get("type") in ("lvmthin", "zfspool") and s["provisioned"] > total:
             lines.append(
                 [
                     seg(
-                        f"{'':12}its disks are provisioned at {_fmt_gib(s['provisioned'])} GiB in all,"
+                        f"{'':12}its disks are provisioned at {fmt_gib(s['provisioned'])} GiB in all,"
                         " more than the pool holds",
                         "d",
                     )
@@ -237,7 +237,7 @@ def _claude_cell(claude):
 
 
 def _remote_control_cell(claude, now):
-    state, said = _remote_control(claude, now)
+    state, said = remote_control(claude, now)
     if state == "running":
         return f"● {said}", "g"
     if state == "down":
@@ -357,7 +357,7 @@ def _system_lines(model):
             lines.append(row + [seg(text, style)])
             continue
         os_name = re.sub(r"\s+LTS$", "", str(system.get("os") or "—"))
-        running, newest = _short_kernel(system.get("kernel")), _short_kernel(system.get("kernel_newest"))
+        running, newest = short_kernel(system.get("kernel")), short_kernel(system.get("kernel_newest"))
         kernel = running or "—"
         if newest and running and system.get("kernel_newest") != system.get("kernel"):
             kernel += f" · {newest} waits"
@@ -445,7 +445,7 @@ def _work_lines(model):
         checked = plural(work.get("checkouts") or 0, "checkout")
         if work.get("worktrees"):
             checked += f", {plural(work['worktrees'], 'tree')}"
-        said = " · ".join(s for s in (_work_said(r) for r in work.get("repositories") or []) if s) or "nothing"
+        said = " · ".join(s for s in (work_said(r) for r in work.get("repositories") or []) if s) or "nothing"
         wrapped = textwrap.wrap(said, widths[1] - 2, break_on_hyphens=False) or [""]
         claude = system.get("claude") if system else None
         windows = (system.get("editor_windows", system.get("vscode_windows")) if system else None) or None

@@ -174,3 +174,8 @@ def plain_events(callback):
         yield
     finally:
         callback._current_task_result = current
+
+
+def plural(count, word, words=None):
+    """A count and its word: 1 task, 2 tasks; 1 branch, 3 branches with words given."""
+    return f"{count} {word if count == 1 else words or word + 's'}"

@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import textwrap
 
+from ..text import plural as _plural
+
 # The palette, as ANSI codes: headings, bold, dim, and the colours of done, to do, failed, running and waiting.
 PALETTE = {"h": "1;36", "b": "1", "d": "2", "g": "32", "y": "33", "r": "31", "c": "36", "m": "35"}
 # Where a value still being read is drawn: the spinner's glyph in a live frame, "·" in a still one.
@@ -95,8 +97,7 @@ def fill(text, cols):
     return textwrap.wrap(str(text), max(1, cols), break_long_words=False, break_on_hyphens=False) or [""]
 
 
-def plural(count, word, words=None):
-    return f"{count} {word if count == 1 else words or word + 's'}"
+plural = _plural  # a count and its word, as every report says one
 
 
 def duration(seconds):

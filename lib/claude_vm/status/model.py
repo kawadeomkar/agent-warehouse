@@ -18,8 +18,7 @@ import time
 from datetime import UTC, datetime
 
 from ..refs import NAME
-from ..text import one_line
-from ..tui.screen import plural
+from ..text import one_line, plural
 
 # The report's sections, in the order they are drawn: vms and storage read only the API, the rest the VMs over SSH
 # too - access for the tailnet column, sign-ins for the roles' reads, system for vm_status_info, work for the
@@ -421,14 +420,14 @@ def status_system_read(result):
 # ------------------------------------------------------------------------------------------------ the model ----
 
 
-def _fmt_gib(value):
+def fmt_gib(value):
     if not isinstance(value, (int, float)) or value <= 0:
         return "—"
     gib = value / GIB
     return f"{gib:.1f}" if gib < 10 else f"{gib:.0f}"
 
 
-def _uptime(seconds):
+def uptime_said(seconds):
     if not isinstance(seconds, (int, float)) or seconds <= 0:
         return ""
     s = int(seconds)
@@ -479,14 +478,14 @@ def _drift_item(vm, drift, settings):
             asks.append(plural(int(wanted), "core"))
             has.append(plural(int(got), "core"))
         elif setting == "memory":
-            asks.append(f"{_fmt_gib(int(wanted) * 1024**2)} GiB of memory")
-            has.append(f"{_fmt_gib(int(got) * 1024**2)} GiB")
+            asks.append(f"{fmt_gib(int(wanted) * 1024**2)} GiB of memory")
+            has.append(f"{fmt_gib(int(got) * 1024**2)} GiB")
         elif setting == "balloon":
-            asks.append(f"a minimum of {_fmt_gib(int(wanted) * 1024**2)} GiB")
-            has.append(f"a minimum of {_fmt_gib(int(got) * 1024**2)} GiB")
+            asks.append(f"a minimum of {fmt_gib(int(wanted) * 1024**2)} GiB")
+            has.append(f"a minimum of {fmt_gib(int(got) * 1024**2)} GiB")
         elif setting == "disk":
-            asks.append(f"a {_fmt_gib(wanted)} GiB disk")
-            has.append(f"a {_fmt_gib(got)} GiB disk")
+            asks.append(f"a {fmt_gib(wanted)} GiB disk")
+            has.append(f"a {fmt_gib(got)} GiB disk")
         elif setting == "onboot":
             asks.append("a start at boot" if wanted else "no start at boot")
             has.append("no start at boot" if wanted else "a start at boot")
@@ -559,7 +558,7 @@ def _vm_items(vm, settings, live):
                     "unread",
                     name,
                     name,
-                    f"it has run {_uptime(vm.get('uptime'))} and its guest agent reports no address on"
+                    f"it has run {uptime_said(vm.get('uptime'))} and its guest agent reports no address on"
                     f" {settings.get('nic', 'net0')}",
                     "check the guest agent in Proxmox's console for it",
                 )
@@ -589,7 +588,7 @@ def _vm_items(vm, settings, live):
                     "problem" if fill >= 0.9 else "todo",
                     name,
                     name,
-                    f"its root disk is {fill:.0%} full ({_fmt_gib(root['used'])} of {_fmt_gib(root['total'])} GiB):"
+                    f"its root disk is {fill:.0%} full ({fmt_gib(root['used'])} of {fmt_gib(root['total'])} GiB):"
                     " Claude, Docker and apt fail on a full one",
                     f"free space on {name}, or grow vm_disk_size in local.yml",
                 )
@@ -600,7 +599,7 @@ def _vm_items(vm, settings, live):
     return items
 
 
-def _short_kernel(release):
+def short_kernel(release):
     """A kernel release as the report shows it: Ubuntu's flavour suffix dropped (6.8.0-85-generic is 6.8.0-85)."""
     return re.sub(r"-(generic|virtual|kvm|lowlatency)$", "", str(release or ""))
 
@@ -636,7 +635,7 @@ def status_work_read(result, directory):
     }
 
 
-def _work_said(repository):
+def work_said(repository):
     """What of one checkout is on no remote or not committed, in words; "" for nothing."""
     parts = []
     if repository.get("commits_on_no_remote"):
@@ -722,7 +721,7 @@ def _when(stamp, now):
     return _ago(now - moment.replace(tzinfo=UTC).timestamp()).replace(" ago", "")
 
 
-def _remote_control(claude, now):
+def remote_control(claude, now):
     """Remote Control as one state, ("running" | "down" | "waits" | "stopped" | "not-set-up" | "off"), and its words."""
     if not claude.get("remote_control_wanted"):
         return "off", "off: API key" if claude.get("api_key") else "off"
@@ -777,7 +776,7 @@ def _ssh_items(vm, settings, live, now):
         if system.get("reboot_required"):
             running, newest = system.get("kernel") or "", system.get("kernel_newest") or ""
             why = (
-                f"kernel {_short_kernel(newest)} is installed, {_short_kernel(running)} runs"
+                f"kernel {short_kernel(newest)} is installed, {short_kernel(running)} runs"
                 if newest and running and newest != running
                 else f"{_and(system.get('reboot_packages') or []) or 'an upgrade'} asks for one"
             )
@@ -836,7 +835,7 @@ def _ssh_items(vm, settings, live, now):
                     source="claude_code",
                 )
             )
-        state, said = _remote_control(claude, now)
+        state, said = remote_control(claude, now)
         unit = claude.get("unit") or "claude-remote-control"
         user = settings.get("vm_user") or "dev"
         if state == "down":
@@ -927,7 +926,7 @@ def _storage_items(storages):
                         "problem" if fill >= 0.9 else "todo",
                         s["storage"],
                         s["storage"],
-                        f"it is {fill:.0%} full ({_fmt_gib(used)} of {_fmt_gib(total)} GiB): as it fills, the VMs on"
+                        f"it is {fill:.0%} full ({fmt_gib(used)} of {fmt_gib(total)} GiB): as it fills, the VMs on"
                         " it get I/O errors",
                         "free space on it, or move disks off it",
                     )
