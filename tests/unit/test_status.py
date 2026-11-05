@@ -1,8 +1,8 @@
 """`just status`: read-only information that must never change anything (playbooks/status.yml).
 
-- The filters (filter_plugins/status.py, one_line in text.py, proxmox_vm_drift in proxmox.py), on canned reads:
-  every value a VM supplies is one line of plain text before anything keeps it, the report ranks what it found,
-  and every line of it fits 100 columns.
+- The filters (lib/claude_vm/status/model.py and tui/status.py, one_line in text.py, proxmox_vm_drift in
+  proxmox.py), on canned reads: every value a VM supplies is one line of plain text before anything keeps it, the
+  report ranks what it found, and every line of it fits 100 columns.
 - The playbook, run against the fake Proxmox (tests/molecule/fake_pve_api.py): what it reads, and what it says
   when Proxmox does not answer, refuses the token, or a name matches no VM.
 - Every task status runs, and every task file and role entry point it reaches, held to a fixed set of reads: GETs
@@ -29,10 +29,10 @@ import pytest
 import yaml
 from harness import FAKES, PVE_SECRET, REPO, _certificate, _pve, _run, _serve
 
-sys.path.insert(0, str(REPO / "filter_plugins"))
-import proxmox as proxmox_filters  # noqa: E402
-import status as S  # noqa: E402
-import text as text_filters  # noqa: E402
+from claude_vm import proxmox as proxmox_filters
+from claude_vm import text as text_filters
+from claude_vm.status import model as S
+from claude_vm.tui import status as T
 
 STATUS = REPO / "playbooks" / "status.yml"
 # The keys of `just status --json` that 1.x promises (CONTRIBUTING.md, Releasing): a release may add keys, never take
@@ -446,7 +446,7 @@ def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_li
         "the template ubuntu-24.04-cloudinit differs from its settings (bridge vmbr0 → vmbr1;"
         " cpu host → x86-64-v2-AES), so the next just deploy rebuilds it, over root SSH"
     )
-    said = "\n".join(S.plain(line) for line in S._storage_lines(model))
+    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · next deploy rebuilds it" in said, said
 
 
@@ -457,7 +457,7 @@ def test_a_template_kept_as_it_is_is_no_thing_to_do() -> None:
     )
     model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
     assert not [it for it in model["attention"] if it["vm"] == "template"]
-    said = "\n".join(S.plain(line) for line in S._storage_lines(model))
+    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · differs, kept" in said, said
 
 
@@ -466,8 +466,8 @@ def test_every_line_of_the_report_fits_100_columns() -> None:
     for vm in fleet["vms"]:
         vm["name"] = (vm["name"] or "n") + "-with-a-very-long-name-indeed"
     model = S.status_report({"localhost": {"fleet": fleet}}, "2026-10-25 14:32 PDT", 1_800_000_000)
-    lines = S.status_text(model, reading="read in 8.2 s · proxmox 0.9 s").split("\n")
-    assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
+    lines = T.status_text(model, reading="read in 8.2 s · proxmox 0.9 s").split("\n")
+    assert max(len(line) for line in lines) <= T.WIDTH, max(lines, key=len)
 
 
 def test_the_access_columns_line_up_whatever_the_names() -> None:
@@ -494,7 +494,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
         ],
         "settings": {"aliases_enabled": True, "tailscale_enabled": True, "editor_name": "VS Code"},
     }
-    lines = [S.plain(line) for line in S._access_lines(model)]
+    lines = [T.plain(line) for line in T._access_lines(model)]
     column = lines[0].index("TAILNET")
     for line in lines[1:-1]:
         assert line[column - 2 : column] == "  " and line[column] != " ", line
@@ -514,7 +514,7 @@ def test_the_access_line_names_the_editor_just_code_opens() -> None:
             fleet["settings"]["editor"],
             fleet["settings"]["editor_name"],
         )
-        return [line for line in S.status_text(model).split("\n") if "just code <name>" in line]
+        return [line for line in T.status_text(model).split("\n") if "just code <name>" in line]
 
     assert said({"editor": "zed", "editor_name": "Zed"}) == [
         " Zed: just code <name> [--project <repo>] [--session <id>]"
@@ -540,8 +540,8 @@ def test_the_editor_cell_is_whole_beside_the_longest_name() -> None:
         return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
 
     model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
-    lines = [S.plain(line) for line in S._work_lines(model)]
-    assert max(len(line) for line in lines) <= S.WIDTH, max(lines, key=len)
+    lines = [T.plain(line) for line in T._work_lines(model)]
+    assert max(len(line) for line in lines) <= T.WIDTH, max(lines, key=len)
     assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
 
 
@@ -559,7 +559,7 @@ def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
             }
         }
     model = S.status_report(found, HOSTILE[2], 1_800_000_000)
-    rendered = S.status_text(model, color=False)
+    rendered = T.status_text(model, color=False)
     assert not any(line.startswith(" ● evil") for line in rendered.split("\n"))
     assert "\x1b" not in rendered and "‮" not in rendered and "\r" not in rendered
     # And --json, built from the same cleaned model, holds none of it either.
@@ -569,10 +569,10 @@ def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
 
 def test_a_live_frame_draws_a_spinner_where_a_value_is_pending_and_the_final_one_none() -> None:
     model = _model(live=True)
-    frame = S.status_text(model, glyph="⠼")
+    frame = T.status_text(model, glyph="⠼")
     assert "⠼" in frame and "ranked once every VM is read" in frame
-    final = S.status_text(_model())
-    assert S.PENDING not in final and "⠼" not in final and final.split("\n")[-1].startswith("exit ")
+    final = T.status_text(_model())
+    assert T.PENDING not in final and "⠼" not in final and final.split("\n")[-1].startswith("exit ")
 
 
 # ---------------------------------------------------------------------------------- the playbook, faked ----
@@ -695,7 +695,7 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert model["proxmox"]["version"] == "9.2.21" and model["template"]["name"] == "ubuntu-24.04-cloudinit"
     # The editor setting's default, by its key and its name, and the line under ACCESS.
     assert (model["settings"]["editor"], model["settings"]["editor_name"]) == ("vscode", "VS Code")
-    assert " VS Code: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
+    assert " VS Code: just code <name> [--project <repo>] [--session <id>]" in T.status_text(model).split("\n")
     # What --json prints is this model, whole: every key 1.x promises is still there.
     held = {
         "report": model,
@@ -723,7 +723,7 @@ def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, n
     report, model = _status_run(tmp_path, fake_pve, settings={"editor": editor})
     assert report["rc"] == 0, report["stderr"][-2000:]
     assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (editor or "vscode", name)
-    assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in S.status_text(model).split("\n")
+    assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in T.status_text(model).split("\n")
 
 
 def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve) -> None:
@@ -1330,9 +1330,9 @@ def _every_state():
 
 def test_every_line_of_a_report_of_every_state_fits_100_columns() -> None:
     model = _every_state()
-    text = S.status_text(model, reading="read in 8.2 s · proxmox 0.9 s · vms 20 of 20 6.4 s")
+    text = T.status_text(model, reading="read in 8.2 s · proxmox 0.9 s · vms 20 of 20 6.4 s")
     widest = max(text.splitlines(), key=len)
-    assert len(widest) <= S.WIDTH, widest
+    assert len(widest) <= T.WIDTH, widest
     # And every kind of item is there: a test of the states, not only of the width.
     said = " ".join(it["text"] for it in model["attention"])
     for words in (
@@ -1368,11 +1368,11 @@ def test_the_longest_footer_and_kernel_fit_100_columns() -> None:
     model["counts"] = {"unread": 0, "problem": 0, "todo": 12}
     model["exit"] = 0
     model["proxmox"]["unread"] = ""
-    footer = S.status_text(model).splitlines()[-1]
+    footer = T.status_text(model).splitlines()[-1]
     assert footer == "exit 0 · nothing is wrong; 12 things wait for you · --only, --json: just help status"
-    system = S._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
-    kernel = S.plain(system[1])
-    assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= S.WIDTH, kernel
+    system = T._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
+    kernel = T.plain(system[1])
+    assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= T.WIDTH, kernel
 
 
 def test_a_reboot_says_each_editors_windows_as_the_editors_list_names_them() -> None:
@@ -1454,7 +1454,7 @@ def test_memory_is_the_vms_own_count_where_it_was_read_over_ssh() -> None:
     model = S.status_report(found, "now", 1_800_000_000)
     vm = model["vms"][0]
     assert (vm["mem_source"], round(vm["mem_used"] / G, 2)) == ("guest", 1.69)
-    row = next(line for line in S.status_text(model).splitlines() if "● alpha" in line)
+    row = next(line for line in T.status_text(model).splitlines() if "● alpha" in line)
     assert " 1.7 / 3.8 " in row, row
     # API alone, Proxmox's figure.
     fleet["settings"]["sections"] = "vms,storage"

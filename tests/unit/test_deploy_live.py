@@ -604,10 +604,10 @@ def test_no_other_test_or_scenario_draws_a_run():
     # scenario or config, and no other test - test_status_live.py's run is drawn by a callback of its own.
     assert mentions == [
         "callback_plugins/claude_on_proxmox.py",
-        "filter_plugins/live_ansible.py",
-        "filter_plugins/live_commands.py",
-        "filter_plugins/live_recipes.py",
         "justfile",
+        "lib/claude_vm/ansible/engine.py",
+        "lib/claude_vm/ansible/parts.py",
+        "lib/claude_vm/run/recipes.py",
         "tests/unit/live_kit.py",
         "tests/unit/live_pytest.py",
         "tests/unit/test_deploy_live.py",
@@ -618,7 +618,7 @@ def test_no_other_test_or_scenario_draws_a_run():
         "tests/unit/test_test_live.py",
         "tools/live",
     ], mentions
-    # In the justfile, only the recipes a declaration draws (filter_plugins/live_recipes.py), each its own title.
+    # In the justfile, only the recipes a declaration draws (lib/claude_vm/run/recipes.py), each its own title.
     lines = (REPO / "justfile").read_text().splitlines()
     recipe, naming = None, set()
     for line in lines:
@@ -631,14 +631,9 @@ def test_no_other_test_or_scenario_draws_a_run():
 
 
 def _recipes():
-    import importlib.util
+    from claude_vm.run import recipes
 
-    spec = importlib.util.spec_from_file_location(
-        "test_live_recipes_module", REPO / "filter_plugins" / "live_recipes.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return recipes
 
 
 RAISED = """
@@ -726,15 +721,17 @@ def test_the_vms_a_run_was_given_are_read_from_its_extra_vars():
     assert engine.vm_names([]) == []
 
 
-def kit_engine():
-    import importlib.util
+def test_a_name_the_run_s_facts_hold_is_a_vm_s_only_whole():
+    # refs.NAME, matched in full: a name with a space, a ; or a line break is no VM's, and a line break would break
+    # the region's count of the lines it drew.
+    names = ["alpha", "alpha beta", "al;pha", "alpha\nx", {"name": "beta"}, {"name": "beta\n"}]
+    assert kit_engine().Engine._names(names) == ["alpha", "beta"]
 
-    spec = importlib.util.spec_from_file_location(
-        "test_live_ansible_module", REPO / "filter_plugins" / "live_ansible.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+
+def kit_engine():
+    from claude_vm.ansible import engine
+
+    return engine
 
 
 def test_a_tasks_file_is_the_one_the_import_nearest_the_play_names(tmp_path):
@@ -751,7 +748,7 @@ def test_a_tasks_file_is_the_one_the_import_nearest_the_play_names(tmp_path):
     )
     script = f"""
 import json, sys
-sys.path.insert(0, {str(REPO / "filter_plugins")!r})
+sys.path.insert(0, {str(REPO / "lib")!r})
 from ansible import context
 from ansible.module_utils.common.collections import ImmutableDict
 from ansible.plugins.loader import init_plugin_loader
@@ -760,10 +757,7 @@ from ansible.inventory.manager import InventoryManager
 from ansible.parsing.dataloader import DataLoader
 from ansible.playbook import Playbook
 from ansible.vars.manager import VariableManager
-import importlib.util
-spec = importlib.util.spec_from_file_location("live_ansible", {str(REPO / "filter_plugins" / "live_ansible.py")!r})
-engine = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(engine)
+from claude_vm.ansible import engine
 context.CLIARGS = ImmutableDict(tags=[], skip_tags=[])
 loader = DataLoader()
 inventory = InventoryManager(loader, sources="localhost,")

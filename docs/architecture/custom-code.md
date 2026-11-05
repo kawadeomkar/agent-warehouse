@@ -3,7 +3,9 @@
 ## 7.1 `filter_plugins/proxmox.py`
 
 Five filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
-SSH config.
+SSH config. Their code is `lib/claude_vm/proxmox.py`'s, and the checks of what a VM or a person supplies
+(`guest_ipv4`, `ssh_alias_refusal`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
+ansible-core says with the filter's name.
 
 **`net_mac(net_config, default=_RAISE)`** — extracts the MAC from `virtio=BC:24:11:0E:72:04,bridge=vmbr0`.
 It **raises by default**, because a caller about to act on one specific VM wants to know its NIC is
@@ -88,21 +90,22 @@ Covered by 28 unit tests in `tests/unit/test_github_repos.py`.
 
 ---
 
-## 7.3 `filter_plugins/vscode.py`
+## 7.3 VS Code's settings reader, `lib/claude_vm/editors/vscode.py`
 
 **`vscode_setting(text, key, default)`** — the value VS Code's `settings.json` gives `key`, for
-`code.yml` to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
+VS Code's plan to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
 `/* */` comments and trailing commas are dropped in one pass that copies strings whole, so a `//`
 in a URL is not a comment and a commented-out `"task.allowAutomaticTasks": "off"` does not count.
 A key is read flat, as VS Code writes it, or nested, and the later spelling wins, as VS Code's own
 reader has it: dotted keys expand into a tree in file order, a nested object replaces what the flat
 keys built before it, and a key whose path runs into a value that is not an object is dropped.
 Empty text gives `default`; text that does not parse, or is not an object, gives `unparsable` when
-the caller passes one, which is how `code.yml` says a file did not parse rather than take it for
+the caller passes one, which is how the plan says a file did not parse rather than take it for
 unset. Either way a run that only reports what the editor will do must not fail on the user's own
 settings. Read-only by construction; nothing in the project writes that file.
 
-Covered by unit tests in `tests/unit/test_vscode_filters.py`.
+It is part of VS Code's family (§7.10), and no filter: the plan alone calls it, on the text the family's check read
+(`code_probe`). Covered by unit tests in `tests/unit/test_vscode_filters.py`.
 
 ## 7.4 `filter_plugins/desktop.py` and `filter_plugins/text.py`
 
@@ -162,7 +165,7 @@ test of the status callback's hooks.
 **`visible_text(text)`** — `plain_text`, then every Unicode format, line or paragraph separator (bidi
 controls and zero-width characters among them) replaced by a space, its lines, tabs and indents kept: a
 line that reads in the order it was written. What every live run keeps of a report's lines
-(`filter_plugins/live_ansible.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
+(`lib/claude_vm/ansible/engine.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
 
 **`one_line(text, limit=120)`** — `visible_text`, then every newline and every other control character
 replaced by a space, runs of spaces collapsed, and the whole cut to `limit`, ending in "…". What
@@ -175,7 +178,12 @@ narrower), a title line naming the VM and the sign-in, the rule again, then the 
 URL or a command stays whole to copy, and a last newline, so that a prompt's last word (`Code`,
 `Answer`) starts a line of its own: a `'\n'` written in the Jinja of a folded YAML scalar reaches the
 screen as a backslash and an `n`. Every part goes through `plain_text`. The prompts call it as a filter,
-the stdout callback (§7.5) by path. Covered by `tests/unit/test_text_filter.py`.
+the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
+
+These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
+Ansible `plain_text`, `one_line` and `banner` as filters, and the callbacks, the engines and `tools/settings`
+import the module itself. `page_opener` and `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and
+`filter_plugins/desktop.py` their adapter.
 
 ## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
 
@@ -247,14 +255,22 @@ JSON report (`_left_to_do`), in every state they already run.
 ### `just deploy`, drawn live
 
 `CLAUDE_ON_PROXMOX_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
-set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run to an engine, `filter_plugins/live_ansible.py`, at
+set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run
+to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
 The callback then keeps only its classic output, which the engine prints through it too. The engine takes the
 variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
 later `just destroy` may run in - inherits it. It is `live` when stdout can take the region every live output
-shares (§7.8, `can_draw`), and `lines` otherwise. The model is `filter_plugins/run_view.py`, which any playbook run
-can be drawn with, and what a run is made of is its recipe's declaration in `filter_plugins/live_recipes.py`, named
+shares (§7.8, `can_draw`), and `lines` otherwise. The model is `lib/claude_vm/run/model.py`, which `tui/run.py`
+draws and any playbook run can be drawn with, and what a run is made of is its recipe's declaration in
+`lib/claude_vm/run/recipes.py`, named
 by the title's first word: `just deploy` is the first, and §7.8 says how another recipe joins it.
+
+What the run says above the region is the model's too, as data, in the order said: each report (its VM, its lines
+and their marks), each failure (the step, the VM, the task, how long, how, what it said and its failed loop items;
+or the causes a raise repeats), what each rescue took, the diffs of a dry run and the warnings and deprecations
+modules returned, as the callback prints them, with the log's path. The engine records each and prints what
+`tui/run.py` draws from the record, so another renderer of the model reads the same.
 
 - **Stages and steps.** A play's stage is the first of the declaration's stages that names it: by its file and
   play name (`deploy.yml:Fail each VM whose work after a sign-in failed`, deploy's `finish`), else by its file
@@ -285,7 +301,7 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   the include's ID: when the include announces itself (`v2_playbook_on_include`) it uses that count up rather than
   adding to it. Any other include adds its file's count then. A serial play - the sign-ins, one VM at a time - runs
   every task again for each batch, under the same IDs: once it starts, its counts are multiplied by its batches,
-  cut as Ansible cuts them (`run_view.batches`). A task beyond them counts as reached. A step that has ended is
+  cut as Ansible cuts them (`model.batches`). A task beyond them counts as reached. A step that has ended is
   whole, in its row and in its stage's: a rescue that never ran was never left to do. No bar and no percentage in
   the title ever falls: each is held at the highest it has shown. A step's time is its own tasks' time added up,
   never its first task to its last: a role's handler runs at the end of the play, after every other role.
@@ -330,7 +346,7 @@ by the title's first word: `just deploy` is the first, and §7.8 says how anothe
   (destroy's `delete`: `claude_vm_delete_error`, `claude_vm_save_error`, `claude_vm_deleted`). A VM a task could
   not reach though it ignored that (a sign-in's ping) is marked unreachable, and a failure raised again marks its
   VM in its cause's step, once however often it is raised.
-- **The screen.** The region (§7.8) draws the frame, which `run_view` folds to the height before the region
+- **The screen.** The region (§7.8) draws the frame, which `tui/run.py` folds to the height before the region
   cuts it, and steps aside for every prompt. The running step's last five tasks show (the declaration's
   `window`), never the check of an included role's arguments, and a `meta` task, which Ansible starts once for
   each host, each just before that host's result, once: a host an `end_host` ends sends none, and is `–`, left as
@@ -374,6 +390,8 @@ only records, names it - so nothing a test pins is drawn.
 What `just code` carries of this machine's Claude Code sessions to a VM
 ([§4.9](lifecycle.md#49-playbookscodeyml), **The session handoff**), and what `just destroy` brings
 back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+The filters'
+code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
 files; the filters decide from what they read, and touch no file.
 
@@ -506,9 +524,10 @@ cols)`** — the report as text, every line within 100 columns, or within `cols`
 
 **The callback** is the stdout callback `just status` chooses (`ANSIBLE_STDOUT_CALLBACK`, and
 `ANSIBLE_CALLBACKS_ENABLED` naming it alone, so `ansible.cfg`'s `profile_tasks` prints nothing into the
-report). It loads `status.py` by path, keeps each `status_found` fact as it lands, and draws the report
+report). It imports the model (`lib/claude_vm/status/model.py`) and its drawing (`tui/status.py`), keeps each
+`status_found` fact as it lands, and draws the report
 live in the region every live output shares (§7.8), redrawn as each fact lands, the lines its frame leaves
-out said to be "shown when the run ends"; `status.py` draws its lines with `screen.py`, as the live runs do.
+out said to be "shown when the run ends"; `tui/status.py` draws its lines with `screen.py`, as the live runs do.
 The region is taken when the callback is made, so a warning before the first frame is drawn above it, and
 spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
 printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
@@ -521,7 +540,9 @@ without a report.
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
 refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
-editor's windows: VS Code's extension hosts and the daemons of Zed's remote server, one per window, kept by the
+editor's windows, a process of the user's counted once, under the first editor whose `server` match in the
+editors list it meets: the module cannot import the core, so status hands it the rows' matches as its `editors`
+argument (`editor_servers`, §7.10), checked by Ansible's own argument spec. They are kept by the
 editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
 `vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
 as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
@@ -537,10 +558,10 @@ narrow one, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a warning be
 change nothing there, and the host key's options and refusals), and `tests/unit/test_status_work.py`
 (`git_checkouts_info`'s `work` over real throwaway repositories, which it leaves as they were).
 
-## 7.8 `filter_plugins/live_region.py` and `filter_plugins/screen.py` — every live output
+## 7.8 `lib/claude_vm/tui/live_region.py` and `screen.py` — every live output
 
 `just status`'s report (§7.7) and every live run (§7.5) are drawn the same way, with the same code, so each
-new live output adds only what it shows. Two modules hold what they share, and `filter_plugins/text.py`'s
+new live output adds only what it shows. Two modules hold what they share, and `lib/claude_vm/text.py`'s
 `plain_text` and `one_line` (§7.4) clean everything a VM said before any of it is kept.
 
 **`live_region.py`** — `LiveRegion(display, frame, route, more)`, the region at the bottom of a terminal
@@ -590,12 +611,12 @@ palette or plain, `PENDING` drawn as the spinner's glyph), `bar`, `spark`, `fill
 East Asian ambiguous-width characters double-wide (`█`, `●`, `·`) wraps a frame drawn with them.
 
 **Loading.** A filter plugin is no module another can import, and a callback cannot ask for one by name, so
-each module that needs another loads it by path, once, as `claude_on_proxmox_<stem>` (`_sibling`): the
-callbacks, `status.py`, `run_view.py` and `live_ansible.py` share one copy of each.
+what the callbacks, the engines, `tools/` and the filters share is `lib/claude_vm/` (§7.10): each imports it with
+its checkout's `lib/` first on `sys.path`, one module object however it is reached.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
 `just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s
-does, and its declaration in `filter_plugins/live_recipes.py`, named by the title's first word, says what its run is
+does, and its declaration in `lib/claude_vm/run/recipes.py`, named by the title's first word, says what its run is
 made of - its stages, by playbook or by play, a quiet one counted but never drawn (discovery, a last play that only
 raises), one whose hosts are not VMs (`vms=False`: the template's, on the Proxmox host), and the VMs a fact names on a
 stage's row (`info`); each stage's steps, by playbook, by the blocks around
@@ -623,7 +644,7 @@ is drawn as one run, its parts in turn:
   `ANSIBLE_ARGS`, no run log (`LOG_DIR=`), no state to carry the run between its parts (`LIVE_DIR=`), or no PyYAML
   and ansible-core. Otherwise it runs itself again
   through `tools/run-logged` under the title's recipe, so a command's run has a log under its rules, and hands the
-  command to `filter_plugins/live_commands.py`.
+  command to `lib/claude_vm/ansible/parts.py`.
 - **A command, drawn.** Its child gets `/dev/null` for stdin, one pipe for stdout and stderr, a session of its own
   with no terminal - what would ask at `/dev/tty`, git or ssh as pre-commit fetches its hooks, fails at once and
   says so, where a process group of its own was stopped by the terminal and hung the run - and this environment
@@ -639,7 +660,7 @@ is drawn as one run, its parts in turn:
   interrupted before its command runs none and says it stopped. The part sends Ctrl-C to its child's group, reads
   the pipe to its end, so the child's last words reach the log, marks its task stopped (`■`) and exits 130; a second
   Ctrl-C ends everything the child started and reads no more of it: its group, and every process the part found
-  under the child before the first Ctrl-C went out (`filter_plugins/processes.py`, which reads the table `ps`
+  under the child before the first Ctrl-C went out (`lib/claude_vm/proc.py`, which reads the table `ps`
   prints, each process with its start, so a pid another process has by then is left alone), since one in a
   session of its own - ansible-core's task worker, detached by `WorkerProcess._detach`; a nested run's part -
   outlives the group, and a child that ended at the first leaves them under PID 1 or a subreaper, where no walk
@@ -737,7 +758,7 @@ passes it nothing: `claude_vms` for the roles `configure.yml` runs, `claude_vm_p
 `proxmox_template` - and asks `VariableManager` for a play naming the role, so its defaults sit at the bottom, then
 the templar for each value. `--all` adds a default that lives only in a role's `default()` (`vm_cores`), marked
 trusted as a template. What a setting is - each role's `argument_specs`, main's first, the wiring, the sections of
-`local.yml.example` - comes from `tools/docs.py`'s functions, the reference pages' own model.
+`local.yml.example` - comes from `lib/claude_vm/wiring.py`, the reference pages' own model.
 
 **Where a value was set** is the highest layer that holds the name - `hosts.yml`, `vault.yml`, `local.yml`, or a
 default - and, for a default that is an expression, the names it reads, followed through the wiring (Jinja's own
@@ -785,7 +806,9 @@ in both the same way - and holds the rest to the type the role's
 the line that set it (with its value's further lines), else of its example's commented line, else at the end. The
 result is read back with every tag kept as text before it replaces the file - every other key as it was, an inline
 `!vault` included, or nothing is written (an alias whose anchor the edit removes, two lines of one name) - and it
-replaces it atomically, with its mode. Then the files are read again: what outranks `local.yml` (a `hosts.yml`
+replaces it atomically, with its mode (`lib/claude_vm/store.py`): the read and the replace hold one lock, on the
+file's folder rather than a lock file beside it, so of two writes at once neither is lost. Then the files are
+read again: what outranks `local.yml` (a `hosts.yml`
 variable, a run) is said, with what applies the change - `just deploy --only configure --tags <role>`, or a VM's
 creation for `proxmox_vm`.
 
@@ -810,3 +833,62 @@ name although no setting is per VM.
 
 Covered by `tests/unit/test_settings.py`, against inventories made from the example files with fake values, and the
 recipe by `tests/unit/test_justfile.py` against a stand-in `python`.
+
+## 7.10 `lib/claude_vm/` — the controller's Python as one package
+
+The Python that runs on this machine is moving into one package, `claude_vm`, in `lib/`, under one import name, so a
+module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
+The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
+ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
+arguments.
+
+- **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
+  when it is imported, only inside the function that needs one - but `proc.py`, the process table, whose every user
+  runs programs anyway: a client that is not Ansible would pay about 30 ms for `ansible.errors` alone.
+  ansible-core 2.21 names the filter that raised, so a core `ValueError` goes out as it
+  is. The package's `__init__.py` imports nothing.
+- **`records.py`** holds `plain`, which copies a value out of Ansible's lazy containers and tagged strings, and
+  `Checked`, the base of every record: a frozen slots dataclass whose fields are held to their annotations whenever
+  one is built (an exact `str`, `int` or `bool`, a `Literal` by membership, a tuple item by item), then by the
+  record's own `validate`. **`wire.py`**'s `to_wire` is the one way a record leaves: `format_version` and `kind`
+  first, then its fields and the values its properties derive, through JSON, so a tuple arrives as a list.
+- **`store.py`** is the core's one module that writes a file that persists, and only `tools/` import it:
+  `replace` swaps a file for new text atomically, keeping its mode (through a symlink, the file it names), and
+  `locked`, around a read and a replace, holds an exclusive `flock` on the file's folder, so two writers never
+  lose one's change.
+- **`refs.py`** names a VM and a command: `VmRef` (a name as `just` takes one, and a VM ID in Proxmox's range),
+  `Action` (a recipe and its words, `line` its one display form, `command_line`) and `NextStep`.
+- **The adapters.** Each file in `filter_plugins/` is an adapter: it puts its checkout's `lib/` first on `sys.path`,
+  relative to its own file (never `PYTHONPATH`, a `.pth` file or an editable install, which would point every
+  checkout sharing a virtualenv at one checkout's code), and its `FilterModule` returns `plugin.filters`, functions
+  that import their core module only when one is called: every worker executes every file in `filter_plugins/` at
+  its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
+  adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
+  given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
+- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories
+  and files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by
+  name), the folder or file it opens, and what it says. Each editor family is a module of free functions with one,
+  `plan_open(editor, inputs)` (`vscode.py`, `zed.py`), the seam a `typing.Protocol` of that one member
+  (`family.py`), never `@runtime_checkable`. `model.py` holds the records: a row of `claude_editors`, what the
+  family's check found here (`Probe`), the inputs (`OpenInputs`, which grow by fields with defaults) and the plan.
+  Every plan passes `registry.py` on every call: a refusal leaves alone; every write lies strictly inside just
+  code's directory (`commonpath` on the normalised join), outside the folders YAML writes there itself, the session
+  copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML lists, with its
+  directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's
+  fixed shape over the first command `which` printed with one of the row's names whose `--version` says what the
+  row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised and writes
+  and launches them exactly as `code.yml` built them, and holds just code's directory to its rules only where it
+  writes there, as `code.yml` does; a family gives the Claude terminal only where its row says the window has one
+  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is). A row's `server`
+  (`ProcessMatch`) is how `just status` knows one of the editor's windows on the VM, a program named first, since a
+  match on the arguments alone would count any of the user's programs. `filter_plugins/editors.py` gives Ansible
+  `editor_open_plan` and `editor_servers`, the rows' matches as `vm_status_info`'s `editors` argument (§7.7).
+- **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
+  starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
+  inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds
+  a task. It rests on ansible-core forking its workers (not `forkserver`) and on the loader's cache; the adapters stay
+  thin all the same, for the runs no callback of the project's warms (the unit harness, Molecule).
+
+Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
+`python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's
+filter imports its module only when called and refuses another checkout's `claude_vm`.

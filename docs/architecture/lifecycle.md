@@ -31,7 +31,7 @@ show, so the build records it in the template's notes, one line: the build steps
 (`proxmox_template_build` in the role's `vars/main.yml`, raised whenever a change to them changes what a
 template is), the image's URL, the packages put into it, and its SHA-256, kept but never compared. One
 definition of what a build makes, the role's `proxmox_template_wanted`, feeds both the build and the
-comparison (`proxmox_template_drift` in `filter_plugins/proxmox.py`): `deploy.yml` through the role's
+comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
 `drift` entry point, on the config the API gives, and the role itself on `qm config`'s, which
 `qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
 built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new
@@ -445,7 +445,7 @@ within a second, a spinner wherever a value is still being read, and redraws it 
 when the run ends the live region is erased and the finished report printed once. Piped, in the log,
 under `--json` or at a terminal that cannot take it, only the finished report appears, or nothing. It is
 drawn in the region every live output shares
-([§7.8](custom-code.md#78-filter_pluginslive_regionpy-and-filter_pluginsscreenpy--every-live-output)), as
+([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)), as
 `just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
 the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
 at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of
@@ -629,8 +629,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
 5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
    machine, so `~` would not expand) and, wherever anything goes into just code's own directory (the
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
-   copies on, an `editor_files_dir` that is not absolute or is the projects directory (its files would sit
-   among the repositories), and with the terminal, one that is the folder being opened
+   copies on, an `editor_files_dir` that is not absolute, is `/` (the whole of the VM) or is the projects
+   directory (its files would sit among the repositories), and with the terminal, one that is the folder being opened
    (`--project .claude-on-proxmox`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
    with `stat` on the VM. Read-only. Unreachable, missing and not-a-folder are each their own
@@ -651,14 +651,18 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    directory there is just code's (its first line the marker), before the notes say whether the task is there.
    Then the session handoff's writes (`tasks/session_write.yml`), the first on the VM, and the session notes
    (below).
-8. Open the window - each editor's own file again (`tasks/vscode_open.yml`, its variables in
-   `playbooks/vars/vscode.yml`; every name an editor's file registers starts with `code_<editor>_`, since
-   a skipped task still overwrites its register). The editors are one list, `claude_editors` in the
+8. Open the window - the editor's plan (`code_plan`, its family's in `lib/claude_vm/editors/`,
+   [§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)), refused before any write where
+   it refuses, applied by `tasks/editor_open.yml`; every name an editor's check
+   registers starts with `code_<editor>_`, since a skipped task still overwrites its register. The editors are one
+   list, `claude_editors` in the
    inventory defaults, literal values only: how each is said, whether its window runs just code's tasks as it
    opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
-   `listed` for the user to pick, Zed's; or `none`). Where the window runs none (Zed), the notes are written
+   `listed` for the user to pick, Zed's; or `none`); its `family`, the core's module that plans its window; the
+   names its command goes by here (`cli_candidates`), and what that command's `--version` must say where another
+   program shares a name (`version_re`). Where the window runs none (Zed), the notes are written
    without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
-   `claude --resume` to run, with the cautions every editor's report says. Zed's (`tasks/zed_open.yml`) writes,
+   `claude --resume` to run, with the cautions every editor's report says. Zed's plan writes,
    with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the
    helper's path matches `code_helper_path_pattern` (`code_claude_task_written`; the notes name the task where it
    is also over no one else's file, `code_claude_task_there`), the shared helper first - `helpers/claude-start.sh`,
@@ -673,7 +677,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `claude` (or `claude --resume <id>`) in Zed's terminal, which is the VM's, and why no task was written where
    none was; Zed's Agent Panel runs Claude Agent on the VM too, said as a Claude Code of its own. For VS Code, with
    `editor_claude_terminal` (the default), write a workspace file on the VM and open that:
-   `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace`, or
+   `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace` (the `code` that `which`
+   found, by its path), or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
    `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,
@@ -730,7 +735,7 @@ trusted window, and only once automatic tasks are allowed:
 | Gate | Where VS Code keeps it | What `code.yml` does |
 |---|---|---|
 | Workspace Trust | client-side, by URI, per remote authority; a trusted folder covers its children. A workspace file is trusted when its folders *and* the file itself are | Puts the files under the projects directory, so trusting that directory once covers every project and every file. Says so. |
-| `task.allowAutomaticTasks` | an application setting in the default profile's `settings.json`; unset, VS Code asks once and *Allow* writes `"on"`; only a user-set `"off"` silences both question and task | Reads it with the `vscode_setting` filter (JSONC: comments, trailing commas, flat or nested key) and says which question to expect, or that the terminal will not start. Never writes it. |
+| `task.allowAutomaticTasks` | an application setting in the default profile's `settings.json`; unset, VS Code asks once and *Allow* writes `"on"`; only a user-set `"off"` silences both question and task | VS Code's plan reads it (`vscode_setting`: JSONC, comments, trailing commas, flat or nested key) and says which question to expect, or that the terminal will not start. Never writes it. |
 
 Both are the user's own security decisions, so there is no `security.workspace.trust.enabled:
 false`, no `terminal.integrated.allowInUntrustedWorkspace`, no written setting and no user-level
@@ -821,7 +826,7 @@ Claude Code's own Agent SDK documents. The rules:
 - **Selection by origin, decided against the VM.** `git_checkouts_info` reads the origin of every
   checkout in the VM's projects directory, as configured - never rewritten by a `url.<base>.insteadOf`,
   which names where git connects, not the repository - and `claude_sessions_plan`
-  (`filter_plugins/sessions.py`) matches `owner/repo`, without regard to case, against each session's:
+  (`lib/claude_vm/sessions.py`) matches `owner/repo`, without regard to case, against each session's:
   never a folder's name, which renamed clones, subfolders and other owners' repositories of the same
   name get wrong, and never the GitHub listing, which differs from what is cloned (a private repository
   with gh signed out, one created since). On the VM only a GitHub origin names a repository
@@ -962,7 +967,7 @@ back); the token's ID, while there is no secret and `local.yml` names no token (
 from `ansible@pve!ansible` are written, by `tasks/init_local_setting.yml`, in place of their commented
 example lines); and last the secret, hidden - last so that a token the offer makes has its secret written
 into the vault with no question between. Each answer is held to its kind by the `init_answer` filter
-(`filter_plugins/settings.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
+(`lib/claude_vm/init.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
 the value for the next run. The address in effect is the first `proxmox` host's `ansible_host`, else its
 name, as `defaults.yml` reads it. Tailscale's question is whether to use it, while `local.yml` does not set
 `tailscale_enabled` (`yes_no`; `--tailscale on` or `off` answers it, as `y` or `n`), written either way by
@@ -1057,7 +1062,7 @@ every task a read (held by `tests/unit/test_init_check.py`):
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
    question, since there is nothing to choose - and set there, a node that differs is a problem naming both.
    A node SSH named that the cluster does not list, or several nodes and no SSH, is a problem too.
-   Only a name Proxmox gives a node counts (the `proxmox_name` filter, `filter_plugins/settings.py`):
+   Only a name Proxmox gives a node counts (the `proxmox_name` filter, `lib/claude_vm/checks.py`):
    `local.yml` is read as a template by every later run, and with the certificate not checked and the host key
    taken on first contact, the answer is whoever's sits in the path, so `{{ ... }}` in a name there would run on
    the controller. A reported name that is no node's is said, as JSON, and never written.

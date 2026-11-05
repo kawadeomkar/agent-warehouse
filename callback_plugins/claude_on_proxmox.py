@@ -12,7 +12,7 @@ add: a VM's root makes the modules run there say what it likes.
 
 A module's warnings, deprecations and failure message are the VM's to choose
 too, and Display prints them raw, so every hook prints them through
-filter_plugins/text.py's plain_summary; a dry run's diffs, a file's text as the
+lib/claude_vm/text.py's plain_summary; a dry run's diffs, a file's text as the
 VM holds it, through plain_text.
 
 Everything else is the default callback's, options included: a subclass
@@ -21,7 +21,7 @@ get_option, and Ansible only warns while each task's result disappears. Only
 ansible.cfg wires this in; the tests and Molecule run their own callbacks.
 
 A recipe drawn live sets CLAUDE_ON_PROXMOX_LIVE to what it runs (deploy alpha, say), and with it, at verbosity
-0 and with a run log, every event goes to filter_plugins/live_ansible.py's engine, which draws the run rather than
+0 and with a run log, every event goes to lib/claude_vm/ansible/engine.py, which draws the run rather than
 streaming it (docs/guides/runs.md); this module then keeps only its classic output, the blocks and NEXT STEPS, which
 the engine prints through it too. Any -v, or ANSIBLE_STDOUT_CALLBACK=default, is the stream as before.
 """
@@ -45,30 +45,24 @@ DOCUMENTATION = """
       - set as stdout_callback in ansible.cfg
 """
 
-import importlib.util
 import sys
 from pathlib import Path
 
 from ansible.plugins.callback.default import CallbackModule as DefaultCallback
+from ansible.plugins.loader import filter_loader
 from ansible.utils.vars import merge_hash
 
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+from claude_vm import plugin, text  # noqa: E402
 
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>, since a callback cannot ask for a
-    # filter module by name (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        path = Path(__file__).resolve().parents[1] / "filter_plugins" / f"{stem}.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
+plugin.own(_LIB)
 
 
 # The filter the prompts use, so a prompt's block and a message's look the same.
-text = _sibling("text")
 banner = text.banner
-live = _sibling("live_ansible")
+from claude_vm.ansible import engine as live  # noqa: E402
 
 WAITING_TAG = live.WAITING_TAG
 DEBUG_ACTIONS = live.DEBUG_ACTIONS
@@ -82,41 +76,7 @@ TOPICS = {
     "github_projects": "GitHub sign-in",
     "tailscale": "Tailscale sign-in",
 }
-# The set_stats names the report tasks record under, each owner's own prefix,
-# and the order a VM's matters are listed in: just init's two first, as it comes first.
-NEXT_STATS = ("claude_vm_next", "claude_code_next", "github_projects_next", "tailscale_next", "code_next")
-MATTERS = (
-    "init_settings",
-    "init_check",
-    "vm",
-    "claude",
-    "remote_control",
-    "github",
-    "github_identity",
-    "tailscale",
-    "tailscale_record",
-    "editor",
-    "destroy",
-)
-# Bright, so the blocks stand out from ok's green and changed's yellow.
-COLOR = "bright yellow"
-
-
-def next_steps(run_stats):
-    """The lines left to do, from the records the report tasks made: by VM name, then matter, each text once."""
-    records = {}
-    for stat in NEXT_STATS:
-        for vm, matters in (run_stats.get(stat) or {}).items():
-            if isinstance(matters, dict):
-                records.setdefault(str(vm), {}).update(matters)
-    rank = {matter: index for index, matter in enumerate(MATTERS)}
-    lines = []
-    for vm in sorted(records):
-        for matter in sorted(records[vm], key=lambda m: (rank.get(m, len(MATTERS)), m)):
-            line = records[vm][matter]
-            if isinstance(line, str) and line.strip() and line not in lines:
-                lines.append(line)
-    return lines
+from claude_vm.run.next_steps import COLOR, NEXT_STATS, next_steps  # noqa: E402
 
 
 class CallbackModule(DefaultCallback):
@@ -212,6 +172,12 @@ class CallbackModule(DefaultCallback):
     # --- what the VM chose to say ----------------------------------------------------------------------------------
     def _handle_warnings(self, res):
         with text.plain_events(self):
+            current = self._current_task_result
+            if self._live and current is not None:
+                # Kept in the run's model as they are said: what a person reads of the run, plain.
+                said = [each.event.msg for each in (current.warnings or [])] if res.get("warnings") else []
+                said += [each.event.msg for each in (current.deprecations or [])] if res.get("deprecations") else []
+                self._live.warned(said)
             super()._handle_warnings(res)
 
     def _handle_exception(self, result, use_stderr=False):
@@ -220,7 +186,10 @@ class CallbackModule(DefaultCallback):
 
     def _get_diff(self, difflist):
         diffs = difflist if isinstance(difflist, list) else [difflist]
-        return super()._get_diff([self._plain_diff(diff) for diff in diffs])
+        said = super()._get_diff([self._plain_diff(diff) for diff in diffs])
+        if self._live and said:
+            self._live.diffed(said)
+        return said
 
     @staticmethod
     def _plain_diff(diff):
@@ -233,6 +202,10 @@ class CallbackModule(DefaultCallback):
 
     # --- the playbook, each hook handed to the live engine when the run is drawn ------------------------------------
     def v2_playbook_on_start(self, playbook):
+        # One filter lookup here, before the first worker is forked: the loader keeps the filters it found, and every
+        # worker inherits them, rather than executing filter_plugins/ again at its first lookup, task by task
+        # (docs/architecture/custom-code.md §7.10).
+        filter_loader.get("bool")
         self._live = live.from_environment(self, playbook)
         super().v2_playbook_on_start(playbook)
 

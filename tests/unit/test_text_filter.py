@@ -4,15 +4,13 @@ apart."""
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
+from claude_vm import text as _module
+
 REPO = Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location("text_filters", REPO / "filter_plugins" / "text.py")
-_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_module)
 plain_text = _module.plain_text
 visible_text = _module.visible_text
 one_line = _module.one_line

@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -523,6 +524,23 @@ def _only_change(before: str, after: str) -> list[tuple[str, str]]:
     removed = [line for line in before.splitlines() if line not in after.splitlines()]
     added = [line for line in after.splitlines() if line not in before.splitlines()]
     return list(zip(removed, added, strict=False)) if removed else [("", line) for line in added]
+
+
+def test_a_write_waits_while_another_writer_holds_local_yml_and_then_writes(scenarios, tmp_path) -> None:
+    # Two writes at once each read local.yml and replace it: without a lock between them, one would be lost.
+    from claude_vm import store
+
+    inventory = _writable(scenarios, tmp_path)
+    before = _local(inventory).read_text()
+    done = []
+    with store.locked(_local(inventory)):
+        writer = threading.Thread(target=lambda: done.append(_set(scenarios, inventory, "vm_memory_mb", "8192")))
+        writer.start()
+        writer.join(timeout=10)
+        assert writer.is_alive() and _local(inventory).read_text() == before, "it wrote while the lock was held"
+    writer.join(timeout=120)
+    assert done and done[0].returncode == 0, done and done[0].stderr[-2000:]
+    assert "vm_memory_mb: 8192" in _local(inventory).read_text().splitlines()
 
 
 def test_a_value_takes_the_place_of_its_examples_line(scenarios, tmp_path) -> None:

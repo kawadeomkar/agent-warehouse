@@ -32,6 +32,36 @@ options:
     description: Seconds each read may take; apt's simulation gets four times as long.
     type: int
     default: 5
+  editors:
+    description:
+      - How each editor's windows are known, one entry per editor of the editors list (claude_editors), in its
+        order, as the core gives them (the editor_servers filter). A process of the user's is one window of the
+        first entry every given field of which holds; an entry that names no program counts none.
+    type: list
+    elements: dict
+    default: []
+    suboptions:
+      key:
+        description: The editor's key in the editors list, which editor_windows_by counts it under.
+        type: str
+        required: true
+      argv0_contains:
+        description: Text the program's path contains.
+        type: str
+        default: ""
+      argv0_name_prefix:
+        description: The start of the program's own name.
+        type: str
+        default: ""
+      argv1:
+        description: Its first argument, whole.
+        type: str
+        default: ""
+      argv_has:
+        description: Arguments it has, anywhere.
+        type: list
+        elements: str
+        default: []
 author:
   - claude-on-proxmox contributors
 """
@@ -90,7 +120,7 @@ claude:
   returned: always
   type: int
 vscode_windows:
-  description: How many VS Code extension hosts the user runs, one per window.
+  description: As 1.0 has it, editor_windows_by's count under the key vscode, or 0.
   returned: always
   type: int
 editor_windows:
@@ -117,6 +147,14 @@ from ansible.module_utils.basic import AnsibleModule
 APT_GET = "/usr/bin/apt-get"
 VERSION = re.compile(r"(\d+)")
 INST = re.compile(r"^Inst (\S+) .*\(([^)]*)\)")
+# One entry of the editors argument: the core's ProcessMatch (lib/claude_vm/editors/model.py), field for field.
+EDITOR = {
+    "key": {"type": "str", "required": True},
+    "argv0_contains": {"type": "str", "default": ""},
+    "argv0_name_prefix": {"type": "str", "default": ""},
+    "argv1": {"type": "str", "default": ""},
+    "argv_has": {"type": "list", "elements": "str", "default": []},
+}
 
 
 def _read(root, path):
@@ -190,15 +228,25 @@ def upgrades(timeout):
     return {"upgrades": len(found), "security": sum(1 for pocket in found if "-security" in pocket)}
 
 
-def processes(root):
-    """This user's claude processes, and each editor's windows - VS Code's extension hosts, one per window, and the
-    daemons of Zed's remote server, one per project it opens - from /proc, by the editor's key in the editors list
-    (claude_editors); editor_windows is every editor's together, and vscode_windows stays as 1.0 has it.
+def window(argv, match):
+    """Whether argv is one of an editor's windows, as its entry of the editors argument says: every field given
+    holds, and the program is named, since a match on the arguments alone would count any of the user's programs."""
+    program = argv[0]
+    return bool(match["argv0_contains"] or match["argv0_name_prefix"]) and (
+        match["argv0_contains"] in program
+        and os.path.basename(program).startswith(match["argv0_name_prefix"])
+        and (not match["argv1"] or argv[1:2] == [match["argv1"]])
+        and all(arg in argv for arg in match["argv_has"])
+    )
 
-    Zed's is as Zed starts it (~/.zed_server/zed-remote-server-<channel>-<version> run ...), its proxies beside it
-    not counted; from Zed's source, and seen on Zed 1.26.2, a window's daemon ending with it (docs/guides/zed.md)."""
+
+def processes(root, editors=()):
+    """This user's claude processes, and each editor's windows as the editors argument knows them, from /proc, by the
+    editor's key in the editors list (claude_editors); editor_windows is every editor's together, and vscode_windows
+    stays as 1.0 has it."""
     proc = os.path.join(root, "proc")
-    claude = windows = zed = 0
+    claude = 0
+    by = {match["key"]: 0 for match in editors}
     uid = os.getuid()
     try:
         names = os.listdir(proc)
@@ -218,12 +266,16 @@ def processes(root):
             continue
         if os.path.basename(argv[0]) == "claude" or any("@anthropic-ai/claude-code" in arg for arg in argv[:2]):
             claude += 1
-        elif ".vscode-server" in argv[0] and "--type=extensionHost" in argv:
-            windows += 1
-        elif os.path.basename(argv[0]).startswith("zed-remote-server") and argv[1:2] == ["run"]:
-            zed += 1
-    by = {"vscode": windows, "zed": zed}
-    return {"claude": claude, "vscode_windows": windows, "editor_windows": sum(by.values()), "editor_windows_by": by}
+        else:
+            key = next((match["key"] for match in editors if window(argv, match)), None)
+            if key is not None:
+                by[key] += 1
+    return {
+        "claude": claude,
+        "vscode_windows": by.get("vscode", 0),
+        "editor_windows": sum(by.values()),
+        "editor_windows_by": by,
+    }
 
 
 def run_all(reads, timeout):
@@ -259,6 +311,7 @@ def main():
             "root": {"type": "str", "default": "/"},
             "upgrades": {"type": "bool", "default": True},
             "timeout": {"type": "int", "default": 5},
+            "editors": {"type": "list", "elements": "dict", "default": [], "options": EDITOR},
         },
         supports_check_mode=True,
     )
@@ -268,7 +321,7 @@ def main():
         "kernel": (lambda: kernels(root), None),
         "reboot": (lambda: reboot(root), None),
         "load": (lambda: load_memory_uptime(root), None),
-        "processes": (lambda: processes(root), None),
+        "processes": (lambda: processes(root, module.params["editors"]), None),
     }
     if module.params["upgrades"]:
         reads["upgrades"] = (lambda: upgrades(timeout * 4), timeout * 4 + 1)

@@ -285,6 +285,8 @@
           vm_status_info:
             upgrades: "{{ status_read_upgrades | bool }}"
             root: "{{ status_system_root }}"
+            # Each editor's window as the editors list knows it: the module, on the VM, cannot read the core.
+            editors: "{{ claude_editors | default({}) | editor_servers }}"
           register: status_system
           when:
             - status_reachable | bool

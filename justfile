@@ -531,7 +531,7 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     [ -z "$session" ] || set -- "$@" -e "{\"vm_session\": \"$session\"}"
     [ -z "$ide" ] || set -- "$@" -e "{\"vm_editor\": \"$ide\"}"
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in filter_plugins/live_recipes.py), under
+    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title; a session's ID, which its report names, is left out of it. Any -v in ANSIBLE_ARGS streams it as
     # before.
     CLAUDE_ON_PROXMOX_LIVE="code${project:+ --project $project} $names"
@@ -571,7 +571,7 @@ login SIGN_IN='' *NAMES:
     {{ vault_args }}
     [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
     {{ no_tty_args }}
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in filter_plugins/live_recipes.py), under
+    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     CLAUDE_ON_PROXMOX_LIVE="login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
     export CLAUDE_ON_PROXMOX_LIVE
@@ -691,7 +691,7 @@ destroy *NAMES:
     set --
     {{ vault_args }}
     [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in filter_plugins/live_recipes.py), under
+    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     CLAUDE_ON_PROXMOX_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
     export CLAUDE_ON_PROXMOX_LIVE

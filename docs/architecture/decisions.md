@@ -135,9 +135,12 @@ The project is to open more than VS Code (Zed first) and to run on more than Pro
 user's choice. What was decided, and why:
 
 - **One editor at a time**, VS Code by default: the `editor` setting, or `just code <vm> --editor <editor>` for one
-  run. Each editor's work on this machine is two task files of `code.yml`'s own (`tasks/vscode_check.yml` before
-  anything is written on the VM, `tasks/vscode_open.yml` after), imported statically for that editor alone, with its
-  variables in a vars file (`playbooks/vars/vscode.yml`). Static, so `--tags` reaches them and the allowlist in
+  run. Each editor's work on this machine is a check of `code.yml`'s own (`tasks/vscode_check.yml`, before anything
+  is written on the VM), imported statically for that editor alone, with its variables in a vars file
+  (`playbooks/vars/vscode.yml`), and its family's plan of the window in the core (`lib/claude_vm/editors/vscode.py`),
+  which `tasks/editor_open.yml` applies for every editor
+  ([§7.10](custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)). Static, so `--tags` reaches
+  them and the allowlist in
   `tests/unit/test_code_session.py` follows them; every name an editor's file registers starts with `code_<editor>_`,
   since a skipped task still overwrites its register. The editors are one internal list, `claude_editors` in the
   inventory defaults - each one's name, whether its window runs just code's tasks as it opens, and how it gets its

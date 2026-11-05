@@ -1,4 +1,4 @@
-"""What every live output draws with: filter_plugins/screen.py's lines of styled segments.
+"""What every live output draws with: lib/claude_vm/tui/screen.py's lines of styled segments.
 
 `just status`'s report and every live run cut, pad, align, colour and measure their lines here, so each rule is
 checked once: a cut line ends in a dim "…" at exactly the width, a tail is dropped before it would crowd the line,
@@ -8,15 +8,12 @@ duration reads as the reports say it (docs/architecture/custom-code.md §7.8).
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location("test_screen_module", REPO / "filter_plugins" / "screen.py")
-screen = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(screen)
+from claude_vm.tui import screen
 
 
 def test_a_line_is_cut_to_its_width_with_a_dim_ellipsis_and_left_whole_when_it_fits():

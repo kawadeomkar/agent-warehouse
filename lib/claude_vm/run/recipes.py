@@ -2,13 +2,13 @@
 
 A recipe that is drawn live exports CLAUDE_ON_PROXMOX_LIVE, its title, whose first word names its declaration here
 (RECIPES). A declaration says what the run is made of - its stages, each stage's steps and how a play or a task is
-matched to them - and filter_plugins/run_view.py and filter_plugins/live_ansible.py draw any run from it alone. A
+matched to them - and run/model.py, tui/run.py and ansible/engine.py draw any run from it alone. A
 command extends the shared engine only through a declaration: anything a declaration cannot say becomes a new field
 here and new code in the engine, never code of one command's own (docs/architecture/custom-code.md §7.8).
 
-Pure data: nothing here reads, writes or imports anything of the project's. Loaded by path as
-claude_on_proxmox_live_recipes, as every module here loads another; it has no filters of its own. A test holds every
-name a declaration matches to the playbook it names (tests/unit/test_live_recipes.py).
+Pure data: nothing here reads, writes or imports anything of the project's. Imported as claude_vm.run.recipes
+(docs/architecture/custom-code.md §7.10). A test holds every name a declaration matches to the playbook it names
+(tests/unit/test_live_recipes.py).
 """
 
 from __future__ import annotations
@@ -192,7 +192,7 @@ WINDOW = (
     Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),
     Step("the notes", starts=["Read the session notes already on the VM"]),
-    Step("window", starts=["Look for the directory for the helpers on the VM"]),
+    Step("window", starts=["Look for just code's directories on the VM"]),
 )
 # just init's questions, each a step from the include that asks it, and the vault the answers go into.
 INIT_QUESTIONS = (
@@ -343,10 +343,3 @@ def recipe(title):
     """The declaration a run's title names: its first word, the recipe's name."""
     words = str(title or "").split()
     return RECIPES.get(words[0] if words else "", RECIPES[DEFAULT])
-
-
-class FilterModule:
-    """No filters: loaded by path. Here so the filter loader takes the file as a plugin."""
-
-    def filters(self):
-        return {}

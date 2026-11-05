@@ -7,14 +7,15 @@ log has it. Piped, under --json, or without a terminal that can draw it, nothing
 printed once at the end, or nothing at all under --json, whose report the recipe prints itself.
 
 Every piece of the report arrives as a status_found fact, already one line of plain text a value; the report is
-drawn by filter_plugins/status.py, the same functions as the finished report, loaded by path. Nothing of Ansible's
-own task output is shown: a task that failed is said on stderr only if the run ends without a report, since the
-report says what each failure meant, and an unreachable VM is the report's too. Task warnings, which since
-ansible-core 2.19 travel on the task result, are printed in every hook, or a stdout callback of one's own drops them
-without a word - through filter_plugins/text.py's plain_summary, since a module on a VM chooses their text. The
-finished report is taken only from the report play's own set_fact on this machine: any module's result can carry facts.
+drawn by lib/claude_vm/tui/status.py from claude_vm.status's model, the same functions as the finished report's.
+Nothing of Ansible's own task output is shown: a task that failed is said on stderr only if the run ends without a
+report, since the report says what each failure meant, and an unreachable VM is the report's too. Task warnings,
+which since ansible-core 2.19 travel on the task result, are printed in every hook, or a stdout callback of one's
+own drops them without a word - through lib/claude_vm/text.py's plain_summary, since a module on a VM chooses their
+text. The finished report is taken only from the report play's own set_fact on this machine: any module's result can
+carry facts.
 
-The live region is every live output's (filter_plugins/live_region.py, docs/architecture/custom-code.md §7.8): one
+The live region is every live output's (lib/claude_vm/tui/live_region.py, docs/architecture/custom-code.md §7.8): one
 write per redraw in synchronized-output marks, nothing wrapped, a resize pushing the screen into the scrollback,
 every other message erasing it first and drawing it after, the echo off while it is up, the cursor never hidden.
 """
@@ -34,7 +35,6 @@ DOCUMENTATION = """
       - Chosen with ANSIBLE_STDOUT_CALLBACK=claude_on_proxmox_status, as just status does.
 """
 
-import importlib.util
 import os
 import sys
 import time
@@ -43,22 +43,20 @@ from pathlib import Path
 
 from ansible import constants as C
 from ansible.plugins.callback import CallbackBase
+from ansible.plugins.loader import filter_loader
+
+_LIB = str(Path(__file__).resolve().parents[1] / "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
+from claude_vm import plugin, text  # noqa: E402
+
+plugin.own(_LIB)
 
 
-def _sibling(stem):
-    # filter_plugins/<stem>.py, loaded by path once as claude_on_proxmox_<stem>, since a callback cannot ask for a
-    # filter module by name (docs/architecture/custom-code.md §7.8).
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        path = Path(__file__).resolve().parents[1] / "filter_plugins" / f"{stem}.py"
-        spec = importlib.util.spec_from_file_location(name, path)
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
+from claude_vm.status import model as status_model  # noqa: E402
+from claude_vm.tui import live_region as live  # noqa: E402
+from claude_vm.tui import status as status_view  # noqa: E402
 
-
-live = _sibling("live_region")
-text = _sibling("text")
 # The report play's task that makes the finished report: a set_fact on this machine (playbooks/status.yml).
 REPORT_ACTIONS = frozenset({"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"})
 
@@ -70,7 +68,6 @@ class CallbackModule(CallbackBase):
 
     def __init__(self):
         super().__init__()
-        self._status = _sibling("status")
         self._quiet = bool(os.environ.get("STATUS_QUIET"))
         self._live = live.can_draw() and not self._quiet
         self._found = {}
@@ -95,7 +92,7 @@ class CallbackModule(CallbackBase):
         return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z").strip()
 
     def _model(self, live):
-        return self._status.status_report(dict(self._found), self._now_said(), time.time(), live=live)
+        return status_model.status_report(dict(self._found), self._now_said(), time.time(), live=live)
 
     def _pending(self, model):
         api = [vm["name"] for vm in model["vms"] if vm.get("pending_api")]
@@ -126,7 +123,7 @@ class CallbackModule(CallbackBase):
         if "localhost" not in self._found:
             return [f"{glyph} listing the VMs · {elapsed}"]
         model = self._model(live=True)
-        text = self._status.status_text(model, self._color, glyph=glyph, cols=cols - 1)
+        text = status_view.status_text(model, self._color, glyph=glyph, cols=cols - 1)
         api, ssh = self._pending(model)
         if api:
             doing = f"reading {', '.join(api)}"
@@ -136,7 +133,7 @@ class CallbackModule(CallbackBase):
             doing = "ranking what needs attention"
         reading = len(api) + len(ssh)
         self._out.title(f"status · reading {reading} VM{'' if reading == 1 else 's'}" if reading else "status")
-        return text.split("\n") + [self._status.one_line(f"{glyph} {doing} · {elapsed}", cols - 1)]
+        return text.split("\n") + [status_model.one_line(f"{glyph} {doing} · {elapsed}", cols - 1)]
 
     def _redraw(self):
         if self._live:
@@ -149,6 +146,10 @@ class CallbackModule(CallbackBase):
 
     # --- Ansible's events --------------------------------------------------------------------------------------
     def v2_playbook_on_start(self, playbook):
+        # One filter lookup here, before the first worker is forked: the loader keeps the filters it found, and every
+        # worker inherits them, rather than executing filter_plugins/ again at its first lookup, task by task
+        # (docs/architecture/custom-code.md §7.10).
+        filter_loader.get("bool")
         if self._live:
             self._out.spin()
 
@@ -174,14 +175,14 @@ class CallbackModule(CallbackBase):
             self._reported = True
             model = facts["status_report"]
             reading = self._reading(model)
-            plain = self._status.status_text(model, False, reading=reading)
+            plain = status_view.status_text(model, False, reading=reading)
             if self._quiet:
                 # Under --json the screen gets the JSON alone, from the recipe's last step; the run log still gets
                 # the report, as every other run's does, rather than staying an empty file.
                 self._display.display(plain, log_only=True)
             else:
                 # The colours are for the screen: Display logs what it is given, so the log gets the plain text.
-                coloured = self._status.status_text(model, True, reading=reading) if self._color else plain
+                coloured = status_view.status_text(model, True, reading=reading) if self._color else plain
                 self._out.print([(coloured, plain)])
 
     # --- what a module chose to say -----------------------------------------------------------------------------
@@ -211,4 +212,4 @@ class CallbackModule(CallbackBase):
         self._finish()
         if not self._reported:
             for failure in self._failures:
-                self._display.display(self._status.one_line(failure, 2000), stderr=True)
+                self._display.display(status_model.one_line(failure, 2000), stderr=True)

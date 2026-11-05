@@ -27,7 +27,7 @@ and starts with `socket.getfqdn` answering at once (`harness.FAKE_START`): for t
 spent five seconds on it.
 A run a test gives up on - a timeout, a Ctrl-C, a failure on the way -
 is ended whole (`harness._end`): its process group, and every process found under it before any is signalled
-(`filter_plugins/processes.py`), since ansible-core's task worker detaches into a session of its own
+(`lib/claude_vm/proc.py`), since ansible-core's task worker detaches into a session of its own
 (`WorkerProcess._detach`: `setsid`, stdio on `/dev/null`) - a SIGINT or SIGTERM the playbook sends on to it
 itself, a SIGKILL or a SIGHUP it does not - and the group's SIGKILL alone left the task in flight behind,
 reparented to PID 1 and idle for good, 46 of them after a suite that hung; though not an async job's wrapper,
@@ -39,15 +39,24 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2823 tests. By file:
+pytest over `tests/unit/`: 2951 tests. By file:
 
+- **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+  `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
+  `subprocess`), and the package itself imports none of
+  its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
+  copies Ansible's values into exact types, `to_wire` puts `format_version` and `kind` first; an adapter's filter
+  imports its module only when called and refuses another checkout's `claude_vm`, known by file, not by spelling;
+  two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
+  and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
+  the core's function of that name.
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the
   sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
   gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
-- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 15,
+- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 17,
   `test_status_work.py` 3): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
   `local.yml`, the twelve buckets of a day at Proxmox VE 9's resolution and 8's, the ranking and exit code,
@@ -62,26 +71,28 @@ pytest over `tests/unit/`: 2823 tests. By file:
   holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux
   pty takes the rest of a run's output without blocking it, and the run could end before the frame it acts
   on is read. The Ctrl-C is sent only once each running VM waits in that `ssh`: a SIGINT that lands while
-  Ansible forks a worker is lost (`CLAUDE.md`, things that have bitten this repo). Inside the VMs (`test_status_vms.py`): `vm_status_info` on fixture trees, in this process; status
-  over stand-in VMs with discovery off, each running the three roles' `status` entry points with the gh and
-  tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after and the
-  fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
-  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for
-  what it is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches
-  a VM or this machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway
-  repositories - a worktree under `.claude/worktrees/` and one outside the projects directory, a branch with
-  no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file of them, `.git`
-  included, as it was after.
+  Ansible forks a worker is lost (`CLAUDE.md`, things that have bitten this repo). Inside the VMs
+  (`test_status_vms.py`): `vm_status_info` on fixture trees, in this process, each editor's windows by the rows'
+  matches, a process under the first it meets, and the module's `editors` argument held to the core's `ProcessMatch`
+  field for field; status over stand-in VMs with discovery off, each running the three roles' `status` entry points
+  with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after
+  and the fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
+  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for what it
+  is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this
+  machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway repositories - a
+  worktree under `.claude/worktrees/` and one outside the projects directory, a branch with no upstream, a detached
+  HEAD with commits of its own, a stash, untracked files - every file of them, `.git` included, as it was after.
   Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
   ACCESS line names the editor that is set.
-- **`just settings`** (`test_settings.py` 111): `tools/settings` against inventories of its own, made from the
+- **`just settings`** (`test_settings.py` 112): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
   are its `argument_specs`; every line within 100 columns. The attacks: a `pipe` lookup behind a group
   variable in `hosts.yml` (refused, never run), an executable in `inventory/` (never run), a secret vaulted
   inline in `local.yml` and a setting reading `vault_vm_password` (masked), a GitHub username of `local` (no report
   refused), a secret copied in under a computed name (nothing printed, exit 1), a control sequence in a
-  value. Where values come from: `proxmox_vm` evaluated on `claude_vm_pending`, `proxmox_template` on the
+  value; a write started while another holds `local.yml`'s lock waits for it, then writes. Where values come
+  from: `proxmox_vm` evaluated on `claude_vm_pending`, `proxmox_template` on the
   Proxmox host with its host variable, a short setting followed to the role variable it feeds, what `just
   deploy`, `just login` and `just destroy` set beside the value other runs use, a default that lives in a
   role's `default()`. The vault refused without a password and with a wrong one, opened from
@@ -102,10 +113,12 @@ pytest over `tests/unit/`: 2823 tests. By file:
   `local.yml`, and no host-pattern warning.
   The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
   taking the old one's line out, `--reset` on either taking both.
-- **The stdout callback** (`test_attention_callback.py` 21): `callback_plugins/claude_on_proxmox.py` run
+- **The stdout callback** (`test_attention_callback.py` 23): `callback_plugins/claude_on_proxmox.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
-  the log, `just init`'s two matters before a VM's - and statically, the six tasks that carry `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
+  the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many
+  tasks template it, under either stdout callback - and statically, the six tasks that carry
+  `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
   and every report followed by its record, `just init`'s two among them. Each role's own tests then assert what it records, in every
   state they run.
 - **What every live output draws with** (`test_live_region.py` 17, `test_screen.py` 17, `test_vt.py` 4): the
@@ -117,7 +130,7 @@ pytest over `tests/unit/`: 2823 tests. By file:
   reading status's and deploy's streams the same cut anywhere. Every test that runs something at a terminal opens
   it through `harness._at_a_pseudo_terminal`, and every live test through `tests/unit/live_kit.py`, which gives
   each run a `HOME` of its own.
-- **The live output** (`test_run_view.py` 109, `test_deploy_live.py` 19, `test_login_live.py` 3,
+- **The live output** (`test_run_view.py` 111, `test_deploy_live.py` 20, `test_login_live.py` 3,
   `test_destroy_live.py` 4, `test_code_live.py` 4, `test_lint_live.py` 5, `test_init_live.py` 2,
   `test_test_live.py` 11, `test_live_recipes.py` 39, `test_live_commands.py` 29): the model, fed
   events with the time given - a running, a waiting, a failed, a dry and a fleet run's frame, a wait known
@@ -185,7 +198,19 @@ pytest over `tests/unit/`: 2823 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **Processes** (`test_processes.py` 15): `filter_plugins/processes.py` listing a grandchild in a session of its own
+- **The editors' plans** (`test_editor_conformance.py` 51): every family conforms to the seam and every row of
+  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
+  `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
+  foreign one is left and said, and none is written at a helper path a task cannot be handed as it is; VS Code opens
+  its workspace, or the bare folder, over the alias, and a row of its family whose window starts no Claude terminal
+  writes nothing; the paths are written and launched as `code.yml` built them, and with nothing written the window
+  opens whatever `editor_files_dir` names; no write leaves just code's directory or goes into the folders YAML writes
+  itself; each of the registry's rules bites, alone, on a plan built to break it; the inputs and rows are held to
+  their types, a row's window match naming its program first; each
+  row's match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
+  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once
+  nothing is left.
+- **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
   at it, never once another has it; a root exited, a zombie or reaped, its group still ended - its children moved
@@ -292,7 +317,7 @@ pytest over `tests/unit/`: 2823 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 270): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 261): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -479,15 +504,17 @@ pytest over `tests/unit/`: 2823 tests. By file:
   command, nor a name after one of its commands, no target only the Makefile had and no misspelt recipe
   is left outside the pages that tell the history, nor make's spelling of an option (`TAGS=`) on a line
   that does not say whose it is.
-- **The wiki** (`test_docs.py` 20): the generated reference sections are up to date, and every setting
+- **The wiki** (`test_docs.py` 21): the generated reference sections are up to date, and every setting
   and role default is documented; the site builds strictly from the pages git knows, every heading
   reaches its built page, and every page renders the same on GitHub as on the site, its diagrams
   included; no page repeats a heading, holds a closing tag in a code span or shows a character reference
   such as `&emsp;` as text outside code; the navigation lists every page and only pages; no relative link
   leaves `docs/`; the root files' links, the pages the repository names and the architecture sections it
-  cites all exist, a section cited from another page is a link, and the README's quick start matches the
+  cites all exist, every repository path the wiki and CLAUDE.md name in a code span is a file or folder of
+  the checkout or one git ignores on purpose (the user's `inventory/hosts.yml`), a section cited from
+  another page is a link, and the README's quick start matches the
   wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 41, `test_ratchets.py` 3): the
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 46, `test_ratchets.py` 3): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor

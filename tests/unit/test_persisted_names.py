@@ -57,8 +57,6 @@ VALUES = [
     # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path (their directory,
     # code_helpers_dir, is code.yml's, below).
     ("playbooks/vars/vscode.yml", "code_helpers", ["claude-terminal.sh", "session-notes.sh", "session_notes.py"]),
-    ("playbooks/vars/vscode.yml", "code_terminal_helper", "{{ code_helpers_dir }}/claude-terminal.sh"),
-    ("playbooks/vars/vscode.yml", "code_notes_helper", "{{ code_helpers_dir }}/session-notes.sh"),
     # On this machine: the managed SSH config.
     (
         "inventory/group_vars/all/defaults.yml",
@@ -76,7 +74,7 @@ LINES = [
     ("roles/vscode_server/tasks/main.yml", "sysctl_file: /etc/sysctl.d/60-vscode-server.conf"),
     # just code's own directory on a VM, and what is in it: the sessions' mirror and manifest, written by just code and
     # read by destroy's save; the notes; the workspace files.
-    ("filter_plugins/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"'),
+    ("lib/claude_vm/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"'),
     ("playbooks/code.yml", 'code_session_dir: "{{ code_ws_dir }}/claude-sessions"'),
     ("playbooks/tasks/session_write.yml", 'mirror: "{{ code_session_dir }}/mirror"'),
     ("playbooks/tasks/session_write.yml", 'manifest: "{{ code_session_dir }}/manifest.json"'),
@@ -90,19 +88,31 @@ LINES = [
         "playbooks/code.yml",
         "code_notes_file: \"{{ code_ws_dir_given ~ '/session/' ~ claude_vm_names[0] ~ '-session.md' }}\"",
     ),
-    ("playbooks/code.yml", "~ ('/project/' ~ code_project_given if code_project_given | length > 0"),
-    ("playbooks/code.yml", "~ '.code-workspace' }}"),
+    # VS Code's workspace files, one project's in project/, and the helpers its tasks run, by path.
+    ("lib/claude_vm/editors/vscode.py", 'WORKSPACE_SUFFIX = ".code-workspace"'),
+    ("lib/claude_vm/editors/vscode.py", 'return f"project/{inputs.project}{WORKSPACE_SUFFIX}"'),
+    (
+        "lib/claude_vm/editors/vscode.py",
+        "return f\"{posixpath.basename(inputs.root) or 'projects'}{WORKSPACE_SUFFIX}\"",
+    ),
+    ("lib/claude_vm/editors/vscode.py", 'f"{helpers}/claude-terminal.sh",'),
+    ("lib/claude_vm/editors/vscode.py", 'notes_helper = f"{helpers}/session-notes.sh"'),
+    # Zed's tasks file in just code's directory, which Zed reads from the window's tree.
+    ("lib/claude_vm/editors/zed.py", 'TASKS: Final = ".zed/tasks.json"'),
     # The helpers' directory, which every editor's helpers are in, and the shared helper, whose path is in the
     # tasks file just code writes and in a task of the user's own (docs/guides/zed.md): <projects>/.claude-on-proxmox/
     # helpers/claude-start.sh by default.
     ("playbooks/code.yml", 'code_helpers_dir: "{{ code_ws_dir }}/helpers"'),
     ("playbooks/code.yml", "code_shared_helpers: [claude-start.sh]"),
     ("playbooks/code.yml", 'code_start_helper: "{{ code_helpers_dir }}/claude-start.sh"'),
+    # The same two names as the editors' plans write them: the directory they make, and the helper Zed's task runs.
+    ("lib/claude_vm/editors/common.py", 'HELPERS: Final = "helpers"'),
+    ("lib/claude_vm/editors/zed.py", 'HELPER: Final = "claude-start.sh"'),
     # The first line of every file in JSON with comments just code writes for an editor to read from 1.1 on
     # (.zed/tasks.json today), by which a later run tells its own from a file that is someone else's.
     (
-        "playbooks/code.yml",
-        'code_ownership_marker: "// Written by just code (claude-on-proxmox); edits here are overwritten."',
+        "lib/claude_vm/editors/common.py",
+        'MARKER: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."',
     ),
     # The notes' live section, as the template writes it and the helper finds it.
     ("playbooks/templates/vm_session.md.j2", "<!-- claude-on-proxmox:live -->"),
@@ -112,11 +122,11 @@ LINES = [
         'START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
     ),
     # On the Proxmox host: the record of the template's build in its notes.
-    ("filter_plugins/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
+    ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
     # On this machine: the managed SSH config's blocks, written and read, and the checkout's own folder.
     ("playbooks/tasks/ssh_config.yml", 'marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"'),
     (
-        "filter_plugins/proxmox.py",
+        "lib/claude_vm/proxmox.py",
         'r"^# BEGIN claude-on-proxmox: (?P<name>\\S+)$\\n(?P<body>.*?)^# END claude-on-proxmox: (?P=name)$",',
     ),
     (
@@ -154,3 +164,17 @@ def test_a_name_kept_inside_a_longer_one_is_a_rename_too(tmp_path, monkeypatch) 
     monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
     assert _value("vars.yml", "marker") != "{{ home }}/.config/claude-on-proxmox/gh-login"
     assert not _spells("tasks.yml", "dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf")
+
+
+def test_the_helpers_the_editors_plans_copy_are_the_ones_the_yaml_lists() -> None:
+    # A family names its helpers in the core; the copy takes them from the YAML's lists. Held equal, so a helper added
+    # to one list alone is neither copied without a word nor refused at the window.
+    from claude_vm.editors import vscode, zed
+
+    yaml_vars = yaml.safe_load((REPO / "playbooks" / "vars" / "vscode.yml").read_text())
+    assert vscode.HELPERS == tuple(yaml_vars["code_helpers"])
+    plays = yaml.safe_load((REPO / "playbooks" / "code.yml").read_text())
+    shared = [
+        play["vars"]["code_shared_helpers"] for play in plays if "code_shared_helpers" in (play.get("vars") or {})
+    ]
+    assert shared == [[zed.HELPER]]

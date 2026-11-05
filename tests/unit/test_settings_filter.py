@@ -1,18 +1,15 @@
-"""filter_plugins/settings.py: what just init accepts as each kind of answer, and how it writes one into a file."""
+"""lib/claude_vm/init.py: what just init accepts as each kind of answer, and how it writes one into a file."""
 
 from __future__ import annotations
 
-import importlib.util
 from pathlib import Path
 
 import pytest
 import yaml
-from ansible.errors import AnsibleFilterError
+
+from claude_vm import init as _module
 
 REPO = Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location("settings_filters", REPO / "filter_plugins" / "settings.py")
-_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_module)
 RULES = _module.RULES
 init_answer = _module.init_answer
 init_answer_rule = _module.init_answer_rule
@@ -108,7 +105,7 @@ def test_a_choice_is_the_item_its_number_names() -> None:
 
 def test_every_kind_has_its_rule_in_words() -> None:
     assert all(init_answer_rule(kind) for kind in RULES)
-    with pytest.raises(AnsibleFilterError):
+    with pytest.raises(ValueError):
         init_answer("x", "colour")
 
 
@@ -130,7 +127,7 @@ def test_with_setting_appends_a_missing_key() -> None:
 
 
 def test_with_setting_never_writes_over_a_value() -> None:
-    with pytest.raises(AnsibleFilterError, match="already set"):
+    with pytest.raises(ValueError, match="already set"):
         with_setting('key: "real"\n', "key", "v", "xxxx")
 
 

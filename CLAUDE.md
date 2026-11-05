@@ -370,14 +370,18 @@ token; `github_auth_method: token` still fails. The status JSON carries
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
   `terminal.integrated.allowInUntrustedWorkspace`. The editors are one internal list, `claude_editors` in the
   inventory defaults (each one's name, whether its window runs just code's tasks, and how it gets its Claude
-  terminal, `claude_terminal`: `started`, `listed` or `none`; literal values only, and no Claude task is decided
-  from `window_tasks` alone), held by `test_code_session.py` to the editors' task files and to `--editor`'s pattern. With
-  `editor: zed` (or `--editor zed`) nothing of VS Code's is written and `tasks/zed_open.yml` runs
+  terminal, `claude_terminal`: `started`, `listed` or `none`; its `family`, `cli_candidates`, `version_re` and
+  `server`, the match by which `just status` counts its windows; literal values only, and no Claude task is decided
+  from `window_tasks` alone), held by `test_code_session.py` to
+  the editors' task files and to `--editor`'s pattern. The window is the editor's plan, data its family makes in the
+  core (`lib/claude_vm/editors/`, held by `registry.py` to its rules on every call) and `tasks/editor_open.yml`
+  applies after `code.yml`'s refusal of whatever the plan refuses, before any write. With
+  `editor: zed` (or `--editor zed`) nothing of VS Code's is written and Zed's plan runs
   `zed ssh://<alias><folder>` with the first `zeditor` or `zed` on PATH whose `--version` says Zed - ZFS's event
   daemon is `zed` too, and is asked nothing else; it writes no Zed config, keymap, task or trust of the user's,
   only - with the terminal's switch, where just code's directory is inside the projects directory and the helper's
   path matches `code_helper_path_pattern` (`code_claude_task_written`) - the shared helper and one tasks file in
-  that directory (`.zed/tasks.json`: just code's ownership marker, `code_ownership_marker`, on its first line, then
+  that directory (`.zed/tasks.json`: just code's ownership marker, the core's `MARKER`, on its first line, then
   a **Claude (just code)** task of fixed text, `bash <helper>`, a new terminal for every spawn and no tag, which Zed
   lists in a window whose folder holds that directory and never runs by itself); a `tasks.json` there without the
   marker is someone else's, left as it is and said - read by `tasks/zed_check.yml` before the notes, which name the
@@ -397,9 +401,9 @@ token; `github_auth_method: token` still fails. The status JSON carries
   be first on `sys.path` and its `json.py` run. Its path is in a task of the user's own, so it stays
   (`test_persisted_names.py`). Anything variable reaches a helper as an argument, and no task file carries script
   text. The allowlist holds a `copy`
-  to `content`, or to `src: "{{ code_helper }}"` over `code_helpers` or `src: "{{ code_shared_helper }}"` over
-  `code_shared_helpers`, which together name each file of `playbooks/files/` once: nothing else of this
-  machine's is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
+  to `content`, or to `src: "{{ code_helper }}"` over `code_shared_helpers + code_helpers`, which together name
+  each file of `playbooks/files/` once, and only a helper the editor's plan names: nothing else of this machine's
+  is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
   no role uses: a role's fact or register outranks a play var in the same `just deploy`, and no task var
   shares a fact's name. In `just deploy` (`code_in_deploy`) every task of the window step is in one
   `block` whose `rescue` says any failure with the `just code` line (`just deploy <vm>
@@ -410,10 +414,13 @@ token; `github_auth_method: token` still fails. The status JSON carries
   every task in `code.yml`, and in the task files it imports, followed all the way down, to an
   allowlist: read-only on this machine (plus `which`/`code`, the session handoff's `rsync` to the VM and
   the alias through `tasks/ssh_config.yml`), the handoff's readers (`claude_sessions_info`,
-  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the thirteen
-  writes (just code's own directory, made first and 0755 where new; the workspace and its directory, VS Code's
-  helpers and theirs, Zed's shared helper and theirs, Zed's tasks file and its directory, the notes and theirs,
-  the sessions' directory and their copies), each under its exact condition in `WRITERS_WHEN`, delegated to the VM; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against stand-ins with nothing else
+  `git_checkouts_info`) here or on the VM, or `stat`/`getent`/`find`/`slurp`, --session's `git` and the eight
+  writes (just code's own directory, made first and 0755 where new; the editor plan's directories, the helpers it
+  names and its files, each written under `{{ code_ws_dir }}/` or `{{ code_helpers_dir }}/`; the notes and theirs,
+  the sessions' directory and their copies), each under its exact condition in `WRITERS_WHEN`, delegated to the VM;
+  the one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal comes before
+  the first write; a `shell`, a writer in a `block`, or a `connection` fails it by name. The helper is run against
+  stand-ins with nothing else
   on PATH: never a login shell there, which would put this machine's own `code` and `tailscale` back. The `provision`
   scenario, which runs `code.yml`, points `vscode_user_settings_file` into the ephemeral directory,
   since the message depends on it, and asserts that file's bytes and mtime after every run.
@@ -484,13 +491,14 @@ token; `github_auth_method: token` still fails. The status JSON carries
   the `Include` off, the Vagrantfile sets `claude_ssh_config: false`, and
   `tests/unit/test_ssh_config.py` fails if any of them stops.
 
-- **Every live output draws through one region and one way of drawing.** `filter_plugins/live_region.py`'s
-  `LiveRegion` puts a frame at the bottom of the terminal and `filter_plugins/screen.py` builds its lines
+- **Every live output draws through one region and one way of drawing.** `lib/claude_vm/tui/live_region.py`'s
+  `LiveRegion` puts a frame at the bottom of the terminal and `lib/claude_vm/tui/screen.py` builds its lines
   (segments cut to the width, one palette): `just status`'s callback and every live run's, and each recipe
   drawn live after them - a playbook run joins through `CLAUDE_ON_PROXMOX_LIVE` and its declaration in
-  `filter_plugins/live_recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette
-  or cut. A command's live output is its declaration: the engine (`filter_plugins/live_ansible.py`), the model
-  (`run_view.py`) and the region know no command, and what a declaration cannot say becomes a new field there,
+  `lib/claude_vm/run/recipes.py`, a report hands an `Output` a frame of its own; never a second region, palette
+  or cut. A command's live output is its declaration: the engine (`lib/claude_vm/ansible/engine.py`), the model
+  (`lib/claude_vm/run/model.py`, drawn by `tui/run.py`) and the region know no command, and what a declaration
+  cannot say becomes a new field there,
   never code of one command's own. A recipe of several processes is one run in parts: each command goes through
   `tools/live`, which passes it through unchanged, without the variable or the state's path, unless it can draw -
   a terminal, a title, no `-v`, a log, a state, the engine's packages, decided with the standard library alone -
@@ -501,28 +509,29 @@ token; `github_auth_method: token` still fails. The status JSON carries
   write per redraw in synchronized output, up exactly the lines drawn, so no line may wrap (`tests/unit/vt.py`
   counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s `do_var_prompt`), back only
   half a second after it; keeps
-  the echo off while it is up; and never hides the cursor. Modules load each other by path, once, as
-  `claude_on_proxmox_<stem>`, and every test that runs something at a terminal opens it through
-  `harness._at_a_pseudo_terminal`. See docs/architecture/custom-code.md §7.8.
+  the echo off while it is up; and never hides the cursor. What the callbacks, engines and tools share is one
+  package, `claude_vm` in `lib/`, imported, never loaded by path (custom-code.md §7.10), and every test that runs
+  something at a terminal opens it through `harness._at_a_pseudo_terminal`. See docs/architecture/custom-code.md §7.8.
 
 - **`just deploy` is drawn live, and nothing a person must read is drawn only there.** `CLAUDE_ON_PROXMOX_LIVE`,
   which only the recipes drawn live export - `deploy`, `login`, `destroy`, `code`, and `lint`, `init` and `test`
   for their parts - (the run's title) and the engine takes out of its environment at once, so nothing the run starts
   inherits it, hands the stdout callback's every event to the engine at verbosity 0 with
-  a run log: at a terminal, the region drawn from `filter_plugins/run_view.py`'s model; otherwise a line per step.
+  a run log: at a terminal, the region drawn from `lib/claude_vm/run/model.py`'s model; otherwise a line per step.
   Every line the stream would print still reaches the run log, in order, through `Display`'s `log_only` - so
   without a log (`LOG_DIR=`) the run is the stream; the reports, browser blocks, diffs, warnings and failures
   print above the region for good, whole - a report is wrapped, never cut, a failure says its output's end and
   each failed loop item, and only a failure among a rescued block's own tasks - at any depth, through imports and
-  includes too - is the block's. What a VM said reaches the screen through `plain_text`, and only `proxmox_vm`
+  includes too - is the block's; each is kept in the run's model as it is said, and drawn from it (`tui/run.py`).
+  What a VM said reaches the screen through `plain_text`, and only `proxmox_vm`
   gives the summary a VM's address - or, for a recipe whose declaration names discovery (`login`) or
   `vm_addresses.yml` (`code`), the address and VM ID discovery's `add_host` or `claude_vm_addressed` read from
   Proxmox and the guest agent, and nothing else of them. Any `-v` or another
   stdout callback is the stream. No test or scenario sets
   the variable: `test_deploy_live.py` runs the callback at a pseudo-terminal of its own against a stand-in deploy,
   holds the log to the stream's, and fails if a tracked file other than the callback, the engines
-  (`filter_plugins/live_ansible.py`, `filter_plugins/live_commands.py` and `tools/live`), the declarations
-  (`filter_plugins/live_recipes.py`), the recipes drawn live, the live tests' kit (`tests/unit/live_kit.py`) and
+  (`lib/claude_vm/ansible/engine.py`, `lib/claude_vm/ansible/parts.py` and `tools/live`), the declarations
+  (`lib/claude_vm/run/recipes.py`), the recipes drawn live, the live tests' kit (`tests/unit/live_kit.py`) and
   pytest's plugin (`tests/unit/live_pytest.py`), the live tests that draw a playbook through the engine or a
   command through `tools/live`, each listed by name, and `test_justfile.py`'s recording stand-in names it;
   `tools/live` takes it, and the state's path, out of every command's environment, passed through or drawn. A
@@ -535,7 +544,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   (the controller alone, pipelining on, no `group_vars`; never in `playbooks/` itself, where the syntax
   check and ansible-lint take it for a playbook), and asks through `tasks/init_ask.yml` only while a value
   is the example's or unset; Enter is "later", and an answer is held to its kind by `init_answer`
-  (`filter_plugins/settings.py`). `init_ask` is false unless the justfile sees a terminal and was not given
+  (`lib/claude_vm/init.py`). `init_ask` is false unless the justfile sees a terminal and was not given
   `--no-prompt`, and every write is under it or under a value given on the command line
   (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
   `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.
@@ -618,7 +627,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   are refused - each looked for in the text and again in the value it parses to, since YAML decodes escapes
   (`"\x7b{"`) - a secret's value never said back. The rest is held to its `argument_specs` type by Ansible's
   `ArgumentSpecValidator`, written as `just init` writes (JSON in place of its line or its example's line), read
-  back with every other key unchanged before it replaces the file atomically, or nothing is written. `--reset`
+  back with every other key unchanged before it replaces the file atomically, under a lock on its folder held from
+  the read (`lib/claude_vm/store.py`), so of two writes at once neither is lost, or nothing is written. `--reset`
   takes the setting's line out and puts its example's commented line back (set then reset leaves a file that has
   its example's line, as `just init` makes it, byte for byte as it was), refused only a secret and the host's address, since taking a line out makes no value wrong. The vault's
   password file is the recipe's (`vault_args`),
@@ -733,7 +743,7 @@ run: `proxmox_disk` compares size strings, and Proxmox cannot shrink a hand-grow
 **A template is compared, not just found.** `deploy.yml` reads the template's config through the API
 (`proxmox_vm_info` with `config: current`) and runs the template play only when it is missing or
 differs from what its settings would build, as the role's `drift` entry point says
-(`proxmox_template_drift` in `filter_plugins/proxmox.py`, on `proxmox_template_wanted`, the one
+(`proxmox_template_drift` in `lib/claude_vm/proxmox.py`, on `proxmox_template_wanted`, the one
 definition the build uses too; the role compares `qm config`'s output, read by `qm_config`, the same
 way). Proxmox cannot show what went into the disk, so the build records it on one line of the
 template's notes - build version, image URL, packages - and a template without that line, as every one
@@ -877,8 +887,8 @@ the error text and `VM 4013 is not running` otherwise reads as a 401.
   sends a SIGINT or SIGTERM on to it, a SIGKILL or SIGHUP it cannot, so `killpg(SIGKILL)` on the playbook's group
   ended the playbook and left that worker reparented to PID 1, idle for good: 46 of them after
   a suite hung (2026-10-27), each listed as `ansible-playbook`. `harness._end` and a part's second Ctrl-C
-  (`filter_plugins/live_commands.py`) end the whole tree, found by `ps` before anything is signalled
-  (`filter_plugins/processes.py`; a part remembers its child's tree, by each process's start, at the first Ctrl-C,
+  (`lib/claude_vm/ansible/parts.py`) end the whole tree, found by `ps` before anything is signalled
+  (`lib/claude_vm/proc.py`; a part remembers its child's tree, by each process's start, at the first Ctrl-C,
   since a child that ends there leaves it under PID 1 or a subreaper; an outside SIGTERM or SIGHUP goes to the
   whole tree); and every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once,
   (`tests/unit/interrupts.py`; one ignored on the way in, nohup's SIGHUP, stays so), since `tools/live` and CI's

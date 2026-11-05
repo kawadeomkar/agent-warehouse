@@ -1,23 +1,38 @@
 ---
 # VS Code on this machine, for playbooks/code.yml's window step, before
-# anything is written on the VM: its command on PATH, and the Remote - SSH
+# anything is written on the VM: its command on PATH, what was found, for the
+# editor's plan, which refuses a VS Code it cannot run, and the Remote - SSH
 # extension, installed when VS Code lacks it. Imported only when the editor is
-# VS Code; every name starts with code_vscode_, since a skipped task still
-# overwrites its register and another editor's file is imported beside this one.
+# VS Code; every name starts with code_vscode_ but code_probe, which each
+# editor's check sets, since a skipped task still overwrites its register and
+# another editor's file is imported beside this one.
 - name: vscode_check | Look for VS Code on this machine
   ansible.builtin.command:
     argv: [which, code]
   register: code_vscode_which
   changed_when: false
   failed_when: false
+  check_mode: false  # a read, which --check would skip and so find no `code`
 
+# What was found here, for the editor's plan (code_plan, code.yml): the
+# command `which` printed, and where the user's own VS Code settings are and
+# what they hold - read, never written - from which the plan says what VS Code
+# will ask. no_log: the settings are the user's, and -v would print them.
+- name: vscode_check | Keep what was found
+  ansible.builtin.set_fact:
+    code_probe:
+      which: "{{ code_vscode_which.stdout_lines | default([]) }}"
+      settings_file: "{{ code_vscode_settings_file }}"
+      settings_exists: "{{ code_vscode_settings_file | length > 0 and code_vscode_settings_file is exists }}"
+      settings_text: "{{ code_vscode_settings_text }}"
+  no_log: true
+
+# The plan's refusal, said before anything else here runs `code`: no `code`
+# that `which` printed by its path. One text, the plan's.
 - name: vscode_check | Fail when VS Code's command is not on PATH
   ansible.builtin.assert:
-    that: code_vscode_which.rc == 0
-    fail_msg: >-
-      `code` is not on this machine's PATH. In VS Code, run "Shell Command: Install 'code' command
-      in PATH" from the Command Palette (macOS), or install VS Code; then run this again. The alias
-      is in place either way: ssh {{ claude_vm_names[0] }}.
+    that: code_plan.refusals | length == 0
+    fail_msg: "{{ code_plan.refusals | join(' ') }}"
     quiet: true
 
 - name: vscode_check | List VS Code's extensions

@@ -2,8 +2,7 @@
 
 Every live output draws with it (docs/architecture/custom-code.md §7.8): `just status`'s report
 (callback_plugins/claude_on_proxmox_status.py) and every live run (callback_plugins/claude_on_proxmox.py, `just
-deploy` first). Loaded by path as claude_on_proxmox_live_region, as a callback loads a filter; it has no filters of
-its own, since a module in callback_plugins/ that is no callback is warned about on every run.
+deploy` first). Imported as claude_vm.tui.live_region (docs/architecture/custom-code.md §7.10).
 
 What it does, once started:
 
@@ -343,10 +342,3 @@ class Output:
                     self.display.display(plain, log_only=True)
                 else:
                     self.display.display(plain)
-
-
-class FilterModule:
-    """No filters: a callback loads this module by path. Here so the filter loader takes the file as a plugin."""
-
-    def filters(self):
-        return {}

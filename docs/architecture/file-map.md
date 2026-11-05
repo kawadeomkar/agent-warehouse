@@ -56,14 +56,12 @@ playbooks/
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
-  vars/vscode.yml                 code.yml's VS Code variables: the workspace file and its tasks, its helpers'
-                                  paths, the Claude terminal's lines, the user's VS Code settings (read, never written)
+  vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
+                                  are (read, never written)
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
-  tasks/vscode_open.yml           just code's VS Code window: the workspace file and helpers on the VM, code --remote,
-                                  what VS Code will ask
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
-  tasks/zed_open.yml              just code's Zed window: the Claude (just code) task and its helper on the VM,
-                                  zed ssh://<alias><folder>, and claude in Zed's terminal
+  tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the
+                                  VM, the window opened, what is said (lib/claude_vm/editors/, §7.10)
   files/                          the helpers, copied to the VM unchanged and run there by the window's tasks:
                                   VS Code's claude-terminal.sh (the Claude terminal), session-notes.sh and
                                   session_notes.py (the notes' live section); any editor's claude-start.sh (a
@@ -101,30 +99,57 @@ roles/                            one role per concern, each with defaults/, met
                                   report.yml, absent.yml, login.yml and web_login.yml (the sign-in), status.yml (just status);
                                   files/tailscale.asc (the vendored signing key)
 
-filter_plugins/proxmox.py         reading guest agent output: net_mac, guest_ipv4, guest_address, guest_addresses;
+lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,
+                                  and wire.py, its one way out; refs.py, a VM and a command as data; plugin.py, what
+                                  every adapter in filter_plugins/ shares; text.py, what a VM said made plain (§7.4);
+                                  tui/live_region.py, every live output's region: drawn in place at the bottom of a
+                                  terminal, all else above, and tui/screen.py, its lines: styled segments, cut,
+                                  aligned, coloured in one palette (§7.8); proc.py, the processes under one, and
+                                  their end: what a kill must reach beyond the group it was sent to - ansible-core's
+                                  detached task worker, a nested run's parts (§7.8)
+                                  run/recipes.py, every command drawn live, declared: its stages and steps, named
+                                  by its title (§7.8); run/model.py, a live run as stages, steps and tasks (just
+                                  deploy's first), and tui/run.py, it drawn: its frame, a line per step, the summary
+                                  (§7.5)
+                                  run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
+                                  as the callback and a run in parts say them (§7.5)
+                                  ansible/parts.py, a run in parts: a command drawn as a part, the state between parts,
+                                  the run's end (§7.8)
+                                  ansible/engine.py, the engine that draws a playbook run live: Ansible's events in,
+                                  the region, the run's own words and the summary out; the stdout callback hands it
+                                  every event (§7.5)
+                                  status/model.py, just status's model, and tui/status.py, its report drawn (§7.7)
+                                  wiring.py, the settings' wiring, which tools/docs.py renders and tools/settings reads
+                                  (§7.9)
+                                  store.py, a file replaced atomically under a lock on its folder: tools/settings'
+                                  write of local.yml (§7.9)
+                                  editors/: model.py, the editors' records; family.py, the seam; common.py, what
+                                  more than one family uses, the helpers' directory and the marker among it; vscode.py
+                                  and zed.py, each family's plan of its window; registry.py, which every plan passes
+                                  (§7.10)
+filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
+                                  net_mac, guest_ipv4, guest_address, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
-filter_plugins/vscode.py          vscode_setting (JSONC, read-only): VS Code's settings, never written
-filter_plugins/desktop.py         page_opener, the sign-ins' browser command; controller_run and its state, the run a
-                                  Claude sign-in waits for (§7.4)
-filter_plugins/text.py            plain_text, what a VM printed made safe to quote; one_line, one line of it; banner, the
-                                  block a prompt is set in; plain_summary, a module's warnings and errors made plain
-filter_plugins/status.py          just status's model and text: status_fleet, status_vm_api, status_report, status_text (§7.7)
-filter_plugins/settings.py        init_answer, the rule each just init answer follows; with_setting, one written into YAML text;
+filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
+                                  window as a plan, and editor_servers, each editor's window as vm_status_info knows
+                                  it (§7.10)
+filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_opener, the sign-ins' browser command;
+                                  controller_run and its state, the run a Claude sign-in waits for (§7.4)
+filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe
+                                  to quote;
+                                  one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
+                                  module's warnings and errors made plain, which the callbacks import
+filter_plugins/status.py          the adapter of just status's model and text: status_fleet, status_vm_api,
+                                  status_report,
+                                  status_text (§7.7)
+filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each
+                                  just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
-filter_plugins/run_view.py        a live run as stages, steps and tasks (just deploy's first): its frame, a line per step,
-                                  the summary (§7.5)
-filter_plugins/live_ansible.py    the engine that draws a playbook run live: Ansible's events in, the region, the run's own
-                                  words and the summary out; the stdout callback hands it every event (§7.5)
-filter_plugins/live_commands.py   a run in parts: a command drawn as a part, the state between parts, the run's end (§7.8)
-filter_plugins/live_recipes.py    every command drawn live, declared: its stages and steps, named by its title (§7.8)
-filter_plugins/processes.py       the processes under one, and their end: what a kill must reach beyond the group it
-                                  was sent to - ansible-core's detached task worker, a nested run's parts (§7.8)
-filter_plugins/live_region.py     every live output's region: drawn in place at the bottom of a terminal, all else above (§7.8)
-filter_plugins/screen.py          every live output's lines: styled segments, cut, aligned, coloured in one palette (§7.8)
-filter_plugins/sessions.py        claude_sessions_plan, which session goes to which VM checkout by origin; git_repository
+filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
+                                  which VM checkout by origin; git_repository
                                   and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,
                                   just code's own directory on a VM; claude_sessions_saved, what of a VM's sessions destroy saves;

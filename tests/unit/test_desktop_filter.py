@@ -1,5 +1,5 @@
-"""Unit tests for filter_plugins/desktop.py: the argv that opens a sign-in page on this machine, and the run waiting
-here for a sign-in, as a VM records it and this machine is asked about it."""
+"""Unit tests for lib/claude_vm/desktop.py, the filters of filter_plugins/desktop.py: the argv that opens a sign-in page
+on this machine, and the run waiting here for a sign-in, as a VM records it and this machine is asked about it."""
 
 from __future__ import annotations
 
@@ -13,13 +13,9 @@ import sys
 
 import pytest
 
-SPEC = importlib.util.spec_from_file_location(
-    "desktop_filters",
-    pathlib.Path(__file__).resolve().parents[2] / "filter_plugins" / "desktop.py",
-)
-desktop_filters = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(desktop_filters)
+from claude_vm import desktop as desktop_filters
 
+REPO = pathlib.Path(__file__).resolve().parents[2]
 page_opener = desktop_filters.page_opener
 
 URL = "https://github.com/login/device"
@@ -133,11 +129,11 @@ def test_a_browser_that_only_looks_like_one_still_opens(browser, argv):
 
 
 def test_the_filters_are_registered():
-    assert desktop_filters.FilterModule().filters() == {
-        "page_opener": page_opener,
-        "controller_run": desktop_filters.controller_run,
-        "controller_run_state": desktop_filters.controller_run_state,
-    }
+    # filter_plugins/desktop.py is the adapter; test_claude_vm.py holds each of its filters to the core's function.
+    spec = importlib.util.spec_from_file_location("desktop_adapter", REPO / "filter_plugins" / "desktop.py")
+    adapter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(adapter)
+    assert set(adapter.FilterModule().filters()) == {"page_opener", "controller_run", "controller_run_state"}
 
 
 # ------------------------------------------------- the run waiting for a sign-in

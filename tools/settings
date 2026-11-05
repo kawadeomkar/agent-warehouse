@@ -9,8 +9,8 @@ sets one in local.yml, and --reset puts one back to its default.
 It asks Ansible itself, in-process, as a run would: the loader with the vault opened as Ansible's own commands open
 it, the inventory, the variables of a play that names the role - on a host of the group that role's playbook runs it
 on - and the templar for each value. Nothing of Ansible's precedence is written again here. What a setting is - each
-role's argument_specs, the wiring, the sections of local.yml.example - comes from tools/docs.py, the same model the
-wiki's reference pages are generated from (docs/architecture/custom-code.md §7.9).
+role's argument_specs, the wiring, the sections of local.yml.example - comes from lib/claude_vm/wiring.py, the same
+model the wiki's reference pages are generated from (docs/architecture/custom-code.md §7.9).
 
 Reading changes nothing and prints no secret:
 
@@ -46,13 +46,10 @@ from __future__ import annotations
 
 import argparse
 import difflib
-import importlib.util
 import json
 import os
 import re
-import stat
 import sys
-import tempfile
 from pathlib import Path
 
 # The yaml inventory plugin alone, set before Ansible reads its configuration: the default list has script, which
@@ -92,21 +89,7 @@ TAKES = {
 }
 
 
-def _load(stem: str, path: Path):
-    """A module of this checkout by path, once, as claude_on_proxmox_<stem>, as every module here loads another."""
-    name = f"claude_on_proxmox_{stem}"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        spec.loader.exec_module(module)
-    return sys.modules[name]
-
-
-docs = _load("docs", REPO / "tools" / "docs.py")
-screen = _load("screen", REPO / "filter_plugins" / "screen.py")
-text = _load("text", REPO / "filter_plugins" / "text.py")
-
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 import yaml  # noqa: E402
 from ansible import constants as C  # noqa: E402
 from ansible.cli import CLI  # noqa: E402
@@ -121,6 +104,11 @@ from ansible.plugins.loader import init_plugin_loader  # noqa: E402
 from ansible.template import Templar, trust_as_template  # noqa: E402
 from ansible.vars.manager import VariableManager  # noqa: E402
 from jinja2 import Environment, meta  # noqa: E402
+
+from claude_vm import plugin, store, text, wiring  # noqa: E402
+from claude_vm.tui import screen  # noqa: E402
+
+plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
 
 
 class Refused(Exception):
@@ -358,8 +346,8 @@ class Settings:
     """Every value, as Ansible gives it to the play that runs each role, with where it was set."""
 
     def __init__(self, inventory: Path, password: str):
-        self.specs = docs.specs()
-        self.defaults, self.feeds = docs.wiring()
+        self.specs = wiring.specs()
+        self.defaults, self.feeds = wiring.wiring()
         self.loader = DataLoader()
         self.vault_file = inventory / "group_vars" / "all" / "vault.yml"
         encrypted = self.vault_file.is_file() and self.vault_file.read_bytes().startswith(b"$ANSIBLE_VAULT")
@@ -383,7 +371,7 @@ class Settings:
         self.example_vault = yaml.safe_load((REPO / VAULT).with_suffix(".yml.example").read_text()) or {}
         self.example_settings = {
             name
-            for _title, groups in docs.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
+            for _title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
             for _prose, found in groups
             for name, _example in found
         }
@@ -411,7 +399,7 @@ class Settings:
         return any(options.get(name, {}).get("no_log") for options in self.specs.values())
 
     def identifier(self, vault_name: str) -> bool:
-        fed = docs.set_by(vault_name, self.feeds, self.specs)
+        fed = wiring.set_by(vault_name, self.feeds, self.specs)
         return bool(fed) and not any(self.no_log(name) for name in fed)
 
     def placeholder(self, name: str, value) -> bool:
@@ -431,8 +419,8 @@ class Settings:
 
     def role_for(self, name: str) -> str | None:
         """The role a name is a variable of, or the first role whose variables it sets."""
-        return docs.role_of(name, self.specs) or next(
-            (docs.role_of(var, self.specs) for var in docs.set_by(name, self.feeds, self.specs)), None
+        return wiring.role_of(name, self.specs) or next(
+            (wiring.role_of(var, self.specs) for var in wiring.set_by(name, self.feeds, self.specs)), None
         )
 
     def settable(self, name: str, resetting: bool = False) -> tuple[str | None, str, str]:
@@ -447,11 +435,11 @@ class Settings:
             return None, f"{name} is held in vault.yml", "just vault"
         if not self.known(name) and not (resetting and name in self.local):
             return None, self.unknown(name), ""
-        role = docs.role_of(name, self.specs)
+        role = wiring.role_of(name, self.specs)
         target = (self.fed_by(name) or name) if role else name
         if target in self.example_vault:
             return None, f"{name} comes from {target}, which vault.yml holds", "just vault"
-        fed = {name, target, *docs.set_by(target, self.feeds, self.specs)}
+        fed = {name, target, *wiring.set_by(target, self.feeds, self.specs)}
         if any(self.no_log(each) for each in fed):
             return None, f"{name} is a secret", "just vault"
         if VaultHelper.get_ciphertext(self.local.get(target), with_tags=False) is not None:
@@ -474,8 +462,8 @@ class Settings:
     def spec_for(self, target: str, name: str, seen: frozenset = frozenset()) -> dict:
         """The type a setting takes: its own argument_specs, the first role variable's it feeds, the setting its default
         is the value of, or its default's."""
-        for each in (name, target, *docs.set_by(target, self.feeds, self.specs)):
-            role = docs.role_of(each, self.specs)
+        for each in (name, target, *wiring.set_by(target, self.feeds, self.specs)):
+            role = wiring.role_of(each, self.specs)
             if role:
                 return {
                     key: value
@@ -571,7 +559,7 @@ class Settings:
     def _replace(self, before: dict, result: str, changed: dict) -> None:
         """Replace local.yml with result, once it reads back holding changed - {name: value}, or None for a name
         taken out - and every other key as it was, an inline !vault included; else write nothing. Atomically,
-        with the file's mode, never leaving a scratch file."""
+        with the file's mode, never leaving a scratch file (store.replace)."""
         try:
             after = tagged(result)
         except yaml.YAMLError:
@@ -586,18 +574,7 @@ class Settings:
             raise Refused(
                 f"{LOCAL} is not laid out so {', '.join(sorted(names))} can be changed safely: nothing was written"
             )
-        mode = stat.S_IMODE(self.local_file.stat().st_mode)
-        handle, scratch = tempfile.mkstemp(dir=self.local_file.parent, prefix=".local.yml.", suffix=".tmp")
-        try:
-            with os.fdopen(handle, "w") as stream:
-                stream.write(result)
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.chmod(scratch, mode)
-            os.replace(scratch, self.local_file)
-        except BaseException:
-            Path(scratch).unlink(missing_ok=True)
-            raise
+        store.replace(self.local_file, result)
 
     def named_anew(self) -> dict[str, str]:
         """Each setting's name from 1.1, by its name in 1.0, which the inventory defaults feed it from: a default that
@@ -606,8 +583,8 @@ class Settings:
         found = {}
         for name, default in self.defaults.items():
             alias = ALIAS.match(default) if isinstance(default, str) else None
-            if alias and alias.group(1) in self.defaults and not docs.role_of(name, self.specs):
-                if not docs.role_of(alias.group(1), self.specs):
+            if alias and alias.group(1) in self.defaults and not wiring.role_of(name, self.specs):
+                if not wiring.role_of(alias.group(1), self.specs):
                     found[alias.group(1)] = name
         return found
 
@@ -623,6 +600,11 @@ class Settings:
         return True
 
     def write(self, name: str, raw: str) -> dict:
+        """write_, under the lock every writer of local.yml through store.py takes: of two writes, neither is lost."""
+        with store.locked(self.local_file):
+            return self.write_(name, raw)
+
+    def write_(self, name: str, raw: str) -> dict:
         """Write one setting into local.yml, or refuse with nothing written. Either name of a pair 1.1 named anew is
         written under its new name, and the old name's line taken out, so the two never stand side by side, one of
         them ignored."""
@@ -697,6 +679,11 @@ class Settings:
         return [] if start is None else lines[start : self._value_end(lines, start, commented=True)]
 
     def reset(self, name: str) -> dict:
+        """reset_, under the same lock as write."""
+        with store.locked(self.local_file):
+            return self.reset_(name)
+
+    def reset_(self, name: str) -> dict:
         """Put a setting back to its default: its line out of local.yml - a role variable's own too, where one was
         set by hand beside the setting that feeds it - and its example's commented line back in its place, as
         just init found it. Refused with nothing written, as write() is."""
@@ -728,7 +715,7 @@ class Settings:
 
     def applies(self, target: str) -> list[str]:
         """What puts a setting to use, by the roles of the variables it sets."""
-        roles = {docs.role_of(var, self.specs) for var in {target, *docs.set_by(target, self.feeds, self.specs)}}
+        roles = {wiring.role_of(var, self.specs) for var in {target, *wiring.set_by(target, self.feeds, self.specs)}}
         roles.discard(None)
         said = []
         configured = sorted(roles & set(CONFIGURED))
@@ -902,8 +889,8 @@ class Settings:
 
     def setting(self, name: str) -> dict:
         """One setting of local.yml.example, on the role whose variable it feeds."""
-        fed = [docs.role_of(var, self.specs) for var in docs.set_by(name, self.feeds, self.specs)]
-        role = next((each for each in fed if each), docs.role_of(name, self.specs) or "common")
+        fed = [wiring.role_of(var, self.specs) for var in wiring.set_by(name, self.feeds, self.specs)]
+        role = next((each for each in fed if each), wiring.role_of(name, self.specs) or "common")
         context = self.context(role)
         if name not in context["values"] and name in self.defaults:
             # A default that lives in a role's default() (vm_cores), or one setting's in another's (vm_memory_min_mb).
@@ -914,7 +901,7 @@ class Settings:
     def known(self, name: str) -> bool:
         """A name this can show: a role's variable, a setting of either example, a project default, the address."""
         return bool(
-            docs.role_of(name, self.specs)
+            wiring.role_of(name, self.specs)
             or name in self.example_settings
             or name in self.example_vault
             or name in self.defaults
@@ -938,7 +925,7 @@ class Settings:
         section = next(
             (
                 title
-                for title, groups in docs.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
+                for title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
                 for _prose, found in groups
                 if name in {each for each, _example in found}
             ),
@@ -982,11 +969,11 @@ class Settings:
 
     def everything(self) -> list[dict]:
         rows = [self.host_row()]
-        for title, groups in docs.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False):
+        for title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False):
             for _prose, found in groups:
                 for name, _example in found:
                     rows.append(self.setting(name) | {"section": title})
-        for title, groups in docs.parse_example(REPO / VAULT.replace(".yml", ".yml.example"), secret=True):
+        for title, groups in wiring.parse_example(REPO / VAULT.replace(".yml", ".yml.example"), secret=True):
             for _prose, found in groups:
                 for name, _example in found:
                     rows.append(self.vault_row(name, f"Secrets: {title}"))
@@ -1129,7 +1116,7 @@ def one(row: dict) -> list[list]:
 
 def usage(as_json: bool) -> int:
     """How to use it: the roles, from their argument_specs so a new one shows up by itself, and the options."""
-    specs = docs.specs()
+    specs = wiring.specs()
     roles = []
     for path in sorted((REPO / "roles").glob("*/meta/argument_specs.yml")):
         main = yaml.safe_load(path.read_text())["argument_specs"]["main"]
@@ -1215,7 +1202,7 @@ def written(settings: Settings, result: dict, as_json: bool, inventory: Path, pa
 
 def _now(fresh: Settings, asked: str, target: str) -> dict | None:
     """The row of what was asked, read again after a change; none for a name nothing but local.yml knew."""
-    role = docs.role_of(asked, fresh.specs)
+    role = wiring.role_of(asked, fresh.specs)
     if role:
         return fresh.role(role, asked)[0]
     if target in fresh.defaults or target in fresh.example_settings:
@@ -1236,7 +1223,7 @@ def resetted(result: dict, as_json: bool, inventory: Path, password: str) -> int
     else:
         if now and now["kind"] == "value":
             notes.append(f"{asked} is now {shown(now)}, from {source(now)[0]}")
-        by_hand = sorted(set(docs.set_by(target, fresh.feeds, fresh.specs)) & set(fresh.local))
+        by_hand = sorted(set(wiring.set_by(target, fresh.feeds, fresh.specs)) & set(fresh.local))
         if by_hand:
             notes.append(
                 f"but {LOCAL} sets {', '.join(by_hand)} itself, which outranks {target}: just settings "
@@ -1299,7 +1286,7 @@ def main(argv: list[str]) -> int:
         elif args.name in settings.specs:
             rows, target = settings.role(args.name), {"kind": "role", "name": args.name}
         else:
-            role = docs.role_of(args.name, settings.specs)
+            role = wiring.role_of(args.name, settings.specs)
             if role:
                 rows = settings.role(role, args.name)
             elif settings.known(args.name):

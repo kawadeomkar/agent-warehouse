@@ -37,6 +37,8 @@ ROOT_PAGES = ["README.md", "CONTRIBUTING.md", "SECURITY.md", "CLAUDE.md"]
 LINK = re.compile(r"(?<!!)\[[^\]]*\]\(([^)\s]+)\)")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1", re.S)
+# A repository path as the wiki names one in a code span: no space, no placeholder, no glob.
+REPO_PATH = re.compile(r"[A-Za-z0-9_.][A-Za-z0-9_./-]*")
 # A section cited by page and number: "docs/architecture/roles.md §5.5", the path in backticks or a
 # link, or the § on the next comment line.
 CITATION = re.compile(r"docs/architecture/([\w-]+\.md)`?\)?(?:\s|#)*§\s?(\d+(?:\.\d+)*)")
@@ -385,6 +387,31 @@ def test_every_docs_page_the_repository_names_exists():
             if not (REPO / match).exists():
                 missing.append(f"{path.relative_to(REPO)}: {match}")
     assert missing == []
+
+
+def test_every_repository_path_in_a_code_span_is_a_file_or_one_git_ignores():
+    """The wiki and CLAUDE.md name the repository's files in backticks, never by a link out of docs/, so a file moved
+    or renamed would leave its old path behind without a word: each must be a file or folder of the checkout, or one
+    git ignores on purpose, the user's own settings (inventory/hosts.yml) among them."""
+    present = {str(path.relative_to(REPO)) for path in _files(".")}
+    folders = {str(parent) for path in present for parent in Path(path).parents if str(parent) != "."}
+    tops = {path.split("/")[0] for path in present if "/" in path}
+    pages = [REPO / "CLAUDE.md", DOCS / "README.md"] + [p for p in _files("docs") if p.parent != DOCS]
+    absent = {}
+    for page in pages:
+        for match in CODE_SPAN.finditer(page.read_text()):
+            span = match.group(2).strip()
+            if REPO_PATH.fullmatch(span) and "/" in span and span.split("/")[0] in tops:
+                if span.rstrip("/") not in present | folders:
+                    absent.setdefault(span, page.relative_to(REPO))
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--stdin"],
+        cwd=REPO,
+        input="\n".join(absent),
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    assert {span: str(page) for span, page in absent.items() if span not in ignored} == {}
 
 
 def _sections() -> dict[str, Path]:

@@ -1,4 +1,4 @@
-"""The live region every live output draws with: filter_plugins/live_region.py, against a stand-in Display.
+"""The live region every live output draws with: lib/claude_vm/tui/live_region.py, against a stand-in Display.
 
 What is printed goes above the region and the region is drawn again below it; a frame taller than the screen is cut
 and says how much; a prompt - pause's prompt_until or a vars_prompt's do_var_prompt - has the screen to itself; the
@@ -10,7 +10,6 @@ tests run it for real: test_status_live.py and test_deploy_live.py, at a pseudo-
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import io
 import os
@@ -23,9 +22,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-_spec = importlib.util.spec_from_file_location("test_live_region_module", REPO / "filter_plugins" / "live_region.py")
-live = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(live)
+from claude_vm.tui import live_region as live
 
 
 class Display:

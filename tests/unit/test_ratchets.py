@@ -4,7 +4,9 @@ The code is being made to take more than VS Code and more than Proxmox (docs/arc
 editor's own files and each hypervisor's own roles may name it as they like; anywhere else, a mention is one more
 place a second editor or hypervisor has to be threaded through. So each table below is how many lines name it in each
 file outside its own, today. A file whose count grows, or a file new to the table, fails; one whose count falls fails
-too, until its number here is lowered to match, so the table only ever tightens.
+too, until its number here is lowered to match, so the table tightens by itself. Raising a number is a decision, made
+in the commit that needs it and said in its message: the editors' rows and their registry name each editor once by
+design, and a record that carries a VM's ID names it where the record is.
 """
 
 from __future__ import annotations
@@ -15,7 +17,17 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 # The code: what runs, and what decides how it runs. Not the docs, the tests or the scenarios, which describe it.
-CODE = ["playbooks", "roles", "filter_plugins", "callback_plugins", "tools", "justfile", "deploy.yml", "inventory"]
+CODE = [
+    "playbooks",
+    "roles",
+    "lib",
+    "filter_plugins",
+    "callback_plugins",
+    "tools",
+    "justfile",
+    "deploy.yml",
+    "inventory",
+]
 
 
 def _lines_naming(pattern: str, own: re.Pattern, kept: str = "") -> dict[str, int]:
@@ -47,31 +59,33 @@ def _held(found: dict[str, int], allowed: dict[str, int], what: str) -> None:
     assert fallen == {}, f"fewer lines name {what} than the table allows, so lower it, (now, allowed): {fallen}"
 
 
-# VS Code's own: its role, its two task files of just code's and its variables, and its settings filter. Elsewhere
+# VS Code's own: its role, its check file of just code's and its variables, and its family's module. Elsewhere
 # a line counts that names it or one of its own terms - its CLI's, its workspace files', its task runner's - once the
 # names 1.x promises are taken out of it: the vscode_* settings, the vscode_server role and its variables, its
 # files on every VM, the vscode_windows key of just status --json.
 VSCODE_OWN = re.compile(
-    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|filter_plugins/vscode\.py$)"
+    r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
     "deploy.yml": 4,
-    "filter_plugins/live_ansible.py": 1,
-    "filter_plugins/live_recipes.py": 2,
-    "inventory/group_vars/all/defaults.yml": 22,
+    "inventory/group_vars/all/defaults.yml": 25,
     "inventory/group_vars/all/local.yml.example": 11,
     "justfile": 2,
-    "playbooks/code.yml": 27,
+    "lib/claude_vm/ansible/engine.py": 1,
+    "lib/claude_vm/editors/model.py": 1,
+    "lib/claude_vm/editors/registry.py": 5,
+    "lib/claude_vm/editors/zed.py": 1,
+    "lib/claude_vm/run/recipes.py": 2,
+    "playbooks/code.yml": 23,
     "playbooks/configure.yml": 5,
     "playbooks/destroy.yml": 1,
     "playbooks/files/claude-terminal.sh": 2,
     "playbooks/files/session-notes.sh": 3,
     "playbooks/init_settings.yml": 1,
-    "playbooks/library/vm_status_info.py": 4,
+    "playbooks/library/vm_status_info.py": 2,
     "playbooks/tasks/session_read.yml": 1,
     "playbooks/tasks/session_write.yml": 1,
     "playbooks/tasks/ssh_config.yml": 2,
-    "playbooks/tasks/zed_check.yml": 2,
     "playbooks/templates/vm_session.md.j2": 6,
     "roles/github_projects/vars/main.yml": 1,
     "roles/tailscale/tasks/main.yml": 1,
@@ -93,17 +107,21 @@ def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None
 # that names its API's settings, its collection or its raw cluster listing reads Proxmox directly - the reads a
 # second hypervisor would have to be put behind (docs/architecture/decisions.md §15.4).
 PROXMOX_OWN = re.compile(
-    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|tools/proxmox-access\.sh$)"
+    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$|tools/proxmox-access\.sh$)"
 )
 PROXMOX_ELSEWHERE = {
     "deploy.yml": 2,
-    "filter_plugins/live_ansible.py": 4,
-    "filter_plugins/run_view.py": 5,
-    "filter_plugins/status.py": 21,
     "inventory/group_vars/all/defaults.yml": 30,
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
-    "playbooks/code.yml": 2,
+    "lib/claude_vm/ansible/engine.py": 4,
+    "lib/claude_vm/refs.py": 3,
+    "lib/claude_vm/run/model.py": 4,
+    "lib/claude_vm/status/model.py": 18,
+    "lib/claude_vm/tui/run.py": 3,
+    "lib/claude_vm/tui/status.py": 3,
+    "lib/claude_vm/wiring.py": 1,
+    "playbooks/code.yml": 3,
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,
     "playbooks/discover.yml": 3,
@@ -120,7 +138,6 @@ PROXMOX_ELSEWHERE = {
     "playbooks/tasks/vm_addresses.yml": 11,
     "playbooks/tasks/vm_stop.yml": 4,
     "playbooks/templates/vm_session.md.j2": 2,
-    "tools/docs.py": 1,
 }
 
 
@@ -133,15 +150,16 @@ def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
     _held(_lines_naming(PROXMOX_TERMS, PROXMOX_OWN), PROXMOX_ELSEWHERE, "Proxmox's API")
 
 
-# Zed's own: its two task files of just code's. Elsewhere, a line that names it.
-ZED_OWN = re.compile(r"^playbooks/tasks/zed_[a-z_]+\.yml$")
+# Zed's own: its two task files of just code's, and its family's module in the core. Elsewhere, a line that names it.
+ZED_OWN = re.compile(r"^(playbooks/tasks/zed_[a-z_]+\.yml|lib/claude_vm/editors/zed\.py)$")
 ZED_ELSEWHERE = {
-    "filter_plugins/live_recipes.py": 1,
-    "inventory/group_vars/all/defaults.yml": 5,
+    "inventory/group_vars/all/defaults.yml": 12,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
-    "playbooks/code.yml": 4,
-    "playbooks/library/vm_status_info.py": 7,
+    "lib/claude_vm/editors/model.py": 1,
+    "lib/claude_vm/editors/registry.py": 4,
+    "lib/claude_vm/run/recipes.py": 1,
+    "playbooks/code.yml": 2,
     "playbooks/tasks/session_read.yml": 2,
     "roles/vscode_server/meta/argument_specs.yml": 1,
     "roles/vscode_server/tasks/main.yml": 1,

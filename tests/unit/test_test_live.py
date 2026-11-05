@@ -11,7 +11,6 @@ smoke run, on a throwaway VM.
 
 from __future__ import annotations
 
-import importlib.util
 import io
 import json
 import logging
@@ -310,12 +309,9 @@ def test_the_molecule_reader_knows_the_lines_molecule_s_own_logger_writes(monkey
 
 
 def _live_commands():
-    name = "claude_on_proxmox_live_commands"
-    if name not in sys.modules:
-        spec = importlib.util.spec_from_file_location(name, REPO / "filter_plugins" / "live_commands.py")
-        sys.modules[name] = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(sys.modules[name])
-    return sys.modules[name]
+    from claude_vm.ansible import parts
+
+    return parts
 
 
 def _said(line):

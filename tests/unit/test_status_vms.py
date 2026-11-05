@@ -22,10 +22,16 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import FAKES, REPO, STAND_INS, _run
-from test_status import PROMISED_KEYS, S, status_root
+from test_status import PROMISED_KEYS, T, status_root
 from test_tailscale import DPKG_QUERY, GETENT, NODE, _joined
 
+from claude_vm.editors.model import ProcessMatch
+from claude_vm.editors.registry import editor_servers
+
 LIBRARY = REPO / "playbooks" / "library"
+ROWS = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())["claude_editors"]
+# The module's editors argument as status.yml hands it over: the rows' matches, from the core.
+EDITORS = editor_servers(ROWS)
 
 
 def _module():
@@ -94,7 +100,7 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
     }
     # The native install's binary is named by its version; claude itself, and the npm package under node. Each
     # editor's windows in one map, by its key in the editors list; VS Code's and every editor's as 1.0 has them.
-    assert M.processes(str(root)) == {
+    assert M.processes(str(root), EDITORS) == {
         "claude": 2,
         "vscode_windows": 1,
         "editor_windows": 2,
@@ -105,11 +111,43 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
 def test_the_windows_are_counted_by_the_editors_lists_keys_and_by_no_key_per_editor(tmp_path) -> None:
     # The map's keys are the editors list's, which status.yml names them by; no editor has a key of its own beside
     # the two 1.0 promised, in what the module says it returns or in what it returns (test_status.py holds the model).
-    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    found = M.processes(str(tmp_path))
-    assert list(found["editor_windows_by"]) == list(defaults["claude_editors"])
+    found = M.processes(str(tmp_path), EDITORS)
+    assert list(found["editor_windows_by"]) == list(ROWS)
     for keys in (found, yaml.safe_load(M.RETURN)):
         assert {key for key in keys if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
+
+
+def test_a_window_is_the_first_match_s_and_a_match_names_its_program_first(tmp_path) -> None:
+    # Each process once, under the first entry it meets; an entry naming no program counts none here, and the core
+    # never makes one, since a match on the arguments alone would count any of the user's programs that takes them.
+    root = _tree(tmp_path / "vm", processes=(["/opt/ed/bin/ed-server", "run"], ["/usr/bin/make", "run"], ["ed"]))
+    entry = {"argv0_contains": "", "argv0_name_prefix": "", "argv1": "", "argv_has": []}
+    editors = [
+        {**entry, "key": "first", "argv0_name_prefix": "ed-server"},
+        {**entry, "key": "second", "argv0_contains": "/opt/ed/", "argv1": "run"},
+        {**entry, "key": "any", "argv1": "run"},
+    ]
+    assert M.processes(str(root), editors)["editor_windows_by"] == {"first": 1, "second": 0, "any": 0}
+    assert M.processes(str(root))["editor_windows_by"] == {} and M.processes(str(root))["vscode_windows"] == 0
+    with pytest.raises(ValueError, match="matched by its program first"):
+        ProcessMatch(argv1="run")
+
+
+def test_the_module_takes_the_core_s_match_field_for_field() -> None:
+    # The module cannot import the core, so its argument spec, its documentation and the core's ProcessMatch are
+    # three spellings of one record: held to one another, and each row's match passes the spec as it is sent.
+    from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
+
+    fields = {name: getattr(ProcessMatch(), name) for name in ProcessMatch.__dataclass_fields__}
+    spec = {name: option.get("default") for name, option in M.EDITOR.items() if name != "key"}
+    assert {name: tuple(value) if type(value) is list else value for name, value in spec.items()} == fields
+    documented = yaml.safe_load(M.DOCUMENTATION)["options"]["editors"]["suboptions"]
+    assert {name: (option["type"], option.get("default")) for name, option in documented.items()} == {
+        name: (option["type"], option.get("default")) for name, option in M.EDITOR.items()
+    }
+    validator = ArgumentSpecValidator({"editors": {"type": "list", "elements": "dict", "options": M.EDITOR}})
+    checked = validator.validate({"editors": EDITORS})
+    assert not checked.error_messages and checked.validated_parameters["editors"] == EDITORS
 
 
 def test_a_read_that_hangs_is_said_and_the_others_still_land() -> None:
@@ -380,7 +418,7 @@ def test_a_vm_just_made_is_told_its_three_sign_ins(read) -> None:
     # The roles' own lines, as just login says them.
     assert "just login fresh --only github" in items[1][2]
     assert "just login fresh --only tailscale" in items[2][2]
-    text = S.status_text(model)
+    text = T.status_text(model)
     row = next(line for line in text.splitlines() if line.startswith(" fresh") and "not signed in" in line)
     assert "waits for the login" in row and "needs a login" in row
     # Its checkout's commit is on no remote: shown in WORK, and never counted.
@@ -405,7 +443,7 @@ def test_what_is_down_and_what_was_not_checked_are_said_for_what_they_are(read) 
         " 2 Zed windows are open there"
     )
     assert model["exit"] == 2
-    row = next(line for line in S.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)
+    row = next(line for line in T.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)
     assert "5 restarts" in row and "? not checked" in row
 
 

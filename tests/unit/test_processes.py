@@ -1,4 +1,4 @@
-"""filter_plugins/processes.py, and what ends a run's whole tree: the harness's _end, and a pytest process ended by
+"""lib/claude_vm/proc.py, and what ends a run's whole tree: the harness's _end, and a pytest process ended by
 SIGTERM or SIGHUP (tests/unit/interrupts.py).
 
 ansible-core's task worker detaches into a session of its own (WorkerProcess._detach: setsid, stdio on /dev/null), so

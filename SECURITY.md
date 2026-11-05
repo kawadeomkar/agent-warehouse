@@ -26,7 +26,7 @@ what it stores:
   quoted in messages only through the `plain_text` filter, with every escape sequence and control
   character removed; so are the warnings, deprecations and failure messages any module there returns,
   which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
-  (`filter_plugins/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
+  (`lib/claude_vm/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
   `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
   module's result can carry custom stats and facts. GitHub's device flow opens and shows GitHub's own
   page, `https://github.com/login/device`, whatever gh printed: a page gh prints that
