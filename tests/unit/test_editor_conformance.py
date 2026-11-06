@@ -7,15 +7,12 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
-import subprocess
-import sys
 import typing
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, ansible_config
+from harness import _run
 
 from claude_vm.editors import common, model, registry
 from claude_vm.editors.family import Family
@@ -310,32 +307,9 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
         ],
     }
     (tmp_path / "plan.yml").write_text(yaml.safe_dump([play]))
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "ANSIBLE_CONFIG": ansible_config(tmp_path),
-        "ANSIBLE_FILTER_PLUGINS": str(REPO / "filter_plugins"),
-        "ANSIBLE_STDOUT_CALLBACK": "ansible.builtin.json",
-    } | {
-        # The checkout's own collections, as every recipe exports them: the json callback is ansible.posix's.
-        name: os.environ[name]
-        for name in ("ANSIBLE_COLLECTIONS_PATH",)
-        if name in os.environ
-    }
-    run = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", str(tmp_path / "hosts"), str(tmp_path / "plan.yml")],
-        env=env,
-        cwd=tmp_path,
-        # As the harness runs every playbook: nothing to read on stdin, and a process group of its own.
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert run.returncode == 0, run.stdout + run.stderr
-    tasks = json.loads(run.stdout)["plays"][0]["tasks"]
+    report = _run(tmp_path, tmp_path / "plan.yml", {}, timeout=120)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    tasks = report["plays"][0]["tasks"]
     said = {task["task"]["name"]: task["hosts"]["localhost"].get("msg") for task in tasks}
     assert said["Say"] == ["open_plan", ZED, f"ssh://alpha{ROOT}"] and said["Servers"] == list(ROWS)
     assert said["Next"] == {"alpha": {"editor": "just code alpha --project 'my repo'", "window": ""}}

@@ -46,11 +46,9 @@ from __future__ import annotations
 
 import ast
 import copy
-import fcntl
 import inspect
 import json
 import os
-import pty
 import pwd
 import re
 import select
@@ -65,7 +63,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import _default_signals, _drain, ansible_config
+from harness import _at_a_pseudo_terminal, _env, _fail_if_the_desktop_was_reached
 
 from claude_vm.editors import common as editors_common
 from claude_vm.editors import registry as editors_registry
@@ -278,53 +276,26 @@ def _session(sid: int) -> str:
     return "\n".join(lines) or "(nothing, or no /proc)"
 
 
-def _run_at_a_terminal(tmp_path: Path, keys: bytes, *, after: str, **case) -> tuple[int, str, list[str]]:
-    """Run the script at a pseudo-terminal of its own; type `keys` once the stand-ins have logged `after`."""
+def _script_at_a_terminal(tmp_path: Path, keys: bytes, *, after: str, **case) -> tuple[int, str, list[str]]:
+    """Run the script at a pseudo-terminal of its own, as VS Code does; type `keys` once the stand-ins logged `after`.
+
+    The run leads a session of its own with that terminal as its controlling one (harness._at_a_pseudo_terminal), so
+    a Ctrl-C reaches bash and everything it started, as in VS Code, with SIGINT not ignored whatever started the suite.
+    """
     argv, env = _terminal(tmp_path, **case)
-    master, slave = pty.openpty()
+    typed = []
 
-    def take_the_terminal() -> None:
-        # A session of its own, with this terminal as its controlling one, so
-        # that Ctrl-C reaches bash and everything it started, as in VS Code;
-        # and SIGINT not ignored, whatever started the suite.
-        _default_signals()
-        os.setsid()
-        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+    def act(chunk, output, master, process):
+        if not typed and after in _asked(tmp_path):
+            os.write(master, keys)
+            typed.append(keys)
 
-    process = subprocess.Popen(argv, env=env, stdin=slave, stdout=slave, stderr=slave, preexec_fn=take_the_terminal)
-    os.close(slave)
-    output, typed, deadline = b"", False, time.monotonic() + 30
-    try:
-        while time.monotonic() < deadline:
-            if not typed and after in _asked(tmp_path):
-                os.write(master, keys)
-                typed = True
-            ready, _, _ = select.select([master], [], [], 0.1)
-            if ready:
-                try:
-                    chunk = os.read(master, 4096)
-                except OSError:  # Linux, once the terminal's other end has closed
-                    break
-                if not chunk:
-                    break
-                output += chunk
-            elif process.poll() is not None:
-                output += _drain(master, deadline)
-                break
-        else:
-            pytest.fail(
-                "the script did not finish within 30 seconds:\n"
-                + output.decode(errors="replace")
-                + f"\nthe terminal's ISIG is {'on' if termios.tcgetattr(master)[3] & termios.ISIG else 'off'};"
-                + " what is left of its session:\n"
-                + _session(process.pid)
-            )
-        rc = process.wait(timeout=10)
-    finally:
-        if process.poll() is None:
-            process.kill()
-        os.close(master)
-    return rc, output.decode(errors="replace"), _asked(tmp_path)
+    def explain(process, master):
+        isig = "on" if termios.tcgetattr(master)[3] & termios.ISIG else "off"
+        return f"the terminal's ISIG is {isig}; what is left of its session:\n" + _session(process.pid)
+
+    rc, raw = _at_a_pseudo_terminal(argv, tmp_path, env, act=act, timeout=30, poll=0.1, explain=explain)
+    return rc, raw.decode(errors="replace"), _asked(tmp_path)
 
 
 PLANNED_FD = "/home/dev/projects/.claude-on-proxmox"
@@ -487,7 +458,7 @@ def test_ctrl_c_during_github_s_device_flow_skips_it_and_starts_claude(tmp_path)
     # Without the trap bash dies with gh, and Claude never starts; with it, gh
     # and the read loop end, and claude starts as after a sign-in that failed,
     # long before the code would have expired.
-    rc, output, asked = _run_at_a_terminal(
+    rc, output, asked = _script_at_a_terminal(
         tmp_path, b"\x03", after=GITHUB_PAGE, status_rc=0, gh_status_rc=1, gh_login_rc="wait"
     )
     assert rc == 0, output
@@ -840,12 +811,9 @@ def _window(
     for name in ("tasks", "library", "templates", "vars", "files"):
         (root / name).symlink_to(REPO / "playbooks" / name)
 
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    env.update(
-        ANSIBLE_CONFIG=ansible_config(root),
-        ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),
-        ANSIBLE_NOCOLOR="1",
+    # The harness's environment, its PATH the stand-ins' alone.
+    env = _env(
+        root,
         # The run's stats printed: what it recorded for NEXT STEPS.
         ANSIBLE_SHOW_CUSTOM_STATS="1",
         PATH=f"{bin_dir}:{WINDOW_PATH}",
@@ -869,7 +837,9 @@ def _window(
         text=True,
         check=False,
         timeout=180,
+        process_group=0,
     )
+    _fail_if_the_desktop_was_reached(root)
     output = result.stdout + result.stderr
     asked = root / "code.log"
     return {

@@ -25,10 +25,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import ansible_config
+from harness import ANSIBLE_PLAYBOOK, REPO, _env, _fail_if_the_desktop_was_reached
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 TASK_FILE = REPO / "playbooks" / "tasks" / "ssh_config.yml"
 SSH = "ssh"
 
@@ -61,16 +59,9 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
     )
     # No project config or inventory: a developer's own inventory would bring
     # in a vault this cannot open, and the defaults under test are passed here.
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    # HOME is the temporary one too: the task file recognises the ~/... and
-    # ${HOME}/... spellings of the Include by it.
-    # The project's filters, as ansible.cfg loads them: ssh_alias_refusal decides which names may be an alias.
-    env.update(
-        ANSIBLE_CONFIG=ansible_config(tmp_path, f"filter_plugins = {REPO / 'filter_plugins'}\n"),
-        ANSIBLE_NOCOLOR="1",
-        HOME=str(tmp_path / "home"),
-    )
+    # The harness's environment, its filters among it (ssh_alias_refusals decides which names may be an alias), and
+    # HOME the temporary one too: the task file recognises the ~/... and ${HOME}/... spellings of the Include by it.
+    env = _env(tmp_path, HOME=str(tmp_path / "home"))
     # The project default for the options, from inventory/group_vars, which
     # the wrapper does not load; the task file itself defaults to none.
     extra_vars = {
@@ -82,14 +73,19 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
         **_paths(tmp_path),
         **extra,
     }
-    return subprocess.run(
+    result = subprocess.run(
         [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-e", json.dumps(extra_vars), str(playbook)],
         cwd=tmp_path,
         env=env,
+        # As the harness runs every playbook: never pytest's terminal, and a group of its own.
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=False,
+        process_group=0,
     )
+    _fail_if_the_desktop_was_reached(tmp_path)
+    return result
 
 
 def _changed(result: subprocess.CompletedProcess[str]) -> int:

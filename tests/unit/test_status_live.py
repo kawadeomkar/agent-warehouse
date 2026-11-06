@@ -13,7 +13,6 @@ import os
 import re
 import signal
 import struct
-import subprocess
 import sys
 import termios
 from pathlib import Path
@@ -21,7 +20,7 @@ from pathlib import Path
 import live_kit as kit
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, REPO, _env, _fail_if_the_desktop_was_reached
+from harness import ANSIBLE_PLAYBOOK, REPO, _env
 from test_status import fake_fleet, status_root
 from vt import VT
 
@@ -218,21 +217,12 @@ def test_a_dumb_terminal_is_given_the_finished_report_only(tmp_path, fleet) -> N
 
 def test_piped_the_finished_report_is_all_there_is(tmp_path, fleet) -> None:
     root, playbook = status_root(tmp_path, fleet)
-    log = root / "run.log"
-    process = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", str(_inventory(root)), "--check", str(playbook)],
-        cwd=root,
-        env=_env(root, ANSIBLE_LOG_PATH=str(log), TERM="xterm-256color", **LIVE),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        process_group=0,
-    )
-    _fail_if_the_desktop_was_reached(root)
-    assert process.returncode == 0, process.stderr
-    assert process.stdout.splitlines() == _report(log.read_text())
-    assert "\x1b" not in process.stdout
+    # No terminal at all, stdout and stderr one pipe: what is printed is the finished report, and nothing else.
+    env = _env(root, ANSIBLE_LOG_PATH=str(root / "run.log"), TERM="xterm-256color", **LIVE)
+    ran = kit.piped(kit.playbook(root, _inventory(root), playbook, "--check"), root, env)
+    assert ran.rc == 0, ran.text
+    assert ran.text.splitlines() == _report(ran.log)
+    assert "\x1b" not in ran.text
 
 
 WARNS = """\

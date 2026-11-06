@@ -11,32 +11,29 @@ Checked with --list-tasks, which needs no hosts and runs nothing.
 
 from __future__ import annotations
 
-import os
 import subprocess
-import sys
 from pathlib import Path
 
-from harness import ansible_config
+import pytest
+from harness import ANSIBLE_PLAYBOOK, REPO, _env
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 DISCOVERY = "Discover VMs on Proxmox"
 
 
-def _listed_tasks(tmp_path: Path, *args: str) -> dict[str, list[str]]:
+def _listed_tasks(root: Path, *args: str) -> dict[str, list[str]]:
     """The tasks `ansible-playbook --list-tasks` selects from configure.yml, by play name."""
     # No project config or inventory: nothing here needs them, and a
     # developer's own inventory would bring in a vault this cannot open.
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    env.update(ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_ROLES_PATH=str(REPO / "roles"), ANSIBLE_NOCOLOR="1")
     result = subprocess.run(
         [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "--list-tasks", *args, str(REPO / "playbooks" / "configure.yml")],
-        cwd=tmp_path,
-        env=env,
+        cwd=root,
+        env=_env(root),
+        # As the harness runs every playbook: never pytest's terminal, and a group of its own.
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=False,
+        process_group=0,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     plays: dict[str, list[str]] = {}
@@ -50,12 +47,18 @@ def _listed_tasks(tmp_path: Path, *args: str) -> dict[str, list[str]]:
     return plays
 
 
-def test_a_role_tag_keeps_every_discovery_task(tmp_path):
-    everything = _listed_tasks(tmp_path)[DISCOVERY]
+@pytest.fixture(scope="module")
+def listed(tmp_path_factory) -> dict:
+    """Every task, and those --tags claude_code selects: the tag that pushes a new API key. Every role tag behaves the
+    same way here, so one stands for all five."""
+    root = tmp_path_factory.mktemp("configure_tags")
+    return {"all": _listed_tasks(root), "tagged": _listed_tasks(root, "--tags", "claude_code")}
+
+
+def test_a_role_tag_keeps_every_discovery_task(listed):
+    everything = listed["all"][DISCOVERY]
     assert everything, "discover.yml lists no tasks at all"
-    # The tag that pushes a new API key. Every role tag behaves the same way
-    # here, so one stands for all five.
-    assert _listed_tasks(tmp_path, "--tags", "claude_code")[DISCOVERY] == everything
+    assert listed["tagged"][DISCOVERY] == everything
 
 
 # The alias play at the end, and the lookup it reads at the end of the
@@ -66,9 +69,8 @@ ALIASES = "Keep an SSH alias for each configured VM"
 CONFIGURE = "Configure Claude development VMs"
 
 
-def test_a_role_tag_keeps_the_alias_play_and_its_lookup(tmp_path):
-    everything = _listed_tasks(tmp_path)
-    tagged = _listed_tasks(tmp_path, "--tags", "claude_code")
+def test_a_role_tag_keeps_the_alias_play_and_its_lookup(listed):
+    everything, tagged = listed["all"], listed["tagged"]
     assert everything[ALIASES], "configure.yml lists no alias tasks at all"
     assert tagged[ALIASES] == everything[ALIASES]
     lookup = ["Look up the VM user's home directory", "Record where the code lives, for the alias play below"]

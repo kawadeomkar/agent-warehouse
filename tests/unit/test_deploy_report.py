@@ -12,17 +12,12 @@ printing the API's raw answer instead of the sentence.
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ansible_config
+from harness import REPO, _run
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 LOOKUP = "Look up the template by name"
 REPORT = "Report what this run will do"
 WAITS = "opens a page in your browser, and the run waits for you there."
@@ -74,26 +69,8 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         "claude_editor_key": defaults["claude_editor_key"],
         **extra,
     }
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    # The template role's comparison, which the play includes, and its filter.
-    env.update(
-        ANSIBLE_CONFIG=ansible_config(tmp_path),
-        ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json",
-        ANSIBLE_ROLES_PATH=str(REPO / "roles"),
-        ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),
-    )
-    result = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-c", "local", "-e", json.dumps(variables), str(playbook)],
-        cwd=tmp_path,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    report = json.loads(result.stdout)
+    report = _run(tmp_path, playbook, {}, "-e", json.dumps(variables))
+    assert report["rc"] == 0, report["stderr"][-2000:]
     said = [
         host["msg"]
         for play in report["plays"]

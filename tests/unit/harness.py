@@ -397,6 +397,7 @@ def _at_a_pseudo_terminal(
     act=None,
     timeout: float = 180,
     poll: float | Callable[[], float] = 0.2,
+    explain: Callable[[subprocess.Popen, int], str] | None = None,
 ) -> tuple[int, bytes]:
     """Run argv at a pseudo-terminal of its own, and read what it writes until it ends. Its rc and every byte.
 
@@ -407,10 +408,12 @@ def _at_a_pseudo_terminal(
     the bytes read and after each idle tick with b"", may type, resize or
     signal. An idle tick comes after poll seconds without output, or after
     what poll returns, when it is a function, asked before each wait. A run
-    that outlives timeout fails the test, its group killed.
+    that outlives timeout fails the test, its group killed, with what
+    explain(process, master) says of it after its output, when given.
     Every test that runs something at a terminal goes through here: the
-    sign-ins' and init's prompts (_run_at_a_terminal), and the live outputs
-    (test_status_live.py, test_deploy_live.py).
+    sign-ins' and init's prompts (_run_at_a_terminal), the live outputs
+    (test_status_live.py, test_deploy_live.py), and just code's Claude
+    terminal (test_code_session.py).
     """
     master, slave = pty.openpty()
     if size:
@@ -429,7 +432,8 @@ def _at_a_pseudo_terminal(
     try:
         while True:
             if time.monotonic() > deadline:
-                pytest.fail(f"the run did not finish within {timeout} seconds:\n" + output.decode(errors="replace"))
+                said = output.decode(errors="replace") + (f"\n{explain(process, master)}" if explain else "")
+                pytest.fail(f"the run did not finish within {timeout} seconds:\n{said}")
             ready, _, _ = select.select([master], [], [], poll() if callable(poll) else poll)
             chunk = b""
             if ready:

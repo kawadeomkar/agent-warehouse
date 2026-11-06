@@ -17,17 +17,13 @@ key, and accept whatever answered there next.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ansible_config
+from harness import REPO, _run
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 ROLE = REPO / "roles" / "proxmox_vm"
 FORGET = "absent | Forget the VM's SSH host key"
 
@@ -46,20 +42,9 @@ def _forget(tmp_path: Path, **extra) -> set[str]:
     vars_files = [str(ROLE / "defaults" / "main.yml"), str(ROLE / "vars" / "main.yml")]
     play = {"hosts": "localhost", "gather_facts": False, "vars_files": vars_files, "tasks": [task]}
     playbook.write_text(yaml.safe_dump([play]))
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
     # The module expands ~/.ssh/known_hosts from HOME: the scratch one.
-    env.update(HOME=str(home), ANSIBLE_CONFIG=ansible_config(tmp_path), ANSIBLE_NOCOLOR="1")
-    result = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-c", "local", "-e", json.dumps(extra), str(playbook)],
-        cwd=tmp_path,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    report = _run(tmp_path, playbook, {}, "-e", json.dumps(extra), env={"HOME": str(home)})
+    assert report["rc"] == 0, report["stderr"][-2000:]
     return {line.split()[0] for line in known.read_text().splitlines() if line.strip()}
 
 
