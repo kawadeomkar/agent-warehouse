@@ -78,12 +78,8 @@ IMAGE = re.compile(r"\$\{MOLECULE_IMAGE:-(?P<repository>[\w./-]+)@sha256:[0-9a-f
 
 
 def _molecule_images() -> dict[str, list[str]]:
-    """The image of each platform, by configuration: the shared one, then every scenario's."""
-    files = [
-        REPO / ".config" / "molecule" / "config.yml",
-        *sorted(REPO.glob("molecule/*/molecule.yml")),
-        *sorted(REPO.glob("roles/*/molecule/*/molecule.yml")),
-    ]
+    """The image of each platform, by scenario. The shared configuration names none: Molecule replaces a list."""
+    files = [*sorted(REPO.glob("molecule/*/molecule.yml")), *sorted(REPO.glob("roles/*/molecule/*/molecule.yml"))]
     return {
         str(path.relative_to(REPO)): [platform["image"] for platform in yaml.safe_load(path.read_text())["platforms"]]
         for path in files
@@ -92,7 +88,8 @@ def _molecule_images() -> dict[str, list[str]]:
 
 def test_every_scenario_runs_the_one_image_pinned_by_digest():
     # Each scenario names its own platforms, so each repeats the image: a bump that missed one would leave that
-    # scenario on the old image without a word.
+    # scenario on the old image without a word. A platform in the shared configuration would never be used.
+    assert "platforms" not in yaml.safe_load((REPO / ".config" / "molecule" / "config.yml").read_text())
     images = _molecule_images()
     found = {image for each in images.values() for image in each}
     assert len(found) == 1, images

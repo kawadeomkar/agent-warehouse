@@ -1,34 +1,26 @@
 ---
 # Molecule base configuration shared by every scenario (roles/*/molecule/* and
 # molecule/*). Scenario molecule.yml files only add what differs.
+#
+# Each names its own platforms, since Molecule replaces a list rather than
+# merging it, and with them the one image: geerlingguy/docker-ubuntu2404-ansible
+# :latest as of 2026-11-01, pinned by digest (docs/architecture/ci.md says how
+# to bump it; tests/unit/test_ci.py holds every copy to one).
 dependency:
-  name: galaxy
-  options:
-    requirements-file: "${MOLECULE_PROJECT_DIRECTORY}/requirements.yml"
+  # The collections come from just install, into the checkout's own folder, and
+  # just test checks them before any scenario (tools/check collections); the
+  # galaxy step would install them again, or skip a requirements file it reads
+  # relative to the directory just test runs Molecule from.
+  enabled: false
 driver:
   name: docker
-platforms:
-  - name: instance
-    # geerlingguy/docker-ubuntu2404-ansible:latest as of 2026-11-01, pinned by
-    # digest (docs/architecture/ci.md says how to bump it).
-    image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
-    pre_build_image: true
-    command: ""
-    privileged: true
-    cgroupns_mode: host
-    volumes:
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
-  name: ansible
   config_options:
     defaults:
       callback_result_format: yaml
-      interpreter_python: auto_silent
       # As ansible.cfg: gathered facts only under ansible_facts.
       inject_facts_as_vars: false
       # As ansible.cfg too, and as every real run has it: a module goes over
       # the connection's stdin, not as files put, run and removed one docker
       # exec at a time. 16% off the ten scenarios, configure 20%.
       pipelining: true
-verifier:
-  name: ansible

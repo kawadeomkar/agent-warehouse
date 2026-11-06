@@ -62,9 +62,8 @@ rrddata (a day of points), pending, and the agent's get-osinfo and get-fsinfo
 answer as Proxmox VE does. memhost and the pressure figures are VE 9's: the fake
 reports them only once /version says 9 or later, and a day of rrddata is 1440
 points then, 70 on 8. /nodes/<node>/storage/<id>/content lists the disks on a
-storage. A fixture marks a change waiting for a restart with PUT
-/api2/json/fake/pending?vmid=&key=&value=, and sets how full a VM's root disk
-is with PUT /api2/json/fake/root?vmid=&used=<bytes>. A clone's config carries the
+storage. Pending lists a VM's config with nothing waiting for a restart, and
+every VM's root disk is 11 GiB used of 31. A clone's config carries the
 template's meta ctime, as Proxmox VE 9.2's did when it was checked against a real
 clone; the moment it was made is its disk's ctime, in the storage's content, which
 PUT /api2/json/fake/disk-ctime?vmid=&ctime= sets for a fixture's VM made earlier.
@@ -199,10 +198,8 @@ BRIDGES = {NODE: ["vmbr0"]}
 # Each storage's size, for its fill in /cluster/resources?type=storage: used is
 # the size less what STORAGES says is free.
 STORAGE_SIZE = 465 * 1024**3
-# Changes waiting for a restart, by VM, and each VM's root disk use, by VMID
-# (11 GiB unless a fixture sets it).
-PENDING = {}
-ROOT_USED = {}
+# Every VM's root disk use, as the agent's get-fsinfo reports it.
+ROOT_USED = 11 * 1024**3
 ROOT_TOTAL = 31 * 1024**3
 ROLE = [
     "VM.Allocate",
@@ -475,19 +472,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(
                 200, [{"id": f"node/{n}", "type": "node", "node": n, "status": s, "level": ""} for n, s in nodes]
             )
-        if parts[:2] == ["fake", "pending"] and method == "PUT":
-            # Not a PVE endpoint: a fixture's change waiting for a restart.
-            PENDING.setdefault(int(params["vmid"]), {})[params["key"]] = params.get("value", "")
-            return self._reply(200, PENDING[int(params["vmid"])])
         if parts[:2] == ["fake", "disk-ctime"] and method == "PUT":
             # Not a PVE endpoint: when a fixture's VM was made, as its disk's ctime says.
             VMS[int(params["vmid"])]["disk_ctime"] = int(params["ctime"])
             save_state()
             return self._reply(200, {"vmid": int(params["vmid"]), "ctime": int(params["ctime"])})
-        if parts[:2] == ["fake", "root"] and method == "PUT":
-            # Not a PVE endpoint: how full a fixture's VM's root disk is.
-            ROOT_USED[int(params["vmid"])] = int(params["used"])
-            return self._reply(200, {"vmid": int(params["vmid"]), "used": int(params["used"])})
         if parts == ["cluster", "resources"]:
             entries = [resource(vm) for vm in VMS.values()]
             for entry in entries:
@@ -681,12 +670,7 @@ class Handler(BaseHTTPRequestHandler):
                 points.append(point)
             return self._reply(200, points)
         if sub == ["pending"] and method == "GET":
-            entries = [{"key": k, "value": v} for k, v in sorted(vm["config"].items())]
-            for key, value in sorted(PENDING.get(vmid, {}).items()):
-                entries = [e for e in entries if e["key"] != key] + [
-                    {"key": key, "value": vm["config"].get(key), "pending": value}
-                ]
-            return self._reply(200, entries)
+            return self._reply(200, [{"key": k, "value": v} for k, v in sorted(vm["config"].items())])
         if sub[:1] == ["agent"] and sub[1:] in (["get-osinfo"], ["get-fsinfo"]) and method == "GET":
             if vm["status"] != "running":
                 return self._reply(500, None, f"VM {vmid} is not running")
@@ -706,7 +690,6 @@ class Handler(BaseHTTPRequestHandler):
                         }
                     },
                 )
-            used = ROOT_USED.get(vmid, 11 * 1024**3)
             return self._reply(
                 200,
                 {
@@ -715,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
                             "name": "sda1",
                             "mountpoint": "/",
                             "type": "ext4",
-                            "used-bytes": used,
+                            "used-bytes": ROOT_USED,
                             "total-bytes": ROOT_TOTAL,
                             "disk": [],
                         },

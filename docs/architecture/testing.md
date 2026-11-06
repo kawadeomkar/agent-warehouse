@@ -224,8 +224,8 @@ pytest over `tests/unit/`: 2969 tests. By file:
   98), both ways.
 - **The CI gate** (`test_ci.py` 25): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
-  success or a skip and fails a failure or a cancel. Every Molecule configuration, the shared one and each
-  scenario's, names the one image pinned by digest, and the canary runs that image's repository at `:latest`.
+  success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
+  digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
 - **The shards** (`test_shards.py` 4): `--shard` collected as each CI shard collects it - two, three and four
   shards that between them run every test exactly once, and a module whose tests share a fixture whole in one.
 - **Remote Control** (`test_remote_control_playbooks.py` 56): `claude_login.yml` and `remote_control.yml`
@@ -525,10 +525,13 @@ pytest over `tests/unit/`: 2969 tests. By file:
 
 ## 11.2 Role scenarios — `just test role`
 
-One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting driver and platform
-from `.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task
+One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting the driver from
+`.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task
 put its module into the container, ran and removed it one `docker exec` at a time, and the ten scenarios
-took 16% longer. Each runs create → prepare → converge → **idempotence** → side_effect → verify → destroy.
+took 16% longer. Each names its own platform, a container named after the role, since Molecule replaces a
+list rather than merging it. The shared file turns Molecule's dependency step off: `just install` puts the
+collections in and `just test` checks them first (`tools/check collections`). Each runs create → prepare →
+converge → **idempotence** → side_effect → verify → destroy.
 
 `vscode_server`'s side effect takes the forwarding away three ways, each in a drop-in of its own,
 runs the role inside a `block`/`rescue`, and asserts the failure names the setting and the file:
@@ -727,9 +730,8 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
-  was made, which `PUT /api2/json/fake/disk-ctime?vmid=&ctime=` backdates. `PUT /api2/json/fake/pending?vmid=&key=&value=`
-  makes a change wait for a restart, and `PUT /api2/json/fake/root?vmid=&used=` sets how full a VM's root
-  disk is.
+  was made, which `PUT /api2/json/fake/disk-ctime?vmid=&ctime=` backdates. No change waits for a restart, and
+  every VM's root disk is 11 GiB used of 31.
 
 Beside these, the `proxmox_template` scenario serves a "cloud image" locally, with a real `SHA256SUMS`
 file, and a fake `/etc/pve/.vmlist` that places a VMID on a second node. The `tailscale` role scenario

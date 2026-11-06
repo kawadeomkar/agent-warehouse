@@ -177,7 +177,7 @@ molecule/
   provision/                      provision.yml + discover.yml against the fake API
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
-.config/molecule/config.yml       driver, pinned image, shared provisioner settings
+.config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
 .github/                          CI, releases and the sections of their notes (release.yml), the labels
                                   pull requests get from their titles, the docs site, the composite setup
                                   action, Dependabot and the CODEOWNERS that asks for its pull requests' review

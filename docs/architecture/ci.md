@@ -35,7 +35,8 @@ Bump it after a green canary, so the gate tests the image the canary last passed
 until something breaks: an old image makes every scenario that runs `common` upgrade what it ships, 23
 seconds of `configure`'s converge against 2 on a current one. The digest is the image index's, as
 `docker buildx imagetools inspect geerlingguy/docker-ubuntu2404-ansible:latest` prints it, and it goes in
-`.config/molecule/config.yml` and in every scenario's `molecule.yml`, since each names its own platforms;
+every scenario's `molecule.yml`, since each names its own platforms (Molecule replaces a list rather than
+merging it, so `.config/molecule/config.yml` names none, and its comment keeps the date of the digest);
 `tests/unit/test_ci.py` fails while any of them differs.
 
 The gitleaks scans, and what they cannot see, are in [Secret scanning](security-model.md#secret-scanning).

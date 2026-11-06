@@ -116,8 +116,9 @@ secret gets a canned value and a place in those searches.
 ## Adding a role
 
 1. `roles/<name>/` with `defaults/main.yml`, `meta/main.yml`, `meta/argument_specs.yml` and `tasks/`.
-2. A Molecule scenario at `roles/<name>/molecule/default/` - it inherits the driver and platform from
-   `.config/molecule/config.yml`, so it only needs what differs.
+2. A Molecule scenario at `roles/<name>/molecule/default/` - it inherits the driver and the provisioner's
+   settings from `.config/molecule/config.yml`, and names its own platform, copied from another role's
+   `molecule.yml` with the container named after the role: Molecule replaces a list rather than merging it.
 3. Add the role to `scenario_roles` in the `justfile` and to the matrix in `.github/workflows/ci.yml`. The one
    required check is `CI result`, which needs every job, so a job added or renamed changes no setting
    ([CI](docs/architecture/ci.md)).

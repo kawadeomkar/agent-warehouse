@@ -7,10 +7,6 @@
 # the daemon with log upload off from its first start, and every `tailscale`
 # the role runs is tests/molecule/fake_tailscale.sh, installed by prepare.yml
 # ahead of the package's binary - tests/unit/test_tailscale.py checks both.
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../../../requirements.yml
 platforms:
   - name: claude-on-proxmox-tailscale
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
@@ -29,7 +25,6 @@ platforms:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
-  name: ansible
   env:
     # Resolve roles from this repository's roles/ directory (not Galaxy).
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
