@@ -75,7 +75,8 @@ playbooks/
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
-  tasks/vms_misnamed.yml          says which tagged VMs a fleet-wide run leaves out for their name (discover, ssh_config)
+  tasks/vms_requested.yml         the tagged VMs asked for and their addresses, those named after a host of the
+                                  inventory left out and said, two of one name refused (discover, ssh_config)
   tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
                                   key is never sent to it again (configure.yml, tailscale_login.yml)
   tasks/sign_in_failed.yml        a VM a sign-in did not sign in - not reached, or its sign-in failed - remembered,

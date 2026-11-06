@@ -113,6 +113,20 @@ def ssh_alias_refusals(vms, hosts=None, chosen=None):
     return refused
 
 
+def ssh_hostname(vm, domain=""):
+    """Where a VM's alias points, its ``HostName``: ``<name>.<domain>`` where the network resolves VM names
+    (``domain``, claude_ssh_host_domain), else the address its guest agent reported, ``""`` for none.
+
+    The alias's block, the check that the user's ssh config reaches it, and the connection just code makes all
+    read it here, so the editor and Ansible connect to the same place.
+    """
+    if not isinstance(vm, dict):
+        raise ValueError(f"ssh_hostname expects a VM, got {type(vm).__name__}")
+    if domain:
+        return f"{vm['name']}.{domain}"
+    return str(vm.get("address") or "")
+
+
 def sshd_match_spec(ssh_connection, user):
     """What ``sshd -T -C`` evaluates its Match blocks for: ``user``'s sessions, coming from where the connection
     Ansible made comes from. ``ssh_connection`` is its ``SSH_CONNECTION`` (client address, client port, local address,

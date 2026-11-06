@@ -302,7 +302,8 @@ def _destroy_tail(root: Path, saved: Path | None = None) -> Path:
         "ansible.builtin.fail": {"msg": f"{REFUSED}."},
         "when": "destroy_test_undeletable | default(false) | bool",
     }
-    tasks = next(play["tasks"] for play in plays if any(task.get("name") == REPORT for task in play.get("tasks", [])))
+    holder = next(play for play in plays if any(task.get("name") == REPORT for task in play.get("tasks", [])))
+    tasks = holder["tasks"]
     at = next(index for index, task in enumerate(tasks) if task.get("name") == REPORT)
     # The report and its record for NEXT STEPS, then the kept aliases' and
     # theirs: a record's condition naming its report's task var failed every
@@ -314,14 +315,19 @@ def _destroy_tail(root: Path, saved: Path | None = None) -> Path:
         "Say which aliases were kept, and why",
         "Keep what is left to do for the end of the run",
     ]
-    on_these = json.loads(json.dumps(report).replace("groups['claude_vm_doomed']", "groups['claude_vms']"))
+    # With its play's vars, which the report and its records read the VMs from.
+    on_these = json.loads(
+        json.dumps({"vars": holder.get("vars", {}), "tasks": report}).replace(
+            "groups['claude_vm_doomed']", "groups['claude_vms']"
+        )
+    )
     playbook = root / "destroy_tail.yml"
     playbook.write_text(
         yaml.safe_dump(
             [
                 {**release, "hosts": "claude_vms"},
                 {**delete, "hosts": "claude_vms"},
-                {"name": "Report", "hosts": "localhost", "gather_facts": False, "tasks": on_these},
+                {"name": "Report", "hosts": "localhost", "gather_facts": False, **on_these},
             ]
         )
     )
@@ -983,7 +989,6 @@ def test_a_vm_started_for_its_release_is_stopped_again_when_its_deletion_fails()
     again = next(task for task in tasks if task["name"] == "Stop again each VM this run started but could not delete")
     assert again["ansible.builtin.import_tasks"] == "tasks/vm_stop.yml"
     assert "rejectattr('name', 'in', claude_vm_gone)" in again["vars"]["claude_vm_stop_query"]
-    assert "selectattr('claude_vm_deleted', 'defined')" in again["vars"]["claude_vm_gone"]
     stop = yaml.safe_load((REPO / "playbooks" / "tasks" / "vm_stop.yml").read_text())[0]
     assert stop["ansible.builtin.uri"]["url"].endswith("/status/stop") and stop["no_log"] is True
     # After the deletion, and first in its play: nothing there that fails
@@ -992,6 +997,9 @@ def test_a_vm_started_for_its_release_is_stopped_again_when_its_deletion_fails()
     holder = next(play for play in plays if again in play.get("tasks", []))
     assert names.index(holder["name"]) > names.index("Delete the VMs on Proxmox")
     assert holder["tasks"][0] is again
+    # The VMs gone are the play's, read from what the delete play recorded of each.
+    assert "selectattr('claude_vm_deleted', 'defined')" in holder["vars"]["claude_vm_gone"]
+    assert "map('extract', hostvars)" in holder["vars"]["claude_vm_doomed_vars"]
 
 
 def test_a_deletion_that_fails_is_raised_only_after_the_stop_and_the_report():

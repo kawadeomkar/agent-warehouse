@@ -64,8 +64,6 @@
 - name: Open a VM in the editor
   hosts: localhost
   gather_facts: false
-  module_defaults:
-    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
   # VS Code's own variables, in a file of its own: its check file, the
   # plan's inputs and the apply's helper copy read them.
   vars_files:
@@ -291,10 +289,9 @@
     code_session_moved: >-
       {{ code_session_id | length > 0
          and code_session_git_there.checkouts[0].head != code_session_commit }}
-    # --session, whichever editor's terminal resumes it: what just code did to
-    # the checkout, and what to know before claude continues there. Each
-    # editor's report says how the session is resumed in it, then these.
-    code_session_moved_said: "{{ ', where just code moved it' if code_session_moved | bool else '' }}"
+    # --session, whichever editor's terminal resumes it: what to know before
+    # claude continues there. Each editor's report says how the session is
+    # resumed in it, and whether just code moved the checkout, then this.
     code_session_cautions: >-
       {{ '' if code_session_id | length == 0
          else ' The first time claude opens there it asks whether you trust the folder, and its first answer'
@@ -458,14 +455,12 @@
             claude_vm_query: "{{ code_vm_tagged }}"
 
         # What the editor will connect to is the alias's HostName - the address, or
-        # <name>.<domain> - and this run connects to the same, so the two cannot
-        # disagree about whether the VM is reachable. The status is a fact, as
-        # the rescue reads it too.
+        # <name>.<domain> (ssh_hostname) - and this run connects to the same, so the
+        # two cannot disagree about whether the VM is reachable. The status is a
+        # fact, as the rescue reads it too.
         - name: Settle where the VM is reached
           ansible.builtin.set_fact:
-            code_reach: >-
-              {{ claude_vm_names[0] ~ '.' ~ claude_ssh_host_domain
-                 if claude_ssh_host_domain | default('') | length > 0 else claude_vm_addressed[0].address }}
+            code_reach: "{{ claude_vm_addressed[0] | ssh_hostname(claude_ssh_host_domain | default('')) }}"
             code_status: "{{ claude_vm_addressed[0].status | default('unknown') }}"
 
         # A stopped VM is refused even when its name still resolves. One line

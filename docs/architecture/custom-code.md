@@ -62,6 +62,10 @@ config, so such an alias would take this machine's own connections to that host
 ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 **`ssh_alias_refusals(vms, hosts, chosen)`** is the same over a list, each refused VM as `{name, why,
 unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leaves out and says.
+**`ssh_hostname(vm, domain)`** — where a VM's alias points, its `HostName`: `<name>.<domain>` where the network
+resolves VM names (`claude_ssh_host_domain`), else the address its guest agent reported. The alias's block, the
+check that the user's ssh config reaches the managed file, and `just code`'s own connection all read it, so the
+editor and Ansible connect to the same place.
 **`sshd_match_spec(ssh_connection, user)`** — what `sshd -T -C` evaluates its `Match` blocks for: the
 user's sessions from where Ansible's own connection comes, read from its `SSH_CONNECTION` (client address
 and port, local address and port), or the loopback address where there is none (a container, a local run).

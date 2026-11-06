@@ -19,11 +19,12 @@
   hosts: localhost
   gather_facts: false
   vars:
-    # The VMs asked for, as the cluster lists them now: read again once the
-    # stopped ones have been started below.
+    # Every VM and template in the cluster, as the listing has them now, and
+    # of them the VMs asked for: the listing is read again once the stopped
+    # ones have been started below.
+    claude_vm_qemu: "{{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | list }}"
     claude_vm_release_query: >-
-      {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | selectattr('name', 'defined')
-         | selectattr('name', 'in', claude_vm_names) | list }}
+      {{ claude_vm_qemu | selectattr('name', 'defined') | selectattr('name', 'in', claude_vm_names) | list }}
     # Whether to reach each VM before deleting it: to release it, or to save
     # what of its Claude Code sessions is only there, which destroy_release:
     # false still does unless destroy_save_sessions is off too.
@@ -98,7 +99,6 @@
     - name: Check that every VM asked for exists
       vars:
         claude_vm_untagged_ok: "{{ proxmox_vm_allow_untagged_delete | default(false) | bool }}"
-        claude_vm_qemu: "{{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | list }}"
         claude_vm_templates: >-
           {{ claude_vm_qemu | selectattr('template', 'defined') | selectattr('template', 'truthy')
              | map(attribute='name', default='') | select | list }}
@@ -135,12 +135,10 @@
     # project's - started, and reached over SSH.
     - name: Refuse a name that more than one VM carries
       vars:
-        claude_vm_duplicated: >-
-          {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | duplicate_names
-             | select('in', claude_vm_names) | list }}
+        claude_vm_duplicated: "{{ claude_vm_qemu | duplicate_names | select('in', claude_vm_names) | list }}"
         claude_vm_duplicate_ids: >-
-          {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | selectattr('name', 'defined')
-             | selectattr('name', 'in', claude_vm_duplicated) | map(attribute='vmid') | sort | join(', ') }}
+          {{ claude_vm_qemu | selectattr('name', 'defined') | selectattr('name', 'in', claude_vm_duplicated)
+             | map(attribute='vmid') | sort | join(', ') }}
       ansible.builtin.assert:
         that: claude_vm_duplicated | length == 0
         fail_msg: >-
@@ -327,7 +325,6 @@
       block:
         - name: Reach the VM as root
           ansible.builtin.ping:
-          register: claude_vm_release_root
       rescue:
         - name: Remember why the VM is not released
           ansible.builtin.set_fact:
@@ -495,6 +492,14 @@
 - name: Forget the SSH alias of each deleted VM
   hosts: localhost
   gather_facts: false
+  # What the plays above left of each VM asked for, as every task below reads
+  # it: the host variables of each, the names of those deleted, and those of
+  # the ones still there. Read when a task asks, so always as they are then.
+  vars:
+    claude_vm_doomed_vars: "{{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars) | list }}"
+    claude_vm_gone: >-
+      {{ claude_vm_doomed_vars | selectattr('claude_vm_deleted', 'defined') | map(attribute='inventory_hostname') | list }}
+    claude_vm_kept_vars: "{{ claude_vm_doomed_vars | rejectattr('claude_vm_deleted', 'defined') | list }}"
 
   tasks:
     # First, before anything here that could fail: a VM this run started for
@@ -504,9 +509,6 @@
     - name: Stop again each VM this run started but could not delete
       ansible.builtin.import_tasks: tasks/vm_stop.yml
       vars:
-        claude_vm_gone: >-
-          {{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars)
-             | selectattr('claude_vm_deleted', 'defined') | map(attribute='inventory_hostname') | list }}
         claude_vm_stop_query: "{{ claude_vm_release_started | default([]) | rejectattr('name', 'in', claude_vm_gone) | list }}"
         claude_vm_stop_why: then not deleted
 
@@ -514,12 +516,7 @@
       ansible.builtin.import_tasks: tasks/ssh_config.yml
       vars:
         claude_ssh_state: absent
-        claude_ssh_vms: >-
-          {{ groups['claude_vm_doomed'] | default([])
-             | map('extract', hostvars)
-             | selectattr('claude_vm_deleted', 'defined')
-             | map(attribute='inventory_hostname')
-             | map('community.general.dict_kv', 'name') | list }}
+        claude_ssh_vms: "{{ claude_vm_gone | map('community.general.dict_kv', 'name') | list }}"
       when: claude_ssh_config | default(true) | bool
 
     # One line per VM asked for, whatever became of it, and only one: a VM
@@ -549,6 +546,8 @@
              else 'not saved (destroy_save_sessions: false)'
              if not (claude_release_vm.destroy_save_sessions | default(true) | bool)
              else 'not saved, nor its auto memory, if it had any' }}
+        claude_release_sessions_said: >-
+          {{ ' Claude Code sessions: ' ~ claude_release_sessions ~ '.' if claude_release_sessions | length > 0 else '' }}
         claude_release_parts: >-
           {{ (['Claude Code: ' ~ claude_release_claude] if claude_release_claude | length > 0 else [])
              + (['GitHub: ' ~ claude_release_github] if claude_release_github | length > 0 else [])
@@ -570,19 +569,16 @@
           {{ 'its Tailscale device, if it was on your tailnet, stays until you delete it ' ~ claude_release_where
              ~ ' (or a VM built again under its name joins as <name>-1); a GitHub token its sign-in made stays valid until'
              ~ ' revoked at https://github.com/settings/applications, under GitHub CLI (which signs out every gh); and'
-             ~ ' Anthropic has no way to revoke its Claude Code login from outside.'
-             ~ (' Claude Code sessions: ' ~ claude_release_sessions ~ '.' if claude_release_sessions | length > 0 else '') }}
+             ~ ' Anthropic has no way to revoke its Claude Code login from outside.' ~ claude_release_sessions_said }}
         # A VM not deleted: how far it was released. One the run lost on the way may have been in part.
         claude_release_kept_said: >-
           {{ 'It was released - ' ~ ((claude_release_parts | join('; ')) if claude_release_parts | length > 0
                                      else 'it had nothing signed in to end') ~ '.'
              if claude_release_vm.claude_vm_released | default(false) | bool
-             else 'It was not released (destroy_release: false).'
-                  ~ (' Claude Code sessions: ' ~ claude_release_sessions ~ '.' if claude_release_sessions | length > 0 else '')
+             else 'It was not released (destroy_release: false).' ~ claude_release_sessions_said
              if not (claude_release_vm.destroy_release | default(true) | bool)
              else 'It was not released: ' ~ ('' if claude_release_vm.claude_vm_release_blocked is defined else 'it ')
-                  ~ claude_release_unreached ~ '.'
-                  ~ (' Claude Code sessions: ' ~ claude_release_sessions ~ '.' if claude_release_sessions | length > 0 else '')
+                  ~ claude_release_unreached ~ '.' ~ claude_release_sessions_said
              if claude_release_unreached | length > 0
              else 'Released so far - ' ~ (claude_release_parts | join('; ')) ~ '.' if claude_release_parts | length > 0
              else '' }}
@@ -645,14 +641,11 @@
     # tried; or the run lost it before its deletion.
     - name: Say which aliases were kept, and why
       vars:
-        claude_ssh_kept_vms: >-
-          {{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars)
-             | rejectattr('claude_vm_deleted', 'defined') | list }}
-        claude_ssh_kept: "{{ claude_ssh_kept_vms | map(attribute='inventory_hostname') | list }}"
+        claude_ssh_kept: "{{ claude_vm_kept_vars | map(attribute='inventory_hostname') | list }}"
         claude_ssh_undeleted: >-
-          {{ claude_ssh_kept_vms | selectattr('claude_vm_delete_error', 'defined') | map(attribute='inventory_hostname') | list }}
+          {{ claude_vm_kept_vars | selectattr('claude_vm_delete_error', 'defined') | map(attribute='inventory_hostname') | list }}
         claude_ssh_unsaved: >-
-          {{ claude_ssh_kept_vms | selectattr('claude_vm_save_error', 'defined') | map(attribute='inventory_hostname') | list }}
+          {{ claude_vm_kept_vars | selectattr('claude_vm_save_error', 'defined') | map(attribute='inventory_hostname') | list }}
         claude_ssh_lost: "{{ claude_ssh_kept | reject('in', claude_ssh_undeleted + claude_ssh_unsaved) | list }}"
         claude_ssh_kept_why: >-
           {{ ([claude_ssh_undeleted | join(', ') ~ ': '
@@ -678,13 +671,12 @@
 
     # NEXT STEPS: the line above only for a VM it names that has no line of
     # its own there - none, today: every VM still there has one, which names
-    # its alias - so no VM is listed twice. The VMs are read again rather than
-    # from the report's task vars, which are that task's own.
+    # its alias - so no VM is listed twice. The VMs are the play's, never the
+    # report's task vars, which are that task's own.
     - name: Keep what is left to do for the end of the run
       vars:
         claude_ssh_kept_unsaid: >-
-          {{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars)
-             | rejectattr('claude_vm_deleted', 'defined') | map(attribute='inventory_hostname')
+          {{ claude_vm_kept_vars | map(attribute='inventory_hostname')
              | reject('in', claude_release_reported.results | map(attribute='claude_release_name')) | list }}
       ansible.builtin.set_stats:
         data:
@@ -700,8 +692,8 @@
     - name: Fail for each VM that was not deleted
       vars:
         claude_vm_not_deleted: >-
-          {{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars)
-             | selectattr('claude_vm_delete_failure', 'defined') | map(attribute='claude_vm_delete_failure') | list }}
+          {{ claude_vm_doomed_vars | selectattr('claude_vm_delete_failure', 'defined')
+             | map(attribute='claude_vm_delete_failure') | list }}
       ansible.builtin.fail:
         msg: "{{ claude_vm_not_deleted | join(' ') }}"
       when: claude_vm_not_deleted | length > 0

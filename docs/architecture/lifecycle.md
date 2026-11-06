@@ -111,7 +111,8 @@ did come up.
 
 ## 4.3 `playbooks/discover.yml`
 
-Finds VMs by tag so `configure.yml` works standalone, not only straight after provisioning.
+Finds VMs by tag so `configure.yml` works standalone, not only straight after provisioning. Steps 1 to 5
+are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
 
 1. `playbooks/tasks/cluster_vms.yml` → `claude_vm_all`: every VM in the cluster, straight from
    `/cluster/resources` with `ansible.builtin.uri`. Not an unfiltered `proxmox_vm_info`, which goes on
@@ -325,7 +326,9 @@ the same file and restore a key another had just removed.
 
 **Play 3 — forget the alias (localhost).** `tasks/ssh_config.yml` with `state: absent` for the VMs
 that are actually gone: the delete play sets `claude_vm_deleted` only after the role, which a host that
-failed in it never reaches, and play 3 removes only the aliases of hosts that have it. A VM still there
+failed in it never reaches, and play 3 removes only the aliases of hosts that have it. Which VMs are gone
+and which are still there is written once, in the play's vars (`claude_vm_gone`, `claude_vm_kept_vars`),
+which the stop, the alias removal, the reports and the last raise all read. A VM still there
 keeps its alias, because it is there to connect to, and the line that says so names its reason: its
 deletion failed - a stop that timed out, protection on, an API error (`claude_vm_delete_error`) - or a
 save that failed kept it, its deletion never tried (`claude_vm_save_error`), or the run lost it before
@@ -575,8 +578,9 @@ The file's mode is set only when this task creates it. The `Include` is never
 removed, since that would mean editing the user's file on destroy, and an `Include` of a missing
 file is harmless. Nothing else in `~/.ssh` is ever edited.
 
-Three guards, in order: the alias is the VM's name, so a `Host` line in the user's config that
-already names it is refused by file and line (the managed file is included first, so writing would
+Every task that writes, and each refusal before it, runs in one block under the `present` state;
+`absent` removes blocks alone. Three guards, in order: the alias is the VM's name, so a `Host` line in
+the user's config that already names it is refused by file and line (the managed file is included first, so writing would
 silently override the user's entry); every write is validated by the real client, `ssh -G -F %s
 <alias>`, so a malformed option fails the task instead of every `ssh` on the machine; and a block is
 only ever written for a VM the caller found by its tag. Before any of them, a name or address that is
@@ -595,8 +599,8 @@ dotted name given is the user's choice, as `docs/guides/vms.md` allows, and gets
 named run wrote is left as it was, and the message names the run that refreshes it.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
-(§4.3 steps 1 and 4), `present` for every tagged VM with an address but one named after a host of the
-inventory, which is left out and said as discovery says it (`tasks/vms_misnamed.yml`), keeping a workspace an
+(§4.3 steps 1 to 5, `tasks/vms_requested.yml`), `present` for every tagged VM with an address but one named after
+a host of the inventory, which is left out and said as discovery says it, keeping a workspace an
 earlier configure recorded, then pruning through `ssh_config_prune`
 ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
 whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
@@ -620,8 +624,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `vm_session` (`--session`) is refused unless it is a session ID, there by its pattern and `tools/check
    session` and here again.
 2. Find the VM by tag, naming an untagged VM of that name as not this project's; ask its agent for
-   the address. Settle where it is reached exactly as the alias's `HostName` does - the address, or
-   `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
+   the address. Settle where it is reached exactly as the alias's `HostName` does, by `ssh_hostname` - the
+   address, or `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
    a VM that is not running, whatever its name resolves to.
 3. Add it to `claude_vms` with `add_host`, the way configure reaches it: Ansible's own connection and
    `accept-new`, not the user's ssh config, and the group's connection variables from the inventory

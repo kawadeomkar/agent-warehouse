@@ -779,7 +779,6 @@ def _window(
         (bin_dir / name).chmod(0o755)
 
     play = copy.deepcopy(_play())
-    del play["module_defaults"]
     if in_deploy:
         play["vars"].update(_deploy_vars())
     window = _the_window(play)

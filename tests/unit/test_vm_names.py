@@ -97,7 +97,7 @@ def _refused(report: dict) -> list[dict]:
 
 
 # Discovery and the alias refresh say it alike, from one task file.
-LEFT_OUT = "vms_misnamed | Say which tagged VMs are left out for their name"
+LEFT_OUT = "vms_requested | Say which tagged VMs are left out for their name"
 
 
 def test_discovery_leaves_out_a_vm_named_after_a_host_of_the_inventory_and_says_so(tmp_path, fleet) -> None:
@@ -205,8 +205,11 @@ def test_a_name_with_a_dot_passes_the_checks_deploy_makes_first(tmp_path, fleet)
 
 @pytest.mark.parametrize("playbook", ["provision.yml", "destroy.yml", "code.yml", "discover.yml", "ssh_config.yml"])
 def test_every_playbook_that_takes_names_refuses_a_host_of_the_inventory(playbook: str) -> None:
+    # Itself, or through the opening discovery and the alias refresh share, which does first.
     text = (PLAYBOOKS / playbook).read_text()
-    assert "import_tasks: tasks/vm_names.yml" in text
+    opening = yaml.safe_load((PLAYBOOKS / "tasks" / "vms_requested.yml").read_text())
+    assert opening[0]["ansible.builtin.import_tasks"] == "vm_names.yml"
+    assert "import_tasks: tasks/vm_names.yml" in text or "import_tasks: tasks/vms_requested.yml" in text
 
 
 def test_the_vm_just_code_opens_counts_as_named_even_in_a_bare_deploy() -> None:

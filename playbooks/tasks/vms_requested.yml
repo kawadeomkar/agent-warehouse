@@ -1,0 +1,65 @@
+---
+# The tagged VMs a run asks for, and the address each one's guest agent
+# reports: how discovery (discover.yml) and the alias refresh
+# (ssh_config.yml) both open, since both reach a VM by its name - as a host
+# of the inventory, or as an SSH alias.
+#
+# Input, as `vars:` on the import:
+#   claude_vm_dupes_tail   the rest of the sentence that refuses two VMs of
+#                          one name, after the names and with its own
+#                          punctuation: what such a pair would break there.
+#
+# Sets claude_vm_discovered, the VMs asked for - claude_vm_requested
+# (group_vars/all) less any named after a host of the inventory - among them
+# any listed without a name, and registers claude_vm_addressed
+# (tasks/vm_addresses.yml).
+
+# A name given is refused before Proxmox is asked anything.
+- name: vms_requested | Refuse a VM named after a host of the inventory
+  ansible.builtin.import_tasks: vm_names.yml
+  when: vm_name is defined
+
+- name: vms_requested | List every VM in the cluster
+  ansible.builtin.import_tasks: cluster_vms.yml
+
+# claude_vm_requested keeps the VMs carrying this project's tag, matched as a
+# whole tag rather than a substring so "claude-on-proxmox-staging" is left
+# alone - and with vm_name given, only those; without it, the whole fleet.
+# Never one named after a host of the inventory, which add_host would merge
+# into that host and an alias would take this machine's connections to it
+# for: on a Proxmox others use too, anyone can tag a VM pve. A tagged VM
+# without a name (a node that is down) is kept, and gets no address below.
+- name: vms_requested | Narrow to the requested VMs
+  ansible.builtin.set_fact:
+    claude_vm_discovered: "{{ claude_vm_requested | vms_not_named(claude_vm_inventory_hosts) }}"
+
+# Said fleet-wide: with names given, such a name is refused above.
+- name: vms_requested | Say which tagged VMs are left out for their name
+  vars:
+    claude_vm_misnamed: >-
+      {{ claude_vm_requested | selectattr('name', 'defined') | selectattr('name', 'in', claude_vm_inventory_hosts)
+         | map(attribute='name') | list }}
+  ansible.builtin.debug:
+    msg: >-
+      Left out: {{ claude_vm_misnamed | join(', ') }}, tagged {{ claude_vm_tag }} but named like a host of the
+      inventory, which a VM must never become. Rename {{ 'it' if claude_vm_misnamed | length == 1 else 'them' }}
+      in Proxmox, or ask whoever made {{ 'it' if claude_vm_misnamed | length == 1 else 'them' }}.
+  when: claude_vm_misnamed | length > 0
+
+# Proxmox permits duplicate names, and both callers find a VM by its name.
+- name: vms_requested | Refuse to continue with duplicated VM names
+  vars:
+    claude_vm_dupes: "{{ claude_vm_discovered | duplicate_names }}"
+  ansible.builtin.assert:
+    that: claude_vm_dupes | length == 0
+    fail_msg: >-
+      More than one VM is tagged {{ claude_vm_tag }} and named
+      {{ claude_vm_dupes | join(', ') }}{{ claude_vm_dupes_tail }}
+    quiet: true
+
+# Two requests per VM, to the node that holds it; see tasks/vm_addresses.yml
+# for why not proxmox_vm_info, and for what a refused token does.
+- name: vms_requested | Ask each VM's guest agent for an address
+  ansible.builtin.import_tasks: vm_addresses.yml
+  vars:
+    claude_vm_query: "{{ claude_vm_discovered }}"

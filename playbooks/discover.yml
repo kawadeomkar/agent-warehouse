@@ -18,50 +18,16 @@
 - name: Discover VMs on Proxmox
   hosts: localhost
   gather_facts: false
-  module_defaults:
-    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
   tasks:
-    - name: Refuse a VM named after a host of the inventory
-      ansible.builtin.import_tasks: tasks/vm_names.yml
-      when: vm_name is defined
-
-    - name: List every VM in the cluster
-      ansible.builtin.import_tasks: tasks/cluster_vms.yml
-
-    # claude_vm_requested (group_vars/all) keeps the VMs carrying this
-    # project's tag, matched as a whole tag rather than a substring so
-    # "claude-on-proxmox-staging" is left alone - and with vm_name given, only
-    # those; without it, the whole fleet. Never one named after a host of the
-    # inventory, which add_host would merge into that host: on a Proxmox
-    # others use too, anyone can tag a VM pve.
-    - name: Narrow to the requested VMs
-      ansible.builtin.set_fact:
-        claude_vm_discovered: "{{ claude_vm_requested | vms_not_named(claude_vm_inventory_hosts) }}"
-
-    - name: Say which tagged VMs are left out for their name
-      ansible.builtin.import_tasks: tasks/vms_misnamed.yml
-
-    # Proxmox permits duplicate names. The role refuses to act on one; here the
-    # second add_host would silently overwrite the first, so `just deploy --only configure`
-    # would report success having touched only one of them, unpredictably.
-    - name: Refuse to continue with duplicated VM names
+    # Two VMs of one name are refused: the second add_host below would
+    # silently overwrite the first, so `just deploy --only configure` would
+    # report success having touched only one of them, unpredictably.
+    - name: Find the VMs asked for, and their addresses
+      ansible.builtin.import_tasks: tasks/vms_requested.yml
       vars:
-        claude_vm_dupes: "{{ claude_vm_discovered | duplicate_names }}"
-      ansible.builtin.assert:
-        that: claude_vm_dupes | length == 0
-        fail_msg: >-
-          More than one VM is tagged {{ claude_vm_tag }} and named
-          {{ claude_vm_dupes | join(', ') }}. Rename or remove the duplicates so
-          it is unambiguous which one to configure.
-        quiet: true
-
-    # Two requests per VM, to the node that holds it; see tasks/vm_addresses.yml
-    # for why not proxmox_vm_info, and for what a refused token does.
-    - name: Ask each VM's guest agent for an address
-      ansible.builtin.import_tasks: tasks/vm_addresses.yml
-      vars:
-        claude_vm_query: "{{ claude_vm_discovered }}"
+        claude_vm_dupes_tail: >-
+          . Rename or remove the duplicates so it is unambiguous which one to configure.
 
     # A VM that gave no address - stopped, still booting, its NIC removed in
     # the UI, an agent that never answered, a node that is down - is skipped

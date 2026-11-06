@@ -504,6 +504,27 @@ class TestSshAliasRefusal:
         assert checks.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
 
 
+class TestSshHostname:
+    """Where an alias points: the alias's block, the Include check and just code's connection read the one rule."""
+
+    def test_the_address_the_agent_reported(self):
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}) == "192.0.2.51"
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}, "") == "192.0.2.51"
+
+    def test_the_name_in_the_domain_when_the_network_resolves_vm_names(self):
+        # Whatever the agent reported, or nothing at all.
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}, "lan") == "alpha.lan"
+        assert checks.ssh_hostname({"name": "alpha", "address": ""}, "lan") == "alpha.lan"
+
+    def test_no_address_and_no_domain_is_nowhere(self):
+        assert checks.ssh_hostname({"name": "alpha", "address": ""}) == ""
+        assert checks.ssh_hostname({"name": "alpha"}) == ""
+
+    def test_refuses_what_is_no_vm(self):
+        with pytest.raises(ValueError):
+            checks.ssh_hostname("alpha", "lan")
+
+
 class TestSshdMatchSpec:
     def test_a_connection_gives_its_client_and_its_local_end(self):
         # The branch a real VM takes: SSH_CONNECTION is "client port local port".
