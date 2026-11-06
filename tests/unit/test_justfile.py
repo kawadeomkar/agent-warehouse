@@ -29,6 +29,7 @@ anyone without a newer bash; CI's Ubuntu runs them under bash 5.
 from __future__ import annotations
 
 import atexit
+import contextlib
 import json
 import os
 import pty
@@ -312,11 +313,7 @@ def test_self_passes_on_every_setting() -> None:
     assert passed == settings, (passed, settings)
 
 
-def test_the_justfile_is_formatted_as_just_formats_it() -> None:
-    if _found != _pinned():
-        pytest.skip(f"just {_found} may format otherwise than the pinned {_pinned()}, which CI runs this with")
-    result = subprocess.run([JUST, "--fmt", "--check"], cwd=REPO, capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stdout + result.stderr
+# The justfile is as just --fmt leaves it: just lint's just part, which checks it with the pinned just alone.
 
 
 # ---------------------------------------------------------------- the checks ----
@@ -472,36 +469,51 @@ def test_a_vm_recipe_without_names_passes_no_vm_name_at_all(tmp_path: Path, reci
     assert not any("vm_name" in arg for arg in _playbook(tmp_path, recipe))
 
 
+BAD_NAMES = {
+    "space": "a b",
+    "single-quote": "a'b",
+    "double-quote": 'a"b',
+    "semicolon": "a;b",
+    "command-substitution": "$(x)",
+    "interpolation": "{{x}}",
+    "backtick": "a`b",
+    "tab": "a\tb",
+    "newline": "alpha\nbeta",
+    "non-ascii": "ålpha",
+    "percent": "a%",
+    "colon": "a:b",
+    "an-option": "-x",
+    "from-a-dot": ".hidden",
+}
+
+
+# The VM recipes hold their names to one pattern (test_every_vm_recipe_holds_its_names_to_one_pattern): every word
+# on one of them, and on each other one a word and a leading -, whose refusal says whether the recipe has options.
 @pytest.mark.parametrize(
-    "word",
-    [
-        pytest.param("a b", id="space"),
-        pytest.param("a'b", id="single-quote"),
-        pytest.param('a"b', id="double-quote"),
-        pytest.param("a;b", id="semicolon"),
-        pytest.param("$(x)", id="command-substitution"),
-        pytest.param("{{x}}", id="interpolation"),
-        pytest.param("a`b", id="backtick"),
-        pytest.param("a\tb", id="tab"),
-        pytest.param("alpha\nbeta", id="newline"),
-        pytest.param("ålpha", id="non-ascii"),
-        pytest.param("a%", id="percent"),
-        pytest.param("a:b", id="colon"),
-        pytest.param("-x", id="an-option"),
-        pytest.param(".hidden", id="from-a-dot"),
+    ("recipe", "word"),
+    [pytest.param("deploy", word, id=f"deploy-{name}") for name, word in BAD_NAMES.items()]
+    + [
+        pytest.param(recipe, BAD_NAMES[name], id=f"{recipe}-{name}")
+        for recipe in PLAYBOOK_RECIPES
+        if recipe != "deploy"
+        for name in ("space", "an-option")
     ],
 )
-@pytest.mark.parametrize("recipe", PLAYBOOK_RECIPES)
 def test_a_name_outside_its_characters_is_refused_before_anything_runs(tmp_path: Path, recipe: str, word: str) -> None:
     output = _refused(tmp_path, recipe, word)
     # A recipe with options of its own takes a word that starts with - as one.
     assert NOT_MATCHED in output or (word.startswith("-") and "does not have option" in output), output
 
 
-def test_a_name_is_never_run_as_code(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "words",
+    [["deploy"], ["code", "alpha", "--project"], ["code", "alpha", "--session"]],
+    ids=["a-name", "a-project", "a-session"],
+)
+def test_a_value_is_never_run_as_code(tmp_path: Path, words: list[str]) -> None:
     ran = tmp_path / "ran"
-    _refused(tmp_path, "deploy", f"$(touch {ran})")
-    _refused(tmp_path, "deploy", f"`touch {ran}`")
+    _refused(tmp_path, *words, f"$(touch {ran})")
+    _refused(tmp_path, *words, f"`touch {ran}`")
     assert not ran.exists()
 
 
@@ -531,15 +543,24 @@ def test_an_underscore_in_a_vm_name_is_taken_as_a_hyphen_and_said(tmp_path: Path
 # ---------------------------------------------------------------- a stage where the names go ----
 
 
-def _answered(tmp_path: Path, answer: str, *args: str) -> subprocess.CompletedProcess[str]:
-    """A recipe run at a terminal of its own (a pseudo-terminal), with answer typed there before it asks."""
+@contextlib.contextmanager
+def _terminal_stdin(typed: bytes = b""):
+    """A terminal of a run's own to read from: a pseudo-terminal's far end, with typed there before the run asks.
+    Its output stays a pipe, which the tests read."""
     primary, secondary = pty.openpty()
     try:
-        os.write(primary, answer.encode())
-        return _just(*args, settings=_recording(tmp_path), stdin=secondary)
+        if typed:
+            os.write(primary, typed)
+        yield secondary
     finally:
         os.close(primary)
         os.close(secondary)
+
+
+def _answered(tmp_path: Path, answer: str, *args: str) -> subprocess.CompletedProcess[str]:
+    """A recipe run at a terminal of its own (a pseudo-terminal), with answer typed there before it asks."""
+    with _terminal_stdin(answer.encode()) as stdin:
+        return _just(*args, settings=_recording(tmp_path), stdin=stdin)
 
 
 @pytest.mark.parametrize(
@@ -593,17 +614,9 @@ def test_check_meant_as_the_stage_is_the_dry_run(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("answer", ["\n", "x\n", ""])
 def test_deploy_runs_nothing_unless_the_question_is_answered(tmp_path: Path, answer: str) -> None:
-    # Enter, anything else, or the terminal closing: nothing runs, and no VM is created.
-    primary, secondary = pty.openpty()
-    try:
-        if answer:
-            os.write(primary, answer.encode())
-        else:
-            os.write(primary, b"\x04")  # Ctrl-D at the start of a line: end of input.
-        result = _just("deploy", "configure", settings=_recording(tmp_path), stdin=secondary)
-    finally:
-        os.close(primary)
-        os.close(secondary)
+    # Enter, anything else, or the terminal closing: nothing runs, and no VM is created. Ctrl-D at the start of a
+    # line is the end of input.
+    result = _answered(tmp_path, answer or "\x04", "deploy", "configure")
     assert result.returncode != 0, _output(result)
     assert "Nothing was run." in result.stderr
     assert _runs(tmp_path, "ansible-playbook") == []
@@ -691,10 +704,8 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
     assert '{"vm_name": "alpha"}' in run
 
 
-def test_deploy_without_options_runs_deploy_yml_with_the_no_terminal_switch(tmp_path: Path) -> None:
-    run = _playbook(tmp_path, "deploy", "alpha")
-    assert run[-1] == "deploy.yml", run
-    assert OFF in run
+# just deploy alpha runs deploy.yml (test_every_vm_recipe_takes_the_names_after_it_as_one_json_extra_var), with the
+# no-terminal switch (test_a_run_with_no_terminal_turns_the_desktop_steps_and_deploy_s_sign_ins_off).
 
 
 @pytest.mark.parametrize(
@@ -738,7 +749,6 @@ def test_each_sign_in_runs_its_playbook_and_none_all_three(tmp_path: Path, only:
     run = _playbook(tmp_path, "login", "alpha", "beta", *(["--only", only] if only else []))
     assert run[-1] == playbook, run
     assert '{"vm_name": "alpha,beta"}' in run
-    assert OFF in run
 
 
 @pytest.mark.parametrize(
@@ -1043,8 +1053,10 @@ def test_code_passes_a_project_as_its_own_json_extra_var(tmp_path: Path, value: 
     ], run
 
 
-def test_code_without_a_project_passes_none(tmp_path: Path) -> None:
-    assert not any("vm_project" in arg for arg in _playbook(tmp_path, "code", "alpha"))
+def test_code_without_its_options_passes_none_of_their_vars(tmp_path: Path) -> None:
+    # Without --editor, the editor setting is the inventory's alone.
+    run = _playbook(tmp_path, "code", "alpha")
+    assert not [arg for arg in run if any(var in arg for var in ("vm_project", "vm_session", "vm_editor"))], run
 
 
 @pytest.mark.parametrize(
@@ -1067,12 +1079,6 @@ def test_code_refuses_a_bad_project_before_the_playbook(tmp_path: Path, value: s
     assert error in _refused(tmp_path, "code", "alpha", "--project", value)
 
 
-@pytest.mark.parametrize("recipe", ["deploy", "login", "status", "destroy"])
-def test_only_code_takes_a_project(tmp_path: Path, recipe: str) -> None:
-    output = _refused(tmp_path, recipe, "alpha", "--project", "repo")
-    assert "does not have option `--project`" in output or NOT_MATCHED in output
-
-
 # ----------------------------------------------------------------- --editor ----
 
 
@@ -1083,8 +1089,6 @@ def test_code_passes_an_editor_as_its_own_json_extra_var(tmp_path: Path) -> None
         "-e",
         '{"vm_editor": "vscode"}',
     ], run
-    (tmp_path / "none").mkdir()
-    assert not any("vm_editor" in arg for arg in _playbook(tmp_path / "none", "code", "alpha"))
     (tmp_path / "zed").mkdir()
     assert '{"vm_editor": "zed"}' in _playbook(tmp_path / "zed", "code", "alpha", "--editor", "zed")
 
@@ -1110,10 +1114,6 @@ def test_code_passes_a_session_as_its_own_json_extra_var(tmp_path: Path) -> None
         "-e",
         f'{{"vm_session": "{SESSION_ID}"}}',
     ], run
-
-
-def test_code_without_a_session_passes_none(tmp_path: Path) -> None:
-    assert not any("vm_session" in arg for arg in _playbook(tmp_path, "code", "alpha", "--project", "repo"))
 
 
 BAD_SESSIONS = [
@@ -1149,18 +1149,15 @@ def test_the_session_check_takes_a_session_id_or_none(value: str) -> None:
     assert subprocess.run([str(REPO / "tools" / "check"), "session", value], check=False).returncode == 0
 
 
-def test_a_project_or_session_is_never_run_as_code(tmp_path: Path) -> None:
-    ran = tmp_path / "ran"
-    for option in ("--project", "--session"):
-        _refused(tmp_path, "code", "alpha", option, f"$(touch {ran})")
-        _refused(tmp_path, "code", "alpha", option, f"`touch {ran}`")
-    assert not ran.exists()
-
-
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("--project", "repo"), ("--session", SESSION_ID), ("--editor", "vscode")],
+    ids=["project", "session", "editor"],
+)
 @pytest.mark.parametrize("recipe", ["deploy", "login", "status", "destroy"])
-def test_only_code_takes_a_session(tmp_path: Path, recipe: str) -> None:
-    output = _refused(tmp_path, recipe, "alpha", "--session", SESSION_ID)
-    assert "does not have option `--session`" in output or NOT_MATCHED in output
+def test_only_code_takes_its_options(tmp_path: Path, recipe: str, option: str, value: str) -> None:
+    output = _refused(tmp_path, recipe, "alpha", option, value)
+    assert f"does not have option `{option}`" in output or NOT_MATCHED in output
 
 
 # ---------------------------------------------------------------- a terminal, or none ----
@@ -1176,12 +1173,8 @@ def test_a_run_with_no_terminal_turns_the_desktop_steps_and_deploy_s_sign_ins_of
 
 @pytest.mark.parametrize("args", SIGNING_IN)
 def test_a_run_at_a_terminal_leaves_the_desktop_steps_on(tmp_path: Path, args) -> None:
-    primary, secondary = pty.openpty()
-    try:
-        run = _playbook(tmp_path, *args, stdin=secondary)
-    finally:
-        os.close(primary)
-        os.close(secondary)
+    with _terminal_stdin() as stdin:
+        run = _playbook(tmp_path, *args, stdin=stdin)
     assert OFF not in run, run
 
 
@@ -1627,12 +1620,8 @@ def _init(tmp_path: Path, *args: str, stdin=subprocess.DEVNULL, env=None, settin
 
 
 def _at_a_terminal(tmp_path: Path, *args: str, env=None):
-    primary, secondary = pty.openpty()
-    try:
-        return _init(tmp_path, *args, stdin=secondary, env=env)
-    finally:
-        os.close(primary)
-        os.close(secondary)
+    with _terminal_stdin() as stdin:
+        return _init(tmp_path, *args, stdin=stdin, env=env)
 
 
 def test_ctrl_c_that_init_s_questions_survive_goes_on_to_the_checks(tmp_path: Path) -> None:
@@ -1650,7 +1639,7 @@ def test_ctrl_c_that_init_s_questions_survive_goes_on_to_the_checks(tmp_path: Pa
     ]
 
 
-def test_init_installs_first_then_the_hook_the_config_and_the_questions(tmp_path: Path) -> None:
+def test_init_installs_first_then_the_hook_the_config_the_questions_and_the_checks(tmp_path: Path) -> None:
     hook, hooked = tmp_path / "hooks" / "pre-commit", tmp_path / "hooked"
     result, runs = _init(tmp_path, settings_body=f'[ ! -x "{hook}" ] || touch "{hooked}"')
     assert result.returncode == 0, _output(result)
@@ -1661,15 +1650,17 @@ def test_init_installs_first_then_the_hook_the_config_and_the_questions(tmp_path
     # Never pre-commit install, whose hook names this checkout's Python in the folder every worktree shares.
     assert _runs(tmp_path, "pre-commit") == []
     assert "Created" in result.stdout and (tmp_path / "hosts.yml").exists()
-    assert runs[0][:2] == ["-i", "playbooks/inventory/init.yml"] and runs[0][-1] == "playbooks/init_settings.yml"
-
-
-def test_init_s_copies_are_readable_by_you_alone(tmp_path: Path) -> None:
-    # The vault is plaintext until just vault encrypts it, and the guide has you fill it in by hand first.
-    result, _ = _init(tmp_path)
-    assert result.returncode == 0, _output(result)
+    # The copies readable by you alone: the vault is plaintext until just vault encrypts it, and the guide has you
+    # fill it in by hand first.
     for name in ("hosts.yml", "local.yml", "vault.yml"):
         assert stat.S_IMODE((tmp_path / name).stat().st_mode) == 0o600, name
+    assert runs[0][:2] == ["-i", "playbooks/inventory/init.yml"] and runs[0][-1] == "playbooks/init_settings.yml"
+    # The checks of Proxmox after the questions, loading the project's inventory: no -i of init's own.
+    assert [run[-1] for run in runs] == ["playbooks/init_settings.yml", "playbooks/init_check.yml"]
+    assert "-i" not in runs[1]
+    # The run logged once, on stderr: stdout is the run's own, which just status --json prints JSON on.
+    said = re.findall(r"Logging this run to .*/logs/\d{8}-\d{6}-init\.log", result.stderr)
+    assert len(said) == 1, result.stderr
 
 
 PRE_COMMIT_S_HOOK = (
@@ -1764,14 +1755,6 @@ def test_a_commit_runs_the_hooks_from_the_environment_of_the_checkout_it_is_made
     assert seen.read_text().split() == [str(clone.resolve()), str(worktree.resolve())]
 
 
-def test_init_checks_proxmox_after_its_questions(tmp_path: Path) -> None:
-    result, runs = _init(tmp_path)
-    assert result.returncode == 0, _output(result)
-    assert [run[-1] for run in runs] == ["playbooks/init_settings.yml", "playbooks/init_check.yml"]
-    # The checks load the project's inventory: no -i of init's own.
-    assert "-i" not in runs[1]
-
-
 def test_init_opens_the_vault_for_its_checks_with_vault_pass(tmp_path: Path) -> None:
     (tmp_path / ".vault_pass").write_text("x\n")
     result, runs = _init(tmp_path)
@@ -1823,13 +1806,6 @@ def test_no_prompt_asks_nothing_even_at_a_terminal(tmp_path: Path) -> None:
     result, runs = _at_a_terminal(tmp_path, "--no-prompt")
     assert result.returncode == 0, _output(result)
     assert all(ASK not in run for run in runs), runs
-
-
-def test_init_logs_its_run_once(tmp_path: Path) -> None:
-    result, _ = _init(tmp_path)
-    # On stderr: stdout is the run's own, which just status --json prints JSON on.
-    said = re.findall(r"Logging this run to .*/logs/\d{8}-\d{6}-init\.log", result.stderr)
-    assert len(said) == 1, result.stderr
 
 
 GIVEN = [
@@ -2126,7 +2102,6 @@ def test_every_local_hook_runs_through_env_run() -> None:
     local = [hook for repo in config["repos"] if repo["repo"] == "local" for hook in repo["hooks"]]
     assert local
     assert all(hook["entry"].startswith("tools/env-run ") for hook in local), [hook["entry"] for hook in local]
-    assert os.access(ENV_RUN, os.X_OK)
 
 
 @pytest.mark.parametrize("helper", ["env-run", "check", "run-logged", "git-hook"])
@@ -2261,7 +2236,7 @@ def _testing(tmp_path: Path) -> list[str]:
     settings = _linters(tmp_path)
     _stand_in(tmp_path / "bin", "pytest")
     _stand_in(tmp_path / "bin", "molecule", f'pwd >> "{tmp_path / "molecule-dirs"}"')
-    return [*settings, f"LOG_DIR={tmp_path / 'logs'}"]
+    return settings
 
 
 def _molecule(tmp_path: Path) -> dict[str, list]:
@@ -2310,14 +2285,6 @@ def test_test_runs_lint_and_every_test_or_the_parts_named(tmp_path: Path, args: 
         assert bool(molecule[part]) == (part in runs), (part, molecule)
 
 
-def test_unit_runs_the_unit_tests_on_a_worker_per_cpu(tmp_path: Path) -> None:
-    # pytest-xdist's loadgroup, so that conftest.py keeps each module that shares a fixture on one worker; the
-    # project's plugin first, which reports each test to the drawn run and does nothing without one.
-    result = _just("test", "unit", settings=_testing(tmp_path))
-    assert result.returncode == 0, _output(result)
-    assert _runs(tmp_path, "pytest") == [["-p", "live_pytest", "tests/unit", "-n", "auto", "--dist", "loadgroup"]]
-
-
 @pytest.mark.parametrize(
     ("args", "tool"),
     [
@@ -2357,26 +2324,12 @@ def test_role_narrows_the_role_scenarios(tmp_path: Path, roles: str, expect: lis
 
 
 @pytest.mark.parametrize(
-    ("args", "error"),
-    [
-        (["--role", "bogus"], "--role may name only common, vscode_server"),
-        (["--role", "../x"], NOT_MATCHED),
-        (
-            ["--role", "common", "unit"],
-            "--role narrows the role scenarios, which unit does not run: just test --role common",
-        ),
-    ],
-)
-def test_role_is_checked_before_anything_runs(tmp_path: Path, args: list[str], error: str) -> None:
-    result = _just("test", *args, settings=_testing(tmp_path))
-    assert result.returncode != 0
-    assert error in _output(result)
-    assert not (tmp_path / "order").exists()
-
-
-@pytest.mark.parametrize(
     ("args", "expect"),
     [
+        # The unit tests on a worker per CPU: pytest-xdist's loadgroup, so that conftest.py keeps each module that
+        # shares a fixture on one worker; the project's plugin first, which reports each test to the drawn run and
+        # does nothing without one.
+        (["unit"], ["-p", "live_pytest", "tests/unit", "-n", "auto", "--dist", "loadgroup"]),
         (
             ["unit", "--shard", "2/3"],
             ["-p", "live_pytest", "tests/unit", "-n", "auto", "--dist", "loadgroup", "--shard", "2/3"],
@@ -2388,7 +2341,7 @@ def test_role_is_checked_before_anything_runs(tmp_path: Path, args: list[str], e
         ),
     ],
 )
-def test_shard_runs_one_shard_of_the_unit_tests_and_nothing_else(tmp_path: Path, args, expect) -> None:
+def test_unit_runs_the_unit_tests_or_one_shard_of_them_and_nothing_else(tmp_path: Path, args, expect) -> None:
     # pytest is given tests/unit, so that the conftest.py there, which adds --shard, is read before the options:
     # a bare pytest --shard is refused as an option it does not know, never run as the whole suite.
     result = _just("test", *args, settings=_testing(tmp_path))
@@ -2400,6 +2353,12 @@ def test_shard_runs_one_shard_of_the_unit_tests_and_nothing_else(tmp_path: Path,
 @pytest.mark.parametrize(
     ("args", "error"),
     [
+        (["--role", "bogus"], "--role may name only common, vscode_server"),
+        (["--role", "../x"], NOT_MATCHED),
+        (
+            ["--role", "common", "unit"],
+            "--role narrows the role scenarios, which unit does not run: just test --role common",
+        ),
         (["unit", "--shard", "0/3"], NOT_MATCHED),
         (["unit", "--shard", "2"], NOT_MATCHED),
         (["unit", "--shard", "1/3/4"], NOT_MATCHED),
@@ -2408,7 +2367,7 @@ def test_shard_runs_one_shard_of_the_unit_tests_and_nothing_else(tmp_path: Path,
         (["--role", "common", "--shard", "1/2"], "--shard splits the unit tests and --role narrows the role scenarios"),
     ],
 )
-def test_shard_is_checked_before_anything_runs(tmp_path: Path, args: list[str], error: str) -> None:
+def test_test_s_options_are_checked_before_anything_runs(tmp_path: Path, args: list[str], error: str) -> None:
     result = _just("test", *args, settings=_testing(tmp_path))
     assert result.returncode != 0
     assert error in _output(result)
@@ -2636,9 +2595,17 @@ def test_settings_passes_a_value_as_one_argument_and_runs_none_of_it(tmp_path: P
 
 
 @pytest.mark.parametrize(
-    "args", [["--value", "x"], ["--all", "--value", "x"], ["vm_cores", "--changed", "--value", "8"]]
+    "args",
+    [
+        ["--value", "x"],
+        ["--all", "--value", "x"],
+        ["vm_cores", "--changed", "--value", "8"],
+        ["--reset"],
+        ["--all", "--reset"],
+        ["vm_cores", "--changed", "--reset"],
+    ],
 )
-def test_settings_value_without_one_setting_named_is_refused_before_python_starts(tmp_path: Path, args) -> None:
+def test_settings_value_or_reset_without_one_setting_named_is_refused_before_python_starts(tmp_path, args) -> None:
     result, runs = _settings(tmp_path, *args)
     assert result.returncode != 0 and runs == []
     assert "--value and --reset each change the one setting named beside it" in _output(result)
@@ -2648,13 +2615,6 @@ def test_settings_reset_passes_on_with_its_one_setting(tmp_path: Path) -> None:
     result, runs = _settings(tmp_path, "vm_cores", "--reset", settings=[f"VAULT_PASS={tmp_path / 'none'}"])
     assert result.returncode == 0, _output(result)
     assert runs == [["tools/settings", "--reset=true", "--all=", "--changed=", "--json=", "--", "vm_cores"]]
-
-
-@pytest.mark.parametrize("args", [["--reset"], ["--all", "--reset"], ["vm_cores", "--changed", "--reset"]])
-def test_settings_reset_without_one_setting_named_is_refused_before_python_starts(tmp_path: Path, args) -> None:
-    result, runs = _settings(tmp_path, *args)
-    assert result.returncode != 0 and runs == []
-    assert "--value and --reset each change the one setting named beside it" in _output(result)
 
 
 def test_settings_reset_beside_a_value_is_refused_before_python_starts(tmp_path: Path) -> None:

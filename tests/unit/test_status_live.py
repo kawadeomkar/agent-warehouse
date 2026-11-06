@@ -21,8 +21,6 @@ from harness import ANSIBLE_PLAYBOOK, REPO, _env, fake_fleet
 from test_status import status_root
 from vt import VT
 
-sys.path.insert(0, str(REPO / "callback_plugins"))
-
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 LIVE = {
     "ANSIBLE_CALLBACK_PLUGINS": str(REPO / "callback_plugins"),
@@ -137,31 +135,30 @@ def _shown(vt: VT) -> list[str]:
     return [line.rstrip() for line in vt.transcript()]
 
 
-def test_a_report_that_fits_is_redrawn_in_place_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60)
+def test_a_report_that_fits_is_redrawn_in_place_in_colour_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:
+    # At a colour terminal, as a person's is: a live smoke at one found the run log full of the report's colour codes.
+    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, colour=True)
     assert rc == 0, output.decode(errors="replace")
     assert output.count(b"\x1b[?2026h") >= 3, "the report was not drawn live"
+    assert b"\x1b[1;36mVMS" in output
     report = _report(log)
     # Everything the live frames drew was erased: the screen and its scrollback hold the finished report alone.
     assert _shown(vt) == [line.rstrip() for line in report]
     assert not vt.unknown and vt.frame_wraps == 0
     assert max(vt.ups) < 60
+    # The colour reaches the screen and never the log.
     assert not any(glyph in log for glyph in FRAMES) and "\x1b" not in log
 
 
-def test_a_window_shorter_than_the_report_shows_its_top_and_says_how_much_more(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 14)
+def test_a_short_narrow_window_shows_its_top_never_wraps_and_says_how_much_more(tmp_path, fleet) -> None:
+    # Shorter than the report and narrower than its lines: the frame is cut to both, and the line that says how
+    # much more is left fits 60 columns.
+    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 60, 14)
     assert rc == 0, output.decode(errors="replace")
     assert b"more lines, shown when the run ends" in output
-    # Cut to the height, a frame never scrolls: nothing of it is left in the scrollback.
-    assert _shown(vt) == [line.rstrip() for line in _report(log)]
-    assert max(vt.ups) <= 13 and vt.frame_wraps == 0
-
-
-def test_a_narrow_window_never_wraps_a_frame(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 60, 40)
-    assert rc == 0, output.decode(errors="replace")
-    assert vt.frame_wraps == 0 and not vt.unknown
+    # Cut to the height, a frame never scrolls, and cut to the width it never wraps: nothing of it is left in the
+    # scrollback.
+    assert max(vt.ups) <= 13 and vt.frame_wraps == 0 and not vt.unknown
     # The finished report is printed whole, as text: the terminal wraps it, and nothing else is left.
     assert _shown(vt) == _wrapped(_report(log), 60)
 
@@ -190,15 +187,6 @@ def test_ctrl_c_erases_the_live_region_and_ends_the_run(tmp_path, fleet) -> None
     shown = "\n".join(_shown(vt))
     assert not any(glyph in shown for glyph in FRAMES), shown
     assert "interrupted" in shown.lower(), shown
-
-
-def test_colour_reaches_the_screen_and_never_the_log(tmp_path, fleet) -> None:
-    # A live smoke at a colour terminal found the run log full of the report's colour codes.
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, colour=True)
-    assert rc == 0, output.decode(errors="replace")
-    assert b"\x1b[1;36mVMS" in output
-    assert "\x1b" not in log
-    assert _shown(vt) == [line.rstrip() for line in _report(log)]
 
 
 def test_a_dumb_terminal_is_given_the_finished_report_only(tmp_path, fleet) -> None:

@@ -625,10 +625,11 @@ def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> tupl
     return root, playbook
 
 
-def _status_run(tmp_path, base, *extra, settings=None):
-    """status.yml from a run directory of its own, against the fake at base; returns the report and its model."""
+def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180):
+    """status.yml from a run directory of its own, against the fake at base, with hosts in its inventory; returns the
+    report and its model."""
     root, playbook = status_root(tmp_path, base, settings)
-    report = _run(root, playbook, {}, "--check", *extra, timeout=180)
+    report = _run(root, playbook, hosts or {}, "--check", *extra, timeout=timeout)
     model = None
     for play in report["plays"]:
         for task in play["tasks"]:
@@ -679,6 +680,18 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert {c["method"] for c in after_fixture} == {"GET"}, {
         (c["method"], c["path"]) for c in after_fixture if c["method"] != "GET"
     }
+    # The host key held: status's ssh options reach ssh first, whatever Ansible adds after them, as the stand-in ssh
+    # recorded each call; ssh keeps the first value it is given, and test_status_vms has ssh -G resolve them.
+    ssh_calls = [json.loads(line) for line in (tmp_path / "run" / "ssh.log").read_text().splitlines()]
+    assert ssh_calls, "status never called ssh"
+    for argv in ssh_calls:
+        options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
+        for name, value in (
+            ("stricthostkeychecking", "StrictHostKeyChecking=yes"),
+            ("updatehostkeys", "UpdateHostKeys=no"),
+        ):
+            given = [option for option in options if option.lower().startswith(name + "=")]
+            assert given and given[0] == value, argv
 
 
 @pytest.mark.parametrize(("editor", "name"), [("zed", "Zed"), ("", "VS Code")])
@@ -1049,22 +1062,8 @@ def test_a_report_is_drawn_only_from_the_report_play_s_own_task(callback, monkey
     assert cb._reported and len(shown) == 1 and "VMS" in shown[0], shown
 
 
-def test_a_module_s_warnings_are_shown_plain(callback, monkeypatch) -> None:
-    # ansible-core prints a module's warnings as they are, and a VM's root chooses them: a clipboard write, a title.
-    from ansible._internal._task import UnifiedTaskResult
-
-    cb, terminal = callback(quiet=True)
-    shown = []
-    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append(msg))
-    escapes = "\x1b]52;c;b3duZWQ=\x07\x1b]0;retitled\x07\x9b31m"
-    said = UnifiedTaskResult.from_module_result_dict(
-        {"warnings": ["warned " + escapes], "failed": True, "msg": escapes}
-    )
-    cb._current_task_result = SimpleNamespace(warnings=said.warnings, deprecations=[], exception=said.exception)
-    cb.v2_runner_on_ok(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
-    cb.v2_runner_on_failed(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
-    assert shown and all(not re.search("[\x00-\x08\x0b-\x1f\x7f-\x9f]", line) for line in shown), shown
-    assert "[WARNING]: warned" in shown[0] and "retitled" not in "".join(shown), shown
+# A module's warnings are shown plain, a VM's root choosing them (a clipboard write, a title): ansible-core run for
+# real, test_attention_callback.py's test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too.
 
 
 def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callback, monkeypatch) -> None:

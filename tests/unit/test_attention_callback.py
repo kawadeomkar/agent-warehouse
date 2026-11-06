@@ -172,12 +172,9 @@ def test_untagged_output_is_the_default_callbacks_byte_for_byte(tmp_path):
     ours, _, _ = _play(tmp_path, EVERY_KIND)
     default, _, _ = _play(tmp_path, EVERY_KIND, "default")
     assert "msg: plain" in ours and "FAILED - RETRYING" in ours and "...ignoring" in ours
+    # No NEXT STEPS when nothing was recorded: the default callback, which ours is byte for byte, prints none.
+    assert "NEXT STEPS" not in ours
     assert _masked(ours) == _masked(default)
-
-
-def test_no_next_steps_when_nothing_was_recorded(tmp_path):
-    out, _, _ = _play(tmp_path, EVERY_KIND)
-    assert "NEXT STEPS" not in out
 
 
 def test_a_browser_message_is_a_block_named_for_its_sign_in(tmp_path):

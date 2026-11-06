@@ -67,7 +67,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   request it made a GET; statically, every task it runs and every file and entry point it reaches a read
   or the report's own write. Its callback, driven in process at a stand-in terminal, and the real playbook
   at a pseudo-terminal of the test's own, read back through `tests/unit/vt.py`, a small terminal: a window
-  the report fits, a short one, a narrow one, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
+  the report fits, in colour, one short and narrow, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
   warning between frames, the screen and its scrollback ending in exactly the finished report the log
   holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux
   pty takes the rest of a run's output without blocking it, and the run could end before the frame it acts
@@ -78,13 +78,13 @@ pytest over `tests/unit/`: 2969 tests. By file:
   field for field; status over stand-in VMs with discovery off, each running the three roles' `status` entry points
   with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after
   and the fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
-  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for what it
-  is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this
-  machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway repositories - a
-  worktree under `.claude/worktrees/` and one outside the projects directory, a branch with no upstream, a detached
-  HEAD with commits of its own, a stash, untracked files - every file of them, `.git` included, as it was after.
-  Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
-  ACCESS line names the editor that is set.
+  `ssh -G` resolves them (and as they reach a stand-in `ssh`, first, in `test_status.py`'s run of the fleet), and
+  ssh's two host-key refusals each said for what it is. Every status run in a test gets that refusing stand-in `ssh`
+  (`status_root`), so none reaches a VM or this machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s
+  `work` over real throwaway repositories - a worktree under `.claude/worktrees/` and one outside the projects
+  directory, a branch with no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file
+  of them, `.git` included, as it was after. Each editor's windows are counted under the editors list's keys,
+  `vscode_windows` kept as 1.0 has it, and the ACCESS line names the editor that is set.
 - **`just settings`** (`test_settings.py` 112): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
@@ -471,7 +471,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   --json`: no recipe has a dependency (which `JUST_NO_DEPS` would skip), no assignment starts a program,
   nothing is unstable and no `.env` is read, every public recipe has a `[doc]` and every parameter its
   help and a literal pattern, the VM recipes share one name pattern, no parameter is named like an
-  assignment, `self` passes on every setting, the justfile is as `just --fmt` leaves it, and its
+  assignment, `self` passes on every setting, and its
   `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version. Run: the vault and collections
   checks, each before any playbook, and the rules with `JUST_NO_DEPS` set; a run from another checkout
   refused, and run from a subdirectory, from the checkout spelt in another case and from a copy inside
