@@ -13,23 +13,9 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness import REPO, _every_task
 
-REPO = Path(__file__).resolve().parents[2]
 SET_FACT = ("ansible.builtin.set_fact", "set_fact")
-
-
-def _tasks(node):
-    """Every task in a play list or task list, blocks opened."""
-    for item in node if isinstance(node, list) else []:
-        if not isinstance(item, dict):
-            continue
-        if "tasks" in item or "pre_tasks" in item or "post_tasks" in item or "handlers" in item:
-            for key in ("pre_tasks", "tasks", "post_tasks", "handlers"):
-                yield from _tasks(item.get(key))
-            continue
-        yield item
-        for key in ("block", "rescue", "always"):
-            yield from _tasks(item.get(key))
 
 
 def _names(files: list[Path]) -> tuple[dict, dict]:
@@ -37,7 +23,7 @@ def _names(files: list[Path]) -> tuple[dict, dict]:
     facts: dict[str, set] = {}
     task_vars: dict[str, set] = {}
     for path in files:
-        for task in _tasks(yaml.safe_load(path.read_text())):
+        for task in _every_task(yaml.safe_load(path.read_text())):
             where = str(path.relative_to(REPO))
             if isinstance(task.get("register"), str):
                 facts.setdefault(task["register"], set()).add(where)

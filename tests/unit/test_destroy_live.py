@@ -12,7 +12,6 @@ the region gone; a VM Proxmox would not delete, the one VM failed; and a deletio
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 
@@ -29,7 +28,6 @@ VMS = {
     "alpha": {"running": True, "case": {**EVERYTHING, "node": "nALPHA"}},
     "beta": {"running": False, "case": {"gh": tr.VAULT_TOKEN, "vault": True, "node": "nBETA"}},
 }
-REFUSING_SSH = '#!/bin/sh\necho "ssh: connect to host stand-in port 22: Connection refused" >&2\nexit 255\n'
 
 
 def _seed(base, vms):
@@ -79,10 +77,6 @@ def _inventory(root, port, hostvars):
 
 def _destroy(root, answer, cols=100, rows=30, piped=False, protected=()):
     (root / "saved").mkdir()
-    sshbin = root / "sshbin"
-    sshbin.mkdir()
-    (sshbin / "ssh").write_text(REFUSING_SSH)
-    (sshbin / "ssh").chmod(0o755)
     cert, key = harness._certificate(root)
     servers = []
     try:
@@ -109,7 +103,8 @@ def _destroy(root, answer, cols=100, rows=30, piped=False, protected=()):
         inventory = _inventory(root, port, hostvars)
         title = "destroy " + " ".join(VMS)
         env = kit.environment(root, title, ANSIBLE_ROLES_PATH=str(harness.REPO / "roles"))
-        env["PATH"] = f"{sshbin}{os.pathsep}{env['PATH']}"
+        # A refusing ssh first: no real one is ever reached.
+        env["PATH"] = harness._refusing_ssh(root)["PATH"]
         extra = {"vm_name": ",".join(VMS), "ansible_become": False, "tailscale_settle_seconds": 3}
         if piped:
             extra["confirm_destroy"] = "yes"

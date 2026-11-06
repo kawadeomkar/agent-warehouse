@@ -39,6 +39,7 @@ import importlib.util
 import json
 import os
 import pty
+import re
 import select
 import signal
 import socket
@@ -165,28 +166,153 @@ exit 1
 """
 
 
-def _stand_in_hosts(root: Path, logins: dict) -> dict:
-    """Inventory hosts, one per canned login, whose modules run with the stand-ins; returns their hostvars."""
+# What the stand-ins record, each in a file of its own: read as it is, empty while the file is missing - nothing
+# called that stand-in yet.
+def _text(path: Path) -> str:
+    return path.read_text() if path.exists() else ""
+
+
+def _lines(path: Path) -> list[str]:
+    return _text(path).splitlines()
+
+
+def _json_lines(path: Path) -> list:
+    return [json.loads(line) for line in _lines(path)]
+
+
+# Where the stand-in gh, claude and tailscale (tests/molecule/fake_*.sh) record each call, under a host's directory.
+GH_CALLS = (".config", "gh", "calls.log")
+CLAUDE_CALLS = (".claude", "fake", "calls.log")
+TAILSCALE_CALLS = (".tailscale-fake", "calls.log")
+
+
+def _calls(root: Path, host: str, *path: str) -> list[str]:
+    """What a stand-in recorded under host's directory, at path - GH_CALLS, say: a call a line."""
+    return _lines(root.joinpath(host, *path))
+
+
+def _executable(path: Path, text: str) -> Path:
+    """Write text to path as a program anyone may run; returns path."""
+    path.write_text(text)
+    path.chmod(0o755)
+    return path
+
+
+# Every user on the Ubuntu VMs the github_projects role configures has a group
+# of the same name, which its directory task sets; macOS has none for the
+# developer. Asked for that group, the modules of a host made with own_group
+# get the user's own primary group instead, so the role runs to its end here
+# as on a VM. It is the sitecustomize of OWN_GROUP_PYTHON, the interpreter
+# wrapper with root/pylib on its PYTHONPATH.
+OWN_GROUP = """import grp
+import os
+import pwd
+
+_getgrnam = grp.getgrnam
+_me = pwd.getpwuid(os.getuid()).pw_name
+
+
+def _getgrnam_or_own(name):
+    try:
+        return _getgrnam(name)
+    except KeyError:
+        if name != _me:
+            raise
+        return grp.getgrgid(os.getgid())
+
+
+grp.getgrnam = _getgrnam_or_own
+"""
+_WRAPPER = STAND_INS["python"].splitlines(keepends=True)
+_EXEC = next(index for index, line in enumerate(_WRAPPER) if line.startswith("exec "))
+OWN_GROUP_PYTHON = "".join(
+    [*_WRAPPER[:_EXEC], 'PYTHONPATH="$(dirname "$(dirname "$0")")/pylib"\n', "export PYTHONPATH\n", *_WRAPPER[_EXEC:]]
+)
+
+# ssh, scp and sftp for a VM that is down: what ssh says when nothing listens,
+# and the exit status the ssh plugin takes for "unreachable".
+SSH_REFUSED = """#!/bin/sh
+echo "$*" >> "$(dirname "$0")/ssh.log"
+echo "ssh: connect to host 192.0.2.10 port 22: Connection refused" >&2
+exit 255
+"""
+
+# The ssh first on a run's PATH, for a run that would otherwise reach this machine's own (_refusing_ssh), where
+# SSH_REFUSED is a host's connection: it records how it was called, a line each, in ssh-calls.log beside it, and
+# refuses as an unreachable host does.
+REFUSING_SSH = """#!/bin/sh
+printf '%s\\n' "$*" >> "$(dirname "$0")/ssh-calls.log"
+echo "ssh: connect to host stand-in port 22: Connection refused" >&2
+exit 255
+"""
+
+# What `getent passwd <user>` answers on the stand-in hosts: the user's home is
+# the host's own directory, as HOME already is for every module. macOS has no
+# getent, and the roles' entry points look the home up with it.
+GETENT = """#!/bin/sh
+[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
+printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
+"""
+
+
+def _local_hosts(
+    root: Path, names: Iterable[str], tools: dict | None = None, *, own_group: bool = False, address: str = "192.0.2.10"
+) -> dict:
+    """Stand-in VMs over the local connection, one per name, each with a directory of its own under root; their
+    hostvars, which the caller adds to.
+
+    root/bin holds the interpreter wrapper (STAND_INS["python"], or with own_group OWN_GROUP_PYTHON) and each of
+    tools, {name: text}, which the wrapper puts first on the modules' PATH; each host's interpreter is a link to it in
+    its own directory, its HOME. address is the ansible_host each is given, none when empty.
+    """
     bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in STAND_INS.items():
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
+    bin_dir.mkdir(parents=True)
+    _executable(bin_dir / "python", OWN_GROUP_PYTHON if own_group else STAND_INS["python"])
+    if own_group:
+        (root / "pylib").mkdir()
+        (root / "pylib" / "sitecustomize.py").write_text(OWN_GROUP)
+    for name, text in (tools or {}).items():
+        _executable(bin_dir / name, text)
     hosts = {}
-    for name, (status, rc) in logins.items():
+    for name in names:
         home = root / name
         home.mkdir()
-        (home / "status.json").write_text(json.dumps(status))
-        (home / "rc").write_text(str(rc))
         (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
             "ansible_connection": "local",
             "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
-            # The home the role reads ~/.claude from: the host's directory,
-            # never the developer's.
-            "claude_code_home": str(home),
+            **({"ansible_host": address} if address else {}),
         }
+    return hosts
+
+
+def _unreachable(hostvars: dict, root: Path) -> None:
+    """Make a host of _local_hosts a VM that is down: reached over ssh, which the stand-in in root/bin refuses, so
+    nothing leaves this machine and nothing reads ~/.ssh."""
+    refused = str(_executable(root / "bin" / "ssh", SSH_REFUSED))
+    hostvars.update(
+        ansible_connection="ssh",
+        ansible_ssh_executable=refused,
+        ansible_scp_executable=refused,
+        ansible_sftp_executable=refused,
+        # No ControlPersist, so no socket directory is made for it.
+        ansible_ssh_args="",
+        ansible_control_path_dir=str(root / "cp"),
+    )
+
+
+def _stand_in_hosts(root: Path, logins: dict, **options) -> dict:
+    """Inventory hosts, one per canned login, whose modules run with the stand-ins; returns their hostvars.
+
+    options go to _local_hosts."""
+    hosts = _local_hosts(root, logins, {name: text for name, text in STAND_INS.items() if name != "python"}, **options)
+    for name, (status, rc) in logins.items():
+        home = root / name
+        (home / "status.json").write_text(json.dumps(status))
+        (home / "rc").write_text(str(rc))
+        # The home the role reads ~/.claude from: the host's directory,
+        # never the developer's.
+        hosts[name]["claude_code_home"] = str(home)
     return hosts
 
 
@@ -202,15 +328,29 @@ def _desktop(root: Path) -> Path:
     desktop = root / ".desktop"
     desktop.mkdir(exist_ok=True)
     for tool in (*DESKTOP_TOOLS, *GUARDED_TOOLS):
-        (desktop / tool).write_text(DESKTOP_STAND_IN)
-        (desktop / tool).chmod(0o755)
+        _executable(desktop / tool, DESKTOP_STAND_IN)
     return desktop
 
 
 def _desktop_calls(root: Path) -> str:
     """What the desktop stand-ins under root were asked to do: nothing, in a test that keeps to its rules."""
-    calls = root / ".desktop" / "calls.log"
-    return calls.read_text() if calls.exists() else ""
+    return _text(root / ".desktop" / "calls.log")
+
+
+def _refusing_ssh(root: Path, env: dict | None = None) -> dict:
+    """env with REFUSING_SSH first on PATH, from root/ssh-stand-in, and the desktop stand-ins after it: a run given
+    it as its env reaches no real ssh."""
+    stand_in = root / "ssh-stand-in"
+    stand_in.mkdir(exist_ok=True)
+    _executable(stand_in / "ssh", REFUSING_SSH)
+    return (env or {}) | {
+        "PATH": f"{stand_in}{os.pathsep}{_desktop(root)}{os.pathsep}{os.environ.get('PATH', os.defpath)}"
+    }
+
+
+def _ssh_calls(root: Path) -> str:
+    """What the refusing ssh under root was asked, a call a line: nothing, where no run reached for ssh."""
+    return _text(root / "ssh-stand-in" / "ssh-calls.log")
 
 
 def _fail_if_the_desktop_was_reached(root: Path) -> None:
@@ -580,8 +720,58 @@ def _messages(report: dict, task: str) -> dict:
     }
 
 
+def _ran(report: dict, task: str, host: str | None = None) -> dict:
+    """The results of the tasks whose name ends with `task`, skipped ones left out: {host: [result, ...]}, in the
+    order they ran, for host alone when given."""
+    ran: dict = {}
+    for name, where, result in _results(report):
+        if name.endswith(task) and not result.get("skipped") and host in (None, where):
+            ran.setdefault(where, []).append(result)
+    return ran
+
+
 def _failures(report: dict) -> dict:
+    """What failed each host, by its last failed task: rescued failures too, and never a host unreachable."""
     return {host: f"{name}: {result.get('msg')}" for name, host, result in _results(report) if result.get("failed")}
+
+
+def _standing(report: dict) -> dict:
+    """What the run failed each host with, unlike _failures with a rescued failure left out and an unreachable host
+    in: the last failure of each host, if it stands."""
+    failures = {}
+    for name, host, result in _results(report):
+        if result.get("failed") or result.get("unreachable"):
+            failures[host] = f"{name}: {result.get('msg')}"
+    return {host: text for host, text in failures.items() if report["stats"][host]["failures"]}
+
+
+def _batches(report: dict, play: str) -> list[list[str]]:
+    """The hosts of each batch the play ran: the json callback reports each batch of a serial play as a play."""
+    return [
+        sorted({host for task in entry["tasks"] for host in task["hosts"]})
+        for entry in report["plays"]
+        if entry["play"]["name"] == play
+    ]
+
+
+def _task_seconds(report: dict, task: str, host: str) -> float:
+    """How long the task whose name ends with `task` ran for the host: the first that ran for it."""
+    for play in report["plays"]:
+        for entry in play["tasks"]:
+            if entry["task"]["name"].endswith(task) and host in entry["hosts"]:
+                duration = entry["task"]["duration"]
+                start, end = (
+                    datetime.datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end")
+                )
+                return (end - start).total_seconds()
+    raise AssertionError(f"no task {task!r} ran for {host}")
+
+
+def _init_next(report: dict) -> dict:
+    """What a run of just init's recorded for NEXT STEPS, by matter: just init's only, under a key no VM can have."""
+    left = _left_to_do(report)
+    assert set(left) <= {"just init"}, left
+    return left.get("just init", {})
 
 
 def _leaked(report: dict, secrets) -> list:
@@ -590,6 +780,46 @@ def _leaked(report: dict, secrets) -> list:
     text = json.dumps(report)
     assert '"invocation"' in text, "no module arguments in the report: run it with ansible_inject_invocation"
     return [secret for secret in secrets if secret in text]
+
+
+# ------------------------------------------------------ the files themselves ---
+def _every_task(node):
+    """Every task in a play list or a task list, in order: a play's pre_tasks, tasks, post_tasks and handlers, and
+    each block yielded before its block, rescue and always."""
+    for item in node if isinstance(node, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if "tasks" in item or "pre_tasks" in item or "post_tasks" in item or "handlers" in item:
+            for key in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                yield from _every_task(item.get(key))
+            continue
+        yield item
+        for key in ("block", "rescue", "always"):
+            yield from _every_task(item.get(key))
+
+
+# What of a task is never logged: its name, its conditions, what it registers, no_log itself and its tags.
+NOT_LOGGED = frozenset({"name", "when", "changed_when", "failed_when", "until", "register", "no_log", "tags"})
+
+
+def _rendering(tasks: Iterable[dict], pattern: re.Pattern, *, ignore: Iterable[str] = NOT_LOGGED) -> dict:
+    """Each of tasks that renders what pattern matches, in anything but ignore's keys, by name: its no_log. A block
+    is its tasks, each looked at on its own."""
+    rendering = {}
+    for task in tasks:
+        if "block" in task:
+            continue
+        if pattern.search(json.dumps({key: value for key, value in task.items() if key not in ignore})):
+            rendering[task["name"]] = task.get("no_log")
+    return rendering
+
+
+def _scenario_vars(paths: Iterable[Path]) -> dict:
+    """What the given vars files set, merged in Ansible's order: later files win."""
+    merged: dict = {}
+    for path in paths:
+        merged.update(yaml.safe_load(path.read_text()) or {})
+    return merged
 
 
 # ------------------------------------------------------------ the fake APIs ---
@@ -615,8 +845,17 @@ def _pve_cli_state(directory: Path) -> dict:
 
 def _pve_cli_calls(directory: Path) -> list[list[str]]:
     """Every call the stand-ins in directory took, each its command and words."""
-    log = directory / "calls.log"
-    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return _json_lines(directory / "calls.log")
+
+
+def _pve_cli_writes(directory: Path) -> list[str]:
+    """The calls the stand-ins in directory took that change the host: every pveum but its one read, `user
+    permissions` (tools/proxmox-access.sh lists with pvesh)."""
+    return [
+        " ".join(call)
+        for call in _pve_cli_calls(directory)
+        if call[0] == "pveum" and call[1:3] != ["user", "permissions"]
+    ]
 
 
 def _free_port() -> int:

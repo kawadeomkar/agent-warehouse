@@ -47,7 +47,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -56,20 +55,28 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 from harness import (
     FAKES,
+    GETENT,
     GUARDED_TOOLS,
     PVE_SECRET,
-    STAND_INS,
+    TAILSCALE_CALLS,
     _certificate,
     _env,
+    _every_task,
     _failures,
     _leaked,
     _left_to_do,
+    _lines,
+    _local_hosts,
     _messages,
     _pve,
+    _ran,
+    _rendering,
     _results,
     _run,
     _run_at_a_terminal,
+    _scenario_vars,
     _serve,
+    _task_seconds,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -100,10 +107,6 @@ CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 DPKG_QUERY = """#!/bin/sh
 # Stand-in dpkg-query: what dpkg says about tailscale on this host.
 cat "$STAND_IN/dpkg-status" 2>/dev/null || { echo "dpkg-query: no packages found matching tailscale" >&2; exit 1; }
-"""
-GETENT = """#!/bin/sh
-[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
-printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
 """
 
 
@@ -198,20 +201,10 @@ EXTRA = {
 
 def _hosts(root: Path, cases: dict) -> dict:
     """Inventory hosts, one per case, whose modules run the stand-in tailscale with their own HOME; returns hostvars."""
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in (
-        ("python", STAND_INS["python"]),
-        ("tailscale", FAKE.read_text()),
-        ("dpkg-query", DPKG_QUERY),
-        ("getent", GETENT),
-    ):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    hosts = _local_hosts(root, cases, {"tailscale": FAKE.read_text(), "dpkg-query": DPKG_QUERY, "getent": GETENT})
     for name, case in cases.items():
         home = root / name
-        (home / "markers").mkdir(parents=True)
+        (home / "markers").mkdir()
         if case.get("package", True):
             (home / "dpkg-status").write_text("installed")
         if case.get("ours", True) and case.get("package", True):
@@ -227,11 +220,8 @@ def _hosts(root: Path, cases: dict) -> dict:
         state.mkdir()
         for file_name, content in case.get("ts", {}).items():
             (state / file_name).write_text(content)
-        (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
+            **hosts[name],
             "tailscale_marker_dir": str(home / "markers"),
             "tailscale_auth_key": KEYS[case["key"]] if case.get("key") else "",
             # Never the developer's browser: the guard below holds every scenario to it.
@@ -268,8 +258,7 @@ def _role_run(root: Path, hosts: dict, *args: str) -> dict:
 
 
 def _calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".tailscale-fake" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _lines(root.joinpath(host, *TAILSCALE_CALLS))
 
 
 def _ups(calls: list[str]) -> list[str]:
@@ -728,17 +717,6 @@ WEB_CASES = {
 WEB_EXTRA = {**EXTRA, "claude_vm_discovery": False, "tailscale_login_poll_seconds": 1}
 
 
-def _seconds(report: dict, task: str, host: str) -> float:
-    """How long the task whose name ends with `task` ran for the host: the sign-in runs one VM per batch."""
-    for play in report["plays"]:
-        for entry in play["tasks"]:
-            if entry["task"]["name"].endswith(task) and host in entry["hosts"]:
-                duration = entry["task"]["duration"]
-                start, end = (datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end"))
-                return (end - start).total_seconds()
-    raise AssertionError(f"no task {task!r} ran for {host}")
-
-
 @pytest.fixture(scope="module")
 def web_logins(tmp_path_factory):
     """just login <every host> --only tailscale: one VM at a time, each signed in where it can be."""
@@ -828,7 +806,7 @@ def test_an_approval_that_waits_for_an_admin_ends_the_wait_and_is_said(web_login
     assert "admin-late" in _messages(report, SAY_PAGE)
     # NeedsMachineAuth ends the wait at the poll that sees it, never the
     # 30 seconds this run waits for an approval.
-    assert _seconds(report, "Wait for the page to be approved", "admin-late") < 15
+    assert _task_seconds(report, "Wait for the page to be approved", "admin-late") < 15
     assert _said(report)["admin-late"] == (
         "admin-late: signed in to Tailscale and waiting for an admin to approve it at"
         " https://login.tailscale.com/admin/machines; it connects by itself once approved."
@@ -1053,11 +1031,7 @@ def _deploy_step(root: Path, **extra) -> dict:
 
 
 def _asked(report: dict) -> set:
-    return {
-        host
-        for name, host, result in _results(report)
-        if name.endswith("Ask whether to sign this VM in to Tailscale now") and not result.get("skipped")
-    }
+    return set(_ran(report, "Ask whether to sign this VM in to Tailscale now"))
 
 
 @pytest.fixture(scope="module")
@@ -1077,11 +1051,8 @@ def test_just_deploy_starts_the_web_login_by_itself_for_every_vm_but_one_whose_c
 
 
 def _not_started(report: dict) -> list:
-    return [
-        (host, result["msg"])
-        for name, host, result in _results(report)
-        if name == "Say why Tailscale's sign-in was not started" and not result.get("skipped")
-    ]
+    said = _ran(report, "Say why Tailscale's sign-in was not started")
+    return [(host, result["msg"]) for host, results in said.items() for result in results]
 
 
 NOT_STARTED = (
@@ -1476,7 +1447,7 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
     def add_hosts(playbook: str) -> list:
         tasks = []
         for play in yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text()):
-            tasks += _all_tasks(play.get("tasks", []))
+            tasks += _every_task(play.get("tasks", []))
         return [task["ansible.builtin.add_host"] for task in tasks if "ansible.builtin.add_host" in task]
 
     # Only reads them: no run of status's here (test_status.py holds every one to status_root).
@@ -1542,35 +1513,20 @@ def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():
 
 
 # ------------------------------------------------------------ static guards ---
-def _all_tasks(tasks: list) -> list:
-    """Every task, those inside blocks and rescues included."""
-    found = []
-    for task in tasks or []:
-        found.append(task)
-        for key in ("block", "rescue", "always"):
-            found.extend(_all_tasks(task.get(key, [])))
-    return found
-
-
 def _role_tasks() -> dict:
-    return {path.name: _all_tasks(yaml.safe_load(path.read_text())) for path in sorted((ROLE / "tasks").glob("*.yml"))}
+    return {
+        path.name: list(_every_task(yaml.safe_load(path.read_text())))
+        for path in sorted((ROLE / "tasks").glob("*.yml"))
+    }
 
 
-NOT_LOGGED = {"name", "when", "changed_when", "failed_when", "until", "register", "no_log", "tags"}
 KEY_VAR = re.compile(r"\btailscale_auth_key\b")
 
 
 def test_only_the_join_renders_the_key_and_it_is_no_log():
     # Without no_log the key goes to the VM's journal - a module logs the
     # arguments its spec does not mark no_log, stdin included - and into results.
-    rendering = {}
-    for tasks in _role_tasks().values():
-        for task in tasks:
-            if "block" in task:
-                continue
-            args = {key: value for key, value in task.items() if key not in NOT_LOGGED}
-            if KEY_VAR.search(json.dumps(args)):
-                rendering[task["name"]] = task.get("no_log")
+    rendering = _rendering((task for tasks in _role_tasks().values() for task in tasks), KEY_VAR)
     assert rendering == {JOIN: True}, rendering
 
 
@@ -1607,7 +1563,7 @@ def test_the_log_switch_is_a_drop_in_written_before_the_package():
 def test_off_never_disables_the_unit_of_a_package_it_then_removes():
     # deb-systemd-helper remembers a disable, and a Tailscale installed again by
     # hand afterwards came up disabled and never started.
-    absent = _all_tasks(yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()))
+    absent = _every_task(yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()))
     stop = next(task for task in absent if task.get("name") == "absent | Stop tailscaled")
     enabled = stop["ansible.builtin.systemd_service"]["enabled"]
     assert enabled == "{{ omit if tailscale_package_present | bool else false }}", enabled
@@ -1719,13 +1675,6 @@ def test_configure_runs_the_role_last_in_a_rescued_block_and_deploy_defers_its_f
 
 
 # ------------------------------------------- every test setup kept off Tailscale ---
-def _scenario_vars(paths) -> dict:
-    merged: dict = {}
-    for path in paths:
-        merged.update(yaml.safe_load(path.read_text()) or {})
-    return merged
-
-
 def _runs_the_role(scenario: Path) -> bool:
     return any(
         re.search(r"configure\.yml|deploy\.yml|role: tailscale|name: tailscale", path.read_text())

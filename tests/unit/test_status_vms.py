@@ -21,9 +21,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, REPO, STAND_INS, _run
+from harness import FAKES, GETENT, REPO, _local_hosts, _run
 from test_status import PROMISED_KEYS, T, status_root
-from test_tailscale import DPKG_QUERY, GETENT, NODE, _joined
+from test_tailscale import DPKG_QUERY, NODE, _joined
 
 from claude_vm.editors.model import ProcessMatch
 from claude_vm.editors.registry import editor_servers
@@ -270,23 +270,16 @@ EXTRA = {
 
 def _vms(root: Path, cases: dict) -> dict:
     """Inventory hosts, one per case, whose modules run with the stand-ins in their own HOME; returns hostvars."""
-    bin_dir = root / "bin"
-    bin_dir.mkdir(parents=True)
-    for name, text in (
-        ("python", STAND_INS["python"]),
-        ("systemctl", SYSTEMCTL),
-        ("gh", (FAKES / "fake_gh.sh").read_text()),
-        ("tailscale", (FAKES / "fake_tailscale.sh").read_text()),
-        ("dpkg-query", DPKG_QUERY),
-        ("getent", GETENT),
-    ):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    tools = {
+        "systemctl": SYSTEMCTL,
+        "gh": (FAKES / "fake_gh.sh").read_text(),
+        "tailscale": (FAKES / "fake_tailscale.sh").read_text(),
+        "dpkg-query": DPKG_QUERY,
+        "getent": GETENT,
+    }
+    hosts = _local_hosts(root, cases, tools)
     for name, case in cases.items():
         home = root / name
-        home.mkdir()
-        (home / "python").symlink_to(bin_dir / "python")
         if case["claude"]:
             versions = home / ".local" / "share" / "claude" / "versions"
             versions.mkdir(parents=True)
@@ -323,16 +316,13 @@ def _vms(root: Path, cases: dict) -> dict:
             (checkout / "README").write_text("proj\n")
             subprocess.run(["git", "add", "README"], cwd=checkout, check=True, env=env)
             subprocess.run(["git", "commit", "-q", "-m", "start"], cwd=checkout, check=True, env=env)
-        hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
-            "claude_code_home": str(home),
-            "github_projects_home": str(home),
-            "tailscale_marker_dir": str(home / "markers"),
-            "status_system_root": str(home / "system"),
-            "ansible_inject_invocation": True,
-        }
+        hosts[name].update(
+            claude_code_home=str(home),
+            github_projects_home=str(home),
+            tailscale_marker_dir=str(home / "markers"),
+            status_system_root=str(home / "system"),
+            ansible_inject_invocation=True,
+        )
     return hosts
 
 

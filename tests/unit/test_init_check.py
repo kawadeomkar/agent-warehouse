@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,19 +26,25 @@ from harness import (
     PVE_SECRET,
     REPO,
     _certificate,
-    _desktop,
     _env,
+    _every_task,
+    _executable,
     _failures,
     _free_port,
+    _init_next,
     _left_to_do,
     _messages,
     _pve,
+    _refusing_ssh,
     _results,
     _run,
     _run_at_a_terminal,
     _serve,
+    _ssh_calls,
     _stand_in_hosts,
+    _text,
 )
+from harness import REFUSING_SSH as SSH_STAND_IN
 
 PLAYBOOK = REPO / "playbooks" / "init_check.yml"
 CLUSTER_VMS = REPO / "playbooks" / "tasks" / "cluster_vms.yml"
@@ -59,11 +64,6 @@ ROLE_8 = [
     "Datastore.Audit",
     "SDN.Use",
 ]
-SSH_STAND_IN = """#!/bin/sh
-printf '%s\\n' "$*" >> "$(dirname "$0")/ssh-calls.log"
-echo "ssh: connect to host 127.0.0.1 port 22: Connection refused" >&2
-exit 255
-"""
 # The node it says it is: pve, or what hostname-is beside it holds.
 HOSTNAME_STAND_IN = """#!/bin/sh
 printf '%s\\n' "$*" >> "$(dirname "$0")/hostname-calls.log"
@@ -111,19 +111,15 @@ def _inventory_of(
     if pve == "local":
         if not (root / "bin").exists():
             hostvars = _stand_in_hosts(root, {"pve": LOGINS["logged-out"]})["pve"]
-            (root / "bin" / "hostname").write_text(HOSTNAME_STAND_IN)
-            (root / "bin" / "hostname").chmod(0o755)
+            _executable(root / "bin" / "hostname", HOSTNAME_STAND_IN)
         else:
             hostvars = {"ansible_connection": "local", "ansible_python_interpreter": str(root / "pve" / "python")}
         hostvars |= {"ansible_host": host, "ansible_user": "root"}
         env = {}
     else:
-        stand_ins = root / "ssh-stand-in"
-        stand_ins.mkdir(exist_ok=True)
-        (stand_ins / "ssh").write_text(SSH_STAND_IN)
-        (stand_ins / "ssh").chmod(0o755)
         hostvars = {"ansible_connection": "ssh", "ansible_host": host, "ansible_user": "root"}
-        env = {"PATH": f"{stand_ins}{os.pathsep}{_desktop(root)}{os.pathsep}{os.environ.get('PATH', os.defpath)}"}
+        # The refusing ssh first on PATH (SSH_STAND_IN).
+        env = _refusing_ssh(root)
     hosts = {"pve": hostvars} if proxmox_host else {}
     (root / "proxmox.yml").write_text(yaml.safe_dump({"proxmox": {"hosts": hosts}}))
     paths = {"init_vault_file": str(vault_file), "init_ssh_dir": str(root / "ssh"), "init_local_file": str(local)}
@@ -166,26 +162,13 @@ def _said(report: dict) -> str:
     return "\n".join(str(message) for message in _messages(report, "Say what each check found").values())
 
 
-def _next(report: dict) -> dict:
-    """What the run recorded for NEXT STEPS, by matter: just init's only, under a key no VM can have."""
-    left = _left_to_do(report)
-    assert set(left) <= {"just init"}, left
-    return left.get("just init", {})
-
-
 def _calls(tmp_path: Path) -> list[dict]:
     log = tmp_path / "pve" / "calls.log"
     return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
 
-def _ssh_calls(root: Path) -> str:
-    log = root / "ssh-stand-in" / "ssh-calls.log"
-    return log.read_text() if log.exists() else ""
-
-
 def _hostname_calls(root: Path) -> str:
-    log = root / "bin" / "hostname-calls.log"
-    return log.read_text() if log.exists() else ""
+    return _text(root / "bin" / "hostname-calls.log")
 
 
 # ------------------------------------------------------------------- the checks ---
@@ -223,7 +206,7 @@ def test_every_check_passes_on_a_host_with_its_template_and_every_default_fits(t
     assert asked == []
     # The one step left, said last and kept for NEXT STEPS.
     assert said.rstrip().endswith("\n" + DEPLOY_NEXT)
-    assert _next(report) == {"init_check": DEPLOY_NEXT}
+    assert _init_next(report) == {"init_check": DEPLOY_NEXT}
 
 
 def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
@@ -439,7 +422,7 @@ def test_a_plaintext_vault_is_a_problem(tmp_path: Path, fake_pve: str) -> None:
     report = _check(root, fake_pve, "ssh", vault="vault_proxmox_api_token_secret: x\n")
     assert report["rc"] != 0
     assert "!!   vault.yml is not encrypted, and every recipe refuses it: just vault encrypts it" in _said(report)
-    assert _next(report) == {
+    assert _init_next(report) == {
         "init_check": "just init found 1 problem for just deploy: fix it, then run just init again.\n"
         "  !!   vault.yml is not encrypted, and every recipe refuses it: just vault encrypts it"
     }
@@ -709,7 +692,7 @@ def test_next_steps_keep_each_problem_with_its_fix_and_no_deploy(tmp_path: Path,
     keyless = {"vm_ssh_public_keys": [], "vault_vm_password": ""}
     report = _check(root, fake_pve, "ssh", keyless, vault="vault_proxmox_api_token_secret: x\n")
     assert report["rc"] != 0
-    line = _next(report)["init_check"]
+    line = _init_next(report)["init_check"]
     problems = [text for text in _said(report).splitlines() if text.startswith("  !!   ")]
     assert len(problems) == 2, problems
     assert line == "\n".join(
@@ -725,7 +708,7 @@ def test_next_steps_leave_just_deploy_to_the_github_username(tmp_path: Path, fak
     report = _check(root, fake_pve, "ssh", {"vault_github_username": "your-github-username"})
     assert report["rc"] == 0, _failures(report)
     assert "!!" not in _said(report) and "just deploy alpha" not in _said(report)
-    assert _next(report) == {"init_check": ""}
+    assert _init_next(report) == {"init_check": ""}
 
 
 def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path: Path, fake_pve: str) -> None:
@@ -737,7 +720,7 @@ def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path
     report = _check(root, fake_pve, "ssh", {"proxmox_node": "pve2"})
     assert report["rc"] == 0, _failures(report)
     assert "ok   node pve2: it holds the template" in _said(report) and "just deploy alpha" not in _said(report)
-    assert _next(report) == {
+    assert _init_next(report) == {
         "init_check": "just init could not check all that just deploy needs: run it again once it can.\n"
         "  --   the storage is not checked: node pve2 is not up\n"
         "  --   the template's bridge is not checked: node pve2 is not up"
@@ -745,17 +728,6 @@ def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path
 
 
 # ------------------------------------------------------------------- static ---
-def _tasks(node):
-    for item in node if isinstance(node, list) else []:
-        if isinstance(item, dict):
-            if "tasks" in item:
-                yield from _tasks(item["tasks"])
-                continue
-            yield item
-            for key in ("block", "rescue", "always"):
-                yield from _tasks(item.get(key))
-
-
 READ_ONLY = {
     "ansible.builtin.uri",
     "ansible.builtin.command",
@@ -788,7 +760,7 @@ def test_every_task_is_a_read_but_the_settings_written():
     # choice, a question or local.yml's writer - the one thing that writes, a
     # setting at a time.
     files = (PLAYBOOK, CLUSTER_VMS, CHOOSE)
-    tasks = [task for path in files for task in _tasks(yaml.safe_load(path.read_text()))]
+    tasks = [task for path in files for task in _every_task(yaml.safe_load(path.read_text()))]
     for task in tasks:
         if "block" in task:
             assert set(task) <= TASK_KEYS | {"block", "rescue", "always"}, task["name"]
@@ -807,7 +779,7 @@ def test_every_task_is_a_read_but_the_settings_written():
             entry = (task[module]["name"], task[module]["tasks_from"])
             assert set(task[module]) == {"name", "tasks_from"} and entry in ROLE_ENTRY_POINTS, task["name"]
             path = REPO / "roles" / entry[0] / "tasks" / f"{entry[1]}.yml"
-            assert {next(iter(set(t) - TASK_KEYS)) for t in _tasks(yaml.safe_load(path.read_text()))} == {
+            assert {next(iter(set(t) - TASK_KEYS)) for t in _every_task(yaml.safe_load(path.read_text()))} == {
                 "ansible.builtin.set_fact"
             }, path
 
@@ -818,7 +790,7 @@ def test_a_setting_is_written_only_at_a_terminal_or_as_given():
     writers = {
         task["name"]: " ".join(str(task["when"]).split())
         for path in (PLAYBOOK, CHOOSE)
-        for task in _tasks(yaml.safe_load(path.read_text()))
+        for task in _every_task(yaml.safe_load(path.read_text()))
         if str(task.get("ansible.builtin.include_tasks", "")).endswith("init_local_setting.yml")
     }
     assert sorted(writers) == [
@@ -847,7 +819,7 @@ def test_the_playbook_has_no_duplicate_key(tmp_path):
 
 
 def test_every_uri_call_passes_the_ca_and_hides_the_token():
-    for task in _tasks(yaml.safe_load(PLAYBOOK.read_text())):
+    for task in _every_task(yaml.safe_load(PLAYBOOK.read_text())):
         if "ansible.builtin.uri" in task:
             uri = task["ansible.builtin.uri"]
             assert uri["ca_path"] == "{{ proxmox_api_ca_path | default(omit, true) }}", task["name"]

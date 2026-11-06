@@ -80,18 +80,25 @@ import pytest
 import yaml
 from harness import (
     ANSIBLE_PLAYBOOK,
+    CLAUDE_CALLS,
     REPO,
     STAND_INS,
+    _batches,
     _end,
     _env,
+    _every_task,
     _failures,
     _inventory,
     _leaked,
     _left_to_do,
+    _lines,
+    _local_hosts,
     _messages,
     _results,
     _run,
     _run_at_a_terminal,
+    _standing,
+    _unreachable,
 )
 
 ROLE = REPO / "roles" / "claude_code"
@@ -131,25 +138,10 @@ ON_HOLD = "Your account is on hold and can't sign in to Claude Code. View detail
 ESCAPES = "\x1b]52;c;b3duZWQ=\x07\x1b]0;retitled\x07\x1b[31m"
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
-# ssh, scp and sftp for a VM that is down: what ssh says when nothing listens,
-# and the exit status the ssh plugin takes for "unreachable".
-SSH_REFUSED = """#!/bin/sh
-echo "$*" >> "$(dirname "$0")/ssh.log"
-echo "ssh: connect to host 192.0.2.10 port 22: Connection refused" >&2
-exit 255
-"""
-
 
 def _hosts(root: Path, cases: dict) -> dict:
     """Inventory hosts, one per case, whose modules run with the stand-ins and their own HOME; returns hostvars."""
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name in ("python", "bash"):
-        (bin_dir / name).write_text(STAND_INS[name])
-        (bin_dir / name).chmod(0o755)
-    (bin_dir / "claude").write_text(FAKE_CLAUDE.read_text())
-    (bin_dir / "claude").chmod(0o755)
-    hosts = {}
+    hosts = _local_hosts(root, cases, {"bash": STAND_INS["bash"], "claude": FAKE_CLAUDE.read_text()})
     for name, case in cases.items():
         home = root / name
         fake = home / ".claude" / "fake"
@@ -168,11 +160,8 @@ def _hosts(root: Path, cases: dict) -> dict:
             (fake / "fake-foreign-page").touch()
         if case.get("absent"):
             (fake / "fake-absent").touch()
-        (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
+            **hosts[name],
             "claude_code_home": str(home),
             # Never this machine's browser, and never a unit in its
             # /etc/systemd: the side effect of the configure scenario starts
@@ -191,26 +180,12 @@ def _hosts(root: Path, cases: dict) -> dict:
             **({"claude_code_login_args": case["args"]} if "args" in case else {}),
         }
         if case.get("down"):
-            # Reached over ssh, and the stand-in refuses the connection: nothing
-            # leaves this machine, and nothing reads ~/.ssh.
-            refused = bin_dir / "ssh"
-            refused.write_text(SSH_REFUSED)
-            refused.chmod(0o755)
-            hosts[name].update(
-                ansible_connection="ssh",
-                ansible_ssh_executable=str(refused),
-                ansible_scp_executable=str(refused),
-                ansible_sftp_executable=str(refused),
-                # No ControlPersist, so no socket directory is made for it.
-                ansible_ssh_args="",
-                ansible_control_path_dir=str(root / "cp"),
-            )
+            _unreachable(hosts[name], root)
     return hosts
 
 
 def _calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".claude" / "fake" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _lines(root.joinpath(host, *CLAUDE_CALLS))
 
 
 def _login_dir(root: Path, host: str) -> Path:
@@ -253,15 +228,6 @@ def _turns(report: dict) -> list[str]:
 # claude_login.yml's sign-in play, serial where it prompts, and the play after it for every VM at once.
 SIGN_IN_PLAY = "Sign Claude Code in, or say how each VM is signed in"
 AFTER_PLAY = "Start Remote Control on each VM signed in just now"
-
-
-def _batches(report: dict, play: str) -> list[list[str]]:
-    """The hosts of each batch the play ran: the json callback reports each batch of a serial play as a play."""
-    return [
-        sorted({host for task in entry["tasks"] for host in task["hosts"]})
-        for entry in report["plays"]
-        if entry["play"]["name"] == play
-    ]
 
 
 def _seconds_per_turn(report: dict) -> dict:
@@ -533,15 +499,6 @@ def test_each_vm_records_whether_its_code_was_entered(signed):
 # rescue never sees an unreachable host, and under serial one is a whole batch
 # failed, which ended the run before the VMs after it; and the sign-in block's
 # condition was its rescue's too, so a failed sign-in went unsaid in its turn.
-
-
-def _standing(report: dict) -> dict:
-    """What the run failed each host with, rescued failures left out: the last failure of each host, if it stands."""
-    failures = {}
-    for name, host, result in _results(report):
-        if result.get("failed") or result.get("unreachable"):
-            failures[host] = f"{name}: {result.get('msg')}"
-    return {host: text for host, text in failures.items() if report["stats"][host]["failures"]}
 
 
 def test_a_vm_that_cannot_be_reached_is_named_and_the_vms_after_it_have_their_turn(signed):
@@ -1315,17 +1272,11 @@ def test_ctrl_c_then_a_at_the_prompt_ends_the_run_there(tmp_path):
 # --------------------------------------------------------- the files themselves
 
 
-def _tasks(items):
-    for item in items:
-        if "block" in item:
-            for section in ("block", "rescue", "always"):
-                yield from _tasks(item.get(section) or [])
-        else:
-            yield item
-
-
 def _flow():
-    return list(_tasks(yaml.safe_load((ROLE / "tasks" / "browser_login.yml").read_text())))
+    """Every task of browser_login.yml, those inside a block in its place and the block itself left out."""
+    return [
+        t for t in _every_task(yaml.safe_load((ROLE / "tasks" / "browser_login.yml").read_text())) if "block" not in t
+    ]
 
 
 def _writers():

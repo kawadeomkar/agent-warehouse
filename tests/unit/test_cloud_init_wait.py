@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, STAND_INS, _failures, _results, _run
+from harness import REPO, _failures, _local_hosts, _results, _run
 
 PLAYBOOK = REPO / "playbooks" / "configure.yml"
 WAIT = ("Wait for cloud-init to finish", "Read what cloud-init reported", "Fail with what cloud-init reported")
@@ -60,19 +60,10 @@ def _wait_tasks(root: Path) -> Path:
 
 
 def _hosts(root: Path, rcs: dict) -> dict:
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in (("python", STAND_INS["python"]), ("cloud-init", CLOUD_INIT)):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    hosts = _local_hosts(root, rcs, {"cloud-init": CLOUD_INIT}, address="")
     for name, rc in rcs.items():
-        home = root / name
-        home.mkdir()
-        (home / "long.txt").write_text(LONG)
-        (home / "rc").write_text(str(rc))
-        (home / "python").symlink_to(bin_dir / "python")
-        hosts[name] = {"ansible_connection": "local", "ansible_python_interpreter": str(home / "python")}
+        (root / name / "long.txt").write_text(LONG)
+        (root / name / "rc").write_text(str(rc))
     return hosts
 
 

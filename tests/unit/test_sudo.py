@@ -27,21 +27,11 @@ from pathlib import Path
 import jinja2
 import pytest
 import yaml
-from harness import REPO, _run
+from harness import REPO, _every_task, _run
 
 COMMON = REPO / "roles" / "common"
 SUDO = COMMON / "tasks" / "sudo.yml"
 DEFAULTS = REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-
-
-def _flat(tasks: list) -> list:
-    """Every task of a list, a block's own tasks after the block."""
-    found = []
-    for task in tasks:
-        found.append(task)
-        for part in ("block", "rescue", "always"):
-            found.extend(_flat(task.get(part, [])))
-    return found
 
 
 def _module(task: dict) -> str:
@@ -130,7 +120,7 @@ def test_the_password_is_the_user_s_before_any_rule_goes() -> None:
 
 
 def test_every_task_that_renders_the_password_is_no_log() -> None:
-    for task in _flat(_off()):
+    for task in _every_task(_off()):
         module = _module(task)
         arguments = yaml.safe_dump({key: value for key, value in task[module].items() if key != "that"})
         # The password or its hash; common_user_passwordless_sudo is only a name.

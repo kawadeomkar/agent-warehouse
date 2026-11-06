@@ -70,7 +70,24 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import LOGINS, REPO, STAND_INS, _left_to_do, _results, _run, _serve, _stand_in_hosts
+from harness import (
+    CLAUDE_CALLS,
+    GH_CALLS,
+    LOGINS,
+    REPO,
+    SSH_REFUSED,
+    _batches,
+    _calls,
+    _executable,
+    _left_to_do,
+    _ran,
+    _results,
+    _run,
+    _serve,
+    _stand_in_hosts,
+    _standing,
+    _unreachable,
+)
 
 CLAUDE_LOGIN = REPO / "playbooks" / "claude_login.yml"
 GITHUB_LOGIN = REPO / "playbooks" / "github_login.yml"
@@ -98,47 +115,6 @@ DEVICE_TOKEN = "gho_device0000000000"
 # task finds the directories owned as it wants them.
 ME = pwd.getpwuid(os.getuid()).pw_name
 
-# The interpreter of every host here: the harness's, which gives each host its
-# own HOME and config and puts the stand-ins first on PATH, with OWN_GROUP
-# below on its PYTHONPATH.
-_WRAPPER = STAND_INS["python"].splitlines(keepends=True)
-_EXEC = next(index for index, line in enumerate(_WRAPPER) if line.startswith("exec "))
-PYTHON = "".join(
-    [*_WRAPPER[:_EXEC], 'PYTHONPATH="$(dirname "$(dirname "$0")")/pylib"\n', "export PYTHONPATH\n", *_WRAPPER[_EXEC:]]
-)
-
-# Every user on the Ubuntu VMs the github_projects role configures has a group
-# of the same name, which its directory task sets; macOS has none for the
-# developer. Asked for that group, the hosts' modules get the user's own
-# primary group instead, so the role runs to its end here as on a VM.
-OWN_GROUP = """import grp
-import os
-import pwd
-
-_getgrnam = grp.getgrnam
-_me = pwd.getpwuid(os.getuid()).pw_name
-
-
-def _getgrnam_or_own(name):
-    try:
-        return _getgrnam(name)
-    except KeyError:
-        if name != _me:
-            raise
-        return grp.getgrgid(os.getgid())
-
-
-grp.getgrnam = _getgrnam_or_own
-"""
-
-# ssh, scp and sftp for a VM that is down: what ssh says when nothing listens,
-# and the exit status the ssh plugin takes for "unreachable".
-SSH_REFUSED = """#!/bin/sh
-echo "$*" >> "$(dirname "$0")/ssh.log"
-echo "ssh: connect to host 192.0.2.10 port 22: Connection refused" >&2
-exit 255
-"""
-
 # gh where GitHub's sign-in is not under test: every command is refused, so
 # that step only reports, and a real gh further along PATH is never run.
 GH_REFUSING = """#!/bin/sh
@@ -147,11 +123,6 @@ echo "$*" >> "$HOME/.config/gh/calls.log"
 echo "stand-in gh: not part of this test" >&2
 exit 1
 """
-
-
-def _executable(path: Path, text: str) -> None:
-    path.write_text(text)
-    path.chmod(0o755)
 
 
 def _hosts(root: Path, cases: dict, github: str | None = None) -> dict:
@@ -163,14 +134,12 @@ def _hosts(root: Path, cases: dict, github: str | None = None) -> dict:
     device flow approved at once (or its code expired, with `expire`), and the
     whole github_projects role can run.
     """
-    hosts = _stand_in_hosts(root, {name: LOGINS["logged-out"] for name in cases})
+    # The modules find a group named after this user, as on a VM (OWN_GROUP).
+    hosts = _stand_in_hosts(root, {name: LOGINS["logged-out"] for name in cases}, own_group=True)
     bin_dir = root / "bin"
-    _executable(bin_dir / "python", PYTHON)
     _executable(bin_dir / "claude", FAKE_CLAUDE.read_text())
     _executable(bin_dir / "gh", FAKE_GH.read_text() if github else GH_REFUSING)
     _executable(bin_dir / "ssh", SSH_REFUSED)
-    (root / "pylib").mkdir()
-    (root / "pylib" / "sitecustomize.py").write_text(OWN_GROUP)
     for name, case in cases.items():
         home = root / name
         (home / ".claude" / "fake").mkdir(parents=True)
@@ -210,16 +179,7 @@ def _hosts(root: Path, cases: dict, github: str | None = None) -> dict:
             (home / "a-file").write_text("")
             hostvars.update(claude_code_remote_control=True, claude_code_remote_control_dir=str(home / "a-file" / "x"))
         if case.get("down"):
-            refused = str(bin_dir / "ssh")
-            hostvars.update(
-                ansible_connection="ssh",
-                ansible_ssh_executable=refused,
-                ansible_scp_executable=refused,
-                ansible_sftp_executable=refused,
-                # No ControlPersist, so no socket directory is made for it.
-                ansible_ssh_args="",
-                ansible_control_path_dir=str(root / "cp"),
-            )
+            _unreachable(hostvars, root)
         hostvars.update(case.get("vars", {}))
     return hosts
 
@@ -268,36 +228,7 @@ def _deploy(root: Path, hosts: dict, deploy_sign_in: bool | None = None) -> dict
 
 def _said(report: dict, task: str, host: str) -> list[str]:
     """Everything the tasks whose name ends with `task` said for host, in order."""
-    return [
-        result["msg"]
-        for name, task_host, result in _results(report)
-        if task_host == host and name.endswith(task) and "msg" in result and not result.get("skipped")
-    ]
-
-
-def _ran(report: dict, task: str, host: str) -> bool:
-    return any(
-        task_host == host and name.endswith(task) and not result.get("skipped")
-        for name, task_host, result in _results(report)
-    )
-
-
-def _failed(report: dict) -> dict:
-    """What the run failed each host with, rescued failures left out: the last failure of each host, if it stands."""
-    failures = {}
-    for name, host, result in _results(report):
-        if result.get("failed") or result.get("unreachable"):
-            failures[host] = f"{name}: {result.get('msg')}"
-    return {host: text for host, text in failures.items() if report["stats"][host]["failures"]}
-
-
-def _batches(report: dict, play: str) -> list[list[str]]:
-    """The hosts of each batch the play ran: the json callback reports each batch of a serial play as a play."""
-    return [
-        sorted({host for task in entry["tasks"] for host in task["hosts"]})
-        for entry in report["plays"]
-        if entry["play"]["name"] == play
-    ]
+    return [result["msg"] for result in _ran(report, task, host).get(host, []) if "msg" in result]
 
 
 def _play_positions(report: dict, play: str) -> list[int]:
@@ -305,13 +236,11 @@ def _play_positions(report: dict, play: str) -> list[int]:
 
 
 def _claude_calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".claude" / "fake" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _calls(root, host, *CLAUDE_CALLS)
 
 
 def _gh_calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".config" / "gh" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _calls(root, host, *GH_CALLS)
 
 
 def _signed_in(root: Path, host: str) -> bool:
@@ -378,7 +307,7 @@ def test_github_login_names_a_vm_it_cannot_reach_and_signs_in_the_vms_after_it(g
     assert _gh_calls(root, "beta") == []
     assert _said(report, "Say which VM could not be reached", "beta")
     assert report["rc"] != 0
-    failures = _failed(report)
+    failures = _standing(report)
     # And delta's clone, after its sign-in (below).
     assert set(failures) == {"alpha", "beta", "delta"}, failures
     assert failures["beta"].startswith("Fail where the sign-in failed: "), failures["beta"]
@@ -404,7 +333,7 @@ def test_a_failed_sign_in_is_said_in_its_turn_and_raised_once_every_vm_had_its_o
     turn = report["plays"][index]
     assert turn["play"]["name"] == GITHUB_SIGN_IN, turn["play"]["name"]
     assert sorted({host for task in turn["tasks"] for host in task["hosts"]}) == ["alpha"]
-    assert _failed(report)["alpha"] == "Fail where the sign-in failed: " + message
+    assert _standing(report)["alpha"] == "Fail where the sign-in failed: " + message
 
 
 def test_next_steps_keep_a_failed_sign_in_and_a_vm_not_reached_with_the_command_that_retries_each(github_named):
@@ -439,8 +368,8 @@ def deployed(tmp_path_factory, github):
 
 def test_just_deploy_names_a_vm_it_cannot_reach_in_every_sign_in_and_goes_on(deployed):
     root, report = deployed
-    assert report["rc"] == 0, _failed(report)
-    assert _failed(report) == {}
+    assert report["rc"] == 0, _standing(report)
+    assert _standing(report) == {}
     said = _said(report, "Say which VM could not be reached", "b-down")
     assert len(said) == 3, said
     assert "b-down could not be reached, so it was not signed in" in said[0]
@@ -499,7 +428,7 @@ def test_a_failure_after_the_claude_sign_in_is_said_as_such_and_fails_just_login
     assert _signed_in(root, "epsilon")
     assert not _ran(report, "Remember why this VM's sign-in failed", "epsilon")
     assert report["rc"] != 0
-    failures = _failed(report)
+    failures = _standing(report)
     assert set(failures) == {"epsilon"}, failures
     assert failures["epsilon"].startswith("Fail where the work after the sign-in failed: "), failures["epsilon"]
     _remote_control_failed(failures["epsilon"], "epsilon")
@@ -522,7 +451,7 @@ def test_just_deploy_fails_at_its_end_on_a_failure_after_a_sign_in_and_not_on_a_
     _remote_control_failed(recorded[0][0], "b-after")
     # Raised by deploy.yml's own last play, after everything else ran.
     assert report["rc"] != 0
-    failures = _failed(report)
+    failures = _standing(report)
     assert set(failures) == {"b-after"}, failures
     assert failures["b-after"].startswith("Fail where the work after a sign-in failed: "), failures["b-after"]
     _remote_control_failed(failures["b-after"], "b-after")
@@ -535,7 +464,7 @@ def test_a_clone_failure_after_the_device_flow_names_the_repository_and_how_to_r
     assert (root / "delta" / "projects" / "pub" / "README.md").exists()
     assert not _ran(report, "Remember why this VM's sign-in failed", "delta")
     assert report["rc"] != 0
-    message = _failed(report)["delta"]
+    message = _standing(report)["delta"]
     assert message.startswith("Fail where the work after the sign-in failed: "), message
     assert 'configuring its GitHub repositories failed at "clone | Clone repositories"' in message, message
     assert f"{USERNAME}/gone" in message and f"{USERNAME}/pub" not in message, message
@@ -547,7 +476,7 @@ def test_the_reason_ends_its_sentence_and_the_message_ends_with_the_command_that
     # A module's message often has no full stop of its own: "One or more items
     # failed" ran on into "Retry it with".
     _, report = request.getfixturevalue(fixture)
-    message = _failed(report)[host]
+    message = _standing(report)[host]
     assert re.search(r"[.!?] Retry it with: just deploy \S+ --tags \w+$", message), message
 
 
@@ -579,8 +508,8 @@ def switched_off(tmp_path_factory):
 def test_an_unattended_deploy_signs_nothing_in_and_fails_nothing(deployed):
     # d-unanswered: no code, and no terminal to ask at.
     root, report = deployed
-    assert report["rc"] == 0, _failed(report)
-    assert _failed(report) == {}
+    assert report["rc"] == 0, _standing(report)
+    assert _standing(report) == {}
     calls = _claude_calls(root, "d-unanswered")
     # The sign-in ran, at deploy_sign_in's default; with nothing entered its
     # claude was ended rather than left waiting.
@@ -605,7 +534,7 @@ def test_deploy_signs_in_by_default():
 
 def test_deploy_sign_in_false_runs_neither_sign_in(switched_off):
     root, report = switched_off
-    assert report["rc"] == 0, _failed(report)
+    assert report["rc"] == 0, _standing(report)
     assert _claude_calls(root, "alpha") == []
     assert _gh_calls(root, "alpha") == []
     assert not _signed_in(root, "alpha")
@@ -613,7 +542,7 @@ def test_deploy_sign_in_false_runs_neither_sign_in(switched_off):
 
 def test_just_deploy_names_a_refused_code_and_signs_in_the_vm_after_it(deployed):
     root, report = deployed
-    assert report["rc"] == 0, _failed(report)
+    assert report["rc"] == 0, _standing(report)
     said = _said(report, "Say why, and go on with the next VM", "a-rejected")
     assert len(said) == 1, said
     assert "a-rejected: the Claude sign-in did not complete" in said[0]
@@ -693,7 +622,7 @@ def test_just_login_with_no_terminal_starts_no_device_flow_it_would_have_asked_a
     hosts = _hosts(tmp_path, {"alpha": {"code": CODE, "vars": {"github_projects_exclude": ["gone"]}}}, github)
     settings = _extra(vm_name="alpha", github_login_auto_start=False, claude_vm_login_terminal=False)
     report = _run(tmp_path, LOGIN, hosts, "-e", settings)
-    assert report["rc"] == 0, _failed(report)
+    assert report["rc"] == 0, _standing(report)
     assert _signed_in(tmp_path, "alpha")
     assert not _ran(report, "Ask whether to sign gh in to GitHub now for alpha", "alpha")
     assert not _device_flow(tmp_path, "alpha")
@@ -721,7 +650,7 @@ def test_just_login_goes_on_past_a_failure_as_deploy_does_and_fails_at_the_end(l
     # every VM has had all three turns, with what each step said.
     root, report = logged_in
     assert report["rc"] != 0
-    failures = _failed(report)
+    failures = _standing(report)
     assert set(failures) == {"c-rejected", "d-after"}, failures
     prefix = "Fail where a sign-in, or the work after one, failed: "
     assert failures["c-rejected"].startswith(prefix + "c-rejected: "), failures["c-rejected"]
@@ -744,7 +673,7 @@ def test_just_login_without_names_reports_every_vm_and_starts_nothing(tmp_path, 
     # As if nobody had answered its Claude sign-in: a report still says nothing of it.
     cases["beta"]["vars"]["claude_code_login_skipped"] = True
     report = _run(tmp_path, LOGIN, _hosts(tmp_path, cases, github), "-e", _extra())
-    assert report["rc"] == 0, _failed(report)
+    assert report["rc"] == 0, _standing(report)
     for play in (CLAUDE_SIGN_IN, GITHUB_SIGN_IN, TAILSCALE_SIGN_IN):
         assert _batches(report, play) == [["alpha", "beta"]], play
     for host in cases:
@@ -807,7 +736,7 @@ def reports(tmp_path_factory):
 @pytest.mark.parametrize(("playbook", "play"), [(CLAUDE_LOGIN, CLAUDE_SIGN_IN), (GITHUB_LOGIN, GITHUB_SIGN_IN)])
 def test_a_report_reads_every_vm_in_one_batch(reports, playbook, play):
     report = reports[playbook]
-    assert report["rc"] == 0, _failed(report)
+    assert report["rc"] == 0, _standing(report)
     assert _batches(report, play) == [["alpha", "beta", "gamma"]]
 
 
@@ -842,7 +771,7 @@ def test_github_login_refuses_a_switch_it_no_longer_reads(tmp_path, switch, valu
     hosts = _hosts(tmp_path, {"alpha": {}, "beta": {}})
     report = _run(tmp_path, GITHUB_LOGIN, hosts, "-e", _extra(**{switch: value}))
     assert report["rc"] != 0
-    failures = _failed(report)
+    failures = _standing(report)
     assert len(failures) == 1, failures
     message = next(iter(failures.values()))
     assert switch in message, message
