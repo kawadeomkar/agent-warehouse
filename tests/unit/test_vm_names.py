@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _pve, _run
-from test_status import _status_run, fake_fleet, status_root
+from harness import REPO, _pve_vm, _run, fake_fleet
+from test_status import _status_run, status_root
 
 PLAYBOOKS = REPO / "playbooks"
 # The Proxmox host's address read from the inventory's host, as group_vars/all/defaults.yml has it: a VM merged into
@@ -36,14 +36,7 @@ def fleet(tmp_path):
     localhost."""
     for base in fake_fleet(tmp_path):
         for vmid, name in [(9013, "pve"), (9014, "localhost")]:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", tags="claude-on-proxmox", ciuser="dev", onboot="1")
-            _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
-            for _ in range(3):
-                try:
-                    _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-                except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-                    pass
+            _pve_vm(base, vmid, name, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
         yield base
 
 
@@ -134,17 +127,9 @@ def test_status_shows_such_a_vm_unread_and_reads_the_rest_through_the_api_s_own_
 def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotted_one(tmp_path, fleet) -> None:
     # An earlier version wrote an alias for any tagged VM, so the managed file may hold one for the VM named pve - the
     # Proxmox host's root SSH - or for one named like an address. Tagged VMs still carry both names here.
-    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9015, name="3232235777")
-    _pve(fleet, "PUT", "nodes/pve/qemu/9015/config", tags="claude-on-proxmox", ciuser="dev")
+    _pve_vm(fleet, 9015, "3232235777", tags="claude-on-proxmox", ciuser="dev")
     # A dotted name: the user's own, written by a run that named it. Running, so the refresh has its address.
-    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9016, name="alpha.lab")
-    _pve(fleet, "PUT", "nodes/pve/qemu/9016/config", tags="claude-on-proxmox", ciuser="dev")
-    _pve(fleet, "POST", "nodes/pve/qemu/9016/status/start")
-    for _ in range(3):
-        try:
-            _pve(fleet, "GET", "nodes/pve/qemu/9016/agent/network-get-interfaces")
-        except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-            pass
+    _pve_vm(fleet, 9016, "alpha.lab", running=True, tags="claude-on-proxmox", ciuser="dev")
     managed = tmp_path / "ssh.conf"
     managed.write_text(_block("pve") + _block("3232235777") + _block("alpha.lab"))
     report = _refresh(tmp_path, fleet)

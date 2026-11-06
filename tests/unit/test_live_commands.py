@@ -10,7 +10,6 @@ state and log in the test's directory (docs/architecture/custom-code.md §7.8).
 from __future__ import annotations
 
 import contextlib
-import itertools
 import json
 import os
 import re
@@ -112,7 +111,7 @@ def test_parts_are_drawn_as_one_run_and_its_end_says_it_whatever_ended_it(two_pa
     assert re.search(r"^✗ fails: python\S* \(.*\) · exit 3$", screen, re.M), screen
     assert "line-11\n" in screen + "\n" and "line-10\n" not in screen + "\n", screen
     assert re.search(r"^claude-on-proxmox  lint · failed after \d+ s at fails · \d\d:\d\d$", screen, re.M), screen
-    table = screen.split("CHECKS", 1)[1].split("\n\n", 1)[0]
+    table = ran.table("CHECKS")
     assert re.search(r"^ ✓ says ", table, re.M) and re.search(r"^ ✗ fails ", table, re.M), table
     assert ran.screen.titles[-1] == "lint · failed"
     assert not ran.state.exists(), "the end removes the state"
@@ -440,7 +439,7 @@ def test_a_command_is_named_by_its_program_past_env(tmp_path):
     shelled = _part("fails", FAILS).replace("-- ", '-- bash -c \'exec "$0" "$@"\' ', 1)
     argv, environment, state = kit.recipe_in_parts(tmp_path, [named, shelled])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
-    table = ran.transcript.split("TIME", 1)[1].split("\n\n", 1)[0]
+    table = ran.table("TIME")
     assert "env" not in table and "SLOWEST  env" not in ran.transcript, table
     assert re.search(r"^✗ fails: fails \(", ran.transcript, re.M), ran.transcript
 
@@ -488,14 +487,6 @@ LONG = (
     "Nothing is asked without a terminal, or with --no-prompt: run just init at one, give the values on its command"
     " line (just init --host ... in docs/getting-started/first-deploy.md), or edit the files and run just vault."
 )
-# Colour, a title and a bell: what a terminal acts on and does not show.
-ESCAPES = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x07")
-
-
-def _next_steps(text):
-    """NEXT STEPS' lines as printed, colour aside: under its block's rule, up to the first blank line."""
-    after = ESCAPES.sub("", text).replace("\r\n", "\n").split("##  NEXT STEPS\n", 1)[1].split("\n", 1)[1]
-    return list(itertools.takewhile(str.strip, after.splitlines()))
 
 
 def test_next_steps_says_each_record_line_for_line_as_the_stream_does(tmp_path):
@@ -514,4 +505,4 @@ def test_next_steps_says_each_record_line_for_line_as_the_stream_does(tmp_path):
         "  !!   the token was refused",
         "  !!   root SSH failed",
     ]
-    assert _next_steps(ran.text) == _next_steps(ran.log) == expected, ran.text
+    assert kit.next_steps(ran.text) == kit.next_steps(ran.log) == expected, ran.text

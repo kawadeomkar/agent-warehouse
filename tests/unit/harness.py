@@ -35,12 +35,14 @@ from __future__ import annotations
 
 import datetime
 import fcntl
+import functools
 import importlib.util
 import json
 import os
 import pty
 import re
 import select
+import shutil
 import signal
 import socket
 import ssl
@@ -65,6 +67,46 @@ ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 # ansible_facts, as ansible.cfg has it (test_gathered_facts.py), so the plays only
 # these tests run read facts as just's runs do.
 ANSIBLE_CFG = "[defaults]\ninject_facts_as_vars = false\n"
+
+
+@functools.cache
+def _listed(pathspecs: tuple[str, ...], untracked: bool) -> tuple[Path, ...]:
+    flags = ["--cached", "--others", "--exclude-standard"] if untracked else []
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", *flags, "--", *pathspecs], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout
+    return tuple(sorted({REPO / name for name in listed.split("\0") if name and (REPO / name).is_file()}))
+
+
+def repo_files(*pathspecs: str, untracked: bool = False) -> list[Path]:
+    """The checkout's files that match git's pathspecs - all of them, given none - regular files only, sorted: the
+    tracked ones, and with untracked the new ones git does not ignore too, so a file is checked before its first
+    commit, while a working document git ignores (one at the top of docs/) never is. Listed once per process."""
+    return list(_listed(pathspecs, untracked))
+
+
+def repo_texts(*pathspecs: str, untracked: bool = False) -> list[tuple[Path, str]]:
+    """repo_files' files, each with its text: a file that is not UTF-8 text left out."""
+    texts = []
+    for path in repo_files(*pathspecs, untracked=untracked):
+        try:
+            texts.append((path, path.read_text(encoding="utf-8")))
+        except UnicodeDecodeError:
+            continue
+    return texts
+
+
+def load_module(path: str | Path, name: str | None = None, *, register: bool = True):
+    """A Python file imported by its path, relative to the checkout or absolute, as name - its file's stem unless
+    given - and in sys.modules under it unless register is false: a copy of its own, as a test that loads a module
+    afresh wants, which nothing else can find."""
+    path = REPO / path
+    spec = importlib.util.spec_from_file_location(name or path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    if register:
+        sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def ansible_config(directory: Path, extra: str = "") -> str:
@@ -814,12 +856,99 @@ def _rendering(tasks: Iterable[dict], pattern: re.Pattern, *, ignore: Iterable[s
     return rendering
 
 
+def _deploy_import(root: Path, target: str) -> Path:
+    """deploy.yml's import of target - playbooks/github_login.yml, say - as it stands, its vars and its condition with
+    it, in a playbook of root's own that imports target by its whole path; returns that playbook."""
+    entries = [
+        entry
+        for entry in yaml.safe_load((REPO / "deploy.yml").read_text())
+        if entry.get("ansible.builtin.import_playbook") == target
+    ]
+    assert len(entries) == 1, entries
+    playbook = root / f"deploy_{Path(target).stem}.yml"
+    playbook.write_text(yaml.safe_dump([{**entries[0], "ansible.builtin.import_playbook": str(REPO / target)}]))
+    return playbook
+
+
+def _role_tasks_play(role: str, tasks_from: Iterable[str], name: str) -> dict:
+    """A play named name that runs each of a role's task files of tasks_from, in order, on every stand-in VM: the
+    part of the role under test, as its main.yml runs it."""
+    return {
+        "name": name,
+        "hosts": "claude_vms",
+        "gather_facts": False,
+        "tasks": [
+            {
+                "name": f"Run the role's {tasks} tasks",
+                "ansible.builtin.include_role": {"name": role, "tasks_from": tasks},
+            }
+            for tasks in tasks_from
+        ],
+    }
+
+
 def _scenario_vars(paths: Iterable[Path]) -> dict:
     """What the given vars files set, merged in Ansible's order: later files win."""
     merged: dict = {}
     for path in paths:
         merged.update(yaml.safe_load(path.read_text()) or {})
     return merged
+
+
+# --------------------------------------------------------------------- just ---
+JUST = shutil.which("just")
+
+
+@functools.cache
+def just_json() -> dict:
+    """The justfile as just reads it (just --json): its recipes, assignments and settings, read once per process."""
+    return json.loads(subprocess.run([JUST, "--json"], cwd=REPO, capture_output=True, text=True, check=True).stdout)
+
+
+def public_recipes() -> dict[str, dict]:
+    """The recipes a person runs: every one but the private ones."""
+    return {name: recipe for name, recipe in just_json()["recipes"].items() if not recipe["private"]}
+
+
+def just_settings() -> set[str]:
+    """The assignments a person sets: the upper-case ones. The rest are the justfile's own workings."""
+    return {name for name in just_json()["assignments"] if name.isupper()}
+
+
+def _version(text: str) -> tuple[int, ...]:
+    """A version's numbers, to compare: 1.59.0 is (1, 59, 0)."""
+    return tuple(int(part) for part in text.split("."))
+
+
+# ---------------------------------------------------------------------- git ---
+# git as a test runs it: none of this machine's config, global or system - an insteadOf, a hook or
+# status.showUntrackedFiles there changes what git says and does - and an identity of its own to commit as.
+GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "molecule",
+    "GIT_AUTHOR_EMAIL": "molecule@example.com",
+    "GIT_COMMITTER_NAME": "molecule",
+    "GIT_COMMITTER_EMAIL": "molecule@example.com",
+}
+
+
+def _bare_repos(git_root: Path, specs: Iterable[str]) -> None:
+    """One bare repository in git_root per spec - a name, or name:visibility as the fake GitHub takes it - with a
+    commit on main, as the Molecule prepare makes them: what tests/molecule/fake_github_api.py serves from there."""
+    env = {**os.environ, **GIT_ENV}
+    for spec in specs:
+        name = spec.split(":")[0]
+        src = git_root / "src" / name
+        src.mkdir(parents=True)
+        (src / "README.md").write_text(f"# {name}\n")
+        for argv in (
+            ["git", "init", "-q", "-b", "main", str(src)],
+            ["git", "-C", str(src), "add", "README.md"],
+            ["git", "-C", str(src), "commit", "-q", "-m", "init"],
+            ["git", "clone", "-q", "--bare", str(src), str(git_root / f"{name}.git")],
+        ):
+            subprocess.run(argv, check=True, env=env, capture_output=True)
 
 
 # ------------------------------------------------------------ the fake APIs ---
@@ -833,10 +962,7 @@ FAKES = REPO / "tests" / "molecule"
 def _pve_cli(directory: Path, state: dict | None = None) -> Path:
     """The stand-in pveum, pvesh, pveversion, hostname and id (fake_pve_cli.py) in directory, the host's state given
     on top of its default; returns directory, to put first on PATH."""
-    spec = importlib.util.spec_from_file_location("fake_pve_cli", FAKES / "fake_pve_cli.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.install(directory, state)
+    return load_module(FAKES / "fake_pve_cli.py", register=False).install(directory, state)
 
 
 def _pve_cli_state(directory: Path) -> dict:
@@ -947,3 +1073,62 @@ def _pve(base: str, method: str, endpoint: str, **params) -> dict:
     unverified.verify_mode = ssl.CERT_NONE
     with urllib.request.urlopen(request, timeout=10, context=unverified) as answer:
         return json.loads(answer.read() or b"{}")
+
+
+def _fake_pve(directory: Path):
+    """The fake Proxmox on a loopback port, until the fixture ends, its state and its request log in directory/pve;
+    yields its https base URL."""
+    cert, key = _certificate(directory)
+    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(directory / "pve"), PVE_SECRET):
+        yield base.replace("http://", "https://")
+
+
+def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_polls: int = 3, **config) -> None:
+    """A VM in the fake at base, cloned from the template, given config - this project's tag when none is given - and,
+    when running, started, its agent asked agent_polls times: the fake refuses the first two polls, as an agent still
+    starting does, and answers from the third."""
+    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
+    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "claude-on-proxmox"}))
+    if running:
+        _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
+        for _ in range(agent_polls):
+            try:
+                _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
+            except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
+                pass
+
+
+def _pve_vars(directory: Path, base: str, pinned: dict | None = None) -> Path:
+    """directory/group_vars/all for a run against the fake at base: the project's defaults.yml, linked, and
+    fake_api.yml - the fake's address, the token's secret, the VM user, then pinned. Returns that directory."""
+    group_vars = directory / "group_vars" / "all"
+    group_vars.mkdir(parents=True, exist_ok=True)
+    defaults = group_vars / "defaults.yml"
+    if not defaults.is_symlink():
+        defaults.symlink_to(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")
+    api = {
+        "proxmox_api_host": "127.0.0.1",
+        "proxmox_api_port": int(base.rsplit(":", 1)[1]),
+        "vault_proxmox_api_token_secret": PVE_SECRET,
+        "vm_user": "dev",
+    }
+    (group_vars / "fake_api.yml").write_text(yaml.safe_dump({**api, **(pinned or {})}))
+    return group_vars
+
+
+def _pve_requests(directory: Path) -> list[dict]:
+    """Every request the fake Proxmox in directory/pve was sent, in order: its method, path and params."""
+    return _json_lines(directory / "pve" / "calls.log")
+
+
+def fake_fleet(directory: Path, version: str = "9.2.21"):
+    """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
+    its URL."""
+    for base in _fake_pve(directory):
+        _pve(base, "PUT", "fake/version", version=version)
+        for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
+            _pve_vm(base, vmid, name, running=running, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+            if name == "alpha":
+                # Made two days ago, so its day of history is its own; beta and gamma were made just now.
+                _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
+        yield base

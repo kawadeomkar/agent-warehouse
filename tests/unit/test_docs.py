@@ -18,7 +18,6 @@ and links from docs/ that work on GitHub and break on the site.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import shutil
 import subprocess
@@ -29,6 +28,7 @@ from pathlib import Path
 import pytest
 import tomllib
 import yaml
+from harness import load_module, repo_files, repo_texts
 from markdown_it import MarkdownIt
 
 REPO = Path(__file__).resolve().parents[2]
@@ -47,24 +47,11 @@ CITATION = re.compile(r"docs/architecture/([\w-]+\.md)`?\)?(?:\s|#)*§\s?(\d+(?:
 def _files(*paths: str) -> list[Path]:
     """Tracked files, and new ones not ignored: a page written but not yet added still counts,
     and a working document git ignores (one at the top of docs/) never does."""
-    out = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", *paths],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return sorted({REPO / line for line in out.splitlines() if (REPO / line).is_file()})
+    return repo_files(*paths, untracked=True)
 
 
 def _texts(*paths: str) -> list[tuple[Path, str]]:
-    out = []
-    for path in _files(*paths):
-        try:
-            out.append((path, path.read_text()))
-        except UnicodeDecodeError:
-            continue
-    return out
+    return repo_texts(*paths, untracked=True)
 
 
 def _pages() -> list[Path]:
@@ -113,10 +100,7 @@ def _links(page: Path) -> list[str]:
 
 
 def _generator():
-    spec = importlib.util.spec_from_file_location("docs_generator", REPO / "tools" / "docs.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module("tools/docs.py", "docs_generator", register=False)
 
 
 @pytest.fixture(scope="module")

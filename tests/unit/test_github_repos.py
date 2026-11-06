@@ -6,7 +6,8 @@ import io
 import json
 
 import pytest
-from conftest import fail_main, load_module, run_main
+from conftest import fail_main, run_main
+from harness import load_module
 
 github_repos = load_module("roles/github_projects/library/github_repos.py")
 

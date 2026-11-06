@@ -165,12 +165,12 @@ def test_the_gate_is_one_run_lint_its_first_stage_and_every_stage_to_come_listed
     # A deprecation in a scenario's Ansible is said above once it passed; Molecule's routine notices stay in the log,
     # and a task that names a warning is none.
     assert passed.transcript.count("passed with warnings") == 1, passed.transcript
-    warned = passed.transcript.split("! configure: molecule passed with warnings\n", 1)[1].split("\n\n", 1)[0]
+    warned = passed.table("! configure: molecule passed with warnings\n")
     assert "the stand-in's deprecation" in warned and "Warn when" not in warned, warned
     assert "Missing roles requirements file" not in warned, warned
     screen = passed.transcript
     assert re.search(r"^claude-on-proxmox  test · done in .*$", screen, re.M), screen
-    table = screen.split("STAGES", 1)[1].split("\n\n", 1)[0]
+    table = passed.table("STAGES")
     assert [line.split()[1] for line in table.splitlines() if line.startswith((" ✓ ", " ✗ "))] == [
         "lint",
         "unit",
@@ -204,7 +204,7 @@ def test_a_test_that_fails_is_said_as_it_fails_listed_and_what_it_left_unrun_nam
     # Named by its file and its whole ID, the "/" in its parameter its own.
     assert re.search(r"^✗ unit: test_tiny\.py::test_three\[Mars/Olympus\]$", screen, re.M), screen
     assert "the stand-in suite was asked to fail" in screen
-    assert "test_tiny.py::test_three[Mars/Olympus]" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "test_tiny.py::test_three[Mars/Olympus]" in failed.table("\nFAILED\n")
     assert re.search(r"^claude-on-proxmox  test unit provision · failed after .* at unit", screen, re.M), screen
     # bash -e ends the run at the failed part: the stage it never reached is named.
     assert re.search(r"^ not run  provision$", screen, re.M), screen
@@ -216,11 +216,11 @@ def test_an_action_that_fails_is_said_with_its_task_and_ansible_s_words_as_molec
     screen = scenario_failed.transcript
     # The task that failed in the head, and what Ansible said of it from its start, however long it ran.
     assert re.search(r"^✗ provision: converge · common : Run the step that breaks$", screen, re.M), screen
-    said = screen.split("✗ provision: converge · ", 1)[1].split("\n\n", 1)[0]
+    said = scenario_failed.table("✗ provision: converge · ")
     assert "    fatal: [instance]: FAILED! => changed=true" in said, said
     assert "the stand-in scenario was asked to fail" in said, said
     assert re.search(r"^    … \d+ more lines in the run's log$", said, re.M), said
-    assert "converge" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "converge" in scenario_failed.table("\nFAILED\n")
     # Molecule went on to clean up and destroy, drawn as their actions ran, and said why last: on the screen too.
     assert "Executed: Successful" in scenario_failed.log.split("[provision > destroy] Executing", 1)[1]
     assert re.search(r"^    ERROR    Ansible return code was 2, command was: ansible-playbook", screen, re.M), screen
@@ -235,7 +235,7 @@ def test_an_idempotence_test_that_fails_names_the_task_that_changed(not_idempote
     end = screen.split("✗ provision: idempotence (", 1)[1]
     assert "Idempotence test failed because of the following tasks:" in end, screen
     assert "* [instance] => common : Write what changes every run" in end, screen
-    assert "idempotence" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "idempotence" in not_idempotent.table("\nFAILED\n")
 
 
 # Molecule in lines the reader does not know - its colour mode's arrows - passing.

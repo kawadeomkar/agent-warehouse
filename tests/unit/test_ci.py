@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness import GIT_ENV
 
 REPO = Path(__file__).resolve().parents[2]
 WORKFLOW = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
@@ -234,16 +235,7 @@ def test_a_title_is_never_run(tmp_path):
 
 
 def _git(cwd: Path, *args: str) -> str:
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(cwd),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_AUTHOR_NAME": "Test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "Test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-    }
+    env = {"PATH": os.environ["PATH"], "HOME": str(cwd), **GIT_ENV}
     return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True, check=True).stdout
 
 

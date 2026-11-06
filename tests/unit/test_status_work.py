@@ -10,35 +10,15 @@ they were.
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 import os
 import re
 import subprocess
 from pathlib import Path
 
 import pytest
-from harness import REPO
+from harness import GIT_ENV, REPO, load_module
 
-GIT_ENV = {
-    "GIT_CONFIG_GLOBAL": "/dev/null",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@example.invalid",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@example.invalid",
-}
-
-
-def _module():
-    spec = importlib.util.spec_from_file_location(
-        "git_checkouts_info_under_test", REPO / "playbooks" / "library" / "git_checkouts_info.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-M = _module()
+M = load_module("playbooks/library/git_checkouts_info.py", "git_checkouts_info_under_test", register=False)
 
 
 class Shim:

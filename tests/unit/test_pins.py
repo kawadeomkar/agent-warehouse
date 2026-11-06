@@ -12,12 +12,9 @@ from pathlib import Path
 
 import tomllib
 import yaml
+from harness import _version
 
 REPO = Path(__file__).resolve().parents[2]
-
-
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split("."))
 
 
 def test_the_vm_s_uv_is_no_older_than_the_controller_s() -> None:

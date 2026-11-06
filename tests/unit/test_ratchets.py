@@ -12,8 +12,9 @@ design, and a record that carries a VM's ID names it where the record is.
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
+
+from harness import repo_texts
 
 REPO = Path(__file__).resolve().parents[2]
 # The code: what runs, and what decides how it runs. Not the docs, the tests or the scenarios, which describe it.
@@ -33,16 +34,10 @@ CODE = [
 def _lines_naming(pattern: str, own: re.Pattern, kept: str = "") -> dict[str, int]:
     """Each file of the code outside `own` that has lines matching pattern, and how many; a line's names that 1.x
     promises (kept), which can never go, are taken out of it before it is matched."""
-    tracked = subprocess.run(
-        ["git", "ls-files", "--", *CODE], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout.split()
     found = {}
-    for path in tracked:
+    for file, text in repo_texts(*CODE):
+        path = str(file.relative_to(REPO))
         if own.search(path) or "/molecule/" in path:
-            continue
-        try:
-            text = (REPO / path).read_text(encoding="utf-8")
-        except (UnicodeDecodeError, FileNotFoundError):
             continue
         count = sum(
             1 for line in text.splitlines() if re.search(pattern, re.sub(kept, "", line) if kept else line, re.I)

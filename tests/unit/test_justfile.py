@@ -29,7 +29,6 @@ anyone without a newer bash; CI's Ubuntu runs them under bash 5.
 from __future__ import annotations
 
 import atexit
-import importlib.util
 import json
 import os
 import pty
@@ -46,7 +45,9 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import _default_signals
+from harness import GIT_ENV, _default_signals, _version, just_settings, load_module
+from harness import just_json as _json
+from harness import public_recipes as _public
 
 REPO = Path(__file__).resolve().parents[2]
 JUSTFILE = REPO / "justfile"
@@ -66,10 +67,6 @@ NOT_MATCHED = "does not match pattern"
 
 def _pinned() -> str:
     return re.search(r"(?m)^just_pin := '([0-9.]+)'$", JUSTFILE.read_text()).group(1)
-
-
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split("."))
 
 
 if JUST is None:
@@ -222,14 +219,6 @@ def _refused(tmp_path: Path, *args: str, settings=(), env=None) -> str:
     return _output(result)
 
 
-def _json() -> dict:
-    return json.loads(subprocess.run([JUST, "--json"], cwd=REPO, capture_output=True, text=True, check=True).stdout)
-
-
-def _public() -> dict[str, dict]:
-    return {name: recipe for name, recipe in _json()["recipes"].items() if not recipe["private"]}
-
-
 def _evaluate(name: str) -> str:
     return subprocess.run([JUST, "--evaluate", name], cwd=REPO, capture_output=True, text=True, check=True).stdout
 
@@ -318,7 +307,7 @@ def test_no_parameter_shares_its_name_with_an_assignment() -> None:
 def test_self_passes_on_every_setting() -> None:
     # A recipe that runs another (test lints, init installs) runs it through self, which would otherwise drop the
     # command line's BIN= and the rest.
-    settings = {name for name in _json()["assignments"] if name.isupper()} | {"stamp", "live_run"}
+    settings = just_settings() | {"stamp", "live_run"}
     passed = set(re.findall(r" ([A-Za-z_]+)=", _evaluate("self")))
     assert passed == settings, (passed, settings)
 
@@ -1464,10 +1453,7 @@ STALE_SCRIPTS = REPO / "tools" / "stale_scripts.py"
 
 
 def _stale_scripts():
-    spec = importlib.util.spec_from_file_location("stale_scripts", STALE_SCRIPTS)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_module(STALE_SCRIPTS, register=False)
 
 
 def _installed(site: Path, scripts: Path, package: str, commands: dict[str, str]) -> None:
@@ -1758,12 +1744,7 @@ def test_a_commit_runs_the_hooks_from_the_environment_of_the_checkout_it_is_made
         {
             "PYTHON": sys.executable,
             "PRE_COMMIT_HOME": str(tmp_path / "pre-commit-home"),
-            "GIT_CONFIG_GLOBAL": os.devnull,
-            "GIT_CONFIG_NOSYSTEM": "1",
-            "GIT_AUTHOR_NAME": "test",
-            "GIT_AUTHOR_EMAIL": "test@example.invalid",
-            "GIT_COMMITTER_NAME": "test",
-            "GIT_COMMITTER_EMAIL": "test@example.invalid",
+            **GIT_ENV,
         }
     )
 
@@ -2588,11 +2569,7 @@ def test_the_names_1_1_gave_anew_are_the_pairs_the_inventory_defaults_feed() -> 
 
 
 def test_every_recipe_that_reads_the_settings_checks_them_for_a_renamed_name() -> None:
-    recipes = json.loads(
-        subprocess.run(
-            [JUST, "--dump", "--dump-format", "json"], cwd=REPO, capture_output=True, text=True, check=True
-        ).stdout
-    )["recipes"]
+    recipes = _json()["recipes"]
     checking = {name for name, recipe in recipes.items() if "tools/check settings" in json.dumps(recipe["body"])}
     assert checking == {"init", "deploy", "code", "login", "status", "settings", "destroy"}, sorted(checking)
 

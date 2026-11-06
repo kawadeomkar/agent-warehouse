@@ -49,19 +49,21 @@ import yaml
 from harness import (
     CLAUDE_CALLS,
     GETENT,
-    PVE_SECRET,
     REPO,
     STAND_INS,
     TAILSCALE_CALLS,
     _calls,
-    _certificate,
     _every_task,
     _failures,
+    _fake_pve,
     _leaked,
     _left_to_do,
     _local_hosts,
     _messages,
     _pve,
+    _pve_requests,
+    _pve_vars,
+    _pve_vm,
     _results,
     _run,
     _run_at_a_terminal,
@@ -1166,11 +1168,8 @@ PARKED = 9001
 @pytest.fixture
 def fake_pve(tmp_path):
     """The fake Proxmox, holding one stopped VM of this project's, its listing lagging a start by one listing."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
-        _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=PARKED, name="parked")
-        _pve(base, "PUT", f"nodes/pve/qemu/{PARKED}/config", tags="claude-on-proxmox")
+    for base in _fake_pve(tmp_path):
+        _pve_vm(base, PARKED, "parked")
         _pve(base, "PUT", "fake/listing-lag", listings=1)
         yield base
 
@@ -1178,21 +1177,7 @@ def fake_pve(tmp_path):
 def _head(tmp_path, fake_pve):
     """A directory to run destroy.yml's first play from against the fake, and that play with the addresses after it."""
     root = tmp_path / "run"
-    (root / "group_vars" / "all").mkdir(parents=True)
-    (root / "group_vars" / "all" / "defaults.yml").symlink_to(
-        REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-    )
-    port = int(fake_pve.rsplit(":", 1)[1])
-    (root / "group_vars" / "all" / "fake_api.yml").write_text(
-        yaml.safe_dump(
-            {
-                "proxmox_api_host": "127.0.0.1",
-                "proxmox_api_port": port,
-                "vault_proxmox_api_token_secret": PVE_SECRET,
-                "vm_user": "dev",
-            }
-        )
-    )
+    _pve_vars(root, fake_pve)
     plays = yaml.safe_load(DESTROY.read_text())
     # Its task files where they are: the play runs from a copy here.
     confirm = json.loads(json.dumps(plays[0]).replace('"tasks/', f'"{REPO / "playbooks" / "tasks"}/'))
@@ -1228,7 +1213,7 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     }
     assert said == {"parked": f"192.0.2.{PARKED % 200 + 50}"}
     # The listing did lag: the run's own relisting still showed it stopped.
-    calls = [json.loads(line) for line in (tmp_path / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
 
 

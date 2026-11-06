@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from harness import repo_files
 
 from claude_vm import plugin, wire
 from claude_vm.records import Checked, plain
@@ -27,8 +28,7 @@ AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
 
 
 def _tracked(path: str) -> list[str]:
-    run = subprocess.run(["git", "ls-files", "--", path], cwd=REPO, capture_output=True, text=True, check=True)
-    return run.stdout.split()
+    return [str(file.relative_to(REPO)) for file in repo_files(path)]
 
 
 def _core_modules() -> list[str]:

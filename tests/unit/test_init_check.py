@@ -21,25 +21,24 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import (
-    FAKES,
     LOGINS,
     PVE_SECRET,
     REPO,
-    _certificate,
     _env,
     _every_task,
     _executable,
     _failures,
+    _fake_pve,
     _free_port,
     _init_next,
     _left_to_do,
     _messages,
     _pve,
+    _pve_requests,
     _refusing_ssh,
     _results,
     _run,
     _run_at_a_terminal,
-    _serve,
     _ssh_calls,
     _stand_in_hosts,
     _text,
@@ -76,9 +75,7 @@ DEPLOY_NEXT = "Next: just deploy alpha, which creates a VM named alpha (any name
 @pytest.fixture
 def fake_pve(tmp_path):
     """The fake Proxmox on a loopback port: its base URL."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        yield base.replace("http://", "https://")
+    yield from _fake_pve(tmp_path)
 
 
 def _port(base: str) -> int:
@@ -162,11 +159,6 @@ def _said(report: dict) -> str:
     return "\n".join(str(message) for message in _messages(report, "Say what each check found").values())
 
 
-def _calls(tmp_path: Path) -> list[dict]:
-    log = tmp_path / "pve" / "calls.log"
-    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-
-
 def _hostname_calls(root: Path) -> str:
     return _text(root / "bin" / "hostname-calls.log")
 
@@ -178,7 +170,7 @@ def test_nothing_is_checked_while_a_value_is_the_examples(tmp_path: Path, fake_p
     assert report["rc"] == 0, _failures(report)
     said = "\n".join(str(m) for m in _messages(report, "Say what is not set yet").values())
     assert "Proxmox is not checked yet: the Proxmox host address (inventory/hosts.yml) is still" in said
-    assert _calls(tmp_path) == [] and _ssh_calls(root) == ""
+    assert _pve_requests(tmp_path) == [] and _ssh_calls(root) == ""
     # Nothing new for NEXT STEPS: init_settings.yml's, printed before, names what is missing.
     assert _left_to_do(report) == {}
 

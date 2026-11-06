@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import shutil
@@ -21,8 +20,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, GETENT, REPO, _local_hosts, _run
-from test_status import PROMISED_KEYS, T, status_root
+from harness import FAKES, GETENT, GIT_ENV, REPO, _local_hosts, _run, fake_fleet, load_module
+from test_status import PROMISED_KEYS, T, _status_run, status_root
 from test_tailscale import DPKG_QUERY, NODE, _joined
 
 from claude_vm.editors.model import ProcessMatch
@@ -34,14 +33,7 @@ ROWS = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml
 EDITORS = editor_servers(ROWS)
 
 
-def _module():
-    spec = importlib.util.spec_from_file_location("vm_status_info_under_test", LIBRARY / "vm_status_info.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-M = _module()
+M = load_module(LIBRARY / "vm_status_info.py", "vm_status_info_under_test", register=False)
 
 
 # ------------------------------------------------------------------------------------------- the module ----
@@ -307,8 +299,6 @@ def _vms(root: Path, cases: dict) -> dict:
         _tree(home / "system", **case["tree"])
         if case.get("projects"):
             # A checkout of the VM user's with a commit on no remote: WORK's to say, never to change.
-            from test_status_work import GIT_ENV
-
             checkout = home / "projects" / "proj"
             checkout.mkdir(parents=True)
             env = {**os.environ, **GIT_ENV}
@@ -469,8 +459,6 @@ def test_status_ssh_options_are_ansible_cfgs_with_the_host_key_held() -> None:
 @pytest.mark.skipif(shutil.which("ssh") is None, reason="needs ssh -G")
 def test_the_options_reach_ssh_and_take_effect(tmp_path, fake_pve) -> None:
     # The fake's VMs refuse through the stand-in ssh, which records how it was called.
-    from test_status import _status_run
-
     report, model = _status_run(tmp_path, fake_pve)
     assert report["rc"] == 0, report["stderr"][-2000:]
     calls = [json.loads(line) for line in (tmp_path / "run" / "ssh.log").read_text().splitlines()]
@@ -506,8 +494,6 @@ REFUSALS = {
 
 @pytest.mark.parametrize("refusal", sorted(REFUSALS))
 def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fake_pve, refusal) -> None:
-    from test_status import _status_run, status_root
-
     said, expected = REFUSALS[refusal]
     root, _ = status_root(tmp_path, fake_pve)
     (root / "ssh-says").write_text(said + "\n")
@@ -520,14 +506,10 @@ def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fake_pve, refusa
 
 @pytest.fixture
 def fake_pve(tmp_path):
-    from test_status import fake_fleet
-
     yield from fake_fleet(tmp_path)
 
 
 def test_only_the_api_sections_never_open_ssh(tmp_path, fake_pve) -> None:
-    from test_status import _status_run
-
     report, model = _status_run(tmp_path, fake_pve, settings={"status_only": "vms,storage"})
     assert report["rc"] == 0, report["stderr"][-2000:]
     assert not (tmp_path / "run" / "ssh.log").exists()

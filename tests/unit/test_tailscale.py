@@ -54,28 +54,30 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 from harness import (
-    FAKES,
     GETENT,
     GUARDED_TOOLS,
-    PVE_SECRET,
     TAILSCALE_CALLS,
-    _certificate,
+    _deploy_import,
     _env,
     _every_task,
     _failures,
+    _fake_pve,
     _leaked,
     _left_to_do,
     _lines,
     _local_hosts,
     _messages,
     _pve,
+    _pve_requests,
+    _pve_vars,
+    _pve_vm,
     _ran,
     _rendering,
     _results,
+    _role_tasks_play,
     _run,
     _run_at_a_terminal,
     _scenario_vars,
-    _serve,
     _task_seconds,
 )
 
@@ -236,18 +238,8 @@ def _hosts(root: Path, cases: dict) -> dict:
 
 def _role_play() -> dict:
     """ownership.yml on, as main.yml runs them once the package is in place."""
-    return {
-        "name": "Tailscale, from the state on",
-        "hosts": "claude_vms",
-        "gather_facts": False,
-        "tasks": [
-            {
-                "name": f"Run the role's {tasks_from} tasks",
-                "ansible.builtin.include_role": {"name": "tailscale", "tasks_from": tasks_from},
-            }
-            for tasks_from in ("ownership", "state", "connect", "settings", "report")
-        ],
-    }
+    tasks_from = ("ownership", "state", "connect", "settings", "report")
+    return _role_tasks_play("tailscale", tasks_from, "Tailscale, from the state on")
 
 
 def _role_run(root: Path, hosts: dict, *args: str) -> dict:
@@ -1010,15 +1002,7 @@ AFTER_CLAUDE = {
 
 def _deploy_tailscale(root: Path) -> Path:
     """deploy.yml's Tailscale import, as it stands, with its vars and condition."""
-    entries = [
-        entry
-        for entry in yaml.safe_load((REPO / "deploy.yml").read_text())
-        if entry.get("ansible.builtin.import_playbook") == "playbooks/tailscale_login.yml"
-    ]
-    assert len(entries) == 1, entries
-    playbook = root / "deploy_tailscale.yml"
-    playbook.write_text(yaml.safe_dump([{**entries[0], "ansible.builtin.import_playbook": str(LOGIN)}]))
-    return playbook
+    return _deploy_import(root, "playbooks/tailscale_login.yml")
 
 
 def _deploy_step(root: Path, **extra) -> dict:
@@ -1308,26 +1292,11 @@ RECORD_HOSTS = {
 @pytest.fixture
 def recording(tmp_path):
     """The fake Proxmox holding TO_RECORD, and configure.yml's record play in a directory set up to run against it."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
+    for base in _fake_pve(tmp_path):
         for vmid, name, tags in TO_RECORD:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **({"tags": tags} if tags else {"delete": "tags"}))
+            _pve_vm(base, vmid, name, **({"tags": tags} if tags else {"delete": "tags"}))
         root = tmp_path / "run"
-        (root / "group_vars" / "all").mkdir(parents=True)
-        (root / "group_vars" / "all" / "defaults.yml").symlink_to(
-            REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-        )
-        (root / "group_vars" / "all" / "fake_api.yml").write_text(
-            yaml.safe_dump(
-                {
-                    "proxmox_api_host": "127.0.0.1",
-                    "proxmox_api_port": int(base.rsplit(":", 1)[1]),
-                    "vault_proxmox_api_token_secret": PVE_SECRET,
-                }
-            )
-        )
+        _pve_vars(root, base)
         plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
         (root / "tasks").symlink_to(REPO / "playbooks" / "tasks")
         playbook = root / "record.yml"
@@ -1341,7 +1310,7 @@ def _tags(base: str) -> dict:
 
 
 def _config_writes(root: Path) -> list:
-    calls = [json.loads(line) for line in (root.parent / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(root.parent)
     return [call["path"] for call in calls if call["method"] in ("PUT", "POST") and call["path"].endswith("/config")]
 
 
@@ -1378,8 +1347,7 @@ def test_check_mode_records_nothing(recording):
 def test_a_record_proxmox_cannot_write_is_said_and_the_others_are_still_written(recording):
     base, root, playbook = recording
     # A second VM to record, beside fresh, whose node is down: Proxmox cannot answer for fresh alone.
-    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=9106, name="second")
-    _pve(base, "PUT", "nodes/pve/qemu/9106/config", tags="claude-on-proxmox")
+    _pve_vm(base, 9106, "second")
     _pve(base, "PUT", "fake/vm-node", vmid=9101, node="pve2")
     hosts = {
         **RECORD_HOSTS,
@@ -1414,24 +1382,17 @@ def test_a_record_is_written_with_the_tags_as_proxmox_gave_them(recording):
     # user's in capitals - a host whose Tag Style keeps case - stays so, and a record in capitals counts.
     base, root, playbook = recording
     _pve(base, "PUT", "nodes/pve/qemu/9101/config", tags="Claude-On-Proxmox;KeepMe", **{"fake-verbatim-tags": 1})
-    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=9107, name="shouting")
-    _pve(
-        base,
-        "PUT",
-        "nodes/pve/qemu/9107/config",
-        tags="claude-on-proxmox;CLAUDE-ON-PROXMOX-TAILSCALE",
-        **{"fake-verbatim-tags": 1},
-    )
+    _pve_vm(base, 9107, "shouting", tags="claude-on-proxmox;CLAUDE-ON-PROXMOX-TAILSCALE", **{"fake-verbatim-tags": 1})
     hosts = {
         **RECORD_HOSTS,
         "shouting": {"proxmox_vm_id": 9107, "tailscale_joined_before": False, "tailscale_login_to_record": True},
     }
-    calls = len((root.parent / "pve" / "calls.log").read_text().splitlines())
+    calls = len(_pve_requests(root.parent))
     report = _run(root, playbook, hosts, timeout=120)
     assert report["rc"] == 0, _failures(report)
     sent = [
         (call["path"], sorted(call["params"].get("tags", "").split(",")))
-        for call in map(json.loads, (root.parent / "pve" / "calls.log").read_text().splitlines()[calls:])
+        for call in _pve_requests(root.parent)[calls:]
         if call["method"] in ("PUT", "POST") and call["path"].endswith("/config")
     ]
     # In any order: Proxmox keeps its own.

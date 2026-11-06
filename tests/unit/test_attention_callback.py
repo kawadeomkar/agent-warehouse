@@ -14,7 +14,6 @@ report task records what it leaves to do.
 from __future__ import annotations
 
 import configparser
-import importlib.util
 import os
 import re
 import subprocess
@@ -23,15 +22,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import _env
+from harness import _env, load_module
 
 REPO = Path(__file__).resolve().parents[2]
 ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 PLUGINS = REPO / "callback_plugins"
 
-_spec = importlib.util.spec_from_file_location("claude_on_proxmox_callback", PLUGINS / "claude_on_proxmox.py")
-_callback = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_callback)
+_callback = load_module(PLUGINS / "claude_on_proxmox.py", "claude_on_proxmox_callback", register=False)
 
 RULE = "#" * 80
 

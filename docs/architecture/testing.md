@@ -439,8 +439,10 @@ pytest over `tests/unit/`: 2969 tests. By file:
   gone down, still listed by name (the fake's `named=1`). Statically: every task a read or a NEXT STEPS record (a `uri` a GET that saves nothing), every `uri` with the CA
   path and `no_log`, the settings written only through `tasks/init_local_setting.yml` at a terminal or as
   given, and no run reaching a real `ssh`. Running
-  a fake on a loopback port, the fake Proxmox's certificate and `_pve` live in `tests/unit/harness.py`, shared
-  by every module that runs against the fake; each file keeps its own `fake_pve` fixture.
+  a fake on a loopback port, the fake Proxmox and its certificate (`_fake_pve`), `_pve`, a VM made in it
+  (`_pve_vm`), a run's `group_vars` pointed at it (`_pve_vars`), its request log (`_pve_requests`) and the
+  fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
+  runs against the fake; each file keeps its own `fake_pve` fixture.
 - **The managed SSH config** (`test_ssh_config.py` 38): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no

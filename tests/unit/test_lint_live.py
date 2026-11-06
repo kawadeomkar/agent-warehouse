@@ -55,7 +55,7 @@ def test_lint_is_drawn_as_its_checks_each_to_come_until_it_runs(passed):
     assert not any(re.search(r"\d+/\d+", frame) for frame in passed.frames), "a check is one command: no counts"
     screen = passed.transcript
     assert re.search(r"^claude-on-proxmox  lint yaml ansible python · done in \d+ s · ", screen, re.M), screen
-    table = screen.split("CHECKS", 1)[1].split("\n\n", 1)[0]
+    table = passed.table("CHECKS")
     assert [line.split()[1] for line in table.splitlines()[1:]] == ["yaml", "ansible", "python"], table
 
 

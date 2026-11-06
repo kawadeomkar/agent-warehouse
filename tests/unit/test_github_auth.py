@@ -76,6 +76,8 @@ from harness import (
     GETENT,
     GH_CALLS,
     NOT_LOGGED,
+    _bare_repos,
+    _deploy_import,
     _desktop,
     _every_task,
     _failures,
@@ -86,6 +88,7 @@ from harness import (
     _messages,
     _rendering,
     _results,
+    _role_tasks_play,
     _run,
     _run_at_a_terminal,
     _scenario_vars,
@@ -242,35 +245,11 @@ def _marker(root: Path, host: str) -> Path:
     return root / host / ".config" / "claude-on-proxmox" / "gh-login"
 
 
-def _bare_repos(git_root: Path, specs: list[str] = REPOS) -> None:
-    """One bare repository per listed name, with a commit on main, as the Molecule prepare makes them."""
-    env = {
-        **os.environ,
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "molecule",
-        "GIT_AUTHOR_EMAIL": "molecule@example.com",
-        "GIT_COMMITTER_NAME": "molecule",
-        "GIT_COMMITTER_EMAIL": "molecule@example.com",
-    }
-    for spec in specs:
-        name = spec.split(":")[0]
-        src = git_root / "src" / name
-        src.mkdir(parents=True)
-        (src / "README.md").write_text(f"# {name}\n")
-        for argv in (
-            ["git", "init", "-q", "-b", "main", str(src)],
-            ["git", "-C", str(src), "add", "README.md"],
-            ["git", "-C", str(src), "commit", "-q", "-m", "init"],
-            ["git", "clone", "-q", "--bare", str(src), str(git_root / f"{name}.git")],
-        ):
-            subprocess.run(argv, check=True, env=env, capture_output=True)
-
-
 @pytest.fixture(scope="module")
 def fake_github(tmp_path_factory):
     """The fake GitHub API on a loopback port, listing bare repositories made here; yields its base URL."""
     git_root = tmp_path_factory.mktemp("git")
-    _bare_repos(git_root)
+    _bare_repos(git_root, REPOS)
     yield from _serve(FAKE_API, USERNAME, str(git_root), *REPOS)
 
 
@@ -371,24 +350,7 @@ def _git_config_set(path: Path, key: str, value: str, *, add: bool = False) -> N
 def _role_run(root: Path, hosts: dict, *args: str) -> dict:
     """auth.yml then clone.yml of the role, as main.yml runs them once the directory is known."""
     playbook = root / "role.yml"
-    playbook.write_text(
-        json.dumps(
-            [
-                {
-                    "name": "Sign in and clone",
-                    "hosts": "claude_vms",
-                    "gather_facts": False,
-                    "tasks": [
-                        {
-                            "name": f"Run the role's {tasks_from} tasks",
-                            "ansible.builtin.include_role": {"name": "github_projects", "tasks_from": tasks_from},
-                        }
-                        for tasks_from in ("auth", "clone")
-                    ],
-                }
-            ]
-        )
-    )
+    playbook.write_text(json.dumps([_role_tasks_play("github_projects", ("auth", "clone"), "Sign in and clone")]))
     # One fork per host: every host is the same machine, and the fixture runs twice.
     return _run(root, playbook, hosts, "-e", '{"ansible_become": false}', "--forks", str(len(hosts)), *args)
 
@@ -1585,25 +1547,7 @@ AFTER_CLAUDE = {
 
 def _deploy_github_step(root: Path) -> Path:
     """just deploy's GitHub step, imported as deploy.yml imports it: the same playbook, vars and condition."""
-    imported = next(
-        play
-        for play in yaml.safe_load((REPO / "deploy.yml").read_text())
-        if play.get("ansible.builtin.import_playbook") == "playbooks/github_login.yml"
-    )
-    playbook = root / "deploy_github.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "name": imported["name"],
-                    "ansible.builtin.import_playbook": str(REPO / "playbooks" / "github_login.yml"),
-                    "vars": imported["vars"],
-                    "when": imported["when"],
-                }
-            ]
-        )
-    )
-    return playbook
+    return _deploy_import(root, "playbooks/github_login.yml")
 
 
 def _deploy_github(root: Path, fake_github, **extra) -> tuple[Path, dict]:

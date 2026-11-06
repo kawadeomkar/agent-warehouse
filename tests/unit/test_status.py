@@ -13,21 +13,19 @@
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import io
 import json
 import re
 import signal
 import sys
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import ansible.utils.color  # noqa: F401 - imported at a stand-in terminal, it would ask curses for its fileno
 import pytest
 import yaml
-from harness import FAKES, PVE_SECRET, REPO, _certificate, _pve, _run, _serve
+from harness import PVE_SECRET, REPO, _executable, _pve_requests, _pve_vars, _run, fake_fleet, load_module
 
 from claude_vm import proxmox as proxmox_filters
 from claude_vm import text as text_filters
@@ -578,29 +576,6 @@ def test_a_live_frame_draws_a_spinner_where_a_value_is_pending_and_the_final_one
 # ---------------------------------------------------------------------------------- the playbook, faked ----
 
 
-def fake_fleet(directory: Path, version: str = "9.2.21"):
-    """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
-    its URL."""
-    cert, key = _certificate(directory)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(directory / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
-        _pve(base, "PUT", "fake/version", version=version)
-        for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", tags="claude-on-proxmox", ciuser="dev", onboot="1")
-            if name == "alpha":
-                # Made two days ago, so its day of history is its own; beta and gamma were made just now.
-                _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
-            if running:
-                _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
-                for _ in range(3):
-                    try:
-                        _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-                    except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-                        pass
-        yield base
-
-
 @pytest.fixture
 def fake_pve(tmp_path):
     yield from fake_fleet(tmp_path)
@@ -627,34 +602,24 @@ exit 255
 def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> tuple[Path, Path]:
     """A run directory for status.yml against the fake at base, with settings on top: the directory and playbook."""
     root = tmp_path / "run"
-    (root / "group_vars" / "all").mkdir(parents=True, exist_ok=True)
-    (root / "ssh").write_text(SSH)
-    (root / "ssh").chmod(0o755)
+    _pve_vars(
+        root,
+        base,
+        {
+            "vm_ssh_public_keys": [],
+            # Never the developer's ~/.ssh: the managed file is the test's own.
+            "claude_ssh_config_file": str(tmp_path / "ssh.conf"),
+            # Never a real ssh: the stand-in refuses as an unreachable VM does.
+            "ansible_ssh_executable": str(root / "ssh"),
+            # apt's simulation is the VM's: this machine has none.
+            "status_read_upgrades": False,
+            "status_report_file": "",
+            **(settings or {}),
+        },
+    )
+    _executable(root / "ssh", SSH)
     if not (root / "python").exists():
         (root / "python").symlink_to(sys.executable)
-    defaults = root / "group_vars" / "all" / "defaults.yml"
-    if not defaults.exists():
-        defaults.symlink_to(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")
-    port = int(base.rsplit(":", 1)[1])
-    (root / "group_vars" / "all" / "fake_api.yml").write_text(
-        yaml.safe_dump(
-            {
-                "proxmox_api_host": "127.0.0.1",
-                "proxmox_api_port": port,
-                "vault_proxmox_api_token_secret": PVE_SECRET,
-                "vm_user": "dev",
-                "vm_ssh_public_keys": [],
-                # Never the developer's ~/.ssh: the managed file is the test's own.
-                "claude_ssh_config_file": str(tmp_path / "ssh.conf"),
-                # Never a real ssh: the stand-in refuses as an unreachable VM does.
-                "ansible_ssh_executable": str(root / "ssh"),
-                # apt's simulation is the VM's: this machine has none.
-                "status_read_upgrades": False,
-                "status_report_file": "",
-                **(settings or {}),
-            }
-        )
-    )
     playbook = root / "status.yml"
     playbook.write_text(STATUS.read_text().replace("tasks/", f"{REPO / 'playbooks' / 'tasks'}/"))
     return root, playbook
@@ -709,7 +674,7 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     missing = {part: sorted(PROMISED_KEYS[part.split()[0]] - set(keys)) for part, keys in held.items()}
     assert {part: keys for part, keys in missing.items() if keys} == {}
     # Read only: GETs, every one of them, and not one write.
-    calls = [json.loads(line) for line in (tmp_path / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(tmp_path)
     after_fixture = calls[[c["path"] for c in calls].index("/api2/json/cluster/resources") :]
     assert {c["method"] for c in after_fixture} == {"GET"}, {
         (c["method"], c["path"]) for c in after_fixture if c["method"] != "GET"
@@ -969,9 +934,7 @@ def callback(monkeypatch):
         terminal = _Terminal()
         monkeypatch.setattr(sys, "stdout", terminal)
         path = REPO / "callback_plugins" / "claude_on_proxmox_status.py"
-        spec = importlib.util.spec_from_file_location("claude_on_proxmox_status_under_test", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module(path, "claude_on_proxmox_status_under_test", register=False)
         cb = module.CallbackModule()
         if cb._live:
             cb._out.region._terminal_size = lambda: (100, 60)

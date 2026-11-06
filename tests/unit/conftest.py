@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
 import statistics
 import subprocess
-import sys
 from pathlib import Path
 
 import interrupts
@@ -64,16 +62,6 @@ def fail_main(main, args):
     with patch_module_args(args), pytest.raises(AnsibleFailJson) as exc:
         main()
     return exc.value.args[0]
-
-
-def load_module(relative_path):
-    """Import a module file from the repo by path (roles/*/library/*.py)."""
-    path = ROOT / relative_path
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[path.stem] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 # Each test's serial duration, by node ID, that --shard balances by; a test it lacks counts as the mean.

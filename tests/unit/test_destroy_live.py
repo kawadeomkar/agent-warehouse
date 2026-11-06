@@ -36,26 +36,15 @@ def _seed(base, vms):
     here would only add ten seconds a run."""
     harness._pve(base, "PUT", "fake/agent-ready-after", polls=0)
     for offset, (name, spec) in enumerate(vms.items()):
-        vmid = FIRST_VMID + offset
-        harness._pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-        harness._pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", tags="claude-on-proxmox")
-        if spec["running"]:
-            harness._pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
+        harness._pve_vm(base, FIRST_VMID + offset, name, running=spec["running"], agent_polls=0)
 
 
-def _inventory(root, port, hostvars):
+def _inventory(root, base, hostvars):
     """The project's controller inventory and defaults, the fake's endpoint, and every path a run writes pinned."""
     inventory = root / "inventory"
-    (inventory / "group_vars" / "all").mkdir(parents=True)
-    (inventory / "host_vars").mkdir()
+    (inventory / "host_vars").mkdir(parents=True)
     shutil.copy(harness.REPO / "inventory" / "controller.yml", inventory / "controller.yml")
-    defaults = harness.REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-    (inventory / "group_vars" / "all" / "defaults.yml").symlink_to(defaults)
     pinned = {
-        "proxmox_api_host": "127.0.0.1",
-        "proxmox_api_port": port,
-        "vault_proxmox_api_token_secret": harness.PVE_SECRET,
-        "vm_user": "dev",
         "vm_ssh_public_keys": [
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILiveKitKeyDoNotUse0000000000000000000000000 live@test"
         ],
@@ -66,7 +55,7 @@ def _inventory(root, port, hostvars):
         "login_desktop": False,
         "tailscale_upload_logs": False,
     }
-    (inventory / "group_vars" / "all" / "pinned.yml").write_text(json.dumps(pinned, indent=2))
+    harness._pve_vars(inventory, base, pinned)
     for name, values in hostvars.items():
         # The address is add_host's, from the fake's agent.
         values = {key: value for key, value in values.items() if key != "claude_vm_release_address"}
@@ -100,7 +89,7 @@ def _destroy(root, answer, cols=100, rows=30, piped=False, protected=()):
         harness._pve(base, "PUT", "fake/listing-lag", listings=1)
         cases = {vm: spec["case"] for vm, spec in VMS.items()}
         hostvars = tr._hosts(root, cases, f"http://127.0.0.1:{github_port}", f"http://127.0.0.1:{tailscale_port}")
-        inventory = _inventory(root, port, hostvars)
+        inventory = _inventory(root, base, hostvars)
         title = "destroy " + " ".join(VMS)
         env = kit.environment(root, title, ANSIBLE_ROLES_PATH=str(harness.REPO / "roles"))
         # A refusing ssh first: no real one is ever reached.
@@ -108,7 +97,7 @@ def _destroy(root, answer, cols=100, rows=30, piped=False, protected=()):
         extra = {"vm_name": ",".join(VMS), "ansible_become": False, "tailscale_settle_seconds": 3}
         if piped:
             extra["confirm_destroy"] = "yes"
-        argv = kit.playbook(root, inventory, tr.DESTROY, "-e", json.dumps(extra))
+        argv = kit.playbook(inventory, tr.DESTROY, "-e", json.dumps(extra))
         if piped:
             return kit.piped(argv, root, env, timeout=300)
         return kit.at_a_terminal(argv, root, env, cols=cols, rows=rows, answers={PROMPT: answer}, timeout=300)
@@ -164,7 +153,7 @@ def test_a_vm_proxmox_would_not_delete_is_the_failure_the_last_play_raises_and_t
     assert re.search(r"^✗ proxmox_vm · beta: Delete the VM", text, re.M) and "protection mode enabled" in text, text
     # Its stage failed as the rescue recorded why, before the raise: so said as the stage ended.
     assert re.search(r"^✗ delete +\d+ tasks", text, re.M), text
-    assert "Fail for each VM that was not deleted" not in text.split("claude-on-proxmox  destroy", 1)[0]
+    assert "Fail for each VM that was not deleted" not in refused.above_summary("destroy")
     head = re.search(r"^claude-on-proxmox  destroy alpha beta · done in .* · 1 VM failed: beta$", text, re.M)
     assert head, text
     delete = next(line for line in text.splitlines() if line.startswith(" ✗ delete"))

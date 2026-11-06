@@ -1,6 +1,6 @@
 """`just status` at a terminal: the live report, drawn and redrawn in place, then the finished one (lifecycle.md §4.6).
 
-Each test runs status.yml against the fake Proxmox (test_status.fake_fleet) with the callback just status chooses,
+Each test runs status.yml against the fake Proxmox (harness.fake_fleet) with the callback just status chooses,
 at a pseudo-terminal of its own whose size the test sets, and reads the bytes back through vt.VT, a small terminal:
 what is on the screen and in its scrollback when the run ends, and whether a frame ever wrapped. The finished report
 is the run log's, which Display writes and the live frames never reach.
@@ -8,20 +8,17 @@ is the run log's, which Display writes and the live frames never reach.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import re
 import signal
-import struct
 import sys
-import termios
 from pathlib import Path
 
 import live_kit as kit
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, REPO, _env
-from test_status import fake_fleet, status_root
+from harness import ANSIBLE_PLAYBOOK, REPO, _env, fake_fleet
+from test_status import status_root
 from vt import VT
 
 sys.path.insert(0, str(REPO / "callback_plugins"))
@@ -58,10 +55,6 @@ def _inventory(root: Path) -> Path:
     return inventory
 
 
-def _size(fd: int, cols: int, rows: int) -> None:
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-
-
 def _at_a_terminal(
     tmp_path: Path,
     base: str,
@@ -76,7 +69,7 @@ def _at_a_terminal(
 ):
     """Run status.yml at a pseudo-terminal of cols x rows: its rc, the VT the bytes went through, the raw bytes and
     the run log. resize, (cols, rows), changes the size once the first frame with the VMs is drawn; interrupt sends
-    Ctrl-C's SIGINT to the run's process group once both running VMs (test_status.fake_fleet) wait in ssh.
+    Ctrl-C's SIGINT to the run's process group once both running VMs (harness.fake_fleet) wait in ssh.
 
     Either holds every VM's ssh (test_status.SSH) until it is done: a Linux pty takes the rest of the run's output
     without blocking it, so the run could end before the test reads that frame. A resize lets the run go on once
@@ -219,7 +212,7 @@ def test_piped_the_finished_report_is_all_there_is(tmp_path, fleet) -> None:
     root, playbook = status_root(tmp_path, fleet)
     # No terminal at all, stdout and stderr one pipe: what is printed is the finished report, and nothing else.
     env = _env(root, ANSIBLE_LOG_PATH=str(root / "run.log"), TERM="xterm-256color", **LIVE)
-    ran = kit.piped(kit.playbook(root, _inventory(root), playbook, "--check"), root, env)
+    ran = kit.piped(kit.playbook(_inventory(root), playbook, "--check"), root, env)
     assert ran.rc == 0, ran.text
     assert ran.text.splitlines() == _report(ran.log)
     assert "\x1b" not in ran.text

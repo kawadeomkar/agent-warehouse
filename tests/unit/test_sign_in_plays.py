@@ -65,7 +65,6 @@ import json
 import os
 import pwd
 import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -76,6 +75,7 @@ from harness import (
     LOGINS,
     REPO,
     SSH_REFUSED,
+    _bare_repos,
     _batches,
     _calls,
     _executable,
@@ -256,25 +256,7 @@ def github(tmp_path_factory):
 def fake_github(tmp_path_factory):
     """The fake GitHub API's URL while the generator lives, for any module's fixture: see github."""
     git_root = tmp_path_factory.mktemp("git")
-    src = git_root / "src"
-    src.mkdir()
-    (src / "README.md").write_text("# pub\n")
-    env = {
-        **os.environ,
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_AUTHOR_NAME": USERNAME,
-        "GIT_AUTHOR_EMAIL": f"{USERNAME}@example.com",
-        "GIT_COMMITTER_NAME": USERNAME,
-        "GIT_COMMITTER_EMAIL": f"{USERNAME}@example.com",
-    }
-    for argv in (
-        ["git", "init", "-q", "-b", "main", str(src)],
-        ["git", "-C", str(src), "add", "README.md"],
-        ["git", "-C", str(src), "commit", "-q", "-m", "init"],
-        ["git", "clone", "-q", "--bare", str(src), str(git_root / "pub.git")],
-    ):
-        subprocess.run(argv, check=True, env=env, capture_output=True)
+    _bare_repos(git_root, ["pub"])
     yield from _serve(FAKE_API, USERNAME, str(git_root), "pub", "gone")
 
 

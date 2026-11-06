@@ -32,11 +32,7 @@ ANSWERS = {
 
 @pytest.fixture(scope="module")
 def pve(tmp_path_factory):
-    root = tmp_path_factory.mktemp("init_pve")
-    cert, key = harness._certificate(root)
-    fake = tic.FAKES / "fake_pve_api.py"
-    for base in harness._serve(fake, str(cert), str(key), str(root / "pve"), harness.PVE_SECRET):
-        yield base.replace("http://", "https://")
+    yield from harness._fake_pve(tmp_path_factory.mktemp("init_pve"))
 
 
 def _init(root, pve, check_settings=None):
@@ -77,7 +73,7 @@ def test_init_is_one_run_its_questions_steps_and_its_checks_drawn_as_they_are_ma
     assert screen.count("claude-on-proxmox  init · done in") == 1 and screen.count("##  NEXT STEPS") == 1, screen
     assert screen.index("claude-on-proxmox  init · done in") < screen.index("##  NEXT STEPS")
     assert "just deploy alpha" in screen.split("##  NEXT STEPS", 1)[1]
-    checks = screen.split("\nCHECKS\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    checks = passed.table("\nCHECKS\n").splitlines()
     assert checks and all(line.startswith(" ✓ ") for line in checks), checks
     assert passed.screen.titles[-1] == "init · done"
     assert not passed.state.exists()
@@ -88,9 +84,9 @@ def test_a_check_that_fails_is_the_failure_and_the_last_task_names_nothing_of_it
     refused.assert_drawn_and_gone()
     screen = refused.transcript
     assert re.search(r"^✗ checks · this machine: \S", screen, re.M), screen
-    assert "Fail when a check found a problem" not in screen.split("claude-on-proxmox  init", 1)[0]
+    assert "Fail when a check found a problem" not in refused.above_summary("init")
     assert re.search(r"^claude-on-proxmox  init · failed after .* at checks", screen, re.M), screen
-    checks = screen.split("\nCHECKS\n", 1)[1].split("\n\n", 1)[0]
+    checks = refused.table("\nCHECKS\n")
     assert re.search(r"^ ✗ ", checks, re.M), checks
     # NEXT STEPS keeps the record's lines: each problem under the line that counts them, with its indent.
     steps = screen.split("##  NEXT STEPS", 1)[1]

@@ -32,7 +32,7 @@ def github(tmp_path_factory):
 def _argv(root, github):
     cases = {name: {**case, "vars": VARS} for name, case in CASES.items()}
     inventory = _inventory(root, _hosts(root, cases, github), ordered=True)
-    return kit.playbook(root, inventory, LOGIN, "-e", _extra(vm_name=",".join(CASES)))
+    return kit.playbook(inventory, LOGIN, "-e", _extra(vm_name=",".join(CASES)))
 
 
 @pytest.fixture(scope="module")
@@ -50,14 +50,14 @@ def test_each_failure_is_drawn_under_the_sign_in_it_happened_in_and_the_raise_na
     assert re.search(r"^✗ Claude · gamma: ", text, re.M), text
     assert re.search(r"^✗ Claude · beta: Reach the VM", text, re.M), text
     # login.yml's last play raises them again: drawn under them, never as a failure of its own.
-    assert "Fail where a sign-in, or the work after one, failed" not in text.split("claude-on-proxmox  login", 1)[0]
+    assert "Fail where a sign-in, or the work after one, failed" not in drawn.above_summary("login")
 
 
 def test_the_summary_says_which_vms_failed_and_each_vms_outcome_in_each_sign_in(drawn):
     text = drawn.transcript
     head = re.search(rf"^claude-on-proxmox  {TITLE} · done in .* · 2 VMs failed: beta, gamma$", text, re.M)
     assert head, text
-    table = text.split("SIGN-INS", 1)[1].split("\n\n", 1)[0]
+    table = drawn.table("SIGN-INS")
     claude = next(line for line in table.splitlines() if " Claude " in line)
     assert claude.startswith(" ✗ Claude") and "alpha ✓" in claude and "beta ✗" in claude and "gamma ✗" in claude
     # Discovery and login.yml's last play are no sign-ins: counted, never drawn.

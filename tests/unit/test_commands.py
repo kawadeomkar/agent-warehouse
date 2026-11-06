@@ -21,15 +21,14 @@ was make's, no `just <target>` of a target only the Makefile had, and no misspel
 from __future__ import annotations
 
 import difflib
-import functools
-import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
+from harness import just_settings as _settings
+from harness import public_recipes as _recipes
+from harness import repo_files
+
 REPO = Path(__file__).resolve().parents[2]
-JUST = shutil.which("just")
 # Where a command is told to a person.
 SOURCES = [
     "README.md",
@@ -64,36 +63,8 @@ PLACEHOLDER = "X"
 
 def _files() -> list[Path]:
     # Tracked, or new and not ignored: a file is checked before its first commit too.
-    tracked = set(
-        subprocess.run(
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-            cwd=REPO,
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split()
-    )
-    found = set()
-    for pattern in SOURCES:
-        for path in REPO.glob(pattern):
-            name = str(path.relative_to(REPO))
-            if path.is_file() and name in tracked and not name.startswith("docs/plan"):
-                found.add(path)
-    return sorted(found)
-
-
-@functools.cache
-def _json() -> dict:
-    return json.loads(subprocess.run([JUST, "--json"], cwd=REPO, capture_output=True, text=True, check=True).stdout)
-
-
-def _recipes() -> dict[str, dict]:
-    return {name: recipe for name, recipe in _json()["recipes"].items() if not recipe["private"]}
-
-
-def _settings() -> set[str]:
-    """The assignments a person sets: the upper-case ones. The rest are the justfile's own workings."""
-    return {name for name in _json()["assignments"] if name.isupper()}
+    listed = set(repo_files(untracked=True))
+    return sorted({path for pattern in SOURCES for path in REPO.glob(pattern) if path in listed})
 
 
 def _normalized(text: str) -> str:
@@ -130,15 +101,24 @@ def _commands_in(text: str, name: str = ""):
             yield match
 
 
-def _sources():
+def _sources(skip: set[str] = REFUSED_ON_PURPOSE):
+    """Each file a command is told in, by its name, with its text: but those of skip, and a file that is not text."""
     for path in _files():
         name = str(path.relative_to(REPO))
-        if name in REFUSED_ON_PURPOSE:
+        if name in skip:
             continue
         try:
             yield name, path.read_text()
         except UnicodeDecodeError:
             continue
+
+
+def _lines(normalized: bool = False):
+    """Each line of the files a make command could be left in, but the history's (HISTORY) and the refusals':
+    its file, its number and the line - read with each splice a placeholder, when normalized."""
+    for name, text in _sources(HISTORY | REFUSED_ON_PURPOSE):
+        for number, line in enumerate((_normalized(text) if normalized else text).splitlines(), 1):
+            yield name, number, line
 
 
 def _commands():
@@ -324,16 +304,7 @@ SIGNATURE = re.compile(r"^[a-z][a-z-]* .*:$")
 
 
 def test_no_make_command_is_left() -> None:
-    left = []
-    for path in _files():
-        name = str(path.relative_to(REPO))
-        if name in HISTORY or name in REFUSED_ON_PURPOSE:
-            continue
-        try:
-            lines = path.read_text().splitlines()
-        except UnicodeDecodeError:
-            continue
-        left += [f"{name}:{number}: {line.strip()}" for number, line in enumerate(lines, 1) if MAKE.search(line)]
+    left = [f"{name}:{number}: {line.strip()}" for name, number, line in _lines() if MAKE.search(line)]
     assert left == [], "\n".join(left)
     assert MAKE.search("the one you run `make` on") and MAKE.search("one log per make run")
     assert MAKE.search("bash -lc <script> make-code") and MAKE.search("def test_make_deploy_goes_on():")
@@ -343,22 +314,13 @@ def test_no_make_command_is_left() -> None:
 def test_no_make_variable_is_left() -> None:
     # `TAGS=dev_tools` outlived the Makefile on a role's page, and SESSION in --session's refusals: a line
     # that tells the history says whose spelling it was.
-    left = []
-    for path in _files():
-        name = str(path.relative_to(REPO))
-        if name in HISTORY or name in REFUSED_ON_PURPOSE:
-            continue
-        try:
-            lines = path.read_text().splitlines()
-        except UnicodeDecodeError:
-            continue
-        left += [
-            f"{name}:{number}: {line.strip()}"
-            for number, line in enumerate(lines, 1)
-            if MAKE_VARIABLE.search(line)
-            and not re.search(r"\bmake\b", line)
-            and not (name == "justfile" and SIGNATURE.match(line))
-        ]
+    left = [
+        f"{name}:{number}: {line.strip()}"
+        for name, number, line in _lines()
+        if MAKE_VARIABLE.search(line)
+        and not re.search(r"\bmake\b", line)
+        and not (name == "justfile" and SIGNATURE.match(line))
+    ]
     assert left == [], "\n".join(left)
     assert MAKE_VARIABLE.search("`TAGS=dev_tools` runs it alone") and MAKE_VARIABLE.search('VM_NAME="a b"')
     assert not MAKE_VARIABLE.search("just ANSIBLE_ARGS=-vvv deploy") and not MAKE_VARIABLE.search("--host=pve")
@@ -393,15 +355,8 @@ OLD_TARGET = re.compile(rf"\bjust ({'|'.join(map(re.escape, REMOVED))})\b(?![-\w
 
 def test_no_target_only_the_makefile_had_is_named() -> None:
     assert not set(REMOVED) & set(_recipes())
-    left = []
-    for path in _files():
-        name = str(path.relative_to(REPO))
-        if name in HISTORY or name in REFUSED_ON_PURPOSE:
-            continue
-        try:
-            lines = _normalized(path.read_text()).splitlines()
-        except UnicodeDecodeError:
-            continue
-        left += [f"{name}:{number}: {line.strip()}" for number, line in enumerate(lines, 1) if OLD_TARGET.search(line)]
+    left = [
+        f"{name}:{number}: {line.strip()}" for name, number, line in _lines(normalized=True) if OLD_TARGET.search(line)
+    ]
     assert left == [], "\n".join(left)
     assert OLD_TARGET.search("run just claude-login alpha") and not OLD_TARGET.search("just unit-ish")

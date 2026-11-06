@@ -21,7 +21,8 @@ import time
 from pathlib import Path
 
 import pytest
-from conftest import load_module, run_main
+from conftest import run_main
+from harness import load_module
 
 from claude_vm import sessions as filters
 
