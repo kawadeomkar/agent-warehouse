@@ -114,8 +114,9 @@ from ansible.module_utils.claude_on_proxmox import SESSION_ID
 NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID.pattern}(?:\.jsonl)?|memory)")
 # How many of the entries left out are named: a VM can send any number.
 LISTED = 50
-# A host or user that ssh could read as an option, or that is not one word.
-WORD = re.compile(r"^[^\s-][^\s]*$")
+# A host or user that ssh could read as an option, or that is not one word. fullmatch: an anchored match takes a word
+# with a newline at its end.
+WORD = re.compile(r"[^\s-]\S*")
 
 
 class Refused(Exception):
@@ -125,7 +126,7 @@ class Refused(Exception):
 def ssh_argv(ssh, command):
     """The ssh that runs ``command`` on the VM, never asking for anything."""
     host, user = str(ssh.get("host") or ""), str(ssh.get("user") or "")
-    if not WORD.match(host) or (user and not WORD.match(user)):
+    if not WORD.fullmatch(host) or (user and not WORD.fullmatch(user)):
         raise ValueError(f"{user}@{host} is not a user and a host ssh can be given")
     argv = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "-o", "StrictHostKeyChecking=accept-new"]
     argv += ["-o", "Compression=yes"]

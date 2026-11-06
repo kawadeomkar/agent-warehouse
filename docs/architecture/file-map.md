@@ -133,7 +133,7 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes
                                   (§7.10)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
-                                  net_mac, guest_ipv4, guest_address, guest_addresses;
+                                  net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
@@ -146,16 +146,14 @@ filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_te
                                   to quote;
                                   one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
                                   module's warnings and errors made plain, which the callbacks import
-filter_plugins/status.py          the adapter of just status's model and text: status_fleet, status_vm_api,
-                                  status_report,
-                                  status_text (§7.7)
+filter_plugins/status.py          the adapter of just status's model: status_fleet, status_vm_api, status_report (§7.7)
 filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each
                                   just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
-                                  which VM checkout by origin; git_repository
-                                  and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
+                                  which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on
+                                  the VM;
                                   claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,
                                   just code's own directory on a VM; claude_sessions_saved, what of a VM's sessions destroy saves;
                                   claude_sessions_listed, how just code says the sessions it left out

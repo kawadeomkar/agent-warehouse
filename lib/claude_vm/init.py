@@ -148,7 +148,6 @@ def _size(value):
         if size < 1024 or unit == "PiB":
             return f"{size:.0f} {unit}" if size >= 10 or unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
-    return ""
 
 
 def init_candidates(results, key, prefix, required):

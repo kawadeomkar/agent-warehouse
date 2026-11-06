@@ -147,7 +147,8 @@ from ansible.module_utils.claude_on_proxmox import folders, is_claude, own_proce
 GIT_ENV = {"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 # What precedes the host in a URL with a scheme: https://<token>@github.com/... names a credential.
 USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@")
-COMMIT = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+# fullmatch: an anchored match takes an ID with a newline at its end.
+COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
 def _git(module, path, *args):
@@ -358,7 +359,7 @@ def main():
         if rc != 0 or branch.startswith("-"):
             module.fail_json(msg=f"{branch!r} is not a branch name git accepts.")
     target = params["target"] or ""
-    if target and not COMMIT.match(target):
+    if target and not COMMIT.fullmatch(target):
         module.fail_json(msg=f"{target!r} is not a full commit ID.")
     processes = claude_processes() if params["busy"] else None
     paths = params["paths"]

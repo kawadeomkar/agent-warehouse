@@ -144,8 +144,8 @@ Finds VMs by tag so `configure.yml` works standalone, not only straight after pr
    it means configuring zero hosts and exiting 0, which looks like success. The role's agent wait reads
    the same refusal from its module's error with the `proxmox_access_denied` filter
    ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)).
-6. `add_host` each VM for which `guest_address(proxmox_nic)`
-   ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)) returns an address, with
+6. `add_host` each VM to which `guest_addresses` gives an address, read on the NIC `proxmox_nic` names
+   ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)), with
    `ansible_python_interpreter` set to `claude_vm_python` ([§5.3](roles.md#53-common--os-baseline)), as
    provisioning's play 3 does. Without the MAC of that NIC
    the VM is skipped rather than guessed at — an address picked without one could be a bridge the

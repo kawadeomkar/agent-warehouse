@@ -18,7 +18,6 @@ PROXMOX = (
     "vms_not_named",
     "net_mac",
     "tailnet_ipv4",
-    "guest_address",
     "guest_addresses",
     "proxmox_access_denied",
 )

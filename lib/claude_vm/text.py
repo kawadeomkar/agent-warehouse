@@ -75,10 +75,7 @@ def one_line(text, limit=120):
     newline and tab becomes one too, and runs of spaces one. None is "". What a
     VM printed is passed as it is: nothing needs cleaning first.
     """
-    if text is None:
-        return ""
-    cleaned = "".join(" " if unicodedata.category(ch) == "Cc" else ch for ch in visible_text(text))
-    cleaned = _SPACES.sub(" ", cleaned).strip()
+    cleaned = _SPACES.sub(" ", visible_text(text).replace("\n", " ").replace("\t", " ")).strip()
     limit = max(int(limit), 1)
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1].rstrip() + "…"
 

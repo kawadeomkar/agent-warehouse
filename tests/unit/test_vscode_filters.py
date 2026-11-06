@@ -89,8 +89,8 @@ class TestVscodeSetting:
         assert vscode_setting(f'{{"{KEY}": "{value}"}}', KEY) == value
 
     def test_absent_key_gives_the_default(self):
-        assert vscode_setting('{"editor.fontSize": 14}', KEY) is None
-        assert vscode_setting('{"editor.fontSize": 14}', KEY, "") == ""
+        assert vscode_setting('{"editor.fontSize": 14}', KEY) == ""
+        assert vscode_setting('{"editor.fontSize": 14}', KEY, "unset") == "unset"
 
     def test_a_commented_out_key_does_not_count(self):
         text = f'{{\n  // "{KEY}": "on",\n  "editor.fontSize": 14,\n}}'
@@ -123,17 +123,15 @@ class TestVscodeSetting:
         assert vscode_setting(f'{{"task": null, "{KEY}": "off"}}', KEY, "") == ""
         assert vscode_setting(f'{{"task": "x", "{KEY}": "off"}}', KEY, "") == ""
 
-    @pytest.mark.parametrize("text", ["", None, "   ", "not json", '{"a": ', "[1, 2]", '"on"'])
-    def test_empty_unreadable_or_not_an_object_gives_the_default(self, text):
-        assert vscode_setting(text, KEY, "") == ""
+    @pytest.mark.parametrize("text", ["", None, "   "])
+    def test_empty_text_gives_the_default(self, text):
+        assert vscode_setting(text, KEY) == ""
+        assert vscode_setting(text, KEY, "unset") == "unset"
 
     @pytest.mark.parametrize("text", ["not json", '{"a": ', "[1, 2]", '"on"', '{"a": 1\n "b": 2}'])
-    def test_text_that_does_not_parse_is_told_apart_when_asked(self, text):
+    def test_text_that_does_not_parse_or_is_not_an_object_is_told_apart(self, text):
+        assert vscode_setting(text, KEY) == "unparsable"
         assert vscode_setting(text, KEY, "", unparsable="broken") == "broken"
-
-    @pytest.mark.parametrize("text", ["", None, "   ", "{}", f'{{"{KEY}": "on"}}'])
-    def test_empty_text_and_an_absent_key_are_not_unparsable(self, text):
-        assert vscode_setting(text, KEY, "", unparsable="broken") != "broken"
 
     def test_a_real_looking_settings_file(self):
         text = """// Place your settings in this file to overwrite the default settings

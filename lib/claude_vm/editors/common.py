@@ -1,4 +1,5 @@
-"""What more than one editor family does: the helpers' directory, the ownership marker, the command picked here."""
+"""What more than one editor family does: the helpers' directory, the ownership marker, the command picked here, and
+whether one path on the VM lies inside another."""
 
 from __future__ import annotations
 
@@ -7,7 +8,7 @@ import posixpath
 import re
 from typing import Final
 
-from .model import Editor, OpenInputs, Probe
+from .model import Editor, OpenInputs, Probe, vm_path
 
 # The helpers' directory in just code's own on the VM: code_helpers_dir, a promised name.
 HELPERS: Final = "helpers"
@@ -29,6 +30,16 @@ def pick_cli(editor: Editor, probe: Probe) -> str:
             if not editor.version_re or (path in said and re.match(editor.version_re, said[path])):
                 return path
     return ""
+
+
+def below(path: str, top: str) -> bool:
+    """Whether path lies strictly inside top on the VM, both normalised as the plan compares paths (vm_path): a "//" or
+    a "." in a setting decides nothing. A path that is no absolute path, a setting left empty, is inside nothing."""
+    try:
+        path, top = vm_path(path, "path"), vm_path(top, "top")
+    except ValueError:
+        return False
+    return path != top and posixpath.commonpath([top, path]) == top
 
 
 def just_code(inputs: OpenInputs) -> str:

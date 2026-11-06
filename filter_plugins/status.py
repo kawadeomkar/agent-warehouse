@@ -1,5 +1,5 @@
-"""Ansible's filters of `just status` (lib/claude_vm/status/model.py and tui/status.py, docs/architecture/lifecycle.md
-§4.6): an adapter, which imports the core only when a filter is called (docs/architecture/custom-code.md §7.10)."""
+"""Ansible's filters of `just status` (lib/claude_vm/status/model.py, docs/architecture/lifecycle.md §4.6): an adapter,
+which imports the core only when a filter is called (docs/architecture/custom-code.md §7.10)."""
 
 import sys
 from pathlib import Path
@@ -27,4 +27,4 @@ class FilterModule:
     def filters(self):
         from claude_vm import plugin
 
-        return plugin.filters(_LIB, "status.model", MODEL) | plugin.filters(_LIB, "tui.status", ("status_text",))
+        return plugin.filters(_LIB, "status.model", MODEL)

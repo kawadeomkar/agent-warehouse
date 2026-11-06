@@ -886,7 +886,8 @@ def test_overwrites_names_what_git_does_not_track_that_a_move_would_replace(tmp_
     assert item["clean"] and item["overwrites"] == ["app.log", "build/out.txt", "linked"]
 
 
-@pytest.mark.parametrize("target", ["HEAD", "--output=/tmp/x", "abc123"])
+# A full ID with a newline after it: an anchored match took it.
+@pytest.mark.parametrize("target", ["HEAD", "--output=/tmp/x", "abc123", "a" * 40 + "\n"])
 def test_a_target_that_is_not_a_full_commit_id_is_refused(tmp_path, patch_module, target):
     from conftest import fail_main
 
@@ -1413,7 +1414,17 @@ def test_gnu_tar_s_2_names_the_session_that_did_not_arrive_or_fails_the_fetch_as
         fetch.fetch(str(tmp_path / "b" / "projects"), str(projects), ASKED, reach)
 
 
-@pytest.mark.parametrize("reach", [{"host": "-oProxyCommand=x"}, {"host": "a b"}, {"host": "h", "user": "-l"}])
+@pytest.mark.parametrize(
+    "reach",
+    [
+        {"host": "-oProxyCommand=x"},
+        {"host": "a b"},
+        {"host": "h", "user": "-l"},
+        # A word with a newline after it: an anchored match took it.
+        {"host": "h\n"},
+        {"host": "h", "user": "dev\n"},
+    ],
+)
 def test_a_host_or_user_ssh_could_read_as_an_option_is_refused(reach):
     with pytest.raises(ValueError, match="is not a user and a host"):
         fetch.ssh_argv(reach, "true")

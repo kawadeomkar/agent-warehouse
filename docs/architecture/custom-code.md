@@ -2,7 +2,7 @@
 
 ## 7.1 `filter_plugins/proxmox.py`
 
-Five filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
+Four filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
 SSH config. Their code is `lib/claude_vm/proxmox.py`'s, and the checks of what a VM or a person supplies
 (`guest_ipv4`, `ssh_alias_refusal`, `sshd_match_spec`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
 ansible-core says with the filter's name.
@@ -27,12 +27,16 @@ anything else - a newline and a `ProxyCommand` after a valid address, a leading 
 that parses as one IPv4 address inside `100.64.0.0/10`, else `""`: tailscaled on the VM reports it, so
 it is held to the same rule as `guest_ipv4`.
 
-**`guest_address(vm_info, nic="net0")`** — the two above, composed the one way discovery and
-`just status` need: given what `proxmox_vm_info` registered for one VM read with `config` and
-`network`, the IPv4 the agent reports on the interface whose MAC is `config[nic]`. Returns `""` —
-never raises — for a failed or skipped call, a stopped VM, a silent agent or a missing NIC, so a
-caller sweeping the fleet skips that VM. Both playbooks pass `proxmox_nic`; they used to read
-`config.net0` inline, which ignored the NIC the role honours.
+**`guest_addresses(vms, configs, networks, nic="net0")`** — `net_mac` and `guest_ipv4`, composed the one
+way every reader of the fleet's addresses needs (`tasks/vm_addresses.yml`, which discovery, `just status`,
+`just code`, destroy and the alias refresh import): the cluster listing's VMs, each with an `address`, the
+IPv4 its agent reports on the interface whose MAC is its config's `nic`, from the `/config` and
+`/agent/network-get-interfaces` replies a `uri` loop registered, one per VM in the same order. A VM whose
+request failed or was skipped, that is stopped, whose agent has not answered, that has no such NIC or
+whose reply has another shape gets `""` — never an error — so a caller sweeping the fleet skips that VM,
+and no address is guessed without the MAC; only lists that cannot be paired raise. `vm_addresses.yml`
+passes `proxmox_nic`: reading `net0` regardless ignored the NIC the role honours, and left a VM whose LAN
+NIC is `net1` out of the fleet.
 
 **`proxmox_access_denied(msg)`** — whether a community.proxmox error means the token was refused:
 `40[13]` only in proxmoxer's status position (`"<status> <reason>: <detail>"`, after the module's own
@@ -99,17 +103,17 @@ Covered by 32 unit tests in `tests/unit/test_github_repos.py`.
 
 ## 7.3 VS Code's settings reader, `lib/claude_vm/editors/vscode.py`
 
-**`vscode_setting(text, key, default)`** — the value VS Code's `settings.json` gives `key`, for
-VS Code's plan to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
-`/* */` comments and trailing commas are dropped in one pass that copies strings whole, so a `//`
-in a URL is not a comment and a commented-out `"task.allowAutomaticTasks": "off"` does not count.
-A key is read flat, as VS Code writes it, or nested, and the later spelling wins, as VS Code's own
-reader has it: dotted keys expand into a tree in file order, a nested object replaces what the flat
-keys built before it, and a key whose path runs into a value that is not an object is dropped.
-Empty text gives `default`; text that does not parse, or is not an object, gives `unparsable` when
-the caller passes one, which is how the plan says a file did not parse rather than take it for
-unset. Either way a run that only reports what the editor will do must not fail on the user's own
-settings. Read-only by construction; nothing in the project writes that file.
+**`vscode_setting(text, key, default="", unparsable="unparsable")`** — the value VS Code's
+`settings.json` gives `key`, for VS Code's plan to say whether the Claude terminal will start on its
+own. The file is JSONC: `//` and `/* */` comments and trailing commas are dropped in one pass that
+copies strings whole, so a `//` in a URL is not a comment and a commented-out
+`"task.allowAutomaticTasks": "off"` does not count. A key is read flat, as VS Code writes it, or
+nested, and the later spelling wins, as VS Code's own reader has it: dotted keys expand into a tree in
+file order, a nested object replaces what the flat keys built before it, and a key whose path runs
+into a value that is not an object is dropped. Empty text gives `default`; text that does not parse,
+or is not an object, gives `unparsable`, which is how the plan says a file did not parse rather than
+take it for unset. Either way a run that only reports what the editor will do must not fail on the
+user's own settings. Read-only by construction; nothing in the project writes that file.
 
 It is part of VS Code's family (§7.10), and no filter: the plan alone calls it, on the text the family's check read
 (`code_probe`). Covered by unit tests in `tests/unit/test_vscode_filters.py`.
@@ -478,7 +482,8 @@ and `open` (one a `claude` on the VM has open, given as `open_there`), one of no
 has in none; and with
 `wanted` (`--session`), its entry and the `problem` that refuses it, or `""`. A session's repository is
 its first directory's origin, else its gone worktree's checkout's, else `githubRepoPaths`; the VM's
-checkout of it is the one whose GitHub origin names it, of two the one named after it.
+checkout of it is the one whose GitHub origin names it, of two the one named after it. The plan reads
+an origin through two functions of `sessions.py` that no template calls, so neither is a filter:
 **`git_repository(url)`** is `owner/repo`, lowercased, of https, ssh and scp-like URLs and local paths
 alike, the host not compared: this machine's side, where a clone may reach GitHub by an SSH alias.
 **`github_repository(url)`** is the same of a GitHub origin only, and `""` of any other: the VM's side,
@@ -536,7 +541,8 @@ the VMs, the storages, the template, what each VM said over SSH, the attention i
 problem, to do, and the exit code, 2, 1 or 0, from the highest. A role's own line is an item of that
 role's (`source`), drawn after its name as NEXT STEPS draws it. With `live` a value not read yet is pending, and nothing is ranked: the
 model of a frame the callback draws while the run goes on. **`status_text(model, color, reading, glyph,
-cols)`** — the report as text, every line within 100 columns, or within `cols` for a live frame, where
+cols)`**, `tui/status.py`'s, which the callback calls and no template does, so it is no filter — the report
+as text, every line within 100 columns, or within `cols` for a live frame, where
 `glyph` marks each pending value. A VM's name longer than its column - 13 characters, 11 under ATTENTION - is
 cut to end in "…" in every section, so a cut name is never read as another VM's whole one. The same functions
 draw the frames and the finished report.
@@ -893,24 +899,25 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
   given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
-- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories
-  and files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by
-  name), the folder or file it opens, and what it says. Each editor family is a module of free functions with one,
+- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories and
+  files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by name), the
+  folder or file it opens, and what it says. Each editor family is a module of free functions with one,
   `plan_open(editor, inputs)` (`vscode.py`, `zed.py`), the seam a `typing.Protocol` of that one member
   (`family.py`), never `@runtime_checkable`. `model.py` holds the records: a row of `claude_editors`, what the
   family's check found here (`Probe`), the inputs (`OpenInputs`, which grow by fields with defaults) and the plan.
   Every plan passes `registry.py` on every call: a refusal leaves alone; every write lies strictly inside just
-  code's directory (`commonpath` on the normalised join), outside the folders YAML writes there itself, the session
-  copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML lists, with its
-  directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's
-  fixed shape over the first command `which` printed with one of the row's names whose `--version` says what the
-  row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised and writes
-  and launches them exactly as `code.yml` built them, and holds just code's directory to its rules only where it
-  writes there, as `code.yml` does; a family gives the Claude terminal only where its row says the window has one
-  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is). A row's `server`
-  (`ProcessMatch`) is how `just status` knows one of the editor's windows on the VM, a program named first, since a
-  match on the arguments alone would count any of the user's programs. `filter_plugins/editors.py` gives Ansible
-  `editor_open_plan` and `editor_servers`, the rows' matches as `vm_status_info`'s `editors` argument (§7.7).
+  code's directory (`common.below`, `commonpath` on the normalised join), outside the folders YAML writes there
+  itself, the session copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML
+  lists, with its directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in
+  the family's fixed shape over the first command `which` printed with one of the row's names whose `--version` says
+  what the row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised,
+  every "inside" by `common.below`, and writes and launches them exactly as `code.yml` built them, and holds just
+  code's directory to its rules only where it writes there, as `code.yml` does; a family gives the Claude terminal
+  only where its row says the window has one (VS Code's, `started`; Zed's task file only at a helper path a task can
+  be handed as it is). A row's `server` (`ProcessMatch`) is how `just status` knows one of the editor's windows on
+  the VM, a program named first, since a match on the arguments alone would count any of the user's programs.
+  `filter_plugins/editors.py` gives Ansible `editor_open_plan` and `editor_servers`, the rows' matches as
+  `vm_status_info`'s `editors` argument (§7.7).
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

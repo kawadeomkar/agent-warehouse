@@ -201,6 +201,24 @@ def test_no_write_leaves_just_code_s_directory(name):
 
 
 @pytest.mark.parametrize(
+    ("path", "top", "inside"),
+    [
+        (f"{FD}/session", ROOT, True),
+        ("/home/dev//projects/./.claude-on-proxmox", "/home/dev/projects/", True),  # as a setting may spell them
+        (ROOT, ROOT, False),  # a folder is not inside itself
+        (f"{ROOT}/.", ROOT, False),
+        (f"{ROOT}-old/x", ROOT, False),  # a sibling whose name starts the same
+        (f"{FD}/../../x", ROOT, False),
+        ("relative", ROOT, False),  # a setting left relative or empty is inside nothing, never an error
+        ("", ROOT, False),
+    ],
+)
+def test_one_rule_says_whether_a_path_lies_inside_another(path, top, inside):
+    # The families' Claude terminal and notes, and the registry's writes, all ask common.below.
+    assert common.below(path, top) is inside
+
+
+@pytest.mark.parametrize(
     "slip",
     SLIPS,
     ids=[

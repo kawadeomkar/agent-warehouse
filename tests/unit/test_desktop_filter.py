@@ -11,7 +11,6 @@ import subprocess
 import sys
 
 import pytest
-from harness import load_module
 
 from claude_vm import desktop as desktop_filters
 
@@ -126,12 +125,6 @@ def test_a_browser_that_is_a_command_interpreter_opens_nothing(browser):
 )
 def test_a_browser_that_only_looks_like_one_still_opens(browser, argv):
     assert page_opener(URL, browser, []) == argv
-
-
-def test_the_filters_are_registered():
-    # filter_plugins/desktop.py is the adapter; test_claude_vm.py holds each of its filters to the core's function.
-    adapter = load_module("filter_plugins/desktop.py", "desktop_adapter", register=False)
-    assert set(adapter.FilterModule().filters()) == {"page_opener", "controller_run", "controller_run_state"}
 
 
 # ------------------------------------------------- the run waiting for a sign-in

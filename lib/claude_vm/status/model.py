@@ -18,6 +18,7 @@ import re
 import time
 from datetime import UTC, datetime
 
+from ..proxmox import scsi0_storage
 from ..refs import NAME
 from ..text import one_line, plural
 
@@ -103,15 +104,6 @@ def _config_value(config, key):
 def _ctime(config):
     match = re.search(r"(?:^|,)ctime=(\d+)", str(_config_value(config, "meta") or ""))
     return int(match.group(1)) if match else None
-
-
-def _disk(config):
-    """scsi0 as {storage, bytes}; bytes from size=, in Proxmox's own units."""
-    text = str(_config_value(config, "scsi0") or "")
-    storage = text.split(":", 1)[0] if ":" in text.split(",", 1)[0] else ""
-    match = re.search(r"(?:^|,)size=([0-9.]+)([KMGT])", text)
-    size = int(float(match.group(1)) * 1024 ** "KMGT".index(match.group(2)) * 1024) if match else None
-    return {"storage": storage, "bytes": size}
 
 
 def _pick(config):
@@ -207,7 +199,7 @@ def status_fleet(
                 "name": template_name,
                 "vmid": entry.get("vmid"),
                 "node": entry.get("node"),
-                "storage": _disk(template_config or {}).get("storage", ""),
+                "storage": scsi0_storage(_config_value(template_config, "scsi0")),
                 "ctime": _ctime(template_config or {}),
                 "drift": [str(d) for d in template_drift or []],
                 "rebuild": bool(settings.get("template_rebuild", True)),
@@ -248,7 +240,7 @@ def status_fleet(
                 "skipped": reason,
             }
         )
-    disk_storages = {_disk(vm["config"]).get("storage") for vm in vms} - {""}
+    disk_storages = {scsi0_storage(_config_value(vm["config"], "scsi0")) for vm in vms} - {""}
     wanted = disk_storages | {settings.get("storage", "")} - {""}
     ours_vmids = {vm["vmid"] for vm in vms} | {e.get("vmid") for e in ours}
     shown = []

@@ -804,10 +804,10 @@ down broke `deploy`, `configure`, the fleet listing and `destroy` for every VM o
 `playbooks/tasks/cluster_vms.yml` fetches the listing with `uri` (`no_log`, since the request
 carries the token); `proxmox_vm_info` is called only with a `name` or a `vmid`. The shared pieces
 live in one place each, so the playbooks cannot drift: `proxmox_api_module_defaults` for
-`module_defaults`, `claude_vm_requested` for narrowing to the names given (`vm_name`), the `guest_address` filter with
-`proxmox_nic` for a VM's address, and the `proxmox_access_denied` filter for "the token was
-refused" - which anchors 401/403 to proxmoxer's status position, because Proxmox names the VM in
-the error text and `VM 4013 is not running` otherwise reads as a 401.
+`module_defaults`, `claude_vm_requested` for narrowing to the names given (`vm_name`), the `guest_addresses` filter
+with `proxmox_nic` for each VM's address (`playbooks/tasks/vm_addresses.yml`), and the `proxmox_access_denied`
+filter for "the token was refused" - which anchors 401/403 to proxmoxer's status position, because
+Proxmox names the VM in the error text and `VM 4013 is not running` otherwise reads as a 401.
 
 ## Things that have bitten this repo
 

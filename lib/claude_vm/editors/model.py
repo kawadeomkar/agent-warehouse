@@ -168,7 +168,7 @@ class OpenPlan(Checked):
 
 
 def editors_from(raw: object) -> dict[str, Editor]:
-    """The inventory defaults' claude_editors, as tools/settings reads it: parsed on every call."""
+    """The inventory defaults' claude_editors, as the registry's filters are handed it: parsed on every call."""
     rows = plain(raw, "claude_editors")
     return {
         key: Editor(key=key, **(row | {"server": ProcessMatch(**row.get("server", {}))})) for key, row in rows.items()

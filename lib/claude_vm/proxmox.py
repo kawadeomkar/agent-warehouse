@@ -63,30 +63,6 @@ def tailnet_ipv4(addresses):
     return ""
 
 
-def guest_address(vm_info, nic="net0"):
-    """Return the address a VM's guest agent reports on one of its NICs, or "".
-
-    ``vm_info`` is what ``proxmox_vm_info`` registers for a single VM read with
-    ``config: current`` and ``network: true``. The NIC's MAC is read from
-    ``config[nic]`` and picks the agent's matching interface, so a bridge the
-    guest grew later (docker0) is never returned. ``nic`` is the one setting
-    that decides this, which is why every caller passes ``proxmox_nic``.
-
-    Anything that leaves one VM without an address - the call failed, the VM is
-    stopped, the agent has not answered, the VM has no such NIC - gives "",
-    never an error: callers sweep a whole fleet and skip that VM rather than
-    abort for every other one, and never guess an address without the MAC.
-    """
-    vms = vm_info.get("proxmox_vms") if isinstance(vm_info, dict) else None
-    vm = vms[0] if isinstance(vms, list) and vms else None
-    if not isinstance(vm, dict) or not isinstance(vm.get("config"), dict):
-        return ""
-    mac = net_mac(vm["config"].get(nic), "")
-    if not mac or not isinstance(vm.get("network"), list):
-        return ""
-    return guest_ipv4(vm["network"], mac) or ""
-
-
 def guest_addresses(vms, configs, networks, nic="net0"):
     """Pair each VM of a cluster listing with the address its agent reports.
 
@@ -94,9 +70,16 @@ def guest_addresses(vms, configs, networks, nic="net0"):
     ``networks`` are the registered results of a ``uri`` loop over them, one
     per VM in the same order, reading ``/config`` and
     ``/agent/network-get-interfaces``. Returns the entries with an ``address``
-    key added: the IPv4 the agent reports on ``nic``, or "" for a VM whose
-    request failed, was skipped, or whose NIC or agent gave nothing - never an
-    error, for the reasons ``guest_address`` gives.
+    key added: the IPv4 the agent reports on the interface whose MAC is the
+    config's ``nic``, so a bridge the guest grew later (docker0) is never
+    returned. ``nic`` is the one setting that decides this, which is why the
+    caller passes ``proxmox_nic``.
+
+    Anything that leaves one VM without an address - its request failed or was
+    skipped, the VM is stopped, the agent has not answered, the VM has no such
+    NIC, an answer of another shape - gives that VM "", never an error: the
+    caller sweeps a whole fleet and skips that VM rather than abort for every
+    other one, and never guesses an address without the MAC.
     """
     if not isinstance(vms, list) or not isinstance(configs, list) or not isinstance(networks, list):
         raise ValueError("guest_addresses expects three lists")
@@ -111,16 +94,11 @@ def guest_addresses(vms, configs, networks, nic="net0"):
 
     rows = []
     for vm, config, network in zip(vms, configs, networks, strict=True):
-        interfaces = body(network)
-        vm_info = {
-            "proxmox_vms": [
-                {
-                    "config": body(config),
-                    "network": interfaces.get("result") if isinstance(interfaces, dict) else None,
-                }
-            ]
-        }
-        rows.append({**vm, "address": guest_address(vm_info, nic)})
+        settings, interfaces = body(config), body(network)
+        mac = net_mac(settings.get(nic), "") if isinstance(settings, dict) else ""
+        reported = interfaces.get("result") if isinstance(interfaces, dict) else None
+        address = (guest_ipv4(reported, mac) or "") if mac and isinstance(reported, list) else ""
+        rows.append({**vm, "address": address})
     return rows
 
 
@@ -225,6 +203,13 @@ def _size_bytes(text):
         return None
     unit = (match.group(2) or "G").upper()
     return int(float(match.group(1)) * 1024 ** ("KMGT".index(unit) + 1))
+
+
+def scsi0_storage(scsi0):
+    """The storage a disk's property string names (``local-lvm:vm-9001-disk-0,size=32G``): its volume, the first item,
+    is "<storage>:<name>". "" for a disk that names none."""
+    volume = str(scsi0 or "").split(",", 1)[0]
+    return volume.split(":", 1)[0] if ":" in volume else ""
 
 
 def _disk_size(scsi0):
@@ -368,7 +353,7 @@ def proxmox_template_drift(config, wanted):
         "cpu": _option(config.get("cpu"), "cputype"),
         "ostype": str(config.get("ostype") or ""),
         "bridge": _option(config.get("net0"), "bridge"),
-        "storage": str(config.get("scsi0") or "").split(":", 1)[0] if ":" in str(config.get("scsi0") or "") else "",
+        "storage": scsi0_storage(config.get("scsi0")),
         "scsihw": str(config.get("scsihw") or ""),
         "agent": _option(config.get("agent"), "enabled"),
         "serial0": str(config.get("serial0") or ""),

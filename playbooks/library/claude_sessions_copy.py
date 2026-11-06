@@ -373,7 +373,7 @@ def _prune(mirror, keep, check):
     removed = False
     for folder in folders(mirror):
         for entry in list(os.scandir(folder.path)):
-            session = entry.name[: -len(".jsonl")] if entry.name.endswith(".jsonl") else entry.name
+            session = entry.name.removesuffix(".jsonl")
             if (folder.name, session) in keep:
                 continue
             removed = True

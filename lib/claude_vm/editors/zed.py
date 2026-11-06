@@ -74,7 +74,7 @@ def _claude(editor: Editor, inputs: OpenInputs, there: bool, listed: bool, helpe
             f" The window of {common.just_code(inputs)} lists a task, Claude (just code), that does it;"
             " docs/guides/zed.md: one key, or Claude with no key."
         )
-    below = inputs.files_dir.startswith(inputs.root + "/")
+    below = common.below(inputs.files_dir, inputs.root)
     if inputs.terminal and editor.claude_terminal == "listed" and below and not common.HELPER_PATH.fullmatch(helper):
         return terminal + (
             f" No Claude task was written: the path of its helper, {helper}, holds a character a task is not handed as"
@@ -95,7 +95,7 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
     head = inputs.probe.tasks_head
     foreign = head is not None and head != common.MARKER
     there = written and not foreign
-    listed = there and inputs.files_dir.startswith(inputs.target + "/")
+    listed = there and common.below(inputs.files_dir, inputs.target)
     writes: tuple[VmWrite, ...] = ()
     if written:
         writes = (VmDirectory(kind="directory", path=common.HELPERS),)
