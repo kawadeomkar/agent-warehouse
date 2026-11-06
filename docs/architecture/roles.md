@@ -901,7 +901,8 @@ controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`
   from its LAN address leaves on the LAN where its request came in: in the tunnel it would carry an address the
   hub's peer for the VM does not hold, and the hub would drop it. networkd makes no route for `AllowedIPs`, and
   applies a netdev only when it makes the link, so a changed one deletes the link first, and the reload makes it
-  again; a changed network alone is reconfigured. An endpoint name is looked up once, when the link is made.
+  again; a changed network alone is reconfigured. The netdev carries the VM's public key in a comment, since it names
+  the key's file and networkd reads the file only then: a new key changes the netdev, and the link is made with it. An endpoint name is looked up once, when the link is made.
 - **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
   removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
 - **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the

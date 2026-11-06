@@ -94,6 +94,51 @@
         fail_msg: "{{ wireguard_molecule_routes.stdout }}"
         quiet: true
 
+    # A key made anew - a clone's, deleted as its line says - reaches the link
+    # that runs: networkd reads the key file only when it makes the link.
+    - name: Read the hub's public key, for the link made again below
+      ansible.builtin.command:
+        argv: [wg, show, hubwg, public-key]
+      register: wireguard_molecule_hub_key
+      changed_when: false
+
+    - name: Throw the VM's key away
+      ansible.builtin.file:
+        path: /etc/systemd/network/claude-wg.key
+        state: absent
+
+    - name: Make the VM's key anew
+      ansible.builtin.import_role:
+        name: wireguard
+        tasks_from: key
+      vars:
+        wireguard_wanted: true
+
+    - name: Set the link up again
+      ansible.builtin.import_role:
+        name: wireguard
+      vars:
+        wireguard_wanted: true
+        wireguard_tunnel:
+          address: 198.51.100.130/24
+          hub_public_key: "{{ wireguard_molecule_hub_key.stdout | trim }}"
+          endpoint: 127.0.0.1:51820
+          allowed_ips: [198.51.100.0/24]
+          keepalive: 5
+
+    - name: Read the key the link runs with
+      ansible.builtin.command:
+        argv: [wg, show, claude-wg, public-key]
+      register: wireguard_molecule_new_key
+      changed_when: false
+
+    - name: Check the link runs with the new key
+      ansible.builtin.assert:
+        that:
+          - wireguard_molecule_new_key.stdout | trim != wireguard_molecule_vm_key.stdout | trim
+          - wireguard_molecule_new_key.stdout | trim == wireguard_public_key
+        quiet: true
+
     - name: Make a WireGuard link of the user's own
       ansible.builtin.command:
         argv: [ip, link, add, wg0, type, wireguard]

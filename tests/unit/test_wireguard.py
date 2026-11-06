@@ -74,6 +74,28 @@ def test_the_key_is_root_s_and_systemd_network_s_alone():
     }
 
 
+def test_a_new_key_makes_the_link_again():
+    # networkd reads PrivateKeyFile= only when it makes the link, and the netdev - whose change alone makes the link
+    # again - names the file, not the key: a key made anew (a clone's, deleted as its line says) never reached the
+    # running link. The public key, only ever a key's shape, is in the netdev for that.
+    (netdev,) = [
+        task
+        for task in _tasks(ROLE / "tasks" / "configure.yml")
+        if task.get("name") == "configure | Write the link's netdev"
+    ]
+    text = netdev["ansible.builtin.copy"]["content"]
+    assert (
+        "# {{ wireguard_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$') | default('', true) }}" in text
+    )
+    assert text.index("wireguard_public_key") < text.index("PrivateKeyFile=")
+    (remade,) = [
+        task
+        for task in _tasks(ROLE / "tasks" / "configure.yml")
+        if task.get("name") == "configure | Make the link again where its netdev changed"
+    ]
+    assert remade["when"] == "wireguard_netdev is changed"
+
+
 def test_the_role_touches_only_names_of_its_own_and_has_no_handlers():
     assert not (ROLE / "handlers").exists()
     assert VARS["wireguard_link"] == "claude-wg"

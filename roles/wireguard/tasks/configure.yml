@@ -30,6 +30,9 @@
       Description=agent-warehouse: this VM on your WireGuard network
 
       [WireGuard]
+      # This VM's public key, read by the key step: networkd reads the key file only when it makes the link, so a new
+      # key changes this file, and the link is made again with it.
+      # {{ wireguard_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$') | default('', true) }}
       PrivateKeyFile={{ wireguard_key_path }}
 
       [WireGuardPeer]
