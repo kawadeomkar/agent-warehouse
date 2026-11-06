@@ -92,7 +92,8 @@ second is VS Code's own.
 
 The VPN each VM joins is the `vpn` setting from 1.x: `tailscale` or `none`. `tailscale_enabled`, which `just init`
 wrote into `local.yml`, keeps working: while `vpn` is not set, `true` is `vpn: tailscale` and `false` is `vpn: none`.
-Once `vpn` is set it is the one read, and `tailscale_enabled` beside it changes nothing. `just status --json` keeps
+Once `vpn` is set it is the one read, and `tailscale_enabled` beside it changes nothing: `just init` then asks no
+Tailscale question, and refuses a `--tailscale` that `vpn` contradicts. `just status --json` keeps
 `settings.tailscale_enabled`, now whether Tailscale is the VPN, and adds `settings.vpn` and `settings.tailscale_off`,
 the setting that turned it off.
 

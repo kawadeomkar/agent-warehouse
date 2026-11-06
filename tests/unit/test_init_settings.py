@@ -1176,9 +1176,12 @@ def test_a_vpn_set_in_local_yml_is_never_asked_over_nor_tailscale_enabled_writte
     local = Path(files["init_local_file"])
     local.write_text(local.read_text() + f"vpn: {vpn}\n")
     before = local.read_text()
-    rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *THE_PROXMOX_QUESTIONS])
+    # vpn: tailscale chooses Tailscale, as tailscale_enabled: true does: its auth key is still asked for, Enter here.
+    key = [(TAILSCALE_KEY_PROMPT, b"\n")] if vpn == "tailscale" else []
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *key, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
     assert TAILSCALE_PROMPT.decode() not in output and WIREGUARD_PROMPT.decode() not in output
+    assert (TAILSCALE_KEY_PROMPT.decode() in output) is (vpn == "tailscale")
     assert "NOTICE  Tailscale is on by default" not in output
     assert local.read_text() == before
 
