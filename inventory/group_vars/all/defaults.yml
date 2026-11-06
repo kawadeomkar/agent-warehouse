@@ -83,9 +83,13 @@ status_ssh_args: >-
 status_read_upgrades: true
 status_system_root: /
 
-# Cloud-init template that VMs are cloned from (built by playbooks/template.yml)
+# Cloud-init template that VMs are cloned from (built by playbooks/template.yml),
+# and whether just deploy rebuilds one that differs from its settings. The
+# role's defaults, repeated here because deploy.yml, init_check.yml and
+# status.yml read them outside the role, where its defaults are not seen.
 proxmox_template_vmid: 9000
 proxmox_template_name: ubuntu-24.04-cloudinit
+proxmox_template_rebuild: true
 
 # ------------------------------------------------------------------- VM -----
 # Name(s) of the VM(s) to create. Set on the command line, comma-separated:
@@ -149,15 +153,20 @@ claude_vm_inventory_hosts: >-
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
                     + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])))
      | unique | list }}
+# The address each of those hosts is reached at, its ansible_host, where it has
+# one. Deleting a VM never forgets the host key of one of them
+# (proxmox_vm_known_hosts_kept), whatever address the VM reported last, and a
+# VM's alias never takes one (below): one list for both.
+claude_vm_inventory_addresses: >-
+  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
+     | map(attribute='ansible_host', default='') | select | list }}
 # Every name this machine's ssh reaches a host of the inventory by: the host's
 # own, its ansible_host, and the Proxmox API's address. The managed SSH config
 # is included ahead of the user's own, so a VM's alias of one of them - a VM
 # named pve.lan, where the Proxmox host is reached as pve.lan - would take this
 # machine's root SSH to that host. tasks/ssh_config.yml never writes one.
 claude_vm_inventory_names: >-
-  {{ (claude_vm_inventory_hosts
-      + (claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
-         | map(attribute='ansible_host', default='') | select | list)
+  {{ (claude_vm_inventory_hosts + claude_vm_inventory_addresses
       + ([proxmox_api_host] if proxmox_api_host | default('') | length > 0 else []))
      | map('string') | unique | list }}
 # The VM names the person chose for this run: those given (vm_name), or the
@@ -276,13 +285,6 @@ anthropic_api_key: "{{ vault_anthropic_api_key | default('', true) }}"
 # Set this false to opt out. Off - by this switch or by a key - stops, disables
 # and removes a server an earlier run installed.
 claude_code_remote_control: true
-# Extra arguments for the sign-in's `claude auth login`, such as [--sso], and
-# how many seconds it may take to accept the code you paste.
-claude_code_login_args: []
-claude_code_login_timeout: 120
-# How many seconds the sign-in waits for you to authorise in the browser, when
-# the browser comes back to the VM by itself.
-claude_code_login_approval_timeout: 300
 
 # -------------------------------------------------------------- Sign-in -----
 # just deploy ends with the VM signed in to Claude, GitHub and Tailscale and
@@ -561,9 +563,7 @@ proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
 proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
-proxmox_vm_known_hosts_kept: >-
-  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
-     | map(attribute='ansible_host', default='') | select | list }}
+proxmox_vm_known_hosts_kept: "{{ claude_vm_inventory_addresses }}"
 
 proxmox_template_bridge: "{{ proxmox_bridge }}"
 proxmox_template_storage: "{{ proxmox_storage }}"

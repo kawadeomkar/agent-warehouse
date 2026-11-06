@@ -157,6 +157,7 @@ def test_every_setting_that_reaches_a_role_is_in_an_example_file():
         "inventory_hostname": "Ansible's own: the VM's name",
         "proxmox_api_host": "taken from inventory/hosts.yml",
         "claude_vm_tailscale_tag": "made from claude_vm_tag: <ownership tag>-tailscale",
+        "claude_vm_inventory_addresses": "made from the inventory: each of its hosts' ansible_host",
     }
     missing = [
         source
@@ -177,6 +178,24 @@ def test_every_role_default_is_in_its_argument_specs():
         defaults = yaml.safe_load((REPO / "roles" / role / "defaults" / "main.yml").read_text()) or {}
         missing += [f"{role}: {var}" for var in sorted(set(defaults) - set(role_specs[role]))]
     assert missing == []
+
+
+def test_a_role_default_defaults_yml_repeats_is_the_role_s():
+    """defaults.yml repeats a role default only for a playbook that reads it outside the role, where the role's
+    defaults are not seen (proxmox_template_rebuild). Group vars outrank role defaults, so a role default changed on
+    its own would change nothing: each literal there is held to the role's."""
+    project = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    differ = []
+    for path in sorted((REPO / "roles").glob("*/defaults/main.yml")):
+        defaults = yaml.safe_load(path.read_text()) or {}
+        differ += [
+            f"{name}: {value!r} in defaults.yml, {defaults[name]!r} in {path.relative_to(REPO)}"
+            for name, value in project.items()
+            if name in defaults
+            and "{{" not in yaml.safe_dump(value)
+            and (type(value), value) != (type(defaults[name]), defaults[name])
+        ]
+    assert differ == []
 
 
 # ---------------------------------------------------------------- the site ----

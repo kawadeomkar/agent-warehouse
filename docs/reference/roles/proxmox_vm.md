@@ -50,7 +50,7 @@ All API calls are delegated to the controller.
 | `proxmox_vm_disk` | str | `scsi0` | The root disk, as the template names it, resized to proxmox_vm_disk_size. |
 | `proxmox_vm_disk_size` | str | `32G` | Absolute root disk size with unit suffix (K, M, G, T). Applied when the VM is created or an unfinished one is repaired, and with proxmox_vm_force_update. Proxmox cannot shrink a disk, so a size below the current one fails. Defaults to the vm_disk_size host var, else 32G. Set through vm_disk_size in local.yml. |
 | `proxmox_vm_onboot` | bool | `true` | Start the VM when its Proxmox node boots. |
-| `proxmox_vm_tags` | list of `str` | `["claude-on-proxmox"]` | Tags stamped on every VM this role creates. The first one is the ownership marker - discovery finds VMs by it, and both deleting and provisioning refuse to touch an existing VM that does not carry it. |
+| `proxmox_vm_tags` | list of `str` | `[claude-on-proxmox]` | Tags stamped on every VM this role creates. The first one is the ownership marker - discovery finds VMs by it, and both deleting and provisioning refuse to touch an existing VM that does not carry it. |
 | `proxmox_vm_user` | str | `dev` | Cloud-init user created on the VM. The playbooks also log in as it. Set through vm_user in local.yml. |
 | `proxmox_vm_password` | str | `""` | Optional cloud-init password for the user (vault_vm_password in vault.yml). Key-based login is the default. Either this or proxmox_vm_ssh_public_keys must be set. Set through vault_vm_password in vault.yml. A secret: never logged. |
 | `proxmox_vm_ssh_public_keys` | list of `str` | `[]` | Public keys cloud-init authorises for proxmox_vm_user. These or proxmox_vm_password must be set. Set through vm_ssh_public_keys in local.yml. |

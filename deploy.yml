@@ -111,7 +111,7 @@
       ansible.builtin.set_fact:
         claude_template_rebuild: >-
           {{ claude_template_exists | bool and proxmox_template_drift | default([]) | length > 0
-             and proxmox_template_rebuild | default(true) | bool }}
+             and proxmox_template_rebuild | bool }}
 
     # Said up front, because the run stops for the person after the minutes of
     # configuration, and a prompt left waiting long enough has a sign-in page

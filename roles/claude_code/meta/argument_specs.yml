@@ -3,48 +3,40 @@ argument_specs:
   main:
     short_description: Install and configure Claude Code for a user
     options:
-      claude_code_user:
+      claude_code_user: &cc_user
         type: str
-        default: dev
         description: User Claude Code is set up for. Its ~/.claude is written, its login read, and Remote Control run as it. Set through vm_user in local.yml.
-      claude_code_install_method:
+      claude_code_install_method: &cc_install_method
         type: str
         choices: [native, npm]
-        default: native
         description:
           - native runs the official installer, a self-updating binary in the user's ~/.local/bin; npm installs
             @anthropic-ai/claude-code globally and needs Node.js.
       claude_code_version:
         type: str
-        default: stable
         description: stable, latest or an exact semantic version.
       claude_code_installer_url:
         type: str
-        default: https://claude.ai/install.sh
         description: The installer script the native method downloads and runs.
       claude_code_anthropic_api_key:
         type: str
-        default: ""
         no_log: true
         description:
           - Written to the env block of ~/.claude/settings.json. Clearing it removes the key an earlier run wrote there.
             Set through vault_anthropic_api_key in vault.yml.
       claude_code_settings:
         type: dict
-        default: {}
         no_log: true
         description:
           - Merged recursively into ~/.claude/settings.json. Its env block can
             carry a key or a token, which is why it is no_log.
       claude_code_global_instructions:
         type: str
-        default: ""
         description:
           - Content of ~/.claude/CLAUDE.md, the instructions Claude Code applies in every project. Empty writes nothing
             and leaves a file already there.
       claude_code_remote_control:
         type: bool
-        default: true
         description:
           - Run a Claude Code Remote Control server on the VM, so its session appears at claude.ai/code and in the Claude
             mobile app while executing here. On by default, but it means "when this VM can". The role turns it off when
@@ -62,7 +54,6 @@ argument_specs:
             workspace trust for one.
       claude_code_remote_control_permission_mode: &cc_remote_control_permission_mode
         type: str
-        default: default
         description:
           - Starting permission mode for sessions the server creates, such as acceptEdits or plan. Passed as --permission-
             mode, which outranks permissions.defaultMode in claude_code_settings, so that setting does not reach these
@@ -71,16 +62,13 @@ argument_specs:
             coded list would reject it before Claude Code ever saw it.
       claude_code_remote_control_spawn: &cc_remote_control_spawn
         type: str
-        default: same-dir
         choices: [same-dir, worktree, session]
         description: How the server creates sessions.
       claude_code_remote_control_service: &cc_remote_control_service
         type: str
-        default: claude-remote-control
         description: Name of the systemd unit installed for the server.
       claude_code_sign_in_follows:
         type: bool
-        default: false
         description:
           - Set by just deploy's configure step, whose sign-in comes next in the
             same run. The message for a VM with no login then says so, rather
@@ -101,27 +89,23 @@ argument_specs:
     options:
       claude_code_user:
         type: str
-        default: dev
         description:
           - The user whose login is read and, when asked, made. The commands that read or make it run as this user,
             through become. Set through vm_user in local.yml.
       claude_code_anthropic_api_key:
         type: str
-        default: ""
         no_log: true
         description:
           - With a key set the browser sign-in is not offered, and the report says Remote Control is off on purpose. Set
             through vault_anthropic_api_key in vault.yml.
       claude_code_login_interactive:
         type: bool
-        default: false
         description:
           - Sign a VM with no Claude login and no API key in by the browser flow
             (browser_login.yml), then start Remote Control. Set by the
             playbooks; without it this entry point only reports.
       claude_code_login_desktop:
         type: bool
-        default: true
         description: Open the sign-in page in the controller's browser. Off in every test. Set through login_desktop in local.yml.
       claude_code_login_redirect:
         type: bool
@@ -131,21 +115,17 @@ argument_specs:
             only a browser on the controller reaches that forward; where the forward fails, the code is pasted.
       claude_code_login_approval_timeout:
         type: int
-        default: 300
         description:
           - Seconds the run waits for you to authorise in the browser when it comes back by itself.
       claude_code_login_args:
         type: list
         elements: str
-        default: []
         description: Extra arguments for `claude auth login`, such as --sso or --email.
       claude_code_login_timeout:
         type: int
-        default: 120
         description: Seconds to wait, once the code is pasted, for claude to accept it.
       claude_code_login_code:
         type: str
-        default: ""
         no_log: true
         description:
           - The code the sign-in page shows, given instead of the prompt, for
@@ -162,7 +142,6 @@ argument_specs:
     options:
       claude_code_remote_control:
         type: bool
-        default: true
         description: Run a Remote Control server on the VM. See the main entry point.
       claude_code_remote_control_name: *cc_remote_control_name
       claude_code_remote_control_dir: *cc_remote_control_dir
@@ -178,9 +157,7 @@ argument_specs:
       - Stops the Remote Control service and the path unit that starts it, then runs `claude auth logout` as
         claude_code_user. Records what became of the login in claude_code_release_said, for destroy's report.
     options:
-      claude_code_user:
-        type: str
-        default: dev
+      claude_code_user: *cc_user
       claude_code_remote_control_service: *cc_remote_control_service
 
   # tasks_from: release_pause and release_resume, which playbooks/destroy.yml
@@ -209,20 +186,13 @@ argument_specs:
         there, never what it holds) and the state of Remote Control's service and of the path unit that starts it,
         keeping what just status shows in claude_code_status_found. Never runs claude, starts or stops anything.
     options:
-      claude_code_user:
-        type: str
-        default: dev
-      claude_code_install_method:
-        type: str
-        default: native
-        choices: [native, npm]
+      claude_code_user: *cc_user
+      claude_code_install_method: *cc_install_method
       claude_code_anthropic_api_key:
         type: str
-        default: ""
         no_log: true
         description: Only whether one is set is read, since it outranks the login Remote Control needs.
       claude_code_remote_control:
         type: bool
-        default: true
         description: Whether Remote Control is wanted, which says what its service being absent means. See the main entry point.
       claude_code_remote_control_service: *cc_remote_control_service

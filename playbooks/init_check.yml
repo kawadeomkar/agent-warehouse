@@ -94,7 +94,7 @@
     # proxmox_template_rebuild is off; it needs root SSH as a missing one does.
     init_template_rebuilt: >-
       {{ init_template_built | bool and proxmox_template_drift | default([]) | length > 0
-         and proxmox_template_rebuild | default(true) | bool }}
+         and proxmox_template_rebuild | bool }}
     init_ssh_wanted: >-
       {{ init_proxmox_host | length > 0 and (not init_template_built | bool or init_template_rebuilt | bool) }}
     init_ssh_address: "{{ hostvars[init_proxmox_host].ansible_host | default(init_proxmox_host) }}"

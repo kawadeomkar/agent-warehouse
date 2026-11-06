@@ -27,7 +27,7 @@
       sections: "{{ status_only | default('') | status_sections }}"
       tag: "{{ claude_vm_tag }}"
       template_name: "{{ proxmox_template_name }}"
-      template_rebuild: "{{ proxmox_template_rebuild | default(true) | bool }}"
+      template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
       tailscale_enabled: "{{ tailscale_enabled | bool }}"

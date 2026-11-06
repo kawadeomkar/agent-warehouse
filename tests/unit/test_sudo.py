@@ -83,9 +83,7 @@ def test_a_new_cloud_init_instance_gets_no_rule_and_only_the_role_s_groups() -> 
 
 def test_off_takes_the_user_out_of_the_groups_that_reach_root_or_the_password() -> None:
     defaults = yaml.safe_load((COMMON / "defaults" / "main.yml").read_text())
-    specs = yaml.safe_load((COMMON / "meta" / "argument_specs.yml").read_text())["argument_specs"]["main"]["options"]
     assert set(defaults["common_user_groups_revoked"]) == {"adm", "cdrom", "lxd"}
-    assert specs["common_user_groups_revoked"]["default"] == defaults["common_user_groups_revoked"]
     leaving = _named(_off(), "groups that reach root")
     assert leaving["ansible.builtin.command"]["argv"][:2] == ["gpasswd", "--delete"]
     # A group the person asked for in common_user_groups stays.

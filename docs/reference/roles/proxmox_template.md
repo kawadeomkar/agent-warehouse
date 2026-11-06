@@ -28,7 +28,7 @@ Runs on the PVE node over SSH. Downloads a cloud image, creates a VM with `qm`, 
 | `proxmox_template_ostype` | str | `l26` | Guest OS type (qm --ostype). l26 is Linux 2.6 or later. |
 | `proxmox_template_qm` | path | `/usr/sbin/qm` | Path of qm on the node. Tests point it at a stand-in. |
 | `proxmox_template_install_guest_agent` | bool | `true` | Bake qemu-guest-agent into the image with virt-customize. Required for Proxmox to report a DHCP-assigned address. |
-| `proxmox_template_customize_packages` | list of `str` | `["qemu-guest-agent"]` | Packages installed into the image by virt-customize. |
+| `proxmox_template_customize_packages` | list of `str` | `[qemu-guest-agent]` | Packages installed into the image by virt-customize. |
 | `proxmox_template_manage_libguestfs` | bool | `true` | Install libguestfs-tools on the node. Disable where it is already present or faked. |
 | `proxmox_template_virt_customize` | path | `/usr/bin/virt-customize` | Path of virt-customize on the node. Tests point it at a stand-in. |
 | `proxmox_template_rebuild` | bool | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build - or keeps no record of its build, as one an earlier version built does. VMs are full clones, which do not depend on it. Off, it is kept as it is and the differences are said, for a template a linked clone still uses, which Proxmox will not remove, or one changed by hand on purpose. |

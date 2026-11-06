@@ -51,6 +51,8 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         # the report says the editor by.
         "claude_editors": defaults["claude_editors"],
         "claude_editor_key": defaults["claude_editor_key"],
+        # Whether a template that differs is rebuilt, as the inventory defaults say, outside the role.
+        "proxmox_template_rebuild": defaults["proxmox_template_rebuild"],
         **extra,
     }
     report = _run(tmp_path, playbook, {}, "-e", json.dumps(variables))

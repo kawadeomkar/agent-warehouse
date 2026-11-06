@@ -398,6 +398,14 @@ def test_one_variable_names_the_chain_of_files_and_where_to_change_it(scenarios)
     assert "set (secret)" in secret and "change    just vault" in secret
 
 
+def test_one_variable_s_default_is_its_role_s(scenarios) -> None:
+    # defaults/main.yml holds each role default, whatever defaults.yml wires the variable to; argument_specs gives one
+    # only where that default is an expression, to say what it falls back to.
+    desktop = _report(scenarios, "--", "claude_code_login_desktop")["rows"]["claude_code_login_desktop"]
+    cores = _report(scenarios, "--", "proxmox_vm_cores")["rows"]["proxmox_vm_cores"]
+    assert (desktop["default"], cores["default"]) == (True, 2), (desktop, cores)
+
+
 def test_a_setting_of_local_yml_is_explained_too(scenarios) -> None:
     assert _report(scenarios, "--", "vm_cores")["rows"]["vm_cores"]["value"] == 4
 

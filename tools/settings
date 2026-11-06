@@ -884,7 +884,11 @@ class Settings:
                 if only:
                     described = spec.get("description") or ""
                     rows[-1]["description"] = " ".join(described) if isinstance(described, list) else str(described)
-                    rows[-1]["default"] = spec.get("default")
+                    # The role's defaults/main.yml holds its default. argument_specs gives one only where that is an
+                    # expression, to say what it falls back to; an expression it says nothing of stays null here.
+                    path = REPO / "roles" / role / "defaults" / "main.yml"
+                    own = (yaml.safe_load(path.read_text()) or {}).get(name)
+                    rows[-1]["default"] = spec.get("default", None if TEMPLATE.search(json.dumps(own)) else own)
         return rows
 
     def setting(self, name: str) -> dict:

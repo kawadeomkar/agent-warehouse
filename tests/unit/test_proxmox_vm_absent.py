@@ -92,5 +92,8 @@ def test_a_kept_name_is_never_forgotten_as_the_vm_s_name_either(tmp_path, kept):
 
 def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    assert "claude_vm_inventory_hosts" in defaults["proxmox_vm_known_hosts_kept"]
-    assert "ansible_host" in defaults["proxmox_vm_known_hosts_kept"]
+    assert defaults["proxmox_vm_known_hosts_kept"] == "{{ claude_vm_inventory_addresses }}"
+    assert "claude_vm_inventory_hosts" in defaults["claude_vm_inventory_addresses"]
+    assert "ansible_host" in defaults["claude_vm_inventory_addresses"]
+    # The same list an SSH alias may never take.
+    assert "claude_vm_inventory_addresses" in defaults["claude_vm_inventory_names"]

@@ -3,9 +3,8 @@ argument_specs:
   main:
     short_description: Clone every GitHub repository of a user
     options:
-      github_projects_user:
+      github_projects_user: &gp_user
         type: str
-        default: dev
         description: Local user that owns the checkouts. Set through vm_user in local.yml.
       github_projects_username:
         type: str
@@ -13,7 +12,6 @@ argument_specs:
         description: GitHub account to list repositories for. Set through vault_github_username in vault.yml.
       github_projects_token:
         type: str
-        default: ""
         no_log: true
         description:
           - Lists private repositories and, with github_projects_auth, signs gh in on the VM where gh is signed out or
@@ -21,83 +19,67 @@ argument_specs:
             vault_github_token in vault.yml.
       github_projects_api_url:
         type: str
-        default: https://api.github.com
         description: Base URL of the GitHub REST API that lists the repositories and, for ssh clones, GitHub's host keys. Tests point it at a stand-in.
-      github_projects_home:
+      github_projects_home: &gp_home
         type: path
-        default: ""
         description: Home directory of github_projects_user. Empty looks it up on the VM.
       github_projects_dir:
         type: path
         description: Destination directory. Defaults to ~/projects. Set through vm_projects_dir in local.yml.
       github_projects_include_forks:
         type: bool
-        default: false
         description: Also clone repositories that are forks.
       github_projects_include_archived:
         type: bool
-        default: false
         description: Also clone archived repositories.
       github_projects_include:
         type: list
         elements: str
-        default: []
         description: Repository names to clone. Empty means every repository of the user. Set through github_projects in local.yml.
       github_projects_exclude:
         type: list
         elements: str
-        default: []
         description: Repository names never cloned, even when github_projects_include names them.
       github_projects_clone_protocol:
         type: str
         choices: [https, ssh]
-        default: https
         description: https clones private repositories through gh; ssh needs a key of the user's own on the VM, and trusts GitHub's published host keys.
       github_projects_update_existing:
         type: bool
-        default: false
         description: Pull checkouts that already exist on every run. Off, a re-run never disturbs local work.
       github_projects_depth:
         type: str
-        default: ""
         description: Shallow clone depth. Empty clones the full history.
       github_projects_auth:
         type: bool
-        default: true
         description:
           - Sign gh in (from the token, or by a device-flow login the user makes once) and make it git's credential
             helper. Set through github_auth in local.yml.
       github_projects_auth_method:
         type: str
         choices: [auto, web, token]
-        default: auto
         description:
           - auto takes the token when set, else the device flow; web is the device flow always; token is the token only,
             put over any login gh holds. Set through github_auth_method in local.yml.
       github_projects_login_scopes:
         type: list
         elements: str
-        default: [workflow]
         description: Scopes the device flow asks for on top of gh's own (repo, read:org, gist). Set through github_login_scopes in local.yml.
       github_projects_login_desktop:
         type: bool
-        default: true
         description: During the device flow, open the page and copy the code on the controller. Off in every test. Set through login_desktop in local.yml.
       github_projects_sign_in_follows:
         type: bool
-        default: false
         description:
           - The sign-ins come next in this run (just deploy), so the message for a signed-out VM says so rather
             than naming just login --only github.
       github_projects_git_user_name:
         type: str
-        default: ""
         description:
           - git user.name for github_projects_user, written always. Empty derives it from the GitHub account, and only
             where ~/.gitconfig has none yet. Set through git_user_name in local.yml.
       github_projects_git_user_email:
         type: str
-        default: ""
         description:
           - git user.email for github_projects_user, written always. Empty uses GitHub's noreply address for the account,
             and only where ~/.gitconfig has none yet. Set through git_user_email in local.yml.
@@ -110,14 +92,12 @@ argument_specs:
     options:
       github_projects_login_interactive:
         type: bool
-        default: false
         description:
           - Run the device flow for a signed-out VM. Set by
             playbooks/github_login.yml when names were given, and by just
             deploy for a VM whose Claude code was entered in the same run.
       github_projects_login_ask:
         type: bool
-        default: false
         description:
           - Ask at a prompt first. just deploy sets it for every VM but one whose
             Claude prompt got Enter. For a VM with github_projects_login_interactive,
@@ -127,7 +107,6 @@ argument_specs:
             one.
       github_projects_login_role_follows:
         type: bool
-        default: false
         description:
           - The whole role runs for this VM next, in the same run, so a vault token
             gh is not yet signed in with is said to be signed in by it rather than
@@ -143,7 +122,6 @@ argument_specs:
     options:
       github_projects_auth:
         type: bool
-        default: true
         description: Whether gh's login is this project's business; with it off, gh is left alone and only said.
 
   # tasks_from: release, which playbooks/destroy.yml runs on each VM before it
@@ -155,14 +133,9 @@ argument_specs:
         token is revoked at GitHub - revoking one gh sign-in there ends every gh sign-in of the account - so the report
         says where to revoke it, and what that does.
     options:
-      github_projects_user:
-        type: str
-        default: dev
-      github_projects_home:
-        type: path
-        default: ""
+      github_projects_user: *gp_user
+      github_projects_home: *gp_home
       github_projects_token:
         type: str
-        default: ""
         no_log: true
         description: The vault token, only to say that a login with it is every VM's. Set through vault_github_token in vault.yml.

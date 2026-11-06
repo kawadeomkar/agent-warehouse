@@ -130,6 +130,8 @@
             group: root
             mode: "0644"
 
+        # The packages the template's record names (proxmox_template_packages),
+        # so the record cannot say other than what went in.
         # --truncate /etc/machine-id: clones that share a machine-id send the
         # same DHCP client identifier and can be handed the same lease.
         - name: Install packages into the image with virt-customize
@@ -139,7 +141,7 @@
               - --add
               - "{{ proxmox_template_import_path }}"
               - --install
-              - "{{ proxmox_template_customize_packages | join(',') }}"
+              - "{{ proxmox_template_packages }}"
               - --truncate
               - /etc/machine-id
           environment:

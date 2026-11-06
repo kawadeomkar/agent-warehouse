@@ -53,6 +53,11 @@ per playbook:
 The role keeps its own `module_defaults`, built from the `proxmox_vm_api_*` wiring, since a role
 cannot depend on a project's group vars.
 
+A role default is repeated here only where a playbook reads it outside the role, which sees none of the
+role's defaults: `proxmox_template_vmid`, `proxmox_template_name` and `proxmox_template_rebuild` in
+`deploy.yml`, `init_check.yml` and `status.yml`, for one. Group vars outrank role defaults, so
+`tests/unit/test_docs.py` holds each repeated literal equal to the role's.
+
 `vm_ssh_public_keys` reads `~/.ssh/id_ed25519.pub` with `errors='ignore'`, so someone whose key is
 RSA or ECDSA gets the role's actionable "set vm_ssh_public_keys" message rather than a bare
 "could not locate file" from the lookup, which Jinja evaluates first.

@@ -22,7 +22,7 @@ It runs whichever editor just code opens - Claude's sign-in in the browser and Z
 | `vscode_server_client_alive_interval` | int | `60` | Seconds of silence after which sshd checks that a connection is alive (ClientAliveInterval); the drop-in sets it for every SSH connection, the editor's included. |
 | `vscode_server_client_alive_count_max` | int | `3` | Unanswered checks after which sshd drops the connection (ClientAliveCountMax), so a client that went to sleep is reaped after interval times count seconds. |
 | `vscode_server_inotify_watches` | int | `524288` | fs.inotify.max_user_watches, raised for an editor's file watcher on a large workspace. |
-| `vscode_server_container_virt_types` | list of `str` | `["docker", "container", "containerd", "podman", "lxc"]` | Virtualisation types under which /proc/sys is read-only, so the sysctl file is written but not applied. |
+| `vscode_server_container_virt_types` | list of `str` | `[docker, container, containerd, podman, lxc]` | Virtualisation types under which /proc/sys is read-only, so the sysctl file is written but not applied. |
 
 ## Tasks
 

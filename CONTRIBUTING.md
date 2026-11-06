@@ -83,7 +83,9 @@ secret gets a canned value and a place in those searches.
   explain *why*; the diff already shows what.
 - **Role variables** are prefixed with the role name (`common_user`, `dev_tools_node_major`). ansible-lint
   enforces this. Every variable needs a default in `defaults/main.yml` and an entry in
-  `meta/argument_specs.yml`, with `no_log: true` if it can hold a secret.
+  `meta/argument_specs.yml`, with `no_log: true` if it can hold a secret. `defaults/main.yml` is the one place
+  a default is written: the entry carries no `default:`, which Ansible never applies and the role's page fills
+  from `defaults/main.yml`, unless the default there is an expression, when it says what that falls back to.
 - **Task names** in an included task file are prefixed with the file name: `- name: node | Install Node.js`.
 - **The controller's Python** goes in `lib/claude_vm/`, the one package: a file in `filter_plugins/` is a thin
   adapter whose filters import their core module only when called (`plugin.filters`); nothing outside

@@ -23,7 +23,7 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 | `dev_tools_node_major` | int | `22` | Node.js major version, which picks the NodeSource repository. |
 | `dev_tools_npm_global_packages` | list of `str` | `[]` | Packages npm installs globally, with dev_tools_install_node. |
 | `dev_tools_docker_packages` | list of `str` | `[docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]` | Packages installed from Docker's repository. |
-| `dev_tools_container_virt_types` | list of `str` | `["docker", "container", "containerd", "podman", "lxc"]` | Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there. |
+| `dev_tools_container_virt_types` | list of `str` | `[docker, container, containerd, podman, lxc]` | Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there. |
 | `dev_tools_docker_manage_service` | bool | computed | Defaults to true unless running inside a container. |
 | `dev_tools_deb_arch` | str | computed | Derived from the architecture fact by default. One of `amd64`, `arm64`. |
 | `dev_tools_uv_version` | str | `0.13.5` | uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is never older than the uv pyproject.toml pins for the controller. |
@@ -31,7 +31,7 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 | `dev_tools_uv_sha256` | dict | `{aarch64: 4bb69cf95ed13f23713bb7bc09f241896ea0c75b7c557e615a20604b82f9c403, x86_64: f68d291c75783122dad58ab77def0e13f3233f358731db5d6d7e8715603b928f}` | SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map. |
 | `dev_tools_uv_install_dir` | path | `/usr/local/bin` | Directory uv and uvx are installed into. |
 | `dev_tools_rust_toolchain` | str | `stable` | Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a version such as 1.90.0 - and makes the default when no default is set. The role never updates it. |
-| `dev_tools_rust_components` | list of `str` | `["clippy", "rustfmt"]` | Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std), such as rust-src or rust-analyzer. One taken off the list stays installed. |
+| `dev_tools_rust_components` | list of `str` | `[clippy, rustfmt]` | Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std), such as rust-src or rust-analyzer. One taken off the list stays installed. |
 
 ## Tasks
 

@@ -28,7 +28,7 @@ Using it: [GitHub](../../guides/github.md). How it works: [§5.6](../../architec
 | `github_projects_depth` | str | `""` | Shallow clone depth. Empty clones the full history. |
 | `github_projects_auth` | bool | `true` | Sign gh in (from the token, or by a device-flow login the user makes once) and make it git's credential helper. Set through github_auth in local.yml. |
 | `github_projects_auth_method` | str | `auto` | auto takes the token when set, else the device flow; web is the device flow always; token is the token only, put over any login gh holds. Set through github_auth_method in local.yml. One of `auto`, `web`, `token`. |
-| `github_projects_login_scopes` | list of `str` | `["workflow"]` | Scopes the device flow asks for on top of gh's own (repo, read:org, gist). Set through github_login_scopes in local.yml. |
+| `github_projects_login_scopes` | list of `str` | `[workflow]` | Scopes the device flow asks for on top of gh's own (repo, read:org, gist). Set through github_login_scopes in local.yml. |
 | `github_projects_login_desktop` | bool | `true` | During the device flow, open the page and copy the code on the controller. Off in every test. Set through login_desktop in local.yml. |
 | `github_projects_sign_in_follows` | bool | `false` | The sign-ins come next in this run (just deploy), so the message for a signed-out VM says so rather than naming just login --only github. |
 | `github_projects_git_user_name` | str | `""` | git user.name for github_projects_user, written always. Empty derives it from the GitHub account, and only where ~/.gitconfig has none yet. Set through git_user_name in local.yml. |
