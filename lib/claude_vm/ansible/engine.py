@@ -64,7 +64,7 @@ FILE_PREFIX = re.compile(r"^[a-z0-9_]+ \| ")
 def from_environment(callback, playbook):
     """The engine for this run, or None for the stream: CLAUDE_ON_PROXMOX_LIVE set, verbosity 0, and a log to send
     the stream to (LOG_DIR= turns it off). The variable, and the state's path of a run in parts
-    (CLAUDE_ON_PROXMOX_LIVE_STATE), are taken out of the environment either way, so nothing the run starts - VS Code,
+    (CLAUDE_ON_PROXMOX_LIVE_STATE), are taken out of the environment either way, so nothing the run starts - the editor,
     whose terminals a later just destroy may run in - inherits them."""
     title = os.environ.pop(LIVE_ENV, "").strip()
     state = os.environ.pop(STATE_ENV, "").strip()

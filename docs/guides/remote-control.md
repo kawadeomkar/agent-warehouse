@@ -129,7 +129,7 @@ server refused at startup, for its login, plan or organisation settings, during 
 when you reach for your phone. A re-run that changes nothing leaves a running server alone and skips
 the wait; a changed unit (a new permission mode, say) restarts it, once, and waits again. After a
 sign-in, `just login --only claude` and `just deploy` run the same check; a server that does not stay up
-fails the run at its end - after VS Code has opened, in a deploy - with
+fails the run at its end - after the editor's window has opened, in a deploy - with
 `just deploy alpha --tags claude_code` to retry it, while the login itself is kept.
 
 ## How much of the VM a remote session can reach

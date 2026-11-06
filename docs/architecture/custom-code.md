@@ -243,7 +243,7 @@ A run waits for the person in three ways, and each is set apart:
   workflow scope names no `just` command, and "just deploy signs it in next" names one with nothing to do. A
   looped report records each VM in a looped `set_stats` keyed by the loop var, so the callback reads no task
   result for this at all. Printed by VM name, the matters in a fixed order (`init_settings`, `init_check`,
-  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `tailscale_record`, `vscode`,
+  `vm`, `claude`, `remote_control`, `github`, `github_identity`, `tailscale`, `tailscale_record`, `editor`,
   `destroy`), each line once, nothing when nothing is left, and nothing after Ctrl-C, which has no stats event. `profile_tasks`'
   TASKS RECAP follows it: Ansible calls collection callbacks after the stdout one.
 
@@ -259,7 +259,7 @@ set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title
 to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
 The callback then keeps only its classic output, which the engine prints through it too. The engine takes the
-variable out of the environment when the playbook starts, so nothing the run starts - the VS Code whose terminals a
+variable out of the environment when the playbook starts, so nothing the run starts - the editor whose terminals a
 later `just destroy` may run in - inherits it. It is `live` when stdout can take the region every live output
 shares (§7.8, `can_draw`), and `lines` otherwise. The model is `lib/claude_vm/run/model.py`, which `tui/run.py`
 draws and any playbook run can be drawn with, and what a run is made of is its recipe's declaration in
@@ -275,7 +275,7 @@ modules returned, as the callback prints them, with the log's path. The engine r
 - **Stages and steps.** A play's stage is the first of the declaration's stages that names it: by its file and
   play name (`deploy.yml:Fail each VM whose work after a sign-in failed`, deploy's `finish`), else by its file
   (`play.get_path()`): template, provision, configure, `SSH aliases`, the three sign-in playbooks as one stage
-  `sign in`, VS Code. A play the declaration does not name - `discover.yml`, which configure and each sign-in
+  `sign in`, `editor`. A play the declaration does not name - `discover.yml`, which configure and each sign-in
   import, and `deploy.yml`'s first - takes the stage of the play after it, else of the one before, and a test
   holds the declaration to `deploy.yml`'s imports and `--only`'s playbooks. A task's step is the declared step
   whose `blocks` name a block around it, at any depth and whatever role or file it comes from (destroy's release

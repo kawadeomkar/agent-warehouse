@@ -55,7 +55,7 @@ Four actors:
 | **Controller** | Ansible, all Proxmox API calls | local |
 | **Proxmox host** | `qm`, `virt-customize`, the template build | SSH (`playbooks/template.yml` only) |
 | **VMs** | everything `configure.yml` installs | SSH, at a DHCP address discovered at runtime |
-| **VS Code**, on the controller | the editor window; its server, terminal and extensions run on the VM | SSH, through an alias this project keeps in `~/.ssh/claude-on-proxmox.conf` |
+| **The editor** (VS Code or Zed), on the controller | the window; its server and terminal run on the VM, VS Code's extensions too | SSH, through an alias this project keeps in `~/.ssh/claude-on-proxmox.conf` |
 
 ```mermaid
 flowchart TB
@@ -63,7 +63,7 @@ flowchart TB
         A["ansible-playbook<br/>your virtualenv"]
         INV["inventory/<br/>hosts.yml + group_vars"]
         SSHC["~/.ssh/claude-on-proxmox.conf<br/>Host alpha → address"]
-        VSC["VS Code<br/>Remote - SSH"]
+        VSC["Editor<br/>VS Code Remote - SSH, or Zed"]
     end
     subgraph P["Proxmox VE host"]
         API["REST API :8006<br/>token auth"]

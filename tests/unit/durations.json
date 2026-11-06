@@ -119,7 +119,7 @@
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refresh the alias]": 0.0,
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse a project that is not one folder name]": 0.0,
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse a projects directory that is not an absolute path]": 0.0,
-"tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse a workspace directory that is not absolute, is the projects directory, or is the folder]": 0.0,
+"tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder]": 0.0,
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse anything but one VM]": 0.0,
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Refuse to run with the managed file switched off]": 0.0,
 "tests/unit/test_code_session.py::test_every_task_reads_this_machine_or_is_delegated_to_the_vm[Say how to open each VM]": 0.0,

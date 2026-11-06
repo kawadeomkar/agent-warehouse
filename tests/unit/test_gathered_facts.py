@@ -133,7 +133,7 @@ def _config_spellings(source: str) -> list[int]:
 
 
 def test_every_run_a_test_makes_leaves_facts_out_of_the_top_level():
-    # Many paths of the sign-ins, destroy and the VS Code step run only here, so
+    # Many paths of the sign-ins, destroy and the editor's window step run only here, so
     # a top-level read of a fact without the ansible_ prefix (getent_passwd)
     # shows only here. The harness, which defines the helper, and this file,
     # whose samples name what it refuses, are the two it does not read.

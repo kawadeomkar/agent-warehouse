@@ -3,7 +3,7 @@
 Ansible that creates Ubuntu VMs on a Proxmox VE host and configures each as a
 [Claude Code](https://code.claude.com/docs) development machine: one `just deploy` builds the template,
 creates the VM, installs the tools and Claude Code, signs it in to Claude, GitHub and Tailscale, and
-opens it in VS Code with a Claude terminal.
+opens it in your editor: VS Code with a Claude terminal by default, or Zed.
 
 This wiki is the project's documentation, and the source of truth for it. The
 [README](https://github.com/kawadeomkar/claude-on-proxmox#readme) gets you to a first deploy; everything
@@ -26,7 +26,8 @@ else is here. It reads the same in the repository and as a site with search, at
 - [Remote Control](guides/remote-control.md) - the VM's Claude session on claude.ai and your phone, or
   an API key instead.
 - [Tailscale](guides/tailscale.md) - each VM on your tailnet, and keeping it off your other devices.
-- [VS Code](guides/vscode.md) - the SSH alias, `just code`, the Claude terminal and the session notes.
+- [VS Code](guides/vscode.md) - the default editor, and what every editor shares: the SSH alias, `just code`,
+  this machine's sessions on the VM, the session notes.
 - [Zed](guides/zed.md) - `just code` in Zed instead, and Claude in its terminal on the VM.
 - [During a run](guides/runs.md) - the prompts, NEXT STEPS, and the run logs.
 - [Tearing down](guides/destroy.md) - `just destroy`, and what it releases first.

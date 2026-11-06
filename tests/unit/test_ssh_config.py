@@ -6,7 +6,7 @@ one Include line at the top of the user's own ssh config. A bug there breaks
 every `ssh` on the developer's machine, so the task file is run here as it is
 run by configure.yml, destroy.yml and ssh_config.yml - against paths under
 tmp_path, never ~/.ssh - and the result is resolved with the real ssh client,
-the way VS Code's Remote - SSH extension reads it.
+the way an editor's SSH connection reads it, VS Code's Remote - SSH or Zed's.
 
 The last tests guard the tests: every playbook scenario and the Vagrantfile
 must point the managed file into Molecule's ephemeral directory or switch the
@@ -111,7 +111,7 @@ def _blocks(text: str) -> list[str]:
 
 
 def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
-    """What the real ssh client makes of the managed file, as VS Code would."""
+    """What the real ssh client makes of the managed file, as an editor's ssh would."""
     result = subprocess.run(
         [SSH, "-G", "-F", _paths(tmp_path)["claude_ssh_config_file"], alias],
         capture_output=True,
@@ -253,6 +253,16 @@ def test_identity_file_agent_forwarding_and_options_are_written_when_set(tmp_pat
     assert resolved["forwardagent"] == "yes"
     assert resolved["serveraliveinterval"] == "15"
     assert resolved["connecttimeout"] == "5"
+
+
+def test_the_connect_line_names_the_editor_a_run_chose_against_the_setting(tmp_path: Path) -> None:
+    # just code --editor zed, the setting VS Code's: a bare just code alpha opens VS Code (code.yml's editor_flag).
+    result = _run(tmp_path, [{**ALPHA, "editor_flag": " --editor zed"}, {**BETA, "editor_flag": ""}])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "alpha: ssh alpha   |   just code alpha --editor zed   (opens /home/dev/projects)" in result.stdout
+    assert "beta: ssh beta   |   just code beta" in result.stdout and "beta --editor" not in result.stdout
+    # The block is ssh's alone: the editor is the connect line's, never written.
+    assert "zed" not in _managed(tmp_path)
 
 
 def test_without_a_workspace_the_connect_line_says_just_code_and_guesses_no_path(tmp_path: Path) -> None:

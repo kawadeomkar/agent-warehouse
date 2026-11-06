@@ -83,6 +83,7 @@ BAD_INPUTS = [
     {"files_dir": "/"},
     {"files_dir": ROOT},
     {"terminal": "false"},
+    {"editor_flag": "--editor zed"},  # code_editor_flag's own spelling only: a space, then --editor and a key
     {"target": "/etc"},
     {"colour": "red"},
     {"vm": "alpha"},  # a bare name is no VmRef
@@ -193,6 +194,19 @@ def test_vs_code_opens_its_workspace_or_the_folder_over_the_alias():
     assert plan["launch"] == [CODE, "--remote", "ssh-remote+alpha", f"{FD}/projects.code-workspace"]
     bare = registry.editor_open_plan("vscode", ROWS, given(terminal=False))
     assert bare["launch"] == [CODE, "--remote", "ssh-remote+alpha", ROOT]
+
+
+@pytest.mark.parametrize("other", [False, True], ids=["the setting's editor", "--editor's"])
+def test_the_just_code_line_a_plan_says_names_the_editor_a_run_chose_against_the_setting(other):
+    # A bare just code opens the setting's editor: where --editor chose another, code.yml's code_editor_flag
+    # (editor_flag) follows the name in the line that opens the projects directory's window again, as in the notes.
+    def report(key):
+        one = given(target=f"{ROOT}/bot", project="bot", editor_flag=f" --editor {key}" if other else "")
+        return " ".join(registry.editor_open_plan(key, ROWS, one)["report"])
+
+    zed, vscode = report("zed"), report("vscode")
+    assert f"The window of just code alpha{' --editor zed' if other else ''} lists a task," in zed, zed
+    assert f"Trusting the window of just code alpha{' --editor vscode' if other else ''} instead" in vscode, vscode
 
 
 def test_the_folders_no_plan_writes_are_the_ones_code_yml_writes_itself():

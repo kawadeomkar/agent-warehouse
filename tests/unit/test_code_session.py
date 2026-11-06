@@ -10,20 +10,25 @@ record what they were asked: PATH holds the stand-ins alone, and the script
 uses only shell builtins besides them, so nothing on this machine is reached.
 One run has a pseudo-terminal of its own, to press Ctrl-C during GitHub's
 device flow. The Molecule provision scenario checks the workspace file and the
-task around it.
+task around it. Zed is handed a task file instead, whose Claude task runs the
+shared playbooks/files/claude-start.sh, which the window cases here write and
+check.
 
 The window step is run too, a few of code.yml's own tasks at a time, inside
 its block and with its rescue, its play vars, deploy.yml's for its import and
 the inventory defaults: as just code and as just deploy's last step, for one
 VM, none named and a fleet, a VM left stopped, no `code` command, no alias, a
-refused SSH connection and an extension that would not install. `which` and
-`code` are stand-ins there, first on a PATH that holds no other, so no VS Code
-of this machine's is ever started.
+refused SSH connection and an extension that would not install; and Zed's: no
+Zed command, ZFS's `zed` in its place, a folder its URL cannot carry, a tasks
+file that is not just code's. `which`, `code` and Zed's commands are stand-ins
+there, first on a PATH that holds no other, so no editor of this machine's is
+ever started.
 
 The rest holds every task in `code.yml` to an allowlist, because the playbook
 reads the user's own VS Code settings and must never write them. On this
 machine a task may assert, fail, debug, set facts, add the host, import the
-project's task files, or run `which`, `code` and rsync; on the VM, reached only
+project's task files, or run `which`, an editor's `--version`, `code`, the
+window's launch the plan built, and rsync; on the VM, reached only
 through `delegate_to`, it may stat, getent and find, make its directories and
 files, write the session copies, and run git in --session's checkout. The session
 handoff's own task files are followed and held to the same list; the shared
@@ -670,7 +675,7 @@ NOTES = {**OPENED, "show": WORKSPACE, "code_here": True}
 SESSION = "/home/dev/projects/.claude-on-proxmox/session"
 LATER = " VS Code was not opened; to open it later: just code alpha"
 # The check of just code's own directory: absolute, not the projects directory, not the folder opened.
-WS_CHECK = "Refuse a workspace directory that is not absolute, is the projects directory, or is the folder"
+WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
 # Zed with the terminal and the sessions off, so the notes are all that goes into just code's own directory.
 NOTES_ONLY = {
     "keep": [WS_CHECK],
@@ -981,6 +986,8 @@ WINDOWS = {
     "just code, no name": {"keep": ONE_VM, "in_deploy": False},
     "deploy, fleet": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta"},
     "just code, fleet": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta"},
+    "deploy, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta", "vm_editor": "zed"},
+    "just code, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta", "vm_editor": "zed"},
     "deploy, stopped": {"keep": UP, "in_deploy": True, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "just code, stopped": {"keep": UP, "in_deploy": False, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "deploy, no address": {"keep": UP, "in_deploy": True, "vm_name": "alpha", "claude_vm_addressed": NO_ADDRESS},
@@ -1212,6 +1219,19 @@ def test_a_deploy_for_a_fleet_ends_at_its_first_task_with_each_vm_s_just_code_li
     assert run["left"] == {"alpha, beta": {"editor": "\n".join(run["fleet"])}}
 
 
+def test_a_fleet_s_lines_and_the_one_vm_refusal_name_the_editor_a_run_chose_against_the_setting(windows):
+    # The setting is VS Code's (unset) and the run's editor Zed: a bare just code alpha would open VS Code.
+    run = windows["deploy, fleet, --editor zed"]
+    assert run["rc"] == 0 and not run["reached"], run["output"]
+    assert run["fleet"] == [
+        "Zed opens one VM at a time, so this deploy for 2 VMs opened none. To open one:",
+        "just code alpha --editor zed",
+        "just code beta --editor zed",
+    ]
+    run = windows["just code, fleet, --editor zed"]
+    assert run["rc"] != 0 and "Zed opens one VM at a time: just code <name> --editor zed." in run["output"]
+
+
 def test_a_deploy_that_left_its_vm_stopped_names_the_deploy_that_starts_it(windows):
     # just code alone would open a VM this deploy never configured or signed in.
     run = windows["deploy, stopped"]
@@ -1411,7 +1431,8 @@ def test_zed_says_to_run_claude_in_its_terminal_where_the_window_lists_no_claude
     assert one["code"] == ["zed ssh://alpha/home/dev/projects/repo"], one["output"]
     said = _opened(one["output"])
     assert "run claude: the terminal is the VM's" in said
-    assert "The window of just code alpha lists a task, Claude (just code), that does it;" in said
+    # --editor zed, the setting VS Code's: the line that opens the projects window again names Zed.
+    assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
     said = _opened(none["output"])
     assert "run claude: the terminal is the VM's" in said
     assert "task" not in _claude_said(said), said
@@ -1573,7 +1594,21 @@ def test_a_one_project_window_has_the_task_written_and_says_the_projects_window_
     assert (_ws(run) / ".zed" / "tasks.json").is_file()
     said = _claude_said(_opened(run["output"]))
     assert "run claude: the terminal is the VM's" in said
-    assert "The window of just code alpha lists a task, Claude (just code), that does it;" in said
+    assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
+
+
+def test_the_notes_of_a_run_whose_editor_is_not_the_setting_s_name_it(zed_writes):
+    # The setting is VS Code's (unset) and the run's --editor zed: a bare just code alpha would open VS Code, so the
+    # notes' lines that open this window again name Zed.
+    run = zed_writes["one project"]
+    (notes,) = run["vm"].rglob("session/alpha-session.md")
+    text = notes.read_text()
+    assert (
+        "| Zed | `just code alpha --editor zed`, or one repository: `just code alpha --editor zed --project <repo>` |"
+        in text
+    ), text
+    assert "| `just code alpha --editor zed` | open this window again |" in text, text
+    assert "`just code alpha`" not in text, text
 
 
 def test_just_code_s_directory_outside_the_projects_directory_gets_no_task_and_no_word_of_one(zed_writes):

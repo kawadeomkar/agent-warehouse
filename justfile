@@ -503,7 +503,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
 [arg('IDE', long='editor', pattern='(vscode|zed)?', help='Open it in this editor for this run, rather than the one the editor setting names: vscode or zed')]
 [arg('NAME', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The one VM to open')]
 [arg('PROJECT', long='project', pattern='([A-Za-z0-9._-]{1,100})?', help='Open one project folder on the VM rather than the whole projects directory')]
-[arg('SESSION', long='session', pattern='([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?', help="Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, then claude --resume")]
+[arg('SESSION', long='session', pattern='([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?', help="Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, ready for claude --resume")]
 [continue]
 [doc("Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there")]
 [group('use')]

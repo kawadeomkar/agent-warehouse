@@ -216,7 +216,7 @@ def test_a_running_frame_shows_the_stages_the_running_steps_tasks_and_where_the_
     assert re.search(r"^ ○ sign in      4 tasks$", text, re.M) and re.search(r"^ ○ editor       3 tasks$", text, re.M)
     assert lines[-2] == ""
     assert lines[-1] == f"⠋ 1:59 · stage 3 of 5 · {LOG}"
-    # 16 tasks reached of 27: the ended stages' 3 and 5, configure's 12, the sign-in's 4 and VS Code's 3.
+    # 16 tasks reached of 27: the ended stages' 3 and 5, configure's 12, the sign-in's 4 and the editor's 3.
     assert script.run.title_text(script.now) == "deploy alpha · configure 59%"
 
 
@@ -542,7 +542,7 @@ def test_a_play_of_a_file_can_be_a_stage_of_its_own():
     plays = [
         ("/r/deploy.yml:39", "Check whether the cloud-init template already exists"),
         ("/r/playbooks/template.yml:4", "Build the cloud-init VM template"),
-        ("/r/playbooks/code.yml:61", "Open a VM in VS Code"),
+        ("/r/playbooks/code.yml:62", "Open a VM in the editor"),
         ("/r/deploy.yml:225", "Fail each VM whose work after a sign-in failed"),
     ]
     assert view.stages_for(plays) == [("template", None), ("template", None), ("editor", None), ("finish", None)]

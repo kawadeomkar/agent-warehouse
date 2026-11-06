@@ -7,7 +7,7 @@ import posixpath
 import re
 from typing import Final
 
-from .model import Editor, Probe
+from .model import Editor, OpenInputs, Probe
 
 # The helpers' directory in just code's own on the VM: code_helpers_dir, a promised name.
 HELPERS: Final = "helpers"
@@ -29,6 +29,12 @@ def pick_cli(editor: Editor, probe: Probe) -> str:
             if not editor.version_re or (path in said and re.match(editor.version_re, said[path])):
                 return path
     return ""
+
+
+def just_code(inputs: OpenInputs) -> str:
+    """The just code line that opens the projects directory's window again: the VM's name, then code.yml's flag,
+    which alone decides where a bare line, opening the setting's editor, is not this run's."""
+    return f"just code {inputs.vm.name}{inputs.editor_flag}"
 
 
 def nice_json(value: object) -> str:

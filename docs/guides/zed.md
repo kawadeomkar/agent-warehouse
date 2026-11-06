@@ -192,7 +192,9 @@ the browser - and the higher inotify limit Zed's file watcher wants. It keeps VS
 ## Session notes
 
 The notes are written as for VS Code, at `<projects>/.claude-on-proxmox/session/<vm>-session.md`, and
-`just code` says where, worded for Zed. Zed does not open them with the window the first time: its command takes
+`just code` says where, worded for Zed. After `just code alpha --editor zed` with the `editor` setting at VS Code,
+their `just code` lines say `just code alpha --editor zed`, which opens this window again; the bare line opens
+VS Code's. Zed does not open them with the window the first time: its command takes
 one `ssh://` path (Zed 1.26.2 refuses a second), and a second command would race the window the first is still
 connecting. Open them once, in the window of the whole projects directory, from the project panel under
 `.claude-on-proxmox/session/`: Zed reopens the tab with that window from then on, as it does any tab left open

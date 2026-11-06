@@ -2,7 +2,7 @@
 # Its own handler rather than the common role's "Restart ssh": a handler is
 # found by name across the play, and two roles defining one name leaves it
 # to load order which runs.
-- name: Restart ssh for VS Code
+- name: Restart ssh for the editor's drop-in
   ansible.builtin.service:
     name: ssh
     state: restarted

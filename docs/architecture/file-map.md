@@ -7,7 +7,7 @@ callback_plugins/claude_on_proxmox.py   the default output, the waits set apart,
 callback_plugins/claude_on_proxmox_status.py   just status's own: the report drawn live at a terminal (§7.7)
 .logs/                            one log per just run that used Ansible (git-ignored, 0700, pruned after 14 days)
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
-deploy.yml                        template (when missing) + provision + configure + the three sign-ins + VS Code
+deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
 docs/                             the wiki (docs/development/docs.md): getting-started/, guides/, reference/
@@ -48,14 +48,14 @@ playbooks/
   destroy.yml                     confirm, verify ownership, save each VM's own Claude sessions, release (Claude, GitHub,
                                   Tailscale), delete in parallel, forget each alias
   ssh_config.yml                  refresh every alias from the fleet; fleet-wide, prune the vanished
-  code.yml                        refresh one alias, copy this machine's Claude sessions, write the Claude workspace
-                                  file and the session notes, open it
+  code.yml                        refresh one alias, copy this machine's Claude sessions, write the editor's files
+                                  (VS Code's workspace file, or Zed's task) and the session notes, open the window
   library/                        just code's session handoff and destroy's save: claude_sessions_info, git_checkouts_info
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
-  templates/vm_session.md.j2      the session notes: a page about one VM, opened beside the Claude terminal
+  templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
   vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
                                   are (read, never written)
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension

@@ -1,9 +1,9 @@
 ---
-# Make the VM meet what VS Code's Remote - SSH extension needs on the host,
-# and prove it, rather than hope OpenSSH's defaults hold. False removes what
-# an earlier run wrote.
+# Make the VM meet what a remote editor and Claude's sign-in in the browser
+# need on the host, and prove it, rather than hope OpenSSH's defaults hold.
+# False removes what an earlier run wrote.
 vscode_server_enabled: true
-# The login VS Code connects as: the user whose connection the sshd check
+# The login the editor connects as: the user whose connection the sshd check
 # evaluates Match blocks for, and named in messages. The common role owns the
 # user itself. Wired from vm_user.
 vscode_server_user: dev
@@ -14,9 +14,10 @@ vscode_server_user: dev
 vscode_server_client_alive_interval: 60
 vscode_server_client_alive_count_max: 3
 
-# VS Code's documented figure for watching a large workspace. The kernel's
-# default scales with memory and is far lower on a 4 GB VM, at which point
-# VS Code warns that it cannot watch for file changes.
+# VS Code's documented figure for watching a large workspace, which any
+# editor's file watcher shares. The kernel's default scales with memory and is
+# far lower on a 4 GB VM, at which point an editor cannot watch for file
+# changes (VS Code says so).
 vscode_server_inotify_watches: 524288
 
 # Virtualisation types under which /proc/sys is read-only, so the sysctl file

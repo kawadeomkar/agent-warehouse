@@ -44,7 +44,7 @@ PLAYBOOKS = {
   ansible.builtin.import_playbook: playbooks/configure.yml
 - name: Sign Claude Code in
   ansible.builtin.import_playbook: playbooks/claude_login.yml
-- name: Open the VM in VS Code
+- name: Open the VM in the editor
   ansible.builtin.import_playbook: playbooks/code.yml
 """,
     "playbooks/template.yml": """
@@ -101,7 +101,7 @@ PLAYBOOKS = {
         tasks_from: browser_login
 """,
     "playbooks/code.yml": """
-- name: Open a VM in VS Code
+- name: Open a VM in the editor
   hosts: localhost
   gather_facts: false
   tasks:

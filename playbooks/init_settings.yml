@@ -488,7 +488,7 @@
         init_ask_given: "{{ init_tailscale_given_answer }}"
         init_ask_flag: --tailscale
         init_ask_text:
-          - Tailscale puts each VM on your tailnet, so ssh and VS Code reach it from anywhere, not
+          - Tailscale puts each VM on your tailnet, so ssh and your editor reach it from anywhere, not
           - only this LAN. y needs a Tailscale account. n keeps it off the VMs, reached on the LAN as
           - ever, and the next deploy removes it from any VM this project put it on. Enter to decide
           - later; until then it is on. tailscale_enabled in local.yml changes it any time.

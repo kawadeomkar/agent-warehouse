@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2953 tests. By file:
+pytest over `tests/unit/`: 2962 tests. By file:
 
 - **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -52,9 +52,10 @@ pytest over `tests/unit/`: 2953 tests. By file:
   the core's function of that name.
 - **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
   `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
-  does not parse as one IPv4 address, the managed SSH config's blocks, the VS Code settings reader, the
-  sign-ins' `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running,
-  gone, a pid another process has since, another machine, a record the VM spoiled), `plain_text`, and
+  does not parse as one IPv4 address, the managed SSH config's blocks, VS Code's settings reader (since 1.1
+  its plan's own `vscode_setting`, not a filter, though its test file keeps the name), the sign-ins'
+  `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running, gone, a pid
+  another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
 - **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 17,
   `test_status_work.py` 3): the report's filters on canned
@@ -198,7 +199,7 @@ pytest over `tests/unit/`: 2953 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **The editors' plans** (`test_editor_conformance.py` 51): every family conforms to the seam and every row of
+- **The editors' plans** (`test_editor_conformance.py` 54): every family conforms to the seam and every row of
   `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
   `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
   foreign one is left and said, and none is written at a helper path a task cannot be handed as it is; VS Code opens
@@ -317,7 +318,7 @@ pytest over `tests/unit/`: 2953 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 263): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py` 265): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -357,11 +358,12 @@ pytest over `tests/unit/`: 2953 tests. By file:
   machine, changed on both, unpushed, tracking another remote, gone, a fetch that fails, a detached `HEAD`,
   an ignored file in the way, an rsync that fails - leaving the VM's checkout where it was, and no run
   printing the marker the transcripts carry.
-- **The session notes** (`test_session_notes.py` 16): `vm_session.md.j2` rendered as `code.yml`
+- **The session notes** (`test_session_notes.py` 19): `vm_session.md.j2` rendered as `code.yml`
   renders it - the placeholder, a live section carried over, the parts switched off, the same file
   from every window, and no time, template marker or token shape in it.
   In an editor whose window runs no task (Zed), the notes say what to do instead, and name the listed Claude task
-  only where just code wrote it.
+  only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
+  setting's, in both directions.
 - **`just init`'s questions** (`test_init_settings.py` 71, `test_settings_filter.py` 83):
   `init_settings.yml` against copies of the example files in the test's directory - never the checkout's,
   which a static test holds - with no terminal (nothing asked; nothing written but the values given) and at
@@ -439,7 +441,7 @@ pytest over `tests/unit/`: 2953 tests. By file:
   given, and no run reaching a real `ssh`. Running
   a fake on a loopback port, the fake Proxmox's certificate and `_pve` live in `tests/unit/harness.py`, shared
   with `test_release.py`; each file keeps its own `fake_pve` fixture.
-- **The managed SSH config** (`test_ssh_config.py` 37): `tasks/ssh_config.yml` for real against a
+- **The managed SSH config** (`test_ssh_config.py` 38): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no
   playbook sets the task file's inputs as facts, and that the user's own Include and file mode are left

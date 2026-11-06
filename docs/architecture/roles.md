@@ -161,7 +161,7 @@ Notable choices:
   zsh skips it, each without a word. `SetEnv` takes no variables, so the drop-in holds the whole PATH: the
   directories in the user's home from `getent`, then the PATH line of `/etc/environment` as it is. sshd keeps the
   first `SetEnv` that applies, a `Match` block's replacing any global one, so the role asks `sshd -T -C` what
-  applies to the user's connection, as `vscode_server` does ([§5.7](#57-vscode_server--what-vs-codes-remote---ssh-needs-on-the-host)),
+  applies to the user's connection, as `vscode_server` does ([§5.7](#57-vscode_server--what-an-editors-remote-server-needs-on-the-host)),
   and fails naming the file that sets another. `~/.cargo/bin` is listed whether or not `dev_tools` installs
   Rust.
 - **tmux gets Claude Code's settings system-wide** (`common_tmux_settings`, a block of `/etc/tmux.conf`).
@@ -471,7 +471,7 @@ play rescues a failure, says it with the `just login <vm> --only claude` that re
 failure does not name it already), records it - for NEXT STEPS too, under `claude`, so a deploy that goes
 on past it still lists it at the end - and a last play without serial fails each such VM, unless
 `just deploy` imported the playbook (`claude_vm_login_in_deploy`): deploy has done its job and goes on to
-GitHub and VS Code. `rescue` handles failed tasks, never an unreachable host, so a play before it pings
+GitHub and the editor's window. `rescue` handles failed tasks, never an unreachable host, so a play before it pings
 every VM with `ignore_unreachable` and records one that does not answer the same way. The rescued
 block's condition is on its task, not on the block, whose `when` would also skip the rescue's message
 once the failure it tests for is recorded. The rescue's first
@@ -683,11 +683,13 @@ before it, and a failure of the role run after the sign-in is a configure failur
 of `just deploy` too, naming the failed repositories and `--tags github_projects`. The flow runs from
 `just login --only github` and from `just deploy`, never from `just deploy --only configure`.
 
-## 5.7 `vscode_server` — what VS Code's Remote - SSH needs on the host
+## 5.7 `vscode_server` — what an editor's remote server needs on the host
 
 Runs right after `common`, which owns the user and sshd. VS Code's documented requirements for a
-Remote - SSH host are bash, tar and curl or wget, a glibc x86_64 or aarch64 system, an sshd that
-allows the port forward the VS Code Server is reached through, and an inotify limit large enough to
+Remote - SSH host are bash, tar and curl or wget and a glibc x86_64 or aarch64 system; Zed's server is a
+static binary, which needs only the architecture. Every editor's connection needs an sshd that allows port
+forwards - VS Code's server is reached through one, Claude's sign-in in the browser comes back through
+one, and Zed's port forwards are `ssh -L` too - and any file watcher an inotify limit large enough to
 watch a workspace. The image and `common` give the first two; this role checks them, writes the other
 two, and proves the sshd one.
 

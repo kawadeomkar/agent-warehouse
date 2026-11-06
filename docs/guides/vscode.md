@@ -392,8 +392,9 @@ it, or a reload - a page about the VM opens beside the Claude terminal, as a ren
   as, and Tailscale's state with the `ssh` command that reaches the VM over it.
 - **At a glance**: VMID, node, cores, memory and disk, the user, the projects folder, the LAN
   address, and the SSH alias.
-- **Reach this VM**, **Start here**, **From your machine** (each `just` command with this VM's name),
-  and **When something is off**.
+- **Reach this VM**, **Start here**, **From your machine** (each `just` command with this VM's name,
+  and `--editor` on the `just code` lines after a run whose `--editor` was not the `editor` setting's, so they
+  reopen the window of the editor that run used), and **When something is off**.
 
 `just code` writes it as `alpha-session.md` in `~/projects/.claude-on-proxmox/session/` (0600, in a
 0700 directory: it names the accounts signed in there), never in a repository. The window's
@@ -425,4 +426,4 @@ they are. `editor_session_notes: false` turns them off.
 - How it works: the aliases in [§4.8](../architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml),
   `just code`, its workspace file and the session notes in
   [§4.9](../architecture/lifecycle.md#49-playbookscodeyml), and the VM's side in
-  [§5.7](../architecture/roles.md#57-vscode_server--what-vs-codes-remote---ssh-needs-on-the-host)
+  [§5.7](../architecture/roles.md#57-vscode_server--what-an-editors-remote-server-needs-on-the-host)

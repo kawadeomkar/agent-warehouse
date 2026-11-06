@@ -222,8 +222,9 @@ github_projects_listing_token_set: "{{ github_projects_listing_token | length > 
 
 # A repository whose name starts with a dot would land in the projects
 # folder as a folder of settings: .claude for every Claude Code session
-# started there, whose trust Remote Control accepts in advance, .vscode for
-# the window just code opens, .claude-on-proxmox for just code's own folder.
+# started there, whose trust Remote Control accepts in advance, an editor's
+# settings folder (.vscode) for the window just code opens, .claude-on-proxmox
+# for just code's own folder.
 # Never cloned, whatever the lists say, and named in the report.
 github_projects_dotted: >-
   {{ github_projects_listing.repos | map(attribute='name') | select('match', '[.]') | list }}

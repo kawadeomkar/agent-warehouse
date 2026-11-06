@@ -95,6 +95,7 @@ class OpenInputs(Checked):
     notes_file: str = ""
     notes_dir: str = ""
     task_written: bool = False  # the editors list's task file goes into just code's directory (code.yml's)
+    editor_flag: str = ""  # code.yml's code_editor_flag: " --editor <key>" where the run's editor is not the setting's
     session_id: str = ""
     session_branch: str = ""
     session_commit: str = ""
@@ -111,6 +112,8 @@ class OpenInputs(Checked):
     timezone: str = "UTC"
 
     def validate(self) -> None:
+        if self.editor_flag and not re.fullmatch(rf" --editor {WORD.pattern}", self.editor_flag):
+            raise ValueError(f"not an --editor flag: {self.editor_flag!r}")
         if not all(map(WORD.fullmatch, self.helpers)):
             raise ValueError(f"not a plain name among the helpers: {self.helpers!r}")
         target, root = vm_path(self.target, "target"), vm_path(self.root, "root")

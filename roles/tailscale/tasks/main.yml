@@ -6,8 +6,8 @@
 #
 # playbooks/configure.yml runs this role last, in a block whose rescue records
 # a failure and raises it at the end of the run, so a Tailscale problem never
-# costs a VM its SSH alias, its sign-ins or VS Code. Nothing here may rely on a
-# handler: one would run after that block, out of its rescue's reach.
+# costs a VM its SSH alias, its sign-ins or its editor window. Nothing here may
+# rely on a handler: one would run after that block, out of its rescue's reach.
 
 - name: Fail when tailscale_hostname is not one DNS label
   ansible.builtin.assert:

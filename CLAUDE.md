@@ -45,7 +45,7 @@ just test unit                       # pytest over tests/unit/, a worker per CPU
 just test unit --shard 2/4           # one of the four shards CI runs (tests/unit/durations.json balances them)
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test provision                  # one playbook scenario (integration is the configure scenario)
-just deploy                          # template (if missing) + provision + configure + the three sign-ins + VS Code, all idempotent (just deploy alpha: that VM)
+just deploy                          # template (if missing) + provision + configure + the three sign-ins + the editor (VS Code by default), all idempotent (just deploy alpha: that VM)
 just deploy alpha --only configure   # one stage of it: template, provision, configure or ssh-config (fleet-wide also prunes); --check is the dry run
 just deploy alpha --tags claude_code # re-run one role, e.g. to push an API key (--tags beside names means --only configure)
 just destroy alpha                   # save the VM's own Claude sessions here, release it from Claude, GitHub and Tailscale, then delete it
@@ -54,7 +54,7 @@ just status                          # read-only, live: every VM, what needs doi
 just settings tailscale              # a role's variables, each value and where it was set (a variable; --all; --changed; --json; none: usage)
 just settings vm_cores --value 4     # set one setting in local.yml, held to its type; never a secret (just vault)
 just settings vm_cores --reset       # back to its default: its line out of local.yml, its example's line back
-just code alpha [--project repo] [--session <id>]   # refresh one alias, copy recent Claude sessions, open the VM in VS Code with a Claude terminal
+just code alpha [--project repo] [--session <id>]   # refresh one alias, copy recent Claude sessions, open the VM in the editor (VS Code with a Claude terminal by default; --editor zed)
 just logs                            # the run logs, newest first: read these instead of asking for terminal output
 just docs                            # regenerate the wiki's reference pages; serve previews the site, build builds it strictly
 ```
@@ -306,7 +306,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   rescue appends to `claude_vm_configure_failures` - off, only where a `stat` before it finds the installed
   marker, to remove what it installed, said first: a VM without one gets nothing of the role, the condition
   on the import, never the block; a last play raises it, skipped under deploy
-  (`claude_vm_configure_in_deploy`), whose own last play raises it after VS Code. A failed install takes
+  (`claude_vm_configure_in_deploy`), whose own last play raises it after the editor's window. A failed install takes
   its repository back out (an unreachable source fails every apt refresh, `common`'s first), and the role
   has no handlers (one would run outside the rescue). Check mode skips what needs the package: `apt`
   cannot find a package from a repository the same `--check` run adds. Tests reach no Tailscale service
@@ -349,7 +349,7 @@ token; `github_auth_method: token` still fails. The status JSON carries
   spelling counts on OpenSSH 9.9+ and not before; an `Include` inside a `Host` block never does),
   and never rewrites or changes the mode of the user's file.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward
-  aside, and never answers VS Code's, Zed's or Claude Code's security questions.** With `editor_claude_terminal` it writes a `.code-workspace` file in
+  aside, and never answers VS Code's, Zed's or Claude Code's security questions.** For VS Code, with `editor_claude_terminal`, it writes a `.code-workspace` file in
   `<projects>/.claude-on-proxmox/`, beside the repositories and never in one - a directory inside a checkout (a
   `.git` in any folder from the first below the projects directory down to it) is refused, for every editor,
   before anything is written on the VM - whose `folderOpen` tasks
@@ -364,7 +364,8 @@ token; `github_auth_method: token` still fails. The status JSON carries
   Python. The notes' directory is a
   second workspace folder only where the window's own folder contains it: VS Code stores the folders a
   user trusted, not their parents, so a folder added to a trusted workspace drops it to Restricted Mode.
-  `just code` slurps the notes to carry their live section over, so an unchanged VM rewrites nothing.
+  `just code` slurps the notes to carry their live section over, so an unchanged VM opened in the same editor
+  rewrites nothing.
   VS Code runs that task only in a trusted window and once the user has allowed automatic tasks;
   `code.yml` reads `task.allowAutomaticTasks` from the user's VS Code settings to say which to
   expect, and must never write it, set trust, or lower `security.workspace.trust.*` or
@@ -764,8 +765,8 @@ by `DisableForwarding`, naming the file. Plain `sshd -T` skips `Match` blocks en
 parses the files on disk, so nothing is restarted before the check; do not add a `flush_handlers`
 back. Keep each drop-in with its owner: `10-` is `common`'s hardening, `15-` `common`'s PATH for the
 VM user's ssh sessions (`Match User` + `SetEnv`, checked the same way, since sshd keeps the first
-`SetEnv` that applies), `20-` VS Code's forwarding and keepalives. That PATH starts with `~/.local/bin`,
-so every `add_host` that publishes a VM gives it `ansible_python_interpreter: "{{ claude_vm_python }}"`:
+`SetEnv` that applies), `20-` `vscode_server`'s forwarding and keepalives, for every editor. That PATH
+starts with `~/.local/bin`, so every `add_host` that publishes a VM gives it `ansible_python_interpreter: "{{ claude_vm_python }}"`:
 discovery would take a `python3.13` that `uv python install` put there, and run it as root. For the same
 reason every play becomes root through `/usr/bin/sudo` by its path (`ansible_become_exe`, group_vars/all): a
 `sudo` of the user's own there would be handed every module's arguments, and the password the playbooks become

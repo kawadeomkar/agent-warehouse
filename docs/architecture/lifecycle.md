@@ -190,9 +190,10 @@ that the vault's auth key is never sent to it again ([§5.8](roles.md#58-tailsca
 and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
 STEPS, while the others are still recorded.
 
-The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and VS Code's host
-picker follow the address DHCP gave it. It reads a fact the second play set *last*: `claude_vm_workspace`,
-`vm_projects_dir` or `~/projects` of `vm_user` as `getent` resolves it on the VM. A host that failed a
+The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and the editor -
+VS Code's host picker, Zed's `ssh://` URL - follow the address DHCP gave it. It reads a fact the second
+play set *last*: `claude_vm_workspace`, `vm_projects_dir` or `~/projects` of `vm_user` as `getent`
+resolves it on the VM. A host that failed a
 role never reaches that `post_task`, so it never gets an alias; and the workspace is the VM user's real
 home rather than a guess, because Ansible's own `user_dir` fact is the *connecting* user's home, which is
 root's under Molecule. Both the lookup and the play are tagged `always`, like discovery, so a
@@ -202,7 +203,7 @@ keeps the whole project out of `~/.ssh`.
 Tailscale runs last, from the play's `tasks:` - after `roles:`, before `post_tasks:` - in a block whose
 rescue records a failure in `claude_vm_configure_failures`, with `just deploy <vm>
 --tags tailscale`, and says it. The VM stays in the play, so it still records its workspace and gets its
-alias, and under `just deploy` its sign-ins and VS Code; a fifth play, tagged `always`, then fails each
+alias, and under `just deploy` its sign-ins and the editor's window; a fifth play, tagged `always`, then fails each
 VM with such a failure - skipped when `claude_vm_configure_in_deploy` is set, as `deploy.yml`'s configure
 import sets it, since deploy's own last play raises the same list (§4.7). `import_role`, not
 `include_role`: a static import takes the block's tag, so `just deploy <vm> --tags tailscale` runs the role's
@@ -525,7 +526,7 @@ unreachable host, so the first two connections `ignore_unreachable` and assert.
 
 What a sign-in leads to - Remote Control's start, the private repositories' clones - runs in the
 login playbooks' follow-on plays, and a failure there is not a failed sign-in: deploy's last play
-fails each VM whose `claude_vm_configure_failures` is set, after VS Code has opened, with the command
+fails each VM whose `claude_vm_configure_failures` is set, after the editor's window has opened, with the command
 that retries it - and so does a Tailscale failure during configuration, which `configure.yml` recorded
 in the same list and, with `claude_vm_configure_in_deploy`, left to this play (§4.4). The configure
 import passes `claude_code_sign_in_follows`, `github_projects_sign_in_follows` and
@@ -616,7 +617,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    session` and here again.
 2. Find the VM by tag, naming an untagged VM of that name as not this project's; ask its agent for
    the address. Settle where it is reached exactly as the alias's `HostName` does - the address, or
-   `<name>.<claude_ssh_host_domain>` - so this run and VS Code connect to the same target, and refuse
+   `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
    a VM that is not running, whatever its name resolves to.
 3. Add it to `claude_vms` with `add_host`, the way configure reaches it: Ansible's own connection and
    `accept-new`, not the user's ssh config, and the group's connection variables from the inventory
@@ -627,7 +628,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `vm_projects_dir` or `<home>/projects`. A home with a control character in it is refused there, since
    every path just code says or hands the editor starts with it. Then the session handoff's reads
    (`tasks/session_read.yml`), which with `--session` settle the project to open.
-5. Refuse a `vm_projects_dir` that is not absolute (VS Code is handed it as written, from this
+5. Refuse a `vm_projects_dir` that is not absolute (the editor is handed it as written, from this
    machine, so `~` would not expand) and, wherever anything goes into just code's own directory (the
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
    copies on, an `editor_files_dir` that is not absolute, is `/` (the whole of the VM) or is the projects
@@ -638,7 +639,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    message: a missing project lists what the workspace holds and, for a name that differs only in
    case, suggests the right one, since the VM's paths are case-sensitive; a missing workspace means a
    VM never configured, and says to run `just deploy --only configure`. These are there so a typo is said in the
-   terminal, not in a VS Code window opened on a folder that does not exist. Then, wherever anything goes into
+   terminal, not in an editor window opened on a folder that does not exist. Then, wherever anything goes into
    just code's own directory, refuse one inside a checkout of the projects directory, for every editor: a `.git`
    in any folder from the first below the projects directory down to that directory, looked for with `stat` on
    the VM by the path as written. Only those folders, so a home directory kept in git refuses nothing - nor does
@@ -755,7 +756,7 @@ every task in `code.yml` to an allowlist - read-only here, or delegated to the V
 run. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
-**The session notes.** With `editor_session_notes` (the default, with the terminal), a page about the
+**The session notes.** In VS Code, with `editor_session_notes` (the default, with the terminal), a page about the
 VM opens beside the Claude terminal every time the window opens - from `just code`, *Open Recent*, a
 restart that restores the window, or a reload - as a rendered preview, with its sign-in status read from
 the VM at that moment. VS Code has no workspace setting that opens a file, and a file named in the
@@ -780,13 +781,17 @@ links into a zoneinfo directory for (macOS, most Linux), then `/etc/timezone` (D
 play runs nothing here but `which` and `code`; the helper gets it as an argument and says UTC for a zone
 the VM's tzdata lacks. The Claude task gets four more arguments - the
 helper, the notes' path, the unit, the zone - and after a sign-in that succeeded in its terminal starts the helper
-once more, `refresh-only`, in the background (reached by `shift 8`).
+once more, `refresh-only`, in the background (reached by `shift 8`). In Zed the notes are written without that
+refresh, and Zed reopens their tab with the window once they have been opened ([Zed](../guides/zed.md#session-notes)).
 
 `just code` writes the rest from `playbooks/templates/vm_session.md.j2` into
 `<workspaces>/session/<vm>-session.md` (0600; `session/` 0700): the VM's facts from the cluster listing,
 its addresses and alias, and the commands with its name - nothing of one window's, since every window of
-the VM opens the one file, and no time, so an unchanged VM gives an unchanged file. It `slurp`s the
-notes first and carries their live section over. `workbench.editorAssociations` in the workspace's
+the VM opens the one file, and no time. What they say of the editor is the last run's: its name, and `just code`
+lines that carry `--editor <editor>` where the run's editor is `--editor`'s and not the setting's, since a bare one
+opens the setting's editor (`code_editor_flag`, which the alias line, the report, the failures and a fleet's lines
+take too). So an unchanged VM opened in the same editor gives an unchanged file, and with windows of both
+editors open, the earlier one shows the later run's lines. It `slurp`s the notes first and carries their live section over. `workbench.editorAssociations` in the workspace's
 settings opens them as a preview; the key holds a `/`, so VS Code matches it against the file's scheme
 and path.
 
@@ -881,7 +886,7 @@ Claude Code's own Agent SDK documents. The rules:
   before it was resumed, and a session copied at 29 days the next day.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
-- **The transport.** `rsync -az --files-from=-` over the alias, as VS Code reaches the VM, with
+- **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with
   `BatchMode`, into a mirror in that directory (0700; macOS's `openrsync` has no `--chmod`), which
   later runs only add to; to a local path where Ansible reaches the VM locally, as in the `provision`
   scenario. Its 23 and 24 - a file it could not read, one that vanished - are not failures: the rest
