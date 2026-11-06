@@ -117,7 +117,10 @@
       kind: opnsense
       listed: "{{ claude_vpn_hub.listed | default(false) }}"
       instance: "{{ wireguard_hub_instance }}"
-      network: "{{ (claude_vpn_hub.instance | default({})).addresses | default([''], true) | first }}"
+      # Its first IPv4 address: an instance may list an IPv6 one first.
+      network: >-
+        {{ (claude_vpn_hub.instance | default({})).addresses | default([], true)
+           | select('match', '[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+/') | first | default('') }}
       public_key: "{{ (claude_vpn_hub.instance | default({})).public_key | default('') }}"
       endpoint: "{{ wireguard_hub_endpoint }}"
       peers: "{{ claude_vpn_hub.peers | default([]) }}"

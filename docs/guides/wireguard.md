@@ -97,7 +97,8 @@ the router's API instead of saying it, and `just destroy` removes it there. It w
 the project's - named `claude-on-proxmox-<vm>`, an address in `wireguard_vm_prefix`, on your instance - and never
 the instance, your devices, a rule, NAT or DNS. A peer with the project's name but not every mark is said and left
 alone. On a run without names and a complete listing of the VMs, a peer whose VM is gone is removed. A router that
-lists its peers only in part gets no write that run: a peer it did not list may be the VM's own.
+lists its peers only in part gets no write that run: a peer it did not list may be the VM's own; `just destroy` then
+says the peer it could not remove, which the next run without names removes.
 
 A VM renamed in Proxmox keeps its key, which its old peer holds: it is said and not joined beside that peer until a
 fleet-wide `just deploy --only configure` has removed the old one. A VM cloned from another has that VM's key too:

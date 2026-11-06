@@ -270,7 +270,6 @@ def test_a_vm_whose_key_was_not_read_is_said_and_not_joined():
         ({"hub": HUB | {"endpoint": "vpn.example.net"}}, "not host:port"),
         # Nothing but a name or an address goes into the VM's networkd file.
         ({"hub": HUB | {"endpoint": "a\n[WireGuardPeer]:51820"}}, "not host:port"),
-        ({"hub": HUB | {"network": "192.0.2.0/24"}, "vm_prefix": "192.0.2.128/25"}, "overlaps alpha's own network"),
     ],
 )
 def test_settings_that_cannot_work_are_refused_before_anything(over, said):
@@ -279,9 +278,46 @@ def test_settings_that_cannot_work_are_refused_before_anything(over, said):
     assert not any(plan[name] for name in ("marks", "peers", "tunnels", "report", "next_steps"))
 
 
-def test_a_peer_name_a_hub_would_refuse_is_refused():
-    long = {"vm": {"name": "v" * 50, "vmid": 4020}, "public_key": KEY_A}
-    assert "Give the VM a shorter name" in registry.vpn_member_plan("wireguard", ROWS, wg(long))["refusals"][0]
+@pytest.mark.parametrize(
+    ("odd", "said"),
+    [
+        # A tagged VM someone else named on a shared Proxmox.
+        ({"vm": {"name": "v" * 50, "vmid": 4020}}, "give the VM a shorter name"),
+        # What a VM's root can make wg print, or its facts say.
+        ({"public_key": "not a key"}, "is not one (44 characters of base64)"),
+        ({"public_key": HUB_KEY}, "is the server's own"),
+        ({"lan": "198.51.100.0/24"}, "overlaps wireguard_hub_network (198.51.100.0/24)"),
+        ({"lan": "192.0.2.0/99"}, "its own network could not be read"),
+    ],
+)
+def test_one_vm_that_cannot_join_is_said_and_costs_no_other_vm_its_place(odd, said):
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, WG_B | odd))
+    assert not plan["refusals"]
+    assert [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
+    assert [p["name"] for p in plan["peers"]] == ["claude-on-proxmox-alpha"]
+    odd_vm = (WG_B | odd)["vm"]["name"]
+    lines = {line["vm"]: line["text"] for line in plan["report"]}
+    steps = {step["vm"]["name"]: step["text"] for step in plan["next_steps"]}
+    assert said in lines[odd_vm] and lines[odd_vm].endswith("so it is not joined.")
+    assert said in steps[odd_vm]
+
+
+def test_tailscale_s_record_is_made_on_a_vm_someone_tagged_with_two_wireguard_addresses():
+    # Two wg- tags by hand are no slip of Tailscale's: its record goes on, and the core raises nothing.
+    tagged = {"vm": ALPHA, "login_seen": True, "marks": ["wg-198.51.100.130", "wg-198.51.100.131"]}
+    plan = registry.vpn_member_plan("tailscale", ROWS, given(tagged))
+    assert [change["add"] for change in plan["marks"]] == [["tailscale"]]
+
+
+def test_at_destroy_a_peer_a_partial_listing_could_not_find_is_said_and_kept_for_next_steps():
+    leaving = {"vm": ALPHA, "leaving": True, "marks": ["wg-198.51.100.129"]}
+    plan = registry.vpn_member_plan(
+        "wireguard",
+        ROWS,
+        given(leaving, phase="release", vm_prefix="198.51.100.128/25", hub=OPN | {"peers": [], "listed": False}),
+    )
+    assert plan["peers"] == []
+    assert "listed only in part" in plan["report"][0]["text"] and "listed only in part" in plan["next_steps"][0]["text"]
 
 
 def test_at_destroy_each_leaving_vm_with_an_address_has_its_peer_to_remove_said_and_kept():

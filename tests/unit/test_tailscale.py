@@ -773,7 +773,11 @@ def test_the_record_follows_the_sign_ins_and_comes_before_the_last_play():
         plays = yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text())
         names = [play.get("name") for play in plays]
         assert names.index(after) < names.index(record) < names.index(before), playbook
-        plan, apply = plays[names.index(record)]["tasks"]
+        # In a block whose rescue says why and goes on: the record never fails the run, nor holds a later play back.
+        (block,) = plays[names.index(record)]["tasks"]
+        (said,) = block["rescue"]
+        assert "when" not in block and "ansible.builtin.debug" in said
+        plan, apply = block["block"]
         assert plan["ansible.builtin.import_tasks"] == "tasks/vpn_members.yml", playbook
         assert plan["vars"] == {
             "claude_vpn_planned": "tailscale",

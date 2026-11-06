@@ -32,7 +32,8 @@ PEER: Final = "wireguard_peer"  # the NEXT STEPS matter of a peer the user is to
 
 
 def _refusal(inputs: MemberInputs) -> str:
-    """The first of the settings' refusals: what no VM can join with."""
+    """The first of the settings' refusals: what no VM can join with. What one VM brings is its own
+    (_member_refusal)."""
     hub = inputs.hub
     try:
         network = common.hub_network(hub.network)
@@ -55,18 +56,33 @@ def _refusal(inputs: MemberInputs) -> str:
             f"wireguard_hub_endpoint is {hub.endpoint!r}, not host:port: the address or name the VMs dial, and the"
             " server's listen port, such as vpn.example.net:51820."
         )
-    for member in inputs.members:
-        if member.lan and ipaddress.IPv4Network(member.lan, strict=False).overlaps(network):
-            return (
-                f"wireguard_hub_network ({network}) overlaps {member.vm.name}'s own network ({member.lan}): a VM would"
-                " send its LAN's traffic into the tunnel. Choose a tunnel network apart from the LAN."
-            )
-        name = common.peer_name(inputs.tag, member.vm.name)
-        if not common.PEER_NAME.fullmatch(name):
-            return (
-                f"{member.vm.name}'s peer would be named {name}, which a WireGuard hub such as OPNsense refuses: at"
-                " most 64 letters, digits, '.', '_' and '-'. Give the VM a shorter name."
-            )
+    return ""
+
+
+def _member_refusal(inputs: MemberInputs, member: Member) -> str:
+    """Why one VM cannot join, from what it reported and its name: '' where it can. Its own, never the plan's - a VM
+    whose root makes wg print anything, or a tagged VM someone else named on a shared Proxmox, costs no other VM its
+    place."""
+    network = common.hub_network(inputs.hub.network)
+    if member.public_key and not common.public_key(member.public_key):
+        return "what it reported as its WireGuard public key is not one (44 characters of base64)"
+    if member.public_key and member.public_key == inputs.hub.public_key:
+        return "what it reported as its WireGuard public key is the server's own"
+    try:
+        lan = ipaddress.IPv4Network(member.lan, strict=False) if member.lan else None
+    except ValueError:
+        return "its own network could not be read from what it reported"
+    if lan is not None and lan.overlaps(network):
+        return (
+            f"its own network ({lan}) overlaps wireguard_hub_network ({network}), so it would send its LAN's traffic"
+            " into the tunnel: choose a tunnel network apart from the LAN"
+        )
+    name = common.peer_name(inputs.tag, member.vm.name)
+    if not common.PEER_NAME.fullmatch(name):
+        return (
+            f"its peer would be named {name}, which a WireGuard hub such as OPNsense refuses (at most 64 letters,"
+            " digits, '.', '_' and '-'): give the VM a shorter name"
+        )
     return ""
 
 
@@ -190,13 +206,18 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
     # One key, one peer: a VM cloned with another's key, before either has a peer, is the lower VM ID's alone.
     first: dict[str, str] = {}
     for member in _by_id(inputs.members):
-        if member.public_key and not member.leaving:
+        if member.public_key and not member.leaving and not _member_refusal(inputs, member):
             first.setdefault(member.public_key, member.vm.name)
     for member in inputs.members:
         vm = member.vm.name
         if member.leaving:
             continue
         name = common.peer_name(inputs.tag, vm)
+        refused = _member_refusal(inputs, member)
+        if refused:
+            report.append(Said(vm=vm, text=f"{vm}: {refused}, so it is not joined."))
+            steps.append(NextStep(vm=member.vm, matter=PEER, action=None, text=f"{vm}: not on WireGuard: {refused}."))
+            continue
         if member.public_key and first.get(member.public_key) != vm:
             clone = first[member.public_key]
             report.append(
@@ -422,7 +443,22 @@ def _release(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                         text=f"{member.vm.name}: its peer {name} is removed from {inputs.hub.instance}.",
                     )
                 )
-            steps.append(NextStep(vm=member.vm, matter=PEER, action=None))
+                steps.append(NextStep(vm=member.vm, matter=PEER, action=None))
+            elif inputs.hub.listed:
+                report.append(
+                    Said(
+                        vm=member.vm.name,
+                        text=f"{member.vm.name}: {inputs.hub.instance} has no peer {name} of the project's.",
+                    )
+                )
+                steps.append(NextStep(vm=member.vm, matter=PEER, action=None))
+            else:
+                left = (
+                    f"{member.vm.name}: its peer {name} stays on {inputs.hub.instance}, whose peers the router listed"
+                    " only in part: a just deploy --only configure without names removes it."
+                )
+                report.append(Said(vm=member.vm.name, text=left))
+                steps.append(NextStep(vm=member.vm, matter=PEER, action=None, text=left))
             continue
         peers.append(PeerWrite(kind="delete", name=name, address=f"{marked[0]}/32", vm=member.vm))
         report.append(

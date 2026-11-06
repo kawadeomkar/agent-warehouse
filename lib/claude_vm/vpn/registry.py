@@ -65,7 +65,9 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
         if common.TAILSCALE in change.remove:
             raise ValueError(f"{vpn.key}'s plan takes {change.vm.name}'s Tailscale record off, which stays for good")
         after = (set(members[change.vm.name].marks) - set(change.remove)) | set(change.add)
-        if sum(mark.startswith(common.WIREGUARD) for mark in after) > 1:
+        touches = any(mark.startswith(common.WIREGUARD) for mark in (*change.add, *change.remove))
+        # Only a change of WireGuard's own marks: two a person tagged a VM with by hand are no slip of Tailscale's.
+        if touches and sum(mark.startswith(common.WIREGUARD) for mark in after) > 1:
             raise ValueError(f"{vpn.key}'s plan leaves {change.vm.name} more than one WireGuard address")
         for mark in change.add:
             if mark.startswith(common.WIREGUARD) and not _in_range(inputs, common.mark_address(mark)):

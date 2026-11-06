@@ -1012,9 +1012,12 @@ and `tests/unit/test_choices.py` holds the three equal.
   address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free - of the
   project's VMs, and of every address the hub holds where it is read: its peers' but the members' own, and its own;
   one key is one peer, the lower VM ID's, so a VM cloned with another's key is said and not joined; and it
-  refuses, before anything is written, settings that cannot work: a range outside the hub's network, a network that
-  overlaps a VM's own, a key that is not one, an endpoint that is not a name or an address and a port, a peer name a
-  hub would refuse. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
+  refuses, before anything is written, settings that cannot work: a range outside the hub's network, a key that is
+  not one, an endpoint that is not a name or an address and a port. What one VM brings (a key that is none, or the
+  hub's; a network it reports that cannot be read or overlaps the tunnel's; a name whose peer name a hub would
+  refuse) leaves that VM out, said and kept for NEXT STEPS, and costs no other VM its place: a VM's root, or whoever
+  named a tagged VM on a shared Proxmox, chooses it. Tailscale's record plays run in a block whose rescue says a failure and
+  goes on, as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
   the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through `tasks/vm_marks.yml`, what it says, and
   its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`). Under `vpn_reach:
   tunnel`, which only a row whose `reach` lists it may have (the registry refuses it before any family plans), each
