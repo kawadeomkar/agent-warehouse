@@ -69,14 +69,28 @@ def marks_of(family: FamilyName, mark: str) -> bool:
             return bool(mark_address(mark))
 
 
-def vpn_alias_address(lan: str, marks: object, vpn: str, reach: str) -> str:
+def vpn_alias_address(lan: str, marks: object, vpn: str, reach: str, prefix: str = "") -> str:
     """The address a VM's SSH alias uses: its WireGuard address, from its mark in Proxmox, under vpn: wireguard and
     vpn_reach: tunnel once the VM has reached its hub there; its LAN address otherwise - before then too, when the
-    address leads nowhere yet."""
-    if str(vpn) == "wireguard" and str(reach) == "tunnel":
-        for mark in marks if isinstance(marks, (list, tuple)) else ():
-            if mark_reached(str(mark)):
-                return mark_address(str(mark))
+    address leads nowhere yet. Only an address of the VMs' range (prefix), and never one guest_ipv4 would refuse: a
+    tag is whoever made the VM's to write, and an alias at 127.0.0.1 would send ssh to this machine."""
+    if str(vpn) != "wireguard" or str(reach) != "tunnel":
+        return lan
+    try:
+        range_ = ipaddress.IPv4Network(str(prefix))
+    except ValueError:
+        return lan
+    for mark in marks if isinstance(marks, (list, tuple)) else ():
+        if mark_reached(str(mark)):
+            address = ipaddress.IPv4Address(mark_address(str(mark)))
+            usable = not (
+                address.is_loopback
+                or address.is_link_local
+                or address.is_unspecified
+                or address.is_multicast
+                or address.is_reserved
+            )
+            return str(address) if usable and address in range_ else lan
     return lan
 
 

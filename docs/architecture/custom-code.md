@@ -1023,8 +1023,10 @@ and `tests/unit/test_choices.py` holds the three equal.
   tunnel`, which only a row whose `reach` lists it may have (the registry refuses it before any family plans), each
   tunnel routes every address to the hub and the VM answers from its tunnel address through it, and each VM's alias
   is its tunnel address once the VM has reached its hub there - before, the address leads nowhere: the plan's, this
-  run, which the registry holds to a VM whose marks say so once applied, and `vpn_alias_address` over its marks in
-  every other alias writer (`playbooks/ssh_config.yml`, `just code`'s refresh).
+  run, which the registry holds to a VM whose marks say so once applied (a VM the plan gave a tunnel and no alias
+  keeps its LAN address, never what its marks held before the plan), and `vpn_alias_address` over its marks in every
+  other alias writer (`playbooks/ssh_config.yml`, `just code`'s refresh), held to the VMs' range and to the addresses
+  `guest_ipv4` refuses, since whoever made a tagged VM writes its tags.
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
   the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login, `wg-<address>`
   for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone), and

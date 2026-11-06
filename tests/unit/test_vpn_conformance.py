@@ -542,7 +542,25 @@ def test_an_alias_under_lan_reach_is_refused():
     ],
 )
 def test_an_alias_uses_the_marked_tunnel_address_only_under_wireguard_s_tunnel_reach(marks, vpn, reach, address):
-    assert common.vpn_alias_address("192.0.2.61", marks, vpn, reach) == address
+    assert common.vpn_alias_address("192.0.2.61", marks, vpn, reach, "198.51.100.128/25") == address
+
+
+@pytest.mark.parametrize(
+    ("mark", "prefix"),
+    [
+        # Whoever made a tagged VM writes its tags: none of these is an address an alias may send ssh to.
+        ("wg-127.0.0.1-reached", "0.0.0.0/0"),
+        ("wg-0.0.0.0-reached", "0.0.0.0/0"),
+        ("wg-224.0.0.5-reached", "0.0.0.0/0"),
+        ("wg-240.0.0.1-reached", "0.0.0.0/0"),
+        ("wg-169.254.0.9-reached", "0.0.0.0/0"),
+        # Outside the VMs' range, or no range to hold it to.
+        ("wg-198.51.100.5-reached", "198.51.100.128/25"),
+        ("wg-198.51.100.130-reached", ""),
+    ],
+)
+def test_an_alias_never_takes_an_address_outside_the_range_or_one_guest_ipv4_refuses(mark, prefix):
+    assert common.vpn_alias_address("192.0.2.61", [mark], "wireguard", "tunnel", prefix) == "192.0.2.61"
 
 
 # ------------------------------------------------------- a hub with an API: OPNsense ---

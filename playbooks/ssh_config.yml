@@ -58,7 +58,8 @@
                'name': claude_ssh_vm.name,
                'address': claude_ssh_vm.address
                           | vpn_alias_address(claude_ssh_vm.tags | default('') | proxmox_marks(claude_vm_tag),
-                                              claude_vpn_key | default('none'), vpn_reach | default('lan')),
+                                              claude_vpn_key | default('none'), vpn_reach | default('lan'),
+                                              wireguard_vm_prefix | default('')),
                'user': vm_user,
                'workspace': vm_projects_dir | default('', true),
              }] }}

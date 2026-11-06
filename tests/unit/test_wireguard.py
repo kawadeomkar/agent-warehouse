@@ -294,4 +294,17 @@ def test_under_tunnel_reach_the_vm_answers_from_its_tunnel_address_through_the_t
 
 def test_every_alias_writer_uses_the_tunnel_address_under_tunnel_reach():
     for playbook in ("playbooks/configure.yml", "playbooks/ssh_config.yml", "playbooks/code.yml"):
-        assert "vpn_alias_address(" in (REPO / playbook).read_text(), playbook
+        text = (REPO / playbook).read_text()
+        # Held to the VMs' range, as each writer passes it.
+        assert "vpn_alias_address(" in text and "wireguard_vm_prefix | default(''))" in text, playbook
+
+
+def test_configure_never_takes_the_marks_for_a_vm_this_run_s_plan_gave_a_tunnel():
+    # Its address may have changed this run: the marks read before the plan would name the old one.
+    plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+    (alias,) = [play for play in plays if play.get("name") == "Keep an SSH alias for each configured VM"]
+    collect = alias["tasks"][0]
+    assert "'tunnels'" in collect["vars"]["claude_ssh_planned_tunnel"]
+    address = collect["ansible.builtin.set_fact"]["claude_ssh_configured"]
+    assert address.index("claude_ssh_planned_alias") < address.index("claude_ssh_planned_tunnel | bool")
+    assert address.index("claude_ssh_planned_tunnel | bool") < address.index("vpn_alias_address(")

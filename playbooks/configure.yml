@@ -350,18 +350,27 @@
       vars:
         claude_ssh_vm_vars: "{{ hostvars[claude_ssh_host] }}"
         # Under vpn_reach: tunnel, the address WireGuard's plan gave the VM this run, which its marks read at
-        # discovery may not hold yet; else the one they hold, else its LAN address (vpn_alias_address).
+        # discovery may not hold yet. A VM the plan gave a tunnel and no alias keeps its LAN address: the address
+        # its marks held before the plan may be one it no longer has. Else the one they hold, else its LAN address
+        # (vpn_alias_address).
+        claude_ssh_wireguard: "{{ (claude_vpn_plans | default({})).get('wireguard') or {} }}"
         claude_ssh_planned_alias: >-
-          {{ ((claude_vpn_plans | default({})).get('wireguard') or {}).get('aliases', [])
+          {{ claude_ssh_wireguard.get('aliases', [])
              | selectattr('vm.name', 'equalto', claude_ssh_host) | map(attribute='address') | first | default('') }}
+        claude_ssh_planned_tunnel: >-
+          {{ claude_ssh_wireguard.get('tunnels', []) | selectattr('vm.name', 'equalto', claude_ssh_host) | list
+             | length > 0 }}
+        claude_ssh_lan: "{{ claude_ssh_vm_vars.ansible_host | default(claude_ssh_host) }}"
       ansible.builtin.set_fact:
         claude_ssh_configured: >-
           {{ claude_ssh_configured | default([]) + [{
                'name': claude_ssh_host,
                'address': claude_ssh_planned_alias
-                          or (claude_ssh_vm_vars.ansible_host | default(claude_ssh_host)
-                              | vpn_alias_address(claude_ssh_vm_vars.claude_vm_marks | default([]),
-                                                  claude_vpn_key | default('none'), vpn_reach | default('lan'))),
+                          or (claude_ssh_lan if claude_ssh_planned_tunnel | bool
+                              else claude_ssh_lan
+                                   | vpn_alias_address(claude_ssh_vm_vars.claude_vm_marks | default([]),
+                                                       claude_vpn_key | default('none'), vpn_reach | default('lan'),
+                                                       wireguard_vm_prefix | default(''))),
                'user': claude_ssh_vm_vars.vm_user | default(vm_user),
                'workspace': claude_ssh_vm_vars.claude_vm_workspace,
              }] }}
