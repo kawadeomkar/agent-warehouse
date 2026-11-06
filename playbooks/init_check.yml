@@ -26,21 +26,17 @@
 # Everything else is a read (tests/unit/test_init_check.py holds both), and
 # root SSH may add the host's key to ~/.ssh/known_hosts, as the template build
 # would, one of the two files the project writes there. Every name it sets
-# starts with init_, like init_settings.yml's.
+# starts with init_, like init_settings.yml's, whose init_ask, init_given,
+# files, placeholders and reads of local.yml and the vault it shares through
+# vars/init.yml.
 - name: Check what just deploy will need of Proxmox
   hosts: localhost
   gather_facts: false
+  vars_files:
+    - vars/init.yml
   vars:
-    # As in init_settings.yml: true only when just init sees a terminal, and
-    # the values given on the command line - here storage and bridge.
-    init_ask: false
-    init_given: {}
-    init_vault_file: "{{ playbook_dir | dirname }}/inventory/group_vars/all/vault.yml"
-    init_local_file: "{{ playbook_dir | dirname }}/inventory/group_vars/all/local.yml"
     # Where to look for a public key when the VMs would get none.
     init_ssh_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh"
-    init_secret_placeholder: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    init_host_placeholder: 192.0.2.10
     # The privileges the token needs on /vms, as the pveum role in
     # docs/getting-started/proxmox-access.md grants them; the guest agent's
     # depends on the version (init_agent_privilege). The storage's and the
@@ -87,6 +83,8 @@
     init_listing: "{{ claude_vm_all.json.data | default([]) if init_listed | default(false) | bool else [] }}"
     init_template: "{{ init_listing | built_template(proxmox_template_name) }}"
     init_template_built: "{{ init_template | length > 0 }}"
+    # Its configuration can be read: it is on a node that is up.
+    init_template_readable: "{{ init_template_built | bool and init_template.node in init_online_nodes }}"
     init_vmid_holder: >-
       {{ init_listing | selectattr('vmid', 'equalto', proxmox_template_vmid | int) | list | first | default({}) }}
     init_down_nodes: "{{ init_nodes.json.data | default([]) | rejectattr('status', 'equalto', 'online') | map(attribute='node') | list }}"
@@ -98,7 +96,6 @@
     init_ssh_wanted: >-
       {{ init_proxmox_host | length > 0 and (not init_template_built | bool or init_template_rebuilt | bool) }}
     init_ssh_address: "{{ hostvars[init_proxmox_host].ansible_host | default(init_proxmox_host) }}"
-    init_local_settings: "{{ (init_local_read.content | b64decode | from_yaml) or {} }}"
 
     # The node is worked out, never chosen: the clone is sent to proxmox_node,
     # which must hold the template, and the template is built on the host
@@ -133,6 +130,12 @@
       {{ init_listed | default(false) | bool and init_nodes.status | default(0) == 200
          and init_node_derived | length > 0 and init_node_derived in init_all_nodes }}
     init_node_listable: "{{ init_node_known | bool and init_node in init_online_nodes }}"
+    # What the node listed: its storages for VM disks, and, while there is no
+    # template, its bridges. A choice is made, or a value given checked, only
+    # among what it listed.
+    init_storages_listed: "{{ init_node_listable | bool and init_storages.status | default(0) == 200 }}"
+    init_bridges_listed: >-
+      {{ init_node_listable | bool and not init_template_built | bool and init_bridges.status | default(0) == 200 }}
     # Why the storage and the bridge could not be checked, when they could not.
     init_unchecked_why: >-
       {{ 'the API did not answer' if not init_api_ok | bool
@@ -142,6 +145,8 @@
          else 'node ' ~ init_node ~ ' is not up' }}
     init_template_bridge: >-
       {{ (init_template_config.json.data.net0 | default('')) | regex_findall('bridge=([^,]+)') | first | default('') }}
+    # The VMs would get no SSH key, and no password either.
+    init_keyless: "{{ vm_ssh_public_keys | length == 0 and vault_vm_password | default('', true) | string | length == 0 }}"
 
     # What the checks found wrong, which fails the run; and what they could
     # not check, which is no problem of its own, its cause usually one.
@@ -150,7 +155,6 @@
     # The one value init_settings.yml asks for that just deploy needs and no
     # check here reads: while it is the example's, init_settings.yml's NEXT
     # STEPS names it, and just deploy is not next.
-    init_github_placeholder: your-github-username
     init_github_set: "{{ github_username | default('', true) | string not in ['', init_github_placeholder] }}"
     init_deploy_next: "Next: just deploy alpha, which creates a VM named alpha (any name will do)."
     # What is left to do, as the report and the failure say it, for NEXT
@@ -192,16 +196,11 @@
 
     # -------------------------------------------------------------- the vault ---
     # Plaintext, it holds the secret: only whether it starts as an encrypted
-    # vault does is kept.
+    # vault does is kept (init_vault_encrypted, vars/init.yml).
     - name: Read the vault's first line
       ansible.builtin.slurp:
         src: "{{ init_vault_file }}"
       register: init_vault_read
-      no_log: true
-
-    - name: Record whether the vault is encrypted
-      ansible.builtin.set_fact:
-        init_vault_encrypted: "{{ (init_vault_read.content | b64decode).startswith('$ANSIBLE_VAULT') }}"
       no_log: true
 
     - name: Record the vault's result
@@ -337,7 +336,7 @@
       check_mode: false
       failed_when: false
       no_log: true
-      when: init_template_built | bool and init_template.node in init_online_nodes
+      when: init_template_readable | bool
 
     # roles/proxmox_template's drift entry point, which deploy.yml runs too: a set_fact, changing nothing.
     - name: Compare the template with what its settings would build
@@ -536,11 +535,10 @@
       vars:
         init_given_unchecked: >-
           {{ (['--storage ' ~ init_given.storage]
-              if init_given.storage is defined
-                 and (not init_node_listable | bool or init_storages.status | default(0) != 200) else [])
+              if init_given.storage is defined and not init_storages_listed | bool else [])
              + (['--bridge ' ~ init_given.bridge]
-                if init_given.bridge is defined and not init_template_built | bool
-                   and (not init_node_listable | bool or init_bridges.status | default(0) != 200) else []) }}
+                if init_given.bridge is defined and not init_template_built | bool and not init_bridges_listed | bool
+                else []) }}
       when: init_given_unchecked | length > 0
 
     # A bridge given while the template exists: the template's own is nothing to
@@ -570,7 +568,7 @@
           init_choose_node: "{{ init_node }}"
           init_choose_seen_by: [Datastore.Audit, Datastore.AllocateSpace]
         init_choose_only_check: true
-      when: init_given.storage is defined and init_node_listable | bool and init_storages.status | default(0) == 200
+      when: init_given.storage is defined and init_storages_listed | bool
 
     - name: Check the bridge given before anything is written
       ansible.builtin.include_tasks: tasks/init_choose.yml
@@ -590,9 +588,7 @@
           init_choose_seen_by: [SDN.Audit, SDN.Use]
           init_choose_unlisted_note: " (a bridge of the local zone: an SDN VNet is not checked here)"
         init_choose_only_check: true
-      when: >-
-        init_given.bridge is defined and not init_template_built | bool
-        and init_node_listable | bool and init_bridges.status | default(0) == 200
+      when: init_given.bridge is defined and init_bridges_listed | bool
 
     # ------------------------------------------------------------- the writes ---
     - name: Write proxmox_node into local.yml
@@ -605,12 +601,12 @@
     - name: Settle the storage
       ansible.builtin.include_tasks: tasks/init_choose.yml
       vars: *init_storage
-      when: init_node_listable | bool and init_storages.status | default(0) == 200
+      when: init_storages_listed | bool
 
     - name: Settle the bridge
       ansible.builtin.include_tasks: tasks/init_choose.yml
       vars: *init_bridge
-      when: init_node_listable | bool and not init_template_built | bool and init_bridges.status | default(0) == 200
+      when: init_bridges_listed | bool
 
     # The template's bridge: SDN.Use on it, nothing to choose; and a template
     # with none on net0 is no template a VM can be reached through.
@@ -632,7 +628,7 @@
           {{ (init_bridge_privileges.results | default([])
               | init_candidates('iface', '/sdn/zones/localnetwork/', init_token_privileges.bridge)
               | first | default({'lacks': init_token_privileges.bridge})).lacks }}
-      when: init_template_built | bool and init_template.node in init_online_nodes
+      when: init_template_readable | bool
 
     # What could not be listed is said, never passed over: the run ends on it.
     # A listing Proxmox refused is a problem; one that could not be made yet,
@@ -645,15 +641,15 @@
              if not init_node_listable | bool else
              [{'ok': false, 'text': 'Proxmox would not list the storages on ' ~ init_node ~ ' ('
                ~ init_storages.status | default('') ~ ' ' ~ init_storages.msg | default('') | plain_text | trim ~ ')'}]
-             if init_storages.status | default(0) != 200 else [])
+             if not init_storages_listed | bool else [])
             + ([{'ok': false, 'skipped': true, 'text': "the template's bridge is not checked: node "
                  ~ init_template.node ~ ' is not up'}]
-               if init_template_built | bool and init_template.node not in init_online_nodes else
+               if init_template_built | bool and not init_template_readable | bool else
                [{'ok': false, 'skipped': true, 'text': 'the bridge is not checked: ' ~ init_unchecked_why}]
                if not init_template_built | bool and not init_node_listable | bool else
                [{'ok': false, 'text': 'Proxmox would not list the bridges on ' ~ init_node ~ ' ('
                  ~ init_bridges.status | default('') ~ ' ' ~ init_bridges.msg | default('') | plain_text | trim ~ ')'}]
-               if not init_template_built | bool and init_bridges.status | default(0) != 200 else []))
+               if not init_template_built | bool and not init_bridges_listed | bool else []))
            if init_api_ok | bool else [] }}
       loop_control:
         label: "{{ item.text }}"
@@ -674,7 +670,7 @@
         paths: "{{ init_ssh_dir }}"
         patterns: "*.pub"
       register: init_public_keys
-      when: vm_ssh_public_keys | length == 0 and vault_vm_password | default('', true) | string | length == 0
+      when: init_keyless | bool
 
     - name: Record the key's result
       ansible.builtin.set_fact:
@@ -691,8 +687,6 @@
              if init_public_keys.files | default([]) | length > 0 else
              ('the VMs would get no SSH key, and ' ~ init_ssh_dir ~ ' has no public key: make one with ssh-keygen'
               ~ ' -t ed25519')}] }}
-      vars:
-        init_keyless: "{{ vm_ssh_public_keys | length == 0 and vault_vm_password | default('', true) | string | length == 0 }}"
 
     # ---------------------------------------------------------------- the end ---
     - name: Say what each check found

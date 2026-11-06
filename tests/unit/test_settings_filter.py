@@ -16,6 +16,8 @@ init_answer_rule = _module.init_answer_rule
 with_setting = _module.with_setting
 init_candidates = _module.init_candidates
 init_choose_rows = _module.init_choose_rows
+init_pick_question = _module.init_pick_question
+init_pick = _module.init_pick
 
 ACCEPTED = {
     "host": [
@@ -101,6 +103,19 @@ def test_a_choice_is_the_item_its_number_names() -> None:
     choices = ["local-zfs", "tank-vms"]
     assert init_answer("2", "choice", choices) == "tank-vms"
     assert [init_answer(value, "choice", choices) for value in ("0", "3", "x", "-1", "1.0")] == [""] * 5
+
+
+def test_one_candidate_is_asked_y_or_n_and_several_by_number() -> None:
+    one = {"kind": "yes_no", "label": "Use local-zfs? y or n, Enter to decide later"}
+    assert init_pick_question(["local-zfs"]) == one
+    assert init_pick_question(["local-zfs", "tank-vms"]) == {"kind": "choice", "label": "Number, Enter to decide later"}
+
+
+def test_an_answer_picks_the_one_candidate_the_item_its_number_named_or_nothing() -> None:
+    # As init_answer leaves each: y or n for one candidate, the item for several, "" for Enter.
+    assert init_pick("y", ["local-zfs"]) == "local-zfs"
+    assert init_pick("tank-vms", ["local-zfs", "tank-vms"]) == "tank-vms"
+    assert [init_pick(answer, ["local-zfs"]) for answer in ("n", "", None)] == [""] * 3
 
 
 def test_every_kind_has_its_rule_in_words() -> None:

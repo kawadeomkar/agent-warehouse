@@ -41,22 +41,15 @@
 # group_vars load: it runs before the vault can be opened, while every value is
 # still a placeholder, and what it writes is read back from the files, since a
 # run does not reload group_vars. Every name it sets starts with init_, a prefix
-# no role uses, and the four files are play vars every test points elsewhere.
+# no role uses, and the four files are vars every test points elsewhere. What
+# init_check.yml shares - init_ask, init_given, the files, the placeholders and
+# the reads of local.yml and the vault - is in vars/init.yml.
 - name: Ask for what a first deploy needs, and write it
   hosts: localhost
   gather_facts: false
+  vars_files:
+    - vars/init.yml
   vars:
-    # True only when just init sees a terminal and was not given --no-prompt.
-    # Every write below is under it, or under a value given for it.
-    init_ask: false
-    # The values given on just init's command line, checked by its recipe:
-    # host, token_user, token_name, token_secret_file, github_user, tailscale.
-    init_given: {}
-    init_root: "{{ playbook_dir | dirname }}"
-    init_hosts_file: "{{ init_root }}/inventory/hosts.yml"
-    init_local_file: "{{ init_root }}/inventory/group_vars/all/local.yml"
-    init_vault_file: "{{ init_root }}/inventory/group_vars/all/vault.yml"
-    init_vault_pass_file: "{{ init_root }}/.vault_pass"
     # This run's own ansible-vault, beside the Python running it, as the justfile's BIN.
     init_ansible_vault: "{{ ansible_playbook_python | dirname }}/ansible-vault"
     # Its environment, quiet whatever the person's or ansible.cfg says: the
@@ -67,10 +60,7 @@
       ANSIBLE_VERBOSITY: "0"
       ANSIBLE_DEBUG: "0"
 
-    # What the example files ship with.
-    init_host_placeholder: 192.0.2.10
-    init_secret_placeholder: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    init_github_placeholder: your-github-username
+    # What the example files ship with, beside vars/init.yml's placeholders.
     init_token_user_default: ansible@pve
     init_token_name_default: ansible
     # defaults.yml's, which this play does not load.
@@ -106,6 +96,10 @@
     init_access_plan_ready: >-
       {{ init_access_plan is defined and init_access_plan is not skipped and init_access_plan.rc | default(1) == 0
          and init_access_plan.stdout_lines | default([]) | length > 0 }}
+    # The script answered and would run nothing: the access is there already.
+    init_access_set_up_already: >-
+      {{ init_access_plan is defined and init_access_plan is not skipped and init_access_plan.rc | default(1) == 0
+         and init_access_plan.stdout_lines | default([]) | length == 0 }}
 
     # hosts.yml: the example's line is the only one ever written.
     init_hosts_text: "{{ init_hosts_read.content | b64decode }}"
@@ -119,8 +113,10 @@
       {{ ((init_hosts_proxmox[0].value | default({}, true)).ansible_host | default(init_hosts_proxmox[0].key)
           if init_hosts_proxmox | length > 0 else '') | string }}
     init_host_missing: "{{ init_hosts_current in ['', init_host_placeholder] }}"
+    # This run writes the address answered or given into hosts.yml, and reads
+    # it back.
+    init_host_writing: "{{ (init_ask | bool or init_given.host is defined) and init_answers.host is defined }}"
 
-    init_local_settings: "{{ (init_local_read.content | b64decode | from_yaml) or {} }}"
     # --tailscale on or off, as the value tailscale_enabled takes, and as the
     # answer to the question it stands for.
     init_tailscale_given: "{{ {'on': true, 'off': false}[init_given.tailscale] if init_given.tailscale is defined else none }}"
@@ -147,8 +143,8 @@
 
     # The vault, when it can be read: plaintext, or encrypted with a password
     # this run has - .vault_pass, or ANSIBLE_VAULT_PASSWORD_FILE - executable or
-    # not, as the justfile's recipes use them.
-    init_vault_encrypted: "{{ (init_vault_read.content | b64decode).startswith('$ANSIBLE_VAULT') }}"
+    # not, as the justfile's recipes use them. Whether it is encrypted is
+    # vars/init.yml's init_vault_encrypted.
     init_vault_password_env: "{{ lookup('ansible.builtin.env', 'ANSIBLE_VAULT_PASSWORD_FILE') }}"
     init_vault_password: "{{ init_vault_pass_stat.stat.exists or init_vault_password_env | length > 0 }}"
     init_vault_readable: "{{ not init_vault_encrypted or init_vault_password }}"
@@ -170,6 +166,10 @@
     init_vault_wrote: "{{ init_vault_reread is not skipped }}"
     init_vault_writes: >-
       {{ init_vault_readable and (init_vault_answered or (init_ask | bool and not init_vault_encrypted)) }}
+    # This run writes the vault, at a terminal or for a value given: one
+    # condition for the text it puts in, the password it may make, and the
+    # write itself, so none of them runs without the others.
+    init_vault_writing: "{{ (init_ask | bool or init_any_given | bool) and init_vault_writes | bool }}"
     init_vault_with_secret: >-
       {{ init_vault_text | with_setting('vault_proxmox_api_token_secret', init_hidden_answers.secret,
                                         init_secret_placeholder)
@@ -207,6 +207,13 @@
             else ['vault_tailscale_auth_key']) }}
     # The vault is plaintext at the end of the run: every recipe refuses it.
     init_vault_plaintext: "{{ not init_vault_encrypted and not init_vault_wrote }}"
+    # Whether the run wrote anything, as the report says it. A token the offer
+    # made has its secret in the vault too by the report: the vault's block
+    # deletes it and fails the run otherwise.
+    init_wrote_any: >-
+      {{ init_answers.host is defined or init_token_settings | length > 0 or init_vault_wrote | bool
+         or init_tailscale_writes | bool or init_access_wrote | default({}) | length > 0
+         or init_access_made | default(false) | bool }}
 
     # Each required value still missing at the end, and how it is set.
     init_missing: >-
@@ -557,14 +564,14 @@
         regexp: "{{ init_hosts_line }}"
         backrefs: true
         line: '\g<1>{{ init_answers.host | to_json }}\g<2>'
-        validate: "{{ ansible_playbook_python }} -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' %s"
-      when: (init_ask | bool or init_given.host is defined) and init_answers.host is defined
+        validate: "{{ init_yaml_validate }}"
+      when: init_host_writing | bool
 
     - name: Read hosts.yml back
       ansible.builtin.slurp:
         src: "{{ init_hosts_file }}"
       register: init_hosts_reread
-      when: (init_ask | bool or init_given.host is defined) and init_answers.host is defined and not ansible_check_mode
+      when: init_host_writing | bool and not ansible_check_mode
 
     - name: Check that the Proxmox host now has the address
       ansible.builtin.assert:
@@ -573,7 +580,7 @@
           | map(attribute='ansible_host') | map('string') | list)
         fail_msg: "{{ init_hosts_file }} does not read back ansible_host: {{ init_answers.host }} in the proxmox group."
         quiet: true
-      when: (init_ask | bool or init_given.host is defined) and init_answers.host is defined and not ansible_check_mode
+      when: init_host_writing | bool and not ansible_check_mode
 
     # ------------------------------------------------------------- 3. token ID ---
     # Asked while there is no secret yet and local.yml names no other token, so
@@ -654,7 +661,7 @@
               ansible.builtin.set_fact:
                 init_vault_composed: "{{ init_vault_new_text | length > 0 }}"
               no_log: true
-              when: (init_ask | bool or init_any_given | bool) and init_vault_writes | bool
+              when: init_vault_writing | bool
           rescue:
             - name: Stop at a vault line the answer cannot replace
               ansible.builtin.fail:
@@ -678,7 +685,7 @@
               - "{{ init_vault_pass_file }}"
             creates: "{{ init_vault_pass_file }}"
           register: init_vault_pass_made
-          when: (init_ask | bool or init_any_given | bool) and init_vault_writes | bool and not init_vault_password
+          when: init_vault_writing | bool and not init_vault_password
 
         # The new text on ansible-vault's stdin: never on argv, never in a file in
         # plaintext (ansible-vault shreds the old file and writes the new one
@@ -694,7 +701,7 @@
           changed_when: true
           failed_when: false
           no_log: true
-          when: (init_ask | bool or init_any_given | bool) and init_vault_writes | bool
+          when: init_vault_writing | bool
 
         # What ansible-vault said holds no secret: its errors name files and ids.
         - name: Stop if the vault could not be written
@@ -758,9 +765,7 @@
     - name: Say what was written, and what is left
       ansible.builtin.debug:
         msg: |-
-          {% if init_answers.host is defined or init_token_settings | length > 0 or init_vault_wrote
-                or init_tailscale_writes | bool or init_access_wrote | default({}) | length > 0
-                or init_access_made | default(false) | bool %}
+          {% if init_wrote_any | bool %}
           Wrote:
           {% if init_answers.host is defined %}
             inventory/hosts.yml                  ansible_host: {{ init_answers.host | to_json }}
@@ -787,9 +792,7 @@
           {% endif %}
           {% if init_left | length > 0 %}
           {{ init_left }}
-          {% elif init_answers.host is not defined and init_token_settings | length == 0
-                  and not init_vault_wrote and not init_tailscale_writes | bool
-                  and init_access_wrote | default({}) | length == 0 %}
+          {% elif not init_wrote_any | bool %}
           Every value a first deploy needs is set.
           {% endif %}
           Optional, with just vault: {{ init_vault_optional | join(', ') }}.

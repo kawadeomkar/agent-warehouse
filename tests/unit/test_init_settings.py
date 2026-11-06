@@ -1169,11 +1169,15 @@ WRITERS = {"ansible.builtin.lineinfile", "ansible.builtin.command", "ansible.bui
 
 
 def test_every_write_is_at_a_terminal_or_of_a_given_value():
-    # A write's condition names init_ask - a terminal - beside a value given;
-    # the decryptions are commands too, and read only, and local.yml is written
-    # by its include. What runs on the Proxmox host is the next test's.
-    writers = []
-    for task in _every_task(yaml.safe_load(PLAYBOOK.read_text())):
+    # A write's condition names init_ask - a terminal - beside a value given,
+    # itself or in the guard of the play's vars it opens with, which the tasks
+    # of one write share (init_vault_writing); the decryptions are commands too,
+    # and read only, and local.yml is written by its include. What runs on the
+    # Proxmox host is the next test's.
+    plays = yaml.safe_load(PLAYBOOK.read_text())
+    guards = plays[0]["vars"]
+    writers, named = [], []
+    for task in _every_task(plays):
         module = next((key for key in task if key in WRITERS), None)
         if module is None:
             if task.get("ansible.builtin.include_tasks") != "tasks/init_local_setting.yml":
@@ -1181,9 +1185,16 @@ def test_every_write_is_at_a_terminal_or_of_a_given_value():
         elif "decrypt" in str(task[module]) or "delegate_to" in task:
             continue
         writers.append(task["name"])
+        when = str(task.get("when"))
+        guard = re.match(r"(init_\w+) \| bool\b", when)
+        if guard and isinstance(guards.get(guard.group(1)), str):
+            named.append(guard.group(1))
+            when = guards[guard.group(1)].removeprefix("{{").strip()
         # Its first condition: a terminal, or (the rest of it) a value given.
-        assert re.match(r"\(?init_ask \| bool or ", str(task.get("when"))), task["name"]
+        assert re.match(r"\(?init_ask \| bool or ", when), task["name"]
     assert len(writers) == 5, writers
+    # The address, and the vault's password and text, each through its guard.
+    assert sorted(named) == ["init_host_writing", "init_vault_writing", "init_vault_writing"], named
 
 
 def test_proxmox_is_changed_only_by_the_script_after_a_y_and_by_deleting_the_token_it_made():

@@ -8,7 +8,15 @@ _LIB = str(Path(__file__).resolve().parents[1] / "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
 
-INIT = ("init_answer", "init_answer_rule", "with_setting", "init_candidates", "init_choose_rows")
+INIT = (
+    "init_answer",
+    "init_answer_rule",
+    "init_pick_question",
+    "init_pick",
+    "with_setting",
+    "init_candidates",
+    "init_choose_rows",
+)
 CHECKS = ("proxmox_name", "proxmox_names", "proxmox_names_refused")
 
 

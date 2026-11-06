@@ -41,6 +41,8 @@ playbooks/
                                   the offer to make it, its secret; the vault encrypted
   init_check.yml                  just init's checks: the API and token, privileges, the template or root SSH, node, storage, bridge, a key
   inventory/init.yml              init_settings.yml's own inventory: the controller alone, no group_vars
+  vars/init.yml                   what init_settings.yml and init_check.yml share: init_ask, init_given, the files,
+                                  the examples' placeholders, the reads of local.yml and the vault, the YAML validate
   configure.yml                   discover, then common → vscode_server → dev_tools → claude_code → github_projects,
                                   then tailscale in a rescued block, then the Proxmox record of each Tailscale login,
                                   then an SSH alias per configured VM on the controller, and a last play failing what
@@ -159,6 +161,7 @@ filter_plugins/status.py          the adapter of just status's model: status_fle
 filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each
                                   just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
+                                  init_pick_question and init_pick, how one of them is asked for and what an answer picks;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
                                   which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on

@@ -25,10 +25,8 @@
   ansible.builtin.include_tasks: init_ask.yml
   vars:
     init_ask_name: "{{ init_access_setting }}"
-    init_ask_label: >-
-      {{ 'Use ' ~ init_access_listing[0] ~ '? y or n' if init_access_listing | length == 1 else 'Number' }}, Enter to
-      decide later
-    init_ask_kind: "{{ 'yes_no' if init_access_listing | length == 1 else 'choice' }}"
+    init_ask_label: "{{ (init_access_listing | init_pick_question).label }}"
+    init_ask_kind: "{{ (init_access_listing | init_pick_question).kind }}"
     init_ask_choices: "{{ init_access_listing }}"
     init_ask_hidden: false
     init_ask_given: ""
@@ -50,8 +48,7 @@
     init_access_answer: "{{ (init_answers | default({}))[init_access_setting] | default('') }}"
     init_access_value: >-
       {{ init_access_in_effect if init_access_in_effect in init_access_listing
-         else init_access_listing[0] if init_access_asked | bool and init_access_answer == 'y'
-         else init_access_answer if init_access_asked | bool and init_access_answer not in ['', 'y', 'n']
+         else init_access_answer | init_pick(init_access_listing) if init_access_asked | bool
          else '' }}
   when: init_access_value | length > 0
 

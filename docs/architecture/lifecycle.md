@@ -972,7 +972,9 @@ as `inventory/controller.yml` has it, with pipelining on, and a run that keeps t
 (`ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off) refused - so no `group_vars` load. It runs before the
 vault can be opened and while every value is still the example's, and reads what it writes back from the
 files, since a run does not reload `group_vars`. The inventory is not in `playbooks/` itself, where the
-syntax check and ansible-lint would take it for a playbook.
+syntax check and ansible-lint would take it for a playbook. What it shares with the checks (§4.13) -
+`init_ask`, `init_given`, the files, the placeholders the examples ship with, what it reads of `local.yml`
+and the vault, and the validate of a YAML write - is in `playbooks/vars/init.yml`, which both load.
 
 It reads `hosts.yml` and `local.yml`, and the vault: as text when it is plaintext, through `ansible-vault
 decrypt --output -` under `no_log` when it is encrypted and there is a password (`.vault_pass`, or
@@ -1046,7 +1048,7 @@ checks run next and say what comes after.
 ## 4.13 `playbooks/init_check.yml`
 
 `just init`'s second step, a second `ansible-playbook` run with the project's inventory and the vault (and
-`init_ask` and `init_given`, as the first had) - the
+`init_ask` and `init_given`, as the first had, from the same `playbooks/vars/init.yml`) - the
 password looked for when the recipe runs, since the questions may have just made `.vault_pass` - so it sees
 the settings exactly as `just deploy` will. The recipe skips it, with one line, when the vault is
 encrypted and neither `.vault_pass` nor `ANSIBLE_VAULT_PASSWORD_FILE` can open it. One play on `localhost`,
@@ -1092,7 +1094,8 @@ every task a read (held by `tests/unit/test_init_check.py`):
    each with its own permission read (`Datastore.AllocateSpace` and `Datastore.Audit` on `/storage/<name>`,
    `SDN.Use` on `/sdn/zones/localnetwork/<name>`, by the `init_candidates` filter). The value in effect, listed
    and usable, is `ok`; set in `local.yml` and not listed, or lacking a privilege, a problem; the default, not
-   listed, a question at a terminal - y or n for one usable candidate, a number for several, the unusable
+   listed, a question at a terminal - y or n for one usable candidate, a number for several, as
+   `init_access.yml`'s choice asks too (the `init_pick_question` and `init_pick` filters), the unusable
    shown with what they lack, or `inactive` (listed, but not reachable) - whose answer is written. With a
    template, the bridge is its `net0`'s and only `SDN.Use` on it is checked; a template with none on `net0` is
    a problem. A token that sees no candidate at all is told which privileges make Proxmox list one, with the
