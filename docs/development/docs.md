@@ -63,7 +63,7 @@ for that last reason `tools/docs.py` writes the internal-values table itself. Th
 docsible's, with their labels lowercased and their punctuation removed. Task comments stay off: in
 docsible 0.8.0, the release pinned, they break its tables. docsible is pre-1.0 and that release is from
 November 2025; should it stop being maintained, `ansible-doc -t role -j`, which ships with ansible-core,
-gives the variables as JSON. The role pages come to about 2,250 lines, most of them tasks and internal
+gives the variables as JSON. The role pages come to about 3,000 lines, most of them tasks and internal
 values; should they grow too large to read, the internal values are the part to leave out.
 
 ## Building the site
@@ -105,6 +105,7 @@ Pages) for the deploy to run.
   spaces, text read as an HTML tag), or a ```` ```mermaid ```` fence does not become a diagram;
 - a code span holds a closing tag such as `< /dev/tty` written without its space, which drops the rest
   of a page from the site;
+- a page shows a character reference as text (`&amp;emsp;`, escaped twice, shows as `&emsp;` on both);
 - a page repeats a heading, whose anchor GitHub and the site would number differently;
 - a page in `docs/` is not in the `nav`, or the `nav` names a page that does not exist;
 - a link in `docs/` leaves `docs/` by a relative path, which works on GitHub and breaks on the site
@@ -115,6 +116,8 @@ Pages) for the deploy to run.
   reader to the wiki do, or cites an architecture section (`docs/architecture/roles.md §5.5`) that is
   not on that page;
 - a page refers to an architecture section on another page by its § without linking it;
+- a page or `CLAUDE.md` names a repository path in backticks that is neither a file or folder of the checkout
+  nor one git ignores on purpose, as a file moved or renamed leaves its old path behind;
 - the README's set-up commands, files table or Proxmox token commands differ from the copies in
   [Your first deploy](../getting-started/first-deploy.md) and [Proxmox access](../getting-started/proxmox-access.md).
 

@@ -106,8 +106,7 @@ argument_specs:
     description:
       - Reads gh's login state on the VM and prints it, with the one command to run when it is signed out. With
         github_projects_login_interactive, or the answer to the question github_projects_login_ask puts, signs a
-        signed-out VM in by GitHub's device flow; playbooks/github_login.yml then runs the whole role. Set through
-        git_user_email in local.yml.
+        signed-out VM in by GitHub's device flow; playbooks/github_login.yml then runs the whole role.
     options:
       github_projects_login_interactive:
         type: bool

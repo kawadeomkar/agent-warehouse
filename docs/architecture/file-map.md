@@ -68,6 +68,7 @@ playbooks/
                                   Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
+  tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
   tasks/vms_misnamed.yml          says which tagged VMs a fleet-wide run leaves out for their name (discover, ssh_config)
   tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's

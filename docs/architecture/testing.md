@@ -1,8 +1,8 @@
 # 11. Testing architecture
 
 Three tiers. **No test ever talks to a real Proxmox, a real GitHub, a real Tailscale, or a real
-hypervisor** - nor this machine's own `tailscale`, which the unit harness stands in for with one that
-fails the test if it is called.
+hypervisor** - nor this machine's own `tailscale`, `gh` or `claude`, which the unit harness stands in for
+with ones that fail the test if they are called.
 
 ## 11.1 Unit — `just test unit`
 
@@ -163,7 +163,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   of a role's own, the VM it started, each VM's outcome; a VM Proxmox would not delete the one that failed, under
   its step, and the raise naming none; and a deletion not confirmed said as the answer, the title `declined`.
   `test_code_live.py` runs the real `code.yml` against the fake Proxmox and `test_code_session.py`'s world and pins:
-  the nine steps, the VM in the header, the window opened, the summary's steps whole and no row of the fleet's
+  the ten steps, the VM in the header, the window opened, the summary's steps whole and no row of the fleet's
   skipped tasks; and a VM that is not there said under the step it failed in. `test_live_commands.py` runs
   `tools/live` in a stand-in recipe in parts, the justfile's trap at its top: passed through piped, without a title,
   with a `-v` or a bare `-vvv`, without the engine's packages and without a state (`LIVE_DIR=`); an ignored Ctrl-C
@@ -440,7 +440,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   path and `no_log`, the settings written only through `tasks/init_local_setting.yml` at a terminal or as
   given, and no run reaching a real `ssh`. Running
   a fake on a loopback port, the fake Proxmox's certificate and `_pve` live in `tests/unit/harness.py`, shared
-  with `test_release.py`; each file keeps its own `fake_pve` fixture.
+  by every module that runs against the fake; each file keeps its own `fake_pve` fixture.
 - **The managed SSH config** (`test_ssh_config.py` 38): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no

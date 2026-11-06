@@ -5,8 +5,8 @@ What the suite runs, and how to run it. How it is built - the harness, each scen
 [CONTRIBUTING.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/CONTRIBUTING.md).
 
 ```bash
-just lint                     # every linter: the lock, yamllint, ansible-lint (production), ruff, --syntax-check, the other pre-commit hooks
-just lint syntax              # one of them: lock, yaml, ansible, python, syntax or hooks
+just lint                     # every linter: the lock, yamllint, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks
+just lint syntax              # one of them: lock, yaml, ansible, python, just, syntax or hooks
 just test                     # just lint, then everything below but the last two: the local quality gate
 just test unit                # pytest, a worker per CPU (plain pytest: one test at a time): filters, github_repos module, the tracked-file guard, configure tags, Remote Control, the three sign-ins and deploy's sign-in steps, Tailscale, the managed SSH config, the Claude terminal, the justfile's guards, the wiki (no network)
 just test unit --shard 2/4    # one of four shards of those, as CI splits them: each module that shares a fixture whole

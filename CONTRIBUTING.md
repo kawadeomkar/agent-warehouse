@@ -59,7 +59,7 @@ idempotence stage, which reruns the converge and fails on any changed task.
 The unit tests that run a playbook share `tests/unit/harness.py`: `_run`, or `_run_at_a_terminal` to type
 at a prompt. Use it rather than a `subprocess` call of your own: a run inherits only the variables it
 names, never reads your terminal, and fails its test if it calls a browser opener, a clipboard or this
-machine's `tailscale`.
+machine's `tailscale`, `gh` or `claude`.
 
 Tests never talk to a real Proxmox, a real GitHub, a real Tailscale or a real hypervisor:
 `tests/molecule/` holds a fake or a stand-in for each, listed in
@@ -118,8 +118,9 @@ secret gets a canned value and a place in those searches.
 1. `roles/<name>/` with `defaults/main.yml`, `meta/main.yml`, `meta/argument_specs.yml` and `tasks/`.
 2. A Molecule scenario at `roles/<name>/molecule/default/` - it inherits the driver and platform from
    `.config/molecule/config.yml`, so it only needs what differs.
-3. Add the role to `scenario_roles` in the `justfile` and to the matrix in `.github/workflows/ci.yml`. Renaming a
-   CI job also means updating the required status checks on `main`, or pull requests can never merge.
+3. Add the role to `scenario_roles` in the `justfile` and to the matrix in `.github/workflows/ci.yml`. The one
+   required check is `CI result`, which needs every job, so a job added or renamed changes no setting
+   ([CI](docs/architecture/ci.md)).
 4. Add it to the role table in `docs/reference/roles/README.md` and to the `nav` in `zensical.toml`,
    and run `just docs`, which writes its reference page from its files.
 

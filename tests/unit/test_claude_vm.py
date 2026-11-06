@@ -47,6 +47,19 @@ def test_lib_holds_the_one_package_claude_vm() -> None:
     assert {Path(path).parts[1] for path in _tracked("lib")} == {"claude_vm"}
 
 
+def test_what_runs_on_a_vm_never_imports_the_package() -> None:
+    # A module goes to the VM with only what it imports from module_utils, and a helper runs there as plain python3 -I:
+    # an import of claude_vm works here, where lib/ is on the path, and fails on every VM. They are handed data.
+    vm_side = [
+        path
+        for path in _tracked("playbooks/library") + _tracked("playbooks/files") + _tracked("roles")
+        if path.startswith("playbooks/") or "/library/" in path
+    ]
+    assert len(vm_side) >= 9, vm_side
+    for path in vm_side:
+        assert not re.search(r"^\s*(from|import)\s+claude_vm\b", (REPO / path).read_text(), re.M), path
+
+
 @pytest.mark.parametrize("name", _core_modules())
 def test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported(name) -> None:
     # Each in an interpreter of its own, so one module's imports never hide another's.

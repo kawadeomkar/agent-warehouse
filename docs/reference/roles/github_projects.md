@@ -38,7 +38,7 @@ Using it: [GitHub](../../guides/github.md). How it works: [§5.6](../../architec
 
 **Say whether gh is signed in to GitHub, and how, and sign it in by the device flow when asked**
 
-Reads gh's login state on the VM and prints it, with the one command to run when it is signed out. With github_projects_login_interactive, or the answer to the question github_projects_login_ask puts, signs a signed-out VM in by GitHub's device flow; playbooks/github_login.yml then runs the whole role. Set through git_user_email in local.yml.
+Reads gh's login state on the VM and prints it, with the one command to run when it is signed out. With github_projects_login_interactive, or the answer to the question github_projects_login_ask puts, signs a signed-out VM in by GitHub's device flow; playbooks/github_login.yml then runs the whole role.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
