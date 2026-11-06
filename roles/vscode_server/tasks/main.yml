@@ -88,15 +88,12 @@
 # evaluates Match blocks for the user and addresses given; without it they
 # are skipped, and a `Match User dev` that turns forwarding off would pass.
 - name: Read the configuration sshd applies to the editor's connection
-  vars:
-    vscode_server_conn: "{{ (vscode_server_ssh_connection.stdout | default('')).split() }}"
-    vscode_server_spec: >-
-      {{ 'user=' ~ vscode_server_user ~ ',host=' ~ vscode_server_conn[0] ~ ',addr=' ~ vscode_server_conn[0]
-         ~ ',laddr=' ~ vscode_server_conn[2] ~ ',lport=' ~ vscode_server_conn[3]
-         if vscode_server_conn | length == 4
-         else 'user=' ~ vscode_server_user ~ ',host=127.0.0.1,addr=127.0.0.1' }}
   ansible.builtin.command:
-    argv: [/usr/sbin/sshd, -T, -C, "{{ vscode_server_spec }}"]
+    argv:
+      - /usr/sbin/sshd
+      - -T
+      - -C
+      - "{{ vscode_server_ssh_connection.stdout | default('') | sshd_match_spec(vscode_server_user) }}"
   register: vscode_server_sshd
   changed_when: false
   check_mode: false

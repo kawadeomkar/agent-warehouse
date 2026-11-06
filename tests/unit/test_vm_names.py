@@ -70,8 +70,9 @@ def _refresh(tmp_path: Path, base: str, *extra: str) -> dict:
     return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
 
 
-def _creating(tmp_path: Path, base: str, playbook: str, names: str) -> dict:
-    """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own."""
+def _creating(tmp_path: Path, base: str, playbook: str, names: str, *inventory: str) -> dict:
+    """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own; inventory, more
+    -i arguments."""
     root, _ = status_root(tmp_path, base, FROM_THE_HOST)
     if playbook == "deploy.yml":
         text = (REPO / "deploy.yml").read_text().replace(" playbooks/", f" {PLAYBOOKS}/")
@@ -79,7 +80,7 @@ def _creating(tmp_path: Path, base: str, playbook: str, names: str) -> dict:
         text = (PLAYBOOKS / playbook).read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
     (root / playbook).write_text(text)
     extra = json.dumps({"vm_name": names, "deploy_sign_in": False})
-    return _run(root, root / playbook, {}, *_proxmox_inventory(root), "-e", extra, timeout=180)
+    return _run(root, root / playbook, {}, *_proxmox_inventory(root), *inventory, "-e", extra, timeout=180)
 
 
 def _block(name: str) -> str:
@@ -185,6 +186,27 @@ def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, flee
         if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
     ]
     assert len(refused) == 1 and said in refused[0]["msg"], refused
+    assert calls.read_text() == before
+
+
+def test_a_name_this_machine_reaches_another_host_by_is_refused_before_proxmox_is_asked(tmp_path, fleet) -> None:
+    # claude_vm_inventory_names holds each inventory host's ansible_host too: an alias of that name, included ahead of
+    # the user's own ssh config, would take this machine's connections to that host to the VM. The Proxmox host is
+    # reached at an address here, which the address check refuses first; only a host reached by a name tests this half.
+    calls = tmp_path / "pve" / "calls.log"
+    before = calls.read_text() if calls.exists() else ""
+    nas = tmp_path / "nas.yml"
+    nas.write_text(yaml.safe_dump({"all": {"hosts": {"nas": {"ansible_host": "nas.example"}}}}))
+    report = _creating(tmp_path, fleet, "provision.yml", "alpha,nas.example", "-i", str(nas))
+    assert report["rc"] != 0
+    refused = [
+        task["hosts"]["localhost"]
+        for play in report["plays"]
+        for task in play["tasks"]
+        if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
+    ]
+    assert len(refused) == 1, refused
+    assert "nas.example" in refused[0]["msg"] and "it names a host of the inventory" in refused[0]["msg"], refused
     assert calls.read_text() == before
 
 

@@ -4,7 +4,7 @@
 
 Five filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
 SSH config. Their code is `lib/claude_vm/proxmox.py`'s, and the checks of what a VM or a person supplies
-(`guest_ipv4`, `ssh_alias_refusal`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
+(`guest_ipv4`, `ssh_alias_refusal`, `sshd_match_spec`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
 ansible-core says with the filter's name.
 
 **`net_mac(net_config, default=_RAISE)`** — extracts the MAC from `virtio=BC:24:11:0E:72:04,bridge=vmbr0`.
@@ -58,6 +58,10 @@ config, so such an alias would take this machine's own connections to that host
 ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 **`ssh_alias_refusals(vms, hosts, chosen)`** is the same over a list, each refused VM as `{name, why,
 unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leaves out and says.
+**`sshd_match_spec(ssh_connection, user)`** — what `sshd -T -C` evaluates its `Match` blocks for: the
+user's sessions from where Ansible's own connection comes, read from its `SSH_CONNECTION` (client address
+and port, local address and port), or the loopback address where there is none (a container, a local run).
+`common` and `vscode_server` both ask sshd with it ([§5.7](roles.md#57-vscode_server--what-an-editors-remote-server-needs-on-the-host)).
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
 without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
 inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).

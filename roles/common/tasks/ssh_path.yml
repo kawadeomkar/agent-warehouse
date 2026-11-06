@@ -66,15 +66,8 @@
 # one or sshd_config itself can override it silently. `sshd -T -C` evaluates
 # the Match blocks from the files on disk, so nothing is restarted first.
 - name: ssh_path | Read the PATH sshd gives the sessions of {{ common_user }}
-  vars:
-    common_ssh_conn: "{{ (common_ssh_connection.stdout | default('')).split() }}"
-    common_ssh_spec: >-
-      {{ 'user=' ~ common_user ~ ',host=' ~ common_ssh_conn[0] ~ ',addr=' ~ common_ssh_conn[0]
-         ~ ',laddr=' ~ common_ssh_conn[2] ~ ',lport=' ~ common_ssh_conn[3]
-         if common_ssh_conn | length == 4
-         else 'user=' ~ common_user ~ ',host=127.0.0.1,addr=127.0.0.1' }}
   ansible.builtin.command:
-    argv: [/usr/sbin/sshd, -T, -C, "{{ common_ssh_spec }}"]
+    argv: [/usr/sbin/sshd, -T, -C, "{{ common_ssh_connection.stdout | default('') | sshd_match_spec(common_user) }}"]
   register: common_sshd
   changed_when: false
   check_mode: false

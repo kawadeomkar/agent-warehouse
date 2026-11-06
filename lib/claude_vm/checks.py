@@ -113,6 +113,16 @@ def ssh_alias_refusals(vms, hosts=None, chosen=None):
     return refused
 
 
+def sshd_match_spec(ssh_connection, user):
+    """What ``sshd -T -C`` evaluates its Match blocks for: ``user``'s sessions, coming from where the connection
+    Ansible made comes from. ``ssh_connection`` is its ``SSH_CONNECTION`` (client address, client port, local address,
+    local port); a container or a local run has none, and the loopback address stands in."""
+    fields = str(ssh_connection or "").split()
+    if len(fields) == 4:
+        return f"user={user},host={fields[0]},addr={fields[0]},laddr={fields[2]},lport={fields[3]}"
+    return f"user={user},host=127.0.0.1,addr=127.0.0.1"
+
+
 _LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
 
 # What Proxmox itself allows as the name of a node (a host name's first label),

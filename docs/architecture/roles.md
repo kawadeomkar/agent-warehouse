@@ -701,7 +701,8 @@ two, and proves the sshd one.
   `sshd_config` itself or a `Match User dev` block can each silently override the file this role
   just wrote. The role reads where the editor will connect from out of Ansible's own
   `SSH_CONNECTION` (without `become`, which drops it), asks `sshd -T -C user=<vm_user>,host=,addr=,
-  laddr=,lport=` what applies to that connection - plain `sshd -T` skips `Match` blocks - and fails
+  laddr=,lport=` what applies to that connection (the `sshd_match_spec` filter, which `common` uses too,
+  [§7.1](custom-code.md#71-filter_pluginsproxmoxpy)) - plain `sshd -T` skips `Match` blocks - and fails
   on forwarding that is off, limited to the remote direction, or removed by `DisableForwarding`,
   naming the file that does it (a `find` over `sshd_config` and the drop-ins, indented lines
   included, since that is how a `Match` block's settings are written). `sshd -T` parses the files

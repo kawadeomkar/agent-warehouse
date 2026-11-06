@@ -187,6 +187,8 @@ def _hosts(root: Path, cases: dict, github: str | None = None) -> dict:
             login_desktop=False,
             claude_code_login_desktop=False,
             github_projects_login_desktop=False,
+            # These hosts run no Tailscale, but its web login's desktop steps are off as the others' are.
+            tailscale_login_desktop=False,
             # Never a unit in this machine's /etc/systemd.
             claude_code_remote_control=False,
             claude_code_login_timeout=8,

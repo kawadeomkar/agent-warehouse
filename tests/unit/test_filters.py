@@ -472,6 +472,57 @@ class TestSshAliasRefusal:
         assert checks.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
 
 
+class TestSshdMatchSpec:
+    def test_a_connection_gives_its_client_and_its_local_end(self):
+        # The branch a real VM takes: SSH_CONNECTION is "client port local port".
+        spec = checks.sshd_match_spec("192.0.2.5 50022 192.0.2.51 22", "dev")
+        assert spec == "user=dev,host=192.0.2.5,addr=192.0.2.5,laddr=192.0.2.51,lport=22"
+
+    @pytest.mark.parametrize("connection", ["", None, "192.0.2.5 50022"])
+    def test_without_a_whole_connection_the_loopback_address_stands_in(self, connection):
+        # A container or a local run has no SSH_CONNECTION.
+        assert checks.sshd_match_spec(connection, "dev") == "user=dev,host=127.0.0.1,addr=127.0.0.1"
+
+
+class TestProxmoxName:
+    # just init writes what the host reported into local.yml, which every later run reads as a template: a node,
+    # storage or bridge name that Proxmox would never give is neither offered nor written.
+    @pytest.mark.parametrize(
+        ("value", "kind"),
+        [("pve", "node"), ("pve-2", "node"), ("local-lvm", "storage"), ("nfs.data_1", "storage"), ("vmbr0", "bridge")],
+    )
+    def test_a_name_proxmox_gives_is_kept(self, value, kind):
+        assert checks.proxmox_name(value, kind) == value
+
+    @pytest.mark.parametrize(
+        ("value", "kind"),
+        [
+            ("{{ lookup('pipe', 'id') }}", "node"),
+            ("-pve", "node"),
+            ("a" * 64, "node"),
+            ("pve.lan", "node"),
+            ("1local", "storage"),
+            ("local-", "storage"),
+            ("vmbr0\n", "bridge"),
+            ("vmbr 0", "bridge"),
+            (None, "node"),
+            (7, "storage"),
+        ],
+    )
+    def test_anything_else_is_not(self, value, kind):
+        assert checks.proxmox_name(value, kind) == ""
+
+    def test_a_kind_it_does_not_know_is_refused(self):
+        with pytest.raises(ValueError, match="no kind 'pool'"):
+            checks.proxmox_name("tank", "pool")
+
+    def test_the_lists_keep_the_names_in_order_and_say_the_rest_as_json(self):
+        values = ["local-lvm", "{{ x }}", "nfs", "a b"]
+        assert checks.proxmox_names(values, "storage") == ["local-lvm", "nfs"]
+        assert checks.proxmox_names_refused(values, "storage") == ['"{{ x }}"', '"a b"']
+        assert checks.proxmox_names(None, "storage") == [] == checks.proxmox_names_refused(None, "storage")
+
+
 class TestSshConfigBlocks:
     def test_reads_every_block_in_file_order(self):
         assert ssh_config_blocks(MANAGED) == [{"name": "alpha"}, {"name": "beta"}, {"name": "old"}]

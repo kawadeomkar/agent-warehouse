@@ -22,7 +22,7 @@ PROXMOX = (
     "guest_addresses",
     "proxmox_access_denied",
 )
-CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "guest_ipv4")
+CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "guest_ipv4", "sshd_match_spec")
 
 
 class FilterModule:
