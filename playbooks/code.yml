@@ -94,7 +94,7 @@
     code_ssh_failed: >-
       {{ claude_vm_names[0] }} is running at {{ code_reach }}, but SSH to it as {{ vm_user }}
       failed, so {{ code_editor_name }} could not connect either:
-      {{ code_ssh.msg | default('no reason given') | plain_text | regex_replace('\s+', ' ') | trim }}
+      {{ code_ssh.msg | default('no reason given') | one_line(none) }}
       A VM that has just booted can need another minute; `ssh {{ claude_vm_names[0] }}` shows why.
     # Each setting by its name from 1.1, else by its name in 1.0, which the
     # inventory defaults feed it from - and a run without them, from -e.
@@ -246,8 +246,7 @@
     # files, never what is in them.
     code_sync_failed: "{{ code_session_sent.rc | default(0) != 0 }}"
     code_sync_why: >-
-      {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true))
-         | plain_text | regex_replace('\s+', ' ') | trim }}
+      {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true)) | one_line(none) }}
     # The sessions the sync left out, list by list: what is said before their IDs, the IDs, and after.
     code_sessions_left: >-
       {{ [[' Left as they are, continued on ' ~ claude_vm_names[0] ~ ' since they were copied: ',
@@ -317,8 +316,7 @@
     # an SSH error need not be, and ending a sentence, as the line after it
     # starts one.
     code_failure: >-
-      {{ (code_failure_text ~ ('' if code_failure_text is search('[.!?]$') else '.')) | plain_text
-         | regex_replace('\s*\n\s*', ' ') }}
+      {{ code_failure_text | full_stop | plain_text | regex_replace('\s*\n\s*', ' ') }}
     code_failure_text: >-
       {{ ('`' ~ (ansible_failed_result.cmd if ansible_failed_result.cmd is string else ansible_failed_result.cmd | join(' '))
           ~ '` failed' ~ (': ' ~ ansible_failed_result.stderr | trim

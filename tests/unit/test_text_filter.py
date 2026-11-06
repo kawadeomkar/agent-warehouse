@@ -1,5 +1,6 @@
 """plain_text: what a VM printed, safe to quote in a message on this machine. visible_text: that, with no
-Unicode format character to reorder a line. banner: the block that sets a moment the run waits for the person
+Unicode format character to reorder a line. one_line, uncut: how a message quotes it. full_stop, retry_line and
+and_list: the words messages are built with. banner: the block that sets a moment the run waits for the person
 apart."""
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ REPO = Path(__file__).resolve().parents[2]
 plain_text = _module.plain_text
 visible_text = _module.visible_text
 one_line = _module.one_line
+full_stop = _module.full_stop
+retry_line = _module.retry_line
+and_list = _module.and_list
 banner = _module.banner
 plain_summary = _module.plain_summary
 
@@ -60,6 +64,57 @@ def test_visible_text_keeps_lines_and_indents_and_leaves_no_format_character():
     assert all(_module.unicodedata.category(ch) not in ("Cf", "Zl", "Zp") for ch in visible_text(every))
     # one_line is the same text on one line.
     assert one_line(raw) == "account exe.nigol ok next line end"
+
+
+def test_one_line_without_a_limit_cleans_as_it_does_with_one_and_never_cuts():
+    # How a playbook or a role quotes what a VM or a tool printed in a message of its own.
+    said = "fatal: \x1b[31mrepository\x1b[0m\n\tnot   found " + "x" * 500
+    assert one_line(said, None) == "fatal: repository not found " + "x" * 500
+    assert one_line(said) == one_line(said, None)[:119] + "…"
+    assert one_line(None, None) == ""
+
+
+@pytest.mark.parametrize(
+    ("reason", "sentence"),
+    [
+        # A module's message often has no stop of its own; one that has gets no second.
+        ("One or more items failed", "One or more items failed."),
+        ("Connection refused.", "Connection refused."),
+        ("Is it running?", "Is it running?"),
+        ("Login failed!", "Login failed!"),
+        ("exit code 1", "exit code 1."),
+        ("", "."),
+        (None, "."),
+    ],
+)
+def test_full_stop_ends_the_sentence_once(reason, sentence):
+    assert full_stop(reason) == sentence
+
+
+def test_a_retry_line_ends_the_reason_s_sentence_and_the_line_with_the_command():
+    # No stop after the command, which would be pasted along with it.
+    assert retry_line("One or more items failed", "just deploy alpha --tags github_projects") == (
+        "One or more items failed. Retry it with: just deploy alpha --tags github_projects"
+    )
+    assert retry_line("Connection refused.", "just login alpha --only claude") == (
+        "Connection refused. Retry it with: just login alpha --only claude"
+    )
+
+
+@pytest.mark.parametrize(
+    ("items", "said"),
+    [
+        ([], ""),
+        (None, ""),
+        (["alpha"], "alpha"),
+        (["alpha", "beta"], "alpha and beta"),
+        (["Claude", "GitHub", "Tailscale"], "Claude, GitHub and Tailscale"),
+        (("a", "b", "c", "d"), "a, b, c and d"),
+        ([1, 2], "1 and 2"),
+    ],
+)
+def test_and_list_says_a_list_as_words_do(items, said):
+    assert and_list(items) == said
 
 
 def test_a_banner_is_a_titled_block_that_ends_in_a_newline():

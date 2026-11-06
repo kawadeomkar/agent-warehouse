@@ -69,6 +69,10 @@ and port, local address and port), or the loopback address where there is none (
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
 without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
 inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).
+**`built_template(vms, name)`** — the built template named `name` in a listing, or `{}`: the first qemu VM
+of that name whose `template` is set, never a VM that merely shares the name, nor a container's template.
+How `just deploy` decides whether to build one and reads its node and config, how `just init` checks for
+one, and which one `just status` reads and reports.
 
 **`proxmox_vm_drift(config, wanted)`** — what of a VM's settings differs from what `just deploy` would
 send, from its config as Proxmox reads it and the settings the role works out (`settings_drift.yml`):
@@ -180,10 +184,22 @@ line that reads in the order it was written. What every live run keeps of a repo
 
 **`one_line(text, limit=120)`** — `visible_text`, which removes every control character but tab and
 newline (a carriage return is removed, not made a space), then each newline and tab replaced by a space,
-runs of spaces collapsed, and the whole cut to `limit`, ending in "…"; what a VM printed is passed to it as
-it is. What `just status` keeps of every value a VM or Proxmox supplies, so none starts a line of its own
-in the report or in `--json` (§7.7), and what every live run keeps of a command's line or a test's name.
-Covered by `tests/unit/test_status.py`, over a corpus of hostile values.
+runs of spaces collapsed, and the whole cut to `limit`, ending in "…", or never cut with `limit` none; what
+a VM printed is passed to it as it is. What `just status` keeps of every value a VM or Proxmox supplies, so
+none starts a line of its own in the report or in `--json` (§7.7), and what every live run keeps of a
+command's line or a test's name. Uncut, `one_line(none)`, it is how the playbooks and the roles quote what
+a VM or a tool printed - a failed module's message, a logout's stderr - in a message of their own.
+Covered by `tests/unit/test_status.py`, over a corpus of hostile values, and by `tests/unit/test_text_filter.py`.
+
+**`full_stop(text)`, `retry_line(text, command)`, `and_list(items)`** — the words those messages are built
+with, each written once. `full_stop` ends a quoted reason's sentence: as it is when it ends in `.`, `!` or
+`?`, else with a `.`, since a module's message often has none of its own ("One or more items failed") and
+one that has must not get a second. `retry_line` is that sentence, then `Retry it with: <command>`, the
+command ending the line with nothing after it, which would be pasted along with it; a sign-in's failure that
+already names its command is said as it is, which the sign-in playbooks decide before they call it.
+`and_list` says a list as words do: `alpha`, `alpha and beta`, `Claude, GitHub and Tailscale`, `""` for
+none, in `just deploy`'s opening message, `just init`'s report and `just status`'s items. Covered by
+`tests/unit/test_text_filter.py`, and the messages by the sign-in tests, which pin them.
 
 **`banner(body, title, host='', topic='')`** — the `#` block that sets a moment the run waits for the
 person apart from the task output around it: a rule 80 columns wide (the terminal's width when that is
@@ -194,9 +210,9 @@ screen as a backslash and an `n`. Every part goes through `plain_text`. The prom
 the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
 
 These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
-Ansible `plain_text`, `one_line` and `banner` as filters, and the callbacks, the engines and `tools/settings`
-import the module itself. `page_opener` and `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and
-`filter_plugins/desktop.py` their adapter.
+Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_list` as filters, and the
+callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
+`controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 
 ## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
 

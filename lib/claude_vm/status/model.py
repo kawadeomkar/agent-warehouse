@@ -18,9 +18,9 @@ import re
 import time
 from datetime import UTC, datetime
 
-from ..proxmox import scsi0_storage
+from ..proxmox import built_template, scsi0_storage
 from ..refs import NAME
-from ..text import one_line, plural
+from ..text import and_list, one_line, plural
 
 # The report's sections, in the order they are drawn: vms and storage read only the API, the rest the VMs over SSH
 # too - access for the tailnet column, sign-ins for the roles' reads, system for vm_status_info, work for the
@@ -191,19 +191,22 @@ def status_fleet(
     for entry in requested:
         if "name" in entry:
             counts[entry["name"]] = counts.get(entry["name"], 0) + 1
-    template = None
     template_name = settings.get("template_name")
-    for entry in entries:
-        if entry.get("template") and entry.get("name") == template_name:
-            template = {
-                "name": template_name,
-                "vmid": entry.get("vmid"),
-                "node": entry.get("node"),
-                "storage": scsi0_storage(_config_value(template_config, "scsi0")),
-                "ctime": _ctime(template_config or {}),
-                "drift": [str(d) for d in template_drift or []],
-                "rebuild": bool(settings.get("template_rebuild", True)),
-            }
+    # The one status.yml read the config of.
+    built = built_template(entries, template_name)
+    template = (
+        {
+            "name": template_name,
+            "vmid": built.get("vmid"),
+            "node": built.get("node"),
+            "storage": scsi0_storage(_config_value(template_config, "scsi0")),
+            "ctime": _ctime(template_config or {}),
+            "drift": [str(d) for d in template_drift or []],
+            "rebuild": bool(settings.get("template_rebuild", True)),
+        }
+        if built
+        else None
+    )
     vms = []
     for entry in sorted(requested, key=lambda e: ("name" not in e, str(e.get("name", "")), e.get("vmid", 0))):
         found = by_vmid.get(entry.get("vmid"), {})
@@ -467,11 +470,6 @@ def _full(used, total):
     return fill, "problem" if fill >= 0.9 else "todo" if fill >= 0.8 else None
 
 
-def _and(names):
-    names = list(names)
-    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
-
-
 def _drift_item(vm, drift, settings):
     hardware = drift.get("hardware") or []
     cloud_init = drift.get("cloud_init") or []
@@ -502,9 +500,9 @@ def _drift_item(vm, drift, settings):
     name = vm["name"]
     parts = []
     if asks:
-        parts.append(f"local.yml asks for {_and(asks)}; {name} has {_and(has)}")
+        parts.append(f"local.yml asks for {and_list(asks)}; {name} has {and_list(has)}")
     if cloud_init:
-        parts.append(f"{'Its' if parts else 'its'} cloud-init {_and(cloud_init)} differ from the settings")
+        parts.append(f"{'Its' if parts else 'its'} cloud-init {and_list(cloud_init)} differ from the settings")
     text = ". ".join(parts)
     command = f"just ANSIBLE_ARGS='-e proxmox_vm_force_update=true' deploy {name} --only provision"
     note = f"(this also resets {name}'s tags, and starts it if it is stopped"
@@ -562,7 +560,7 @@ def _vm_items(vm, settings, live):
     if api and api.get("pending"):
         add(
             "todo",
-            f"{_and(api['pending'])} changed in Proxmox and {'waits' if len(api['pending']) == 1 else 'wait'}"
+            f"{and_list(api['pending'])} changed in Proxmox and {'waits' if len(api['pending']) == 1 else 'wait'}"
             " for a restart",
             f"restart {name} from Proxmox",
         )
@@ -762,7 +760,7 @@ def _ssh_items(vm, settings, live, now):
             why = (
                 f"kernel {short_kernel(newest)} is installed, {short_kernel(running)} runs"
                 if newest and running and newest != running
-                else f"{_and(system.get('reboot_packages') or []) or 'an upgrade'} asks for one"
+                else f"{and_list(system.get('reboot_packages') or []) or 'an upgrade'} asks for one"
             )
             busy = []
             if system.get("claude"):
@@ -774,7 +772,7 @@ def _ssh_items(vm, settings, live, now):
                 if windows.get(key):
                     busy.append(plural(windows[key], f"{editor or key} window"))
             text = f"waits for a reboot: {why}" + (
-                f"; {_and(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
+                f"; {and_list(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
                 if busy
                 else ""
             )

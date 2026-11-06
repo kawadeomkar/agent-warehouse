@@ -82,7 +82,7 @@
       {{ claude_vm_tailscale_write_of is not skipped and claude_vm_tailscale_write_of is not changed }}
     claude_vm_tailscale_said: >-
       {{ ((claude_vm_tailscale_read_of if claude_vm_tailscale_unread | bool else claude_vm_tailscale_write_of).msg
-          | default('no reason given', true) | plain_text | regex_replace('\s+', ' ') | trim)[:200] }}
+          | default('no reason given', true) | one_line(none))[:200] }}
   ansible.builtin.debug:
     msg: >-
       {{ claude_vm_tailscale_vm_name }}: Proxmox could not record that it joined Tailscale

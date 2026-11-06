@@ -159,7 +159,7 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_release_state` | <code>{{ (claude_code_release_status.stdout &#124; from_json) if (claude_code_release_status.stdout &#124; default('') &#124; trim)[:1] == '{' else {} }}</code> |
 | `claude_code_release_signed_in` | <code>{{ claude_code_release_state.loggedIn &#124; default(false) &#124; bool }}</code> |
 | `claude_code_release_rc_stopped` | <code>{{ claude_code_release_paused.results &#124; default([]) &#124; selectattr('changed', 'defined') &#124; selectattr('changed') &#124; selectattr('item.item', 'equalto', 'service') &#124; list &#124; length > 0 }}</code> |
-| `claude_code_release_why` | <code>{{ (claude_code_release_logout.stderr &#124; default('') &#124; plain_text &#124; regex_replace('\s+', ' ') &#124; trim) or 'no reason given' }}</code> |
+| `claude_code_release_why` | <code>{{ claude_code_release_logout.stderr &#124; default('') &#124; one_line(none) or 'no reason given' }}</code> |
 | `claude_code_release_summary` | <code>{{ ((['Remote Control stopped (its session stays in the Claude app, offline)'] if claude_code_release_rc_stopped &#124; bool else []) + ([('signed out' if (claude_code_release_logout.rc &#124; default(1)) == 0 else 'could not sign out (' ~ claude_code_release_why ~ ')')] if claude_code_release_signed_in &#124; bool else [])) &#124; join('; ') }}</code> |
 
 ## Tasks

@@ -16,6 +16,7 @@ PROXMOX = (
     "ssh_config_blocks",
     "ssh_config_prune",
     "vms_not_named",
+    "built_template",
     "net_mac",
     "tailnet_ipv4",
     "guest_addresses",

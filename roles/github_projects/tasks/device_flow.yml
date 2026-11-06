@@ -86,7 +86,7 @@
       ansible.builtin.fail:
         msg: >-
           gh on {{ inventory_hostname }} did not start the device flow:
-          {{ github_projects_login_start_why ~ ('' if github_projects_login_start_why is search('[.!?]$') else '.') }}
+          {{ github_projects_login_start_why | full_stop }}
           Run {{ github_projects_login_command }} again.
       when: github_projects_login_code | length == 0
 
@@ -254,7 +254,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ inventory_hostname }}: the GitHub sign-in did not complete.
-      {{ github_projects_login_why ~ ('' if github_projects_login_why is search('[.!?]$') else '.') }}
+      {{ github_projects_login_why | full_stop }}
       Run {{ github_projects_login_command }} again for a fresh code.
   when: not github_projects_signed_in | bool
 

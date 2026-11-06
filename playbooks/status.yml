@@ -87,10 +87,7 @@
             ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
             timeout: "{{ status_api_timeout }}"
           vars:
-            status_template: >-
-              {{ claude_vm_all.json.data | selectattr('template', 'defined') | selectattr('template')
-                 | selectattr('name', 'defined') | selectattr('name', 'equalto', proxmox_template_name)
-                 | first | default({}) }}
+            status_template: "{{ claude_vm_all.json.data | built_template(proxmox_template_name) }}"
           when: status_template.vmid is defined
           register: status_template_config
           check_mode: false

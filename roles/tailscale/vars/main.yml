@@ -318,7 +318,7 @@ tailscale_release_summary: >-
            ~ tailscale_admin_page ~ ', or its login stays valid') if (tailscale_release_status.rc | default(1)) != 0
      else '' if not (tailscale_release_joined | bool)
      else ('its node could not be logged out ('
-           ~ ((tailscale_release_logout.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim) or 'no reason given')
+           ~ (tailscale_release_logout.stderr | default('') | one_line(none) or 'no reason given')
            ~ '): delete its device at ' ~ tailscale_admin_page) if (tailscale_release_logout.rc | default(1)) != 0
      else ('logged out; its device stays in your tailnet until you delete it at ' ~ tailscale_admin_page
            ~ ', or a VM built again under its name joins as <name>-1') if tailscale_api_credential == 'none'

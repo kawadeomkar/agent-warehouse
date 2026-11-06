@@ -26,7 +26,6 @@ from __future__ import annotations
 import math
 import os
 import re
-import sys
 import time
 from collections import Counter, OrderedDict
 
@@ -169,7 +168,7 @@ def batches(hosts, serial):
 # --- the run ---------------------------------------------------------------------------------------------------
 def one_line(text):
     """text as one line of plain text, whole: a note is cut where it is drawn, not where it is kept."""
-    return _one_line(text, sys.maxsize)
+    return _one_line(text, None)
 
 
 class Task:

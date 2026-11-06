@@ -359,7 +359,7 @@ claude_code_release_rc_stopped: >-
 # One clause for destroy's report on the VM; empty where Claude Code had no
 # login and no Remote Control to end.
 claude_code_release_why: >-
-  {{ (claude_code_release_logout.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim) or 'no reason given' }}
+  {{ claude_code_release_logout.stderr | default('') | one_line(none) or 'no reason given' }}
 claude_code_release_summary: >-
   {{ ((['Remote Control stopped (its session stays in the Claude app, offline)']
        if claude_code_release_rc_stopped | bool else [])

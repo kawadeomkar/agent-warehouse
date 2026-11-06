@@ -136,7 +136,8 @@ filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and ch
                                   net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
-                                  ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
+                                  ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host;
+                                  built_template, the template of that name in a listing
 filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
                                   window as a plan, and editor_servers, each editor's window as vm_status_info knows
                                   it (§7.10)
@@ -144,7 +145,8 @@ filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_
                                   controller_run and its state, the run a Claude sign-in waits for (§7.4)
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe
                                   to quote;
-                                  one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
+                                  one_line, one line of it; full_stop, retry_line and and_list, the words messages
+                                  are built with; banner, the block a prompt is set in; and plain_summary, a
                                   module's warnings and errors made plain, which the callbacks import
 filter_plugins/status.py          the adapter of just status's model: status_fleet, status_vm_api, status_report (§7.7)
 filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each

@@ -35,12 +35,11 @@
     # one would be pasted along with it.
     - name: Remember that the VM could not be reached
       vars:
-        claude_vm_failed_why: "{{ claude_vm_reach.msg | default('no answer', true) | regex_replace('\\s+', ' ') | trim }}"
+        claude_vm_failed_why: "{{ claude_vm_reach.msg | default('no answer', true) | one_line(none) }}"
       ansible.builtin.set_fact:
         claude_vm_claude_login_failure: >-
           {{ inventory_hostname }} could not be reached, so it was not signed in:
-          {{ claude_vm_failed_why ~ ('' if claude_vm_failed_why is search('[.!?]$') else '.') }}
-          Retry it with: just login {{ inventory_hostname }} --only claude
+          {{ claude_vm_failed_why | retry_line('just login ' ~ inventory_hostname ~ ' --only claude') }}
       when: claude_vm_reach is unreachable
 
     - name: Say which VM could not be reached
@@ -107,8 +106,7 @@
           ansible.builtin.set_fact:
             claude_vm_claude_login_failure: >-
               {{ claude_vm_failed_why if claude_vm_retry in claude_vm_failed_why
-                 else claude_vm_failed_why ~ ('' if claude_vm_failed_why is search('[.!?]$') else '.')
-                      ~ ' Retry it with: ' ~ claude_vm_retry }}
+                 else claude_vm_failed_why | retry_line(claude_vm_retry) }}
 
         - name: Say why, and go on with the next VM
           ansible.builtin.debug:
@@ -148,10 +146,9 @@
           ansible.builtin.set_fact:
             claude_vm_configure_failures: >-
               {{ claude_vm_configure_failures | default([])
-                 + [inventory_hostname ~ ' is signed in to Claude, but starting Remote Control failed at "'
-                    ~ (ansible_failed_task.name | default('a task')) ~ '": ' ~ claude_vm_failed_why
-                    ~ ('' if claude_vm_failed_why is search('[.!?]$') else '.')
-                    ~ ' Retry it with: just deploy ' ~ inventory_hostname ~ ' --tags claude_code'] }}
+                 + [(inventory_hostname ~ ' is signed in to Claude, but starting Remote Control failed at "'
+                     ~ (ansible_failed_task.name | default('a task')) ~ '": ' ~ claude_vm_failed_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags claude_code')] }}
 
         - name: Say why
           ansible.builtin.debug:

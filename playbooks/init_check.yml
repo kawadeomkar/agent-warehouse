@@ -85,10 +85,7 @@
     # template. Without one, deploy builds it at proxmox_template_vmid, which
     # must then be free.
     init_listing: "{{ claude_vm_all.json.data | default([]) if init_listed | default(false) | bool else [] }}"
-    init_template: >-
-      {{ init_listing | selectattr('type', 'equalto', 'qemu') | selectattr('name', 'defined')
-         | selectattr('name', 'equalto', proxmox_template_name) | selectattr('template', 'defined')
-         | selectattr('template', 'truthy') | list | first | default({}) }}
+    init_template: "{{ init_listing | built_template(proxmox_template_name) }}"
     init_template_built: "{{ init_template | length > 0 }}"
     init_vmid_holder: >-
       {{ init_listing | selectattr('vmid', 'equalto', proxmox_template_vmid | int) | list | first | default({}) }}

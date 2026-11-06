@@ -333,8 +333,8 @@
         - name: Remember why the VM is not released
           ansible.builtin.set_fact:
             claude_vm_release_blocked: >-
-              sudo on it failed ({{ ansible_failed_result.msg | default('no reason given', true) | plain_text
-              | regex_replace('\s+', ' ') | trim | regex_replace('[.]$', '') | truncate(200) }})
+              sudo on it failed ({{ ansible_failed_result.msg | default('no reason given', true) | one_line(none)
+              | regex_replace('[.]$', '') | truncate(200) }})
 
     # Before anything is released, while the VM is as it was: what Claude Code
     # keeps there, the only copy it can resume - the sessions begun or continued there, and
@@ -365,8 +365,7 @@
           vars:
             claude_vm_save_why: >-
               {{ ansible_failed_task.name | default('a task') }}: {{ (ansible_failed_result.stderr | default('', true)
-              or ansible_failed_result.msg | default('failed', true)) | plain_text | regex_replace('\s+', ' ') | trim
-              | regex_replace('[.]$', '') }}
+              or ansible_failed_result.msg | default('failed', true)) | one_line(none) | regex_replace('[.]$', '') }}
           ansible.builtin.set_fact:
             claude_vm_save_error: "{{ claude_vm_save_why }}"
             claude_vm_delete_failure: >-
@@ -480,8 +479,7 @@
           vars:
             claude_vm_delete_why: >-
               {{ ansible_failed_task.name | default('a task') }}:
-              {{ (ansible_failed_result.msg | default('no message', true)) | plain_text | regex_replace('\s+', ' ')
-                 | trim | regex_replace('[.]$', '') }}
+              {{ ansible_failed_result.msg | default('no message', true) | one_line(none) | regex_replace('[.]$', '') }}
           ansible.builtin.set_fact:
             claude_vm_delete_error: "{{ claude_vm_delete_why }}"
             claude_vm_delete_failure: "{{ inventory_hostname }} was not deleted ({{ claude_vm_delete_why }})."

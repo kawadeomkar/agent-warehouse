@@ -1,5 +1,6 @@
-"""Proxmox's API and qm read: guest agent output, a refused token, the managed SSH config's blocks, the drift of a
-VM's and a template's settings. Stdlib only, nothing read or written (docs/architecture/custom-code.md §7.1)."""
+"""Proxmox's API and qm read: guest agent output, a refused token, the managed SSH config's blocks, the built template
+in a listing, the drift of a VM's and a template's settings. Stdlib only, nothing read or written
+(docs/architecture/custom-code.md §7.1)."""
 
 from __future__ import annotations
 
@@ -191,6 +192,21 @@ def vms_not_named(vms, names):
         raise ValueError(f"vms_not_named expects a list, got {type(vms).__name__}")
     taken = set(names or [])
     return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
+
+
+def built_template(vms, name):
+    """The built template named ``name`` among ``vms`` (the cluster listing's entries, or proxmox_vm_info's), or {}.
+
+    A qemu VM of that name whose ``template`` is set, as Proxmox lists a template (1): a VM that merely shares the
+    template's name (0, or no key at all) is no template, nor is a container's. An entry that names no type counts
+    as qemu. Of two, the first.
+    """
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise ValueError(f"built_template expects a list, got {type(vms).__name__}")
+    for vm in vms:
+        if isinstance(vm, dict) and vm.get("type", "qemu") == "qemu" and vm.get("name") == name and vm.get("template"):
+            return vm
+    return {}
 
 
 _SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)

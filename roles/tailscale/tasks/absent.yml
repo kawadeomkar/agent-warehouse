@@ -132,8 +132,7 @@
              else ('Tailscale is off - logged out and removed; its device stays in your tailnet, expired, until you delete it at '
               ~ tailscale_admin_page ~ '.') if tailscale_logout is changed
              else ('Tailscale is off and removed, but its logout failed ('
-                   ~ ((tailscale_logout.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim)
-                      or 'no reason given')
+                   ~ (tailscale_logout.stderr | default('') | one_line(none) or 'no reason given')
                    ~ '): its login stays valid until you delete its device at ' ~ tailscale_admin_page ~ '.')
              if tailscale_absent_logout_failed | bool
              else ('Tailscale is off and removed, but tailscaled did not answer, so the node could not be logged out:'

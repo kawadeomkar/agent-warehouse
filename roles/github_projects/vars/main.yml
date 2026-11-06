@@ -324,8 +324,7 @@ github_projects_release_ours: >-
 github_projects_release_signed_out: >-
   {{ 'gh signed out' if (github_projects_release_logout.rc | default(1)) == 0
      else ('gh could not sign out ('
-           ~ ((github_projects_release_logout.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim)
-              or 'no reason given') ~ ')') }}
+           ~ (github_projects_release_logout.stderr | default('') | one_line(none) or 'no reason given') ~ ')') }}
 # One clause for destroy's report on the VM; empty where gh held no login.
 # A token the summary says stays valid until the user revokes it - any but the
 # vault's, which is every VM's: something left to do, for destroy's NEXT STEPS.

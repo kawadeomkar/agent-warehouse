@@ -114,8 +114,8 @@
     that: code_session_fetched.rc == 0
     fail_msg: >-
       {{ claude_vm_names[0] }} could not fetch {{ code_session_upstream }} from origin in
-      {{ code_session_plan.session.checkout }}: {{ code_session_fetched.stderr | default('') | plain_text
-      | regex_replace('\s+', ' ') | trim }} A private repository needs GitHub's sign-in there:
+      {{ code_session_plan.session.checkout }}: {{ code_session_fetched.stderr | default('') | one_line(none) }}
+      A private repository needs GitHub's sign-in there:
       just login {{ claude_vm_names[0] }} --only github.
     quiet: true
   when: code_session_id | length > 0

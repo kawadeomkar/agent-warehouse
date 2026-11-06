@@ -259,12 +259,12 @@
     - name: browser_login | Fail when claude did not start the sign-in
       vars:
         claude_code_login_start_why: >-
-          {{ claude_code_login_said | regex_replace('\s+', ' ') | trim
+          {{ claude_code_login_said | one_line(none)
              or 'no output in ' ~ claude_code_login_start_seconds ~ ' seconds' }}
       ansible.builtin.fail:
         msg: >-
           claude on {{ inventory_hostname }} did not start the sign-in:
-          {{ claude_code_login_start_why ~ ('' if claude_code_login_start_why is search('[.!?]$') else '.') }}
+          {{ claude_code_login_start_why | full_stop }}
           Run {{ claude_code_login_command }} again.
       when: claude_code_login_url | length == 0
 
@@ -677,7 +677,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ inventory_hostname }}: the Claude sign-in did not complete.
-      {{ claude_code_login_why ~ ('' if claude_code_login_why is search('[.!?]$') else '.') }}
+      {{ claude_code_login_why | full_stop }}
       Run {{ claude_code_login_command }} again for a fresh sign-in page.
   when:
     - claude_code_login_responded | bool

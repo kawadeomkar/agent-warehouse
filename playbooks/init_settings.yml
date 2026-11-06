@@ -781,8 +781,7 @@
           {% set init_vault_said = (['the token secret'] if init_secret_answered else [])
                                    + (['the GitHub username'] if init_answers.github_user is defined else [])
                                    + (['the Tailscale auth key'] if init_tailscale_key_answered | bool else []) %}
-            inventory/group_vars/all/vault.yml   {{ ((init_vault_said[:-1] | join(', ') ~ ' and ' ~ init_vault_said[-1])
-                                                     if init_vault_said | length > 1 else init_vault_said | join)
+            inventory/group_vars/all/vault.yml   {{ init_vault_said | and_list
                                                     ~ (', ' if init_vault_answered else '') }}encrypted
           {% endif %}
           {% endif %}

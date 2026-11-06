@@ -373,6 +373,39 @@ class TestVmsNotNamed:
             proxmox_filters.vms_not_named({"vmid": 100}, [])
 
 
+class TestBuiltTemplate:
+    """The template deploy, init and status find by its name: a qemu VM of that name that is a template."""
+
+    NAME = "ubuntu-24.04-cloudinit"
+
+    def test_a_vm_that_merely_shares_the_name_is_no_template(self):
+        listing = [
+            {"vmid": 100, "type": "qemu", "name": self.NAME},
+            {"vmid": 101, "type": "qemu", "name": self.NAME, "template": 0},
+            {"vmid": 102, "type": "lxc", "name": self.NAME, "template": 1},
+            {"vmid": 103, "type": "qemu", "name": "other", "template": 1},
+            {"vmid": 104},
+        ]
+        assert proxmox_filters.built_template(listing, self.NAME) == {}
+        assert proxmox_filters.built_template([], self.NAME) == {}
+
+    def test_the_first_template_of_that_name(self):
+        listing = [
+            {"vmid": 100, "type": "qemu", "name": self.NAME},
+            {"vmid": 9000, "type": "qemu", "name": self.NAME, "template": 1, "node": "pve"},
+            {"vmid": 9001, "type": "qemu", "name": self.NAME, "template": 1, "node": "pve2"},
+        ]
+        assert proxmox_filters.built_template(listing, self.NAME)["vmid"] == 9000
+
+    def test_an_entry_that_names_no_type_counts_as_qemu(self):
+        entry = {"name": self.NAME, "template": 1, "node": "pve", "config": {}}
+        assert proxmox_filters.built_template([entry], self.NAME) == entry
+
+    def test_refuses_what_is_no_listing(self):
+        with pytest.raises(ValueError):
+            proxmox_filters.built_template({"name": self.NAME, "template": 1}, self.NAME)
+
+
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
