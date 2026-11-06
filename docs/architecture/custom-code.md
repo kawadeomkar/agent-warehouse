@@ -72,7 +72,16 @@ inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playboo
 **`built_template(vms, name)`** — the built template named `name` in a listing, or `{}`: the first qemu VM
 of that name whose `template` is set, never a VM that merely shares the name, nor a container's template.
 How `just deploy` decides whether to build one and reads its node and config, how `just init` checks for
-one, and which one `just status` reads and reports.
+one, and which one `just status` reads and reports. **`duplicate_names(vms)`** — the names more than one VM
+of a listing carries, sorted as Jinja's `sort` sorts them, a VM without a name none of them: Proxmox lets
+two VMs share a name, so discovery and the alias refresh refuse such a name among the tagged VMs, and
+destroy one it was given ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+**`proxmox_tags(tags)`** — a VM's tags as a list of whole tags, each trimmed, an empty one left out, their
+case as given: split on `;`, as Proxmox joins them on the wire, or `,`, as `proxmox_kvm` sends them and
+some versions echo them back ([§3](README.md#3-the-identity-model)). The one parser of them:
+`proxmox_vm`'s lookup, the Tailscale record (`tasks/tailscale_record.yml`), which writes them back as
+Proxmox gave them, and `just status`'s model; the whole-tag patterns in
+`inventory/group_vars/all/defaults.yml` match the joined form.
 
 **`proxmox_vm_drift(config, wanted)`** — what of a VM's settings differs from what `just deploy` would
 send, from its config as Proxmox reads it and the settings the role works out (`settings_drift.yml`):
@@ -504,7 +513,10 @@ an origin through two functions of `sessions.py` that no template calls, so neit
 alike, the host not compared: this machine's side, where a clone may reach GitHub by an SSH alias.
 **`github_repository(url)`** is the same of a GitHub origin only, and `""` of any other: the VM's side,
 whose checkouts just deploy cloned from GitHub, so that a local path or another host's repository there
-claims nothing. **`just_code_dir(projects, given)`** is just code's own directory on a VM -
+claims nothing. **`projects_dir(given, home)`** is the projects directory on a VM - `vm_projects_dir`, else
+`projects` in the VM user's home, without a trailing `/` - as configure's alias, just code, just status,
+destroy's save and the roles that clone into it and start Remote Control there all name it.
+**`just_code_dir(projects, given)`** is just code's own directory on a VM -
 `editor_files_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
 destroy's save, which reads the manifest there. **`claude_project_folder(path)`** is Claude Code's folder name for a path - every character
 but an ASCII letter or digit as `-` - refusing one over 200 characters, which Claude Code shortens with

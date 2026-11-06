@@ -342,8 +342,7 @@
             work: true
           vars:
             status_projects_dir: >-
-              {{ (vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects')
-                 | regex_replace('(.)/+$', '\\1') }}
+              {{ vm_projects_dir | default('', true) | projects_dir(ansible_facts.getent_passwd[vm_user][4]) }}
           become: true
           become_user: "{{ vm_user }}"
           register: status_work

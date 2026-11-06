@@ -136,9 +136,8 @@
     - name: Refuse a name that more than one VM carries
       vars:
         claude_vm_duplicated: >-
-          {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | map(attribute='name', default='') | select
-             | community.general.counter | dict2items | selectattr('value', 'gt', 1) | map(attribute='key')
-             | select('in', claude_vm_names) | sort | list }}
+          {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | duplicate_names
+             | select('in', claude_vm_names) | list }}
         claude_vm_duplicate_ids: >-
           {{ claude_vm_all.json.data | selectattr('type', 'equalto', 'qemu') | selectattr('name', 'defined')
              | selectattr('name', 'in', claude_vm_duplicated) | map(attribute='vmid') | sort | join(', ') }}

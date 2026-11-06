@@ -159,7 +159,7 @@
     - name: Record where the code lives, for the alias play below
       ansible.builtin.set_fact:
         claude_vm_workspace: >-
-          {{ vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects' }}
+          {{ vm_projects_dir | default('', true) | projects_dir(ansible_facts.getent_passwd[vm_user][4]) }}
       tags: [always]
 
 # Records in Proxmox, where the VM cannot change it, each VM whose Tailscale has

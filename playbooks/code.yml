@@ -214,10 +214,13 @@
     code_session_upstream: "{{ code_session_git_here.checkouts[0].upstream_branch }}"
     # Where the code lives on the VM, read there as configure reads it: the VM
     # user's home, unless vm_projects_dir says it outright. A trailing "/" is
-    # dropped so the path the editor is given is the one listed.
+    # dropped so the path the editor is given is the one listed. Where
+    # vm_projects_dir is set the home may not have been read, and a filter's
+    # argument is evaluated whether it is used or not.
     code_vm_home: "{{ code_home.ansible_facts.getent_passwd[vm_user][4] }}"
     code_projects_dir: >-
-      {{ (vm_projects_dir | default('', true) or code_vm_home ~ '/projects') | regex_replace('(.)/+$', '\1') }}
+      {{ vm_projects_dir | default('', true)
+         | projects_dir(code_vm_home if code_home.ansible_facts is defined else '') }}
     code_remote_control_unit: "{{ claude_code_remote_control_service | default('claude-remote-control') }}"
     # The time zone the notes' time is said in: this machine's, the user's, where the VM's clock keeps
     # common_timezone (UTC). TZ first, as the shell running just has it, then the zone /etc/localtime

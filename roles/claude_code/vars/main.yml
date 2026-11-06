@@ -176,9 +176,7 @@ claude_code_remote_control_stayed_up: >-
 
 # Internal: the directory Remote Control sessions actually open in, resolved
 # from the (possibly empty) option once claude_code_home is known.
-claude_code_remote_control_target_dir: >-
-  {{ claude_code_remote_control_dir if claude_code_remote_control_dir | length > 0
-     else claude_code_home ~ '/projects' }}
+claude_code_remote_control_target_dir: "{{ claude_code_remote_control_dir | projects_dir(claude_code_home) }}"
 
 # Internal: whether the prompts that would stall a headless Remote Control
 # server are already answered in ~/.claude.json - first-run onboarding, Remote

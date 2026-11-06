@@ -18,7 +18,7 @@ import re
 import time
 from datetime import UTC, datetime
 
-from ..proxmox import built_template, scsi0_storage
+from ..proxmox import built_template, proxmox_tags, scsi0_storage
 from ..refs import NAME
 from ..text import and_list, one_line, plural
 
@@ -91,10 +91,6 @@ def _data(result):
         return None
     body = result.get("json")
     return body.get("data") if isinstance(body, dict) else None
-
-
-def _tags(entry):
-    return [t for t in re.split(r"[;,]", str(entry.get("tags") or "").lower()) if t]
 
 
 def _config_value(config, key):
@@ -235,7 +231,7 @@ def status_fleet(
                 "uptime": entry.get("uptime"),
                 "maxdisk": entry.get("maxdisk"),
                 "address": found.get("address", ""),
-                "unfinished": f"{tag}-unfinished" in _tags(entry),
+                "unfinished": f"{tag}-unfinished" in [t.lower() for t in proxmox_tags(entry.get("tags"))],
                 "config": config,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
                 # Read in play 2, by name: a VM that is not can only be shown from the listing.

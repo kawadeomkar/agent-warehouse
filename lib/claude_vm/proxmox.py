@@ -1,11 +1,12 @@
 """Proxmox's API and qm read: guest agent output, a refused token, the managed SSH config's blocks, the built template
-in a listing, the drift of a VM's and a template's settings. Stdlib only, nothing read or written
-(docs/architecture/custom-code.md §7.1)."""
+and the duplicated names in a listing, a VM's tags, the drift of a VM's and a template's settings. Stdlib only,
+nothing read or written (docs/architecture/custom-code.md §7.1)."""
 
 from __future__ import annotations
 
 import ipaddress
 import re
+from collections import Counter
 from urllib.parse import unquote
 
 from .checks import _alias_refusal, _ipv4, guest_ipv4
@@ -207,6 +208,29 @@ def built_template(vms, name):
         if isinstance(vm, dict) and vm.get("type", "qemu") == "qemu" and vm.get("name") == name and vm.get("template"):
             return vm
     return {}
+
+
+def proxmox_tags(tags):
+    """A VM's tags, as a list: split on ";" or ",", each trimmed, an empty one left out, the case as given.
+
+    Proxmox joins tags with ";" on the wire, lowercased; proxmox_kvm sends them joined with ",", and some versions
+    echo that back. Whole tags, so that a caller compares a tag whole: claude-on-proxmox is never
+    claude-on-proxmox-staging.
+    """
+    return [tag.strip() for tag in re.split(r"[;,]", str(tags or "")) if tag.strip()]
+
+
+def duplicate_names(vms):
+    """The names more than one entry of ``vms`` (the cluster listing's) carries, sorted as Jinja's sort sorts them,
+    regardless of case; an entry without a name is none of them.
+
+    Proxmox lets two VMs share a name, and what finds a VM by its name - add_host, an alias, destroy's release -
+    would act on one of them only, unpredictably.
+    """
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise ValueError(f"duplicate_names expects a list, got {type(vms).__name__}")
+    counts = Counter(vm["name"] for vm in vms if isinstance(vm, dict) and vm.get("name"))
+    return sorted((name for name, count in counts.items() if count > 1), key=lambda name: str(name).lower())
 
 
 _SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)

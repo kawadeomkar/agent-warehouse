@@ -89,6 +89,17 @@ def github_repository(url):
     return f"{found.group('owner')}/{found.group('repo')}".lower()
 
 
+def projects_dir(given, home):
+    """Where a VM's repositories live: ``given`` (vm_projects_dir), else projects in ``home``, the VM user's home.
+
+    configure.yml's alias, just code, just status, destroy's save and the roles that clone into it and open Remote
+    Control there all name it so, and the save must name exactly what just code names to find its manifest
+    (just_code_dir): one definition, so none can say it another way. No trailing "/".
+    """
+    path = str(given or "") or f"{str(home).rstrip('/')}/projects"
+    return path.rstrip("/") or "/"
+
+
 def just_code_dir(projects, given=""):
     """just code's own directory on a VM: ``given`` (editor_files_dir), else .claude-on-proxmox in ``projects``.
 

@@ -14,6 +14,7 @@ FILTERS = (
     "claude_sessions_listed",
     "claude_sessions_plan",
     "claude_sessions_saved",
+    "projects_dir",
     "just_code_dir",
 )
 

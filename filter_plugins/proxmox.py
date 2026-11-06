@@ -17,6 +17,8 @@ PROXMOX = (
     "ssh_config_prune",
     "vms_not_named",
     "built_template",
+    "duplicate_names",
+    "proxmox_tags",
     "net_mac",
     "tailnet_ipv4",
     "guest_addresses",

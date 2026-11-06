@@ -81,7 +81,7 @@ Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a
 | `proxmox_vm_found_mac` | <code>{{ proxmox_vm_found_config.get(proxmox_vm_nic, '') &#124; net_mac('') }}</code> |
 | `proxmox_vm_found_node` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].node &#124; default(proxmox_vm_node, true) }}</code> |
 | `proxmox_vm_reported_address` | <code>{{ proxmox_vm_net.proxmox_vms &#124; default([], true) &#124; map(attribute='network') &#124; first &#124; default([], true) &#124; guest_ipv4(proxmox_vm_found_mac) &#124; default('', true) }}</code> |
-| `proxmox_vm_found_tags` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].tags &#124; default('', true) &#124; replace(',', ';') &#124; split(';') &#124; map('trim') &#124; select &#124; map('lower') &#124; list }}</code> |
+| `proxmox_vm_found_tags` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].tags &#124; default('', true) &#124; proxmox_tags &#124; map('lower') &#124; list }}</code> |
 | `proxmox_vm_sent_tags` | <code>{{ proxmox_vm_tags &#124; map('lower') &#124; list }}</code> |
 | `proxmox_vm_unfinished_tag` | `{{ proxmox_vm_sent_tags[0] }}-unfinished` |
 | `proxmox_vm_tailscale_tag` | `{{ proxmox_vm_sent_tags[0] }}-tailscale` |

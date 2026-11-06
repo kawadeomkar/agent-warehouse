@@ -44,8 +44,7 @@
     claude_vm_tailscale_vm: >-
       {{ claude_vm_tailscale_read.proxmox_vms | default([], true) | first | default({}, true) }}
     claude_vm_tailscale_now: >-
-      {{ (claude_vm_tailscale_vm.config | default({}, true)).tags | default('', true)
-         | replace(',', ';') | split(';') | map('trim') | select | list }}
+      {{ (claude_vm_tailscale_vm.config | default({}, true)).tags | default('', true) | proxmox_tags }}
     claude_vm_tailscale_now_lower: "{{ claude_vm_tailscale_now | map('lower') | list }}"
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ claude_vm_tailscale_vm.node }}"

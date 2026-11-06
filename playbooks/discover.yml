@@ -47,10 +47,7 @@
     # would report success having touched only one of them, unpredictably.
     - name: Refuse to continue with duplicated VM names
       vars:
-        claude_vm_dupes: >-
-          {{ claude_vm_discovered | map(attribute='name', default='') | select | list
-             | community.general.counter | dict2items
-             | selectattr('value', 'gt', 1) | map(attribute='key') | sort | list }}
+        claude_vm_dupes: "{{ claude_vm_discovered | duplicate_names }}"
       ansible.builtin.assert:
         that: claude_vm_dupes | length == 0
         fail_msg: >-

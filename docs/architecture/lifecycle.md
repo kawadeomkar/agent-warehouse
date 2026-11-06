@@ -193,10 +193,11 @@ STEPS, while the others are still recorded.
 The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and the editor -
 VS Code's host picker, Zed's `ssh://` URL - follow the address DHCP gave it. It reads a fact the second
 play set *last*: `claude_vm_workspace`, `vm_projects_dir` or `~/projects` of `vm_user` as `getent`
-resolves it on the VM. A host that failed a
-role never reaches that `post_task`, so it never gets an alias; and the workspace is the VM user's real
-home rather than a guess, because Ansible's own `user_dir` fact is the *connecting* user's home, which is
-root's under Molecule. Both the lookup and the play are tagged `always`, like discovery, so a
+resolves it on the VM, without a trailing `/`, as just code and just status name it (the `projects_dir`
+filter, [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)).
+A host that failed a role never reaches that `post_task`, so it never gets an alias; and the workspace is
+the VM user's real home rather than a guess, because Ansible's own `user_dir` fact is the *connecting*
+user's home, which is root's under Molecule. Both the lookup and the play are tagged `always`, like discovery, so a
 `just deploy alpha --tags claude_code` after a lease moved still refreshes the alias. `claude_ssh_config: false`
 keeps the whole project out of `~/.ssh`.
 

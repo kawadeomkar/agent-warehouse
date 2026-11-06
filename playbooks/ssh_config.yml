@@ -58,10 +58,7 @@
     # last. Refused, as discovery refuses to configure them.
     - name: Refuse to continue with duplicated VM names
       vars:
-        claude_ssh_dupes: >-
-          {{ claude_ssh_requested | map(attribute='name') | list
-             | community.general.counter | dict2items
-             | selectattr('value', 'gt', 1) | map(attribute='key') | sort | list }}
+        claude_ssh_dupes: "{{ claude_ssh_requested | duplicate_names }}"
       ansible.builtin.assert:
         that: claude_ssh_dupes | length == 0
         fail_msg: >-

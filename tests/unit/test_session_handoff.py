@@ -194,6 +194,27 @@ def test_just_code_s_own_directory_on_the_vm_is_one_definition_for_code_and_dest
         assert shared in (REPO / path).read_text(), path
 
 
+def test_the_projects_directory_is_one_definition_for_every_reader():
+    assert filters.projects_dir("", "/home/dev") == "/home/dev/projects"
+    assert filters.projects_dir(None, "/home/dev/") == "/home/dev/projects"
+    # vm_projects_dir as written, but for a trailing "/": configure.yml's alias line said "(opens /srv/code/)"
+    # where just code and just status said /srv/code.
+    assert filters.projects_dir("/srv/code/", "/home/dev") == "/srv/code"
+    assert filters.projects_dir("/srv/code", "") == "/srv/code"
+    assert filters.projects_dir("/", "/home/dev") == "/"
+    # Each reader names it through the filter, and none adds /projects to a home of its own.
+    # The playbooks by stem: test_status.py holds every test file that names the status playbook to status_root.
+    readers = (
+        *(f"playbooks/{stem}.yml" for stem in ("configure", "code", "status")),
+        "playbooks/tasks/session_save.yml",
+        "roles/claude_code/vars/main.yml",
+        "roles/github_projects/tasks/main.yml",
+    )
+    for path in readers:
+        text = (REPO / path).read_text()
+        assert "| projects_dir(" in text and "~ '/projects'" not in text, path
+
+
 def test_the_sessions_left_out_are_said_list_by_list_by_their_first_eight_characters():
     rows = [[" Kept: ", [ID, OTHER], "."], [" Not copied: ", [], "."], [" Open: ", [OTHER], "; why."]]
     assert filters.claude_sessions_listed(rows) == f" Kept: {ID[:8]}, {OTHER[:8]}. Open: {OTHER[:8]}; why."

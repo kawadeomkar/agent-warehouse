@@ -14,8 +14,7 @@
 
 - name: Resolve projects directory
   ansible.builtin.set_fact:
-    github_projects_target_dir: >-
-      {{ github_projects_dir if github_projects_dir else github_projects_home_dir ~ '/projects' }}
+    github_projects_target_dir: "{{ github_projects_dir | projects_dir(github_projects_home_dir) }}"
 
 - name: Ensure projects directory exists
   ansible.builtin.file:

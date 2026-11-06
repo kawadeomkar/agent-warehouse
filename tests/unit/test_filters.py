@@ -406,6 +406,46 @@ class TestBuiltTemplate:
             proxmox_filters.built_template({"name": self.NAME, "template": 1}, self.NAME)
 
 
+class TestProxmoxTags:
+    """A VM's tags as a list, however Proxmox or proxmox_kvm joined them."""
+
+    @pytest.mark.parametrize(
+        ("tags", "listed"),
+        [
+            ("claude-on-proxmox;claude-on-proxmox-tailscale", ["claude-on-proxmox", "claude-on-proxmox-tailscale"]),
+            # As proxmox_kvm sends them, and some versions echo them back.
+            ("ansible,claude-on-proxmox", ["ansible", "claude-on-proxmox"]),
+            (" Claude-On-Proxmox ; ;staging,", ["Claude-On-Proxmox", "staging"]),
+            ("", []),
+            (None, []),
+        ],
+    )
+    def test_each_tag_whole_trimmed_and_as_given(self, tags, listed):
+        assert proxmox_filters.proxmox_tags(tags) == listed
+
+    def test_a_tag_is_never_matched_inside_another(self):
+        tags = proxmox_filters.proxmox_tags("claude-on-proxmox-staging;not-claude-on-proxmox")
+        assert "claude-on-proxmox" not in tags
+
+
+class TestDuplicateNames:
+    """The names two VMs carry, which discovery, the alias refresh and destroy refuse to act on."""
+
+    def test_each_name_more_than_one_vm_carries_once_sorted_as_jinja_sorts(self):
+        names = ["twin", "Beta", "alpha", "twin", "beta", "twin", "solo", "Beta", "alpha"]
+        listing = [vm(name, vmid) for vmid, name in enumerate(names, start=100)]
+        assert proxmox_filters.duplicate_names(listing) == ["alpha", "Beta", "twin"]
+
+    def test_a_vm_without_a_name_is_none_of_them(self):
+        listing = [vm(None, 100), vm(None, 101), vm("", 102), vm("", 103), vm("alpha", 104)]
+        assert proxmox_filters.duplicate_names(listing) == []
+        assert proxmox_filters.duplicate_names([]) == []
+
+    def test_refuses_what_is_no_listing(self):
+        with pytest.raises(ValueError):
+            proxmox_filters.duplicate_names({"name": "twin"})
+
+
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 

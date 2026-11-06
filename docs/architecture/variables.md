@@ -68,7 +68,7 @@ RSA or ECDSA gets the role's actionable "set vm_ssh_public_keys" message rather 
 | `proxmox_vm_found_mac` | that config | the VM's own NIC MAC, `""` if unreadable |
 | `proxmox_vm_found_node` | `proxmox_vm_lookup`, else `proxmox_vm_node` | where every call about an existing VM goes |
 | `proxmox_vm_reported_address` | `proxmox_vm_net` + the MAC | the agent's IPv4 for that NIC |
-| `proxmox_vm_found_tags` | `proxmox_vm_lookup` | tags as a list, lowercased, `;`/`,` both handled |
+| `proxmox_vm_found_tags` | `proxmox_vm_lookup` | tags as a list, lowercased, `;`/`,` both handled (`proxmox_tags`) |
 | `proxmox_vm_sent_tags` | `proxmox_vm_tags` | the same list lowercased, as Proxmox stores it |
 | `proxmox_vm_unfinished_tag` | `proxmox_vm_sent_tags[0]` | `claude-on-proxmox-unfinished`, carried from the settings call until the start succeeds |
 | `proxmox_vm_needs_configuration` | existence + the lookup's `ciuser` and tags + `force_update` | see [§8](convergence.md) |
