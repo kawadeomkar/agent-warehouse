@@ -10,84 +10,58 @@ this repository's Security tab, not in a public issue. You should get an acknowl
 ## Scope
 
 This project provisions a VM and installs software on it, so the interesting surface is what it trusts and
-what it stores:
+what it stores. How each part below is enforced is the
+[security model](docs/architecture/security-model.md):
 
-- **The custom module** `roles/github_projects/library/github_repos.py`, which handles a GitHub token.
+- **The custom modules**: `roles/github_projects/library/github_repos.py`, which handles a GitHub token, and
+  the five in `playbooks/library/` that `just code`, `just status` and `just destroy` run, on a VM or on this
+  machine - among them `claude_sessions_fetch`, which unpacks here the tar stream a VM sends.
 - **Supply chain**: the vendored apt signing keys in `roles/dev_tools/files/` and
   `roles/tailscale/files/`, and every other download a VM gets - the uv release, the Ubuntu cloud image,
   the Claude Code installer - each verified as [What the VM trusts](docs/guides/what-the-vm-trusts.md)
   says.
-- **Credential handling**: the Proxmox API token, GitHub token and Anthropic API key, which live in an
-  ansible-vault file and are marked `no_log`. Every task that hands the GitHub token on is `no_log` too,
-  which also keeps it out of the VM's journal (a module logs the arguments its spec does not mark
-  `no_log`, stdin included), and `tests/unit/test_github_auth.py` holds each to it and greps every run,
-  module arguments included, for every canned token; `github_repos` strips the token and masks the
-  stripped form as well. What `claude`, `gh` and `ssh` print on the VM, which its user controls, is
-  quoted in messages only through the `plain_text` filter, with every escape sequence and control
-  character removed; so are the warnings, deprecations and failure messages any module there returns,
-  which ansible-core prints as they are, and a dry run's diffs: the stdout callbacks print them through it
-  (`lib/claude_vm/text.py`'s `plain_summary`). NEXT STEPS takes its lines from the project's own
-  `set_stats` tasks only, and `just status` its report from its own play on this machine, since any
-  module's result can carry custom stats and facts. GitHub's device flow opens and shows GitHub's own
-  page, `https://github.com/login/device`, whatever gh printed: a page gh prints that
-  `github_projects_login_page_pattern` does not match is said to be another, and is neither opened nor
-  quoted - where a failure quotes gh's own lines, `<a page that is not GitHub's own>` stands in its place;
-  Claude's and Tailscale's pages likewise open only when they are their own. No page opens through a
-  `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
-  a command line. The GitHub token is also stored on the VM, by `gh`
-  (`~/.config/gh/hosts.yml`, mode 0600), so that `git` and `gh` there can push; a device-flow login
-  made on the VM stores its own token the same way. Either is readable by the VM user, and so by
-  Claude Code ([What the VM trusts](docs/guides/what-the-vm-trusts.md)). The Claude sign-in's one-time code
-  (`roles/claude_code/tasks/browser_login.yml`) is read at a `pause` under `no_log` and travels to the
-  VM on stdin into a 0600 named pipe only that `claude auth login` reads. With pipelining on, as
-  `ansible.cfg` sets it, it is never written to a file or a command line; with pipelining off - which
-  `ANSIBLE_KEEP_REMOTE_FILES=1`, Ansible's switch for debugging a module, forces - the module that
-  carries it is a file on the VM, and that switch keeps the file. `claude_code_login_code`, the way a
-  script supplies the code, belongs in a vars file passed as `-e @file`: `-e key=value` puts it on this
-  machine's command line for the whole run. `tests/unit/test_claude_login.py` holds both prompts and both
-  writers to `no_log` and greps whole runs for the code. The login it
-  produces is Claude Code's own `~/.claude/.credentials.json`, mode 0600, which the project never reads.
-  The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only: every login a
-  run sees on the VM's Tailscale - the key's, the web login's, one made by hand - and every sign-in a run
-  starts there is recorded as a tag on the VM in Proxmox, which the VM cannot change, and a VM with that tag
-  is never sent the key again, so a VM's root cannot log the node out to be handed the fleet's key. A login
-  no run has seen, made by hand and logged out before the next run, leaves no record. It goes to the
-  VM the same way: `tailscale up --auth-key=file:/dev/stdin`, the key as the `command` module's stdin
-  under `no_log`, so it is on no command line and in no file, and never stored on the VM - tailscaled
-  keeps the node's own keys, not the auth key. `tests/unit/test_tailscale.py` holds that task to be the
-  only one that renders the key, and greps every run, module arguments included, and every file, for every
-  canned key; the role's Molecule scenario searches the VM for it after the join.
-  The Tailscale API credential that deletes a VM's device (`vault_tailscale_api_token`, or
-  `vault_tailscale_oauth_client_id` and `_secret`) is used only on this machine, in `uri` calls under
-  `no_log`, and never reaches a VM. When `just destroy` releases a VM, gh signs out there and no GitHub
-  token is revoked: revoking one GitHub CLI token through GitHub's credential revocation endpoint ended
-  every GitHub CLI sign-in of the account, the controller's included, so the report says where to revoke
-  it. `tests/unit/test_release.py` holds that nothing reaches that endpoint, and greps the release's whole
-  output, module arguments included, for every canned credential.
+- **Credential handling**: the Proxmox API token, the GitHub token, the Anthropic API key and the Tailscale
+  auth key and API credential, which live in an ansible-vault file, and the Claude sign-in's one-time code.
+  Every task that renders one is `no_log`, none is put on a command line or in a file, and the tests grep
+  every run for canned ones
+  ([The credentials a run handles](docs/architecture/security-model.md#the-credentials-a-run-handles)). What
+  `claude`, `gh` and `ssh` print on the VM, which its user controls, reaches this machine only stripped of
+  escape sequences and control characters, and a sign-in page opens here only when it is the service's own
+  ([What a VM says, quoted here](docs/architecture/security-model.md#what-a-vm-says-quoted-here)). Beyond
+  that:
+
+    - The GitHub token is also stored on the VM, by `gh` (`~/.config/gh/hosts.yml`, mode 0600), so that `git`
+      and `gh` there can push, and a device-flow login made on the VM stores its own token the same way.
+      Either is readable by the VM user, and so by Claude Code
+      ([What the VM trusts](docs/guides/what-the-vm-trusts.md)).
+    - A run with `ANSIBLE_KEEP_REMOTE_FILES=1`, Ansible's switch for debugging a module, turns pipelining off
+      and keeps on the VM the file each module arrives in - the one that carries the Claude sign-in's code
+      among them. `claude_code_login_code`, the way a script supplies that code, belongs in a vars file passed
+      as `-e @file`: `-e key=value` puts it on this machine's command line for the whole run.
+    - The Tailscale auth key (`vault_tailscale_auth_key`) is used for a VM's first join only: every login a
+      run sees on the VM's Tailscale - the key's, the web login's, one made by hand - and every sign-in a run
+      starts there is recorded as a tag on the VM in Proxmox, which the VM cannot change, and a VM with that
+      tag is never sent the key again, so a VM's root cannot log the node out to be handed the fleet's key. A
+      login no run has seen, made by hand and logged out before the next run, leaves no record.
+    - When `just destroy` releases a VM, gh signs out there and no GitHub token is revoked: revoking one
+      GitHub CLI token through GitHub's credential revocation endpoint ended every GitHub CLI sign-in of the
+      account, the controller's included, so the report says where to revoke it, and nothing a VM reports
+      can get a token revoked.
+
 - **What the VM ends up trusting**: the SSH key material, the passwordless sudo rule and the docker group
   membership. Turned off, the rule goes with the one cloud-init writes and the groups that reach root
   without sudo, and sudo asks for `vault_vm_password`.
-- **What is written on the controller**: `~/.ssh/known_hosts`, the managed SSH config
-  `~/.ssh/claude-on-proxmox.conf` and the one `Include` line at the top of `~/.ssh/config`
-  (`playbooks/tasks/ssh_config.yml`). A bug there reaches every `ssh` on the user's machine. The VM's
-  address in it is what the VM's own guest agent reported, so the VM chooses it: the `guest_ipv4`
-  filter takes only a string that parses as one IPv4 address, and the task file refuses a name or
-  address that is not one plain word, since a newline in either would add a directive (`ProxyCommand`
-  runs on this machine). The VM's name is Proxmox's, chosen by whoever made it, and the managed file is
-  included ahead of everything in `~/.ssh/config`: a name ssh would take for another host (one it reads
-  as an address; a name of a host of the inventory, or the address it is reached at) gets no alias -
-  refused when named, left out of a fleet-wide refresh and said - and a name with a dot, as in
-  `github.com`, gets one only when the user names it, never from a fleet-wide refresh. A VM named after a host of the inventory is kept
-  out wherever a name becomes a host (`localhost`, or the Proxmox host's, which would hand the VM the
-  API token).
-  One more write is VS Code's own, at the project's request: when VS Code lacks the Remote - SSH
-  extension (`ms-vscode-remote.remote-ssh`), which `just code` needs to open a VM, `just code` and
-  `just deploy`'s window step run `code --install-extension` for it, and VS Code's CLI installs it from
-  VS Code's marketplace into VS Code's extensions folder; no other extension, and no VS Code setting.
-  Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log` output is hidden there
-  as on screen, but the files name hosts and addresses, so the directory is git-ignored, blocked by
-  `tests/check_no_local_files.sh`, created `0700`, and pruned after `LOG_RETENTION_DAYS`. A secret
-  that appears in a log is a `no_log` that is missing, and in scope.
+- **What is written on the controller**: the four things
+  [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
+  the managed SSH config `~/.ssh/claude-on-proxmox.conf` with one `Include` line at the top of `~/.ssh/config`,
+  the checkout's own folder outside it (`tools/env-run --data`), and VS Code's Remote - SSH extension, which
+  `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
+  extension or VS Code setting. A bug in the SSH config reaches every `ssh` on the user's machine, and the VM
+  chooses what goes in it: its address, which its own guest agent reports, and its name, which is Proxmox's;
+  that section says how each is held. Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log`
+  output is hidden there as on screen, but the files name hosts and addresses, so the directory is
+  git-ignored, blocked by `tests/check_no_local_files.sh`, created `0700`, and pruned after
+  `LOG_RETENTION_DAYS`. A secret that appears in a log is a `no_log` that is missing, and in scope.
 
 Findings in any of those are in scope, as is anything that would cause a secret to be written to a log or
 the repository.
@@ -148,10 +122,10 @@ restate them are not treated as vulnerabilities:
   browser and Zed's port forwards use, and OpenSSH defaults to anyway; the VM user can forward ports, as a user with passwordless sudo always could.
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
   root-equivalent and runs an AI agent.
-- In VS Code, `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside it, when the window opens
-  (`editor_claude_terminal`, on by default). The file is written by this project beside the
-  repositories, never in one, and what its tasks run is fixed: VS Code's helpers, files of
-  `playbooks/files/` that `just code` copies to the VM unchanged, everything variable an argument. VS Code still runs
+- In VS Code, `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside
+  it, when the window opens (`editor_claude_terminal`, on by default). The file is written by this project
+  beside the repositories, never in one, and what its tasks run is fixed
+  ([In the editor](docs/architecture/security-model.md#in-the-editor)). VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own
@@ -172,41 +146,35 @@ restate them are not treated as vulnerabilities:
   `false` keeps them here from then on, and leaves what is on the VM already - mirror and copies - for you
   to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
   it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
-  (`docs/guides/zed.md`).
-- `just code` refuses to write in its own directory on the VM where that directory is inside a checkout of the
-  projects directory - a `.git` in any folder from the first below the projects directory down to it, by the path
-  as written - for every editor. It looks nowhere else: not outside the projects directory, where
-  `editor_files_dir` may point, not in a projects directory that is itself a checkout, and not where a symlink on
-  the way leads. Keep `editor_files_dir` out of every repository.
-- With `editor: zed`, `just code` runs `zed ssh://<alias><folder>` and writes two files for Zed, in its own
-  directory on the VM and only where that is inside the projects directory - `.zed/tasks.json`, a
-  **Claude (just code)** task of fixed text with no tag, and the helper it runs, `helpers/claude-start.sh` - and no
-  Zed setting, keymap, task or trust of yours: no task starts on its own, and you start that one, or `claude` in
-  Zed's terminal, which is the VM's. The tasks file starts with just code's marker line, and one there without it
-  is left as it is, and said. The helper starts a fresh `claude` where one of a terminal already has the folder
-  open, never a second on its conversation. Zed lists a folder's tasks in Restricted Mode too (seen on Zed
-  1.26.2), your repositories' own beside it. The project binds no key and publishes no tag, which any repository
-  could put on a task of its own; the key `docs/guides/zed.md` shows is yours, with a tag of yours, and reaches
-  every window. Trusting the projects directory's window trusts every checkout in it, so do not trust it for the
-  Claude task alone. It
-  runs only a `zeditor` or `zed` that says it is Zed when asked its version, so ZFS's event daemon, also
-  named `zed`, is never handed the VM. Zed's Agent Panel runs its Claude Agent on the VM as well: Zed's
-  remote server installs it there and starts it as the VM's user, with the VM's `~/.claude` and claude.ai
-  login, so its tools have the VM's files in reach and not this machine's (seen on Zed 1.26.2; Zed's
-  documentation does not say). Its Claude Code is the one its npm package bundles, at the version Zed's
-  registry installs, not the one `just deploy` keeps current. Zed's remote server, in the VM's
-  `~/.zed_server`, and that agent, in `~/.local/share/zed/`, are the VM user's to replace, as VS Code
-  Server's is.
-  `just code` copies nothing back, the copy's own tasks print nothing a transcript holds, and a session
-  continued on the VM is never overwritten. `--session <id>` moves the VM's checkout of that session's
-  repository to the commit it is pushed at, by fast-forward only: never over changes of the VM's own, an
-  ignored file the commit would replace, or commits a detached `HEAD` alone holds, and never while a
-  `claude` works in it. A VM chooses which of this machine's sessions it gets through the GitHub origins
-  of its checkouts, and only those: a local path or another host's URL there matches none. Here, though, a
-  checkout's origin counts by its owner and name whatever its host, so a VM whose checkout names
+  (`docs/guides/zed.md`). `just code` copies nothing back, the copy's own tasks print nothing a transcript
+  holds, and a session continued on the VM is never overwritten. A VM chooses which of this machine's
+  sessions it gets through the GitHub origins of its checkouts, and only those. Here, though, a checkout's
+  origin counts by its owner and name whatever its host, so a VM whose checkout names
   `github.com/team/internal` also gets the sessions of a checkout here of `team/internal` on GitLab or a
   server of your own, and a VM whose root is not yours can name every repository your GitHub token lists.
-  Claude Code's question whether to trust that folder is left for you to answer.
+  `--session <id>` moves the VM's checkout of that session's repository to the commit it is pushed at, by
+  fast-forward only: never over changes of the VM's own, an ignored file the commit would replace, or
+  commits a detached `HEAD` alone holds, and never while a `claude` works in it. Claude Code's question
+  whether to trust that folder is left for you to answer.
+- `just code` refuses to write its files inside a checkout of the projects directory, for every editor, but
+  looks nowhere else: not outside the projects directory, where `editor_files_dir` may point, not in a
+  projects directory that is itself a checkout, and not where a symlink on the way leads
+  ([In the editor](docs/architecture/security-model.md#in-the-editor)). Keep `editor_files_dir` out of every
+  repository.
+- With `editor: zed`, `just code` writes two files for Zed in its own directory on the VM - a
+  **Claude (just code)** task of fixed text with no tag, and the helper it runs - and no Zed setting, keymap,
+  task or trust of yours; no task starts on its own, and you start that one, or `claude` in Zed's terminal,
+  which is the VM's ([In the editor](docs/architecture/security-model.md#in-the-editor)). Zed lists a folder's
+  tasks in Restricted Mode too (seen on Zed 1.26.2), your repositories' own beside it, and trusting the
+  projects directory's window trusts every checkout in it, so do not trust it for the Claude task alone. The
+  project binds no key and publishes no tag, which any repository could put on a task of its own; the key
+  `docs/guides/zed.md` shows is yours, with a tag of yours, and reaches every window. Zed's Agent Panel runs
+  its Claude Agent on the VM as well, as the VM's user, with the VM's `~/.claude` and claude.ai login, so its
+  tools have the VM's files in reach and not this machine's (seen on Zed 1.26.2; Zed's documentation does not
+  say). Its Claude Code is the one its npm package bundles, at the version Zed's registry installs, not the one
+  `just deploy` keeps current. Zed's remote server, in the VM's `~/.zed_server`, and that agent, in
+  `~/.local/share/zed/`, are the VM user's to replace, as VS Code Server's is
+  ([What Zed decides](docs/guides/zed.md#what-zed-decides)).
 - `just destroy` saves the Claude Code sessions and auto memory that exist only on a VM into
   `.sessions/` in your checkout before deleting it (`destroy_save_sessions`, on by default): plaintext
   transcripts holding whatever their tools printed, in 0600 files and 0700 folders readable by you alone,
@@ -246,9 +214,8 @@ restate them are not treated as vulnerabilities:
   what the VM reports - and the VM runs an agent with sudo. The Tailscale node ID the device is deleted by
   is the VM's to report, and the API credential can delete any device in the tailnet, so the device is
   looked up first and deleted only when its name is the one this project asked the VM to join as
-  (`tailscale_hostname`, or that name with Tailscale's `-<n>`); anything else is said, not deleted. No
-  GitHub token is revoked, so nothing the VM reports can get one revoked. A VM whose address was recycled
-  since is released wherever that address
+  (`tailscale_hostname`, or that name with Tailscale's `-<n>`); anything else is said, not deleted. A VM
+  whose address was recycled since is released wherever that address
   now answers - an SSH host key it does not hold fails the connection first, and nothing is sent to it but
   the release's own commands.
 - **The Claude sign-in's forward.** While Claude's browser sign-in waits, one port on this machine's
@@ -265,13 +232,12 @@ restate them are not treated as vulnerabilities:
   request from Claude's site to `localhost`, carries the browser's `localhost` cookies that are not
   `SameSite=Strict` and whose `Path` matches `/callback`, whichever local web app set them on whichever
   port, to whatever listens on the VM's port - claude, or anything the VM's root puts there; the project
-  cannot strip them, because Claude Code fixes the `localhost` redirect. To tell a stopped run gone, each
-  attempt records on the VM which run waits for it: this machine's name, this start of it (Linux's boot
-  ID, or when PID 1 started) and the run's pid and start. The VM can read that record and write anything
-  over it, so it is read back as untrusted: only a host name and a pid are ever quoted from it, the check
-  is a read of this machine's process table, and what it decides is only whether the VM's own processes of
-  that attempt are ended. The page opens here only when it is Claude's own sign-in page; the
-  recycled-address trade-off above applies to it as to the code it replaces.
+  cannot strip them, because Claude Code fixes the `localhost` redirect. A run stopped while it waits
+  leaves on the VM a record of which run it was, which the VM can read and write anything over: the next
+  sign-in reads it back as untrusted, quotes only a host name and a pid from it, and decides from it only
+  whether that attempt's own processes on the VM are ended
+  ([The browser sign-in](docs/architecture/roles.md#the-browser-sign-in)). The page opens here only when it is
+  Claude's own sign-in page; the recycled-address trade-off above applies to it as to the code it replaces.
 - **A pending web login.** While Tailscale's web login waits for an approval, its page is readable by
   every local user on the VM (`tailscale status --json`), and whoever approves it first decides which
   tailnet the VM joins. Each report names the tailnet joined, so one that is not yours shows; the key path
