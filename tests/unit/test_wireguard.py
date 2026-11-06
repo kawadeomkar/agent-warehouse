@@ -278,18 +278,24 @@ def test_proxmox_vm_keeps_the_wireguard_address_whenever_it_replaces_a_vm_s_tags
     assert Templar(loader=DataLoader(), variables=variables).template(variables["proxmox_vm_kept_tags"]) == kept
 
 
-def test_under_tunnel_reach_the_vm_answers_from_its_tunnel_address_through_the_tunnel():
+def test_the_vm_answers_from_its_tunnel_address_through_the_tunnel_and_from_its_lan_address_on_the_lan():
+    # No prefix route in the main table: a reply to a device of the tunnel's that reached the VM at its LAN address
+    # would go into the tunnel from an address the hub's peer for the VM does not hold, and be dropped. What reached
+    # the tunnel address goes back through a rule and a table, in both reaches: the hub's network under lan, every
+    # address under tunnel (the plan's AllowedIPs, which the core holds to the reach).
     (network,) = [
         task
         for task in _tasks(ROLE / "tasks" / "configure.yml")
         if task.get("name") == "configure | Write the link's network"
     ]
     text = network["ansible.builtin.copy"]["content"]
-    rule = text.index("[RoutingPolicyRule]")
-    assert text.index("{% if wireguard_tunnel.reach | default('lan') == 'tunnel' %}") < rule < text.index("{% endif %}")
-    assert "From={{ wireguard_tunnel.address | split('/') | first }}/32" in text
-    assert text.count("Table={{ wireguard_route_table }}") == 2 and "Destination=0.0.0.0/0" in text
-    assert VARS["wireguard_route_table"] not in (253, 254, 255)  # default, main, local
+    assert "[Network]" not in text and "{% if" not in text
+    assert "[Address]\nAddress={{ wireguard_tunnel.address }}" in text and "AddPrefixRoute=no" in text
+    assert "[RoutingPolicyRule]\nFrom={{ wireguard_tunnel.address | split('/') | first }}/32" in text
+    assert "[Route]\nDestination={{ wireguard_tunnel.allowed_ips | first }}" in text
+    assert text.count("Table={{ wireguard_route_table }}") == 2
+    # Not wg-quick's table, which a full tunnel of the user's own takes, nor Tailscale's, nor the kernel's own.
+    assert VARS["wireguard_route_table"] not in (51820, 52, 253, 254, 255)
 
 
 def test_every_alias_writer_uses_the_tunnel_address_under_tunnel_reach():

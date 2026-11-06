@@ -43,7 +43,7 @@ Set in `roles/wireguard/vars/main.yml`. These are not settings: Ansible ranks a 
 | `wireguard_key_path` |  | `/etc/systemd/network/claude-wg.key` |
 | `wireguard_netdev_path` |  | `/etc/systemd/network/50-claude-wg.netdev` |
 | `wireguard_network_path` |  | `/etc/systemd/network/50-claude-wg.network` |
-| `wireguard_route_table` | The routing table the VM answers from its tunnel address through, under vpn_reach: tunnel, and the rule's priority, ahead of the main table's. | `51820` |
+| `wireguard_route_table` | The routing table the VM answers from its tunnel address through, and the rule's priority, ahead of the main table's. | `51920` |
 | `wireguard_rule_priority` |  | `10000` |
 | `wireguard_marker_installed` | What the marker says, written before the role's first change on a VM: whether the role installed wireguard-tools there, so off removes the package only then. | `installed wireguard-tools` |
 | `wireguard_marker_found` |  | `found wireguard-tools` |

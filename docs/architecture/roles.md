@@ -894,12 +894,14 @@ controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`
   `hostvars`.
 - **The link** (`main`, in the play after the plan). Two files of systemd-networkd's, every value the plan's, held
   by the core to its rules: the hub its one peer, its endpoint and the networks routed to it (`AllowedIPs`, the
-  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, whose prefix route is
-  the one route needed, since networkd makes none for `AllowedIPs`. networkd applies a netdev only when it makes
-  the link, so a changed one deletes the link first, and the reload makes it again; a changed network alone is
-  reconfigured. An endpoint name is looked up once, when the link is made. Under `vpn_reach: tunnel` the network file adds a
-  `[RoutingPolicyRule]` from the VM's tunnel address to a table of its own (`wireguard_route_table`) whose one
-  route is the link, so what reached the VM there is answered there.
+  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, with no prefix route
+  in the main table (`AddPrefixRoute=no`), but a `[RoutingPolicyRule]` from that address to a table of its own
+  (`wireguard_route_table`, never wg-quick's 51820) whose one route is the link - to the hub's network, or under
+  `vpn_reach: tunnel` to every address - so what reached the VM at its tunnel address is answered there, and a reply
+  from its LAN address leaves on the LAN where its request came in: in the tunnel it would carry an address the
+  hub's peer for the VM does not hold, and the hub would drop it. networkd makes no route for `AllowedIPs`, and
+  applies a netdev only when it makes the link, so a changed one deletes the link first, and the reload makes it
+  again; a changed network alone is reconfigured. An endpoint name is looked up once, when the link is made.
 - **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
   removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
 - **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the

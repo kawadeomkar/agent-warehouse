@@ -2,9 +2,12 @@
 # The link, claude-wg, as two files of systemd-networkd's beside the key: the
 # hub its one peer, the networks routed into it, the keepalive that keeps a hub
 # on the internet able to reach a VM behind NAT; and the VM's address on the
-# tunnel, whose prefix route is the one route needed - and, under vpn_reach:
-# tunnel, a rule and a table that answer from that address through the
-# tunnel (docs/guides/wireguard.md). Every value is the plan's,
+# tunnel, with no prefix route in the main table - a reply to a device of the
+# tunnel's that reached the VM at its LAN address leaves on the LAN, where it
+# came in, never into the tunnel, whose hub drops it as from an address the
+# VM's peer does not hold - but a rule and a table that answer what reached
+# that address back through the tunnel: the hub's network under vpn_reach:
+# lan, every address under tunnel (docs/guides/wireguard.md). Every value is the plan's,
 # held by the core to its rules (lib/claude_vm/vpn/registry.py): the hub's key
 # is base64, its endpoint a name or an address and a port, every address one
 # Python parsed. networkd adds no route for AllowedIPs (its RouteTable= is off)
@@ -47,21 +50,21 @@
       [Match]
       Name={{ wireguard_link }}
 
-      [Network]
+      [Address]
       Address={{ wireguard_tunnel.address }}
-      {% if wireguard_tunnel.reach | default('lan') == 'tunnel' %}
+      # No route to the tunnel network in the main table: what the VM sends from its LAN address leaves on the LAN.
+      AddPrefixRoute=no
 
-      # vpn_reach: tunnel - what reached the VM at its tunnel address is answered back through the tunnel, from
-      # wherever it came: the LAN's devices too, whose replies would otherwise leave on the LAN, off the tunnel.
+      # What reached the VM at its tunnel address is answered back through the tunnel: the hub's network, or under
+      # vpn_reach: tunnel every address, the LAN's devices too, whose replies would otherwise leave off the tunnel.
       [RoutingPolicyRule]
       From={{ wireguard_tunnel.address | split('/') | first }}/32
       Table={{ wireguard_route_table }}
       Priority={{ wireguard_rule_priority }}
 
       [Route]
-      Destination=0.0.0.0/0
+      Destination={{ wireguard_tunnel.allowed_ips | first }}
       Table={{ wireguard_route_table }}
-      {% endif %}
     owner: root
     group: systemd-network
     mode: "0644"

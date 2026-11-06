@@ -77,8 +77,8 @@ network, when your server is the router or the router routes that network to it.
 At home, the request then comes from your laptop's LAN address, and the VM would answer it from its tunnel address
 straight over the LAN, which your router's firewall drops as half a connection. So under `tunnel` the VM answers
 whatever reached it at its tunnel address back through the tunnel: a rule of its own (`From=<its tunnel
-address>/32`), a table whose one route is the tunnel, and the server its peer for every address. Its own traffic,
-from its LAN address, still leaves on its LAN.
+address>/32`), a table whose one route is the tunnel, and the server its peer for every address. What it sends from
+its LAN address, and its replies to whatever reached it there, still leave on its LAN.
 
 A VM's alias moves to its tunnel address only once the VM has reached your server there: until then the address
 leads nowhere, and `ssh alpha` and your editor would fail. Proxmox records it beside the address
@@ -145,9 +145,15 @@ its first change; the key `/etc/systemd/network/claude-wg.key`; the files `50-cl
 `50-claude-wg.network` beside it; the link `claude-wg`; and `wireguard-tools`, when it installed it. A WireGuard of
 your own on the VM - `wg0`, `/etc/wireguard` - is never touched.
 
-The link's peer is your server, and its `AllowedIPs` the tunnel network: the VM routes your devices' addresses into
-the tunnel, and its own traffic stays on its LAN. The keepalive (`wireguard_keepalive`, 25 seconds) keeps a server
-on the internet able to reach a VM behind NAT.
+The link's peer is your server, and its `AllowedIPs` the tunnel network. The VM answers through the tunnel only
+what reached it at its tunnel address; everything else - what it sends itself, and its replies to a device that
+reached it at its LAN address, a laptop away from home whose tunnel also routes your LAN among them - leaves on its
+LAN, as it did before it joined. The keepalive (`wireguard_keepalive`, 25 seconds) keeps a server on the internet
+able to reach a VM behind NAT.
+
+systemd-networkd, which the role has read its files again, may remove routing rules it did not make
+(`ManageForeignRoutingPolicyRules=`, on by default): a VPN of your own on the VM that adds rules - a full tunnel of
+wg-quick's, a Tailscale - wants `ManageForeignRoutingPolicyRules=no` in `/etc/systemd/networkd.conf`.
 
 An endpoint given as a name is looked up once, when the link is made: a server whose address changes - a home
 router's dynamic DNS - is reached again after `just deploy <vm> --only configure --tags wireguard`. On the VMs' own

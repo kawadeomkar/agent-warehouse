@@ -8,8 +8,10 @@ wireguard_key_path: /etc/systemd/network/claude-wg.key
 wireguard_netdev_path: /etc/systemd/network/50-claude-wg.netdev
 wireguard_network_path: /etc/systemd/network/50-claude-wg.network
 # Internal: the routing table the VM answers from its tunnel address through,
-# under vpn_reach: tunnel, and the rule's priority, ahead of the main table's.
-wireguard_route_table: 51820
+# and the rule's priority, ahead of the main table's. Never 51820, the table a
+# full tunnel of wg-quick's takes - one of the user's own on the VM - nor 52,
+# Tailscale's.
+wireguard_route_table: 51920
 wireguard_rule_priority: 10000
 
 # Internal: what the marker says, written before the role's first change on a

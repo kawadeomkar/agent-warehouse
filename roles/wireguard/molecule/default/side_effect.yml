@@ -75,6 +75,25 @@
       retries: 40
       delay: 1
 
+    # The routes the network file makes: none to the tunnel network in the main
+    # table, and the tunnel address's own rule and table.
+    - name: Read the VM's routing
+      ansible.builtin.command:
+        argv: [sh, -c, 'ip -4 route show table main; echo ---; ip -4 rule show; echo ---; ip -4 route show table 51920']
+      register: wireguard_molecule_routes
+      changed_when: false
+
+    - name: Check what the VM sends from its LAN address stays off the tunnel
+      vars:
+        wireguard_molecule_parts: "{{ wireguard_molecule_routes.stdout.split('---') }}"
+      ansible.builtin.assert:
+        that:
+          - "'dev claude-wg' not in wireguard_molecule_parts[0]"
+          - "'from 198.51.100.130 lookup 51920' in wireguard_molecule_parts[1]"
+          - "'198.51.100.0/24 dev claude-wg' in wireguard_molecule_parts[2]"
+        fail_msg: "{{ wireguard_molecule_routes.stdout }}"
+        quiet: true
+
     - name: Make a WireGuard link of the user's own
       ansible.builtin.command:
         argv: [ip, link, add, wg0, type, wireguard]
