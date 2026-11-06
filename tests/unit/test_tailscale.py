@@ -47,6 +47,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -56,6 +57,7 @@ from ansible.template import Templar, trust_as_template
 from harness import (
     GETENT,
     GUARDED_TOOLS,
+    JUST,
     TAILSCALE_CALLS,
     _deploy_import,
     _env,
@@ -1688,8 +1690,10 @@ def test_the_vagrantfile_keeps_tailscale_off_the_network():
 def test_every_role_scenario_is_in_the_justfile_and_ci():
     # Both lists are written by hand: a role left out of them is never tested.
     with_scenarios = {path.parent.parent.name for path in (REPO / "roles").glob("*/molecule/default")}
-    justfile = (REPO / "justfile").read_text()
-    roles = set(re.search(r"^scenario_roles := '(.*)'$", justfile, flags=re.M).group(1).split())
+    evaluated = subprocess.run(
+        [JUST, "--evaluate", "scenario_roles"], cwd=REPO, capture_output=True, text=True, check=True
+    )
+    roles = set(evaluated.stdout.split())
     ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
     matrix = set(ci["jobs"]["molecule"]["strategy"]["matrix"]["role"])
     assert with_scenarios == roles == matrix, (with_scenarios, roles, matrix)

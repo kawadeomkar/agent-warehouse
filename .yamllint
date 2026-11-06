@@ -1,14 +1,10 @@
 ---
 extends: default
 
-ignore: |
-  # Encrypted by ansible-vault (just vault), so no longer YAML.
-  inventory/group_vars/all/vault.yml
-  .venv/
-  .ansible/
-  .cache/
-  .vagrant/
-  collections/
+# Nothing git ignores: the vault, which ansible-vault encrypts (just vault),
+# so it is no longer YAML, the environments and caches - and your own
+# local.yml and hosts.yml, which CI never sees either.
+ignore-from-file: .gitignore
 
 rules:
   line-length:

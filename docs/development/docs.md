@@ -86,9 +86,10 @@ build - so the pages would build with another generator unchanged.
 ## Publishing
 
 `.github/workflows/docs.yml` builds the site strictly and deploys it to GitHub Pages whenever a push
-to `main` changes `docs/`, `zensical.toml`, `pyproject.toml` or `uv.lock`, and on demand from the Actions
-tab. It installs only the `docs` group, at the versions `uv.lock` locks, so the published site is the
-one the tests build. Pull requests need no job of their own: `just test unit` builds the site and compares it
+to `main` changes `docs/`, `zensical.toml`, `pyproject.toml`, `uv.lock` or the setup action, and on demand from
+the Actions tab. It takes Python and uv from `.github/actions/setup`, as every CI job does, without the rest of the
+toolchain (`install: "false"`), and installs only the `docs` group, at the versions `uv.lock` locks, so the
+published site is the one the tests build. Pull requests need no job of their own: `just test unit` builds the site and compares it
 with GitHub's rendering already. The repository's Pages source must be set to GitHub Actions (Settings →
 Pages) for the deploy to run.
 

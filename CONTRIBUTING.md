@@ -123,7 +123,8 @@ secret gets a canned value and a place in those searches.
 2. A Molecule scenario at `roles/<name>/molecule/default/` - it inherits the driver and the provisioner's
    settings from `.config/molecule/config.yml`, and names its own platform, copied from another role's
    `molecule.yml` with the container named after the role: Molecule replaces a list rather than merging it.
-3. Add the role to `scenario_roles` in the `justfile` and to the matrix in `.github/workflows/ci.yml`. The one
+3. Add the role to the `justfile` - to `configure_roles` when `configure.yml` runs it, which `scenario_roles`
+   takes in, and otherwise to `scenario_roles` itself - and to the matrix in `.github/workflows/ci.yml`. The one
    required check is `CI result`, which needs every job, so a job added or renamed changes no setting
    ([CI](docs/architecture/ci.md)).
 4. Add it to the role table in `docs/reference/roles/README.md` and to the `nav` in `zensical.toml`,

@@ -50,6 +50,8 @@ from harness import GIT_ENV, _default_signals, _version, just_settings, load_mod
 from harness import just_json as _json
 from harness import public_recipes as _public
 
+from claude_vm import wiring
+
 REPO = Path(__file__).resolve().parents[2]
 JUSTFILE = REPO / "justfile"
 JUST = shutil.which("just")
@@ -2249,18 +2251,6 @@ def _molecule(tmp_path: Path) -> dict[str, list]:
     }
 
 
-SCENARIO_ROLES = [
-    "common",
-    "vscode_server",
-    "dev_tools",
-    "claude_code",
-    "github_projects",
-    "tailscale",
-    "proxmox_template",
-    "proxmox_vm",
-]
-
-
 @pytest.mark.parametrize(
     ("args", "runs"),
     [
@@ -2308,7 +2298,7 @@ def test_a_part_that_fails_fails_test(tmp_path: Path, args: list[str], tool: str
 def test_every_role_scenario_runs_one_after_another(tmp_path: Path) -> None:
     result = _just("test", "role", settings=_testing(tmp_path))
     assert result.returncode == 0, _output(result)
-    assert _molecule(tmp_path)["role"] == SCENARIO_ROLES == _evaluate("scenario_roles").split()
+    assert _molecule(tmp_path)["role"] == _evaluate("scenario_roles").split()
 
 
 @pytest.mark.parametrize(
@@ -2507,24 +2497,26 @@ def test_a_setting_under_a_name_1_1_gave_a_new_one_is_still_read_and_said(tmp_pa
     assert "is still read" not in result.stderr
 
 
-def test_the_names_1_1_gave_anew_are_the_pairs_the_inventory_defaults_feed() -> None:
-    # tools/check names them by hand; tools/settings finds them in defaults.yml, each new name a default that is the
-    # old one's value and nothing else: the two lists are one.
-    check = (REPO / "tools" / "check").read_text()
-    listed = dict(re.findall(r'^    "(vscode_[a-z_]+)": "([a-z_]+)",$', check[check.index("NAMED_ANEW = {") :], re.M))
-    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    # Neither a role's variable, which the wiring feeds from a setting (vscode_server_enabled from vscode_remote).
-    roles = tuple(f"{role.name}_" for role in (REPO / "roles").iterdir() if role.is_dir())
-    fed = {
-        match.group(1): name
-        for name, value in defaults.items()
-        if isinstance(value, str)
-        and (match := re.fullmatch(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}", value))
-        and match.group(1) in defaults
-        and not name.startswith(roles)
-        and not match.group(1).startswith(roles)
-    }
-    assert listed == fed and len(listed) == 4, (listed, fed)
+def test_the_check_tells_of_every_name_1_1_gave_anew_as_just_settings_finds_them(tmp_path: Path) -> None:
+    # tools/check finds them in defaults.yml alone, by the role prefix, since it runs before every recipe and imports
+    # neither Ansible nor claude_vm; just settings finds them through the roles' argument_specs. The two are one list:
+    # a local.yml that sets every old name is told of each, by its new name, and of nothing else.
+    defaults, _feeds = wiring.wiring()
+    pairs = wiring.named_anew(defaults, wiring.specs())
+    assert len(pairs) == 4, pairs
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (tmp_path / "bin" / "python").chmod(0o755)
+    (tmp_path / "local.yml").write_text("".join(f"{old}: false\n" for old in pairs))
+    result = subprocess.run(
+        [str(REPO / "tools" / "check"), "settings", str(tmp_path / "bin"), str(tmp_path / "local.yml")],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    told = dict(re.findall(r"^warning: \S+ sets (\w+), which 1\.1 calls (\w+): it is still read", result.stderr, re.M))
+    assert result.returncode == 0 and told == pairs, result.stderr
 
 
 def test_every_recipe_that_reads_the_settings_checks_them_for_a_renamed_name() -> None:

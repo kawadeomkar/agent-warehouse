@@ -6,7 +6,7 @@
 | Job | Contents |
 |---|---|
 | `lint` | tracked-file guard → `just lint` (the linters, `--syntax-check`, then the pre-commit hooks they do not cover: private-key detection, the large-file check and the whitespace hooks) → gitleaks in `dir` mode → gitleaks in `git` mode over the commits the push or pull request brings in (full clone, `fetch-depth: 0`) |
-| `unit` | `Unit tests (1/4)` … `(4/4)`: `just test unit --shard <n>/4`, four workers each (`PYTEST_XDIST_AUTO_NUM_WORKERS`, so it never depends on psutil). Each module that shares a fixture stays whole in one shard; the shards are balanced by `tests/unit/durations.json` (`tools/unit_durations.py` writes it from a run's JUnit report), a test it lacks counting as the mean. 8.2–8.6 minutes for the slowest of four shards on hosted runners (three runs, 2026-11; 8.4–9.8 with three), against 44 for the whole suite one test at a time |
+| `unit` | `Unit tests (1/4)` … `(4/4)`: `just test unit --shard <n>/4`, its 4 the matrix's size (`strategy.job-total`), four workers each (`PYTEST_XDIST_AUTO_NUM_WORKERS`, so it never depends on psutil). Each module that shares a fixture stays whole in one shard; the shards are balanced by `tests/unit/durations.json` (`tools/unit_durations.py` writes it from a run's JUnit report), a test it lacks counting as the mean. 8.2–8.6 minutes for the slowest of four shards on hosted runners (three runs, 2026-11; 8.4–9.8 with three), against 44 for the whole suite one test at a time |
 | `dependency-review` | PRs only, fails on moderate severity |
 | `molecule` | matrix over all eight roles, `just test --role <role>`, from the start of the run: behind `lint` a run took the unit suite's time plus the slowest scenario's |
 | `playbooks` | matrix over the `configure` and `provision` scenarios, `just test integration` and `provision`, from the start of the run too |
@@ -17,8 +17,10 @@
 `uv.lock` pins), making a virtualenv first on `PATH` (`activate-environment`), restoring the uv and Galaxy caches, and
 running `just install`, which installs into that virtualenv as into any of a user's. The Galaxy cache holds the
 checkout's own collections folder (`tools/env-run --collections`), and its key hashes
-`requirements.yml`, which is only correct because those versions are exact. Third-party actions are
-pinned to commit SHAs, and Dependabot updates them along with the uv lock every week. Each of its pull
+`requirements.yml`, which is only correct because those versions are exact. With `install: "false"` it stops
+after Python and uv: the docs workflow takes them from it, so their pins are written once. Third-party actions are
+pinned to commit SHAs, and Dependabot updates them along with the uv lock every week, the workflows' and the
+setup action's in one entry grouped by action, so an action used in both moves in both in one pull request. Each of its pull
 requests asks the repository's owner for a review through `.github/CODEOWNERS`, which names the files
 those updates change; `dependabot.yml` has no `reviewers` option any more. Locally, `pre-commit` runs the same linters from the
 virtualenv.

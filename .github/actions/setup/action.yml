@@ -5,6 +5,15 @@ description: >-
   `just install` so the job uses exactly the versions locked in uv.lock and pinned in
   requirements.yml.
 
+inputs:
+  install:
+    # docs.yml's: Python and uv as every other job has them, its pins written
+    # only here, and then only the docs group, which that job installs itself.
+    description: >-
+      "false" stops after Python and uv: no just, no Galaxy collections and no
+      `just install`.
+    default: "true"
+
 runs:
   using: composite
   steps:
@@ -33,6 +42,7 @@ runs:
     # minimum-version and just_pin too (tests/unit/test_justfile.py holds the
     # three to one), and moves by hand: docs/architecture/toolchain.md says how.
     - name: Install just
+      if: inputs.install == 'true'
       shell: bash
       env:
         JUST_VERSION: "1.59.0"
@@ -49,12 +59,14 @@ runs:
     # The checkout's own folder for its Galaxy collections, which just install
     # fills and every recipe reads (tools/env-run --collections).
     - name: Find the collections' folder
+      if: inputs.install == 'true'
       id: collections
       shell: bash
       run: echo "path=$(tools/env-run --collections)" >> "$GITHUB_OUTPUT"
     # ansible-galaxy skips collections that are already installed, so a cache
     # hit turns `just install` into a no-op for the Galaxy half.
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+      if: inputs.install == 'true'
       with:
         path: ${{ steps.collections.outputs.path }}
         # Correct only because requirements.yml pins exact versions. With
@@ -64,5 +76,6 @@ runs:
         key: galaxy-${{ runner.os }}-${{ hashFiles('requirements.yml') }}
 
     - name: Install tooling
+      if: inputs.install == 'true'
       run: just install
       shell: bash

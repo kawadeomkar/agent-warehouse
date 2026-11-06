@@ -21,7 +21,6 @@ paths = [
   '''(^|/)\.molecule/''',
   '''(^|/)\.ansible/''',
   '''(^|/)\.git/''',
-  '''(^|/)collections/ansible_collections/''',
   '''(^|/)__pycache__/''',
   '''(^|/)node_modules/''',
 ]

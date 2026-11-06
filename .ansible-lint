@@ -8,7 +8,6 @@ exclude_paths:
   - .cache/
   - .vagrant/
   - .github/
-  - collections/
   - tests/unit/
 
 # Roles in this repo are meant to be used from this repo, not published to Galaxy.

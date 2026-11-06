@@ -118,7 +118,7 @@ jobs:
   # tests/unit/durations.json; test_shards.py holds that they run every test
   # exactly once.
   unit:
-    name: Unit tests (${{ matrix.shard }}/4)
+    name: Unit tests (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -129,7 +129,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Unit tests
-        run: just test unit --shard ${{ matrix.shard }}/4
+        run: just test unit --shard ${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           # A worker per vCPU, said here: -n auto counts logical CPUs only while
           # psutil is not installed, and physical cores once it is - two here.

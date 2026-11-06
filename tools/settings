@@ -59,6 +59,8 @@ os.environ["ANSIBLE_INVENTORY_ENABLED"] = "yaml"
 REPO = Path(__file__).resolve().parent.parent
 LOCAL = "inventory/group_vars/all/local.yml"
 VAULT = "inventory/group_vars/all/vault.yml"
+LOCAL_EXAMPLE = REPO / f"{LOCAL}.example"
+VAULT_EXAMPLE = REPO / f"{VAULT}.example"
 # The lookups a value may run here: each reads, and none starts a program or writes a file.
 SAFE_LOOKUPS = frozenset(
     f"ansible.builtin.{name}" for name in ("env", "file", "config", "vars", "first_found", "fileglob")
@@ -71,15 +73,14 @@ WIDTH = 100
 # What --value refuses in a value: an expression, which Ansible would template - run, for a lookup - and a control
 # character or a line break, which no setting of one line holds.
 TEMPLATE = re.compile(r"\{\{|\{%|\{#")
-# A default that is another setting's value and nothing else, as a setting's name from 1.1 is fed its name from 1.0
-# (editor_claude_terminal: "{{ vscode_claude_terminal }}"): it takes that setting's type.
-ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$")
+EXPRESSION_REFUSED = (
+    "--value takes a value, never an expression ({{ }}, {% %} or {# #}), which Ansible would template: "
+    f"to write one, edit {LOCAL}"
+)
 # A setting that names one entry of an internal list of the inventory defaults takes that list's names as its
 # choices: the editor setting, one of claude_editors (what just code has files for).
 CHOICES_FROM = {"editor": "claude_editors"}
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
-# The roles configure.yml runs, which just deploy --only configure --tags <role> applies.
-CONFIGURED = ("common", "vscode_server", "dev_tools", "claude_code", "github_projects", "tailscale")
 # What each type takes, as a refusal says it.
 TAKES = {
     "bool": "true or false (yes or no, on or off)",
@@ -197,13 +198,18 @@ def _plays(path: Path) -> list[dict]:
     return [item for item in yaml.safe_load(path.read_text()) or [] if isinstance(item, dict)]
 
 
+def _tasks(tasks):
+    """Every task in tasks, and in its blocks' block, rescue and always, all the way down."""
+    for task in tasks or []:
+        if isinstance(task, dict):
+            yield task
+            for key in ("block", "rescue", "always"):
+                yield from _tasks(task.get(key))
+
+
 def _role_runs(tasks):
     """(role, vars, tasks_from) of each import_role and include_role in tasks, blocks included."""
-    for task in tasks or []:
-        if not isinstance(task, dict):
-            continue
-        for key in ("block", "rescue", "always"):
-            yield from _role_runs(task.get(key))
+    for task in _tasks(tasks):
         for module in ("ansible.builtin.import_role", "ansible.builtin.include_role"):
             if module in task:
                 given = task[module] or {}
@@ -226,12 +232,13 @@ def _runs(play: dict):
 
 def _added(tasks):
     """The arguments of each add_host in tasks, blocks included."""
-    for task in tasks or []:
-        if isinstance(task, dict):
-            for key in ("block", "rescue", "always"):
-                yield from _added(task.get(key))
-            if "ansible.builtin.add_host" in task:
-                yield task["ansible.builtin.add_host"] or {}
+    return (task["ansible.builtin.add_host"] or {} for task in _tasks(tasks) if "ansible.builtin.add_host" in task)
+
+
+def configured_roles() -> set[str]:
+    """The roles configure.yml runs, which just deploy --only configure --tags <role> applies: its roles:, and the
+    one its tasks import."""
+    return {role for play in _plays(REPO / "playbooks" / "configure.yml") for role, _vars, _from in _runs(play) if role}
 
 
 def playbooks() -> list[Path]:
@@ -271,8 +278,8 @@ def _justfile() -> dict[str, str]:
 def _how(expression) -> str:
     """What a run sets a variable from, as the report says it."""
     if isinstance(expression, str) and "{{" in expression:
-        same = re.fullmatch(r"\{\{\s*(\w+)\s*\}\}", expression.strip())
-        return f"from {same.group(1)}" if same else "per run"
+        same = wiring.alias_of(expression.strip())
+        return f"from {same}" if same else "per run"
     return f"to {json.dumps(expression)}"
 
 
@@ -368,13 +375,11 @@ class Settings:
         self.project = self._read(inventory / "group_vars" / "all" / "defaults.yml")
         self.host_vars = inventory / "host_vars"
         self.variables = VariableManager(loader=self.loader, inventory=self.inventory)
-        self.example_vault = yaml.safe_load((REPO / VAULT).with_suffix(".yml.example").read_text()) or {}
-        self.example_settings = {
-            name
-            for _title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
-            for _prose, found in groups
-            for name, _example in found
-        }
+        self.example_vault = yaml.safe_load(VAULT_EXAMPLE.read_text()) or {}
+        # Each example's settings, by section: (title, [(prose, [(name, example)])]).
+        self.local_sections = wiring.parse_example(LOCAL_EXAMPLE, secret=False)
+        self.vault_sections = wiring.parse_example(VAULT_EXAMPLE, secret=True)
+        self.example_settings = {name for name, _section in self._listed(self.local_sections)}
         self.where = where_roles_run()
         self.run_sets = run_sets()
         self.contexts: dict[str, dict] = {}
@@ -390,6 +395,11 @@ class Settings:
             and not self.placeholder(name, value)
         }
 
+    @staticmethod
+    def _listed(sections) -> list[tuple[str, str]]:
+        """(name, section title) of each setting an example's sections list, in the example's order."""
+        return [(name, title) for title, groups in sections for _prose, found in groups for name, _example in found]
+
     def _read(self, path: Path) -> dict:
         # cache="none": the loader caches a file without its trust as a template, and the inventory, reading the
         # same file after, would get that copy and template none of its values.
@@ -401,6 +411,10 @@ class Settings:
     def identifier(self, vault_name: str) -> bool:
         fed = wiring.set_by(vault_name, self.feeds, self.specs)
         return bool(fed) and not any(self.no_log(name) for name in fed)
+
+    def by_person(self, where: str, name: str, raw) -> bool:
+        """Set in a file a person edits, and in the vault to more than nothing or the example's placeholder."""
+        return where in USERS and not (where == "vault.yml" and (raw in ("", None) or self.placeholder(name, raw)))
 
     def placeholder(self, name: str, value) -> bool:
         """Still the example's value, as just init decides it - never by a pattern."""
@@ -474,9 +488,11 @@ class Settings:
         listed = self.defaults.get(CHOICES_FROM.get(target, ""))
         if isinstance(listed, dict) and listed:
             return {"type": "str", "choices": sorted(listed)}
-        alias = ALIAS.match(default) if isinstance(default, str) else None
-        if alias and alias.group(1) in self.defaults and alias.group(1) not in seen | {target}:
-            return self.spec_for(alias.group(1), alias.group(1), seen | {target})
+        # A default that is another setting's value and nothing else, as a setting's name from 1.1 is fed its name
+        # from 1.0: it takes that setting's type.
+        alias = wiring.alias_of(default)
+        if alias in self.defaults and alias not in seen | {target}:
+            return self.spec_for(alias, alias, seen | {target})
         for kind, python in (("bool", bool), ("int", int), ("list", list), ("dict", dict)):
             if isinstance(default, python):
                 return {"type": kind} | ({"elements": "str"} if kind == "list" else {})
@@ -488,10 +504,7 @@ class Settings:
         if CONTROL.search(raw):
             raise Refused("a value is one line of text, without a control character")
         if TEMPLATE.search(raw):
-            raise Refused(
-                "--value takes a value, never an expression ({{ }}, {% %} or {# #}), which Ansible would template: "
-                f"to write one, edit {LOCAL}"
-            )
+            raise Refused(EXPRESSION_REFUSED)
         spec = self.spec_for(target, name)
         kind = spec.get("type", "str")
         given = raw
@@ -510,10 +523,7 @@ class Settings:
         # The text was checked above, but YAML decodes escapes: "\x7b{ }}" in a list is {{ }} once parsed. JSON
         # writes no {{, {% or {# of its own, so what it finds in the value as written is the value's.
         if TEMPLATE.search(json.dumps(value, ensure_ascii=False)):
-            raise Refused(
-                "--value takes a value, never an expression ({{ }}, {% %} or {# #}), which Ansible would template: "
-                f"to write one, edit {LOCAL}"
-            )
+            raise Refused(EXPRESSION_REFUSED)
         return value
 
     @staticmethod
@@ -577,27 +587,31 @@ class Settings:
         store.replace(self.local_file, result)
 
     def named_anew(self) -> dict[str, str]:
-        """Each setting's name from 1.1, by its name in 1.0, which the inventory defaults feed it from: a default that
-        is the other setting's value and nothing else, and neither a role's variable (as ALIAS above has it). The new
-        name is the one read, and wins whenever both are set."""
-        found = {}
-        for name, default in self.defaults.items():
-            alias = ALIAS.match(default) if isinstance(default, str) else None
-            if alias and alias.group(1) in self.defaults and not wiring.role_of(name, self.specs):
-                if not wiring.role_of(alias.group(1), self.specs):
-                    found[alias.group(1)] = name
-        return found
+        """Each setting's name from 1.1, by its name in 1.0 (wiring.named_anew)."""
+        return wiring.named_anew(self.defaults, self.specs)
 
-    def _take_out(self, lines: list[str], name: str) -> bool:
-        """name's line out of lines, its example's commented line back where the file has none of its own left; False
-        where nothing sets it on a line of its own."""
+    @staticmethod
+    def _commented(name: str) -> re.Pattern:
+        """name's commented line, as local.yml.example has one and just init leaves it."""
+        return re.compile(rf"^#\s?{re.escape(name)}:")
+
+    def _take_out(self, lines: list[str], name: str) -> tuple[int, list[str]] | None:
+        """name's line out of lines, its example's commented line back where the file has none of its own left: where
+        it was, and the lines put back. None where nothing sets it on a line of its own."""
         start = self._line_of(lines, name)
         if start is None:
-            return False
-        commented = re.compile(rf"^#\s?{re.escape(name)}:")
+            return None
+        commented = self._commented(name)
         restore = [] if any(commented.match(line) for line in lines) else self.example_lines(name)
         lines[start : self._value_end(lines, start)] = restore
-        return True
+        return start, restore
+
+    def _in_the_clear(self, target: str, texts: list[str]) -> None:
+        """Refuse a value that holds a secret the vault holds, which target would hold in the clear."""
+        if any(secret in text for secret in self.hunted for text in texts):
+            raise Refused(
+                f"that value is a secret the vault holds, so {target} would hold it in the clear: not written"
+            )
 
     def write(self, name: str, raw: str) -> dict:
         """write_, under the lock every writer of local.yml through store.py takes: of two writes, neither is lost."""
@@ -615,11 +629,8 @@ class Settings:
             if where == "just vault":
                 said += ". The value given was not used or printed, but your shell's history keeps it"
             raise Refused(said)
-        if any(secret in raw for secret in self.hunted):
-            # A secret of the vault's would be in local.yml in the clear, and printed by every report after.
-            raise Refused(
-                f"that value is a secret the vault holds, so {target} would hold it in the clear: not written"
-            )
+        # A secret of the vault's would be in local.yml in the clear, and printed by every report after.
+        self._in_the_clear(target, [raw])
         source, before = self._read_local()
         by_hand = name != target and name in before
         if by_hand:
@@ -630,15 +641,11 @@ class Settings:
         old = target if target in anew else next((was for was, now in anew.items() if now == target), None)
         target = anew.get(target, target)
         value = self.coerce(target, name, raw)
-        texts = [json.dumps(value, ensure_ascii=False), *(str(leaf) for leaf in _leaves(value))]
-        if any(secret in text for secret in self.hunted for text in texts):
-            # The same, for a secret spelt with YAML's escapes, which only the parsed value shows.
-            raise Refused(
-                f"that value is a secret the vault holds, so {target} would hold it in the clear: not written"
-            )
+        # The same, for a secret spelt with YAML's escapes, which only the parsed value shows.
+        self._in_the_clear(target, [json.dumps(value, ensure_ascii=False), *(str(leaf) for leaf in _leaves(value))])
         lines = source.splitlines(keepends=True)
         # The 1.0 name's line out first, so the new name's is placed among what is left.
-        if old is not None and old in before and not self._take_out(lines, old):
+        if old is not None and old in before and self._take_out(lines, old) is None:
             raise Refused(f"{LOCAL} sets {old}, but not on a line of its own: change it by hand")
         migrated = old if old is not None and old in before else None
         found = self._line_of(lines, target)
@@ -651,7 +658,7 @@ class Settings:
             start, end = found, self._value_end(lines, found)
             how = "in place of the line that set it"
         else:
-            example = re.compile(rf"^#\s?{re.escape(target)}:")
+            example = self._commented(target)
             start = next((index for index, line in enumerate(lines) if example.match(line)), len(lines))
             end = self._value_end(lines, start, commented=True) if start < len(lines) else start
             how = "in place of its example's line" if start < len(lines) else "at its end"
@@ -673,8 +680,8 @@ class Settings:
 
     def example_lines(self, name: str) -> list[str]:
         """name's commented line in local.yml.example, with its value's further lines, or none."""
-        lines = (REPO / LOCAL.replace(".yml", ".yml.example")).read_text().splitlines(keepends=True)
-        example = re.compile(rf"^#\s?{re.escape(name)}:")
+        lines = LOCAL_EXAMPLE.read_text().splitlines(keepends=True)
+        example = self._commented(name)
         start = next((index for index, line in enumerate(lines) if example.match(line)), None)
         return [] if start is None else lines[start : self._value_end(lines, start, commented=True)]
 
@@ -700,14 +707,11 @@ class Settings:
             return {"asked": name, "name": target, "removed": [], "restored": [], "line": None}
         first, restored = None, []
         for each in names:
-            start = self._line_of(lines, each)
-            if start is None:
+            taken = self._take_out(lines, each)
+            if taken is None:
                 # Set, but not on a line of its own (a flow mapping, a quoted key): not one this can take out.
                 raise Refused(f"{LOCAL} sets {each}, but not on a line of its own: take it out by hand")
-            # The example's line comes back only where the file has none of its own left.
-            commented = re.compile(rf"^#\s?{re.escape(each)}:")
-            restore = [] if any(commented.match(line) for line in lines) else self.example_lines(each)
-            lines[start : self._value_end(lines, start)] = restore
+            start, restore = taken
             restored += [each] if restore else []
             first = start if first is None else min(first, start)
         self._replace(before, "".join(lines), dict.fromkeys(names))
@@ -718,7 +722,7 @@ class Settings:
         roles = {wiring.role_of(var, self.specs) for var in {target, *wiring.set_by(target, self.feeds, self.specs)}}
         roles.discard(None)
         said = []
-        configured = sorted(roles & set(CONFIGURED))
+        configured = sorted(roles & configured_roles())
         if configured:
             tags = ",".join(configured)
             said.append(f"just deploy --only configure --tags {tags} applies it to every VM")
@@ -795,8 +799,7 @@ class Settings:
                 found["secret"] = True
             where, raw = self.layer(context, ref)
             if where in USERS:
-                real = not (where == "vault.yml" and (raw in ("", None) or self.placeholder(ref, raw)))
-                found["user"].append((ref, where, real))
+                found["user"].append((ref, where, self.by_person(where, ref, raw)))
             deeper = self.walk(context, ref, depth + 1)
             found["user"] += deeper["user"]
             for key in ("secret", "per_vm", "facts"):
@@ -819,9 +822,7 @@ class Settings:
         }
         if name in self.run_sets:
             row["set_by_run"] = self.run_sets[name]
-        row["changed"] = (
-            where in USERS and not (where == "vault.yml" and (raw in ("", None) or self.placeholder(name, raw)))
-        ) or any(real for _ref, _file, real in made_of["user"])
+        row["changed"] = self.by_person(where, name, raw) or any(real for _ref, _file, real in made_of["user"])
         secret = where == "vault.yml" or bool(spec.get("no_log")) or made_of["secret"]  # locks 1, 3, 4
         if made_of["facts"]:
             row["kind"] = "on_the_vm"
@@ -926,15 +927,8 @@ class Settings:
             return self.host_row()
         if name in self.example_vault:
             return self.vault_row(name, "Secrets")
-        section = next(
-            (
-                title
-                for title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False)
-                for _prose, found in groups
-                if name in {each for each, _example in found}
-            ),
-            "Internal to the project",
-        )
+        listed = self._listed(self.local_sections)
+        section = next((title for each, title in listed if each == name), "Internal to the project")
         return self.setting(name) | {"section": section}
 
     def vault_row(self, name: str, section: str) -> dict:
@@ -973,14 +967,8 @@ class Settings:
 
     def everything(self) -> list[dict]:
         rows = [self.host_row()]
-        for title, groups in wiring.parse_example(REPO / LOCAL.replace(".yml", ".yml.example"), secret=False):
-            for _prose, found in groups:
-                for name, _example in found:
-                    rows.append(self.setting(name) | {"section": title})
-        for title, groups in wiring.parse_example(REPO / VAULT.replace(".yml", ".yml.example"), secret=True):
-            for _prose, found in groups:
-                for name, _example in found:
-                    rows.append(self.vault_row(name, f"Secrets: {title}"))
+        rows += [self.setting(name) | {"section": title} for name, title in self._listed(self.local_sections)]
+        rows += [self.vault_row(name, f"Secrets: {title}") for name, title in self._listed(self.vault_sections)]
         return rows
 
     def notes(self) -> list[str]:
@@ -1167,13 +1155,31 @@ def usage(as_json: bool) -> int:
     return 0
 
 
-def written(settings: Settings, result: dict, as_json: bool, inventory: Path, password: str) -> int:
-    """Say what --value wrote, and what that changes: read again from a fresh look at every file, so what outranks
-    local.yml - a hosts.yml variable, a run - is said rather than missed."""
-    target, asked = result["name"], result["asked"]
+def _fresh(result: dict, inventory: Path, password: str) -> tuple[Settings, dict | None]:
+    """Every file read again after a change, and the row of what was asked, so what outranks local.yml - a hosts.yml
+    variable, a run - is said rather than missed."""
     fresh = Settings(inventory, password)
-    now = _now(fresh, asked, target)
+    now = _now(fresh, result["asked"], result["name"])
     fresh.check([now] if now else [])
+    return fresh, now
+
+
+def _said(key: str, result: dict, now: dict | None, notes: list[str], head: str, as_json: bool) -> int:
+    """A change said: as JSON under key, or its head line, if any, then its notes."""
+    if as_json:
+        print(json.dumps({key: result, "now": now, "notes": notes}, indent=2))
+        return 0
+    lines = [[screen.seg(piece, "y")] for piece in screen.fill(head, WIDTH)] if head else []
+    for note in notes:
+        lines += [[screen.seg("  " + piece)] for piece in screen.fill(note, WIDTH - 2)]
+    _print(lines)
+    return 0
+
+
+def written(result: dict, as_json: bool, inventory: Path, password: str) -> int:
+    """Say what --value wrote, and what that changes, read again from every file."""
+    target, asked = result["name"], result["asked"]
+    fresh, now = _fresh(result, inventory, password)
     notes = []
     if result["wrote"] is None:
         notes.append(f"{LOCAL} sets it already, on line {result['line']}: nothing was written")
@@ -1191,17 +1197,10 @@ def written(settings: Settings, result: dict, as_json: bool, inventory: Path, pa
             notes.append(f"but {source(now)[0]} outranks it: {asked} is still {shown(now)}")
         notes += [f"{said}, on the run that does" for said in (now or {}).get("set_by_run", [])]
         notes += fresh.applies(target)
-    if as_json:
-        print(json.dumps({"wrote": result, "now": now, "notes": notes}, indent=2))
-        return 0
-    lines = []
+    head = ""
     if result["wrote"] is not None:
-        head = f"wrote {result['wrote']} in {LOCAL}, {result['how']} (line {result['line']})"
-        lines += [[screen.seg(piece, "y")] for piece in screen.fill(text.one_line(head, 1000), WIDTH)]
-    for note in notes:
-        lines += [[screen.seg("  " + piece)] for piece in screen.fill(note, WIDTH - 2)]
-    _print(lines)
-    return 0
+        head = text.one_line(f"wrote {result['wrote']} in {LOCAL}, {result['how']} (line {result['line']})", 1000)
+    return _said("wrote", result, now, notes, head, as_json)
 
 
 def _now(fresh: Settings, asked: str, target: str) -> dict | None:
@@ -1217,10 +1216,7 @@ def _now(fresh: Settings, asked: str, target: str) -> dict | None:
 def resetted(result: dict, as_json: bool, inventory: Path, password: str) -> int:
     """Say what --reset took out of local.yml, and the value the setting has now, read again from every file."""
     target, asked = result["name"], result["asked"]
-    fresh = Settings(inventory, password)
-    now = _now(fresh, asked, target)
-    if now:
-        fresh.check([now])
+    fresh, now = _fresh(result, inventory, password)
     notes = []
     if not result["removed"]:
         notes.append(f"{LOCAL} does not set {target}, so it is at its default already: nothing was written")
@@ -1234,18 +1230,11 @@ def resetted(result: dict, as_json: bool, inventory: Path, password: str) -> int
                 f"{by_hand[0]} --reset takes it out"
             )
         notes += fresh.applies(target)
-    if as_json:
-        print(json.dumps({"reset": result, "now": now, "notes": notes}, indent=2))
-        return 0
-    lines = []
+    head = ""
     if result["removed"]:
         how = "its example's line back in its place" if result["restored"] else "its line taken out"
         head = f"reset {', '.join(result['removed'])} in {LOCAL}: {how} (line {result['line']})"
-        lines += [[screen.seg(piece, "y")] for piece in screen.fill(head, WIDTH)]
-    for note in notes:
-        lines += [[screen.seg("  " + piece)] for piece in screen.fill(note, WIDTH - 2)]
-    _print(lines)
-    return 0
+    return _said("reset", result, now, notes, head, as_json)
 
 
 def _print(lines: list[list]) -> None:
@@ -1284,7 +1273,7 @@ def main(argv: list[str]) -> int:
         if resetting:
             return resetted(settings.reset(args.name), as_json, Path(args.inventory), password)
         if args.value:
-            return written(settings, settings.write(args.name, args.value), as_json, Path(args.inventory), password)
+            return written(settings.write(args.name, args.value), as_json, Path(args.inventory), password)
         if args.all == "true" or (args.changed == "true" and not args.name):
             rows, target = settings.everything(), {"kind": "all"}
         elif args.name in settings.specs:

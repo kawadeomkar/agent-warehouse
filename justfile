@@ -99,9 +99,10 @@ live_run := ''
 self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
 # The first line of every recipe but help.
 guard := quote(justfile_directory() / 'tools/check') + ' checkout ' + quote(invocation_directory())
-# A VM name with an underscore, which Proxmox refuses in a name, is taken with a hyphen in its place, and said.
-# The names are held to their pattern, which has no space or wildcard, so splitting $names on , is safe.
-hyphenate_names := 'for name in $(printf %s "$names" | tr , " "); do case "$name" in *_*) echo "warning: Proxmox does not allow underscores in VM names, so $name was changed to $(printf %s "$name" | tr _ -)" >&2 ;; esac; done; names=$(printf %s "$names" | tr _ -)'
+# The names given ("$@"), joined with commas into $names. A VM name with an underscore, which Proxmox refuses in a
+# name, is taken with a hyphen in its place, and said. The names are held to their pattern, which has no space or
+# wildcard, so splitting $names on , is safe.
+hyphenate_names := 'names=$(IFS=,; printf %s "$*"); for name in $(printf %s "$names" | tr , " "); do case "$name" in *_*) echo "warning: Proxmox does not allow underscores in VM names, so $name was changed to $(printf %s "$name" | tr _ -)" >&2 ;; esac; done; names=$(printf %s "$names" | tr _ -)'
 # The scripts directory of the environment tools/env-run finds, or BIN: refused, with how to make one, for a Python
 # that is no virtualenv's; and this checkout's own Galaxy collections, which every Ansible the recipe runs is
 # pointed at, so no other checkout's just install can change them.
@@ -116,9 +117,16 @@ live := '"$bin/python" ' + quote(justfile_directory() / 'tools/live') + ' --log-
 # Where a run in parts keeps its state, but for the top recipe's name, its shell's PID - two runs started in one
 # second keep two - and .json: none without LIVE_DIR.
 live_state := if LIVE_DIR == '' { '' } else { absolute_path(LIVE_DIR) / stamp }
-# --vault-password-file .vault_pass, where there is one, decided by the shell
-# when the line runs (init's questions may make it), not when just reads this.
-vault_args := '[ ! -f ' + quote(VAULT_PASS) + ' ] || set -- "$@" --vault-password-file ' + quote(VAULT_PASS)
+# The playbook's or tool's arguments, started afresh ("$@" held the recipe's
+# own): --vault-password-file .vault_pass, where there is one, decided by the
+# shell when the line runs (init's questions may make it), not when just reads
+# this.
+vault_args := 'set --; [ ! -f ' + quote(VAULT_PASS) + ' ] || set -- "$@" --vault-password-file ' + quote(VAULT_PASS)
+# A VM recipe's: the vault's, then the names ($names, from hyphenate_names), if
+# any. Passed as JSON, not key=value: Ansible's key=value parser splits
+# extra-vars on whitespace, so make's VM_NAME="alpha beta" once became alpha
+# and only half the fleet was created.
+vm_args := vault_args + '; [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"'
 # A run with no terminal on stdin has nobody to approve a sign-in: no page
 # opens and nothing reaches the clipboard, since nobody is there to use them,
 # and just deploy skips its sign-ins, which would otherwise start by themselves
@@ -135,9 +143,10 @@ no_tty_args := '[ -t 0 ] || set -- "$@" -e ' + quote('{"login_desktop":false,"de
 # every word after it as one, and just runs no second recipe.
 stages := 'template|provision|configure|check|ssh-config'
 # The roles configuration can be narrowed to (deploy --tags), as configure.yml
-# tags them, and the roles with a Molecule scenario of their own (test --role).
+# tags them, and the roles with a Molecule scenario of their own (test --role):
+# those, and the two that build the template and the VMs.
 configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale'
-scenario_roles := 'common vscode_server dev_tools claude_code github_projects tailscale proxmox_template proxmox_vm'
+scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
@@ -352,7 +361,6 @@ vault:
     {{ find_bin }}
     file={{ quote(VAULT_FILE) }}
     test -f "$file" || { echo "error: $file missing. Run: just init" >&2; exit 1; }
-    set --
     {{ vault_args }}
     if head -c 14 "$file" | grep -q '^\$ANSIBLE_VAULT'; then action=edit; else action=encrypt; fi
     echo "$bin/ansible-vault $action $* $file"
@@ -392,7 +400,6 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     stage=$1 check=$2 roles=$3 start=$4
     shift 4
     tools/check names "$@"
-    names=$(IFS=,; printf %s "$*")
     {{ hyphenate_names }}
     # A stage typed where the names go, by habit from just test unit, would
     # create a VM so named: at a terminal deploy asks which was meant, and
@@ -467,12 +474,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    set --
-    {{ vault_args }}
-    # Passed as JSON, not key=value: Ansible's key=value parser splits
-    # extra-vars on whitespace, so make's VM_NAME="alpha beta" once became alpha
-    # and only half the fleet was created.
-    [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
+    {{ vm_args }}
     [ -z "$start" ] || set -- "$@" -e '{"proxmox_vm_start_existing": true}'
     if [ -n "$check" ]; then
       name=deploy-check playbook=playbooks/configure.yml
@@ -489,10 +491,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     CLAUDE_ON_PROXMOX_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}${names:+ $(printf %s "$names" | tr , ' ')}"
     export CLAUDE_ON_PROXMOX_LIVE
-    if [ -n "$check" ]; then
-      exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} --check --diff "$playbook"
-    fi
-    exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} "$playbook"
+    exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} ${check:+--check --diff} "$playbook"
 
 # One VM at a time: an editor opens one window per workspace, and "open it in
 # the editor" does not mean a fleet. --editor opens it in another editor than
@@ -516,7 +515,6 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     shift 3
     [ "$#" -gt 0 ] || { echo "error: code opens one VM: just code <name>" >&2; exit 1; }
     tools/check names "$@"
-    names=$(IFS=,; printf %s "$*")
     {{ hyphenate_names }}
     case "$names" in *,*) echo "error: code opens one VM at a time, not [$*]" >&2; exit 1 ;; esac
     tools/check project "$project"
@@ -525,9 +523,7 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    set --
-    {{ vault_args }}
-    set -- "$@" -e "{\"vm_name\": \"$names\"}"
+    {{ vm_args }}
     [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     [ -z "$session" ] || set -- "$@" -e "{\"vm_session\": \"$session\"}"
     [ -z "$ide" ] || set -- "$@" -e "{\"vm_editor\": \"$ide\"}"
@@ -561,15 +557,12 @@ login SIGN_IN='' *NAMES:
     only=$1
     shift
     tools/check names "$@"
-    names=$(IFS=,; printf %s "$*")
     {{ hyphenate_names }}
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    set --
-    {{ vault_args }}
-    [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
+    {{ vm_args }}
     {{ no_tty_args }}
     # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
@@ -603,15 +596,12 @@ status ONLY='' JSON='' *NAMES:
     shift 2
     tools/check names "$@"
     tools/check sections "$only"
-    names=$(IFS=,; printf %s "$*")
     {{ hyphenate_names }}
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    set --
-    {{ vault_args }}
-    [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
+    {{ vm_args }}
     [ -z "$only" ] || set -- "$@" -e "{\"status_only\": \"$only\"}"
     report={{ quote(absolute_path(STATUS_DIR)) }}/{{ stamp }}-$$.json
     mkdir -p {{ quote(absolute_path(STATUS_DIR)) }}
@@ -666,7 +656,6 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     name=${1:-}
-    set --
     {{ vault_args }}
     [ -z "$value" ] || set -- "$@" --value="$value"
     [ -z "$reset" ] || set -- "$@" --reset=true
@@ -682,15 +671,12 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
 destroy *NAMES:
     {{ guard }}
     tools/check names "$@"
-    names=$(IFS=,; printf %s "$*")
     {{ hyphenate_names }}
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    set --
-    {{ vault_args }}
-    [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"
+    {{ vm_args }}
     # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     CLAUDE_ON_PROXMOX_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
@@ -861,11 +847,7 @@ test ROLES='' SHARD='' *PARTS:
     # A worker per CPU, each module whose tests share a fixture kept on one (tests/unit/conftest.py); tests/unit
     # named, so that conftest.py, which adds --shard, is read before the options are.
     if runs unit; then
-      if [ -n "$shard" ]; then
-        part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup --shard "$shard"
-      else
-        part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup
-      fi
+      part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup ${shard:+--shard "$shard"}
     fi
     if runs role; then
       list={{ quote(scenario_roles) }}
@@ -959,6 +941,6 @@ clean *PART:
       rmdir "$dir" 2>/dev/null || true
     fi
     if [ "$part" != logs ]; then
-      rm -rf .cache .pytest_cache .ruff_cache .ansible .molecule collections site
+      rm -rf .cache .pytest_cache .ruff_cache .ansible .molecule site
       find . -name __pycache__ -type d -prune -exec rm -rf {} +
     fi

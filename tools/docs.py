@@ -44,7 +44,7 @@ GROUP_VARS = ROOT / "inventory" / "group_vars" / "all"
 
 sys.path.insert(0, str(ROOT / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 from claude_vm import plugin  # noqa: E402
-from claude_vm.wiring import parse_example, role_of, roles, set_by, specs, wiring  # noqa: E402
+from claude_vm.wiring import alias_of, parse_example, role_of, roles, set_by, specs, wiring  # noqa: E402
 
 plugin.own(str(ROOT / "lib"))  # this checkout's package, never another's that sys.path had first
 
@@ -109,17 +109,19 @@ def _attribute(recipe: dict, name: str):
     )
 
 
+def _word(parameter: dict) -> str:
+    """What a parameter that takes words stands for: its name in lower case, in the singular (NAMES: name)."""
+    name = parameter["name"].lower()
+    return name if parameter["kind"] == "singular" else name.removesuffix("s")
+
+
 def _usage(name: str, recipe: dict) -> str:
     """`just deploy [<name>...]`: the recipe and the words it takes, its options in the rows below it."""
     words = []
     for parameter in recipe["parameters"]:
         if parameter["long"] or parameter["short"] or parameter["name"] == "EXTRA":
             continue
-        word = (
-            parameter["name"].lower().removesuffix("s")
-            if parameter["kind"] != "singular"
-            else parameter["name"].lower()
-        )
+        word = _word(parameter)
         # code opens one VM: the one name it needs is not optional.
         if name == "code" and word == "name":
             words.append("<name>")
@@ -145,10 +147,9 @@ def commands() -> str:
     layout is this script's own, so a newer just generates the same page."""
     justfile = json.loads(_just("--json"))
     recipes = justfile["recipes"]
-    # An alias is listed under its recipe: the name a recipe had before.
-    aliases: dict[str, list[str]] = {}
-    for alias in sorted(justfile.get("aliases") or {}):
-        aliases.setdefault(justfile["aliases"][alias]["target"], []).append(alias)
+    # Each recipe has one name, and this page lists no other: an alias fails here rather than go unlisted.
+    if justfile.get("aliases"):
+        raise SystemExit(f"justfile: aliases ({', '.join(sorted(justfile['aliases']))}), which the commands page lacks")
     groups: dict[str, list[str]] = {}
     for name in _just("--summary", "--unsorted").split():
         recipe = recipes[name]
@@ -164,20 +165,8 @@ def commands() -> str:
             for parameter in recipe["parameters"]:
                 if parameter["name"] == "EXTRA":
                     continue
-                if parameter["long"]:
-                    spelled = _option(parameter)
-                else:
-                    word = (
-                        parameter["name"].lower().removesuffix("s")
-                        if parameter["kind"] != "singular"
-                        else parameter["name"].lower()
-                    )
-                    spelled = f"<{word}>"
+                spelled = _option(parameter) if parameter["long"] else f"<{_word(parameter)}>"
                 out.append(f"| {INDENT_CELL}`{spelled}` | {cell(parameter['help'] or '')} |")
-            for alias in aliases.get(name, []):
-                out.append(
-                    f"| {INDENT_CELL}`just {alias}` | Another name for `just {name}`, and the same in every way |"
-                )
         out.append("")
     return "\n".join(out)
 
@@ -196,8 +185,8 @@ def value(v) -> str:
     if v == "":
         return '`""`'
     if isinstance(v, str) and "{{" in v:
-        same = re.fullmatch(r"\{\{ (\w+) \}\}", v)
-        return f"same as `{same.group(1)}`" if same else "computed"
+        same = alias_of(v)
+        return f"same as `{same}`" if same else "computed"
     dumped = yaml.safe_dump(v, default_flow_style=True, width=1000).strip().removesuffix("...").strip()
     if "|" in dumped:
         # A pipe splits a GitHub table cell, and `\|` inside backticks shows its backslash on the site.
@@ -253,9 +242,9 @@ def settings() -> str:
                 if example not in ("", [], {}, None) and example != default:
                     notes.append(f"For example {value(example)}.")
                 shown = value(default)
-                same = re.fullmatch(r"\{\{ (\w+) \}\}", default) if isinstance(default, str) else None
-                if same and same.group(1) in fed_by:
-                    shown = f"same as `{fed_by[same.group(1)]}`"
+                same = alias_of(default)
+                if same in fed_by:
+                    shown = f"same as `{fed_by[same]}`"
                 out.append(f"| `{name}` | {shown} | {' '.join(notes)} |")
             out.append("")
     for title, groups in parse_example(GROUP_VARS / "vault.yml.example", secret=True):
