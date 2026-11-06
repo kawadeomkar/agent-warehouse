@@ -108,6 +108,17 @@ def test_the_role_touches_only_names_of_its_own_and_has_no_handlers():
     assert "wireguard_marker_installed" in removal["when"]
 
 
+def test_every_playbook_read_of_wireguard_wanted_has_a_default():
+    # The inventory's defaults set it; a run without them - Vagrant's, whose inventory loads no group_vars - fails
+    # on the name: configure's first WireGuard task failed every just vagrant.
+    for path in sorted((REPO / "playbooks").glob("*.yml")) + [REPO / "deploy.yml"]:
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            code = line.split("#", 1)[0]
+            for at in [i for i in range(len(code)) if code.startswith("wireguard_wanted", i)]:
+                assert code[at:].startswith("wireguard_wanted | default(false)"), f"{path.name}:{number}"
+    assert "tailscale_wanted | default(" in (REPO / "playbooks" / "status.yml").read_text()
+
+
 def test_the_inventory_hands_the_role_what_the_vpn_setting_decided():
     assert DEFAULTS["wireguard_wanted"] == "{{ claude_vpn_key == 'wireguard' }}"
     assert DEFAULTS["claude_vpns"]["wireguard"]["role"] == "wireguard"
@@ -130,11 +141,14 @@ def test_configure_makes_the_key_before_the_plan_and_the_link_after_it():
     ]
     assert block["tags"] == ["wireguard"] and "when" not in block
     marker, key, off = block["block"]
-    assert marker["when"] == "not (wireguard_wanted | bool)"
+    assert marker["when"] == "not (wireguard_wanted | default(false) | bool)"
     assert key["ansible.builtin.import_role"] == {"name": "wireguard", "tasks_from": "key"}
-    assert key["when"] == "wireguard_wanted | bool"
+    assert key["when"] == "wireguard_wanted | default(false) | bool"
     assert off["ansible.builtin.import_role"] == {"name": "wireguard"}
-    assert off["when"] == "not (wireguard_wanted | bool) and claude_vm_wireguard_marker.stat.exists | default(false)"
+    assert (
+        off["when"]
+        == "not (wireguard_wanted | default(false) | bool) and claude_vm_wireguard_marker.stat.exists | default(false)"
+    )
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in block["rescue"])
     # The plan in a block whose rescue drops it and records the failure on every VM: a refusal or a hub that cannot
     # be read never costs a VM its alias, since the alias play runs on localhost too.
@@ -151,7 +165,10 @@ def test_configure_makes_the_key_before_the_plan_and_the_link_after_it():
     assert "ansible.builtin.debug" in said
     (joining,) = plays[join]["tasks"]
     (link,) = joining["block"]
-    assert link["ansible.builtin.import_role"] == {"name": "wireguard"} and link["when"] == "wireguard_wanted | bool"
+    assert (
+        link["ansible.builtin.import_role"] == {"name": "wireguard"}
+        and link["when"] == "wireguard_wanted | default(false) | bool"
+    )
     assert "claude_vpn_plans" in link["vars"]["wireguard_tunnel"]
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in joining["rescue"])
     assert plays[join]["tags"] == plays[plan]["tags"] == ["wireguard"]

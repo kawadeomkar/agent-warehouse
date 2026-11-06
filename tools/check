@@ -243,12 +243,15 @@ for path in sys.argv[2:]:
             else:
                 print(f"warning: {path} sets {name}, which 1.1 calls {NAMED_ANEW[name]}: it is still read, but "
                       "rename it there (docs/guides/upgrading.md)", file=sys.stderr)
-        if name in CHOICES and isinstance(value, str) and value and "{{" not in value:
+        if name in CHOICES and value not in ("", None) and not (isinstance(value, str) and "{{" in value):
             rows, also = CHOICES[name]
             members = [*sorted(DEFAULTS.get(rows) or {}), *also]
-            if value not in members:
-                # Never the value said back: it is one line of the user's file.
-                print(f"error: {path} sets {name} to something that is none of its choices: "
+            if not isinstance(value, str) or value not in members:
+                # Never the value said back: it is one line of the user's file. A boolean is YAML's reading of an
+                # unquoted on, yes or true, which would make the setting "True": no choice, and Tailscale off.
+                why = " (YAML reads an unquoted on, off, yes, no, true or false as a boolean)" if isinstance(
+                    value, bool) else ""
+                print(f"error: {path} sets {name} to something that is none of its choices{why}: "
                       f"{', '.join(members)}", file=sys.stderr)
                 found = True
         if name == "vpn_reach" and value not in ("", None, "lan") and "{{" not in str(value):

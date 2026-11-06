@@ -1168,6 +1168,71 @@ def test_the_tailscale_notice_is_gone_once_the_setting_is_there(tmp_path: Path, 
 # --tailscale that differs from the setting: test_given_values_that_differ_from_set_ones_fail_and_write_nothing.
 
 
+@pytest.mark.parametrize("vpn", ["tailscale", "none", "wireguard"])
+def test_a_vpn_set_in_local_yml_is_never_asked_over_nor_tailscale_enabled_written(tmp_path: Path, vpn: str) -> None:
+    # vpn outranks tailscale_enabled: an answer to the Tailscale question would change nothing, and the notice that
+    # Tailscale is on by default would be untrue under none or wireguard.
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + f"vpn: {vpn}\n")
+    before = local.read_text()
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *THE_PROXMOX_QUESTIONS])
+    assert rc == 0, output
+    assert TAILSCALE_PROMPT.decode() not in output and WIREGUARD_PROMPT.decode() not in output
+    assert "NOTICE  Tailscale is on by default" not in output
+    assert local.read_text() == before
+
+
+@pytest.mark.parametrize(
+    ("vpn", "given", "refused"), [("tailscale", "off", True), ("none", "on", True), ("none", "off", False)]
+)
+def test_tailscale_given_that_the_vpn_set_contradicts_fails_naming_both(
+    tmp_path: Path, vpn: str, given: str, refused: bool
+) -> None:
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + f"vpn: {vpn}\n")
+    before = local.read_text()
+    report = _init(tmp_path, files, {"init_given": _every_value_given(tmp_path) | {"tailscale": given}})
+    assert (report["rc"] != 0) is refused, _failures(report)
+    if refused:
+        assert any(f'already sets vpn: "{vpn}"' in failure for failure in _failures(report).values())
+        assert local.read_text() == before
+    else:
+        assert not [line for line in local.read_text().splitlines() if line.startswith("tailscale_enabled:")]
+
+
+def test_wireguard_s_questions_ask_only_what_is_not_set_and_write_vpn_last(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + 'wireguard_vm_prefix: "198.51.100.128/25"\n')
+    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"n\n"),
+        (WIREGUARD_PROMPT, b"y\n"),
+        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
+        (b"The server's public key:", key.encode() + b"\n"),
+        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    assert "The part of it kept for the VMs:" not in output
+    lines = local.read_text().splitlines()
+    assert lines.count('wireguard_vm_prefix: "198.51.100.128/25"') == 1
+    for line in (
+        'vpn: "wireguard"',
+        'wireguard_hub_network: "198.51.100.0/24"',
+        'wireguard_hub_endpoint: "192.0.2.1:51820"',
+    ):
+        assert line in lines, line
+    # Each on its example's own line, so the file's order is not the writes': vpn is written last.
+    tasks = yaml.safe_load((REPO / "playbooks" / "init_settings.yml").read_text())[0]["tasks"]
+    (write,) = [task for task in tasks if task.get("name") == "Write WireGuard's settings into local.yml"]
+    assert write["loop"][-1] == "vpn"
+
+
 # ----------------------------------------------------------------- NEXT STEPS ---
 @pytest.mark.parametrize("asking", [False, True], ids=["no-terminal", "init_ask"])
 def test_next_steps_keep_each_value_still_to_set(tmp_path: Path, asking: bool) -> None:

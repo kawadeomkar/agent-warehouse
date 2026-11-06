@@ -470,9 +470,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The token secret is never taken from the command line - only from `--token-secret-file`'s file or
       `AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its 1.x name, while that is unset; two
       different secrets under the two names are refused unsaid), read in the playbook - and `just init` refuses any
-      word after its options
-      without printing it. Tailscale's auth key is asked only after a `y`, hidden, and never taken from the
-      command line.
+      word after its options without printing it. Tailscale is asked about while `local.yml` sets neither
+      `tailscale_enabled` nor `vpn` (which outranks it), and a `--tailscale` the `vpn` set contradicts fails the run,
+      naming both. Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`),
+      hidden, and never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
       `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and

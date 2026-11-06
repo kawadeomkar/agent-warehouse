@@ -1023,6 +1023,7 @@ def status_report(found, read_at="", now=None, live=False):
                 "tag",
                 "tailscale_enabled",
                 "vpn",
+                "tailscale_off",
                 "nic",
                 "aliases_enabled",
                 "vm_user",

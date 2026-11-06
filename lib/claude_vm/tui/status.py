@@ -219,7 +219,7 @@ def _tailnet_cells(vm, model, dns_width=0):
     vpn = model["settings"].get("vpn") or ("tailscale" if model["settings"].get("tailscale_enabled") else "none")
     if vpn == "none":
         # Off by the setting that turned it off: vpn, or tailscale_enabled, which decides vpn while it is not set.
-        said = "tailscale_enabled is false" if "vpn" not in model["settings"] else "vpn is none"
+        said = model["settings"].get("tailscale_off") or "vpn is none"
         return [seg(f"off: {said}", "d")]
     if vm.get("pending_ssh"):
         return [seg(PENDING, "c")]

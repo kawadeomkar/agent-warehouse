@@ -182,6 +182,32 @@ def test_check_settings_refuses_a_vpn_that_is_none_of_them_naming_them_and_never
     assert "s3cret" not in result.stderr
 
 
+@pytest.mark.parametrize("value", ["on", "yes", "true", "off", "1"])
+def test_check_settings_refuses_a_vpn_yaml_reads_as_no_word(tmp_path, value):
+    # Unquoted, YAML reads these as a boolean or a number: the setting would be "True", no VPN's, and Tailscale off.
+    result = _check(tmp_path, f"vpn: {value}\n")
+    assert result.returncode == 1
+    assert "sets vpn to something that is none of its choices" in result.stderr
+
+
+def test_check_settings_finds_the_defaults_whatever_cdpath_says(tmp_path):
+    # just runs tools/check by a relative path: an exported CDPATH would have cd print the directory, or go to
+    # another checkout's, and every choice but none be refused.
+    (tmp_path / "elsewhere" / "tools").mkdir(parents=True)
+    local = tmp_path / "local.yml"
+    local.write_text("vpn: tailscale\n")
+    result = subprocess.run(
+        ["tools/check", "settings", str(Path(sys.executable).parent), str(local)],
+        cwd=REPO,
+        env={"PATH": "/usr/bin:/bin", "CDPATH": f".:{tmp_path / 'elsewhere'}"},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize(
     ("text", "refused"),
     [

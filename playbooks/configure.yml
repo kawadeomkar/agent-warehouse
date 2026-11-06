@@ -157,18 +157,18 @@
           ansible.builtin.stat:
             path: "{{ wireguard_installed_marker_path }}"
           register: claude_vm_wireguard_marker
-          when: not (wireguard_wanted | bool)
+          when: not (wireguard_wanted | default(false) | bool)
 
         - name: Make the VM's WireGuard key
           ansible.builtin.import_role:
             name: wireguard
             tasks_from: key
-          when: wireguard_wanted | bool
+          when: wireguard_wanted | default(false) | bool
 
         - name: Take WireGuard off
           ansible.builtin.import_role:
             name: wireguard
-          when: not (wireguard_wanted | bool) and claude_vm_wireguard_marker.stat.exists | default(false)
+          when: not (wireguard_wanted | default(false) | bool) and claude_vm_wireguard_marker.stat.exists | default(false)
       rescue:
         - name: Remember that WireGuard failed, for the end of the run
           vars:
@@ -263,11 +263,11 @@
             claude_vpn_planned: wireguard
             claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
             claude_vpn_phase: configure
-          when: wireguard_wanted | bool
+          when: wireguard_wanted | default(false) | bool
 
         - name: Apply WireGuard's plan
           ansible.builtin.import_tasks: tasks/vpn_apply.yml
-          when: wireguard_wanted | bool
+          when: wireguard_wanted | default(false) | bool
       rescue:
         # No plan: the play below changes no VM's link this run.
         - name: Drop WireGuard's plan
@@ -316,7 +316,7 @@
             wireguard_tunnel: >-
               {{ (hostvars['localhost'].claude_vpn_plans | default({})).wireguard.tunnels | default([])
                  | selectattr('vm.name', 'equalto', inventory_hostname) | first | default({}, true) }}
-          when: wireguard_wanted | bool
+          when: wireguard_wanted | default(false) | bool
       rescue:
         - name: Remember that WireGuard's link failed, for the end of the run
           vars:
