@@ -15,16 +15,8 @@
 
 # This entry point never runs main.yml, which resolves the home for everything
 # else; the sign-in keeps its files there, and the settings are read from it.
-- name: login | Look up home directory of {{ claude_code_user }}
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ claude_code_user }}"
-  when: claude_code_home is not defined
-
-- name: login | Record where the user's files are
-  ansible.builtin.set_fact:
-    claude_code_home: "{{ ansible_facts.getent_passwd[claude_code_user][4] }}"
-  when: claude_code_home is not defined
+- name: login | Find the user's home
+  ansible.builtin.include_tasks: home.yml
 
 # As claude_code_user, through a login shell - the one that puts the native
 # install on PATH - so the login read is the one Remote Control would use,

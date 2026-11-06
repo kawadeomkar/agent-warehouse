@@ -70,20 +70,23 @@ claude_code_remote_control_wanted: >-
   {{ claude_code_remote_control | bool
      and claude_code_anthropic_api_key | length == 0 }}
 
-# Internal: the output of `claude auth status`, read from the result both
-# remote_control.yml and login.yml register as claude_code_remote_control_auth.
-# This and the two below are the one definition of whether a VM can run Remote
-# Control. `just login --only claude` used to decide from `loggedIn` alone, so a VM
-# signed in any other way was told by it to run `just deploy --only configure`, and by
-# `just deploy --only configure` to run it. A var rather than a fact for the same reason as
+# Internal: the output of `claude auth status`, read from the result
+# remote_control.yml, login.yml, browser_login.yml and release.yml each
+# register as claude_code_remote_control_auth. This and the two below are the
+# one definition of whether a VM can run Remote Control. `just login --only claude`
+# used to decide from `loggedIn` alone, so a VM signed in any other way was told
+# by it to run `just deploy --only configure`, and by `just deploy --only configure`
+# to run it. A var rather than a fact for the same reason as
 # roles/proxmox_vm/vars/main.yml: it follows the register it reads.
 #
 # Exit status 1 means not logged in, and anything else unreadable counts as the
-# same, which is what points the user at the login.
+# same, which is what points the user at the login - output that is not a JSON
+# object included: a login shell that prints a line of its own first would
+# otherwise make from_json fail the report.
 claude_code_remote_control_status: >-
   {{ (claude_code_remote_control_auth.stdout | from_json)
      if claude_code_remote_control_auth.rc == 0
-        and (claude_code_remote_control_auth.stdout | trim | length > 0)
+        and (claude_code_remote_control_auth.stdout | default('') | trim)[:1] == '{'
      else {} }}
 
 # Internal: whether claude is on the login shell's PATH at all, for login.yml.
@@ -268,6 +271,17 @@ claude_code_login_command: just login {{ inventory_hostname }} --only claude
 claude_code_login_browser: "{{ claude_code_login_dir }}/claude-login.browser"
 claude_code_login_page_file: "{{ claude_code_login_dir }}/claude-login.page"
 claude_code_login_forward_pidfile: "{{ claude_code_login_dir }}/claude-login.forward.pid"
+# Internal: every file of an attempt, unlinked before it starts and again once
+# it ends - one list, so the two cannot drift. The browser stand-in among them
+# is written again straight after the first.
+claude_code_login_files:
+  - "{{ claude_code_login_output }}"
+  - "{{ claude_code_login_pipe }}"
+  - "{{ claude_code_login_pidfile }}"
+  - "{{ claude_code_login_run_file }}"
+  - "{{ claude_code_login_page_file }}"
+  - "{{ claude_code_login_forward_pidfile }}"
+  - "{{ claude_code_login_browser }}"
 # Internal: what makes a page Claude's own sign-in page. The VM chooses both
 # the page claude prints and the one its browser is handed, so only a page
 # like this opens here, and only its callback is forwarded.
@@ -344,9 +358,8 @@ claude_code_login_responded: >-
 claude_code_remote_control_stay_up_seconds: 20
 
 # --- releasing the VM before it is destroyed (release.yml) ---
-claude_code_release_state: >-
-  {{ (claude_code_release_status.stdout | from_json) if (claude_code_release_status.stdout | default('') | trim)[:1] == '{' else {} }}
-claude_code_release_signed_in: "{{ claude_code_release_state.loggedIn | default(false) | bool }}"
+# Its login is claude_code_remote_control_status, read as login.yml reads it.
+
 # The service, not the path unit that waits for a login: only a running
 # server had a session to take offline.
 # Stopped by release_pause.yml, for destroy's save or for this release.
@@ -363,5 +376,5 @@ claude_code_release_summary: >-
        if claude_code_release_rc_stopped | bool else [])
       + ([('signed out' if (claude_code_release_logout.rc | default(1)) == 0
            else 'could not sign out (' ~ claude_code_release_why ~ ')')]
-         if claude_code_release_signed_in | bool else []))
+         if (claude_code_remote_control_status.loggedIn | default(false)) | bool else []))
      | join('; ') }}

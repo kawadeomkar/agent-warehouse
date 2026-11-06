@@ -45,10 +45,7 @@ WAITS = {
 # task that records it for NEXT STEPS (docs/architecture/custom-code.md §7.5).
 REPORTS = {
     "roles/claude_code/tasks/login.yml": ["login | Report the login state and what to do about it"],
-    "roles/claude_code/tasks/browser_login.yml": [
-        "browser_login | Say that no code was entered",
-        "browser_login | Say that the browser did not come back",
-    ],
+    "roles/claude_code/tasks/browser_login.yml": ["browser_login | Say that nobody answered"],
     "roles/claude_code/tasks/remote_control.yml": [
         "remote_control | Report where to reach the session",
         "remote_control | Say exactly what to run",
@@ -535,7 +532,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
         for task in _tasks(path)
         if "ansible.builtin.set_stats" in task
     ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
+    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 30
     assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
 
 

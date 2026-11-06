@@ -114,7 +114,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | &emsp;Create the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'present'</code> |
 | &emsp;Refuse to delete a template | `ansible.builtin.assert` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists</code> |
 | &emsp;Refuse to delete a VM this project does not own | `ansible.builtin.assert` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists and not (proxmox_vm_allow_untagged_delete &#124; bool)</code> |
-| &emsp;Delete the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'absent'</code> |
+| &emsp;Delete the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists</code> |
 
 ```mermaid
 flowchart TD
@@ -143,7 +143,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Refuse_to_change_a_VM_this_project_does_not_own4-->|Include task| Create_the_VM_present_yml_5[create the vm<br>When: **proxmox vm state     present**<br>include_task: present yml]:::includeTasks
   Create_the_VM_present_yml_5-->|Task| Refuse_to_delete_a_template6[refuse to delete a template<br>When: **proxmox vm state     absent  and proxmox vm exists**]:::task
   Refuse_to_delete_a_template6-->|Task| Refuse_to_delete_a_VM_this_project_does_not_own7[refuse to delete a vm this project does not own<br>When: **proxmox vm state     absent  and proxmox vm exists<br>and not  proxmox vm allow untagged delete   bool**]:::task
-  Refuse_to_delete_a_VM_this_project_does_not_own7-->|Include task| Delete_the_VM_absent_yml_8[delete the vm<br>When: **proxmox vm state     absent**<br>include_task: absent yml]:::includeTasks
+  Refuse_to_delete_a_VM_this_project_does_not_own7-->|Include task| Delete_the_VM_absent_yml_8[delete the vm<br>When: **proxmox vm state     absent  and proxmox vm exists**<br>include_task: absent yml]:::includeTasks
   Delete_the_VM_absent_yml_8-.->|End of Block| Manage_the_VM6_block_start_0
   Delete_the_VM_absent_yml_8-->End
 ```
@@ -152,11 +152,11 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Ask the guest agent for the VM's address | `community.proxmox.proxmox_vm_info` | <code>proxmox_vm_exists</code> |
-| Stop the VM | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists</code> |
-| Delete the VM and its disks | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists</code> |
-| Forget the VM's SSH host key | `ansible.builtin.known_hosts` | <code>proxmox_vm_exists</code> |
-| Warn when the address could not be determined | `ansible.builtin.debug` | <code>proxmox_vm_exists and proxmox_vm_forget_address &#124; length == 0</code> |
+| Ask the guest agent for the VM's address | `community.proxmox.proxmox_vm_info` |  |
+| Stop the VM | `community.proxmox.proxmox_kvm` |  |
+| Delete the VM and its disks | `community.proxmox.proxmox_kvm` |  |
+| Forget the VM's SSH host key | `ansible.builtin.known_hosts` |  |
+| Warn when the address could not be determined | `ansible.builtin.debug` | <code>proxmox_vm_forget_address &#124; length == 0</code> |
 
 ```mermaid
 flowchart TD
@@ -170,11 +170,11 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| absent___Ask_the_guest_agent_for_the_VM_s_address0[absent   ask the guest agent for the vm s address<br>When: **proxmox vm exists**]:::task
-  absent___Ask_the_guest_agent_for_the_VM_s_address0-->|Task| absent___Stop_the_VM1[absent   stop the vm<br>When: **proxmox vm exists**]:::task
-  absent___Stop_the_VM1-->|Task| absent___Delete_the_VM_and_its_disks2[absent   delete the vm and its disks<br>When: **proxmox vm exists**]:::task
-  absent___Delete_the_VM_and_its_disks2-->|Task| absent___Forget_the_VM_s_SSH_host_key3[absent   forget the vm s ssh host key<br>When: **proxmox vm exists**]:::task
-  absent___Forget_the_VM_s_SSH_host_key3-->|Task| absent___Warn_when_the_address_could_not_be_determined4[absent   warn when the address could not be<br>determined<br>When: **proxmox vm exists and proxmox vm forget address  <br>length    0**]:::task
+  Start-->|Task| absent___Ask_the_guest_agent_for_the_VM_s_address0[absent   ask the guest agent for the vm s address]:::task
+  absent___Ask_the_guest_agent_for_the_VM_s_address0-->|Task| absent___Stop_the_VM1[absent   stop the vm]:::task
+  absent___Stop_the_VM1-->|Task| absent___Delete_the_VM_and_its_disks2[absent   delete the vm and its disks]:::task
+  absent___Delete_the_VM_and_its_disks2-->|Task| absent___Forget_the_VM_s_SSH_host_key3[absent   forget the vm s ssh host key]:::task
+  absent___Forget_the_VM_s_SSH_host_key3-->|Task| absent___Warn_when_the_address_could_not_be_determined4[absent   warn when the address could not be<br>determined<br>When: **proxmox vm forget address   length    0**]:::task
   absent___Warn_when_the_address_could_not_be_determined4-->End
 ```
 

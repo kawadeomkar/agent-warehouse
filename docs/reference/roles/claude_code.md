@@ -101,7 +101,7 @@ Also takes, as described under `main`: `claude_code_user`, `claude_code_install_
 
 ## Internal values
 
-Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 50 of the 56 are computed during a run, from earlier tasks' results.
+Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 48 of the 55 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -112,7 +112,7 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_remote_control_base_url_ok` | <code>{{ 'ANTHROPIC_BASE_URL' not in claude_code_remote_control_settings_env or (claude_code_remote_control_settings_env.ANTHROPIC_BASE_URL &#124; urlsplit('hostname')) == 'api.anthropic.com' }}</code> |
 | `claude_code_remote_control_settings_blockers` | <code>{{ (claude_code_remote_control_settings_env.keys() &#124; list &#124; intersect(claude_code_remote_control_blocking_env)) + (['apiKeyHelper'] if 'apiKeyHelper' in claude_code_remote_control_settings_on_disk else []) + (['ANTHROPIC_BASE_URL'] if not (claude_code_remote_control_base_url_ok &#124; bool) else []) }}</code> |
 | `claude_code_remote_control_wanted` | <code>{{ claude_code_remote_control &#124; bool and claude_code_anthropic_api_key &#124; length == 0 }}</code> |
-| `claude_code_remote_control_status` | <code>{{ (claude_code_remote_control_auth.stdout &#124; from_json) if claude_code_remote_control_auth.rc == 0 and (claude_code_remote_control_auth.stdout &#124; trim &#124; length > 0) else {} }}</code> |
+| `claude_code_remote_control_status` | <code>{{ (claude_code_remote_control_auth.stdout &#124; from_json) if claude_code_remote_control_auth.rc == 0 and (claude_code_remote_control_auth.stdout &#124; default('') &#124; trim)[:1] == '{' else {} }}</code> |
 | `claude_code_login_installed` | <code>{{ claude_code_remote_control_auth.rc &#124; default(0) != 127 }}</code> |
 | `claude_code_remote_control_eligible` | <code>{{ (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool and (claude_code_remote_control_status.authMethod &#124; default('')) == 'claude.ai' and (claude_code_remote_control_status.apiKeySource &#124; default('', true)) &#124; length == 0 and claude_code_remote_control_settings_blockers &#124; length == 0 }}</code> |
 | `claude_code_remote_control_blocker` | <code>{{ '~/.claude/settings.json for ' ~ claude_code_user ~ ' on it disables Remote Control through ' ~ (claude_code_remote_control_settings_blockers &#124; join(', ')) ~ '. Each switches off the' ~ ' feature-flag evaluation Remote Control depends on, or routes the client away from the' ~ ' claude.ai login it needs. Remove it from claude_code_settings and from the file on the' ~ ' VM, or set claude_code_remote_control: false to leave Remote Control off.' if claude_code_remote_control_settings_blockers &#124; length > 0 else 'no Claude Code login is stored for ' ~ claude_code_user ~ ' on it.' if not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool else 'Claude Code on it uses an API key from "' ~ claude_code_remote_control_status.apiKeySource ~ '", which outranks the claude.ai login Remote Control needs.' ~ ' Remove it wherever it is set (the shell environment, an env block' ~ ' in a settings file, apiKeyHelper), or run "claude auth logout" if' ~ ' it came from a Console login.' if (claude_code_remote_control_status.apiKeySource &#124; default('', true)) &#124; length > 0 else 'it is signed in through "' ~ (claude_code_remote_control_status.authMethod &#124; default('unknown')) ~ '", but Remote Control needs a claude.ai login on a Pro, Max, Team' ~ ' or Enterprise plan. Remove what selects that method wherever it is' ~ ' set - CLAUDE_CODE_OAUTH_TOKEN for a token from "claude setup-token",' ~ ' or a CLAUDE_CODE_USE_* setting that routes it to Bedrock, Vertex AI' ~ ' or another provider - or run "claude auth logout" for a stored login.' }}</code> |
@@ -143,6 +143,7 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_login_browser` | `{{ claude_code_login_dir }}/claude-login.browser` |
 | `claude_code_login_page_file` | `{{ claude_code_login_dir }}/claude-login.page` |
 | `claude_code_login_forward_pidfile` | `{{ claude_code_login_dir }}/claude-login.forward.pid` |
+| `claude_code_login_files` | `["{{ claude_code_login_output }}", "{{ claude_code_login_pipe }}", "{{ claude_code_login_pidfile }}", "{{ claude_code_login_run_file }}", "{{ claude_code_login_page_file }}", "{{ claude_code_login_forward_pidfile }}", "{{ claude_code_login_browser }}"]` |
 | `claude_code_login_page_pattern` | <code>^https://(claude[.]com/cai&#124;claude[.]ai)/oauth/authorize[?]</code> |
 | `claude_code_login_page_trusted` | `{{ claude_code_login_url is match(claude_code_login_page_pattern) }}` |
 | `claude_code_login_auto_url` | <code>{{ (claude_code_login_page_read.content &#124; b64decode &#124; trim) if claude_code_login_page_read.content is defined else '' }}</code> |
@@ -156,11 +157,9 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_login_forward_argv` | <code>{{ ['sh', '-c', 'exec "$@" >/dev/null 2>&amp;1', 'sh', claude_code_login_ssh, '-f', '-n', '-T', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'AddressFamily=any', '-o', 'ConnectTimeout=15', '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-p', (hostvars[inventory_hostname].ansible_port &#124; default(22)) &#124; string, '-L', '127.0.0.1:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port, '-L', '[::1]:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port] + (['-i', hostvars[inventory_hostname].ansible_ssh_private_key_file] if hostvars[inventory_hostname].ansible_ssh_private_key_file is defined else []) + [(hostvars[inventory_hostname].ansible_user &#124; default(claude_code_user)) ~ '@' ~ hostvars[inventory_hostname].ansible_host &#124; default(inventory_hostname), 'echo $$ > ' ~ (claude_code_login_forward_pidfile &#124; quote) ~ ' &amp;&amp; exec sleep ' ~ (claude_code_login_approval_timeout &#124; int + 60)] }}</code> |
 | `claude_code_login_responded` | <code>{{ claude_code_login_entered &#124; length > 0 or (claude_code_login_redirecting &#124; bool and (claude_code_login_landed.finished &#124; default(0) &#124; int) == 1) }}</code> |
 | `claude_code_remote_control_stay_up_seconds` | `20` |
-| `claude_code_release_state` | <code>{{ (claude_code_release_status.stdout &#124; from_json) if (claude_code_release_status.stdout &#124; default('') &#124; trim)[:1] == '{' else {} }}</code> |
-| `claude_code_release_signed_in` | <code>{{ claude_code_release_state.loggedIn &#124; default(false) &#124; bool }}</code> |
 | `claude_code_release_rc_stopped` | <code>{{ claude_code_release_paused.results &#124; default([]) &#124; selectattr('changed', 'defined') &#124; selectattr('changed') &#124; selectattr('item.item', 'equalto', 'service') &#124; list &#124; length > 0 }}</code> |
 | `claude_code_release_why` | <code>{{ claude_code_release_logout.stderr &#124; default('') &#124; one_line(none) or 'no reason given' }}</code> |
-| `claude_code_release_summary` | <code>{{ ((['Remote Control stopped (its session stays in the Claude app, offline)'] if claude_code_release_rc_stopped &#124; bool else []) + ([('signed out' if (claude_code_release_logout.rc &#124; default(1)) == 0 else 'could not sign out (' ~ claude_code_release_why ~ ')')] if claude_code_release_signed_in &#124; bool else [])) &#124; join('; ') }}</code> |
+| `claude_code_release_summary` | <code>{{ ((['Remote Control stopped (its session stays in the Claude app, offline)'] if claude_code_release_rc_stopped &#124; bool else []) + ([('signed out' if (claude_code_release_logout.rc &#124; default(1)) == 0 else 'could not sign out (' ~ claude_code_release_why ~ ')')] if (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool else [])) &#124; join('; ') }}</code> |
 
 ## Tasks
 
@@ -181,13 +180,8 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Verify claude runs | `ansible.builtin.command` |  |
 | Show installed version | `ansible.builtin.debug` |  |
 | Set up Remote Control | `ansible.builtin.include_tasks` | <code>claude_code_remote_control_wanted &#124; bool</code> |
-| Look for a Remote Control unit an earlier run installed | `ansible.builtin.stat` | <code>not (claude_code_remote_control_wanted &#124; bool)</code> |
-| Look for the path unit an earlier run installed | `ansible.builtin.stat` | <code>not (claude_code_remote_control_wanted &#124; bool)</code> |
-| Remove the path unit that would start Remote Control | `ansible.builtin.include_tasks` | <code>not (claude_code_remote_control_wanted &#124; bool) and claude_code_remote_control_bridge_leftover.stat.exists</code> |
-| Remove Remote Control | block | <code>not (claude_code_remote_control_wanted &#124; bool) and claude_code_remote_control_leftover.stat.exists</code> |
-| &emsp;Stop and disable the Remote Control service | `ansible.builtin.systemd_service` |  |
-| &emsp;Remove the Remote Control unit | `ansible.builtin.file` |  |
-| &emsp;Make systemd forget the removed unit | `ansible.builtin.systemd_service` |  |
+| Look for the Remote Control units an earlier run installed | `ansible.builtin.stat` | <code>not (claude_code_remote_control_wanted &#124; bool)</code> |
+| Remove Remote Control | `ansible.builtin.include_tasks` | <code>not (claude_code_remote_control_wanted &#124; bool)</code> |
 | Explain why Remote Control was skipped | `ansible.builtin.debug` | <code>claude_code_remote_control &#124; bool and claude_code_anthropic_api_key &#124; length > 0</code> |
 
 ```mermaid
@@ -212,16 +206,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Write_global_CLAUDE_md6-->|Task| Verify_claude_runs7[verify claude runs]:::task
   Verify_claude_runs7-->|Task| Show_installed_version8[show installed version]:::task
   Show_installed_version8-->|Include task| Set_up_Remote_Control_remote_control_yml_9[set up remote control<br>When: **claude code remote control wanted   bool**<br>include_task: remote control yml]:::includeTasks
-  Set_up_Remote_Control_remote_control_yml_9-->|Task| Look_for_a_Remote_Control_unit_an_earlier_run_installed10[look for a remote control unit an earlier run<br>installed<br>When: **not  claude code remote control wanted   bool**]:::task
-  Look_for_a_Remote_Control_unit_an_earlier_run_installed10-->|Task| Look_for_the_path_unit_an_earlier_run_installed11[look for the path unit an earlier run installed<br>When: **not  claude code remote control wanted   bool**]:::task
-  Look_for_the_path_unit_an_earlier_run_installed11-->|Include task| Remove_the_path_unit_that_would_start_Remote_Control_path_unit_absent_yml_12[remove the path unit that would start remote<br>control<br>When: **not  claude code remote control wanted   bool  and<br>claude code remote control bridge leftover stat<br>exists**<br>include_task: path unit absent yml]:::includeTasks
-  Remove_the_path_unit_that_would_start_Remote_Control_path_unit_absent_yml_12-->|Block Start| Remove_Remote_Control13_block_start_0[[remove remote control<br>When: **not  claude code remote control wanted   bool  and<br>claude code remote control leftover stat exists**]]:::block
-  Remove_Remote_Control13_block_start_0-->|Task| Stop_and_disable_the_Remote_Control_service0[stop and disable the remote control service]:::task
-  Stop_and_disable_the_Remote_Control_service0-->|Task| Remove_the_Remote_Control_unit1[remove the remote control unit]:::task
-  Remove_the_Remote_Control_unit1-->|Task| Make_systemd_forget_the_removed_unit2[make systemd forget the removed unit]:::task
-  Make_systemd_forget_the_removed_unit2-.->|End of Block| Remove_Remote_Control13_block_start_0
-  Make_systemd_forget_the_removed_unit2-->|Task| Explain_why_Remote_Control_was_skipped14[explain why remote control was skipped<br>When: **claude code remote control   bool and claude code<br>anthropic api key   length   0**]:::task
-  Explain_why_Remote_Control_was_skipped14-->End
+  Set_up_Remote_Control_remote_control_yml_9-->|Task| Look_for_the_Remote_Control_units_an_earlier_run_installed10[look for the remote control units an earlier run<br>installed<br>When: **not  claude code remote control wanted   bool**]:::task
+  Look_for_the_Remote_Control_units_an_earlier_run_installed10-->|Include task| Remove_Remote_Control_unit_absent_yml_11[remove remote control<br>When: **not  claude code remote control wanted   bool**<br>include_task: unit absent yml]:::includeTasks
+  Remove_Remote_Control_unit_absent_yml_11-->|Task| Explain_why_Remote_Control_was_skipped12[explain why remote control was skipped<br>When: **claude code remote control   bool and claude code<br>anthropic api key   length   0**]:::task
+  Explain_why_Remote_Control_was_skipped12-->End
 ```
 
 ### `after_login.yml` - entry point `after_login`
@@ -276,10 +264,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | &emsp;Paste the code the browser shows for {{ inventory_hostname }} | `ansible.builtin.pause` | <code>claude_code_login_code &#124; length == 0 and not (claude_code_login_redirecting &#124; bool)</code> |
 | &emsp;Wait for your browser to come back | `ansible.builtin.async_status` | <code>claude_code_login_redirecting &#124; bool</code> |
 | &emsp;Remember whether someone answered for this VM | `ansible.builtin.set_fact` |  |
-| &emsp;Say that no code was entered | `ansible.builtin.debug` | <code>not (claude_code_login_redirecting &#124; bool) and claude_code_login_entered &#124; length == 0</code> |
-| &emsp;Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>not (claude_code_login_redirecting &#124; bool) and claude_code_login_entered &#124; length == 0</code> |
-| &emsp;Say that the browser did not come back | `ansible.builtin.debug` | <code>claude_code_login_redirecting &#124; bool and not (claude_code_login_responded &#124; bool)</code> |
-| &emsp;Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>claude_code_login_redirecting &#124; bool and not (claude_code_login_responded &#124; bool)</code> |
+| &emsp;Say that nobody answered | `ansible.builtin.debug` | <code>not (claude_code_login_responded &#124; bool)</code> |
+| &emsp;Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>not (claude_code_login_responded &#124; bool)</code> |
 | &emsp;Check that the sign-in is still waiting | `ansible.builtin.async_status` | <code>claude_code_login_entered &#124; length > 0</code> |
 | &emsp;Fail when the sign-in ended before the code came | `ansible.builtin.fail` | <code>claude_code_login_entered &#124; length > 0 and claude_code_login_still.finished &#124; default(0) &#124; int == 1</code> |
 | &emsp;Hand the code to claude | `ansible.builtin.command` | <code>claude_code_login_entered &#124; length > 0</code> |
@@ -338,23 +324,45 @@ classDef rescue stroke:#665352,stroke-width:2px;
   browser_login___Open_the_sign_in_page_in_your_browser8-->|Task| browser_login___Paste_the_code_the_browser_shows_for_inventory_hostname9[browser login   paste the code the browser shows<br>for inventory hostname<br>When: **claude code login code   length    0 and not <br>claude code login redirecting   bool**]:::task
   browser_login___Paste_the_code_the_browser_shows_for_inventory_hostname9-->|Task| browser_login___Wait_for_your_browser_to_come_back10[browser login   wait for your browser to come back<br>When: **claude code login redirecting   bool**]:::task
   browser_login___Wait_for_your_browser_to_come_back10-->|Task| browser_login___Remember_whether_someone_answered_for_this_VM11[browser login   remember whether someone answered<br>for this vm]:::task
-  browser_login___Remember_whether_someone_answered_for_this_VM11-->|Task| browser_login___Say_that_no_code_was_entered12[browser login   say that no code was entered<br>When: **not  claude code login redirecting   bool  and<br>claude code login entered   length    0**]:::task
-  browser_login___Say_that_no_code_was_entered12-->|Task| browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run13[browser login   keep what is left to do for the<br>end of the run<br>When: **not  claude code login redirecting   bool  and<br>claude code login entered   length    0**]:::task
-  browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run13-->|Task| browser_login___Say_that_the_browser_did_not_come_back14[browser login   say that the browser did not come<br>back<br>When: **claude code login redirecting   bool and not <br>claude code login responded   bool**]:::task
-  browser_login___Say_that_the_browser_did_not_come_back14-->|Task| browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run15[browser login   keep what is left to do for the<br>end of the run<br>When: **claude code login redirecting   bool and not <br>claude code login responded   bool**]:::task
-  browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run15-->|Task| browser_login___Check_that_the_sign_in_is_still_waiting16[browser login   check that the sign in is still<br>waiting<br>When: **claude code login entered   length   0**]:::task
-  browser_login___Check_that_the_sign_in_is_still_waiting16-->|Task| browser_login___Fail_when_the_sign_in_ended_before_the_code_came17[browser login   fail when the sign in ended before<br>the code came<br>When: **claude code login entered   length   0 and claude<br>code login still finished   default 0    int    1**]:::task
-  browser_login___Fail_when_the_sign_in_ended_before_the_code_came17-->|Task| browser_login___Hand_the_code_to_claude18[browser login   hand the code to claude<br>When: **claude code login entered   length   0**]:::task
-  browser_login___Hand_the_code_to_claude18-->|Task| browser_login___Wait_for_claude_s_answer19[browser login   wait for claude s answer<br>When: **claude code login entered   length   0**]:::task
-  browser_login___Wait_for_claude_s_answer19-->|Task| browser_login___Read_claude_s_answer20[browser login   read claude s answer<br>When: **claude code login entered   length   0**]:::task
-  browser_login___Read_claude_s_answer20-->|Task| browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname21[browser login   paste the whole code the browser<br>shows  what follows   included  for inventory<br>hostname<br>When: **claude code login code   length    0 and claude<br>code login answer is search  invalid code**]:::task
-  browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname21-->|Task| browser_login___Hand_the_whole_code_to_claude22[browser login   hand the whole code to claude<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
-  browser_login___Hand_the_whole_code_to_claude22-->|Task| browser_login___Wait_for_claude_to_finish_with_the_whole_code23[browser login   wait for claude to finish with the<br>whole code<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
-  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-.->|End of Block| browser_login___Sign_in__then_clean_up_whatever_happened13_block_start_0
-  browser_login___Wait_for_claude_to_finish_with_the_whole_code23-->|Task| browser_login___Check_the_login_again14[browser login   check the login again]:::task
+  browser_login___Remember_whether_someone_answered_for_this_VM11-->|Task| browser_login___Say_that_nobody_answered12[browser login   say that nobody answered<br>When: **not  claude code login responded   bool**]:::task
+  browser_login___Say_that_nobody_answered12-->|Task| browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run13[browser login   keep what is left to do for the<br>end of the run<br>When: **not  claude code login responded   bool**]:::task
+  browser_login___Keep_what_is_left_to_do_for_the_end_of_the_run13-->|Task| browser_login___Check_that_the_sign_in_is_still_waiting14[browser login   check that the sign in is still<br>waiting<br>When: **claude code login entered   length   0**]:::task
+  browser_login___Check_that_the_sign_in_is_still_waiting14-->|Task| browser_login___Fail_when_the_sign_in_ended_before_the_code_came15[browser login   fail when the sign in ended before<br>the code came<br>When: **claude code login entered   length   0 and claude<br>code login still finished   default 0    int    1**]:::task
+  browser_login___Fail_when_the_sign_in_ended_before_the_code_came15-->|Task| browser_login___Hand_the_code_to_claude16[browser login   hand the code to claude<br>When: **claude code login entered   length   0**]:::task
+  browser_login___Hand_the_code_to_claude16-->|Task| browser_login___Wait_for_claude_s_answer17[browser login   wait for claude s answer<br>When: **claude code login entered   length   0**]:::task
+  browser_login___Wait_for_claude_s_answer17-->|Task| browser_login___Read_claude_s_answer18[browser login   read claude s answer<br>When: **claude code login entered   length   0**]:::task
+  browser_login___Read_claude_s_answer18-->|Task| browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname19[browser login   paste the whole code the browser<br>shows  what follows   included  for inventory<br>hostname<br>When: **claude code login code   length    0 and claude<br>code login answer is search  invalid code**]:::task
+  browser_login___Paste_the_whole_code_the_browser_shows__what_follows___included__for_inventory_hostname19-->|Task| browser_login___Hand_the_whole_code_to_claude20[browser login   hand the whole code to claude<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
+  browser_login___Hand_the_whole_code_to_claude20-->|Task| browser_login___Wait_for_claude_to_finish_with_the_whole_code21[browser login   wait for claude to finish with the<br>whole code<br>When: **claude code login answer is search  invalid code  <br>and claude code login entered again   length   0**]:::task
+  browser_login___Wait_for_claude_to_finish_with_the_whole_code21-.->|End of Block| browser_login___Sign_in__then_clean_up_whatever_happened13_block_start_0
+  browser_login___Wait_for_claude_to_finish_with_the_whole_code21-->|Task| browser_login___Check_the_login_again14[browser login   check the login again]:::task
   browser_login___Check_the_login_again14-->|Task| browser_login___Fail_when_the_sign_in_did_not_complete15[browser login   fail when the sign in did not<br>complete<br>When: **claude code login responded   bool and not  claude<br>code remote control status loggedin   default<br>false     bool**]:::task
   browser_login___Fail_when_the_sign_in_did_not_complete15-->|Task| browser_login___Record_that_this_run_signed_the_VM_in16[browser login   record that this run signed the vm<br>in<br>When: **claude code login responded   bool**]:::task
   browser_login___Record_that_this_run_signed_the_VM_in16-->End
+```
+
+### `home.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Look up home directory of {{ claude_code_user }} | `ansible.builtin.getent` | <code>claude_code_home is not defined</code> |
+| Record where the user's files are | `ansible.builtin.set_fact` | <code>claude_code_home is not defined</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| home___Look_up_home_directory_of_claude_code_user0[home   look up home directory of claude code user<br>When: **claude code home is not defined**]:::task
+  home___Look_up_home_directory_of_claude_code_user0-->|Task| home___Record_where_the_user_s_files_are1[home   record where the user s files are<br>When: **claude code home is not defined**]:::task
+  home___Record_where_the_user_s_files_are1-->End
 ```
 
 ### `install_native.yml`
@@ -418,8 +426,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Look up home directory of {{ claude_code_user }} | `ansible.builtin.getent` | <code>claude_code_home is not defined</code> |
-| Record where the user's files are | `ansible.builtin.set_fact` | <code>claude_code_home is not defined</code> |
+| Find the user's home | `ansible.builtin.include_tasks` |  |
 | Check whether this VM is logged in | `ansible.builtin.command` |  |
 | Read the settings Claude Code will start with | `ansible.builtin.slurp` |  |
 | Sign Claude Code in by the browser | `ansible.builtin.include_tasks` | <code>claude_code_login_interactive &#124; bool and claude_code_login_installed &#124; bool and claude_code_anthropic_api_key &#124; length == 0 and not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool</code> |
@@ -438,40 +445,13 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| login___Look_up_home_directory_of_claude_code_user0[login   look up home directory of claude code user<br>When: **claude code home is not defined**]:::task
-  login___Look_up_home_directory_of_claude_code_user0-->|Task| login___Record_where_the_user_s_files_are1[login   record where the user s files are<br>When: **claude code home is not defined**]:::task
-  login___Record_where_the_user_s_files_are1-->|Task| login___Check_whether_this_VM_is_logged_in2[login   check whether this vm is logged in]:::task
-  login___Check_whether_this_VM_is_logged_in2-->|Task| login___Read_the_settings_Claude_Code_will_start_with3[login   read the settings claude code will start<br>with]:::task
-  login___Read_the_settings_Claude_Code_will_start_with3-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code login installed   bool and claude code<br>anthropic api key   length    0 and not  claude<br>code remote control status loggedin   default<br>false     bool**<br>include_task: browser login yml]:::includeTasks
-  login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4-->|Task| login___Report_the_login_state_and_what_to_do_about_it5[login   report the login state and what to do<br>about it]:::task
-  login___Report_the_login_state_and_what_to_do_about_it5-->|Task| login___Keep_what_is_left_to_do_for_the_end_of_the_run6[login   keep what is left to do for the end of the<br>run]:::task
-  login___Keep_what_is_left_to_do_for_the_end_of_the_run6-->End
-```
-
-### `path_unit_absent.yml`
-
-| Task | Module | When |
-|---|---|---|
-| Stop watching for the login | `ansible.builtin.systemd_service` |  |
-| Remove the path unit | `ansible.builtin.file` |  |
-| Make systemd forget the path unit | `ansible.builtin.systemd_service` |  |
-
-```mermaid
-flowchart TD
-Start
-classDef block stroke:#3498db,stroke-width:2px;
-classDef task stroke:#4b76bb,stroke-width:2px;
-classDef includeTasks stroke:#16a085,stroke-width:2px;
-classDef importTasks stroke:#34495e,stroke-width:2px;
-classDef includeRole stroke:#2980b9,stroke-width:2px;
-classDef importRole stroke:#699ba7,stroke-width:2px;
-classDef includeVars stroke:#8e44ad,stroke-width:2px;
-classDef rescue stroke:#665352,stroke-width:2px;
-
-  Start-->|Task| path_unit_absent___Stop_watching_for_the_login0[path unit absent   stop watching for the login]:::task
-  path_unit_absent___Stop_watching_for_the_login0-->|Task| path_unit_absent___Remove_the_path_unit1[path unit absent   remove the path unit]:::task
-  path_unit_absent___Remove_the_path_unit1-->|Task| path_unit_absent___Make_systemd_forget_the_path_unit2[path unit absent   make systemd forget the path<br>unit]:::task
-  path_unit_absent___Make_systemd_forget_the_path_unit2-->End
+  Start-->|Include task| login___Find_the_user_s_home_home_yml_0[login   find the user s home<br>include_task: home yml]:::includeTasks
+  login___Find_the_user_s_home_home_yml_0-->|Task| login___Check_whether_this_VM_is_logged_in1[login   check whether this vm is logged in]:::task
+  login___Check_whether_this_VM_is_logged_in1-->|Task| login___Read_the_settings_Claude_Code_will_start_with2[login   read the settings claude code will start<br>with]:::task
+  login___Read_the_settings_Claude_Code_will_start_with2-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_3[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code login installed   bool and claude code<br>anthropic api key   length    0 and not  claude<br>code remote control status loggedin   default<br>false     bool**<br>include_task: browser login yml]:::includeTasks
+  login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_3-->|Task| login___Report_the_login_state_and_what_to_do_about_it4[login   report the login state and what to do<br>about it]:::task
+  login___Report_the_login_state_and_what_to_do_about_it4-->|Task| login___Keep_what_is_left_to_do_for_the_end_of_the_run5[login   keep what is left to do for the end of the<br>run]:::task
+  login___Keep_what_is_left_to_do_for_the_end_of_the_run5-->End
 ```
 
 ### `release.yml` - entry point `release`
@@ -480,7 +460,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 |---|---|---|
 | Stop Remote Control, and what starts it | `ansible.builtin.include_tasks` | <code>claude_code_release_paused is not defined</code> |
 | Read the login | `ansible.builtin.command` |  |
-| Sign claude out | `ansible.builtin.command` | <code>claude_code_release_signed_in &#124; bool</code> |
+| Sign claude out | `ansible.builtin.command` | <code>(claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool</code> |
 | Record what became of the login | `ansible.builtin.set_fact` |  |
 
 ```mermaid
@@ -497,7 +477,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Include task| release___Stop_Remote_Control__and_what_starts_it_release_pause_yml_0[release   stop remote control  and what starts it<br>When: **claude code release paused is not defined**<br>include_task: release pause yml]:::includeTasks
   release___Stop_Remote_Control__and_what_starts_it_release_pause_yml_0-->|Task| release___Read_the_login1[release   read the login]:::task
-  release___Read_the_login1-->|Task| release___Sign_claude_out2[release   sign claude out<br>When: **claude code release signed in   bool**]:::task
+  release___Read_the_login1-->|Task| release___Sign_claude_out2[release   sign claude out<br>When: **claude code remote control status loggedin  <br>default false     bool**]:::task
   release___Sign_claude_out2-->|Task| release___Record_what_became_of_the_login3[release   record what became of the login]:::task
   release___Record_what_became_of_the_login3-->End
 ```
@@ -614,8 +594,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
   remote_control___Look_for_a_git_repository_in_the_session_directory0-->|Task| remote_control___Fail_when_worktree_spawn_has_no_git_repository1[remote control   fail when worktree spawn has no<br>git repository]:::task
   remote_control___Fail_when_worktree_spawn_has_no_git_repository1-.->|End of Block| remote_control___Require_a_git_repository_for_worktree_spawn11_block_start_0
   remote_control___Fail_when_worktree_spawn_has_no_git_repository1-->|Task| remote_control___Look_for_the_unit_that_starts_Remote_Control_when_a_login_lands12[remote control   look for the unit that starts<br>remote control when a login lands]:::task
-  remote_control___Look_for_the_unit_that_starts_Remote_Control_when_a_login_lands12-->|Include task| remote_control___Remove_the_unit_that_waited_for_the_login_path_unit_absent_yml_13[remote control   remove the unit that waited for<br>the login<br>When: **not  claude code remote control bridge wanted  <br>bool  and claude code remote control bridge stat<br>exists**<br>include_task: path unit absent yml]:::includeTasks
-  remote_control___Remove_the_unit_that_waited_for_the_login_path_unit_absent_yml_13-->|Block Start| remote_control___Start_Remote_Control14_block_start_0[[remote control   start remote control<br>When: **claude code remote control eligible   bool and<br>claude code remote control unit file stat exists**]]:::block
+  remote_control___Look_for_the_unit_that_starts_Remote_Control_when_a_login_lands12-->|Include task| remote_control___Remove_the_unit_that_waited_for_the_login_unit_absent_yml_13[remote control   remove the unit that waited for<br>the login<br>When: **not  claude code remote control bridge wanted  <br>bool  and claude code remote control bridge stat<br>exists**<br>include_task: unit absent yml]:::includeTasks
+  remote_control___Remove_the_unit_that_waited_for_the_login_unit_absent_yml_13-->|Block Start| remote_control___Start_Remote_Control14_block_start_0[[remote control   start remote control<br>When: **claude code remote control eligible   bool and<br>claude code remote control unit file stat exists**]]:::block
   remote_control___Start_Remote_Control14_block_start_0-->|Task| remote_control___Read_the_service_state0[remote control   read the service state]:::task
   remote_control___Read_the_service_state0-->|Task| remote_control___Enable_and_start_the_service1[remote control   enable and start the service]:::task
   remote_control___Enable_and_start_the_service1-->|Block Start| remote_control___Confirm_the_session_stayed_up2_block_start_1[[remote control   confirm the session stayed up<br>When: **not ansible check mode and claude code remote<br>control start is changed**]]:::block
@@ -687,8 +667,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Look up home directory of {{ claude_code_user }} | `ansible.builtin.getent` | <code>claude_code_home is not defined</code> |
-| Record where the user's files are | `ansible.builtin.set_fact` | <code>claude_code_home is not defined</code> |
+| Find the user's home | `ansible.builtin.include_tasks` |  |
 | Read where the installed claude points | `ansible.builtin.stat` |  |
 | Look for the stored login | `ansible.builtin.stat` |  |
 | Read Remote Control's service and the unit that waits for a login | `ansible.builtin.systemd_service` |  |
@@ -706,13 +685,38 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| status___Look_up_home_directory_of_claude_code_user0[status   look up home directory of claude code<br>user<br>When: **claude code home is not defined**]:::task
-  status___Look_up_home_directory_of_claude_code_user0-->|Task| status___Record_where_the_user_s_files_are1[status   record where the user s files are<br>When: **claude code home is not defined**]:::task
-  status___Record_where_the_user_s_files_are1-->|Task| status___Read_where_the_installed_claude_points2[status   read where the installed claude points]:::task
-  status___Read_where_the_installed_claude_points2-->|Task| status___Look_for_the_stored_login3[status   look for the stored login]:::task
-  status___Look_for_the_stored_login3-->|Task| status___Read_Remote_Control_s_service_and_the_unit_that_waits_for_a_login4[status   read remote control s service and the<br>unit that waits for a login]:::task
-  status___Read_Remote_Control_s_service_and_the_unit_that_waits_for_a_login4-->|Task| status___Keep_what_Claude_Code_is_on_this_VM5[status   keep what claude code is on this vm]:::task
-  status___Keep_what_Claude_Code_is_on_this_VM5-->End
+  Start-->|Include task| status___Find_the_user_s_home_home_yml_0[status   find the user s home<br>include_task: home yml]:::includeTasks
+  status___Find_the_user_s_home_home_yml_0-->|Task| status___Read_where_the_installed_claude_points1[status   read where the installed claude points]:::task
+  status___Read_where_the_installed_claude_points1-->|Task| status___Look_for_the_stored_login2[status   look for the stored login]:::task
+  status___Look_for_the_stored_login2-->|Task| status___Read_Remote_Control_s_service_and_the_unit_that_waits_for_a_login3[status   read remote control s service and the<br>unit that waits for a login]:::task
+  status___Read_Remote_Control_s_service_and_the_unit_that_waits_for_a_login3-->|Task| status___Keep_what_Claude_Code_is_on_this_VM4[status   keep what claude code is on this vm]:::task
+  status___Keep_what_Claude_Code_is_on_this_VM4-->End
+```
+
+### `unit_absent.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Stop and disable the unit | `ansible.builtin.systemd_service` |  |
+| Remove the unit | `ansible.builtin.file` |  |
+| Make systemd forget the unit | `ansible.builtin.systemd_service` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| unit_absent___Stop_and_disable_the_unit0[unit absent   stop and disable the unit]:::task
+  unit_absent___Stop_and_disable_the_unit0-->|Task| unit_absent___Remove_the_unit1[unit absent   remove the unit]:::task
+  unit_absent___Remove_the_unit1-->|Task| unit_absent___Make_systemd_forget_the_unit2[unit absent   make systemd forget the unit]:::task
+  unit_absent___Make_systemd_forget_the_unit2-->End
 ```
 
 <!-- END_GENERATED: role -->

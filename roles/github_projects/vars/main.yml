@@ -39,6 +39,13 @@ github_projects_auth_unchecked: >-
 # raw: ansible-core 2.21 prints a failure's [ERROR] line unescaped.
 github_projects_status_said: >-
   {{ github_projects_auth_status.stderr | default('') | plain_text | trim }}
+# What follows gh's own words when it could not report its state - a non-zero
+# exit from `gh auth status --json`, which only a gh too old for --json gives -
+# in auth.yml's failure and in login_report.yml's line alike.
+github_projects_gh_too_old_said: >-
+  `gh auth status --json` needs gh 2.81.0 or newer.
+  {{ "Install gh from GitHub's apt repository (dev_tools_install_gh: true), or set github_auth: false to leave gh alone."
+     if github_projects_auth | bool else 'This project leaves gh alone there (github_auth: false).' }}
 github_projects_token_said: >-
   {{ github_projects_login.stderr | default('') | plain_text | trim }}
 
@@ -110,6 +117,11 @@ github_projects_login_args: >-
 # more. Both removed when the flow ends.
 github_projects_login_output: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.out"
 github_projects_login_pidfile: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.pid"
+# Internal: both, unlinked before the flow starts and again once it ends - one
+# list, so the two cannot drift.
+github_projects_login_files:
+  - "{{ github_projects_login_output }}"
+  - "{{ github_projects_login_pidfile }}"
 # Internal: how long gh may take to show the code; how long the approval is
 # waited for, a little longer than the fifteen minutes GitHub's code lives and
 # gh polls, so that gh's own word on an expired code is what ends the wait;
@@ -208,6 +220,14 @@ github_projects_login_is_ours: >-
      and github_projects_stored_token | length > 0
      and github_projects_marker_digest | length > 0
      and github_projects_marker_digest == github_projects_stored_token | hash('sha256') }}
+# Whether the marker is due: the login is the vault token's, so auth.yml
+# writes it (and its directory) whenever it is, not only straight after a
+# sign-in, and a marker that went missing comes back.
+github_projects_marker_due: >-
+  {{ github_projects_auth_wanted | bool
+     and github_projects_token_wanted | bool
+     and github_projects_signed_in | bool
+     and github_projects_stored_token == github_projects_token }}
 
 # What the listing is made with: the vault token when there is one, else
 # whatever gh holds. A device-flow login therefore lists private repositories
@@ -345,14 +365,19 @@ github_projects_release_summary: >-
            ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,'
            ~ ' which signs out every gh you have') }}
 
+# Whether gh's login is a device-flow one without the workflow scope, which
+# GitHub refuses a push that changes .github/workflows/ for: said by
+# login_report.yml, with the gh auth refresh that adds it, and left to do.
+github_projects_login_lacks_workflow: >-
+  {{ github_projects_login_kind == 'oauth' and 'workflow' not in (github_projects_auth_account.scopes | default('')) }}
+
 # Whether login_report.yml's line is something left to do, which NEXT STEPS records and just status says: a gh
 # too old to say where gh is the role's business, a device-flow login without the workflow scope, a sign-out that
 # nothing in this run ends. Never signed in, gh left alone (github_auth: false) or gh not installed by choice.
 github_projects_login_left: >-
   {{ github_projects_gh_found | bool
      and ((github_projects_auth_status.rc | default(0) != 0 and github_projects_auth | bool)
-          or (github_projects_signed_in | bool and github_projects_login_kind == 'oauth'
-              and 'workflow' not in (github_projects_auth_account.scopes | default('')))
+          or github_projects_login_lacks_workflow | bool
           or (not github_projects_signed_in | bool and github_projects_auth | bool
               and not (github_projects_token_wanted | bool and github_projects_token_set | bool
                        and github_projects_login_role_follows | bool))) }}

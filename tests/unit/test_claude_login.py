@@ -367,7 +367,7 @@ def test_claude_waiting_on_a_malformed_code_is_ended_not_left_waiting(signed):
 def test_no_code_ends_the_attempt_without_failing(signed):
     root, report = signed
     assert "skipped" not in _failures(report)
-    said = _messages(report, "Say that no code was entered")["skipped"]
+    said = _messages(report, "Say that nobody answered")["skipped"]
     assert "just login skipped --only claude signs it in later" in said
     calls = _calls(root, "skipped")
     # Killed, not handed a blank line: claude would answer that "Invalid code"
@@ -801,7 +801,7 @@ def test_a_browser_that_never_comes_back_ends_the_attempt_and_skips_the_vm(tmp_p
     )
     report = _run(tmp_path, playbook, hosts, "-e", json.dumps(_extra("away", ssh=str(ssh))))
     assert report["rc"] == 0, _failures(report)
-    said = _messages(report, "browser_login | Say that the browser did not come back")["away"]
+    said = _messages(report, "browser_login | Say that nobody answered")["away"]
     assert said == (
         "away: the browser did not come back within 3 seconds, so Claude Code is left signed out there. just"
         " login away --only claude signs it in later."

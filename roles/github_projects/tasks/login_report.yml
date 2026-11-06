@@ -15,12 +15,9 @@
       oauth: through a device-flow login
       env: through a GH_TOKEN or GITHUB_TOKEN in its environment, which this role leaves alone
       other: in a way this role does not manage
-    github_projects_account_scopes: "{{ github_projects_auth_account.scopes | default('') }}"
     github_projects_login_unreadable: >-
       {{ 'gh could not report its login state (' ~ (github_projects_status_said or 'no output')
-         ~ '); `gh auth status --json` needs gh 2.81.0 or newer.'
-         ~ (' Install gh from GitHub\'s apt repository (dev_tools_install_gh: true), or set github_auth: false to leave gh alone.'
-            if github_projects_auth | bool else ' This project leaves gh alone there (github_auth: false).') }}
+         ~ '); ' ~ github_projects_gh_too_old_said }}
     github_projects_login_signed_in: >-
       {{ ('signed in' if github_projects_login_done | default(false) | bool else 'already signed in')
          ~ ' to GitHub as ' ~ (github_projects_auth_account.login | default('?', true))
@@ -28,7 +25,7 @@
          ~ (' Its token lacks the workflow scope, so a push that changes .github/workflows/ is'
             ~ ' refused; add it with: ssh -t ' ~ github_projects_user ~ '@'
             ~ ansible_host | default(inventory_hostname) ~ ' gh auth refresh -h github.com -s workflow'
-            if github_projects_login_kind == 'oauth' and 'workflow' not in github_projects_account_scopes
+            if github_projects_login_lacks_workflow | bool
             else '') }}
     github_projects_login_signed_out: >-
       {{ 'not signed in to GitHub, and this project leaves gh alone there (github_auth: false).'

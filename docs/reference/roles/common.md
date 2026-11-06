@@ -178,15 +178,16 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Look up the home directory of {{ common_user }} | `ansible.builtin.getent` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Read the PATH /etc/environment sets | `ansible.builtin.slurp` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Fail when that PATH cannot be written into sshd's configuration | `ansible.builtin.assert` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Put the same directories on PATH for ssh commands | `ansible.builtin.template` | <code>common_ssh_path_dirs &#124; length > 0</code> |
+| Put the directories on PATH for ssh commands, and check what sshd gives | block | <code>common_ssh_path_dirs &#124; length > 0</code> |
+| &emsp;Look up the home directory of {{ common_user }} | `ansible.builtin.getent` |  |
+| &emsp;Read the PATH /etc/environment sets | `ansible.builtin.slurp` |  |
+| &emsp;Fail when that PATH cannot be written into sshd's configuration | `ansible.builtin.assert` |  |
+| &emsp;Put the same directories on PATH for ssh commands | `ansible.builtin.template` |  |
+| &emsp;Find where the connections come from, for {{ common_user }} | `ansible.builtin.command` |  |
+| &emsp;Read the PATH sshd gives the sessions of {{ common_user }} | `ansible.builtin.command` |  |
+| &emsp;Find what else sets sshd's environment, if anything does | `ansible.builtin.find` |  |
+| &emsp;Fail when sshd does not give that PATH to the sessions of {{ common_user }} | `ansible.builtin.assert` | <code>not ansible_check_mode</code> |
 | Remove the PATH for ssh commands | `ansible.builtin.file` | <code>common_ssh_path_dirs &#124; length == 0</code> |
-| Find where the connections come from, for {{ common_user }} | `ansible.builtin.command` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Read the PATH sshd gives the sessions of {{ common_user }} | `ansible.builtin.command` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Find what else sets sshd's environment, if anything does | `ansible.builtin.find` | <code>common_ssh_path_dirs &#124; length > 0</code> |
-| Fail when sshd does not give that PATH to the sessions of {{ common_user }} | `ansible.builtin.assert` | <code>common_ssh_path_dirs &#124; length > 0 and not ansible_check_mode</code> |
 
 ```mermaid
 flowchart TD
@@ -200,16 +201,18 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| ssh_path___Look_up_the_home_directory_of_common_user0[ssh path   look up the home directory of common<br>user<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Look_up_the_home_directory_of_common_user0-->|Task| ssh_path___Read_the_PATH__etc_environment_sets1[ssh path   read the path  etc environment sets<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Read_the_PATH__etc_environment_sets1-->|Task| ssh_path___Fail_when_that_PATH_cannot_be_written_into_sshd_s_configuration2[ssh path   fail when that path cannot be written<br>into sshd s configuration<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Fail_when_that_PATH_cannot_be_written_into_sshd_s_configuration2-->|Task| ssh_path___Put_the_same_directories_on_PATH_for_ssh_commands3[ssh path   put the same directories on path for<br>ssh commands<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Put_the_same_directories_on_PATH_for_ssh_commands3-->|Task| ssh_path___Remove_the_PATH_for_ssh_commands4[ssh path   remove the path for ssh commands<br>When: **common ssh path dirs   length    0**]:::task
-  ssh_path___Remove_the_PATH_for_ssh_commands4-->|Task| ssh_path___Find_where_the_connections_come_from__for_common_user5[ssh path   find where the connections come from <br>for common user<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Find_where_the_connections_come_from__for_common_user5-->|Task| ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user6[ssh path   read the path sshd gives the sessions<br>of common user<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user6-->|Task| ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7[ssh path   find what else sets sshd s environment <br>if anything does<br>When: **common ssh path dirs   length   0**]:::task
-  ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does7-->|Task| ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8[ssh path   fail when sshd does not give that path<br>to the sessions of common user<br>When: **common ssh path dirs   length   0 and not ansible<br>check mode**]:::task
-  ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user8-->End
+  Start-->|Block Start| ssh_path___Put_the_directories_on_PATH_for_ssh_commands__and_check_what_sshd_gives0_block_start_0[[ssh path   put the directories on path for ssh<br>commands  and check what sshd gives<br>When: **common ssh path dirs   length   0**]]:::block
+  ssh_path___Put_the_directories_on_PATH_for_ssh_commands__and_check_what_sshd_gives0_block_start_0-->|Task| ssh_path___Look_up_the_home_directory_of_common_user0[ssh path   look up the home directory of common<br>user]:::task
+  ssh_path___Look_up_the_home_directory_of_common_user0-->|Task| ssh_path___Read_the_PATH__etc_environment_sets1[ssh path   read the path  etc environment sets]:::task
+  ssh_path___Read_the_PATH__etc_environment_sets1-->|Task| ssh_path___Fail_when_that_PATH_cannot_be_written_into_sshd_s_configuration2[ssh path   fail when that path cannot be written<br>into sshd s configuration]:::task
+  ssh_path___Fail_when_that_PATH_cannot_be_written_into_sshd_s_configuration2-->|Task| ssh_path___Put_the_same_directories_on_PATH_for_ssh_commands3[ssh path   put the same directories on path for<br>ssh commands]:::task
+  ssh_path___Put_the_same_directories_on_PATH_for_ssh_commands3-->|Task| ssh_path___Find_where_the_connections_come_from__for_common_user4[ssh path   find where the connections come from <br>for common user]:::task
+  ssh_path___Find_where_the_connections_come_from__for_common_user4-->|Task| ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user5[ssh path   read the path sshd gives the sessions<br>of common user]:::task
+  ssh_path___Read_the_PATH_sshd_gives_the_sessions_of_common_user5-->|Task| ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does6[ssh path   find what else sets sshd s environment <br>if anything does]:::task
+  ssh_path___Find_what_else_sets_sshd_s_environment__if_anything_does6-->|Task| ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user7[ssh path   fail when sshd does not give that path<br>to the sessions of common user<br>When: **not ansible check mode**]:::task
+  ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user7-.->|End of Block| ssh_path___Put_the_directories_on_PATH_for_ssh_commands__and_check_what_sshd_gives0_block_start_0
+  ssh_path___Fail_when_sshd_does_not_give_that_PATH_to_the_sessions_of_common_user7-->|Task| ssh_path___Remove_the_PATH_for_ssh_commands1[ssh path   remove the path for ssh commands<br>When: **common ssh path dirs   length    0**]:::task
+  ssh_path___Remove_the_PATH_for_ssh_commands1-->End
 ```
 
 ### `sudo.yml`

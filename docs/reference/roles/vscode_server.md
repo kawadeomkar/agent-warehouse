@@ -33,16 +33,17 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 
 | Task | Module | When |
 |---|---|---|
-| Look for the tools the server installer needs | `ansible.builtin.command` | <code>vscode_server_enabled &#124; bool</code> |
-| Fail when the host cannot run VS Code Server | `ansible.builtin.assert` | <code>vscode_server_enabled &#124; bool</code> |
-| Ensure sshd privilege separation directory exists | `ansible.builtin.file` | <code>vscode_server_enabled &#124; bool</code> |
-| Allow port forwarding over the editor's SSH connection | `ansible.builtin.template` | <code>vscode_server_enabled &#124; bool</code> |
+| Set up and check what a remote editor needs | block | <code>vscode_server_enabled &#124; bool</code> |
+| &emsp;Look for the tools the server installer needs | `ansible.builtin.command` |  |
+| &emsp;Fail when the host cannot run VS Code Server | `ansible.builtin.assert` |  |
+| &emsp;Ensure sshd privilege separation directory exists | `ansible.builtin.file` |  |
+| &emsp;Allow port forwarding over the editor's SSH connection | `ansible.builtin.template` |  |
+| &emsp;Find where the editor's connection will come from | `ansible.builtin.command` |  |
+| &emsp;Read the configuration sshd applies to the editor's connection | `ansible.builtin.command` |  |
+| &emsp;Find what turns forwarding off, if anything does | `ansible.builtin.find` |  |
+| &emsp;Fail when sshd does not allow port forwarding | `ansible.builtin.assert` |  |
+| &emsp;Raise the inotify watch limit for the editor's file watcher | `ansible.posix.sysctl` |  |
 | Remove the sshd drop-in | `ansible.builtin.file` | <code>not vscode_server_enabled &#124; bool</code> |
-| Find where the editor's connection will come from | `ansible.builtin.command` | <code>vscode_server_enabled &#124; bool</code> |
-| Read the configuration sshd applies to the editor's connection | `ansible.builtin.command` | <code>vscode_server_enabled &#124; bool</code> |
-| Find what turns forwarding off, if anything does | `ansible.builtin.find` | <code>vscode_server_enabled &#124; bool</code> |
-| Fail when sshd does not allow port forwarding | `ansible.builtin.assert` | <code>vscode_server_enabled &#124; bool</code> |
-| Raise the inotify watch limit for the editor's file watcher | `ansible.posix.sysctl` | <code>vscode_server_enabled &#124; bool</code> |
 | Remove the inotify setting | `ansible.builtin.file` | <code>not vscode_server_enabled &#124; bool</code> |
 
 ```mermaid
@@ -57,18 +58,20 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| Look_for_the_tools_the_server_installer_needs0[look for the tools the server installer needs<br>When: **vscode server enabled   bool**]:::task
-  Look_for_the_tools_the_server_installer_needs0-->|Task| Fail_when_the_host_cannot_run_VS_Code_Server1[fail when the host cannot run vs code server<br>When: **vscode server enabled   bool**]:::task
-  Fail_when_the_host_cannot_run_VS_Code_Server1-->|Task| Ensure_sshd_privilege_separation_directory_exists2[ensure sshd privilege separation directory exists<br>When: **vscode server enabled   bool**]:::task
-  Ensure_sshd_privilege_separation_directory_exists2-->|Task| Allow_port_forwarding_over_the_editor_s_SSH_connection3[allow port forwarding over the editor s ssh<br>connection<br>When: **vscode server enabled   bool**]:::task
-  Allow_port_forwarding_over_the_editor_s_SSH_connection3-->|Task| Remove_the_sshd_drop_in4[remove the sshd drop in<br>When: **not vscode server enabled   bool**]:::task
-  Remove_the_sshd_drop_in4-->|Task| Find_where_the_editor_s_connection_will_come_from5[find where the editor s connection will come from<br>When: **vscode server enabled   bool**]:::task
-  Find_where_the_editor_s_connection_will_come_from5-->|Task| Read_the_configuration_sshd_applies_to_the_editor_s_connection6[read the configuration sshd applies to the editor<br>s connection<br>When: **vscode server enabled   bool**]:::task
-  Read_the_configuration_sshd_applies_to_the_editor_s_connection6-->|Task| Find_what_turns_forwarding_off__if_anything_does7[find what turns forwarding off  if anything does<br>When: **vscode server enabled   bool**]:::task
-  Find_what_turns_forwarding_off__if_anything_does7-->|Task| Fail_when_sshd_does_not_allow_port_forwarding8[fail when sshd does not allow port forwarding<br>When: **vscode server enabled   bool**]:::task
-  Fail_when_sshd_does_not_allow_port_forwarding8-->|Task| Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher9[raise the inotify watch limit for the editor s<br>file watcher<br>When: **vscode server enabled   bool**]:::task
-  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher9-->|Task| Remove_the_inotify_setting10[remove the inotify setting<br>When: **not vscode server enabled   bool**]:::task
-  Remove_the_inotify_setting10-->End
+  Start-->|Block Start| Set_up_and_check_what_a_remote_editor_needs0_block_start_0[[set up and check what a remote editor needs<br>When: **vscode server enabled   bool**]]:::block
+  Set_up_and_check_what_a_remote_editor_needs0_block_start_0-->|Task| Look_for_the_tools_the_server_installer_needs0[look for the tools the server installer needs]:::task
+  Look_for_the_tools_the_server_installer_needs0-->|Task| Fail_when_the_host_cannot_run_VS_Code_Server1[fail when the host cannot run vs code server]:::task
+  Fail_when_the_host_cannot_run_VS_Code_Server1-->|Task| Ensure_sshd_privilege_separation_directory_exists2[ensure sshd privilege separation directory exists]:::task
+  Ensure_sshd_privilege_separation_directory_exists2-->|Task| Allow_port_forwarding_over_the_editor_s_SSH_connection3[allow port forwarding over the editor s ssh<br>connection]:::task
+  Allow_port_forwarding_over_the_editor_s_SSH_connection3-->|Task| Find_where_the_editor_s_connection_will_come_from4[find where the editor s connection will come from]:::task
+  Find_where_the_editor_s_connection_will_come_from4-->|Task| Read_the_configuration_sshd_applies_to_the_editor_s_connection5[read the configuration sshd applies to the editor<br>s connection]:::task
+  Read_the_configuration_sshd_applies_to_the_editor_s_connection5-->|Task| Find_what_turns_forwarding_off__if_anything_does6[find what turns forwarding off  if anything does]:::task
+  Find_what_turns_forwarding_off__if_anything_does6-->|Task| Fail_when_sshd_does_not_allow_port_forwarding7[fail when sshd does not allow port forwarding]:::task
+  Fail_when_sshd_does_not_allow_port_forwarding7-->|Task| Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8[raise the inotify watch limit for the editor s<br>file watcher]:::task
+  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8-.->|End of Block| Set_up_and_check_what_a_remote_editor_needs0_block_start_0
+  Raise_the_inotify_watch_limit_for_the_editor_s_file_watcher8-->|Task| Remove_the_sshd_drop_in1[remove the sshd drop in<br>When: **not vscode server enabled   bool**]:::task
+  Remove_the_sshd_drop_in1-->|Task| Remove_the_inotify_setting2[remove the inotify setting<br>When: **not vscode server enabled   bool**]:::task
+  Remove_the_inotify_setting2-->End
 ```
 
 <!-- END_GENERATED: role -->

@@ -34,9 +34,7 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
-  loop:
-    - "{{ github_projects_login_output }}"
-    - "{{ github_projects_login_pidfile }}"
+  loop: "{{ github_projects_login_files }}"
   become: true
   become_user: "{{ github_projects_user }}"
   changed_when: false
@@ -233,9 +231,7 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-      loop:
-        - "{{ github_projects_login_output }}"
-        - "{{ github_projects_login_pidfile }}"
+      loop: "{{ github_projects_login_files }}"
       become: true
       become_user: "{{ github_projects_user }}"
       changed_when: false

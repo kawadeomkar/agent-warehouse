@@ -48,7 +48,7 @@ def _forget(tmp_path: Path, **extra) -> set[str]:
     return {line.split()[0] for line in known.read_text().splitlines() if line.strip()}
 
 
-VM = {"proxmox_vm_exists": True, "proxmox_vm_name": "alpha", "proxmox_vm_forget_address": "192.0.2.10"}
+VM = {"proxmox_vm_name": "alpha", "proxmox_vm_forget_address": "192.0.2.10"}
 
 
 def test_with_a_domain_the_name_is_forgotten_with_the_address(tmp_path):

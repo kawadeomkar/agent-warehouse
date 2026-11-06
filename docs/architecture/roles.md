@@ -47,7 +47,7 @@ settings, VM name, login credentials, VM ID. `proxmox_vm_state` is *not* asserte
 `meta/argument_specs.yml` declares its `choices`, validated before the first task runs. Then: look
 the VM up by name (with its config), refuse a duplicated name, record existence, then either refuse
 an existing VM that is a template or lacks the tag and branch to `present.yml`, or run the ownership
-check and `absent.yml`.
+check and `absent.yml`, both only for a VM that exists.
 
 **`tasks/present.yml`**
 
@@ -277,9 +277,9 @@ The role automates everything around the login and stops at it:
    configuring both would silently authenticate as the API account and the server would refuse to
    start. This is not a failure: with Remote Control on by default, a VM on the API path is a normal
    configuration, not a mistake. Off is enforced rather than skipped. `main.yml` decides once
-   (`claude_code_remote_control_wanted`) and either includes `remote_control.yml` or, if the unit
-   file this role installs exists, stops and disables the service, removes the file and reloads
-   systemd. Skipping alone left an earlier run's server taking sessions after the user opted out,
+   (`claude_code_remote_control_wanted`) and either includes `remote_control.yml` or, for each unit
+   file this role installs that exists, the path unit first, stops and disables the unit, removes the
+   file and reloads systemd (`tasks/unit_absent.yml`). Skipping alone left an earlier run's server taking sessions after the user opted out,
    and restarting on every boot with the key it could not use. Gating on the file keeps a VM that
    never had the unit untouched, and keeps check mode from asking `systemd_service` about a unit
    that does not exist.
@@ -493,7 +493,7 @@ while the file exists, which with no start limit would spin on a refused login a
 `systemctl stop`. `PathChanged=` fires on any change to the file - created, rewritten, renamed into
 place, removed, its mode changed - so a token refresh or a logout fires it again, and the unit lives
 only while the login is the one thing missing (`claude_code_remote_control_bridge_wanted`): the run
-that finds the VM signed in, or a settings blocker, removes it (`tasks/path_unit_absent.yml`, shared
+that finds the VM signed in, or a settings blocker, removes it (`tasks/unit_absent.yml`, shared
 with turning Remote Control off) before it starts the service, so a start the server refuses - an
 organisation that disabled Remote Control - leaves no path unit behind to start it again later.
 
@@ -522,8 +522,8 @@ container in with the stand-in, after which the real role starts Remote Control 
 
 ## 5.6 `github_projects` — sign in to GitHub, clone an account's repositories
 
-`main.yml` validates the username, resolves the target directory (the user's home is looked up only
-when `github_projects_dir` is empty), then includes `auth.yml` and `clone.yml`.
+`main.yml` validates the username, includes `auth.yml`, resolves the target directory from the home
+`auth.yml` read and makes it, then includes `clone.yml`.
 
 **Two credentials, one token.** A private repository is *listed* with an API token and *cloned*
 with a git credential, and a push or `gh pr create` later needs the latter again. The role gives
@@ -536,8 +536,10 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
 
 `auth.yml`, as `github_projects_user`:
 
-1. **Read gh's state**: `which gh` (a VM built with `dev_tools_install_gh` off gets a message, not a
-   failure), then `auth_status.yml`: `gh auth status --hostname github.com --json hosts`, which exits
+1. **Read gh's state**, as `just login --only github` reads it (`login_read.yml`): the user's home
+   (looked up only when `github_projects_home` does not give it), `which gh` (a VM built with
+   `dev_tools_install_gh` off gets a message, not a failure), then `auth_status.yml`:
+   `gh auth status --hostname github.com --json hosts`, which exits
    0 signed in or out and keeps its prose on stderr, and, when signed in, `gh auth token` under
    `no_log`, and the role's own marker (step 3). `vars/main.yml` turns the JSON into
    `github_projects_signed_in` and `github_projects_login_kind` - `env` from `tokenSource`, else
@@ -604,9 +606,10 @@ user's `known_hosts`. `update_existing` defaults to **false** so a re-run never 
 
 ### `just login --only github`
 
-`playbooks/github_login.yml` (`just login --only github`) runs the role's `login` entry point, which looks
-the user's home up for itself (the marker lives under it, and only `main.yml` had resolved it, which
-the first real run found), decides from the same vars and reports how a VM is signed in - and, for a
+`playbooks/github_login.yml` (`just login --only github`) runs the role's `login` entry point, which reads
+gh's state as `auth.yml` does, the user's home included (the marker lives under it; when only `main.yml`
+looked it up, the entry point's first real run found it missing), decides from the same vars and
+reports how a VM is signed in - and, for a
 device-flow login that lacks the `workflow` scope, the `gh auth refresh` that adds it. It names only
 what can run there: with `github_auth: false` nothing, and for a vault token not applied yet the
 `just deploy ... --tags github_projects` that applies it. Given names, any number, it runs the device

@@ -348,7 +348,7 @@ def _git_config_set(path: Path, key: str, value: str, *, add: bool = False) -> N
 
 
 def _role_run(root: Path, hosts: dict, *args: str) -> dict:
-    """auth.yml then clone.yml of the role, as main.yml runs them once the directory is known."""
+    """auth.yml then clone.yml of the role, as main.yml runs them, with the directory clone.yml reads given."""
     playbook = root / "role.yml"
     playbook.write_text(json.dumps([_role_tasks_play("github_projects", ("auth", "clone"), "Sign in and clone")]))
     # One fork per host: every host is the same machine, and the fixture runs twice.

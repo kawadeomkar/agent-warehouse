@@ -95,7 +95,7 @@ roles/                            one role per concern, each with defaults/, met
   dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys)
   claude_code/                    native or npm install, settings.json, Remote Control and the path unit that
                                   starts it when a login lands; tasks/login.yml, browser_login.yml (the sign-in),
-                                  after_login.yml, path_unit_absent.yml; release.yml, and release_pause.yml and
+                                  after_login.yml, unit_absent.yml; release.yml, and release_pause.yml and
                                   release_resume.yml around destroy's save of the VM's sessions; status.yml (just status)
   github_projects/                tasks/auth.yml (gh sign-in, credential helper), clone.yml, login.yml (login_read.yml,
                                   login_report.yml), device_flow.yml (the sign-in), status.yml (just status);

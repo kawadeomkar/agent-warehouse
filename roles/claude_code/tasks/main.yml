@@ -74,50 +74,24 @@
 # settings.json it is refused and restarts on every boot. Only the unit this
 # role installs is touched, and only when it is there - systemd_service fails
 # on a unit that does not exist, check mode included, and a VM that never had
-# Remote Control has nothing to remove.
-- name: Look for a Remote Control unit an earlier run installed
+# Remote Control has nothing to remove. The path unit, which would start the
+# service when a login lands and only exists while a VM waits for its first
+# login, goes first.
+- name: Look for the Remote Control units an earlier run installed
   ansible.builtin.stat:
-    path: /etc/systemd/system/{{ claude_code_remote_control_service }}.service
+    path: /etc/systemd/system/{{ claude_code_remote_control_service }}.{{ item }}
+  loop: [path, service]
   register: claude_code_remote_control_leftover
   when: not (claude_code_remote_control_wanted | bool)
 
-# And the path unit that would start it when a login lands, which only exists
-# while a VM waits for its first login.
-- name: Look for the path unit an earlier run installed
-  ansible.builtin.stat:
-    path: /etc/systemd/system/{{ claude_code_remote_control_service }}.path
-  register: claude_code_remote_control_bridge_leftover
-  when: not (claude_code_remote_control_wanted | bool)
-
-- name: Remove the path unit that would start Remote Control
-  ansible.builtin.include_tasks: path_unit_absent.yml
-  when:
-    - not (claude_code_remote_control_wanted | bool)
-    - claude_code_remote_control_bridge_leftover.stat.exists
-
 - name: Remove Remote Control
-  when:
-    - not (claude_code_remote_control_wanted | bool)
-    - claude_code_remote_control_leftover.stat.exists
-  block:
-    # Stopped explicitly: removing the file alone leaves the loaded unit
-    # running until the next reboot.
-    - name: Stop and disable the Remote Control service
-      ansible.builtin.systemd_service:
-        name: "{{ claude_code_remote_control_service }}"
-        state: stopped
-        enabled: false
-
-    - name: Remove the Remote Control unit
-      ansible.builtin.file:
-        path: /etc/systemd/system/{{ claude_code_remote_control_service }}.service
-        state: absent
-
-    # Reports ok, not changed, and this block only runs when there was a unit
-    # to remove - so this reloads exactly when something was removed.
-    - name: Make systemd forget the removed unit
-      ansible.builtin.systemd_service:
-        daemon_reload: true
+  ansible.builtin.include_tasks: unit_absent.yml
+  loop: >-
+    {{ claude_code_remote_control_leftover.results | default([])
+       | selectattr('stat', 'defined') | selectattr('stat.exists') | map(attribute='item') | list }}
+  loop_control:
+    loop_var: claude_code_unit_retired
+  when: not (claude_code_remote_control_wanted | bool)
 
 # Not a failure: with Remote Control on by default, a VM on the API path is a
 # normal configuration rather than a mistake. It still says why, because an

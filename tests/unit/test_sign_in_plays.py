@@ -497,7 +497,7 @@ def test_an_unattended_deploy_signs_nothing_in_and_fails_nothing(deployed):
     # claude was ended rather than left waiting.
     assert "auth login" in calls and "TERM" in calls and "accepted" not in calls, calls
     assert not _signed_in(root, "d-unanswered")
-    assert _said(report, "Say that no code was entered", "d-unanswered")
+    assert _said(report, "Say that nobody answered", "d-unanswered")
     # GitHub's device flow started by itself wherever a code was entered, refused or not, and not here: the
     # unanswered sign-in's own record, not one set by hand, as test_github_auth.py's deploy tests set it.
     started = {
@@ -575,7 +575,7 @@ def test_just_login_signs_in_to_github_after_claude(logged_in):
 def test_just_login_starts_no_device_flow_for_a_vm_whose_claude_sign_in_nobody_answered(logged_in):
     root, report = logged_in
     assert not _signed_in(root, "a-unanswered")
-    assert _said(report, "Say that no code was entered", "a-unanswered")
+    assert _said(report, "Say that nobody answered", "a-unanswered")
     assert not any(call.startswith("auth login") for call in _gh_calls(root, "a-unanswered"))
     # Its GitHub step ran, and only reported.
     assert _ran(report, "Report the login state, and sign the VM in when asked to", "a-unanswered")

@@ -176,6 +176,10 @@
         - proxmox_vm_exists
         - not (proxmox_vm_allow_untagged_delete | bool)
 
+    # Only for a VM that exists: one that does not has nothing to delete,
+    # and nothing of it to forget.
     - name: Delete the VM
       ansible.builtin.include_tasks: absent.yml
-      when: proxmox_vm_state == 'absent'
+      when:
+        - proxmox_vm_state == 'absent'
+        - proxmox_vm_exists
