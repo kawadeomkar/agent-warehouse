@@ -200,17 +200,16 @@ pytest over `tests/unit/`: 2969 tests. By file:
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
 - **The editors' plans** (`test_editor_conformance.py` 54): every family conforms to the seam and every row of
-  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
-  `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
-  foreign one is left and said, and none is written at a helper path a task cannot be handed as it is; VS Code opens
-  its workspace, or the bare folder, over the alias, and a row of its family whose window starts no Claude terminal
-  writes nothing; the paths are written and launched as `code.yml` built them, and with nothing written the window
-  opens whatever `editor_files_dir` names; no write leaves just code's directory or goes into the folders YAML writes
-  itself; each of the registry's rules bites, alone, on a plan built to break it; the inputs and rows are held to
-  their types, a row's window match naming its program first; each
-  row's match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
-  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once
-  nothing is left.
+  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's `zed`;
+  a refusal leaves nothing beside it; a foreign Zed task file is left and said, and none is written at a helper path a
+  task cannot be handed as it is; VS Code opens its workspace, or the bare folder, over the alias, and a row of its
+  family whose window starts no Claude terminal writes nothing; the paths are written and launched as `code.yml` built
+  them, and with nothing written the window opens whatever `editor_files_dir` names; no write leaves just code's
+  directory or goes into the folders YAML writes itself; each of the registry's rules bites, alone, on a plan built to
+  break it; the inputs and rows are held to their types, a row's window match naming its program first; each row's
+  match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
+  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once nothing
+  is left.
 - **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
@@ -329,9 +328,9 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `/etc/localtime` link on Linux and macOS, `/etc/timezone`, else UTC, shell syntax and paths refused),
   and the workspace each window gets: the notes' folder only where its own folder holds them.
   Zed's window as well, with a stand-in `zed` and `zeditor` first on PATH: ZFS's `zed` passed over by its
-  `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json` written only where the
-  window lists it and never over a file that is someone else's, and the editors list held to the task files and to
-  `--editor`.
+  `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json`, as `to_nice_json` writes
+  it, written only where the window lists it and never over a file that is someone else's, and the editors list held
+  to the task files and to `--editor`.
 - **The session handoff** (`test_session_handoff.py` 151): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their

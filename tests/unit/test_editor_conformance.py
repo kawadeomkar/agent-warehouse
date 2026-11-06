@@ -12,7 +12,13 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness import EDITOR_FILES_DIR as FD
+from harness import EDITOR_PROBE as FOUND
+from harness import EDITOR_ROOT as ROOT
+from harness import VSCODE_CLI as CODE
+from harness import ZEDITOR as ZED
 from harness import _run
+from harness import editor_inputs as given
 
 from claude_vm.editors import common, model, registry
 from claude_vm.editors.family import Family
@@ -22,27 +28,7 @@ from claude_vm.wire import to_wire
 
 REPO = Path(__file__).resolve().parents[2]
 ROWS = yaml.safe_load((REPO / "inventory/group_vars/all/defaults.yml").read_text())["claude_editors"]
-HELPERS = sorted(path.name for path in (REPO / "playbooks/files").iterdir())
-ROOT, FD = "/home/dev/projects", "/home/dev/projects/.claude-on-proxmox"
-ZED, CODE = "/usr/local/bin/zeditor", "/usr/local/bin/code"
-# ZFS's zed first on PATH, as on Ubuntu: the plan never runs it.
-FOUND = {"which": ["/usr/sbin/zed", ZED, CODE], "versions": [[ZED, "Zed 0.210.4"]]}
-
-
-def given(**over):
-    return {
-        "vm": {"name": "alpha", "vmid": 4013},
-        "target": ROOT,
-        "root": ROOT,
-        "files_dir": FD,
-        "terminal": True,
-        "notes": True,
-        "notes_file": f"{FD}/session/alpha-session.md",
-        "notes_dir": f"{FD}/session",
-        "task_written": True,
-        "helpers": HELPERS,
-        "probe": FOUND,
-    } | over
+# The inputs, as code.yml gives them: given(), harness.editor_inputs, ZFS's zed first on PATH (FOUND).
 
 
 WINDOW_CASES = [
@@ -135,13 +121,8 @@ def test_zfs_s_zed_is_never_the_command_run():
     assert plan["launch"] == [ZED, f"ssh://alpha{ROOT}"]
 
 
-def test_zed_s_task_file_is_marked_and_written_as_to_nice_json_writes_it():
-    plan = registry.editor_open_plan("zed", ROWS, given())
-    (tasks,) = [w for w in plan["vm_writes"] if w["kind"] == "file"]
-    head, body = tasks["content"].split("\n", 1)
-    assert head == "// Written by just code (claude-on-proxmox); edits here are overwritten."
-    assert json.loads(body)[0]["args"] == [f"{FD}/helpers/claude-start.sh"]
-    assert body == json.dumps(json.loads(body), indent=2, sort_keys=True, separators=(",", ": ")) + "\n"
+# Zed's task file, marked and written as to_nice_json writes it: test_code_session.py's
+# test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory, of the same plan, with the whole task.
 
 
 def test_a_foreign_task_file_is_left_and_said():

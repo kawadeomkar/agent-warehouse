@@ -63,10 +63,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import _at_a_pseudo_terminal, _env, _fail_if_the_desktop_was_reached
+from harness import EDITOR_FILES_DIR as PLANNED_FD
+from harness import _at_a_pseudo_terminal, _env, _fail_if_the_desktop_was_reached, editor_inputs
 
 from claude_vm.editors import common as editors_common
 from claude_vm.editors import registry as editors_registry
+from claude_vm.editors import vscode as editors_vscode
+from claude_vm.editors import zed as editors_zed
 
 REPO = Path(__file__).resolve().parents[2]
 CODE = REPO / "playbooks" / "code.yml"
@@ -298,30 +301,10 @@ def _script_at_a_terminal(tmp_path: Path, keys: bytes, *, after: str, **case) ->
     return rc, raw.decode(errors="replace"), _asked(tmp_path)
 
 
-PLANNED_FD = "/home/dev/projects/.claude-on-proxmox"
-
-
 def _planned(editor: str, **over) -> dict:
     """An editor's plan of a window, as the core makes it from inputs as code.yml gives them."""
     rows = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())["claude_editors"]
-    inputs = {
-        "vm": {"name": "alpha", "vmid": 9001},
-        "target": "/home/dev/projects",
-        "root": "/home/dev/projects",
-        "files_dir": PLANNED_FD,
-        "reach": "192.0.2.51",
-        "terminal": True,
-        "notes": True,
-        "notes_file": f"{PLANNED_FD}/session/alpha-session.md",
-        "notes_dir": f"{PLANNED_FD}/session",
-        "task_written": True,
-        "helpers": sorted(path.name for path in (REPO / "playbooks" / "files").iterdir()),
-        "probe": {
-            "which": ["/usr/local/bin/code", "/usr/local/bin/zed"],
-            "versions": [["/usr/local/bin/zed", "Zed 1"]],
-        },
-    } | over
-    return editors_registry.editor_open_plan(editor, rows, inputs)
+    return editors_registry.editor_open_plan(editor, rows, editor_inputs(**over))
 
 
 def _workspace_planned(**over) -> dict:
@@ -339,118 +322,151 @@ def test_the_script_and_its_messages_are_not_templates():
     assert [arg for arg in claude["args"] if "${" in arg or "{{" in arg] == [], claude["args"]
 
 
-def test_with_nothing_to_continue_a_fresh_claude_starts(tmp_path):
-    # Claude Code 2.1 exits 1 at once on --continue in a folder with no
-    # conversation of its own; VS Code then printed the whole command line.
-    result, asked = _run(tmp_path, status_rc=0, continue_rc=1)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, "claude --continue", "claude"]
-
-
 SESSION_ID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
+# The GitHub sign-in as the gh stand-in says it, through the script: the code on a line of its own.
+GITHUB_FLOW = GITHUB_SIGNING_IN + "\n" + "\n    " + GITHUB_CODE + "\n\n"
+SIGNED_OUT_OF_GITHUB = [
+    "claude auth status",
+    GITHUB_STATUS,
+    GITHUB_LOGIN,
+    GITHUB_PAGE,
+    "gh auth setup-git -h github.com",
+    "claude --continue",
+]
 
 
-def test_a_session_handed_over_is_resumed_under_its_own_id(tmp_path):
+class Holds(str):
+    """A stdout compared by what it holds: the rest is the stand-in's to say."""
+
+
+# Each case of the Claude terminal's script: the stand-ins' settings (_terminal), what was asked of claude and gh in
+# order, and the script's stdout - exactly, or what it holds (Holds), or not compared (None). Every run exits 0: a
+# non-zero exit makes VS Code print the whole command line, script and messages included, under the line that
+# matters.
+TERMINAL_CASES = [
+    # Claude Code 2.1 exits 1 at once on --continue in a folder with no conversation of its own; VS Code then printed
+    # the whole command line.
+    pytest.param(
+        {"status_rc": 0, "continue_rc": 1},
+        ["claude auth status", GITHUB_STATUS, "claude --continue", "claude"],
+        None,
+        id="nothing-to-continue-starts-a-fresh-claude",
+    ),
     # --session: the copy this machine's session became, never a fork, and never --continue.
-    result, asked = _run(tmp_path, status_rc=0, session=SESSION_ID)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, f"claude --resume {SESSION_ID}"]
-
-
-def test_a_resume_that_fails_starts_no_other_claude(tmp_path):
+    pytest.param(
+        {"status_rc": 0, "session": SESSION_ID},
+        ["claude auth status", GITHUB_STATUS, f"claude --resume {SESSION_ID}"],
+        None,
+        id="a-session-handed-over-is-resumed-under-its-own-id",
+    ),
     # Claude Code's own reason is said; a fresh claude would look like the session.
-    result, asked = _run(tmp_path, status_rc=0, session=SESSION_ID, resume_rc=1)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, f"claude --resume {SESSION_ID}"]
-    assert f"No conversation found with session ID: {SESSION_ID}" in result.stdout
+    pytest.param(
+        {"status_rc": 0, "session": SESSION_ID, "resume_rc": 1},
+        ["claude auth status", GITHUB_STATUS, f"claude --resume {SESSION_ID}"],
+        Holds(f"No conversation found with session ID: {SESSION_ID}"),
+        id="a-resume-that-fails-starts-no-other-claude",
+    ),
+    # Only a --continue that fails at once means there was nothing to continue. Five seconds is the least that is not
+    # at once: bash's SECONDS counts whole seconds of the clock, so it says five or more after a sleep of five.
+    pytest.param(
+        {"status_rc": 0, "continue_rc": 1, "continue_sleep": 5},
+        ["claude auth status", GITHUB_STATUS, "claude --continue"],
+        None,
+        id="a-continued-session-that-ends-badly-is-not-started-again",
+    ),
+    pytest.param({"installed": False}, [], NOT_INSTALLED + "\n", id="without-claude-it-says-how-to-install-it"),
+    # --continue: the folder's latest conversation, or a new one. A task terminal does not survive a window reload,
+    # and the task then runs again.
+    pytest.param(
+        {"status_rc": 0},
+        ["claude auth status", GITHUB_STATUS, "claude --continue"],
+        "",
+        id="a-signed-in-vm-picks-the-folder-s-conversation-up",
+    ),
+    pytest.param(
+        {"status_rc": 1, "login_rc": 0, "watched": True},
+        ["claude auth status", "claude auth login", GITHUB_STATUS, "claude --continue"],
+        SIGNING_IN + "\n" + WATCHED + "\n",
+        id="a-sign-in-the-path-unit-watches-says-remote-control-starts-by-itself",
+    ),
+    # A VM with a setting that blocks Remote Control, or last configured before the path unit existed: nothing
+    # starts it by itself.
+    pytest.param(
+        {"status_rc": 1, "login_rc": 0, "watched": False},
+        ["claude auth status", "claude auth login", GITHUB_STATUS, "claude --continue"],
+        SIGNING_IN + "\n" + UNWATCHED + "\n",
+        id="a-sign-in-nothing-watches-names-the-run-that-starts-remote-control",
+    ),
+    pytest.param(
+        {"status_rc": 1, "login_rc": 1},
+        ["claude auth status", "claude auth login"],
+        SIGNING_IN + "\n" + NOT_SIGNED_IN + "\n",
+        id="a-failed-sign-in-says-how-to-try-again-and-stops",
+    ),
+    *(
+        pytest.param(
+            {"status_rc": 1, "login_rc": 0, "watched": watched, "signed_in": ("", "")},
+            ["claude auth status", "claude auth login", GITHUB_STATUS, "claude --continue"],
+            SIGNING_IN + "\n",
+            id=f"no-remote-control-hint-when-there-is-none-to-give-{watched}",
+        )
+        for watched in (True, False)
+    ),
+    # Claude first: the session is the point of the window. Then the device flow with no terminal of its own, the
+    # page opened through BROWSER and the code printed on a line of its own, then setup-git, so a push from this
+    # terminal works at once. gh's clipboard warning is not repeated into the terminal.
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 1},
+        SIGNED_OUT_OF_GITHUB,
+        GITHUB_FLOW + "Logged in as octo\n" + GITHUB_SIGNED_IN + "\n",
+        id="a-vm-signed-out-of-github-signs-in-there-and-makes-gh-git-s-helper",
+    ),
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 1, "gh_login_rc": 1},
+        ["claude auth status", GITHUB_STATUS, GITHUB_LOGIN, GITHUB_PAGE, "claude --continue"],
+        GITHUB_FLOW + GITHUB_EXPIRED + "\n" + GITHUB_FAILED + "\n",
+        id="a-failed-github-sign-in-still-starts-claude",
+    ),
+    # Asked about every account, gh fails over one with a dead token, though the active one is signed in; the script
+    # asks about that one alone.
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 0, "gh_status_any_rc": 1},
+        ["claude auth status", GITHUB_STATUS, "claude --continue"],
+        "",
+        id="a-stale-second-github-account-starts-no-device-flow",
+    ),
+    # Asked about every host, gh is content with another one's account.
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 1, "gh_status_any_rc": 0},
+        SIGNED_OUT_OF_GITHUB,
+        GITHUB_FLOW + "Logged in as octo\n" + GITHUB_SIGNED_IN + "\n",
+        id="gh-signed-in-only-to-another-host-is-signed-in-to-github-com",
+    ),
+    pytest.param(
+        {"status_rc": 0, "gh_installed": False},
+        ["claude auth status", "claude --continue"],
+        "",
+        id="without-gh-the-github-step-is-skipped",
+    ),
+    # An empty GitHub line is how code.yml says github_projects_auth is off.
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 1, "github_signed_in": ""},
+        ["claude auth status", "claude --continue"],
+        "",
+        id="github-auth-off-leaves-gh-alone",
+    ),
+]
 
 
-def test_a_continued_session_that_ends_badly_is_not_started_again(tmp_path):
-    # Only a --continue that fails at once means there was nothing to continue.
-    # Five seconds is the least that is not at once: bash's SECONDS counts
-    # whole seconds of the clock, so it says five or more after a sleep of five.
-    result, asked = _run(tmp_path, status_rc=0, continue_rc=1, continue_sleep=5)
-    assert result.returncode == 0
-    assert asked[-1] == "claude --continue"
-
-
-def test_without_claude_it_says_how_to_install_it_and_stops(tmp_path):
-    # exit 0: a non-zero exit makes VS Code print the whole command line,
-    # script and messages included, under the line that matters.
-    result, asked = _run(tmp_path, installed=False)
-    assert result.returncode == 0
-    assert result.stdout == NOT_INSTALLED + "\n"
-    assert asked == []
-
-
-def test_a_signed_in_vm_picks_the_folder_s_conversation_up(tmp_path):
-    # --continue: the folder's latest conversation, or a new one. A task
-    # terminal does not survive a window reload, and the task then runs again.
-    result, asked = _run(tmp_path, status_rc=0)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, "claude --continue"]
-    assert result.stdout == ""
-
-
-def test_a_sign_in_where_the_path_unit_watches_for_the_login_says_remote_control_starts_by_itself(tmp_path):
-    result, asked = _run(tmp_path, status_rc=1, login_rc=0, watched=True)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", "claude auth login", GITHUB_STATUS, "claude --continue"]
-    assert result.stdout == SIGNING_IN + "\n" + WATCHED + "\n"
-
-
-def test_a_sign_in_where_nothing_watches_for_the_login_names_the_run_that_starts_remote_control(tmp_path):
-    # A VM with a setting that blocks Remote Control, or last configured
-    # before the path unit existed: nothing starts it by itself.
-    result, asked = _run(tmp_path, status_rc=1, login_rc=0, watched=False)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", "claude auth login", GITHUB_STATUS, "claude --continue"]
-    assert result.stdout == SIGNING_IN + "\n" + UNWATCHED + "\n"
-
-
-def test_a_failed_sign_in_says_how_to_try_again_and_stops(tmp_path):
-    result, asked = _run(tmp_path, status_rc=1, login_rc=1)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", "claude auth login"]
-    assert result.stdout == SIGNING_IN + "\n" + NOT_SIGNED_IN + "\n"
-
-
-@pytest.mark.parametrize("watched", [True, False])
-def test_no_remote_control_hint_when_there_is_none_to_give(tmp_path, watched):
-    result, asked = _run(tmp_path, status_rc=1, login_rc=0, watched=watched, signed_in=("", ""))
-    assert asked[-1] == "claude --continue"
-    assert result.stdout == SIGNING_IN + "\n"
-
-
-def test_a_vm_signed_out_of_github_signs_in_there_too_and_becomes_git_s_helper(tmp_path):
-    # Claude first: the session is the point of the window. Then the device
-    # flow with no terminal of its own, the page opened through BROWSER and the
-    # code printed on a line of its own, then setup-git, so a push from this
-    # terminal works at once.
-    result, asked = _run(tmp_path, status_rc=0, gh_status_rc=1)
-    assert result.returncode == 0
-    assert asked == [
-        "claude auth status",
-        GITHUB_STATUS,
-        GITHUB_LOGIN,
-        GITHUB_PAGE,
-        "gh auth setup-git -h github.com",
-        "claude --continue",
-    ]
-    assert result.stdout == (
-        GITHUB_SIGNING_IN + "\n" + "\n    " + GITHUB_CODE + "\n\n" + "Logged in as octo\n" + GITHUB_SIGNED_IN + "\n"
-    )
-    # gh's clipboard warning is not repeated into the terminal.
-    assert "clipboard" not in result.stdout
-
-
-def test_a_failed_github_sign_in_still_starts_claude(tmp_path):
-    result, asked = _run(tmp_path, status_rc=0, gh_status_rc=1, gh_login_rc=1)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, GITHUB_LOGIN, GITHUB_PAGE, "claude --continue"]
-    assert result.stdout == (
-        GITHUB_SIGNING_IN + "\n" + "\n    " + GITHUB_CODE + "\n\n" + GITHUB_EXPIRED + "\n" + GITHUB_FAILED + "\n"
-    )
+@pytest.mark.parametrize(("case", "asked", "stdout"), TERMINAL_CASES)
+def test_the_claude_terminal(tmp_path, case: dict, asked: list[str], stdout: str | None) -> None:
+    result, ran = _run(tmp_path, **case)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ran == asked
+    if isinstance(stdout, Holds):
+        assert stdout in result.stdout, result.stdout
+    elif stdout is not None:
+        assert result.stdout == stdout
 
 
 def test_ctrl_c_during_github_s_device_flow_skips_it_and_starts_claude(tmp_path):
@@ -465,36 +481,6 @@ def test_ctrl_c_during_github_s_device_flow_skips_it_and_starts_claude(tmp_path)
     assert asked == ["claude auth status", GITHUB_STATUS, GITHUB_LOGIN, GITHUB_PAGE, "claude --continue"]
     assert GITHUB_FAILED in output
     assert GITHUB_EXPIRED not in output
-
-
-def test_a_stale_second_github_account_starts_no_device_flow(tmp_path):
-    # Asked about every account, gh fails over one with a dead token, though
-    # the active one is signed in; the script asks about that one alone.
-    result, asked = _run(tmp_path, status_rc=0, gh_status_rc=0, gh_status_any_rc=1)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", GITHUB_STATUS, "claude --continue"]
-
-
-def test_gh_signed_in_only_to_another_host_is_signed_in_to_github_com(tmp_path):
-    # Asked about every host, gh is content with another one's account.
-    result, asked = _run(tmp_path, status_rc=0, gh_status_rc=1, gh_status_any_rc=0)
-    assert result.returncode == 0
-    assert GITHUB_LOGIN in asked
-
-
-def test_without_gh_the_github_step_is_skipped(tmp_path):
-    result, asked = _run(tmp_path, status_rc=0, gh_installed=False)
-    assert result.returncode == 0
-    assert asked == ["claude auth status", "claude --continue"]
-    assert result.stdout == ""
-
-
-def test_github_auth_off_leaves_gh_alone(tmp_path):
-    # An empty GitHub line is how code.yml says github_projects_auth is off.
-    result, asked = _run(tmp_path, status_rc=0, gh_status_rc=1, github_signed_in="")
-    assert result.returncode == 0
-    assert asked == ["claude auth status", "claude --continue"]
-    assert result.stdout == ""
 
 
 def test_the_task_runs_the_helper_and_passes_its_messages_as_arguments():
@@ -918,18 +904,8 @@ WINDOWS = {
         "vm_editor": "zed",
         **OPENED,
     },
-    # One project's window does not hold just code's directory, so Zed lists no Claude task there; with
-    # editor_claude_terminal false no window has one.
-    "zed, one project": {
-        "keep": [FIND, REFUSE, OPEN],
-        "in_deploy": False,
-        "zed_here": {"zed": "zed"},
-        "vm_name": "alpha",
-        "vm_editor": "zed",
-        **OPENED,
-        "code_target": "/home/dev/projects/repo",
-        "code_project": "repo",
-    },
+    # With editor_claude_terminal false no window has a Claude task; one project's window, which does not hold just
+    # code's directory, lists none either: ZED_WRITES["one project"], its window with its writes.
     "zed, no Claude task": {
         "keep": [FIND, REFUSE, OPEN],
         "in_deploy": False,
@@ -1143,14 +1119,24 @@ def windows(tmp_path_factory):
     return {name: run.result() for name, run in runs.items()}
 
 
-def test_a_deploy_for_one_vm_goes_on_to_the_window_named_or_not(windows):
-    # Without vm_name, a deploy is for the default VM: one name all the same.
-    for name in ("deploy, code here", "deploy, no name"):
-        assert windows[name]["reached"] and windows[name]["rc"] == 0, windows[name]["output"]
-
-
-def test_just_code_goes_on_to_the_window_where_vs_code_s_command_is(windows):
-    run = windows["just code, code here"]
+@pytest.mark.parametrize(
+    "name",
+    [
+        # A deploy for one VM goes on to the window, named or not: without vm_name, a deploy is for the default VM,
+        # one name all the same.
+        "deploy, code here",
+        "deploy, no name",
+        # just code goes on to the window where VS Code's command is.
+        "just code, code here",
+        # Without vm_name, vm_name is not defined, and claude_vm_requested is the whole tagged fleet; the window step
+        # opens the one VM deploy was for.
+        "deploy, no name, beside others",
+        # A named deploy opens that VM.
+        "deploy, named",
+    ],
+)
+def test_the_window_is_reached(windows, name):
+    run = windows[name]
     assert run["reached"] and run["rc"] == 0, run["output"]
 
 
@@ -1275,18 +1261,6 @@ def test_just_code_fails_where_just_deploy_goes_on_and_names_the_command_that_fa
     assert run["code"] == ["code --list-extensions", "code --install-extension ms-vscode-remote.remote-ssh"]
 
 
-def test_a_bare_deploy_opens_the_default_vm_beside_other_tagged_ones(windows):
-    # Without vm_name, vm_name is not defined, and claude_vm_requested is the
-    # whole tagged fleet; the window step opens the one VM deploy was for.
-    run = windows["deploy, no name, beside others"]
-    assert run["reached"], run["output"]
-
-
-def test_a_named_deploy_opens_that_vm(windows):
-    run = windows["deploy, named"]
-    assert run["reached"], run["output"]
-
-
 def test_an_editor_just_code_cannot_open_is_refused_first_and_said_by_name(windows):
     # --editor beats the setting for one run, and either way an editor code.yml has no files for is said, never opened.
     other, setting = windows["just code, another editor"], windows["deploy, editor setting"]
@@ -1397,13 +1371,9 @@ def _claude_said(said: str) -> str:
 
 
 def test_zed_says_to_run_claude_in_its_terminal_where_the_window_lists_no_claude_task(windows):
-    one, none = windows["zed, one project"], windows["zed, no Claude task"]
-    assert one["code"] == ["zed ssh://alpha/home/dev/projects/repo"], one["output"]
-    said = _opened(one["output"])
-    assert "run claude: the terminal is the VM's" in said
-    # --editor zed, the setting VS Code's: the line that opens the projects window again names Zed.
-    assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
-    said = _opened(none["output"])
+    # One project's window, which lists none and says the projects window does:
+    # test_a_one_project_window_has_the_task_written_and_says_the_projects_window_lists_it.
+    said = _opened(windows["zed, no Claude task"]["output"])
     assert "run claude: the terminal is the VM's" in said
     assert "task" not in _claude_said(said), said
 
@@ -1418,7 +1388,8 @@ ZED_TASK = {
     "use_new_terminal": True,
     "show_command": False,
 }
-MARKER_LINE = "// Written by just code (claude-on-proxmox); edits here are overwritten."
+# The core's: test_persisted_names.py holds its text, which a tasks file already on a VM carries.
+MARKER_LINE = editors_common.MARKER
 
 
 def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
@@ -1436,7 +1407,6 @@ def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
     # one code.yml decides the task's writing by, and the core's.
     assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+$"
     assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}$"
-    assert editors_common.MARKER == MARKER_LINE
 
 
 # The Zed window with its writes, on a "VM" that is a directory of the test's own, reached locally: what it writes
@@ -1559,11 +1529,14 @@ def test_zed_s_window_writes_the_marked_task_file_and_the_shared_helper_and_a_se
 
 
 def test_a_one_project_window_has_the_task_written_and_says_the_projects_window_lists_it(zed_writes):
+    # Zed opens the project's folder, which does not hold just code's directory: it lists no Claude task there.
     run = zed_writes["one project"]
     assert run["reached"], run["output"]
+    assert run["code"] == [f"zed ssh://alpha{run['vm']}/projects/repo"], run["output"]
     assert (_ws(run) / ".zed" / "tasks.json").is_file()
     said = _claude_said(_opened(run["output"]))
     assert "run claude: the terminal is the VM's" in said
+    # --editor zed, the setting VS Code's: the line that opens the projects window again names Zed.
     assert "The window of just code alpha --editor zed lists a task, Claude (just code), that does it;" in said
 
 
@@ -1974,10 +1947,8 @@ def _every_task():
 
 
 def test_no_import_escapes_the_allowlist(tmp_path):
-    # Followed all the way down, an import that is left is one of the shared files: a task file of
-    # code.yml's own that imports another is held to the allowlist through it.
-    left = {task["ansible.builtin.import_tasks"] for task in _every_task() if "ansible.builtin.import_tasks" in task}
-    assert left <= SHARED
+    # Followed all the way down: a task file of code.yml's own that imports another is held to the allowlist
+    # through it, and only a shared file is left as an import (_tasks yields no other).
     (tmp_path / "tasks").mkdir()
     (tmp_path / "tasks" / "outer.yml").write_text(
         yaml.safe_dump([{"name": "outer | Import", "ansible.builtin.import_tasks": "tasks/inner.yml"}])
@@ -2136,6 +2107,9 @@ def test_every_file_of_playbooks_files_is_shared_or_in_exactly_one_editor_s_list
     # in exactly one of them, and nothing else is.
     shared = _play()["vars"]["code_shared_helpers"]
     own = {"vscode": yaml.safe_load((CODE.parent / "vars" / "vscode.yml").read_text())["code_helpers"]}
+    # And they are the helpers the families name in the core, whose plans the copy takes them for: held equal, so a
+    # helper added to one list alone is neither copied without a word nor refused at the window.
+    assert shared == [editors_zed.HELPER] and own["vscode"] == list(editors_vscode.HELPERS)
     listed = [*shared, *(name for names in own.values() for name in names)]
     assert sorted(listed) == sorted(path.name for path in HELPERS.iterdir() if path.is_file())
     assert len(listed) == len(set(listed)), listed
@@ -2171,12 +2145,18 @@ def test_an_editor_s_writers_write_in_just_code_s_directory_by_the_plan_s_names(
         assert str(args.get("path") or args.get("dest")) in EDITOR_WRITES, task["name"]
 
 
-def test_the_editor_s_plan_is_refused_before_anything_is_written_on_the_vm():
+def _before_the_first_write() -> tuple[list[dict], list[str]]:
+    """Every task of the window step, followed down, and the names of those before its first write on the VM."""
     tasks = list(_every_task())
-    names = [task["name"] for task in tasks]
     first_write = next(i for i, task in enumerate(tasks) if _action(task) in WRITES_ON_VM)
+    return tasks, [task["name"] for task in tasks[:first_write]]
+
+
+def test_the_editor_s_plan_is_refused_before_anything_is_written_on_the_vm():
+    tasks, before = _before_the_first_write()
+    names = [task["name"] for task in tasks]
     refusal = names.index(PLAN_REFUSED)
-    assert refusal < first_write and tasks[refusal]["ansible.builtin.assert"]["that"] == (
+    assert PLAN_REFUSED in before and tasks[refusal]["ansible.builtin.assert"]["that"] == (
         "code_plan.refusals | length == 0"
     )
     # Right after the editors' checks: the last task of each check file keeps what the plan reads.
@@ -2185,11 +2165,9 @@ def test_the_editor_s_plan_is_refused_before_anything_is_written_on_the_vm():
 
 def test_a_checkout_around_just_code_s_directory_is_refused_before_anything_is_written_on_the_vm():
     # Whichever editor: the refusal comes before the first writer, and looks only below the projects directory.
-    tasks = list(_every_task())
-    names = [task["name"] for task in tasks]
-    first_write = next(i for i, task in enumerate(tasks) if _action(task) in WRITES_ON_VM)
-    assert names.index("Refuse just code's own directory inside a checkout") < first_write
-    assert names.index("Look for a checkout around just code's own directory on the VM") < first_write
+    _, before = _before_the_first_write()
+    assert "Refuse just code's own directory inside a checkout" in before
+    assert "Look for a checkout around just code's own directory on the VM" in before
     assert "code_root | normpath" in _play()["vars"]["code_ws_below"]
 
 
@@ -2328,13 +2306,9 @@ def test_the_provision_scenario_never_reads_or_writes_the_developer_s_own(keys):
 
 
 # ---------------------------------------------------------------- the session notes in the window ---
-def _workspace(run: dict) -> dict:
-    return run["shown"]
-
-
 def test_the_whole_directory_s_window_shows_the_notes_folder_and_opens_them_as_a_preview(windows):
     run = windows["notes, whole directory"]
-    workspace = _workspace(run)
+    workspace = run["shown"]
     # A second folder only where the window's own folder holds it: trust is unchanged.
     assert workspace["folders"] == [
         {"path": "/home/dev/projects"},
@@ -2389,7 +2363,7 @@ def test_a_project_s_window_keeps_its_one_folder_and_says_the_question_vs_code_m
     # The notes' folder is outside the project's: added, it would put a window
     # trusted before back in Restricted Mode, without the Claude terminal.
     run = windows["notes, one project"]
-    workspace = _workspace(run)
+    workspace = run["shown"]
     assert workspace["folders"] == [{"path": "/home/dev/projects/discord-music-bot"}]
     assert [task["label"] for task in workspace["tasks"]["tasks"]] == ["Session notes", "Shell", "Claude"]
     assert workspace["tasks"]["tasks"][1]["options"] == {"cwd": "/home/dev/projects/discord-music-bot"}
@@ -2401,7 +2375,7 @@ def test_a_project_s_window_keeps_its_one_folder_and_says_the_question_vs_code_m
 
 def test_workspace_files_kept_elsewhere_give_no_window_the_notes_folder(windows):
     run = windows["notes, workspaces elsewhere"]
-    workspace = _workspace(run)
+    workspace = run["shown"]
     assert workspace["folders"] == [{"path": "/home/dev/projects"}]
     assert workspace["settings"] == {
         "workbench.editorAssociations": {"**/.vscode-workspaces/session/*-session.md": "vscode.markdown.preview.editor"}
@@ -2444,7 +2418,7 @@ def test_just_code_s_directory_is_read_by_its_new_name_or_its_old_one(windows, c
 @pytest.mark.parametrize("name", ["notes off", "notes off, by 1.1's name"])
 def test_with_the_notes_off_the_workspace_is_as_it_was(windows, name):
     run = windows[name]
-    workspace = _workspace(run)
+    workspace = run["shown"]
     assert workspace["folders"] == [{"path": "/home/dev/projects"}]
     assert workspace["settings"] == {"files.exclude": {".claude-on-proxmox": True}}
     shell, claude = workspace["tasks"]["tasks"]
@@ -2554,17 +2528,14 @@ def test_the_helper_rewrites_the_live_section_only_and_opens_the_notes(tmp_path)
     assert took < 4, took
 
 
-# The time is said in the zone of the machine just code ran on, which the VM's clock (UTC) is not.
-def test_the_helper_says_its_time_in_the_zone_it_is_given(tmp_path):
-    _, _, after, _, _ = _helper(tmp_path, zone="Asia/Kolkata")
-    assert re.search(r"^\| \| as of \d\d:\d\d IST on \d\d \w\w\w \|$", _live(after), re.M), _live(after)
-
-
-@pytest.mark.parametrize("zone", ["Mars/Olympus", "../../etc/passwd", ""])
-def test_the_helper_says_utc_for_a_zone_it_cannot_find(tmp_path, zone):
-    # A zone the VM's tzdata lacks, or no zone: the time is still said, in UTC.
+# The time is said in the zone of the machine just code ran on, which the VM's clock (UTC) is not; for a zone the VM's
+# tzdata lacks, or no zone, it is still said, in UTC.
+@pytest.mark.parametrize(
+    ("zone", "label"), [("Asia/Kolkata", "IST"), ("Mars/Olympus", "UTC"), ("../../etc/passwd", "UTC"), ("", "UTC")]
+)
+def test_the_helper_says_its_time_in_the_zone_it_is_given_or_in_utc(tmp_path, zone, label):
     _, _, after, _, _ = _helper(tmp_path, zone=zone)
-    assert re.search(r"^\| \| as of \d\d:\d\d UTC on \d\d \w\w\w \|$", _live(after), re.M), _live(after)
+    assert re.search(rf"^\| \| as of \d\d:\d\d {label} on \d\d \w\w\w \|$", _live(after), re.M), _live(after)
 
 
 def test_a_vm_signed_in_nowhere_names_each_sign_in(tmp_path):
@@ -2830,7 +2801,6 @@ def test_a_github_sign_in_in_the_terminal_refreshes_the_notes(tmp_path):
 )
 def test_no_sign_in_here_leaves_the_notes_to_the_window(tmp_path, case):
     _, called = _signing_in(tmp_path, "log", **case)
-    time.sleep(0.5)
     assert called == []
 
 

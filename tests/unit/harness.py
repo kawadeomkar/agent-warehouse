@@ -951,6 +951,34 @@ def _bare_repos(git_root: Path, specs: Iterable[str]) -> None:
             subprocess.run(argv, check=True, env=env, capture_output=True)
 
 
+# ------------------------------------------------------------ the editors ---
+# An editor's plan inputs as code.yml hands them to the core (lib/claude_vm/editors/), for the tests that make a plan
+# themselves: alpha's window of its projects directory, every switch on, both editors' CLIs found - ZFS's event
+# daemon, zed, first on PATH, as on Ubuntu, which a plan never runs.
+EDITOR_ROOT = "/home/dev/projects"
+EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.claude-on-proxmox"
+ZEDITOR, VSCODE_CLI = "/usr/local/bin/zeditor", "/usr/local/bin/code"
+EDITOR_PROBE = {"which": ["/usr/sbin/zed", ZEDITOR, VSCODE_CLI], "versions": [[ZEDITOR, "Zed 0.210.4"]]}
+
+
+def editor_inputs(**over) -> dict:
+    """The inputs of an editor's plan, as code.yml gives them, with over in place of any."""
+    return {
+        "vm": {"name": "alpha", "vmid": 4013},
+        "target": EDITOR_ROOT,
+        "root": EDITOR_ROOT,
+        "files_dir": EDITOR_FILES_DIR,
+        "reach": "192.0.2.51",
+        "terminal": True,
+        "notes": True,
+        "notes_file": f"{EDITOR_FILES_DIR}/session/alpha-session.md",
+        "notes_dir": f"{EDITOR_FILES_DIR}/session",
+        "task_written": True,
+        "helpers": sorted(path.name for path in (REPO / "playbooks" / "files").iterdir()),
+        "probe": EDITOR_PROBE,
+    } | over
+
+
 # ------------------------------------------------------------ the fake APIs ---
 # The fakes in tests/molecule/ on a loopback port of their own, for the tests
 # that run a playbook against one: the fake Proxmox is TLS, with a certificate

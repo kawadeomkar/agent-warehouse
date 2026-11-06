@@ -164,17 +164,3 @@ def test_a_name_kept_inside_a_longer_one_is_a_rename_too(tmp_path, monkeypatch) 
     monkeypatch.setattr(sys.modules[__name__], "REPO", tmp_path)
     assert _value("vars.yml", "marker") != "{{ home }}/.config/claude-on-proxmox/gh-login"
     assert not _spells("tasks.yml", "dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf")
-
-
-def test_the_helpers_the_editors_plans_copy_are_the_ones_the_yaml_lists() -> None:
-    # A family names its helpers in the core; the copy takes them from the YAML's lists. Held equal, so a helper added
-    # to one list alone is neither copied without a word nor refused at the window.
-    from claude_vm.editors import vscode, zed
-
-    yaml_vars = yaml.safe_load((REPO / "playbooks" / "vars" / "vscode.yml").read_text())
-    assert vscode.HELPERS == tuple(yaml_vars["code_helpers"])
-    plays = yaml.safe_load((REPO / "playbooks" / "code.yml").read_text())
-    shared = [
-        play["vars"]["code_shared_helpers"] for play in plays if "code_shared_helpers" in (play.get("vars") or {})
-    ]
-    assert shared == [[zed.HELPER]]

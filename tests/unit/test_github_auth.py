@@ -1676,7 +1676,11 @@ def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_
     assert {host: left[host]["github"] for host in AFTER_CLAUDE} == said
 
 
-def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_terminal(tmp_path, fake_github):
+# n: someone is here, but cannot approve GitHub now, and it spares that VM the fifteen-minute wait; the run goes on.
+@pytest.mark.parametrize(("answer", "started"), [("", True), ("n", False)], ids=["enter", "n"])
+def test_asking_first_at_a_terminal_signs_a_vm_whose_claude_code_was_entered_in_on_enter_and_skips_it_on_n(
+    tmp_path, fake_github, answer, started
+):
     hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
     hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
     rc, output, _ = _run_at_a_terminal(
@@ -1684,12 +1688,12 @@ def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_
         _deploy_github_step(tmp_path),
         hosts,
         {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
-        "",
+        answer,
         prompt=b"type n and Enter to skip it",
     )
     assert rc == 0, output
     assert "Enter signs it in now" in output
-    assert DEVICE_LOGIN in _calls(tmp_path, "typed"), output
+    assert (DEVICE_LOGIN in _calls(tmp_path, "typed")) is started, output
     assert "no terminal to ask at" not in output, output
 
 
@@ -1710,21 +1714,3 @@ def test_asking_first_signs_a_vm_that_showed_no_claude_prompt_in_on_a_typed_y(tm
     assert DEVICE_LOGIN in _calls(tmp_path, "quiet"), output
     # The token that sign-in stored reaches neither this terminal nor the run log.
     assert not [token for token in CANNED if token in output + log]
-
-
-def test_asking_first_skips_a_vm_whose_claude_code_was_entered_on_a_typed_n(tmp_path, fake_github):
-    # Someone is here, but cannot approve GitHub now: "n" spares that VM the
-    # fifteen-minute wait, and the run goes on.
-    hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
-    hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
-    rc, output, _ = _run_at_a_terminal(
-        tmp_path,
-        _deploy_github_step(tmp_path),
-        hosts,
-        {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
-        "n",
-        prompt=b"type n and Enter to skip it",
-    )
-    assert rc == 0, output
-    assert "Enter signs it in now" in output
-    assert DEVICE_LOGIN not in _calls(tmp_path, "typed"), output

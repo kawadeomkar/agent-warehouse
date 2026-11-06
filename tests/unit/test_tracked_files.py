@@ -10,6 +10,7 @@ here, and why MUST_BLOCK lists paths at every depth Ansible loads from.
 
 from __future__ import annotations
 
+import functools
 import subprocess
 from pathlib import Path
 
@@ -158,6 +159,19 @@ def run_guard(paths: list[str]) -> subprocess.CompletedProcess:
     )
 
 
+@functools.cache
+def _leaked(*paths: str) -> list[str]:
+    """The paths the guard reports of these, each line its own: one run for every path of a list. The guard greps
+    each line alone, so a path is caught in a list exactly as on its own."""
+    result = run_guard(list(paths))
+    lines = result.stdout.splitlines()
+    if result.returncode == 0:
+        assert lines == [], result.stdout
+        return []
+    assert result.returncode == 1 and lines[-1].startswith("::error::"), result.stdout + result.stderr
+    return lines[:-1]
+
+
 def is_gitignored(path: str) -> bool:
     # Only the repository's own .gitignore: a developer's global excludes file
     # must not decide whether this test passes.
@@ -173,22 +187,18 @@ def is_gitignored(path: str) -> bool:
 
 @pytest.mark.parametrize("path", MUST_BLOCK)
 def test_guard_blocks_environment_specific_files(path):
-    result = run_guard([path])
-    assert result.returncode == 1, f"{path} was not caught by the guard"
-    assert path in result.stdout
+    assert path in _leaked("README.md", *MUST_BLOCK), f"{path} was not caught by the guard"
 
 
 @pytest.mark.parametrize("path", MUST_ALLOW)
 def test_guard_allows_committed_files(path):
-    result = run_guard([path])
-    assert result.returncode == 0, f"{path} was wrongly flagged:\n{result.stdout}"
+    leaked = _leaked(*MUST_ALLOW)
+    assert path not in leaked, f"{path} was wrongly flagged:\n{leaked}"
 
 
 def test_guard_reports_every_leak_not_just_the_first():
-    result = run_guard(["README.md", *MUST_BLOCK])
-    assert result.returncode == 1
-    for path in MUST_BLOCK:
-        assert path in result.stdout
+    # Each line by itself, in the order given, and nothing else: the allowed README.md among them is not one.
+    assert _leaked("README.md", *MUST_BLOCK) == MUST_BLOCK
 
 
 def test_guard_passes_on_the_real_repository():

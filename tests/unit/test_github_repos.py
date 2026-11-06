@@ -15,6 +15,8 @@ API = "https://api.github.com"
 # What /users/octo answers: the account, for the git identity the role derives.
 OCTO = {"login": "octo", "name": "Octo Cat", "id": 583231, "type": "User", "html_url": "https://github.com/octo"}
 OCTO_USER = {f"{API}/users/octo": (200, OCTO, {})}
+# Where octo's repositories are listed.
+LISTING = f"{API}/users/octo/repos?type=owner&per_page=100"
 
 
 def repo(name, **overrides):
@@ -182,12 +184,12 @@ def test_a_next_page_on_another_host_or_scheme_is_never_asked_for(fake_api, patc
 
 
 def test_returns_the_account_without_extra_fields_when_asked(fake_api, patch_module):
-    api = fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (200, [], {})})
+    api = fake_api({**OCTO_USER, LISTING: (200, [], {})})
 
     result = run({"username": "octo", "account": True})
 
     assert result["user"] == {"login": "octo", "name": "Octo Cat", "id": 583231, "type": "User"}
-    assert [c[0] for c in api.calls] == [f"{API}/users/octo", f"{API}/users/octo/repos?type=owner&per_page=100"]
+    assert [c[0] for c in api.calls] == [f"{API}/users/octo", LISTING]
 
 
 def test_the_account_is_not_fetched_unless_asked(fake_api, patch_module):
@@ -197,21 +199,21 @@ def test_the_account_is_not_fetched_unless_asked(fake_api, patch_module):
     api = fake_api(
         {
             f"{API}/users/octo": (403, {"message": "API rate limit exceeded"}, {}),
-            f"{API}/users/octo/repos?type=owner&per_page=100": (200, [repo("pub")], {}),
+            LISTING: (200, [repo("pub")], {}),
         }
     )
 
     result = run({"username": "octo"})
 
     assert [r["name"] for r in result["repos"]] == ["pub"]
-    assert [c[0] for c in api.calls] == [f"{API}/users/octo/repos?type=owner&per_page=100"]
+    assert [c[0] for c in api.calls] == [LISTING]
 
 
 def test_an_account_without_a_display_name_reports_none(fake_api, patch_module):
     fake_api(
         {
             f"{API}/users/octo": (200, {"login": "octo", "id": 1, "type": "User"}, {}),
-            f"{API}/users/octo/repos?type=owner&per_page=100": (200, [], {}),
+            LISTING: (200, [], {}),
         }
     )
 
@@ -264,7 +266,7 @@ def test_token_for_other_user_falls_back_to_public_listing_and_names_its_own_acc
         {
             **OCTO_USER,
             f"{API}/user": (200, {"login": "someone-else", "id": 7, "type": "User"}, {}),
-            f"{API}/users/octo/repos?type=owner&per_page=100": (200, [repo("pub")], {}),
+            LISTING: (200, [repo("pub")], {}),
         }
     )
 
@@ -272,7 +274,7 @@ def test_token_for_other_user_falls_back_to_public_listing_and_names_its_own_acc
 
     assert [r["name"] for r in result["repos"]] == ["pub"]
     assert result["user"] == {"login": "someone-else", "name": None, "id": 7, "type": "User"}
-    assert [c[0] for c in api.calls] == [f"{API}/user", f"{API}/users/octo/repos?type=owner&per_page=100"]
+    assert [c[0] for c in api.calls] == [f"{API}/user", LISTING]
 
 
 def test_a_token_with_a_trailing_newline_is_sent_without_it_and_masked(fake_api, patch_module):
@@ -304,14 +306,25 @@ def test_custom_api_url_and_trailing_slash(fake_api, patch_module):
     assert result["total"] == 1
 
 
-def test_api_error_is_reported(fake_api, patch_module):
-    fake_api(
-        {**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (403, {"message": "rate limit exceeded"}, {})}
-    )
+@pytest.mark.parametrize(
+    ("listing", "said"),
+    [
+        pytest.param(
+            (403, {"message": "rate limit exceeded"}, {}), ["HTTP 403", "rate limit exceeded"], id="api-error"
+        ),
+        pytest.param((200, {"oops": True}, {}), ["expected a list"], id="not-a-list"),
+        # module_utils' own message for a transport failure, which has no body at all.
+        pytest.param((-1, None, {"msg": "connection refused"}), ["HTTP -1", "connection refused"], id="transport"),
+        pytest.param((200, b"<html>captive portal</html>", {}), ["non-JSON body"], id="non-json-success-body"),
+        # An error body that is no JSON falls back to its raw text.
+        pytest.param((502, "Bad Gateway", {}), ["HTTP 502", "Bad Gateway"], id="non-json-error-body"),
+    ],
+)
+def test_a_listing_that_fails_is_reported(fake_api, patch_module, listing, said):
+    fake_api({**OCTO_USER, LISTING: listing})
     result = fail({"username": "octo"})
 
-    assert "HTTP 403" in result["msg"]
-    assert "rate limit exceeded" in result["msg"]
+    assert all(text in result["msg"] for text in said), result["msg"]
 
 
 def test_unknown_user_is_reported(fake_api, patch_module):
@@ -322,27 +335,21 @@ def test_unknown_user_is_reported(fake_api, patch_module):
     assert "/users/nobody" in result["msg"]
 
 
-def test_non_list_response_fails(fake_api, patch_module):
-    fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (200, {"oops": True}, {})})
-    result = fail({"username": "octo"})
+@pytest.mark.parametrize(("asked", "sent"), [(500, 100), (0, 1)], ids=["above", "below"])
+def test_per_page_is_clamped(fake_api, patch_module, asked, sent):
+    api = fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page={sent}": (200, [], {})})
 
-    assert "expected a list" in result["msg"]
-
-
-def test_per_page_is_clamped(fake_api, patch_module):
-    api = fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (200, [], {})})
-
-    result = run({"username": "octo", "per_page": 500})
+    result = run({"username": "octo", "per_page": asked})
 
     assert result["repos"] == []
-    assert api.calls[-1][0].endswith("per_page=100")
+    assert api.calls[-1][0].endswith(f"per_page={sent}")
 
 
 def test_include_archived_through_module_entry_point(fake_api, patch_module):
     fake_api(
         {
             **OCTO_USER,
-            f"{API}/users/octo/repos?type=owner&per_page=100": (
+            LISTING: (
                 200,
                 [repo("old", archived=True), repo("live")],
                 {},
@@ -425,36 +432,6 @@ def test_username_is_url_escaped(fake_api, patch_module):
     ]
 
 
-def test_transport_failure_reports_module_utils_message(fake_api, patch_module):
-    fake_api(
-        {**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (-1, None, {"msg": "connection refused"})}
-    )
-
-    result = fail({"username": "octo"})
-
-    assert "HTTP -1" in result["msg"]
-    assert "connection refused" in result["msg"]
-
-
-def test_non_json_success_body_is_reported(fake_api, patch_module):
-    fake_api(
-        {**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (200, b"<html>captive portal</html>", {})}
-    )
-
-    result = fail({"username": "octo"})
-
-    assert "non-JSON body" in result["msg"]
-
-
-def test_non_json_error_body_falls_back_to_raw_text(fake_api, patch_module):
-    fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=100": (502, "Bad Gateway", {})})
-
-    result = fail({"username": "octo"})
-
-    assert "HTTP 502" in result["msg"]
-    assert "Bad Gateway" in result["msg"]
-
-
 def test_bad_token_is_reported_from_user_lookup(fake_api, patch_module):
     fake_api({f"{API}/user": (401, {"message": "Bad credentials"}, {})})
 
@@ -463,14 +440,6 @@ def test_bad_token_is_reported_from_user_lookup(fake_api, patch_module):
     assert "HTTP 401" in result["msg"]
     assert "Bad credentials" in result["msg"]
     assert "bad" not in result["msg"].split("Bad credentials")[0]
-
-
-def test_per_page_lower_clamp(fake_api, patch_module):
-    api = fake_api({**OCTO_USER, f"{API}/users/octo/repos?type=owner&per_page=1": (200, [], {})})
-
-    run({"username": "octo", "per_page": 0})
-
-    assert api.calls[-1][0].endswith("per_page=1")
 
 
 def test_token_over_plain_http_is_refused_except_loopback(fake_api, patch_module):
