@@ -173,11 +173,10 @@ That makes `claude` on the VM authenticate against the Anthropic API. It does no
 Code is a terminal program, so open it with `just code alpha`, whose terminal starts `claude`, or
 `ssh alpha` and run `claude` there.
 
-Note this also **turns Remote Control off** for that VM, and the run says so. The two credentials are
-mutually exclusive: an API key outranks the claude.ai login, and only that login can establish a
-session you can reach from claude.ai or the mobile app. If a previous run had installed the Remote
-Control server, this run stops and disables it and removes its unit. If Remote Control is what you
-want, leave the key empty and sign the VM in, as at the top of this page.
+Note this also **turns Remote Control off** for that VM, and the run says so: a key outranks the
+claude.ai login Remote Control needs ([What it needs](#what-it-needs)). If a previous run had installed
+the server, this run stops and disables it and removes its unit. If Remote Control is what you want,
+leave the key empty and sign the VM in, as at the top of this page.
 
 **Going back** works the same way: clear `vault_anthropic_api_key` and re-run. The role removes the
 `ANTHROPIC_API_KEY` it wrote from `~/.claude/settings.json` and leaves the rest of the file alone. A

@@ -59,14 +59,12 @@ from __future__ import annotations
 
 import base64
 import getpass
-import grp
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -75,15 +73,27 @@ from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 from harness import (
     DESKTOP_TOOLS,
-    STAND_INS,
+    GETENT,
+    GH_CALLS,
+    NOT_LOGGED,
+    _bare_repos,
+    _deploy_import,
     _desktop,
+    _every_task,
     _failures,
+    _leaked,
     _left_to_do,
+    _lines,
+    _local_hosts,
     _messages,
+    _rendering,
     _results,
+    _role_tasks_play,
     _run,
     _run_at_a_terminal,
+    _scenario_vars,
     _serve,
+    _task_seconds,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -235,45 +245,12 @@ def _marker(root: Path, host: str) -> Path:
     return root / host / ".config" / "claude-on-proxmox" / "gh-login"
 
 
-def _bare_repos(git_root: Path, specs: list[str] = REPOS) -> None:
-    """One bare repository per listed name, with a commit on main, as the Molecule prepare makes them."""
-    env = {
-        **os.environ,
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_AUTHOR_NAME": "molecule",
-        "GIT_AUTHOR_EMAIL": "molecule@example.com",
-        "GIT_COMMITTER_NAME": "molecule",
-        "GIT_COMMITTER_EMAIL": "molecule@example.com",
-    }
-    for spec in specs:
-        name = spec.split(":")[0]
-        src = git_root / "src" / name
-        src.mkdir(parents=True)
-        (src / "README.md").write_text(f"# {name}\n")
-        for argv in (
-            ["git", "init", "-q", "-b", "main", str(src)],
-            ["git", "-C", str(src), "add", "README.md"],
-            ["git", "-C", str(src), "commit", "-q", "-m", "init"],
-            ["git", "clone", "-q", "--bare", str(src), str(git_root / f"{name}.git")],
-        ):
-            subprocess.run(argv, check=True, env=env, capture_output=True)
-
-
 @pytest.fixture(scope="module")
 def fake_github(tmp_path_factory):
     """The fake GitHub API on a loopback port, listing bare repositories made here; yields its base URL."""
     git_root = tmp_path_factory.mktemp("git")
-    _bare_repos(git_root)
+    _bare_repos(git_root, REPOS)
     yield from _serve(FAKE_API, USERNAME, str(git_root), *REPOS)
-
-
-# What `getent passwd <user>` answers on the stand-in hosts: the user's home is
-# the host's own directory, as HOME already is for every module. macOS has no
-# getent, and the role's entry points look the home up with it.
-GETENT = """#!/bin/sh
-[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
-printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
-"""
 
 
 def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) -> dict:
@@ -281,20 +258,14 @@ def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) ->
 
     With home_given, each host is told its home the way main.yml's clone would
     have been; without, the playbook under test has to look it up, as it must
-    on a VM, and the stand-in getent answers.
+    on a VM, and the stand-in getent answers. The modules find a group named
+    after this user, as on a VM (OWN_GROUP): the whole role runs to its end.
     """
+    hosts = _local_hosts(root, cases, {"gh": FAKE_GH.read_text(), "getent": GETENT}, own_group=True)
     bin_dir = root / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "python").write_text(STAND_INS["python"])
-    (bin_dir / "python").chmod(0o755)
-    (bin_dir / "gh").write_text(FAKE_GH.read_text())
-    (bin_dir / "gh").chmod(0o755)
-    (bin_dir / "getent").write_text(GETENT)
-    (bin_dir / "getent").chmod(0o755)
-    hosts = {}
     for name, case in cases.items():
         home = root / name
-        (home / "projects").mkdir(parents=True)
+        (home / "projects").mkdir()
         # As on a VM, where the user's authorized_keys lives there: an ssh
         # clone's known_hosts goes into it.
         (home / ".ssh").mkdir(mode=0o700)
@@ -344,11 +315,8 @@ def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) ->
             marker = home / ".config" / "claude-on-proxmox" / "gh-login"
             marker.parent.mkdir(parents=True)
             marker.write_text(_digest(case["marker"]) + "\n")
-        (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
+            **hosts[name],
             "github_projects_username": USERNAME,
             "github_projects_token": case["token"],
             "github_projects_api_url": api_url,
@@ -380,33 +348,15 @@ def _git_config_set(path: Path, key: str, value: str, *, add: bool = False) -> N
 
 
 def _role_run(root: Path, hosts: dict, *args: str) -> dict:
-    """auth.yml then clone.yml of the role, as main.yml runs them once the directory is known."""
+    """auth.yml then clone.yml of the role, as main.yml runs them, with the directory clone.yml reads given."""
     playbook = root / "role.yml"
-    playbook.write_text(
-        json.dumps(
-            [
-                {
-                    "name": "Sign in and clone",
-                    "hosts": "claude_vms",
-                    "gather_facts": False,
-                    "tasks": [
-                        {
-                            "name": f"Run the role's {tasks_from} tasks",
-                            "ansible.builtin.include_role": {"name": "github_projects", "tasks_from": tasks_from},
-                        }
-                        for tasks_from in ("auth", "clone")
-                    ],
-                }
-            ]
-        )
-    )
+    playbook.write_text(json.dumps([_role_tasks_play("github_projects", ("auth", "clone"), "Sign in and clone")]))
     # One fork per host: every host is the same machine, and the fixture runs twice.
     return _run(root, playbook, hosts, "-e", '{"ansible_become": false}', "--forks", str(len(hosts)), *args)
 
 
 def _calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".config" / "gh" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _lines(root.joinpath(host, *GH_CALLS))
 
 
 def _git_config(root: Path, host: str, key: str) -> list[str]:
@@ -889,19 +839,11 @@ def test_github_login_says_the_role_signs_a_pending_vault_token_in_next(pending_
     said = _messages(report, "Report the login state and what to do about it")["pending"]
     assert "the role signs gh in with it next, in this run" in said, said
     assert "make " not in said
-    # Not left to do: the role run after the report signs it in - unless that
-    # role stops at its directory task, as on a machine with no group named
-    # after this user, when its failure is what is left, with its retry.
-    left = _left_to_do(report)["pending"]["github"]
-    if _has_own_group():
-        assert left == ""
-    else:
-        assert left.startswith('pending: configuring its GitHub repositories failed at "'), left
-        assert left.endswith("Retry it with: just deploy pending --tags github_projects"), left
+    # Not left to do: the role run after the report signs it in.
+    assert _left_to_do(report)["pending"]["github"] == ""
     assert DEVICE_LOGIN not in _calls(root, "pending")
-    if _has_own_group():
-        # And it does: the role run after the report signs gh in with it.
-        assert (root / "pending" / ".config" / "gh" / "fake-token").read_text().strip() == TOKENS["vault"]
+    # And it does: the role run after the report signs gh in with it.
+    assert (root / "pending" / ".config" / "gh" / "fake-token").read_text().strip() == TOKENS["vault"]
 
 
 # ------------------------------------------------------- the device flow ----
@@ -910,18 +852,9 @@ def test_github_login_says_the_role_signs_a_pending_vault_token_in_next(pending_
 # with no terminal, then approves itself (at once, or after approve_after
 # seconds), or expires.
 # github_projects_user is this user: after the sign-in the playbook runs the
-# whole role, whose directory task sets owner and group to that user, and on a
-# machine without a group of that name (macOS) that task fails after the
-# sign-in has already happened, which the assertions allow for.
+# whole role, whose directory task sets owner and group to that user - a group
+# the hosts' modules find on macOS too, which has none of that name (OWN_GROUP).
 ME = getpass.getuser()
-
-
-def _has_own_group() -> bool:
-    try:
-        grp.getgrnam(ME)
-    except KeyError:
-        return False
-    return True
 
 
 # The gh a run that never ended it left polling (Ctrl-C): it holds the output
@@ -976,8 +909,7 @@ def _recorders(root: Path) -> dict:
 
 def _opened(root: Path) -> list[str]:
     """What the recorders under root were asked to do, a call a line: the tool, then its arguments."""
-    log = root / "recorders" / "opened.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _lines(root / "recorders" / "opened.log")
 
 
 def _device_flow(
@@ -1131,12 +1063,7 @@ def test_a_failed_sign_in_does_not_stop_the_vms_after_it_and_fails_the_run_once_
     failures = _failures(report)
     assert "failed to authenticate" in failures["first"]
     assert "just login first --only github again" in failures["first"]
-    if _has_own_group():
-        assert set(failures) == {"first"}, failures
-    else:
-        # The whole role that runs after the sign-in stops at its directory
-        # task here, which wants a group named after this user.
-        assert set(failures) <= {"first", "second"}, failures
+    assert set(failures) == {"first"}, failures
 
 
 def _task(report: dict, name: str, host: str) -> dict | None:
@@ -1198,8 +1125,6 @@ def test_an_approved_code_signs_gh_in_and_cleans_up(approved):
 
 def test_after_the_sign_in_the_whole_role_runs_and_clones_the_private_repository(approved):
     root, report = approved
-    if not _has_own_group():
-        pytest.skip("the role's directory task needs a group named after this user, which macOS lacks")
     assert report["rc"] == 0, _failures(report)
     assert "auth setup-git --hostname github.com" in _calls(root, "approved")
     cloned = {path.name for path in (root / "approved" / "projects").iterdir() if path.is_dir()}
@@ -1334,23 +1259,12 @@ def test_gh_s_lines_keep_github_s_own_page_and_lose_every_other():
         assert render(text, "github_projects_login_page_foreign") is (WITHHELD in "".join(said)), text
 
 
-def _seconds(report: dict, task: str, host: str) -> float:
-    """How long the task whose name ends with `task` ran for the host."""
-    for play in report["plays"]:
-        for entry in play["tasks"]:
-            if entry["task"]["name"].endswith(task) and host in entry["hosts"]:
-                duration = entry["task"]["duration"]
-                start, end = (datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end"))
-                return (end - start).total_seconds()
-    raise AssertionError(f"no task {task!r} ran for {host}")
-
-
 def test_a_gh_that_exits_ends_the_wait_at_once(nocode):
     # gh exits however it ends - here an error before any code - and the
     # job's closing line ends the wait then, not thirty seconds (or, waiting
     # for the approval, fifteen minutes) later.
     _, report = nocode
-    assert _seconds(report, "Wait for gh to show the code", "nocode") < 15
+    assert _task_seconds(report, "Wait for gh to show the code", "nocode") < 15
 
 
 def test_the_outcome_is_gh_s_login_state_not_its_wording(approved):
@@ -1378,7 +1292,7 @@ def test_the_flow_s_limits_outlast_the_code_in_order():
 
 def test_the_listing_asks_for_the_account_only_when_an_identity_is_derived():
     # Without a token that is one more request against GitHub's sixty an hour.
-    tasks = _all_tasks(yaml.safe_load((ROLE / "tasks" / "clone.yml").read_text()))
+    tasks = list(_every_task(yaml.safe_load((ROLE / "tasks" / "clone.yml").read_text())))
     listing = next(task for task in tasks if "github_repos" in task)
     assert listing["github_repos"]["account"] == "{{ github_projects_git_identity_needed }}"
 
@@ -1386,7 +1300,7 @@ def test_the_listing_asks_for_the_account_only_when_an_identity_is_derived():
 def test_no_task_quotes_what_gh_wrote_to_stderr_unsanitised():
     # Only the vars that strip control characters (vars/main.yml) read it.
     for path in sorted((ROLE / "tasks").glob("*.yml")):
-        for task in _all_tasks(yaml.safe_load(path.read_text())):
+        for task in _every_task(yaml.safe_load(path.read_text())):
             quoted = {
                 key: value for key, value in task.items() if key not in NOT_LOGGED | {"block", "rescue", "always"}
             }
@@ -1430,8 +1344,8 @@ def test_a_run_over_the_output_of_an_earlier_failed_run_reads_only_the_new_code(
     # is unlinked, not truncated, before gh starts: the stale gh keeps its own
     # inode, and the new wait sees neither the old code nor its closing lines.
     root, report = stale
-    # The role after the login may stop at its directory task on macOS, as
-    # above; the flow itself must have gone through.
+    # The flow itself must have gone through: the whole role after the login
+    # is the approved run's to hold.
     flow_failures = {
         host: text
         for host, text in _failures(report).items()
@@ -1445,22 +1359,12 @@ def test_a_run_over_the_output_of_an_earlier_failed_run_reads_only_the_new_code(
     assert _task(report, "Remove the files of an earlier run", "stale") is not None
 
 
-def _all_tasks(tasks: list) -> list:
-    """Every task of a task file, those inside a block, rescue or always included."""
-    found = []
-    for task in tasks or []:
-        found.append(task)
-        for section in ("block", "rescue", "always"):
-            found.extend(_all_tasks(task.get(section)))
-    return found
-
-
 def test_the_desktop_steps_never_use_the_controller_s_sudo():
     # The play's become is the VM's passwordless sudo; inherited by a task
     # delegated to the controller it is the developer's, which asks for a
     # password and fails the run. The harness runs with become off, so this
     # is held statically.
-    tasks = _all_tasks(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text()))
+    tasks = list(_every_task(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text())))
     delegated = [task for task in tasks if task.get("delegate_to") == "localhost"]
     assert len(delegated) == 3, [task["name"] for task in delegated]
     for task in delegated:
@@ -1470,7 +1374,7 @@ def test_the_desktop_steps_never_use_the_controller_s_sudo():
 def test_the_page_is_opened_by_the_shared_opener():
     # BROWSER is a list of commands, each with an optional %s: one filter
     # reads it (filter_plugins/desktop.py, tested on its own), for both sign-ins.
-    tasks = _all_tasks(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text()))
+    tasks = list(_every_task(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text())))
     opener = next(task for task in tasks if task["name"].endswith("Open the page in your browser"))
     assert "page_opener(" in opener["vars"]["github_projects_login_opener"]
     assert opener["ansible.builtin.command"]["argv"] == "{{ github_projects_login_opener }}"
@@ -1482,7 +1386,7 @@ def test_the_page_opened_and_shown_is_github_s_own_never_one_gh_named():
     # page of the VM's choosing in your browser, as the run asks you to sign in.
     internal = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())
     assert internal["github_projects_login_page"] == "https://github.com/login/device"
-    tasks = _all_tasks(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text()))
+    tasks = list(_every_task(yaml.safe_load((ROLE / "tasks" / "device_flow.yml").read_text())))
     opener = next(task for task in tasks if task["name"].endswith("Open the page in your browser"))
     assert opener["vars"]["github_projects_login_opener"].split("|")[0].strip() == "{{ github_projects_login_page"
 
@@ -1518,21 +1422,20 @@ def test_the_code_is_a_word_of_its_own_in_github_s_shape():
 # Every task argument that can carry a token: the vault's, the one gh stored,
 # and the one the listing is made with. Not a condition, which is never logged.
 TOKEN_VARS = re.compile(r"\bgithub_projects_(token|stored_token|listing_token)\b")
-NOT_LOGGED = {"name", "when", "changed_when", "failed_when", "until", "register", "no_log", "tags"}
 
 
 def test_every_task_that_renders_a_token_is_no_log():
     # Without no_log the token goes to the VM's journal (a module logs the
     # arguments its spec does not mark no_log, stdin included) and into
     # results; the report search below sees only what reaches the controller.
-    rendering = {}
-    for path in sorted((ROLE / "tasks").glob("*.yml")):
-        for task in _all_tasks(yaml.safe_load(path.read_text())):
-            if "block" in task:
-                continue
-            args = {key: value for key, value in task.items() if key not in NOT_LOGGED}
-            if TOKEN_VARS.search(json.dumps(args)):
-                rendering[task["name"]] = task.get("no_log")
+    rendering = _rendering(
+        (
+            task
+            for path in sorted((ROLE / "tasks").glob("*.yml"))
+            for task in _every_task(yaml.safe_load(path.read_text()))
+        ),
+        TOKEN_VARS,
+    )
     # Not vacuous: the two tasks known to hand a token on are found.
     assert {"auth | Sign gh in with the token", "clone | List repositories of {{ github_projects_username }}"} <= set(
         rendering
@@ -1573,19 +1476,7 @@ def test_no_token_ever_reaches_the_output(request, fixture):
     reports = _reports(request.getfixturevalue(fixture))
     assert reports, fixture
     for report in reports:
-        text = json.dumps(report)
-        # The search sees module arguments only with invocation injected.
-        assert '"invocation"' in text, fixture
-        for token in CANNED:
-            assert token not in text, (fixture, token)
-
-
-def _scenario_vars(paths: list[Path]) -> dict:
-    """What the given vars files set, merged in Ansible's order: later files win."""
-    merged = {}
-    for path in paths:
-        merged.update(yaml.safe_load(path.read_text()) or {})
-    return merged
+        assert _leaked(report, CANNED) == [], fixture
 
 
 def _group_vars_all(scenario: Path) -> dict:
@@ -1652,29 +1543,13 @@ AFTER_CLAUDE = {
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
     "quiet": {},
 }
+# What github_login.yml says of a VM whose sign-in it held back (playbooks/tasks/sign_in_held.yml, Tailscale's too).
+HELD_SAID = "sign_in_held | Say why the sign-in was not started"
 
 
 def _deploy_github_step(root: Path) -> Path:
     """just deploy's GitHub step, imported as deploy.yml imports it: the same playbook, vars and condition."""
-    imported = next(
-        play
-        for play in yaml.safe_load((REPO / "deploy.yml").read_text())
-        if play.get("ansible.builtin.import_playbook") == "playbooks/github_login.yml"
-    )
-    playbook = root / "deploy_github.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "name": imported["name"],
-                    "ansible.builtin.import_playbook": str(REPO / "playbooks" / "github_login.yml"),
-                    "vars": imported["vars"],
-                    "when": imported["when"],
-                }
-            ]
-        )
-    )
-    return playbook
+    return _deploy_import(root, "playbooks/github_login.yml")
 
 
 def _deploy_github(root: Path, fake_github, **extra) -> tuple[Path, dict]:
@@ -1758,7 +1633,7 @@ def test_deploy_says_once_why_gh_s_sign_in_was_not_started_where_the_claude_sign
     said = [
         (host, result["msg"])
         for name, host, result in _results(report)
-        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+        if name == HELD_SAID and not result.get("skipped")
     ]
     line = (
         "skipped: GitHub's sign-in was not started, since its Claude sign-in was skipped:"
@@ -1791,7 +1666,7 @@ def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_
     said = {
         host: result["msg"]
         for name, host, result in _results(report)
-        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+        if name == HELD_SAID and not result.get("skipped")
     }
     assert said == {
         "typed": NO_TERMINAL.format("typed"),
@@ -1803,7 +1678,11 @@ def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_
     assert {host: left[host]["github"] for host in AFTER_CLAUDE} == said
 
 
-def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_terminal(tmp_path, fake_github):
+# n: someone is here, but cannot approve GitHub now, and it spares that VM the fifteen-minute wait; the run goes on.
+@pytest.mark.parametrize(("answer", "started"), [("", True), ("n", False)], ids=["enter", "n"])
+def test_asking_first_at_a_terminal_signs_a_vm_whose_claude_code_was_entered_in_on_enter_and_skips_it_on_n(
+    tmp_path, fake_github, answer, started
+):
     hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
     hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
     rc, output, _ = _run_at_a_terminal(
@@ -1811,12 +1690,12 @@ def test_asking_first_signs_a_vm_whose_claude_code_was_entered_in_on_enter_at_a_
         _deploy_github_step(tmp_path),
         hosts,
         {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
-        "",
+        answer,
         prompt=b"type n and Enter to skip it",
     )
     assert rc == 0, output
     assert "Enter signs it in now" in output
-    assert DEVICE_LOGIN in _calls(tmp_path, "typed"), output
+    assert (DEVICE_LOGIN in _calls(tmp_path, "typed")) is started, output
     assert "no terminal to ask at" not in output, output
 
 
@@ -1837,21 +1716,3 @@ def test_asking_first_signs_a_vm_that_showed_no_claude_prompt_in_on_a_typed_y(tm
     assert DEVICE_LOGIN in _calls(tmp_path, "quiet"), output
     # The token that sign-in stored reaches neither this terminal nor the run log.
     assert not [token for token in CANNED if token in output + log]
-
-
-def test_asking_first_skips_a_vm_whose_claude_code_was_entered_on_a_typed_n(tmp_path, fake_github):
-    # Someone is here, but cannot approve GitHub now: "n" spares that VM the
-    # fifteen-minute wait, and the run goes on.
-    hosts = _hosts(tmp_path, {"typed": {"token": ""}}, fake_github, home_given=False)
-    hosts["typed"].update(AFTER_CLAUDE["typed"], github_projects_user=ME)
-    rc, output, _ = _run_at_a_terminal(
-        tmp_path,
-        _deploy_github_step(tmp_path),
-        hosts,
-        {"ansible_become": False, "deploy_sign_in": True, "github_login_auto_start": False},
-        "n",
-        prompt=b"type n and Enter to skip it",
-    )
-    assert rc == 0, output
-    assert "Enter signs it in now" in output
-    assert DEVICE_LOGIN not in _calls(tmp_path, "typed"), output

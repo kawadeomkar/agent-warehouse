@@ -19,7 +19,9 @@
 # applies it too); the run that prints the secret is no_log, and the secret
 # goes nowhere but init_hidden_answers. Inputs, from init_settings.yml's
 # vars: init_access_host, init_access_address, init_access_hostvars,
-# init_access_user, init_access_token, init_access_script and the defaults.
+# init_access_user, init_access_token, init_access_script and the defaults;
+# and what it decides from its own registers there, init_access_arguments,
+# init_access_plan_ready and init_access_set_up_already.
 - name: init_access | Reach the Proxmox host as hosts.yml has it
   ansible.builtin.add_host:
     name: "{{ init_access_host }}"
@@ -144,9 +146,7 @@
   ansible.builtin.debug:
     msg: "{{ (['NOTICE  The API access is set up on ' ~ init_access_address ~ ' already:']
               + init_access_plan.stderr_lines | map('plain_text') | map('regex_replace', '^', '  ') | list) | join('\n') }}"
-  when: >-
-    init_access_plan is not skipped and init_access_plan.rc | default(1) == 0
-    and init_access_plan.stdout_lines | length == 0
+  when: init_access_set_up_already | bool
 
 # ------------------------------------------------------------------ the run ---
 # no_log: its stdout is the token's secret. What it said goes to stderr, which
@@ -211,7 +211,4 @@
       root@{{ init_access_address }} sh -s{{ (' -- ' ~ init_access_arguments | join(' '))
       if init_access_arguments | length > 0 else '' }} < tools/proxmox-access.sh - and give the next question,
       or the next just init, the secret it prints (docs/getting-started/proxmox-access.md).
-  when: >-
-    init_access_run is skipped
-    and not (init_access_plan is not skipped and init_access_plan.rc | default(1) == 0
-             and init_access_plan.stdout_lines | length == 0)
+  when: init_access_run is skipped and not init_access_set_up_already | bool

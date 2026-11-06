@@ -142,11 +142,13 @@ import os
 import re
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.claude_on_proxmox import folders, is_claude, own_processes
 
 GIT_ENV = {"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 # What precedes the host in a URL with a scheme: https://<token>@github.com/... names a credential.
 USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@")
-COMMIT = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+# fullmatch: an anchored match takes an ID with a newline at its end.
+COMMIT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 
 
 def _git(module, path, *args):
@@ -157,33 +159,16 @@ def _git(module, path, *args):
     return out.strip() if rc == 0 else None
 
 
-def _claude(argv):
-    """Whether a process's argv is Claude Code's: the native binary, or the npm package under node."""
-    names = [os.path.basename(arg) for arg in argv[:2]]
-    return b"claude" in names or any(b"@anthropic-ai/claude-code" in arg for arg in argv[:2])
-
-
 def claude_processes(proc="/proc"):
     """(pid, cwd) of every claude process of this user, from /proc; none where there is no /proc."""
     found = []
-    try:
-        names = os.listdir(proc)
-    except OSError:
-        return found
-    for name in names:
-        if not name.isdigit():
+    for pid, argv, base in own_processes(proc):
+        if not is_claude(argv):
             continue
-        base = os.path.join(proc, name)
         try:
-            if os.stat(base).st_uid != os.getuid():
-                continue
-            with open(os.path.join(base, "cmdline"), "rb") as handle:
-                argv = handle.read().split(b"\0")
-            cwd = os.readlink(os.path.join(base, "cwd"))
+            found.append((pid, os.readlink(os.path.join(base, "cwd"))))
         except OSError:
             continue
-        if _claude(argv):
-            found.append((int(name), cwd))
     return found
 
 
@@ -212,24 +197,9 @@ def overwrites(module, toplevel, target):
     file without asking, and an untracked one would have made the tree unclean already. None when git
     cannot compare the two.
     """
-    rc, out, _ = module.run_command(
-        [
-            "git",
-            "--no-optional-locks",
-            "-C",
-            toplevel,
-            "diff",
-            "--name-status",
-            "-z",
-            "--no-renames",
-            "HEAD",
-            target,
-            "--",
-        ],
-        environ_update=GIT_ENV,
-        expand_user_and_vars=False,
-    )
-    if rc != 0:
+    # strip() leaves the NULs -z ends each field with, and the first field is a status letter: the output is whole.
+    out = _git(module, toplevel, "diff", "--name-status", "-z", "--no-renames", "HEAD", target, "--")
+    if out is None:
         return None
     fields = out.split("\0")
     changes = list(zip(fields[0::2], fields[1::2], strict=False))
@@ -389,16 +359,12 @@ def main():
         if rc != 0 or branch.startswith("-"):
             module.fail_json(msg=f"{branch!r} is not a branch name git accepts.")
     target = params["target"] or ""
-    if target and not COMMIT.match(target):
+    if target and not COMMIT.fullmatch(target):
         module.fail_json(msg=f"{target!r} is not a full commit ID.")
     processes = claude_processes() if params["busy"] else None
     paths = params["paths"]
     if params["under"]:
-        try:
-            names = sorted(entry.name for entry in os.scandir(params["under"]) if entry.is_dir(follow_symlinks=False))
-        except OSError:
-            names = []
-        paths = [os.path.join(params["under"], name) for name in names]
+        paths = [folder.path for folder in folders(params["under"])]
     found = [read(module, path, params["status"], branch, processes, target, params["work"]) for path in paths]
     if params["under"]:
         # A checkout's own top level, compared resolved: git names it by its real path.

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 
 import harness
 import live_kit as kit
@@ -20,15 +19,6 @@ import pytest
 import test_init_check as tic
 import test_init_settings as tis
 
-LIVE = harness.REPO / "tools" / "live"
-STAMP = "20261026-131050"
-RECIPE = """#!/bin/bash
-set -eu
-live_end() {{ "{python}" "{live}" --log-dir "{logs}" --stamp {stamp} end "$1"; }}
-trap 'live_end $?' EXIT
-"{playbook}" -i "{init_inventory}" -e '{settings}' "{settings_playbook}"
-"{playbook}" -i "{proxmox}" -e '{checks}' "{check_playbook}"
-"""
 # The questions, each typed once it has the terminal: a GitHub user, no Tailscale, the host, the token ID as it is,
 # the secret.
 ANSWERS = {
@@ -42,37 +32,21 @@ ANSWERS = {
 
 @pytest.fixture(scope="module")
 def pve(tmp_path_factory):
-    root = tmp_path_factory.mktemp("init_pve")
-    cert, key = harness._certificate(root)
-    fake = tic.FAKES / "fake_pve_api.py"
-    for base in harness._serve(fake, str(cert), str(key), str(root / "pve"), harness.PVE_SECRET):
-        yield base.replace("http://", "https://")
+    yield from harness._fake_pve(tmp_path_factory.mktemp("init_pve"))
 
 
 def _init(root, pve, check_settings=None):
     (root / "settings").mkdir()
     files = tis._files(root / "settings")
     paths, env = tic._inventory_of(root / "checks", pve, "ssh", check_settings, tic.VAULT_HEADER, "127.0.0.1")
-    state = root / "live" / f"{STAMP}-init.json"
-    script = root / "recipe.sh"
-    script.write_text(
-        RECIPE.format(
-            python=sys.executable,
-            live=LIVE,
-            logs=root / "logs",
-            stamp=STAMP,
-            playbook=kit.ANSIBLE_PLAYBOOK,
-            init_inventory=tis.INVENTORY,
-            settings=json.dumps(files | {"init_ask": True}),
-            settings_playbook=tis.PLAYBOOK,
-            proxmox=root / "checks" / "proxmox.yml",
-            checks=json.dumps(paths),
-            check_playbook=tic.PLAYBOOK,
-        )
-    )
-    script.chmod(0o755)
-    environment = kit.environment(root, "init", CLAUDE_ON_PROXMOX_LIVE_STATE=str(state), **env)
-    ran = kit.at_a_terminal([script], root, environment, prompts=ANSWERS, timeout=240)
+    # The recipe's two playbooks, each as it is: they join the run through the exported title and state.
+    settings, checks = json.dumps(files | {"init_ask": True}), json.dumps(paths)
+    parts = [
+        f'"{kit.ANSIBLE_PLAYBOOK}" -i "{tis.INVENTORY}" -e \'{settings}\' "{tis.PLAYBOOK}"',
+        f'"{kit.ANSIBLE_PLAYBOOK}" -i "{root / "checks" / "proxmox.yml"}" -e \'{checks}\' "{tic.PLAYBOOK}"',
+    ]
+    argv, environment, state = kit.recipe_in_parts(root, parts, "init", **env)
+    ran = kit.at_a_terminal(argv, root, environment, prompts=ANSWERS, timeout=240)
     ran.state = state
     return ran
 
@@ -99,7 +73,7 @@ def test_init_is_one_run_its_questions_steps_and_its_checks_drawn_as_they_are_ma
     assert screen.count("claude-on-proxmox  init · done in") == 1 and screen.count("##  NEXT STEPS") == 1, screen
     assert screen.index("claude-on-proxmox  init · done in") < screen.index("##  NEXT STEPS")
     assert "just deploy alpha" in screen.split("##  NEXT STEPS", 1)[1]
-    checks = screen.split("\nCHECKS\n", 1)[1].split("\n\n", 1)[0].splitlines()
+    checks = passed.table("\nCHECKS\n").splitlines()
     assert checks and all(line.startswith(" ✓ ") for line in checks), checks
     assert passed.screen.titles[-1] == "init · done"
     assert not passed.state.exists()
@@ -110,9 +84,9 @@ def test_a_check_that_fails_is_the_failure_and_the_last_task_names_nothing_of_it
     refused.assert_drawn_and_gone()
     screen = refused.transcript
     assert re.search(r"^✗ checks · this machine: \S", screen, re.M), screen
-    assert "Fail when a check found a problem" not in screen.split("claude-on-proxmox  init", 1)[0]
+    assert "Fail when a check found a problem" not in refused.above_summary("init")
     assert re.search(r"^claude-on-proxmox  init · failed after .* at checks", screen, re.M), screen
-    checks = screen.split("\nCHECKS\n", 1)[1].split("\n\n", 1)[0]
+    checks = refused.table("\nCHECKS\n")
     assert re.search(r"^ ✗ ", checks, re.M), checks
     # NEXT STEPS keeps the record's lines: each problem under the line that counts them, with its indent.
     steps = screen.split("##  NEXT STEPS", 1)[1]

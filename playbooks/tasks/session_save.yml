@@ -56,8 +56,7 @@
     claude_vm_save_home: "{{ claude_vm_save_user.ansible_facts.getent_passwd[vm_user][4] }}"
   ansible.builtin.set_fact:
     claude_vm_save_claude: "{{ claude_vm_save_home }}/.claude"
-    claude_vm_save_projects: >-
-      {{ (vm_projects_dir | default('', true) or claude_vm_save_home ~ '/projects') | regex_replace('(.)/+$', '\1') }}
+    claude_vm_save_projects: "{{ vm_projects_dir | default('', true) | projects_dir(claude_vm_save_home) }}"
     claude_vm_save_ssh: >-
       {{ {} if ansible_connection | default('ssh') == 'local'
          else {'user': ansible_user | default(vm_user), 'host': ansible_host | default(inventory_hostname),

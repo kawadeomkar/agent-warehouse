@@ -1,8 +1,8 @@
 # 11. Testing architecture
 
 Three tiers. **No test ever talks to a real Proxmox, a real GitHub, a real Tailscale, or a real
-hypervisor** - nor this machine's own `tailscale`, which the unit harness stands in for with one that
-fails the test if it is called.
+hypervisor** - nor this machine's own `tailscale`, `gh` or `claude`, which the unit harness stands in for
+with ones that fail the test if they are called.
 
 ## 11.1 Unit — `just test unit`
 
@@ -39,9 +39,9 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2969 tests. By file:
+pytest over `tests/unit/`, file by file:
 
-- **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
+- **The package** (`test_claude_vm.py`): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
   `subprocess`), and the package itself imports none of
   its modules; each record refuses a field its annotation cannot hold (`True` as an `int` among them), `plain`
@@ -50,15 +50,15 @@ pytest over `tests/unit/`: 2969 tests. By file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
-- **Filters** (`test_filters.py` 140, `test_vscode_filters.py` 41, `test_desktop_filter.py` 68,
-  `test_text_filter.py` 34): the guest-agent readers, `guest_ipv4` among them refusing anything that
+- **Filters** (`test_filters.py`, `test_vscode_filters.py`, `test_desktop_filter.py`,
+  `test_text_filter.py`): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, VS Code's settings reader (since 1.1
   its plan's own `vscode_setting`, not a filter, though its test file keeps the name), the sign-ins'
   `page_opener`, the run a Claude sign-in waits for (`controller_run` and its state: running, gone, a pid
   another process has since, another machine, a record the VM spoiled), `plain_text`, and
   `banner`'s block.
-- **`just status`** (`test_status.py` 65, `test_status_live.py` 10, `test_status_vms.py` 17,
-  `test_status_work.py` 3): the report's filters on canned
+- **`just status`** (`test_status.py`, `test_status_live.py`, `test_status_vms.py`,
+  `test_status_work.py`): the report's filters on canned
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
   `local.yml`, the twelve buckets of a day at Proxmox VE 9's resolution and 8's, the ranking and exit code,
   every line within 100 columns, of a report holding every state at once, whose every `just` command the
@@ -67,7 +67,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   request it made a GET; statically, every task it runs and every file and entry point it reaches a read
   or the report's own write. Its callback, driven in process at a stand-in terminal, and the real playbook
   at a pseudo-terminal of the test's own, read back through `tests/unit/vt.py`, a small terminal: a window
-  the report fits, a short one, a narrow one, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
+  the report fits, in colour, one short and narrow, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
   warning between frames, the screen and its scrollback ending in exactly the finished report the log
   holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux
   pty takes the rest of a run's output without blocking it, and the run could end before the frame it acts
@@ -78,14 +78,14 @@ pytest over `tests/unit/`: 2969 tests. By file:
   field for field; status over stand-in VMs with discovery off, each running the three roles' `status` entry points
   with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after
   and the fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
-  they reach a stand-in `ssh` and as `ssh -G` resolves them, and ssh's two host-key refusals each said for what it
-  is. Every status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this
-  machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s `work` over real throwaway repositories - a
-  worktree under `.claude/worktrees/` and one outside the projects directory, a branch with no upstream, a detached
-  HEAD with commits of its own, a stash, untracked files - every file of them, `.git` included, as it was after.
-  Each editor's windows are counted under the editors list's keys, `vscode_windows` kept as 1.0 has it, and the
-  ACCESS line names the editor that is set.
-- **`just settings`** (`test_settings.py` 112): `tools/settings` against inventories of its own, made from the
+  `ssh -G` resolves them (and as they reach a stand-in `ssh`, first, in `test_status.py`'s run of the fleet), and
+  ssh's two host-key refusals each said for what it is. Every status run in a test gets that refusing stand-in `ssh`
+  (`status_root`), so none reaches a VM or this machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s
+  `work` over real throwaway repositories - a worktree under `.claude/worktrees/` and one outside the projects
+  directory, a branch with no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file
+  of them, `.git` included, as it was after. Each editor's windows are counted under the editors list's keys,
+  `vscode_windows` kept as 1.0 has it, and the ACCESS line names the editor that is set.
+- **`just settings`** (`test_settings.py`): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
   settings; each run with a `HOME` of its own and the collections' path pinned beside it. Every role's rows
   are its `argument_specs`; every line within 100 columns. The attacks: a `pipe` lookup behind a group
@@ -114,7 +114,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `local.yml`, and no host-pattern warning.
   The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
   taking the old one's line out, `--reset` on either taking both.
-- **The stdout callback** (`test_attention_callback.py` 23): `callback_plugins/claude_on_proxmox.py` run
+- **The stdout callback** (`test_attention_callback.py`): `callback_plugins/claude_on_proxmox.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
   the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many
@@ -122,7 +122,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `attention_browser`, every prompt drawn by `banner` (seven, `just init`'s two among them),
   and every report followed by its record, `just init`'s two among them. Each role's own tests then assert what it records, in every
   state they run.
-- **What every live output draws with** (`test_live_region.py` 17, `test_screen.py` 20, `test_vt.py` 4): the
+- **What every live output draws with** (`test_live_region.py`, `test_screen.py`, `test_vt.py`): the
   region against a stand-in `Display` - what is printed above it, a frame cut to the screen, a pause and a
   vars prompt each with the screen to themselves, the route, a screen too small, the echo off on a
   pseudo-terminal of the test's own - whose `display`, `prompt_until`, `do_var_prompt` and lock it holds to
@@ -131,9 +131,9 @@ pytest over `tests/unit/`: 2969 tests. By file:
   terminal the live tests read back through, reading status's and deploy's streams the same cut anywhere. Every
   test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`, and every live test
   through `tests/unit/live_kit.py`, which gives each run a `HOME` of its own.
-- **The live output** (`test_run_view.py` 111, `test_deploy_live.py` 20, `test_login_live.py` 3,
-  `test_destroy_live.py` 4, `test_code_live.py` 4, `test_lint_live.py` 5, `test_init_live.py` 2,
-  `test_test_live.py` 11, `test_live_recipes.py` 39, `test_live_commands.py` 29): the model, fed
+- **The live output** (`test_run_view.py`, `test_deploy_live.py`, `test_login_live.py`,
+  `test_destroy_live.py`, `test_code_live.py`, `test_lint_live.py`, `test_init_live.py`,
+  `test_test_live.py`, `test_live_recipes.py`, `test_live_commands.py`): the model, fed
   events with the time given - a running, a waiting, a failed, a dry and a fleet run's frame, a wait known
   by how long it runs, a step's time its own tasks', a running stage's ended steps whole, a report a later
   report on its matter made old left out of the summary, as under `just deploy`, no line wider than the
@@ -163,7 +163,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   of a role's own, the VM it started, each VM's outcome; a VM Proxmox would not delete the one that failed, under
   its step, and the raise naming none; and a deletion not confirmed said as the answer, the title `declined`.
   `test_code_live.py` runs the real `code.yml` against the fake Proxmox and `test_code_session.py`'s world and pins:
-  the nine steps, the VM in the header, the window opened, the summary's steps whole and no row of the fleet's
+  the ten steps, the VM in the header, the window opened, the summary's steps whole and no row of the fleet's
   skipped tasks; and a VM that is not there said under the step it failed in. `test_live_commands.py` runs
   `tools/live` in a stand-in recipe in parts, the justfile's trap at its top: passed through piped, without a title,
   with a `-v` or a bare `-vvv`, without the engine's packages and without a state (`LIVE_DIR=`); an ignored Ctrl-C
@@ -199,19 +199,18 @@ pytest over `tests/unit/`: 2969 tests. By file:
   names - each play, block and task it matches is there, each fact it reads, a stage's checklist among them, is set
   by a task, and a VM's address and ID are where the engine reads them - and every live test that runs a real
   playbook to the paths its own tests pin, read from its code, so a pin in a comment is none.
-- **The editors' plans** (`test_editor_conformance.py` 54): every family conforms to the seam and every row of
-  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's
-  `zed`; a refusal leaves nothing beside it; Zed's task file is marked and written as `to_nice_json` writes it, and a
-  foreign one is left and said, and none is written at a helper path a task cannot be handed as it is; VS Code opens
-  its workspace, or the bare folder, over the alias, and a row of its family whose window starts no Claude terminal
-  writes nothing; the paths are written and launched as `code.yml` built them, and with nothing written the window
-  opens whatever `editor_files_dir` names; no write leaves just code's directory or goes into the folders YAML writes
-  itself; each of the registry's rules bites, alone, on a plan built to break it; the inputs and rows are held to
-  their types, a row's window match naming its program first; each
-  row's match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
-  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once
-  nothing is left.
-- **Processes** (`test_processes.py` 15): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
+- **The editors' plans** (`test_editor_conformance.py`): every family conforms to the seam and every row of
+  `claude_editors` parses; every family's plan of every window case passes the registry, its launch never ZFS's `zed`;
+  a refusal leaves nothing beside it; a foreign Zed task file is left and said, and none is written at a helper path a
+  task cannot be handed as it is; VS Code opens its workspace, or the bare folder, over the alias, and a row of its
+  family whose window starts no Claude terminal writes nothing; the paths are written and launched as `code.yml` built
+  them, and with nothing written the window opens whatever `editor_files_dir` names; no write leaves just code's
+  directory or goes into the folders YAML writes itself; each of the registry's rules bites, alone, on a plan built to
+  break it; the inputs and rows are held to their types, a row's window match naming its program first; each row's
+  match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
+  `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once nothing
+  is left.
+- **Processes** (`test_processes.py`): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
   at it, never once another has it; a root exited, a zombie or reaped, its group still ended - its children moved
@@ -221,19 +220,18 @@ pytest over `tests/unit/`: 2969 tests. By file:
   and a pytest run with `interrupts.py`'s conftest sent SIGTERM and SIGHUP to its whole group mid-task - one
   process, and a controller with two xdist workers each holding a playbook - ending as interrupted with every
   playbook and its task's worker gone.
-- **`github_repos`** (`test_github_repos.py` 38) and the **tracked-file guard** (`test_tracked_files.py`
-  98), both ways.
-- **The CI gate** (`test_ci.py` 25): `CI result` needs every job of `ci.yml` but the canary, runs `if:
+- **`github_repos`** (`test_github_repos.py`) and the **tracked-file guard** (`test_tracked_files.py`), both ways.
+- **The CI gate** (`test_ci.py`): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
-  success or a skip and fails a failure or a cancel. Every Molecule configuration, the shared one and each
-  scenario's, names the one image pinned by digest, and the canary runs that image's repository at `:latest`.
-- **The shards** (`test_shards.py` 4): `--shard` collected as each CI shard collects it - two, three and four
+  success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
+  digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
+- **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and four
   shards that between them run every test exactly once, and a module whose tests share a fixture whole in one.
-- **Remote Control** (`test_remote_control_playbooks.py` 56): `claude_login.yml` and `remote_control.yml`
+- **Remote Control** (`test_remote_control_playbooks.py`): `claude_login.yml` and `remote_control.yml`
   against canned logins and stand-ins, and the harness they share (`tests/unit/harness.py`: an
   allowlisted environment, desktop stand-ins - and this machine's tailscale, gh and claude - that fail a run
   that reaches for them, no terminal).
-- **The Claude sign-in** (`test_claude_login.py` 59): `browser_login.yml` against the stand-in `claude`,
+- **The Claude sign-in** (`test_claude_login.py`): `browser_login.yml` against the stand-in `claude`,
   one run of `claude_login.yml` for every sign-in case - a VM whose ssh refuses the connection among them,
   said at once and ending no other VM's turn, a failed sign-in said in its own, one VM per batch and the
   work after the sign-ins waiting for the last - with what each VM records of its answer read after it;
@@ -251,30 +249,31 @@ pytest over `tests/unit/`: 2969 tests. By file:
   stand-in's callback: no prompt, a forward refused or a port held here on one address only, a page that
   is not Claude's, a run over SSH or no browser here falling back
   to the paste, and a browser that never comes back skipping the VM's later sign-ins.
-- **The GitHub sign-in** (`test_github_auth.py` 134): the `github_projects` role's `auth.yml`,
+- **The GitHub sign-in** (`test_github_auth.py`): the `github_projects` role's `auth.yml`,
   `clone.yml`, `device_flow.yml` and `github_login.yml` for real against the stand-in `gh` and the fake
   GitHub API on a loopback port, one host per sign-in state, twice over for idempotence, with `git
   credential fill` proving that git itself gets the token through the config written, deploy's GitHub
   step per VM - starting by itself, and asking first with `github_login_auto_start: false`: Enter and `n`
   at a pseudo-terminal, and with no terminal (`claude_vm_login_terminal: false`) no question and no flow,
-  each VM told why - every task that renders a token held to `no_log`, and the whole output searched for
-  every canned token; and two device flows with the desktop steps on, against recorders of the test's own
+  each VM told why - every task that renders a token held to `no_log`, and the whole output, module arguments
+  injected (`ansible_inject_invocation`), searched for every canned token; and two device flows with the desktop steps on, against recorders of the test's own
   first on PATH, opening GitHub's own page whether gh named it or another, which is said and never shown,
   nor quoted where a failure quotes gh's own lines - gh's status page among them.
-- **The sign-in playbooks** (`test_sign_in_plays.py` 37): `claude_login.yml`, `github_login.yml` and
+- **The sign-in playbooks** (`test_sign_in_plays.py`): `claude_login.yml`, `github_login.yml` and
   `deploy.yml`'s own sign-in steps end to end - a VM whose ssh refuses the connection among VMs that
   sign in (for `claude_login.yml` alone, in `test_claude_login.py`'s run), a failed sign-in said in its
   turn, a failure after a sign-in (Remote Control's start, a clone) told apart from a failed one and
   raised at the end of `just deploy`, deploy with no terminal - GitHub's device flow started by itself for
   each VM whose Claude code was entered, refused or not, and for none whose sign-in nobody answered - a
   refused code and `deploy_sign_in: false`, and one VM per batch only where a sign-in prompts; and
-  `login.yml` - `just login` - running the three in deploy's order and by its rules, held to deploy.yml's
-  own decisions: no device flow for a VM whose Claude sign-in nobody answered, said once for it and in
-  no report, nor, with no terminal, for one a code signed in that `github_login_auto_start: false` would
-  have asked about, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
-  and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
+  `login.yml` - `just login` - running the three in deploy's order and by its rules, the ones its sign-in
+  plays read from `playbooks/vars/sign_in.yml` under deploy too: no device flow for a VM whose Claude
+  sign-in nobody answered, said once for it and in no report, nor, with no terminal, for one a code signed
+  in that `github_login_auto_start: false` would have asked about, a VM whose code was refused or whose
+  Remote Control failed to start still given its GitHub and Tailscale turns and failed at the end, and a
+  report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
-- **Tailscale** (`test_tailscale.py` 94): the role's files from `ownership.yml` on, and
+- **Tailscale** (`test_tailscale.py`): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and
   `getent`: a first join once, with the key on stdin and in no report, argument or file; no key for a node
   whose key expired, and a node logged out by hand joined again - unless Proxmox records the VM as having
@@ -299,7 +298,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   no question and no web login - and NEXT STEPS keeping the role's line for a refused key or a
   page still waiting where Claude's sign-in was skipped; `configure.yml`'s rescue and last play; and the guards
   that keep every scenario, the Vagrantfile and this harness off Tailscale, and the role in the justfile's `scenario_roles` and CI.
-- **Destroy's release** (`test_release.py` 51): `destroy.yml`'s release play and report against the
+- **Destroy's release** (`test_release.py`): `destroy.yml`'s release play and report against the
   stand-in `claude`, `gh` and `tailscale`, the fake GitHub API's credential revocation and the fake
   Tailscale API: a VM released from everything, with no token revoked at GitHub; the vault token and one
   pasted by hand signed out and told apart, the vault token even under a marker claiming it, and a logout
@@ -318,7 +317,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   stopped again however the run then fails - before it deletes anything, or at every deletion; and, run
   against the fake Proxmox API with its listing lagging a start, a VM destroy started given its address,
   and a relative `destroy_sessions_dir` refused before any VM is started.
-- **`just code`** (`test_code_session.py` 265): the Claude terminal's script against stand-ins, once at a
+- **`just code`** (`test_code_session.py`): the Claude terminal's script against stand-ins, once at a
   pseudo-terminal for Ctrl-C, the window step's own tasks in `just deploy` and out of it with stand-ins
   for `which` and `code`, and the allowlist that holds `code.yml` read-only on this machine, followed
   through every import its task files make. The
@@ -329,10 +328,10 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `/etc/localtime` link on Linux and macOS, `/etc/timezone`, else UTC, shell syntax and paths refused),
   and the workspace each window gets: the notes' folder only where its own folder holds them.
   Zed's window as well, with a stand-in `zed` and `zeditor` first on PATH: ZFS's `zed` passed over by its
-  `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json` written only where the
-  window lists it and never over a file that is someone else's, and the editors list held to the task files and to
-  `--editor`.
-- **The session handoff** (`test_session_handoff.py` 151): the plan - by origin in every URL form here,
+  `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json`, as `to_nice_json` writes
+  it, written only where the window lists it and never over a file that is someone else's, and the editors list held
+  to the task files and to `--editor`.
+- **The session handoff** (`test_session_handoff.py`): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their
   content, an open session only at a pid that is still a claude's, the registry whatever the
@@ -358,13 +357,13 @@ pytest over `tests/unit/`: 2969 tests. By file:
   machine, changed on both, unpushed, tracking another remote, gone, a fetch that fails, a detached `HEAD`,
   an ignored file in the way, an rsync that fails - leaving the VM's checkout where it was, and no run
   printing the marker the transcripts carry.
-- **The session notes** (`test_session_notes.py` 19): `vm_session.md.j2` rendered as `code.yml`
+- **The session notes** (`test_session_notes.py`): `vm_session.md.j2` rendered as `code.yml`
   renders it - the placeholder, a live section carried over, the parts switched off, the same file
   from every window, and no time, template marker or token shape in it.
   In an editor whose window runs no task (Zed), the notes say what to do instead, and name the listed Claude task
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
   setting's, in both directions.
-- **`just init`'s questions** (`test_init_settings.py` 71, `test_settings_filter.py` 83):
+- **`just init`'s questions** (`test_init_settings.py`, `test_settings_filter.py`):
   `init_settings.yml` against copies of the example files in the test's directory - never the checkout's,
   which a static test holds - with no terminal (nothing asked; nothing written but the values given) and at
   a pseudo-terminal of the test's own: each answer typed, Enter at every question, an answer that breaks
@@ -388,8 +387,8 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `0600`, and the secret in neither the output nor the log, typed or given, with module arguments injected
   and the log at `-vvv`; a vault read and written as it is with `ANSIBLE_VERBOSITY` and `ANSIBLE_DEBUG` both in the
   environment, every `ansible-vault` run quiet; statically, every write under `init_ask` and every task that renders the secret
-  or the vault's text `no_log`. Cases one run can show share it: two wrong answers to a run, every value given
-  in one, and the values that break their rules, or differ from what is set, each refused together; the tests
+  or the vault's text `no_log`. Cases one run can show share it: every question answered wrong in one run, every
+  value given in one, and the values that break their rules, or differ from what is set, each refused together; the tests
   read and write the vault themselves in process (`VaultLib`), and only the playbook starts `ansible-vault`.
   The offer to make the token, against a stand-in Proxmox host (the local
   connection, `fake_pve_cli.py` first on its `PATH`): `y` running `tools/proxmox-access.sh` and the vault
@@ -403,7 +402,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   thing run on the host - `--list` and `--dry-run` changing nothing, the run itself on a `y` and `no_log` -
   and the token's delete the one other command there. The filter: each kind's accepted answers in their
   normal form, and what each refuses.
-- **The Proxmox access script** (`test_proxmox_access.py` 34): `tools/proxmox-access.sh` under `/bin/sh` - dash
+- **The Proxmox access script** (`test_proxmox_access.py`): `tools/proxmox-access.sh` under `/bin/sh` - dash
   on a Linux runner, as on the host - against `fake_pve_cli.py`: a fresh host given the role, the user, its
   three grants and the token, made last, with the secret alone on stdout; the dry run printing the commands
   and changing nothing; a second run changing nothing and naming the token; the guest agent's privilege by
@@ -414,7 +413,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `pveum` required; a value that is not one plain word refused before anything runs; a refused write stopping
   it before the token. Statically: its privileges the ones `init_check.yml` checks, the commands
   `docs/getting-started/proxmox-access.md` shows the ones its dry run prints, and stdout carrying data alone.
-- **`just init`'s checks** (`test_init_check.py` 55): `init_check.yml` against the fake Proxmox on a
+- **`just init`'s checks** (`test_init_check.py`): `init_check.yml` against the fake Proxmox on a
   loopback port, in an inventory of the test's own with the project's `defaults.yml`: nothing asked of
   Proxmox while a value is the example's; every check `ok` on a host with its template, on 8.x and on 9.x,
   and no SSH then; a wrong secret, a closed port (an IPv6 address said bracketed), a missing privilege on
@@ -435,41 +434,43 @@ pytest over `tests/unit/`: 2969 tests. By file:
   bridge, no host in the `proxmox` group, and the playbook loading with duplicate keys made fatal. NEXT
   STEPS: nothing recorded while a value is the example's; `just deploy alpha` once every check passes, said
   last in the report too, and nothing while the GitHub username is the example's; each problem with its fix,
-  one and two of them; and what could not be checked when nothing is wrong - the template on a node just
+  one and three of them; and what could not be checked when nothing is wrong - the template on a node just
   gone down, still listed by name (the fake's `named=1`). Statically: every task a read or a NEXT STEPS record (a `uri` a GET that saves nothing), every `uri` with the CA
   path and `no_log`, the settings written only through `tasks/init_local_setting.yml` at a terminal or as
   given, and no run reaching a real `ssh`. Running
-  a fake on a loopback port, the fake Proxmox's certificate and `_pve` live in `tests/unit/harness.py`, shared
-  with `test_release.py`; each file keeps its own `fake_pve` fixture.
-- **The managed SSH config** (`test_ssh_config.py` 38): `tasks/ssh_config.yml` for real against a
+  a fake on a loopback port, the fake Proxmox and its certificate (`_fake_pve`), `_pve`, a VM made in it
+  (`_pve_vm`), a run's `group_vars` pointed at it (`_pve_vars`), its request log (`_pve_requests`) and the
+  fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
+  runs against the fake; each file keeps its own `fake_pve` fixture.
+- **The managed SSH config** (`test_ssh_config.py`): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no
   playbook sets the task file's inputs as facts, and that the user's own Include and file mode are left
   alone, a group the user is not in included (macOS).
-- **Smaller ones**: `test_configure_tags.py` 2 (`--tags claude_code` still runs discovery and the alias
-  play), `test_deploy_report.py` 22 (deploy's opening message, rendered by its own tasks, naming only the
-  sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` 10 (deleting a VM
-  forgets its host key under its address and `<name>.<domain>`), `test_var_names.py` 24 (no task var
-  named like a register or fact, in any playbook or role), `test_cloud_init_wait.py` 3 (a first boot
-  that failed is said with what failed and how to build the VM again), `test_gathered_facts.py` 5 (no
+- **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
+  play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
+  sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM
+  forgets its host key under its address and `<name>.<domain>`), `test_var_names.py` (no task var
+  named like a register or fact, in any playbook or role), `test_cloud_init_wait.py` (a first boot
+  that failed is said with what failed and how to build the VM again), `test_gathered_facts.py` (no
   tracked file reads a fact by its top-level name, and every `ansible.cfg` a run reads, the tests' own
-  through `harness.ansible_config`, leaves facts out of the top level), `test_remote_tmp.py` 4 (with
+  through `harness.ansible_config`, leaves facts out of the top level), `test_remote_tmp.py` (with
   pipelining, `tasks/remote_tmp.yml` makes the `remote_tmp` the run is configured with before a module
   would make it and warn, and both plays that run modules as root import it before their roles),
-  `test_vm_names.py` 18 (no VM may take an inventory host's name or one ssh reads as an address, refused before
-  Proxmox is asked), `test_ansible_config.py` 3 (pipelining for the local connection too, and no inventory
-  plugin that runs code), `test_galaxy_install.py` 2 (a failed Galaxy request is retried, and every dependency of
-  a pinned collection is pinned), `test_pins.py` 1 (the VM's uv never older than the controller's) and
-  `test_init_local_setting.py` 1 (`just init` refuses a value that holds a template delimiter), and
-  `test_sudo.py` 10 (passwordless sudo off takes away cloud-init's rule as well as the role's, keeps a new
+  `test_vm_names.py` (no VM may take an inventory host's name or one ssh reads as an address, refused before
+  Proxmox is asked), `test_ansible_config.py` (pipelining for the local connection too, and no inventory
+  plugin that runs code), `test_galaxy_install.py` (a failed Galaxy request is retried, and every dependency of
+  a pinned collection is pinned), `test_pins.py` (the VM's uv never older than the controller's) and
+  `test_init_local_setting.py` (`just init` refuses a value that holds a template delimiter), and
+  `test_sudo.py` (passwordless sudo off takes away cloud-init's rule as well as the role's, keeps a new
   cloud-init instance from writing it again, takes the user out of the groups that reach root, and every play
   becomes root through `/usr/bin/sudo` with the VM's password).
-- **The justfile** (`test_justfile.py` 553): the real `just`, at least the pinned version, run against
+- **The justfile** (`test_justfile.py`): the real `just`, at least the pinned version, run against
   stand-ins - on macOS under `/bin/bash`, 3.2, so the scripts keep to what it has. Statically, over `just
   --json`: no recipe has a dependency (which `JUST_NO_DEPS` would skip), no assignment starts a program,
   nothing is unstable and no `.env` is read, every public recipe has a `[doc]` and every parameter its
   help and a literal pattern, the VM recipes share one name pattern, no parameter is named like an
-  assignment, `self` passes on every setting, the justfile is as `just --fmt` leaves it, and its
+  assignment, `self` passes on every setting, and its
   `minimum-version`, `just_pin` and CI's `JUST_VERSION` are one version. Run: the vault and collections
   checks, each before any playbook, and the rules with `JUST_NO_DEPS` set; a run from another checkout
   refused, and run from a subdirectory, from the checkout spelt in another case and from a copy inside
@@ -498,7 +499,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   parts, each linter's failure failing it, and the hooks skipping what lint runs itself), `test` (lint
   through `self` only without parts, each part, every role scenario, `--role`, and a failing part ending
   the run) and `docs`.
-- **The commands named** (`test_commands.py` 6): every `just` command the playbooks, roles, wiki,
+- **The commands named** (`test_commands.py`): every `just` command the playbooks, roles, wiki,
   README, CLAUDE.md, CI and the justfile's own messages tell a person to type, read with a placeholder
   where Jinja, an f-string or a shell variable splices a value in, is one the justfile takes, over `just
   --json` - the settings before it the justfile's, its options the recipe's own and their values ones they
@@ -506,17 +507,9 @@ pytest over `tests/unit/`: 2969 tests. By file:
   command, nor a name after one of its commands, no target only the Makefile had and no misspelt recipe
   is left outside the pages that tell the history, nor make's spelling of an option (`TAGS=`) on a line
   that does not say whose it is.
-- **The wiki** (`test_docs.py` 21): the generated reference sections are up to date, and every setting
-  and role default is documented; the site builds strictly from the pages git knows, every heading
-  reaches its built page, and every page renders the same on GitHub as on the site, its diagrams
-  included; no page repeats a heading, holds a closing tag in a code span or shows a character reference
-  such as `&emsp;` as text outside code; the navigation lists every page and only pages; no relative link
-  leaves `docs/`; the root files' links, the pages the repository names and the architecture sections it
-  cites all exist, every repository path the wiki and CLAUDE.md name in a code span is a file or folder of
-  the checkout or one git ignores on purpose (the user's `inventory/hosts.yml`), a section cited from
-  another page is a link, and the README's quick start matches the
-  wiki.
-- **What a release must keep, and what may only shrink** (`test_persisted_names.py` 46, `test_ratchets.py` 3): the
+- **The wiki** (`test_docs.py`): the generated pages current, and the wiki whole and the same on GitHub as on
+  the site; [This wiki](../development/docs.md#what-the-tests-hold) lists each check.
+- **What a release must keep, and what may only shrink** (`test_persisted_names.py`, `test_ratchets.py`): the
   names runs have left on the VMs, on the Proxmox host and on this machine - tags, markers, drop-ins, the managed SSH
   config's blocks, the files `just code` keeps on a VM - each held whole, as a variable's value or its exact line, so
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor
@@ -524,15 +517,22 @@ pytest over `tests/unit/`: 2969 tests. By file:
 
 ## 11.2 Role scenarios — `just test role`
 
-One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting driver and platform
-from `.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task
+One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting the driver from
+`.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task
 put its module into the container, ran and removed it one `docker exec` at a time, and the ten scenarios
-took 16% longer. Each runs create → prepare → converge → **idempotence** → side_effect → verify → destroy.
+took 16% longer. Each names its own platform, a container named after the role, since Molecule replaces a
+list rather than merging it. The shared file turns Molecule's dependency step off: `just install` puts the
+collections in and `just test` checks them first (`tools/check collections`). Each runs create → prepare →
+converge → **idempotence** → side_effect → verify → destroy.
+
+A role scenario's side effect runs the role where it must refuse through one task file,
+`tests/molecule/refused.yml`: the role inside a `block`/`rescue`, then an assert that the failure was
+the role's, at the task named where one is, with a message that matches every pattern the case gives.
 
 `vscode_server`'s side effect takes the forwarding away three ways, each in a drop-in of its own,
-runs the role inside a `block`/`rescue`, and asserts the failure names the setting and the file:
-`AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`, and a
-`Match User dev` block sorted last that limits forwarding to the remote direction - the case a
+runs the role over it, asserts the failure names the setting and the file, and removes the drop-in
+whatever happened: `AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`,
+and a `Match User dev` block sorted last that limits forwarding to the remote direction - the case a
 global `sshd -T` cannot see. Then it runs the role switched off and asserts both files are gone, and
 switched on again for verify, which reads the drop-in, the sysctl file and `sshd -T` (forwarding on,
 converge's keepalive values in effect).
@@ -629,9 +629,9 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 - fleet-wide discovery with two tagged VMs named `twin` must exit non-zero with the duplicate-name
   refusal;
+- `discover.yml --check`, as `just deploy --check` runs it, must still find `alpha`;
 - re-running `provision.yml` after shutting `beta` down must exit 0, publish `alpha`, report `beta` as
   stopped and leave it stopped;
-- `discover.yml --check`, as `just deploy --check` runs it, must still find `alpha`;
 - `deploy.yml` for the stopped `beta` must report the template as built, and with
   `proxmox_template_name` pointing at nothing, as about to be built;
 - `destroy.yml` must refuse without confirmation (the prompt's non-interactive default), refuse
@@ -726,14 +726,20 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
-  was made, which `PUT /api2/json/fake/disk-ctime?vmid=&ctime=` backdates. `PUT /api2/json/fake/pending?vmid=&key=&value=`
-  makes a change wait for a restart, and `PUT /api2/json/fake/root?vmid=&used=` sets how full a VM's root
-  disk is.
+  was made, which `PUT /api2/json/fake/disk-ctime?vmid=&ctime=` backdates. No change waits for a restart, and
+  every VM's root disk is 11 GiB used of 31.
+
+The fixture VMs the `proxmox_vm` and `provision` scenarios meet are made through the fake API by one task
+file, `tests/molecule/pve_vm.yml`: each cloned from the template, then given a config, made a template or
+started where its entry says. A config write of a fixture's carries no `name`, and every one the role makes
+does, which is how both verifies tell the two apart. `tests/molecule/prepare_pve.yml` and
+`tests/molecule/prepare_github.yml` start the fake APIs in a scenario's container.
 
 Beside these, the `proxmox_template` scenario serves a "cloud image" locally, with a real `SHA256SUMS`
 file, and a fake `/etc/pve/.vmlist` that places a VMID on a second node. The `tailscale` role scenario
 and the `configure` scenario install the real Tailscale package and daemon - log upload off from its
-first start - with the stand-in `tailscale` in front of it, so no test reaches a Tailscale service.
+first start - with the stand-in `tailscale` in front of it, `fake_tailscale.sh`, which each scenario that runs
+the role installs in its `prepare.yml`, so no test reaches a Tailscale service.
 Every scenario and both unit harnesses turn `login_desktop` off, so no test opens this machine's
 browser or touches its clipboard.
 

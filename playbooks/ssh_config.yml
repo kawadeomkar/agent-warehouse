@@ -20,8 +20,6 @@
 - name: Refresh the SSH aliases from Proxmox
   hosts: localhost
   gather_facts: false
-  module_defaults:
-    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
   tasks:
     - name: Stop when the managed file is switched off
@@ -33,44 +31,14 @@
       ansible.builtin.meta: end_play
       when: not claude_ssh_config | default(true) | bool
 
-    - name: Refuse a VM named after a host of the inventory
-      ansible.builtin.import_tasks: tasks/vm_names.yml
-      when: vm_name is defined
-
-    - name: List every VM in the cluster
-      ansible.builtin.import_tasks: tasks/cluster_vms.yml
-
-    # claude_vm_requested (group_vars/all) keeps the VMs carrying this
-    # project's tag, narrowed to vm_name when given, exactly as discovery and
-    # the listing do, and never one named after a host of the inventory, as
-    # discovery leaves it out. A tagged VM without a name (a node that is
-    # down) cannot be asked for an address and cannot be an alias; it matters below.
-    - name: Narrow to the requested VMs
-      ansible.builtin.set_fact:
-        claude_ssh_requested: >-
-          {{ claude_vm_requested | selectattr('name', 'defined') | vms_not_named(claude_vm_inventory_hosts) }}
-
-    # Proxmox permits duplicate names, and an alias is a name: two tagged VMs
-    # called twin would leave `ssh twin` pointing at whichever was written
-    # last. Refused, as discovery refuses to configure them.
-    - name: Refuse to continue with duplicated VM names
+    # Two VMs of one name are refused, as discovery refuses to configure them:
+    # an alias is a name, and two tagged VMs called twin would leave `ssh
+    # twin` pointing at whichever was written last.
+    - name: Find the VMs asked for, and their addresses
+      ansible.builtin.import_tasks: tasks/vms_requested.yml
       vars:
-        claude_ssh_dupes: >-
-          {{ claude_ssh_requested | map(attribute='name') | list
-             | community.general.counter | dict2items
-             | selectattr('value', 'gt', 1) | map(attribute='key') | sort | list }}
-      ansible.builtin.assert:
-        that: claude_ssh_dupes | length == 0
-        fail_msg: >-
-          More than one VM is tagged {{ claude_vm_tag }} and named
-          {{ claude_ssh_dupes | join(', ') }}, so an alias of that name would point at one of them
-          at random. Rename or remove the duplicates first.
-        quiet: true
-
-    - name: Ask each running VM's guest agent for an address
-      ansible.builtin.import_tasks: tasks/vm_addresses.yml
-      vars:
-        claude_vm_query: "{{ claude_ssh_requested }}"
+        claude_vm_dupes_tail: >-
+          , so an alias of that name would point at one of them at random. Rename or remove the duplicates first.
 
     # What is kept already, for the prune below.
     - name: Read the aliases already kept
@@ -80,7 +48,9 @@
 
     # The workspace is only shown in the connect line, and this play never
     # connects to a VM to read its home: vm_projects_dir when it is set, and
-    # otherwise the line says `just code`, which does.
+    # otherwise the line says `just code`, which does. A tagged VM listed
+    # without a name (a node that is down) cannot be an alias; it matters to
+    # the prune alone.
     - name: Build an alias for each VM that can be reached
       ansible.builtin.set_fact:
         claude_ssh_refresh: >-
@@ -90,7 +60,7 @@
                'user': vm_user,
                'workspace': vm_projects_dir | default('', true),
              }] }}
-      loop: "{{ claude_vm_addressed }}"
+      loop: "{{ claude_vm_addressed | selectattr('name', 'defined') | list }}"
       loop_control:
         loop_var: claude_ssh_vm
         label: "{{ claude_ssh_vm.name }}"
@@ -127,7 +97,7 @@
     - name: Report what was kept, pruned and left alone
       vars:
         claude_ssh_unaddressed: >-
-          {{ claude_vm_addressed | selectattr('address', 'equalto', '')
+          {{ claude_vm_addressed | selectattr('name', 'defined') | selectattr('address', 'equalto', '')
              | map(attribute='name') | list
              if claude_ssh_host_domain | default('') | length == 0 else [] }}
       ansible.builtin.debug:

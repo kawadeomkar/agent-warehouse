@@ -1,4 +1,5 @@
-"""The pieces of just code's session handoff: lib/claude_vm/sessions.py and the modules in playbooks/library/.
+"""The pieces of just code's session handoff: lib/claude_vm/sessions.py, the modules in playbooks/library/ and
+what they share, playbooks/module_utils/claude_on_proxmox.py.
 
 Which session goes to which checkout on the VM, what a copy is made of, and
 when an existing copy is left alone. Every transcript, ~/.claude and checkout
@@ -21,7 +22,9 @@ import time
 from pathlib import Path
 
 import pytest
-from conftest import load_module, run_main
+from ansible.module_utils import claude_on_proxmox as shared
+from conftest import run_main
+from harness import load_module
 
 from claude_vm import sessions as filters
 
@@ -191,6 +194,27 @@ def test_just_code_s_own_directory_on_the_vm_is_one_definition_for_code_and_dest
         assert shared in (REPO / path).read_text(), path
 
 
+def test_the_projects_directory_is_one_definition_for_every_reader():
+    assert filters.projects_dir("", "/home/dev") == "/home/dev/projects"
+    assert filters.projects_dir(None, "/home/dev/") == "/home/dev/projects"
+    # vm_projects_dir as written, but for a trailing "/": configure.yml's alias line said "(opens /srv/code/)"
+    # where just code and just status said /srv/code.
+    assert filters.projects_dir("/srv/code/", "/home/dev") == "/srv/code"
+    assert filters.projects_dir("/srv/code", "") == "/srv/code"
+    assert filters.projects_dir("/", "/home/dev") == "/"
+    # Each reader names it through the filter, and none adds /projects to a home of its own.
+    # The playbooks by stem: test_status.py holds every test file that names the status playbook to status_root.
+    readers = (
+        *(f"playbooks/{stem}.yml" for stem in ("configure", "code", "status")),
+        "playbooks/tasks/session_save.yml",
+        "roles/claude_code/vars/main.yml",
+        "roles/github_projects/tasks/main.yml",
+    )
+    for path in readers:
+        text = (REPO / path).read_text()
+        assert "| projects_dir(" in text and "~ '/projects'" not in text, path
+
+
 def test_the_sessions_left_out_are_said_list_by_list_by_their_first_eight_characters():
     rows = [[" Kept: ", [ID, OTHER], "."], [" Not copied: ", [], "."], [" Open: ", [OTHER], "; why."]]
     assert filters.claude_sessions_listed(rows) == f" Kept: {ID[:8]}, {OTHER[:8]}. Open: {OTHER[:8]}; why."
@@ -212,6 +236,8 @@ def _session(sid=ID, cwd="/Users/me/demo", **extra):
 
 
 THERE = [{"path": CHECKOUT, "name": "demo", "origin": "https://github.com/octo/demo.git"}]
+# This machine's checkout of the same repository.
+HERE_DEMO = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
 
 
 def _plan(sessions, here, there=THERE, version="2.1.308", repo_paths=None, **kwargs):
@@ -246,7 +272,7 @@ def test_another_repository_is_not_copied(origin):
 
 def test_a_folder_named_like_a_checkout_of_another_repository_does_not_match():
     # The VM's demo folder holds someone else's demo: the name alone says nothing.
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     there = [{"path": CHECKOUT, "name": "demo", "origin": "https://github.com/someone-else/demo.git"}]
     assert _plan([_session()], here, there)["sessions"] == []
 
@@ -261,7 +287,7 @@ def test_a_gone_worktree_resolves_through_its_checkout():
     cwd = "/Users/me/demo/.claude/worktrees/fix-x"
     here = [
         {"path": cwd, "exists": False, "origin": ""},
-        {"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"},
+        *HERE_DEMO,
     ]
     assert [item["id"] for item in _plan([_session(cwd=cwd)], here)["sessions"]] == [ID]
 
@@ -278,19 +304,19 @@ def test_a_session_with_no_directory_or_no_message_is_not_copied():
 
 
 def test_a_session_newer_than_the_vm_s_claude_is_left_and_named():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     plan = _plan([_session(version="2.1.310"), _session(OTHER, version="2.1.9")], here, version="2.1.308")
     assert plan["newer"] == [ID] and [item["id"] for item in plan["sessions"]] == [OTHER]
 
 
 def test_without_claude_on_the_vm_nothing_is_copied():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     plan = _plan([_session()], here, version="")
     assert plan["sessions"] == [] and plan["claude"] is False
 
 
 def test_two_checkouts_of_one_repository_take_the_one_named_after_it_or_neither():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     both = [*THERE, {"path": "/home/dev/projects/demo-copy", "name": "demo-copy", "origin": "git@github.com:octo/demo"}]
     assert [item["checkout"] for item in _plan([_session()], here, both)["sessions"]] == [CHECKOUT]
     neither = [{**item, "name": item["name"] + "-x", "path": item["path"] + "-x"} for item in both]
@@ -298,9 +324,6 @@ def test_two_checkouts_of_one_repository_take_the_one_named_after_it_or_neither(
     assert plan["sessions"] == [] and plan["ambiguous"] == [
         {"id": ID, "repository": "octo/demo", "names": "demo-copy-x, demo-x"}
     ]
-
-
-HERE_DEMO = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
 
 
 @pytest.mark.parametrize(
@@ -416,6 +439,9 @@ def test_only_the_window_and_the_ids_asked_for_are_listed(tmp_path):
     assert [item["id"] for item in info.list_sessions(str(root), 30, [])] == [ID]
     assert [item["id"] for item in info.list_sessions(str(root), 0, [OTHER])] == [OTHER]
     assert info.list_sessions(str(root), 0, []) == []
+    # A name that is an ID and a newline is no session of Claude Code's: just destroy's save would refuse it.
+    root = _claude_dir(tmp_path / "newline", {("-Users-me-demo", ID + "\n"): transcript()})
+    assert info.list_sessions(str(root), 30, []) == []
     # A stub with no message is listed, and says so; the plan leaves it out.
     root = _claude_dir(tmp_path / "stub", {("-Users-me-demo", ID): transcript(conversation=False)})
     assert info.list_sessions(str(root), 30, [])[0]["conversation"] is False
@@ -491,9 +517,31 @@ def test_an_open_session_is_one_a_running_claude_registered(tmp_path, a_claude):
     assert found == {ID: a_claude, OTHER: 0, third: 0}
     # The registry alone, whatever transcripts there are.
     assert info.open_sessions(str(root)) == {ID: a_claude}
-    assert not info._is_claude(["python3", "-m", "pytest"]) and info._is_claude(
-        ["node", "/x/@anthropic-ai/claude-code/cli.js"]
-    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "claude"),
+    [
+        (["claude", "--resume", "x"], True),
+        (["/home/dev/.local/bin/claude"], True),
+        (["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"], True),
+        # npm's bin, run through its node shebang.
+        (["node", "/usr/bin/claude"], True),
+        (["bash", "-l"], False),
+        (["python3", "-m", "pytest"], False),
+        # Only the program and its first argument: what it works on is not what it is.
+        (["vim", "notes.md", "claude"], False),
+    ],
+)
+def test_a_claude_process_is_told_by_its_argv(argv, claude):
+    assert shared.is_claude(argv) is claude
+
+
+def test_every_module_asks_the_one_rule_of_a_claude_process():
+    # The shared file's: claude_sessions_info's open sessions, git_checkouts_info's busy checkouts and vm_status_info's
+    # count, none with a rule of its own.
+    for module in sorted((REPO / "playbooks" / "library").glob("*.py")):
+        assert "@anthropic-ai/claude-code" not in module.read_text(), module.name
 
 
 def test_a_claude_s_command_line_is_read_from_proc_where_there_is_one(tmp_path):
@@ -501,8 +549,8 @@ def test_a_claude_s_command_line_is_read_from_proc_where_there_is_one(tmp_path):
     (proc / "self").mkdir(parents=True)
     (proc / "42").mkdir()
     (proc / "42" / "cmdline").write_bytes(b"/home/dev/.local/bin/claude\0--resume\0x\0")
-    assert info._argv(42, str(proc)) == ["/home/dev/.local/bin/claude", "--resume", "x"]
-    assert info._argv(43, str(proc)) == []
+    assert shared.process_argv(42, str(proc)) == ["/home/dev/.local/bin/claude", "--resume", "x"]
+    assert shared.process_argv(43, str(proc)) == []
 
 
 def test_the_registry_is_returned_whatever_the_transcripts(tmp_path, patch_module, a_claude):
@@ -649,6 +697,9 @@ def test_a_vm_with_nothing_of_its_own_saves_nothing():
     [
         ("../../..", ID),
         ("-home-dev-x\nevil", ID),
+        # A trailing newline too: `$` matches before one, so only a whole match keeps it out.
+        ("-home-dev-x\n", ID),
+        ("-home-dev-x", ID + "\n"),
         ("-home-dev x", ID),
         ("/etc", ID),
         ("-home-dev-x", "../../etc/passwd"),
@@ -660,6 +711,11 @@ def test_what_the_vm_names_otherwise_than_claude_code_is_left_out_and_counted(fo
     saved = filters.claude_sessions_saved([_found(sid, folder, dir=True)], ["-home-dev-y", "../y"], "/x")
     assert saved["files"] == ["-home-dev-y/memory"] and saved["sessions"] == []
     assert saved["refused"] == 2 and saved["memory"] == ["-home-dev-y"]
+
+
+def test_a_memory_folder_named_with_a_trailing_newline_is_left_out_and_counted():
+    saved = filters.claude_sessions_saved([], ["-home-dev-y\n"], "/x")
+    assert saved["files"] == [] and saved["memory"] == [] and saved["refused"] == 1
 
 
 def test_each_saved_session_names_the_claude_code_that_wrote_it_and_the_newest_of_them():
@@ -748,13 +804,6 @@ def test_a_branch_git_would_not_take_is_refused(tmp_path, patch_module, branch):
 
     repo = _repository(tmp_path / "demo", "")
     assert "not a branch name" in fail_main(checkouts.main, {"paths": [str(repo)], "branch": branch})["msg"]
-
-
-def test_a_claude_process_is_told_by_its_argv():
-    assert checkouts._claude([b"claude", b"--resume", b"x"])
-    assert checkouts._claude([b"/home/dev/.local/bin/claude", b""])
-    assert checkouts._claude([b"node", b"/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"])
-    assert not checkouts._claude([b"bash", b"-l"])
 
 
 def test_busy_names_the_claude_processes_working_inside(tmp_path):
@@ -858,7 +907,8 @@ def test_overwrites_names_what_git_does_not_track_that_a_move_would_replace(tmp_
     assert item["clean"] and item["overwrites"] == ["app.log", "build/out.txt", "linked"]
 
 
-@pytest.mark.parametrize("target", ["HEAD", "--output=/tmp/x", "abc123"])
+# A full ID with a newline after it: an anchored match took it.
+@pytest.mark.parametrize("target", ["HEAD", "--output=/tmp/x", "abc123", "a" * 40 + "\n"])
 def test_a_target_that_is_not_a_full_commit_id_is_refused(tmp_path, patch_module, target):
     from conftest import fail_main
 
@@ -1313,7 +1363,18 @@ def test_a_name_that_did_not_arrive_or_a_folder_already_there_fails_the_fetch(tm
         fetch.fetch(str(tmp_path / "a" / "projects"), str(projects), ASKED)
 
 
-@pytest.mark.parametrize("name", ["../etc/passwd", f"{FOLDER}/{ID}/x", "-x/notes.txt", f"a b/{ID}.jsonl", "/etc/x"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../etc/passwd",
+        f"{FOLDER}/{ID}/x",
+        "-x/notes.txt",
+        f"a b/{ID}.jsonl",
+        "/etc/x",
+        f"{FOLDER}/{ID}\n",
+        f"{FOLDER}/memory\n",
+    ],
+)
 def test_only_a_transcript_a_session_s_folder_or_a_memory_folder_is_asked_for(tmp_path, name):
     with pytest.raises(RuntimeError, match="is not a Claude Code transcript"):
         fetch.fetch(str(tmp_path / "a" / "projects"), "/home/dev/.claude/projects", [name])
@@ -1374,7 +1435,17 @@ def test_gnu_tar_s_2_names_the_session_that_did_not_arrive_or_fails_the_fetch_as
         fetch.fetch(str(tmp_path / "b" / "projects"), str(projects), ASKED, reach)
 
 
-@pytest.mark.parametrize("reach", [{"host": "-oProxyCommand=x"}, {"host": "a b"}, {"host": "h", "user": "-l"}])
+@pytest.mark.parametrize(
+    "reach",
+    [
+        {"host": "-oProxyCommand=x"},
+        {"host": "a b"},
+        {"host": "h", "user": "-l"},
+        # A word with a newline after it: an anchored match took it.
+        {"host": "h\n"},
+        {"host": "h", "user": "dev\n"},
+    ],
+)
 def test_a_host_or_user_ssh_could_read_as_an_option_is_refused(reach):
     with pytest.raises(ValueError, match="is not a user and a host"):
         fetch.ssh_argv(reach, "true")

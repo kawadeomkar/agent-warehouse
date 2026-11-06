@@ -22,6 +22,9 @@
   become: true
   gather_facts: false
   vars:
+    # Cleared for every run of the role here but step 5's, which puts
+    # converge's key back.
+    claude_code_anthropic_api_key: ""
     claude_code_side_effect_bin: /home/dev/.local/bin/claude
     claude_code_side_effect_unit: /etc/systemd/system/claude-remote-control.service
     claude_code_side_effect_stand_in: |
@@ -41,8 +44,6 @@
     - name: Clear the API key and re-run the role
       ansible.builtin.include_role:
         name: claude_code
-      vars:
-        claude_code_anthropic_api_key: ""
 
     - name: Read settings.json after the key was cleared
       ansible.builtin.slurp:
@@ -143,7 +144,6 @@
       ansible.builtin.include_role:
         name: claude_code
       vars:
-        claude_code_anthropic_api_key: ""
         claude_code_remote_control: false
 
     - name: Stat the unit after Remote Control was switched off
@@ -186,8 +186,6 @@
         name: claude_code
         apply:
           check_mode: true
-      vars:
-        claude_code_anthropic_api_key: ""
 
     - name: Stat the unit after the dry run without a login
       ansible.builtin.stat:
@@ -223,8 +221,6 @@
         name: claude_code
         apply:
           check_mode: true
-      vars:
-        claude_code_anthropic_api_key: ""
 
     - name: Read the service after the dry run with a login
       ansible.builtin.systemd_service:
@@ -241,28 +237,14 @@
         quiet: true
 
     - name: Run the role against a server that does not stay up
-      block:
-        - name: Re-run the role with a login whose server exits
-          ansible.builtin.include_role:
-            name: claude_code
-          vars:
-            claude_code_anthropic_api_key: ""
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              claude_code reported Remote Control live, although the server
-              exited three seconds after it started.
-      rescue:
-        - name: Assert it failed at the stay-up check, pointing at the journal
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_task.name is search('did not stay up')
-              - ansible_failed_result.msg is search('journalctl -u claude-remote-control')
-            fail_msg: >-
-              Expected the stay-up check to fail, got
-              "{{ ansible_failed_task.name }}": {{ ansible_failed_result.msg | default('') }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: claude_code
+        refused_because: [journalctl -u claude-remote-control]
+        refused_at: did not stay up
+        refused_unless: >-
+          claude_code reported Remote Control live, although the server
+          exited three seconds after it started.
 
     - name: Wait for systemd to restart the server that exited cleanly
       ansible.builtin.systemd_service:
@@ -292,8 +274,6 @@
     - name: Re-run the role with a login whose server stays up
       ansible.builtin.include_role:
         name: claude_code
-      vars:
-        claude_code_anthropic_api_key: ""
 
     - name: Read the service that should be live
       ansible.builtin.systemd_service:
@@ -322,8 +302,6 @@
     - name: Re-run the role unchanged against the live server
       ansible.builtin.include_role:
         name: claude_code
-      vars:
-        claude_code_anthropic_api_key: ""
 
     - name: Read the service after the unchanged re-run
       ansible.builtin.systemd_service:
@@ -354,7 +332,6 @@
       ansible.builtin.include_role:
         name: claude_code
       vars:
-        claude_code_anthropic_api_key: ""
         claude_code_remote_control_permission_mode: acceptEdits
 
     - name: Read the service after the permission mode changed

@@ -27,7 +27,7 @@
       sections: "{{ status_only | default('') | status_sections }}"
       tag: "{{ claude_vm_tag }}"
       template_name: "{{ proxmox_template_name }}"
-      template_rebuild: "{{ proxmox_template_rebuild | default(true) | bool }}"
+      template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
       tailscale_enabled: "{{ tailscale_enabled | bool }}"
@@ -87,10 +87,7 @@
             ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
             timeout: "{{ status_api_timeout }}"
           vars:
-            status_template: >-
-              {{ claude_vm_all.json.data | selectattr('template', 'defined') | selectattr('template')
-                 | selectattr('name', 'defined') | selectattr('name', 'equalto', proxmox_template_name)
-                 | first | default({}) }}
+            status_template: "{{ claude_vm_all.json.data | built_template(proxmox_template_name) }}"
           when: status_template.vmid is defined
           register: status_template_config
           check_mode: false
@@ -345,8 +342,7 @@
             work: true
           vars:
             status_projects_dir: >-
-              {{ (vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects')
-                 | regex_replace('(.)/+$', '\\1') }}
+              {{ vm_projects_dir | default('', true) | projects_dir(ansible_facts.getent_passwd[vm_user][4]) }}
           become: true
           become_user: "{{ vm_user }}"
           register: status_work

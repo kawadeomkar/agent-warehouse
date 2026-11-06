@@ -64,8 +64,6 @@
 - name: Open a VM in the editor
   hosts: localhost
   gather_facts: false
-  module_defaults:
-    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
   # VS Code's own variables, in a file of its own: its check file, the
   # plan's inputs and the apply's helper copy read them.
   vars_files:
@@ -94,7 +92,7 @@
     code_ssh_failed: >-
       {{ claude_vm_names[0] }} is running at {{ code_reach }}, but SSH to it as {{ vm_user }}
       failed, so {{ code_editor_name }} could not connect either:
-      {{ code_ssh.msg | default('no reason given') | plain_text | regex_replace('\s+', ' ') | trim }}
+      {{ code_ssh.msg | default('no reason given') | one_line(none) }}
       A VM that has just booted can need another minute; `ssh {{ claude_vm_names[0] }}` shows why.
     # Each setting by its name from 1.1, else by its name in 1.0, which the
     # inventory defaults feed it from - and a run without them, from -e.
@@ -214,10 +212,13 @@
     code_session_upstream: "{{ code_session_git_here.checkouts[0].upstream_branch }}"
     # Where the code lives on the VM, read there as configure reads it: the VM
     # user's home, unless vm_projects_dir says it outright. A trailing "/" is
-    # dropped so the path the editor is given is the one listed.
+    # dropped so the path the editor is given is the one listed. Where
+    # vm_projects_dir is set the home may not have been read, and a filter's
+    # argument is evaluated whether it is used or not.
     code_vm_home: "{{ code_home.ansible_facts.getent_passwd[vm_user][4] }}"
     code_projects_dir: >-
-      {{ (vm_projects_dir | default('', true) or code_vm_home ~ '/projects') | regex_replace('(.)/+$', '\1') }}
+      {{ vm_projects_dir | default('', true)
+         | projects_dir(code_vm_home if code_home.ansible_facts is defined else '') }}
     code_remote_control_unit: "{{ claude_code_remote_control_service | default('claude-remote-control') }}"
     # The time zone the notes' time is said in: this machine's, the user's, where the VM's clock keeps
     # common_timezone (UTC). TZ first, as the shell running just has it, then the zone /etc/localtime
@@ -246,8 +247,7 @@
     # files, never what is in them.
     code_sync_failed: "{{ code_session_sent.rc | default(0) != 0 }}"
     code_sync_why: >-
-      {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true))
-         | plain_text | regex_replace('\s+', ' ') | trim }}
+      {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true)) | one_line(none) }}
     # The sessions the sync left out, list by list: what is said before their IDs, the IDs, and after.
     code_sessions_left: >-
       {{ [[' Left as they are, continued on ' ~ claude_vm_names[0] ~ ' since they were copied: ',
@@ -289,10 +289,9 @@
     code_session_moved: >-
       {{ code_session_id | length > 0
          and code_session_git_there.checkouts[0].head != code_session_commit }}
-    # --session, whichever editor's terminal resumes it: what just code did to
-    # the checkout, and what to know before claude continues there. Each
-    # editor's report says how the session is resumed in it, then these.
-    code_session_moved_said: "{{ ', where just code moved it' if code_session_moved | bool else '' }}"
+    # --session, whichever editor's terminal resumes it: what to know before
+    # claude continues there. Each editor's report says how the session is
+    # resumed in it, and whether just code moved the checkout, then this.
     code_session_cautions: >-
       {{ '' if code_session_id | length == 0
          else ' The first time claude opens there it asks whether you trust the folder, and its first answer'
@@ -317,8 +316,7 @@
     # an SSH error need not be, and ending a sentence, as the line after it
     # starts one.
     code_failure: >-
-      {{ (code_failure_text ~ ('' if code_failure_text is search('[.!?]$') else '.')) | plain_text
-         | regex_replace('\s*\n\s*', ' ') }}
+      {{ code_failure_text | full_stop | plain_text | regex_replace('\s*\n\s*', ' ') }}
     code_failure_text: >-
       {{ ('`' ~ (ansible_failed_result.cmd if ansible_failed_result.cmd is string else ansible_failed_result.cmd | join(' '))
           ~ '` failed' ~ (': ' ~ ansible_failed_result.stderr | trim
@@ -457,14 +455,12 @@
             claude_vm_query: "{{ code_vm_tagged }}"
 
         # What the editor will connect to is the alias's HostName - the address, or
-        # <name>.<domain> - and this run connects to the same, so the two cannot
-        # disagree about whether the VM is reachable. The status is a fact, as
-        # the rescue reads it too.
+        # <name>.<domain> (ssh_hostname) - and this run connects to the same, so the
+        # two cannot disagree about whether the VM is reachable. The status is a
+        # fact, as the rescue reads it too.
         - name: Settle where the VM is reached
           ansible.builtin.set_fact:
-            code_reach: >-
-              {{ claude_vm_names[0] ~ '.' ~ claude_ssh_host_domain
-                 if claude_ssh_host_domain | default('') | length > 0 else claude_vm_addressed[0].address }}
+            code_reach: "{{ claude_vm_addressed[0] | ssh_hostname(claude_ssh_host_domain | default('')) }}"
             code_status: "{{ claude_vm_addressed[0].status | default('unknown') }}"
 
         # A stopped VM is refused even when its name still resolves. One line
@@ -490,6 +486,9 @@
             groups: claude_vms
             ansible_host: "{{ code_reach }}"
             ansible_user: "{{ vm_user }}"
+            # The VM's own Python, as every add_host that publishes a VM gives it: the VM user's ssh sessions
+            # have ~/.local/bin first on PATH, where interpreter discovery would take a uv-installed one.
+            ansible_python_interpreter: "{{ claude_vm_python }}"
           changed_when: false
 
         # Where the code lives, read on the VM as configure reads it: the VM

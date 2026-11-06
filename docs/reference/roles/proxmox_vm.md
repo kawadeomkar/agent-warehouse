@@ -24,39 +24,39 @@ All API calls are delegated to the controller.
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `proxmox_vm_api_host` | str | `""` | Proxmox VE API host (IP or DNS name). Not marked required. The role defaults it to "" and asserts on it instead, so an unset host is reported with the name of the file to put it in rather than as "missing required arguments". |
-| `proxmox_vm_api_port` | int | `8006` | Port of the Proxmox VE API. Set through proxmox_api_port in local.yml. |
-| `proxmox_vm_api_user` | str | `ansible@pve` | Proxmox user the API token belongs to, realm included. Set through proxmox_api_user in local.yml. |
-| `proxmox_vm_api_token_id` | str | `ansible` | Name of the API token, the part after the ! in user!token. Set through proxmox_api_token_id in local.yml. |
-| `proxmox_vm_api_token_secret` | str | `""` | API token secret. Keep it in an ansible-vault file. Asserted by the role rather than marked required, for the same reason as proxmox_vm_api_host. Set through vault_proxmox_api_token_secret in vault.yml. A secret: never logged. |
-| `proxmox_vm_validate_certs` | bool | `false` | Verify the API's TLS certificate. Turn it on once the controller trusts the Proxmox CA. Set through proxmox_validate_certs in local.yml. |
-| `proxmox_vm_node` | str | `pve` | Node that holds the template, where new VMs are cloned. Set through proxmox_node in local.yml. |
-| `proxmox_vm_storage` | str | `local-lvm` | Storage a full clone's disks are created on. Set through proxmox_storage in local.yml. |
-| `proxmox_vm_template_name` | str | `ubuntu-24.04-cloudinit` | Name of the template VMs are cloned from. Set through proxmox_template_name in local.yml. |
+| `proxmox_vm_api_port` | int | `8006` | Port of the Proxmox VE API. Set through `proxmox_api_port` in local.yml. |
+| `proxmox_vm_api_user` | str | `ansible@pve` | Proxmox user the API token belongs to, realm included. Set through `proxmox_api_user` in local.yml. |
+| `proxmox_vm_api_token_id` | str | `ansible` | Name of the API token, the part after the ! in user!token. Set through `proxmox_api_token_id` in local.yml. |
+| `proxmox_vm_api_token_secret` | str | `""` | API token secret. Keep it in an ansible-vault file. Asserted by the role rather than marked required, for the same reason as proxmox_vm_api_host. A secret: never logged. Set through `vault_proxmox_api_token_secret` in vault.yml. |
+| `proxmox_vm_validate_certs` | bool | `false` | Verify the API's TLS certificate. Turn it on once the controller trusts the Proxmox CA. Set through `proxmox_validate_certs` in local.yml. |
+| `proxmox_vm_node` | str | `pve` | Node that holds the template, where new VMs are cloned. Set through `proxmox_node` in local.yml. |
+| `proxmox_vm_storage` | str | `local-lvm` | Storage a full clone's disks are created on. Set through `proxmox_storage` in local.yml. |
+| `proxmox_vm_template_name` | str | `ubuntu-24.04-cloudinit` | Name of the template VMs are cloned from. Set through `proxmox_template_name` in local.yml. |
 | `proxmox_vm_full_clone` | bool | `true` | Make a full clone, independent of the template. false makes a linked clone, which keeps depending on the template's disk. |
 | `proxmox_vm_timeout` | int | `600` | Seconds the clone, start, stop and delete calls may each take. |
 | `proxmox_vm_state` | str | `present` | present clones and configures the VM where it is missing or unfinished, and starts it; an existing, finished VM is left as it is, a stopped one stopped. absent stops and deletes it. One of `present`, `absent`. |
 | `proxmox_vm_start_existing` | bool | `false` | Start an already-configured VM that is stopped. Off by default so a re-run does not boot a VM that was shut down deliberately. When off, such a VM is reported as stopped (proxmox_vm_stopped) with an empty proxmox_vm_address, without waiting for its guest agent. |
-| `proxmox_vm_nic` | str | `net0` | Which NIC of the template carries the LAN address; its MAC is what the guest agent's reply is matched against. Set through proxmox_nic in local.yml. |
+| `proxmox_vm_nic` | str | `net0` | Which NIC of the template carries the LAN address; its MAC is what the guest agent's reply is matched against. Set through `proxmox_nic` in local.yml. |
 | `proxmox_vm_lookup_retries` | int | `6` | How many more times a just-cloned VM's configuration is read, after the first, before giving up, since the cluster listing can lag behind a clone. |
 | `proxmox_vm_lookup_delay` | int | `5` | Seconds between reads of a just-cloned VM's configuration. |
 | `proxmox_vm_allow_untagged_delete` | bool | `false` | Allow state=absent to delete a VM that does not carry the ownership tag. Off by default so a name collision cannot destroy a VM this project never created. |
-| `proxmox_vm_known_hosts_domain` | str | `""` | The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain). state=absent forgets the host key recorded under &lt;name&gt;.&lt;domain&gt; too, besides the one under the address. Set through claude_ssh_host_domain in local.yml. |
+| `proxmox_vm_known_hosts_domain` | str | `""` | The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain). state=absent forgets the host key recorded under &lt;name&gt;.&lt;domain&gt; too, besides the one under the address. Set through claude_ssh_host_domain in local.yml. Set through `claude_ssh_host_domain` in local.yml. |
 | `proxmox_vm_known_hosts_kept` | list of `str` | `[]` | Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported, or &lt;name&gt;.&lt;domain&gt; it is reached by - the inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host) is never forgotten either way. Wired from the inventory's hosts in group_vars/all. |
 | `proxmox_vm_name` | str | same as `inventory_hostname` | VM name in Proxmox. Defaults to the inventory hostname. |
 | `proxmox_vm_id` | raw | `""` | Pin the VM to a specific VMID. Left empty, Proxmox assigns the next free one. The VM is identified by name, not by ID, so this is rarely needed. Run across several hosts at once, the role clones one VM at a time unless each has a distinct VMID here, because concurrent clones that ask Proxmox for one are handed the same. provision.yml sets one for every new VM of a fleet. Declared raw so the role can validate it and report a helpful message. |
-| `proxmox_vm_cores` | int | `2` | Defaults to the vm_cores host var, else 2. Set through vm_cores in local.yml. |
-| `proxmox_vm_memory_mb` | int | `4096` | Defaults to the vm_memory_mb host var, else 4096. Set through vm_memory_mb in local.yml. |
-| `proxmox_vm_memory_min_mb` | int | computed | The least memory the host may leave the VM (Proxmox's minimum memory, ballooning), from 1 to proxmox_vm_memory_mb. Below it, the host takes the difference back once its memory use passes the node's ballooning target. Defaults to the vm_memory_min_mb host var, else proxmox_vm_memory_mb, a fixed allocation. Applied when the VM is created. Set through vm_memory_min_mb in local.yml. |
+| `proxmox_vm_cores` | int | `2` | Defaults to the vm_cores host var, else 2. Set through `vm_cores` in local.yml. |
+| `proxmox_vm_memory_mb` | int | `4096` | Defaults to the vm_memory_mb host var, else 4096. Set through `vm_memory_mb` in local.yml. |
+| `proxmox_vm_memory_min_mb` | int | computed | The least memory the host may leave the VM (Proxmox's minimum memory, ballooning), from 1 to proxmox_vm_memory_mb. Below it, the host takes the difference back once its memory use passes the node's ballooning target. Defaults to the vm_memory_min_mb host var, else proxmox_vm_memory_mb, a fixed allocation. Applied when the VM is created. Set through `vm_memory_min_mb` in local.yml. |
 | `proxmox_vm_disk` | str | `scsi0` | The root disk, as the template names it, resized to proxmox_vm_disk_size. |
-| `proxmox_vm_disk_size` | str | `32G` | Absolute root disk size with unit suffix (K, M, G, T). Applied when the VM is created or an unfinished one is repaired, and with proxmox_vm_force_update. Proxmox cannot shrink a disk, so a size below the current one fails. Defaults to the vm_disk_size host var, else 32G. Set through vm_disk_size in local.yml. |
+| `proxmox_vm_disk_size` | str | `32G` | Absolute root disk size with unit suffix (K, M, G, T). Applied when the VM is created or an unfinished one is repaired, and with proxmox_vm_force_update. Proxmox cannot shrink a disk, so a size below the current one fails. Defaults to the vm_disk_size host var, else 32G. Set through `vm_disk_size` in local.yml. |
 | `proxmox_vm_onboot` | bool | `true` | Start the VM when its Proxmox node boots. |
-| `proxmox_vm_tags` | list of `str` | `["claude-on-proxmox"]` | Tags stamped on every VM this role creates. The first one is the ownership marker - discovery finds VMs by it, and both deleting and provisioning refuse to touch an existing VM that does not carry it. |
-| `proxmox_vm_user` | str | `dev` | Cloud-init user created on the VM. The playbooks also log in as it. Set through vm_user in local.yml. |
-| `proxmox_vm_password` | str | `""` | Optional cloud-init password for the user (vault_vm_password in vault.yml). Key-based login is the default. Either this or proxmox_vm_ssh_public_keys must be set. Set through vault_vm_password in vault.yml. A secret: never logged. |
-| `proxmox_vm_ssh_public_keys` | list of `str` | `[]` | Public keys cloud-init authorises for proxmox_vm_user. These or proxmox_vm_password must be set. Set through vm_ssh_public_keys in local.yml. |
-| `proxmox_vm_ipconfig` | str | `ip=dhcp` | Proxmox ipconfig0 string. DHCP by default, with the address read back from the guest agent. Set to something like "ip=192.0.2.50/24,gw=192.0.2.1" to assign a fixed address. One value for every VM it applies to. Set fleet-wide (local.yml, -e), every VM a run provisions is given that same address, so use it only for a single VM. Set through vm_ipconfig in local.yml. |
-| `proxmox_vm_nameservers` | list of `str` | `[]` | Defaults to the vm_nameservers host var. Set through vm_nameservers in local.yml. |
-| `proxmox_vm_searchdomain` | str | `""` | Defaults to the vm_searchdomain host var. Set through vm_searchdomain in local.yml. |
+| `proxmox_vm_tags` | list of `str` | `[claude-on-proxmox]` | Tags stamped on every VM this role creates. The first one is the ownership marker - discovery finds VMs by it, and both deleting and provisioning refuse to touch an existing VM that does not carry it. |
+| `proxmox_vm_user` | str | `dev` | Cloud-init user created on the VM. The playbooks also log in as it. Set through `vm_user` in local.yml. |
+| `proxmox_vm_password` | str | `""` | Optional cloud-init password for the user (vault_vm_password in vault.yml). Key-based login is the default. Either this or proxmox_vm_ssh_public_keys must be set. A secret: never logged. Set through `vault_vm_password` in vault.yml. |
+| `proxmox_vm_ssh_public_keys` | list of `str` | `[]` | Public keys cloud-init authorises for proxmox_vm_user. These or proxmox_vm_password must be set. Set through `vm_ssh_public_keys` in local.yml. |
+| `proxmox_vm_ipconfig` | str | `ip=dhcp` | Proxmox ipconfig0 string. DHCP by default, with the address read back from the guest agent. Set to something like "ip=192.0.2.50/24,gw=192.0.2.1" to assign a fixed address. One value for every VM it applies to. Set fleet-wide (local.yml, -e), every VM a run provisions is given that same address, so use it only for a single VM. Set through `vm_ipconfig` in local.yml. |
+| `proxmox_vm_nameservers` | list of `str` | `[]` | Defaults to the vm_nameservers host var. Set through `vm_nameservers` in local.yml. |
+| `proxmox_vm_searchdomain` | str | `""` | Defaults to the vm_searchdomain host var. Set through `vm_searchdomain` in local.yml. |
 | `proxmox_vm_agent_retries` | int | `60` | How many times to poll the guest agent for an address. A count, not a wall-clock budget. With the defaults the wait is five minutes of delay plus the time each poll takes; a running VM with no agent answers each poll only after Proxmox's own ~3 s agent ping, so the role gives up on it after about nine minutes. |
 | `proxmox_vm_agent_delay` | int | `5` | Seconds between guest agent polls. |
 | `proxmox_vm_force_update` | bool | `false` | Re-apply the hardware and cloud-init settings to a VM that exists. Off by default because Proxmox reports every update as a change. On, every VM the run covers has its settings re-applied, its tag list replaced with proxmox_vm_tags (tags added by hand are dropped; the record that it joined Tailscale is kept), and is started, whether or not it was shut down on purpose. |
@@ -73,22 +73,22 @@ Compares the VM's config, as the caller read it from Proxmox, with this role's o
 
 ## Internal values
 
-Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 12 are computed during a run, from earlier tasks' results.
+Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 12 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
-| Name | Value |
-|---|---|
-| `proxmox_vm_found_config` | <code>{{ ((proxmox_vm_lookup.proxmox_vms if proxmox_vm_exists &#124; bool else proxmox_vm_config.proxmox_vms) &#124; default([], true) &#124; first &#124; default({}, true)).get('config', {}) }}</code> |
-| `proxmox_vm_found_mac` | <code>{{ proxmox_vm_found_config.get(proxmox_vm_nic, '') &#124; net_mac('') }}</code> |
-| `proxmox_vm_found_node` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].node &#124; default(proxmox_vm_node, true) }}</code> |
-| `proxmox_vm_reported_address` | <code>{{ proxmox_vm_net.proxmox_vms &#124; default([], true) &#124; map(attribute='network') &#124; first &#124; default([], true) &#124; guest_ipv4(proxmox_vm_found_mac) &#124; default('', true) }}</code> |
-| `proxmox_vm_found_tags` | <code>{{ proxmox_vm_lookup.proxmox_vms[0].tags &#124; default('', true) &#124; replace(',', ';') &#124; split(';') &#124; map('trim') &#124; select &#124; map('lower') &#124; list }}</code> |
-| `proxmox_vm_sent_tags` | <code>{{ proxmox_vm_tags &#124; map('lower') &#124; list }}</code> |
-| `proxmox_vm_unfinished_tag` | `{{ proxmox_vm_sent_tags[0] }}-unfinished` |
-| `proxmox_vm_tailscale_tag` | `{{ proxmox_vm_sent_tags[0] }}-tailscale` |
-| `proxmox_vm_kept_tags` | `{{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}` |
-| `proxmox_vm_needs_configuration` | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
-| `proxmox_vm_forget_address` | `{{ proxmox_vm_reported_address }}` |
-| `proxmox_vm_forget_names` | <code>{{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address &#124; length > 0 else []) + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain] if proxmox_vm_known_hosts_domain &#124; length > 0 else [])) &#124; reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) &#124; list }}</code> |
+| Name | Purpose | Value |
+|---|---|---|
+| `proxmox_vm_found_config` | The config of the VM this run is acting on. | <code>{{ ((proxmox_vm_lookup.proxmox_vms if proxmox_vm_exists &#124; bool else proxmox_vm_config.proxmox_vms) &#124; default([], true) &#124; first &#124; default({}, true)).get('config', {}) }}</code> |
+| `proxmox_vm_found_mac` | The MAC of the VM's own NIC, or "" when it cannot be read - an empty config, or a template whose NIC is not proxmox_vm_nic. | <code>{{ proxmox_vm_found_config.get(proxmox_vm_nic, '') &#124; net_mac('') }}</code> |
+| `proxmox_vm_found_node` | The node that holds the VM the name lookup found, which is where every call about an existing VM has to go - a VM migrated since it was created is no longer on proxmox_vm_node, and proxmox_kvm's update sends a settings call to the node it is given rather than looking the VM up. | <code>{{ proxmox_vm_lookup.proxmox_vms[0].node &#124; default(proxmox_vm_node, true) }}</code> |
+| `proxmox_vm_reported_address` | The address the guest agent reports for the VM's own NIC, or "" while the agent has not answered yet. | <code>{{ proxmox_vm_net.proxmox_vms &#124; default([], true) &#124; map(attribute='network') &#124; first &#124; default([], true) &#124; guest_ipv4(proxmox_vm_found_mac) &#124; default('', true) }}</code> |
+| `proxmox_vm_found_tags` | The tags of the VM the name lookup found, as a list, split on ";" or "," as proxmox_tags splits every VM's. | <code>{{ proxmox_vm_lookup.proxmox_vms[0].tags &#124; default('', true) &#124; proxmox_tags &#124; map('lower') &#124; list }}</code> |
+| `proxmox_vm_sent_tags` | The tags this role writes - proxmox_vm_tags, lowercased the way Proxmox stores them, so that what is sent is what the lookup finds again even on a datacenter whose tag style keeps case. | <code>{{ proxmox_vm_tags &#124; map('lower') &#124; list }}</code> |
+| `proxmox_vm_unfinished_tag` | The tag a VM carries from the settings call until the start that follows it has succeeded. | `{{ proxmox_vm_sent_tags[0] }}-unfinished` |
+| `proxmox_vm_tailscale_tag` | The tag configure.yml writes once the VM has held a Tailscale login of the tailscale role's (claude_vm_tailscale_tag), kept by every call below that replaces the tag list. | `{{ proxmox_vm_sent_tags[0] }}-tailscale` |
+| `proxmox_vm_kept_tags` |  | `{{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}` |
+| `proxmox_vm_needs_configuration` | Whether the VM still needs its settings applied, its disk resized and a start. | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
+| `proxmox_vm_forget_address` | The address whose host key should be forgotten when the VM is deleted, as the guest agent reports it while the VM still exists. | `{{ proxmox_vm_reported_address }}` |
+| `proxmox_vm_forget_names` | Every name this machine may hold the VM's host key under - the address, and &lt;name&gt;.&lt;domain&gt; when the SSH aliases and just code connect by name (proxmox_vm_known_hosts_domain). | <code>{{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address &#124; length > 0 else []) + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain] if proxmox_vm_known_hosts_domain &#124; length > 0 else [])) &#124; reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) &#124; list }}</code> |
 
 ## Tasks
 
@@ -114,7 +114,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | &emsp;Create the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'present'</code> |
 | &emsp;Refuse to delete a template | `ansible.builtin.assert` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists</code> |
 | &emsp;Refuse to delete a VM this project does not own | `ansible.builtin.assert` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists and not (proxmox_vm_allow_untagged_delete &#124; bool)</code> |
-| &emsp;Delete the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'absent'</code> |
+| &emsp;Delete the VM | `ansible.builtin.include_tasks` | <code>proxmox_vm_state == 'absent' and proxmox_vm_exists</code> |
 
 ```mermaid
 flowchart TD
@@ -143,7 +143,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Refuse_to_change_a_VM_this_project_does_not_own4-->|Include task| Create_the_VM_present_yml_5[create the vm<br>When: **proxmox vm state     present**<br>include_task: present yml]:::includeTasks
   Create_the_VM_present_yml_5-->|Task| Refuse_to_delete_a_template6[refuse to delete a template<br>When: **proxmox vm state     absent  and proxmox vm exists**]:::task
   Refuse_to_delete_a_template6-->|Task| Refuse_to_delete_a_VM_this_project_does_not_own7[refuse to delete a vm this project does not own<br>When: **proxmox vm state     absent  and proxmox vm exists<br>and not  proxmox vm allow untagged delete   bool**]:::task
-  Refuse_to_delete_a_VM_this_project_does_not_own7-->|Include task| Delete_the_VM_absent_yml_8[delete the vm<br>When: **proxmox vm state     absent**<br>include_task: absent yml]:::includeTasks
+  Refuse_to_delete_a_VM_this_project_does_not_own7-->|Include task| Delete_the_VM_absent_yml_8[delete the vm<br>When: **proxmox vm state     absent  and proxmox vm exists**<br>include_task: absent yml]:::includeTasks
   Delete_the_VM_absent_yml_8-.->|End of Block| Manage_the_VM6_block_start_0
   Delete_the_VM_absent_yml_8-->End
 ```
@@ -152,11 +152,11 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Ask the guest agent for the VM's address | `community.proxmox.proxmox_vm_info` | <code>proxmox_vm_exists</code> |
-| Stop the VM | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists</code> |
-| Delete the VM and its disks | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists</code> |
-| Forget the VM's SSH host key | `ansible.builtin.known_hosts` | <code>proxmox_vm_exists</code> |
-| Warn when the address could not be determined | `ansible.builtin.debug` | <code>proxmox_vm_exists and proxmox_vm_forget_address &#124; length == 0</code> |
+| Ask the guest agent for the VM's address | `community.proxmox.proxmox_vm_info` |  |
+| Stop the VM | `community.proxmox.proxmox_kvm` |  |
+| Delete the VM and its disks | `community.proxmox.proxmox_kvm` |  |
+| Forget the VM's SSH host key | `ansible.builtin.known_hosts` |  |
+| Warn when the address could not be determined | `ansible.builtin.debug` | <code>proxmox_vm_forget_address &#124; length == 0</code> |
 
 ```mermaid
 flowchart TD
@@ -170,11 +170,11 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| absent___Ask_the_guest_agent_for_the_VM_s_address0[absent   ask the guest agent for the vm s address<br>When: **proxmox vm exists**]:::task
-  absent___Ask_the_guest_agent_for_the_VM_s_address0-->|Task| absent___Stop_the_VM1[absent   stop the vm<br>When: **proxmox vm exists**]:::task
-  absent___Stop_the_VM1-->|Task| absent___Delete_the_VM_and_its_disks2[absent   delete the vm and its disks<br>When: **proxmox vm exists**]:::task
-  absent___Delete_the_VM_and_its_disks2-->|Task| absent___Forget_the_VM_s_SSH_host_key3[absent   forget the vm s ssh host key<br>When: **proxmox vm exists**]:::task
-  absent___Forget_the_VM_s_SSH_host_key3-->|Task| absent___Warn_when_the_address_could_not_be_determined4[absent   warn when the address could not be<br>determined<br>When: **proxmox vm exists and proxmox vm forget address  <br>length    0**]:::task
+  Start-->|Task| absent___Ask_the_guest_agent_for_the_VM_s_address0[absent   ask the guest agent for the vm s address]:::task
+  absent___Ask_the_guest_agent_for_the_VM_s_address0-->|Task| absent___Stop_the_VM1[absent   stop the vm]:::task
+  absent___Stop_the_VM1-->|Task| absent___Delete_the_VM_and_its_disks2[absent   delete the vm and its disks]:::task
+  absent___Delete_the_VM_and_its_disks2-->|Task| absent___Forget_the_VM_s_SSH_host_key3[absent   forget the vm s ssh host key]:::task
+  absent___Forget_the_VM_s_SSH_host_key3-->|Task| absent___Warn_when_the_address_could_not_be_determined4[absent   warn when the address could not be<br>determined<br>When: **proxmox vm forget address   length    0**]:::task
   absent___Warn_when_the_address_could_not_be_determined4-->End
 ```
 

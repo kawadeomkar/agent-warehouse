@@ -62,7 +62,6 @@ __pycache__/
 .ansible/
 .cache/
 .molecule/
-collections/ansible_collections/
 
 # --- Vagrant ---
 .vagrant/

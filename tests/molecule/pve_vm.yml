@@ -1,0 +1,65 @@
+---
+# Shared by the proxmox_vm role scenario and the provision scenario: VMs made
+# straight through the fake Proxmox API, for the role or the playbooks to meet.
+# Each is cloned from the template, then - where its entry says - given a
+# config, made a template and started, in that order, one request each. A
+# config write carries no `name`: every one the role makes does, which is how
+# both verifies tell a fixture's write from the role's.
+#
+# Callers set pve_vm_api_url (the API's root, .../api2/json), pve_vm_headers
+# and pve_vm_fixtures, a list of {vmid, name, config, template, start}, the
+# last three optional. The header carries the scenario's own test secret, so
+# no task here is no_log, as one sending a real token would be.
+- name: molecule | pve_vm | Clone each from the template
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9000/clone"
+    method: POST
+    headers: "{{ pve_vm_headers }}"
+    body_format: form-urlencoded
+    body:
+      newid: "{{ pve_vm.vmid }}"
+      name: "{{ pve_vm.name }}"
+  delegate_to: localhost
+  loop: "{{ pve_vm_fixtures }}"
+  loop_control:
+    loop_var: pve_vm
+    label: "{{ pve_vm.name }}"
+
+- name: molecule | pve_vm | Give each its config
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "{{ pve_vm_api_url }}/nodes/pve/qemu/{{ pve_vm.vmid }}/config"
+    method: PUT
+    headers: "{{ pve_vm_headers }}"
+    body_format: form-urlencoded
+    body: "{{ pve_vm.config }}"
+  delegate_to: localhost
+  loop: "{{ pve_vm_fixtures | selectattr('config', 'defined') | list }}"
+  loop_control:
+    loop_var: pve_vm
+    label: "{{ pve_vm.name }}"
+
+- name: molecule | pve_vm | Make each a template
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "{{ pve_vm_api_url }}/nodes/pve/qemu/{{ pve_vm.vmid }}/template"
+    method: POST
+    headers: "{{ pve_vm_headers }}"
+  delegate_to: localhost
+  loop: "{{ pve_vm_fixtures | selectattr('template', 'defined') | selectattr('template') | list }}"
+  loop_control:
+    loop_var: pve_vm
+    label: "{{ pve_vm.name }}"
+
+- name: molecule | pve_vm | Start each
+  ansible.builtin.uri:
+    validate_certs: false
+    url: "{{ pve_vm_api_url }}/nodes/pve/qemu/{{ pve_vm.vmid }}/status/start"
+    method: POST
+    headers: "{{ pve_vm_headers }}"
+  delegate_to: localhost
+  loop: "{{ pve_vm_fixtures | selectattr('start', 'defined') | selectattr('start') | list }}"
+  loop_control:
+    loop_var: pve_vm
+    label: "{{ pve_vm.name }}"

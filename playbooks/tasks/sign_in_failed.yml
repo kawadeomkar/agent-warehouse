@@ -1,0 +1,51 @@
+---
+# A VM a sign-in did not sign in, remembered, said and recorded: one the reach
+# play of claude_login.yml, github_login.yml or tailscale_login.yml could not
+# reach, and one whose sign-in that playbook's rescue caught. Imported there,
+# its inputs vars on the import, never facts:
+#
+#   claude_vm_sign_in      claude, github or tailscale: the sign-in, the word
+#                          just login's --only takes, and its NEXT STEPS matter
+#   claude_vm_sign_in_why  why the VM is not signed in: the ping's message, or
+#                          the failure the rescue caught, read as each task runs
+#
+# The fact it sets is the sign-in's own - claude_vm_claude_login_failure,
+# claude_vm_github_login_failure or claude_vm_tailscale_login_failure - which
+# the sign-in's later tasks skip the VM by, its last play (or just login's)
+# raises, and the live view reads each VM's outcome from
+# (lib/claude_vm/run/recipes.py).
+
+# The command that retries it ends the line, with no full stop after it: one
+# would be pasted along with it. The role's own failures name that command
+# already; any other gets it added, so the line NEXT STEPS keeps names it too.
+- name: sign_in_failed | Remember why this VM's sign-in failed
+  vars:
+    claude_vm_sign_in_retry: just login {{ inventory_hostname }} --only {{ claude_vm_sign_in }}
+  ansible.builtin.set_fact:
+    # set_fact templates its keys, so the fact is named for the sign-in.
+    "claude_vm_{{ claude_vm_sign_in }}_login_failure": >-
+      {{ claude_vm_sign_in_why if claude_vm_sign_in_retry in claude_vm_sign_in_why
+         else claude_vm_sign_in_why | retry_line(claude_vm_sign_in_retry) }}
+
+- name: sign_in_failed | Say why, and go on with the next VM
+  ansible.builtin.debug:
+    msg: "{{ lookup('ansible.builtin.vars', 'claude_vm_' ~ claude_vm_sign_in ~ '_login_failure') }}"
+
+# NEXT STEPS (callback_plugins/claude_on_proxmox.py): the line above, under the
+# sign-in's own matter and its role's stat, which replaces whatever an earlier
+# report of the run left for this VM's sign-in. set_stats templates its keys
+# too; each stat is written out here, and
+# tests/unit/test_attention_callback.py holds every one to the five.
+- name: sign_in_failed | Keep what is left to do for the end of the run
+  vars:
+    claude_vm_sign_in_stats:
+      claude: claude_code_next
+      github: github_projects_next
+      tailscale: tailscale_next
+  ansible.builtin.set_stats:
+    data:
+      "{{ claude_vm_sign_in_stats[claude_vm_sign_in] }}": >-
+        {{ {inventory_hostname: {claude_vm_sign_in:
+             lookup('ansible.builtin.vars', 'claude_vm_' ~ claude_vm_sign_in ~ '_login_failure')}} }}
+    aggregate: true
+    per_host: false

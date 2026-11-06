@@ -12,18 +12,19 @@
 
 from __future__ import annotations
 
-import importlib.util
+import configparser
 import json
-import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, REPO, STAND_INS, _run
-from test_status import PROMISED_KEYS, T, status_root
-from test_tailscale import DPKG_QUERY, GETENT, NODE, _joined
+from harness import FAKES, GETENT, REPO, _local_hosts, fake_fleet, load_module
+from test_status import PROMISED_KEYS, T, _status_run, status_root
+from test_status_work import _commit, _git
+from test_tailscale import DPKG_QUERY, NODE, _joined
 
 from claude_vm.editors.model import ProcessMatch
 from claude_vm.editors.registry import editor_servers
@@ -34,14 +35,7 @@ ROWS = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml
 EDITORS = editor_servers(ROWS)
 
 
-def _module():
-    spec = importlib.util.spec_from_file_location("vm_status_info_under_test", LIBRARY / "vm_status_info.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-M = _module()
+M = load_module(LIBRARY / "vm_status_info.py", "vm_status_info_under_test", register=False)
 
 
 # ------------------------------------------------------------------------------------------- the module ----
@@ -191,6 +185,8 @@ def test_the_module_runs_no_program_but_apt_and_that_by_path() -> None:
     source = (LIBRARY / "vm_status_info.py").read_text()
     assert source.count("subprocess.run(") == 1 and 'APT_GET = "/usr/bin/apt-get"' in source
     assert "run_command" not in source and "os.system" not in source and "Popen" not in source
+    # Nor does what it takes from the modules' shared file: ps is the session modules' read of one pid's argv there.
+    assert not re.search(r"\b(process_argv|running_claude)\b", source)
     assert '"-s"' in source and "Debug::NoLocking=1" in source
 
 
@@ -270,23 +266,16 @@ EXTRA = {
 
 def _vms(root: Path, cases: dict) -> dict:
     """Inventory hosts, one per case, whose modules run with the stand-ins in their own HOME; returns hostvars."""
-    bin_dir = root / "bin"
-    bin_dir.mkdir(parents=True)
-    for name, text in (
-        ("python", STAND_INS["python"]),
-        ("systemctl", SYSTEMCTL),
-        ("gh", (FAKES / "fake_gh.sh").read_text()),
-        ("tailscale", (FAKES / "fake_tailscale.sh").read_text()),
-        ("dpkg-query", DPKG_QUERY),
-        ("getent", GETENT),
-    ):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    tools = {
+        "systemctl": SYSTEMCTL,
+        "gh": (FAKES / "fake_gh.sh").read_text(),
+        "tailscale": (FAKES / "fake_tailscale.sh").read_text(),
+        "dpkg-query": DPKG_QUERY,
+        "getent": GETENT,
+    }
+    hosts = _local_hosts(root, cases, tools)
     for name, case in cases.items():
         home = root / name
-        home.mkdir()
-        (home / "python").symlink_to(bin_dir / "python")
         if case["claude"]:
             versions = home / ".local" / "share" / "claude" / "versions"
             versions.mkdir(parents=True)
@@ -314,25 +303,17 @@ def _vms(root: Path, cases: dict) -> dict:
         _tree(home / "system", **case["tree"])
         if case.get("projects"):
             # A checkout of the VM user's with a commit on no remote: WORK's to say, never to change.
-            from test_status_work import GIT_ENV
-
             checkout = home / "projects" / "proj"
             checkout.mkdir(parents=True)
-            env = {**os.environ, **GIT_ENV}
-            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=checkout, check=True, env=env)
-            (checkout / "README").write_text("proj\n")
-            subprocess.run(["git", "add", "README"], cwd=checkout, check=True, env=env)
-            subprocess.run(["git", "commit", "-q", "-m", "start"], cwd=checkout, check=True, env=env)
-        hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
-            "claude_code_home": str(home),
-            "github_projects_home": str(home),
-            "tailscale_marker_dir": str(home / "markers"),
-            "status_system_root": str(home / "system"),
-            "ansible_inject_invocation": True,
-        }
+            _git(checkout, "init", "-q", "-b", "main")
+            _commit(checkout, "README")
+        hosts[name].update(
+            claude_code_home=str(home),
+            github_projects_home=str(home),
+            tailscale_marker_dir=str(home / "markers"),
+            status_system_root=str(home / "system"),
+            ansible_inject_invocation=True,
+        )
     return hosts
 
 
@@ -351,15 +332,10 @@ def _files(root: Path) -> dict:
 def read(tmp_path_factory):
     """status.yml over the stand-in VMs: its report, the model, the VMs' files before and after, and the root."""
     tmp_path = tmp_path_factory.mktemp("status-vms")
-    root, playbook = status_root(tmp_path, "https://127.0.0.1:9")
     hosts = _vms(tmp_path / "vms", CASES)
     before = _files(tmp_path / "vms")
-    report = _run(root, playbook, hosts, "--check", "-e", json.dumps(EXTRA), "--forks", str(len(hosts)), timeout=300)
-    model = None
-    for play in report["plays"]:
-        for task in play["tasks"]:
-            if task["task"]["name"] == "Rank what needs attention":
-                model = task["hosts"]["localhost"]["ansible_facts"]["status_report"]
+    extra = ("-e", json.dumps(EXTRA), "--forks", str(len(hosts)))
+    report, model = _status_run(tmp_path, "https://127.0.0.1:9", *extra, hosts=hosts, timeout=300)
     return report, model, before, _files(tmp_path / "vms"), tmp_path / "vms"
 
 
@@ -457,45 +433,40 @@ def test_a_run_never_reaches_this_machines_gh_or_claude() -> None:
     assert {"gh", "claude", "tailscale"} <= set(GUARDED_TOOLS)
 
 
-def test_status_ssh_options_are_ansible_cfgs_with_the_host_key_held() -> None:
-    import configparser
+def _status_ssh_options() -> str:
+    """status_ssh_args as status runs with it: ansible.cfg's ssh_args, the host key held."""
+    cfg = configparser.ConfigParser()
+    cfg.read(REPO / "ansible.cfg")
+    base = cfg["ssh_connection"]["ssh_args"].split()
+    kept = [o for o in " ".join(base).split("-o ") if o.strip() and not o.startswith("StrictHostKeyChecking")]
+    return " ".join(f"-o {o.strip()}" for o in kept) + " -o StrictHostKeyChecking=yes -o UpdateHostKeys=no"
 
+
+def test_status_ssh_options_are_ansible_cfgs_with_the_host_key_held() -> None:
     cfg = configparser.ConfigParser()
     cfg.read(REPO / "ansible.cfg")
     base = cfg["ssh_connection"]["ssh_args"].split()
     defaults = (REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text()
     expression = yaml.safe_load(defaults)["status_ssh_args"]
     assert "lookup('ansible.builtin.config', 'ssh_args'" in expression
-    kept = [o for o in " ".join(base).split("-o ") if o.strip() and not o.startswith("StrictHostKeyChecking")]
-    expected = " ".join(f"-o {o.strip()}" for o in kept) + " -o StrictHostKeyChecking=yes -o UpdateHostKeys=no"
     # The same text the expression makes, as Jinja makes it, worked out the same way here.
-    import re
-
     made = re.sub(r"-o\s*StrictHostKeyChecking=\S+", "", " ".join(base))
     made = re.sub(r"\s+", " ", re.sub(r"-o\s*UpdateHostKeys=\S+", "", made)).strip()
-    assert made + " -o StrictHostKeyChecking=yes -o UpdateHostKeys=no" == expected
+    assert made + " -o StrictHostKeyChecking=yes -o UpdateHostKeys=no" == _status_ssh_options()
 
 
 @pytest.mark.skipif(shutil.which("ssh") is None, reason="needs ssh -G")
-def test_the_options_reach_ssh_and_take_effect(tmp_path, fake_pve) -> None:
-    # The fake's VMs refuse through the stand-in ssh, which records how it was called.
-    from test_status import _status_run
-
-    report, model = _status_run(tmp_path, fake_pve)
-    assert report["rc"] == 0, report["stderr"][-2000:]
-    calls = [json.loads(line) for line in (tmp_path / "run" / "ssh.log").read_text().splitlines()]
-    assert calls, "status never called ssh"
-    for argv in calls:
-        options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
-        strict = [o for o in options if o.lower().startswith("stricthostkeychecking=")]
-        # ssh keeps the first value it is given: status's comes first, whatever Ansible adds after it.
-        assert strict and strict[0] == "StrictHostKeyChecking=yes", argv
-        assert "UpdateHostKeys=no" in options, argv
-        given = [arg for option in options for arg in ("-o", option)]
-        resolved = subprocess.run(
-            ["ssh", "-G", "-F", "/dev/null", *given, "192.0.2.60"], capture_output=True, text=True, check=True
-        ).stdout
-        assert "stricthostkeychecking true" in resolved and "updatehostkeys false" in resolved
+def test_the_options_take_effect() -> None:
+    # They reach ssh first, whatever Ansible adds after them, as the stand-in ssh records each call:
+    # test_status.py's test_status_reads_the_fleet_from_the_api_and_changes_nothing. ssh keeps the first value it is
+    # given, so these are what it applies.
+    resolved = subprocess.run(
+        ["ssh", "-G", "-F", "/dev/null", *_status_ssh_options().split(), "192.0.2.60"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "stricthostkeychecking true" in resolved and "updatehostkeys false" in resolved
 
 
 REFUSALS = {
@@ -514,31 +485,26 @@ REFUSALS = {
 }
 
 
-@pytest.mark.parametrize("refusal", sorted(REFUSALS))
-def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fake_pve, refusal) -> None:
-    from test_status import _status_run, status_root
+@pytest.fixture(scope="module")
+def fleet(tmp_path_factory):
+    # One fake for the module: status only reads, which test_status holds.
+    yield from fake_fleet(tmp_path_factory.mktemp("fleet"))
 
+
+@pytest.mark.parametrize("refusal", sorted(REFUSALS))
+def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fleet, refusal) -> None:
     said, expected = REFUSALS[refusal]
-    root, _ = status_root(tmp_path, fake_pve)
+    root, _ = status_root(tmp_path, fleet)
     (root / "ssh-says").write_text(said + "\n")
-    report, model = _status_run(tmp_path, fake_pve, "-e", json.dumps({"vm_name": "alpha"}))
+    report, model = _status_run(tmp_path, fleet, "-e", json.dumps({"vm_name": "alpha"}))
     assert report["rc"] == 0, report["stderr"][-2000:]
     item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
     assert item["level"] == "unread" and expected in item["text"], item
     assert ("ssh-keygen -R 192.0.2.60" in item["command"]) == (refusal == "changed")
 
 
-@pytest.fixture
-def fake_pve(tmp_path):
-    from test_status import fake_fleet
-
-    yield from fake_fleet(tmp_path)
-
-
-def test_only_the_api_sections_never_open_ssh(tmp_path, fake_pve) -> None:
-    from test_status import _status_run
-
-    report, model = _status_run(tmp_path, fake_pve, settings={"status_only": "vms,storage"})
+def test_only_the_api_sections_never_open_ssh(tmp_path, fleet) -> None:
+    report, model = _status_run(tmp_path, fleet, settings={"status_only": "vms,storage"})
     assert report["rc"] == 0, report["stderr"][-2000:]
     assert not (tmp_path / "run" / "ssh.log").exists()
     assert all(not vm.get("needs_ssh") for vm in model["vms"])

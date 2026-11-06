@@ -19,10 +19,12 @@ import re
 import subprocess
 import sys
 
-import live_kit as kit
 import pytest
 from harness import REPO
-from test_justfile import JUST, _env, _merged, _stand_in, _testing
+from test_justfile import _stand_in, _testing
+from test_lint_live import _drawn_just
+
+from claude_vm.ansible import parts
 
 # The last test's ID has a "/" of its own, as a parameter's may.
 TESTS = """
@@ -103,12 +105,6 @@ _SUITE_ARGS = f"-c {REPO / 'pyproject.toml'} --rootdir {REPO} -p no:cacheprovide
 
 def _test(root, *args, fails_test=False, fails_scenario="", changes_scenario="", molecule=MOLECULE, pytest_run=""):
     settings = _testing(root)
-    # The environment's Python itself, its packages with it, for tools/live.
-    (root / "bin" / "python").unlink()
-    (root / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    (root / "bin" / "python").chmod(0o755)
-    for tool in ("yamllint", "ansible-lint", "ruff", "ansible-playbook", "pre-commit"):
-        _stand_in(root / "bin", tool, f'echo "{tool}: checked"')
     suite = root / "suite"
     suite.mkdir()
     (suite / "test_tiny.py").write_text(TESTS.format(fails=1 if fails_test else 0))
@@ -123,11 +119,9 @@ def _test(root, *args, fails_test=False, fails_scenario="", changes_scenario="",
         f'exec "{sys.executable}" -m pytest "$@" {_SUITE_ARGS} "{suite}"',
     )
     _stand_in(root / "bin", "molecule", molecule.format(fails=fails_scenario, changes=changes_scenario))
-    env = kit.environment(root, "", **_env())
-    env.pop("ANSIBLE_LOG_PATH")
-    ran = kit.at_a_terminal([JUST, *_merged(settings), "test", *args], REPO, env, timeout=240)
-    logs = sorted((root / "logs").glob("*-test*.log"))
-    ran.log = "".join(log.read_text() for log in logs)
+    ran = _drawn_just(
+        root, settings, "test", *args, says=lambda tool: f'echo "{tool}: checked"', logs="*-test*.log", timeout=240
+    )
     ran.state = list((root / "live").glob("*.json")) if (root / "live").exists() else []
     return ran
 
@@ -165,12 +159,12 @@ def test_the_gate_is_one_run_lint_its_first_stage_and_every_stage_to_come_listed
     # A deprecation in a scenario's Ansible is said above once it passed; Molecule's routine notices stay in the log,
     # and a task that names a warning is none.
     assert passed.transcript.count("passed with warnings") == 1, passed.transcript
-    warned = passed.transcript.split("! configure: molecule passed with warnings\n", 1)[1].split("\n\n", 1)[0]
+    warned = passed.table("! configure: molecule passed with warnings\n")
     assert "the stand-in's deprecation" in warned and "Warn when" not in warned, warned
     assert "Missing roles requirements file" not in warned, warned
     screen = passed.transcript
     assert re.search(r"^claude-on-proxmox  test · done in .*$", screen, re.M), screen
-    table = screen.split("STAGES", 1)[1].split("\n\n", 1)[0]
+    table = passed.table("STAGES")
     assert [line.split()[1] for line in table.splitlines() if line.startswith((" ✓ ", " ✗ "))] == [
         "lint",
         "unit",
@@ -204,7 +198,7 @@ def test_a_test_that_fails_is_said_as_it_fails_listed_and_what_it_left_unrun_nam
     # Named by its file and its whole ID, the "/" in its parameter its own.
     assert re.search(r"^✗ unit: test_tiny\.py::test_three\[Mars/Olympus\]$", screen, re.M), screen
     assert "the stand-in suite was asked to fail" in screen
-    assert "test_tiny.py::test_three[Mars/Olympus]" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "test_tiny.py::test_three[Mars/Olympus]" in failed.table("\nFAILED\n")
     assert re.search(r"^claude-on-proxmox  test unit provision · failed after .* at unit", screen, re.M), screen
     # bash -e ends the run at the failed part: the stage it never reached is named.
     assert re.search(r"^ not run  provision$", screen, re.M), screen
@@ -216,11 +210,11 @@ def test_an_action_that_fails_is_said_with_its_task_and_ansible_s_words_as_molec
     screen = scenario_failed.transcript
     # The task that failed in the head, and what Ansible said of it from its start, however long it ran.
     assert re.search(r"^✗ provision: converge · common : Run the step that breaks$", screen, re.M), screen
-    said = screen.split("✗ provision: converge · ", 1)[1].split("\n\n", 1)[0]
+    said = scenario_failed.table("✗ provision: converge · ")
     assert "    fatal: [instance]: FAILED! => changed=true" in said, said
     assert "the stand-in scenario was asked to fail" in said, said
     assert re.search(r"^    … \d+ more lines in the run's log$", said, re.M), said
-    assert "converge" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "converge" in scenario_failed.table("\nFAILED\n")
     # Molecule went on to clean up and destroy, drawn as their actions ran, and said why last: on the screen too.
     assert "Executed: Successful" in scenario_failed.log.split("[provision > destroy] Executing", 1)[1]
     assert re.search(r"^    ERROR    Ansible return code was 2, command was: ansible-playbook", screen, re.M), screen
@@ -235,7 +229,7 @@ def test_an_idempotence_test_that_fails_names_the_task_that_changed(not_idempote
     end = screen.split("✗ provision: idempotence (", 1)[1]
     assert "Idempotence test failed because of the following tasks:" in end, screen
     assert "* [instance] => common : Write what changes every run" in end, screen
-    assert "idempotence" in screen.split("\nFAILED\n", 1)[1].split("\n\n", 1)[0]
+    assert "idempotence" in not_idempotent.table("\nFAILED\n")
 
 
 # Molecule in lines the reader does not know - its colour mode's arrows - passing.
@@ -298,7 +292,7 @@ def test_the_molecule_reader_knows_the_lines_molecule_s_own_logger_writes(monkey
     say("converge", done.log_level, AnsiOutput().format_completion_message(done.message, done.color))
     failed = CompletionState.failed
     say("converge", "error", f"{failed.color}{failed.message}{ANSICodes.RESET}")
-    reader = _live_commands().Molecule
+    reader = parts.Molecule
     said = [_said(line) for line in written.getvalue().splitlines()]
     assert len(said) == 4, said
     assert reader.MATRIX.search(said[0]).group("actions") == "create, converge, destroy", said
@@ -308,16 +302,9 @@ def test_the_molecule_reader_knows_the_lines_molecule_s_own_logger_writes(monkey
     assert [found.group("what") for found in actions] == ["Executing", "Executed: Successful", "Executed: Failed"]
 
 
-def _live_commands():
-    from claude_vm.ansible import parts
-
-    return parts
-
-
 def _said(line):
     """A line as the readers take it: plain text, one line."""
-    commands = _live_commands()
-    return commands.view.one_line(commands.text.plain_text(line))
+    return parts.view.one_line(line)
 
 
 def test_a_test_whose_worker_crashed_ends_failed(tmp_path):

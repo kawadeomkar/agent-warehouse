@@ -17,6 +17,7 @@ name: Docs
       - pyproject.toml
       - uv.lock
       - .github/workflows/docs.yml
+      - .github/actions/setup/action.yml
   workflow_dispatch:
 
 permissions:
@@ -35,16 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Python and uv as .github/actions/setup installs them: the runner's
-      # 3.12, which uv uses rather than downloading one, and the uv uv.lock pins.
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      # Python and uv as every CI job has them: the runner's 3.12, which uv
+      # uses rather than downloading one, and the uv uv.lock pins - the action's
+      # pins, written there alone - and nothing more of the toolchain.
+      - uses: ./.github/actions/setup
         with:
-          python-version: "3.12"
-
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
-        with:
-          version-file: uv.lock
-          python-version: "3.12"
+          install: "false"
 
       # Only pyproject.toml's docs group, at the versions uv.lock locks, so the
       # published site is the one `just docs build` and the tests build;

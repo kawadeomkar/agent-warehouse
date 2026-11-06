@@ -132,13 +132,10 @@ quietly taking the default. Every prompt has a `default:`, and it is the safe an
 
 ## An API key silently outranks the subscription login
 
-Claude Code's credential precedence puts
-`ANTHROPIC_API_KEY` above the `/login` credential, so a VM configured with both would authenticate
-as the API account — and Remote Control, which needs the subscription login, would refuse to start
-with no obvious cause. The role never runs both: a configured key turns Remote Control off and
-removes a server an earlier run installed, clearing the key removes it from `settings.json` again,
-and eligibility requires `claude auth status` to report no `apiKeySource`, which also catches a key
-from somewhere the role does not manage. See [§5.5](roles.md#55-claude_code--install-claude-code).
+A VM with both an `ANTHROPIC_API_KEY` and the `/login` credential authenticates as the API account, and
+Remote Control, which needs the login, refuses to start with no obvious cause. The role never runs both:
+[Remote Control, step by step](roles.md#remote-control-step-by-step) says how it turns the server off for a
+key, takes the key back out when it is cleared, and catches one from elsewhere through `apiKeySource`.
 
 ## There is deliberately no `LIMIT`
 

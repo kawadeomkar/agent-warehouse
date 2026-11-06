@@ -39,18 +39,6 @@
         fail_msg: "{{ side_effect_units.results | map(attribute='stdout') | list }}"
         quiet: true
 
-# just code's session handoff against the Claude Code the converge installed,
-# since verify.yml only meets the stand-in: a release that files, records or
-# resumes sessions otherwise fails here first (docs/architecture/lifecycle.md
-# §4.9). One Claude configuration directory stands for the laptop, another for
-# the VM. The real claude makes two sessions in a checkout of the laptop's, one
-# of them in a Claude worktree and bound to it, against a stand-in Messages API
-# on 127.0.0.1 that answers and records what it is sent; claude_sessions_copy
-# writes the VM's copies, under the laptop's folder name; then claude in the
-# VM's checkout resumes each. The laptop's checkout and worktree are still
-# there, the hardest case: a copy left bound refuses to resume into them.
-# Last, the copy continued there, saved as just destroy saves one, resumes by
-# its path from the laptop's checkout, as the save's sessions.json says.
 # just status inside the VM, as the converge left it: the real claude of the native installer, no login, Remote
 # Control waiting for one, gh signed out, Tailscale joined with the stand-in. With discovery off it reads the
 # container as configure reached it - no Proxmox here - and only the sections that read the VM.
@@ -91,6 +79,18 @@
         fail_msg: "just status inside the container produced {{ status_report | to_json }}"
         quiet: true
 
+# just code's session handoff against the Claude Code the converge installed,
+# since verify.yml only meets the stand-in: a release that files, records or
+# resumes sessions otherwise fails here first (docs/architecture/lifecycle.md
+# §4.9). One Claude configuration directory stands for the laptop, another for
+# the VM. The real claude makes two sessions in a checkout of the laptop's, one
+# of them in a Claude worktree and bound to it, against a stand-in Messages API
+# on 127.0.0.1 that answers and records what it is sent; claude_sessions_copy
+# writes the VM's copies, under the laptop's folder name; then claude in the
+# VM's checkout resumes each. The laptop's checkout and worktree are still
+# there, the hardest case: a copy left bound refuses to resume into them.
+# Last, the copy continued there, saved as just destroy saves one, resumes by
+# its path from the laptop's checkout, as the save's sessions.json says.
 - name: Resume a session copied as just code copies one, with the real claude
   hosts: claude_vms
   become: true

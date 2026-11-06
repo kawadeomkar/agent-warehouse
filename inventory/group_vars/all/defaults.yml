@@ -2,31 +2,30 @@
 # Shared, non-secret defaults that are safe to commit.
 # Override anything here in inventory/group_vars/all/local.yml (git-ignored).
 # Files in this directory load alphabetically, so defaults.yml < local.yml < vault.yml.
+# What each setting does is the comment above it in local.yml.example (or
+# vault.yml.example), which docs/reference/settings.md renders; a comment here
+# says only why a value or an expression is what it is, or describes a value
+# that is no setting.
 
 # ---------------------------------------------------------------- Proxmox ---
+# Each setting's description: local.yml.example, under Proxmox.
 # Defaults to the ansible_host (or name) of the first host in the proxmox group.
 proxmox_api_host: >-
   {{ hostvars[groups['proxmox'][0]]['ansible_host'] | default(groups['proxmox'][0])
      if groups['proxmox'] | default([]) else '' }}
 proxmox_api_port: 8006
-# A dedicated, VM-scoped user is recommended over root@pam
-# (docs/getting-started/proxmox-access.md).
 proxmox_api_user: ansible@pve
 proxmox_api_token_id: ansible
 # Trimmed: a vault edited by hand can end the secret with a newline, which both
 # HTTP clients refuse in a header with the whole header, secret included, in
 # their error - escaped, so no_log's masking missed it.
 proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | trim }}"
-# Proxmox ships a self-signed certificate. Set to true once the PVE CA is
-# trusted on the controller (docs/getting-started/proxmox-access.md).
+# Off by default because Proxmox ships a self-signed certificate.
 proxmox_validate_certs: false
 proxmox_node: pve
 proxmox_storage: local-lvm
 proxmox_bridge: vmbr0
-# Which NIC of the template carries the LAN address: its MAC is how a VM's own
-# address is told apart from bridges the guest grows later. Provisioning,
-# discovery and just status all read it from here. Only change it if the
-# template was built with something other than a single net0.
+# Here, not only in the role: provisioning, discovery and just status all read it.
 proxmox_nic: net0
 
 # The API connection, as one value for a play's module_defaults, so that the
@@ -83,21 +82,21 @@ status_ssh_args: >-
 status_read_upgrades: true
 status_system_root: /
 
-# Cloud-init template that VMs are cloned from (built by playbooks/template.yml)
+# The proxmox_template role's defaults, repeated here because deploy.yml,
+# init_check.yml and status.yml read them outside the role, where its defaults
+# are not seen.
 proxmox_template_vmid: 9000
 proxmox_template_name: ubuntu-24.04-cloudinit
+proxmox_template_rebuild: true
 
 # ------------------------------------------------------------------- VM -----
-# Name(s) of the VM(s) to create. Set on the command line, comma-separated:
-#   just deploy alpha,beta --only provision
-# The name is what appears in the Proxmox UI. VMIDs are assigned by Proxmox and
-# addresses by your DHCP server, so neither has to be declared here.
-#
+# Each setting's description: local.yml.example, under VMs.
 # claude_vm_names falls back to this default name when vm_name is not given,
 # which is what provision.yml, deploy.yml and destroy.yml act on. discover.yml
 # and status.yml test `vm_name is defined` instead and, without it, cover every
 # tagged VM - so just status, just login and just deploy --only configure,
-# --check and --only ssh-config are fleet-wide.
+# --check and --only ssh-config are fleet-wide. No VM is declared anywhere:
+# Proxmox gives each its ID, and DHCP its address.
 vm_default_name: claude-on-proxmox-default
 # Applied to every VM this project creates, and how they are found again.
 claude_vm_tag: claude-on-proxmox
@@ -149,15 +148,20 @@ claude_vm_inventory_hosts: >-
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
                     + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])))
      | unique | list }}
+# The address each of those hosts is reached at, its ansible_host, where it has
+# one. Deleting a VM never forgets the host key of one of them
+# (proxmox_vm_known_hosts_kept), whatever address the VM reported last, and a
+# VM's alias never takes one (below): one list for both.
+claude_vm_inventory_addresses: >-
+  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
+     | map(attribute='ansible_host', default='') | select | list }}
 # Every name this machine's ssh reaches a host of the inventory by: the host's
 # own, its ansible_host, and the Proxmox API's address. The managed SSH config
 # is included ahead of the user's own, so a VM's alias of one of them - a VM
 # named pve.lan, where the Proxmox host is reached as pve.lan - would take this
 # machine's root SSH to that host. tasks/ssh_config.yml never writes one.
 claude_vm_inventory_names: >-
-  {{ (claude_vm_inventory_hosts
-      + (claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
-         | map(attribute='ansible_host', default='') | select | list)
+  {{ (claude_vm_inventory_hosts + claude_vm_inventory_addresses
       + ([proxmox_api_host] if proxmox_api_host | default('') | length > 0 else []))
      | map('string') | unique | list }}
 # The VM names the person chose for this run: those given (vm_name), or the
@@ -179,7 +183,6 @@ claude_vm_requested: >-
 # and skip the Proxmox API entirely.
 claude_vm_discovery: true
 
-# Login user created by cloud-init and used for everything afterwards.
 vm_user: dev
 # The Python Ansible runs its modules with on each VM: the system's, which has
 # python3-apt for the apt module. Never discovered: the PATH of the VM user's
@@ -200,7 +203,6 @@ ansible_become_password: "{{ common_user_password }}"
 # configure.yml waits for cloud-init before configuring. Disable for hosts
 # that were not built from a cloud image (Vagrant, containers).
 configure_wait_for_cloud_init: true
-# Public keys authorised for vm_user. Defaults to your local default key.
 # Read with errors='ignore' so that someone whose key is an RSA or ECDSA one
 # gets the role's "set vm_ssh_public_keys" message rather than a bare
 # "could not locate file" from the lookup, which Jinja evaluates first.
@@ -211,193 +213,62 @@ vm_ssh_public_keys: >-
      | select('string') | select | list }}
 
 # --------------------------------------------------------------- GitHub -----
+# Each setting's description: local.yml.example, under GitHub.
 # default('', true) on each vault value: one left empty in the vault is None,
 # which has no length.
 github_username: "{{ vault_github_username | default('', true) }}"
-# Optional. With it, private repositories are listed and cloned, and gh on
-# each VM is signed in with it, so `git push` and `gh pr create` work there
-# (docs/guides/github.md, for the permissions it needs). Without it, gh is signed in once per VM by GitHub's
-# device flow - `just login <name> --only github` runs it and then clones the
-# private repositories, and the terminal `just code` opens runs it too - and
-# every later `just deploy --only configure` lists with the token gh stored. Either way the
-# same token serves the listing, the clones and the pushes.
 github_token: "{{ vault_github_token | default('', true) }}"
-# Repository names to clone. Empty list = every repository of github_username
-# (forks and archived repos excluded unless enabled below).
 github_projects: []
-# Sign gh in on each VM and make it git's credential helper, as above. false
-# leaves gh, ~/.gitconfig and the identity below alone; a token then only
-# lists, and a private repository it lists is skipped, not cloned.
 github_auth: true
-# How: auto signs in with github_token when there is one and by GitHub's
-# device flow otherwise; web is the device flow always, and a token then only
-# lists; token is the token only, and an empty one fails by name. The device
-# flow runs in `just deploy` and in `just login <name> --only github`: a page
-# opens in your browser, the code is on your clipboard, you paste it and
-# approve, and the run then clones the private repositories too. Scopes it
-# asks for on top of gh's own: workflow, so that pushes which change
-# .github/workflows/ are not refused.
 github_auth_method: auto
-# just deploy starts GitHub's sign-in by itself for each VM gh is not signed in
-# on: the page opens, the code is on your clipboard, and the run waits for your
-# approval. false asks first at a prompt, so a VM can be left for later.
 github_login_auto_start: true
 github_login_scopes: [workflow]
-# The git identity written on each VM. Empty: the GitHub account's display
-# name (or its login) and GitHub's noreply address for it, so no private email
-# lands in commits by default.
 git_user_name: ""
 git_user_email: ""
 
 # ------------------------------------------------------------ Anthropic -----
-# Optional API key, for billing Claude Code to Anthropic API credits. If empty,
-# the VM signs in with your Claude account instead: just deploy and just
-# login run that sign-in for you.
-#
-# Note this is not the credential Remote Control uses - see below.
+# Each setting's description: local.yml.example, under Claude Code.
 anthropic_api_key: "{{ vault_anthropic_api_key | default('', true) }}"
 
-# Run a Remote Control server on each VM, so its Claude Code session shows up
-# at claude.ai/code and in the Claude mobile app while running on the VM.
-#
-# On by default, but what actually happens is derived from the credentials on
-# the VM rather than from this switch, because the two Claude Code credentials
-# are mutually exclusive: an API key outranks the claude.ai login, and only
-# that login can establish a Remote Control session.
-#
-#   anthropic_api_key set  -> off; you are on the API path
-#   no key, not logged in  -> prepared but not started; run just login --only claude
-#   no key, logged in      -> started, and reachable from the app
-#
-# So activating it is: leave the API key empty, and sign in once - `just
-# deploy` asks for that itself, and `just login <name> --only claude` does it
-# for a VM that exists. Either starts Remote Control in the same run, and a
-# sign-in made any other way starts it by itself.
-# Set this false to opt out. Off - by this switch or by a key - stops, disables
-# and removes a server an earlier run installed.
+# On by default, and what happens is derived from the credentials on the VM
+# rather than from this switch: an API key outranks the claude.ai login, the
+# only one Remote Control can use (docs/architecture/roles.md §5.5).
 claude_code_remote_control: true
-# Extra arguments for the sign-in's `claude auth login`, such as [--sso], and
-# how many seconds it may take to accept the code you paste.
-claude_code_login_args: []
-claude_code_login_timeout: 120
-# How many seconds the sign-in waits for you to authorise in the browser, when
-# the browser comes back to the VM by itself.
-claude_code_login_approval_timeout: 300
 
 # -------------------------------------------------------------- Sign-in -----
-# just deploy ends with the VM signed in to Claude, GitHub and Tailscale and
-# open in your editor (editor, below). The sign-ins are the steps only you can
-# take: each opens a page in your browser, and the run waits for you there, one
-# VM at a time.
-#   Claude: authorise, and the browser comes back to the VM by itself (where
-#           it cannot, paste the code the page shows at the prompt).
-#   GitHub: paste the code that is already on your clipboard, and authorise.
-#   Tailscale: sign in and connect the device (none with an auth key).
-# GitHub's and Tailscale's start by themselves (github_login_auto_start,
-# tailscale_login_auto_start), for every VM but one whose Claude sign-in nobody
-# answered; none runs where a vault token or key signs the VM in. A run with
-# no terminal skips them all; just login does them later. false leaves the
-# sign-ins to that command.
+# Each setting's description: local.yml.example, under Sign-ins and teardown.
 deploy_sign_in: true
-# Open the VM in the editor (editor, below) at the end of just deploy, as just
-# code does, when the run was for one VM; a deploy for several ends with each
-# VM's just code line.
 deploy_code: true
-# Before just destroy deletes a VM, release it from what it signed in to: Claude
-# signs out there and Remote Control stops, gh signs out (its token stays valid:
-# revoking GitHub CLI at GitHub signs out every gh you have, so the report says
-# where, and destroy does not), and it leaves your tailnet (its device deleted
-# with tailscale_api_auth_method). A stopped VM is started for it. false deletes
-# the VMs without releasing them - their sessions still saved first, below,
-# unless destroy_save_sessions is off too.
 destroy_release: true
-# Before that, save what of each VM's Claude Code sessions exists only on its
-# disk - those begun there, the copies just code made that were continued there,
-# and their auto memory - into destroy_sessions_dir on this machine, as the VM
-# had them; `claude --resume <path>` continues one here. Only plain files and
-# folders are written, never a link the VM holds. A VM whose save fails is
-# kept, neither released nor deleted. false deletes them with the VM.
 destroy_save_sessions: true
-# Where: a folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700; an absolute
-# path, or one starting with ~. Empty: .sessions/ in this checkout, which git
-# ignores. Transcripts hold whatever their tools printed, secrets included,
-# and stay until you delete them.
 destroy_sessions_dir: ""
-# The browser and clipboard steps of both sign-ins happen on this machine.
-# Off, the run only prints the page and the code (a headless controller).
-# Every test turns this off; tests/unit/test_github_auth.py and
-# test_claude_login.py check they do.
+# Every test turns this off, and tests/unit/test_github_auth.py,
+# test_claude_login.py and test_tailscale.py fail if one does not.
 login_desktop: true
 
 # ------------------------------------------------------------ Tailscale -----
-# Each VM joins your tailnet, so you can reach it - ssh, your editor, a dev server -
-# from anywhere your other devices are, not only from this LAN
-# (docs/guides/tailscale.md). Optional: just init asks, and writes the answer
-# into local.yml; on by default until then. false installs nothing, and turns
-# it off again where this project installed it: logged out, stopped and
-# removed, said first. A Tailscale installed on a VM by hand is left alone
-# either way.
+# Each setting's description: local.yml.example, under Tailscale.
 tailscale_enabled: true
-# Optional: an auth key (vault_tailscale_auth_key) joins each new VM during
-# configuration, with nothing to click. Without one, just login --only tailscale - and
-# just deploy's step - signs a VM in by Tailscale's web login. Only ever used
-# for a VM's first join. A reusable, pre-approved, tagged key is the kind to
-# make.
+# Only ever used for a VM's first join, never sent to a node that has had a
+# login (docs/architecture/roles.md §5.8).
 tailscale_auth_key: "{{ vault_tailscale_auth_key | default('', true) }}"
-# How a VM joins: auto uses the key above when there is one and the web login
-# otherwise; key uses the key only, and an empty one fails by name; web uses the
-# web login only, and a key in the vault is left unused.
 tailscale_auth_method: auto
-# just deploy starts Tailscale's web login by itself for each VM that is not
-# signed in: the page opens and the run waits for your approval. false asks
-# first at a prompt, so a VM can be left for later.
 tailscale_login_auto_start: true
-# How a VM's device is deleted from your tailnet when just destroy deletes the
-# VM, or tailscale_enabled: false takes Tailscale off it - so it leaves the
-# admin console and its name is free for a VM built again. auto deletes it with
-# whichever credential below is in the vault, the API access token first, and
-# with none there acts as none. none: the VM is only logged out, and the run
-# names the device to delete in the admin console - a credential in the vault
-# then stays unused. token: an API access token in vault_tailscale_api_token
-# (Settings, Keys; tskey-api-..., which lasts at most 90 days). oauth: an
-# OAuth client with the devices:core scope, in vault_tailscale_oauth_client_id
-# and vault_tailscale_oauth_client_secret (Settings, OAuth clients; it does not
-# expire, but Tailscale scopes it to the tags you give it, which may keep it
-# from deleting a device without them, such as one joined by the web login).
 tailscale_api_auth_method: auto
 tailscale_api_token: "{{ vault_tailscale_api_token | default('', true) }}"
 tailscale_oauth_client_id: "{{ vault_tailscale_oauth_client_id | default('', true) }}"
 tailscale_oauth_client_secret: "{{ vault_tailscale_oauth_client_secret | default('', true) }}"
-# Tailscale SSH on the tailnet address, in place of sshd there, authorised by
-# your tailnet's policy, which needs an ssh rule for it (docs/guides/tailscale.md).
 tailscale_ssh: false
-# Use the subnet routes your other devices advertise.
 tailscale_accept_routes: false
-# Let your tailnet's DNS settings change how the VM looks names up. Off, the VM
-# keeps the resolver DHCP gave it, and your devices still reach it by its
-# tailnet name. On, a tailnet that overrides local DNS sends all the VM's
-# lookups to its nameservers - and one on the tailnet is out of reach of a VM
-# the policy in docs/guides/tailscale.md isolates.
 tailscale_accept_dns: false
-# Tags asked for at the join, such as [tag:claude-vm]. Leave empty with a tagged
-# key: the VM takes the key's tags. Set it to tag a VM you sign in by the web.
 tailscale_advertise_tags: []
-# Another control server, such as Headscale. Empty is Tailscale's own.
 tailscale_login_server: ""
-# Tailscale's own default. false keeps tailscaled from uploading its logs to
-# Tailscale - which also ends Tailscale's technical support for the VMs.
+# Tailscale's own default.
 tailscale_upload_logs: true
-# How long the web login waits for you to approve the page, in seconds. The
-# page stays valid for 7 days, and a VM approved later joins by itself.
 tailscale_login_timeout: 300
 
 # -------------------------------------------------------------- Editor -----
-# The editor `just code` opens, and `just deploy` at its end: one at a time,
-# VS Code (vscode) by default, or Zed (zed). Every VM is made ready for any of
-# them alike (vscode_remote, below); this picks the window. `just code <name>
-# --editor <editor>` picks it for one run. Zed opens the folder over SSH, and
-# starts nothing by itself: claude is a task of the window you pick, or typed
-# in its terminal (docs/guides/zed.md).
+# Each setting's description: local.yml.example, under Editor and SSH.
 editor: vscode
 # The editors just code can open, by the editor setting's value, a check file
 # each (playbooks/tasks/<editor>_check.yml) and the one apply every editor's
@@ -447,100 +318,39 @@ claude_editors:
 # default's. Internal, not a setting.
 claude_editor_key: "{{ editor | default('vscode', true) | string }}"
 
-# Make each VM ready for any editor over SSH: an sshd drop-in that keeps port
-# forwarding on - VS Code's server is reached through it, and Claude's sign-in
-# in the browser uses it - with keepalives, a check that sshd really runs with
-# it, and a higher inotify limit for the editor's file watcher
-# (docs/guides/vscode.md). Set false to remove both files.
 vscode_remote: true
 
-# Where the code lives on each VM: what github_projects clones into, where a
-# Remote Control session opens, and what the editor opens. Empty means
-# ~/projects of vm_user, resolved on the VM itself. One value, because three
-# things read it and they must agree.
+# One value, because three things read it - github_projects, Remote Control and
+# the editor - and they must agree. Empty is resolved on the VM itself.
 vm_projects_dir: ""
 
-# The Claude terminal of the window `just code` opens, as the editors list
-# says each editor gets it (claude_editors, above). In VS Code, a workspace
-# file rather than the bare folder, whose task starts claude in a terminal
-# once the window is connected, signing in to Claude first on a VM that has
-# not been; VS Code still asks once to trust the folder and to allow
-# automatic tasks, and this project answers neither for you. In an editor
-# whose window starts nothing, a task you pick from the window's list of
-# tasks, written only where just code's directory is inside the projects
-# directory. Each editor's guide in docs/guides/ says more. Their files go in
-# just code's own directory on the VM (empty: .claude-on-proxmox in the
-# projects directory), never in a repository. Set false to open the bare
-# folder and write none of them.
 editor_claude_terminal: "{{ vscode_claude_terminal }}"
 # Its name in 1.0, still read through 1.x: editor_claude_terminal is the one to set.
 vscode_claude_terminal: true
-# Where those files go on the VM: an absolute path (no "~"), not the projects
-# directory itself. Empty: .claude-on-proxmox in the projects directory. A
-# directory that already exists keeps its mode; files written before a move
-# stay where they were.
 editor_files_dir: "{{ vscode_workspaces_dir }}"
 # Its name in 1.0, still read through 1.x: editor_files_dir is the one to set.
 vscode_workspaces_dir: ""
-# Session notes: a page about the VM - its addresses, how to reach it, what is
-# signed in, the just commands - that just code writes in session/ under its
-# own directory on the VM, never in a repository. In VS Code it opens as a
-# rendered preview beside the Claude terminal every time the window opens,
-# and the window's "Session notes" task rewrites its "Signed in" section from
-# the VM then: there the notes need that task, so they come with
-# editor_claude_terminal. In an editor whose window runs no task they are
-# written all the same, for you to open (docs/guides/). Set false for none.
 editor_session_notes: "{{ vscode_session_notes }}"
 # Its name in 1.0, still read through 1.x: editor_session_notes is the one to set.
 vscode_session_notes: true
-# This machine's Claude Code sessions on the VM: every just code copies the ones
-# of the last 30 days whose repository the VM has checked out - matched by git
-# origin - into the VM's ~/.claude/projects/, so that /resume there (Ctrl+A for
-# every project) lists them, and `just code alpha --session <id>` opens one in
-# the Claude terminal. A transcript holds whatever its tools printed, secrets
-# included, so a VM gets those too: set false for none. --session still copies
-# its one session with this off (docs/guides/vscode.md).
 claude_sessions_sync: "{{ vscode_claude_sessions }}"
 # Its name in 1.0, still read through 1.x: claude_sessions_sync is the one to set.
 vscode_claude_sessions: true
-# The VS Code user settings just code reads, and never writes, to say whether
-# that terminal will start on its own. Empty: where VS Code itself would keep
-# them - $VSCODE_APPDATA or $XDG_CONFIG_HOME if set, else
-# ~/Library/Application Support/Code/User/settings.json on macOS,
-# ~/.config/Code/User/settings.json on Linux, then the snap's and the
-# flatpak's. Set it for a VS Code that keeps them elsewhere: Insiders,
-# VSCodium (~/.config/VSCodium/User/settings.json), or a VS Code on Windows
-# driven from WSL (/mnt/c/Users/<you>/AppData/Roaming/Code/User/settings.json).
 vscode_user_settings_file: ""
 
-# An SSH alias per VM on this machine, kept in step with the VM's address:
-# `just deploy` and `just deploy --only configure` write one for each VM they configure,
-# `just deploy --only ssh-config` refreshes the whole fleet, `just destroy` removes it. The
-# aliases live in the managed file below, as one block per VM, and
-# ~/.ssh/config gets exactly one line, an Include of that file at its top.
-# Nothing else in ~/.ssh is ever edited. Set false to keep this project out of
-# ~/.ssh altogether (the Vagrantfile does).
+# Nothing in ~/.ssh is edited but the managed file below, known_hosts, and one
+# Include line at the top of ~/.ssh/config, added once and never removed
+# (docs/architecture/lifecycle.md §4.8).
 claude_ssh_config: true
 claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/claude-on-proxmox.conf"
 claude_ssh_user_config: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/config"
-# Set false to leave ~/.ssh/config untouched; the run then prints the Include
-# line to add by hand.
 claude_ssh_config_include: true
-# When set, each alias points at <name>.<domain> instead of the address the
-# guest agent reported, and a lease that moves no longer matters - for a
-# network whose DNS resolves VM names (a router that registers DHCP leases,
-# or avahi with "local").
 claude_ssh_host_domain: ""
-# Written into each alias when set. Empty lets ssh pick, which is the default
-# key vm_ssh_public_keys reads.
 claude_ssh_identity_file: ""
 # Off on purpose: the VM user has passwordless sudo and runs Claude Code, and
 # ForwardAgent hands every key in your agent to both for the life of the
 # connection. Pushes go through gh, signed in on the VM itself (github_auth).
 claude_ssh_forward_agent: false
-# Extra "Key value" lines for each alias, verbatim. ServerAliveInterval keeps
-# the editor's connection, or any ssh, from going stale behind a NAT or a
-# sleeping laptop.
 claude_ssh_options:
   ServerAliveInterval: "30"
 
@@ -561,9 +371,7 @@ proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
 proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
-proxmox_vm_known_hosts_kept: >-
-  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
-     | map(attribute='ansible_host', default='') | select | list }}
+proxmox_vm_known_hosts_kept: "{{ claude_vm_inventory_addresses }}"
 
 proxmox_template_bridge: "{{ proxmox_bridge }}"
 proxmox_template_storage: "{{ proxmox_storage }}"

@@ -32,7 +32,8 @@ show, so the build records it in the template's notes, one line: the build steps
 template is), the image's URL, the packages put into it, and its SHA-256, kept but never compared. One
 definition of what a build makes, the role's `proxmox_template_wanted`, feeds both the build and the
 comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
-`drift` entry point, on the config the API gives, and the role itself on `qm config`'s, which
+`drift` entry point, on the config the API gives (`proxmox_vm_info` with `config: current`), and the role
+itself on `qm config`'s, which
 `qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
 built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new
 image is downloaded and customised, so a download that fails leaves it; the customised copy goes either
@@ -111,7 +112,8 @@ did come up.
 
 ## 4.3 `playbooks/discover.yml`
 
-Finds VMs by tag so `configure.yml` works standalone, not only straight after provisioning.
+Finds VMs by tag so `configure.yml` works standalone, not only straight after provisioning. Steps 1 to 5
+are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
 
 1. `playbooks/tasks/cluster_vms.yml` → `claude_vm_all`: every VM in the cluster, straight from
    `/cluster/resources` with `ansible.builtin.uri`. Not an unfiltered `proxmox_vm_info`, which goes on
@@ -144,8 +146,8 @@ Finds VMs by tag so `configure.yml` works standalone, not only straight after pr
    it means configuring zero hosts and exiting 0, which looks like success. The role's agent wait reads
    the same refusal from its module's error with the `proxmox_access_denied` filter
    ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)).
-6. `add_host` each VM for which `guest_address(proxmox_nic)`
-   ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)) returns an address, with
+6. `add_host` each VM to which `guest_addresses` gives an address, read on the NIC `proxmox_nic` names
+   ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)), with
    `ansible_python_interpreter` set to `claude_vm_python` ([§5.3](roles.md#53-common--os-baseline)), as
    provisioning's play 3 does. Without the MAC of that NIC
    the VM is skipped rather than guessed at — an address picked without one could be a bridge the
@@ -193,10 +195,11 @@ STEPS, while the others are still recorded.
 The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and the editor -
 VS Code's host picker, Zed's `ssh://` URL - follow the address DHCP gave it. It reads a fact the second
 play set *last*: `claude_vm_workspace`, `vm_projects_dir` or `~/projects` of `vm_user` as `getent`
-resolves it on the VM. A host that failed a
-role never reaches that `post_task`, so it never gets an alias; and the workspace is the VM user's real
-home rather than a guess, because Ansible's own `user_dir` fact is the *connecting* user's home, which is
-root's under Molecule. Both the lookup and the play are tagged `always`, like discovery, so a
+resolves it on the VM, without a trailing `/`, as just code and just status name it (the `projects_dir`
+filter, [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)).
+A host that failed a role never reaches that `post_task`, so it never gets an alias; and the workspace is
+the VM user's real home rather than a guess, because Ansible's own `user_dir` fact is the *connecting*
+user's home, which is root's under Molecule. Both the lookup and the play are tagged `always`, like discovery, so a
 `just deploy alpha --tags claude_code` after a lease moved still refreshes the alias. `claude_ssh_config: false`
 keeps the whole project out of `~/.ssh`.
 
@@ -320,11 +323,14 @@ placeholders, fanning out over `forks`; it looks each VM up again and applies th
 VM. It runs in a block: `claude_vm_deleted` after it marks a VM gone, and a deletion that fails is
 rescued - a play in which every VM fails ends the run - into `claude_vm_delete_failure` and
 `claude_vm_delete_error`, its reason alone, raised by the last play. Its `known_hosts` task is `throttle: 1`, because parallel deletes would otherwise each rewrite
-the same file and restore a key another had just removed.
+the same file and restore a key another had just removed. It never forgets the Proxmox host's key, or another
+inventory host's (`proxmox_vm_known_hosts_kept`), under any name, whatever address the VM reported last.
 
 **Play 3 — forget the alias (localhost).** `tasks/ssh_config.yml` with `state: absent` for the VMs
 that are actually gone: the delete play sets `claude_vm_deleted` only after the role, which a host that
-failed in it never reaches, and play 3 removes only the aliases of hosts that have it. A VM still there
+failed in it never reaches, and play 3 removes only the aliases of hosts that have it. Which VMs are gone
+and which are still there is written once, in the play's vars (`claude_vm_gone`, `claude_vm_kept_vars`),
+which the stop, the alias removal, the reports and the last raise all read. A VM still there
 keeps its alias, because it is there to connect to, and the line that says so names its reason: its
 deletion failed - a stop that timed out, protection on, an API error (`claude_vm_delete_error`) - or a
 save that failed kept it, its deletion never tried (`claude_vm_save_error`), or the run lost it before
@@ -497,14 +503,16 @@ stopped is not in `claude_vms`, and a host that failed a role has been dropped f
 it. `claude_login.yml` and `github_login.yml` are imported with discovery off,
 `claude_vm_login_in_deploy` (a failed sign-in is said, not raised, so deploy goes on) and
 `when: deploy_sign_in | bool`. The Claude one is interactive (`claude_vm_login_interactive: true`); the
-GitHub one decides VM by VM, from what the Claude step left on each VM
-([§5.5](roles.md#55-claude_code--install-claude-code)): a VM whose Claude sign-in
-nobody answered (`claude_code_login_skipped` - Enter at the prompt, or a browser that never came back) is
-left, and told so where the flow would have run (`github_projects_login_due`), with `just login <vm>
---only github`, the line NEXT STEPS keeps. With `github_login_auto_start` (the default) every other VM starts at once; off, each is asked
-first (`claude_vm_login_ask`, the role's `github_projects_login_ask`): Enter signs in one whose Claude
-sign-in was answered, `y` one that showed none (signed in already, or an API key). `tailscale_login.yml`
-follows the same way with `tailscale_login_auto_start`, and `when: deploy_sign_in | bool and
+GitHub one is imported with `claude_vm_login_after_claude`, and its play decides VM by VM, from what the
+Claude step left on each VM ([§5.5](roles.md#55-claude_code--install-claude-code)), by the rule the
+sign-in plays share (`claude_vm_login_starts` and `claude_vm_login_asks` in `playbooks/vars/sign_in.yml`):
+a VM whose Claude sign-in nobody answered (`claude_code_login_skipped` - Enter at the prompt, or a
+browser that never came back) is left, and told so where the flow would have run
+(`github_projects_login_due`), with `just login <vm> --only github`, the line NEXT STEPS keeps. With
+`github_login_auto_start` (the default) every other VM starts at once; off, each is asked first (the role's
+`github_projects_login_ask`): Enter signs in one whose Claude sign-in was answered, `y` one that showed
+none (signed in already, or an API key). `tailscale_login.yml` follows the same way, by the same rule,
+with `tailscale_login_auto_start`, and `when: deploy_sign_in | bool and
 tailscale_enabled | default(true) | bool` (§4.10): a VM an auth key joined during configuration is only
 reported. A run with no terminal gets `deploy_sign_in: false` from the justfile's `no_tty_args`: sign-ins
 that start by themselves would otherwise each wait for a browser nobody watches. It gets
@@ -572,8 +580,9 @@ The file's mode is set only when this task creates it. The `Include` is never
 removed, since that would mean editing the user's file on destroy, and an `Include` of a missing
 file is harmless. Nothing else in `~/.ssh` is ever edited.
 
-Three guards, in order: the alias is the VM's name, so a `Host` line in the user's config that
-already names it is refused by file and line (the managed file is included first, so writing would
+Every task that writes, and each refusal before it, runs in one block under the `present` state;
+`absent` removes blocks alone. Three guards, in order: the alias is the VM's name, so a `Host` line in
+the user's config that already names it is refused by file and line (the managed file is included first, so writing would
 silently override the user's entry); every write is validated by the real client, `ssh -G -F %s
 <alias>`, so a malformed option fails the task instead of every `ssh` on the machine; and a block is
 only ever written for a VM the caller found by its tag. Before any of them, a name or address that is
@@ -592,8 +601,9 @@ dotted name given is the user's choice, as `docs/guides/vms.md` allows, and gets
 named run wrote is left as it was, and the message names the run that refreshes it.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
-(§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
-configure recorded, then pruning through `ssh_config_prune`
+(§4.3 steps 1 to 5, `tasks/vms_requested.yml`), `present` for every tagged VM with an address but one named after
+a host of the inventory, which is left out and said as discovery says it, keeping a workspace an
+earlier configure recorded, then pruning through `ssh_config_prune`
 ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
 whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
 or one the inventory reaches a host by, which an earlier version wrote and which would otherwise take this
@@ -616,8 +626,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `vm_session` (`--session`) is refused unless it is a session ID, there by its pattern and `tools/check
    session` and here again.
 2. Find the VM by tag, naming an untagged VM of that name as not this project's; ask its agent for
-   the address. Settle where it is reached exactly as the alias's `HostName` does - the address, or
-   `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
+   the address. Settle where it is reached exactly as the alias's `HostName` does, by `ssh_hostname` - the
+   address, or `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
    a VM that is not running, whatever its name resolves to.
 3. Add it to `claude_vms` with `add_host`, the way configure reaches it: Ansible's own connection and
    `accept-new`, not the user's ssh config, and the group's connection variables from the inventory
@@ -662,7 +672,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
    `listed` for the user to pick, Zed's; or `none`); its `family`, the core's module that plans its window; the
    names its command goes by here (`cli_candidates`), and what that command's `--version` must say where another
-   program shares a name (`version_re`). Where the window runs none (Zed), the notes are written
+   program shares a name (`version_re`). Whether a window runs just code's tasks and how it gets its Claude
+   terminal are said apart, though with these two rows they agree: no Claude task is decided from
+   `window_tasks` alone. Where the window runs none (Zed), the notes are written
    without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
    `claude --resume` to run, with the cautions every editor's report says. Zed's plan writes,
    with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the
@@ -753,7 +765,21 @@ one checkout's fast-forward; a workspace directory that already exists keeps its
 `editor_files_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
 every task in `code.yml` to an allowlist - read-only here, or delegated to the VM - and the
 `provision` scenario checks the settings file it planted is byte-for-byte untouched after every
-run. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
+run. The allowlist follows `code.yml`'s own imports all the way down (`tasks/session_read.yml`,
+`tasks/session_write.yml`, the editors' check files, `tasks/editor_open.yml`); only the shared
+`cluster_vms.yml`, `vm_addresses.yml`, `ssh_config.yml` and `vm_names.yml` are not followed. A task there is
+read-only on this machine (`stat`, `getent`, `find`, `slurp`, `which` and `code`), one of the handoff's readers
+(`claude_sessions_info`, `git_checkouts_info`) here or on the VM, `--session`'s `git`, the handoff's `rsync`
+to the VM, the alias through `tasks/ssh_config.yml`, or one of eight writes, each under its exact condition in
+`WRITERS_WHEN` and delegated to the VM: just code's own directory, made first and 0755 where new; the editor
+plan's directories, the helpers it names and its files, each written under `{{ code_ws_dir }}/` or
+`{{ code_helpers_dir }}/`; the notes and theirs; and the sessions' directory and their copies. A `copy` is to
+`content`, or to `src: "{{ code_helper }}"` over `code_shared_helpers + code_helpers`, which together name each
+file of `playbooks/files/` once, and only a helper the editor's plan names, so nothing else of this machine's is
+ever sent. The one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal
+comes before the first write; and a `shell`, a writer in a `block` or a `connection` fails the test by name.
+The helpers are run against stand-ins with nothing else on PATH, never in a login shell there, which would put
+this machine's own `code` and `tailscale` back. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
 **The session notes.** In VS Code, with `editor_session_notes` (the default, with the terminal), a page about the
@@ -770,7 +796,8 @@ live. Side by side, the notes open a moment after the Claude terminal and usuall
 focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its Python part
 (`session_notes.py`, beside it) does: Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
-open and VS Code never prints the command line. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
+open and VS Code never prints the command line; it never `exec`s into Python, which would leave the notes to
+Python's fate. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
 --json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
 its closing marker, atomically, 0600, in a regular file that has them; every value is cleaned as
 `plain_text` cleans, no command it runs prints a token, and the Tailscale row carries the `ssh` command
@@ -926,7 +953,11 @@ reach play (every VM at once, `ignore_unreachable`, an unreachable one recorded 
 play, `serial: 1` when names are given or under deploy and the fleet at once for a bare report, its
 `block` including the role's `login` entry point with the condition on the include task and a `rescue`
 that re-raises `pause`'s abort and records the failure; and a last play failing those VMs, which deploy
-skips. The role decides everything ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)): a VM
+skips. The three sign-in playbooks share what they do with a VM not signed in: `tasks/sign_in_failed.yml`
+remembers, says and records one the reach play could not reach or the rescue caught, in the sign-in's own
+fact (`claude_vm_tailscale_login_failure` here) and under its own stat, both named from the sign-in's word,
+and `tasks/sign_in_held.yml` says GitHub's or Tailscale's sign-in held back - only their plays are each
+playbook's. The role decides everything ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)): a VM
 with Tailscale off, not installed, or installed by hand gets one line and nothing else, a VM signed in already is reported, and only one this role installed that
 is waiting in `NeedsLogin` is asked (under deploy) and signed in by the web login.
 
@@ -937,8 +968,10 @@ is waiting in `NeedsLogin` is asked (under deploy) and signed in by the web logi
 them. As under deploy, a VM goes on to its next sign-in after one that failed, or after the work it leads
 to failing (Remote Control's start): each playbook's last play leaves what failed
 (`claude_vm_login_raised_later`), and `login.yml`'s own last play fails each such VM once all three have
-had their turn, with every message. Between them it passes what deploy passes (§4.7), but only where names were given
-(`claude_vm_login_named`, the play var both later sign-in plays keep): GitHub and Tailscale start by
+had their turn, with every message. GitHub's and Tailscale's are imported with
+`claude_vm_login_after_claude`, as deploy imports them (§4.7), so their plays decide each VM by the rule
+deploy's do - `playbooks/vars/sign_in.yml`, their `vars_files`, with the other rules they share - but only
+where names were given (`claude_vm_login_named`): GitHub and Tailscale start by
 themselves for a VM whose Claude sign-in was answered, are asked about first with
 `github_login_auto_start` or `tailscale_login_auto_start` off - with no terminal to ask at, neither
 asked nor started (§4.7), since a scripted `just login` given `claude_code_login_code` would otherwise
@@ -958,7 +991,9 @@ as `inventory/controller.yml` has it, with pipelining on, and a run that keeps t
 (`ANSIBLE_KEEP_REMOTE_FILES`, which turns pipelining off) refused - so no `group_vars` load. It runs before the
 vault can be opened and while every value is still the example's, and reads what it writes back from the
 files, since a run does not reload `group_vars`. The inventory is not in `playbooks/` itself, where the
-syntax check and ansible-lint would take it for a playbook.
+syntax check and ansible-lint would take it for a playbook. What it shares with the checks (§4.13) -
+`init_ask`, `init_given`, the files, the placeholders the examples ship with, what it reads of `local.yml`
+and the vault, and the validate of a YAML write - is in `playbooks/vars/init.yml`, which both load.
 
 It reads `hosts.yml` and `local.yml`, and the vault: as text when it is plaintext, through `ansible-vault
 decrypt --output -` under `no_log` when it is encrypted and there is a password (`.vault_pass`, or
@@ -1032,7 +1067,7 @@ checks run next and say what comes after.
 ## 4.13 `playbooks/init_check.yml`
 
 `just init`'s second step, a second `ansible-playbook` run with the project's inventory and the vault (and
-`init_ask` and `init_given`, as the first had) - the
+`init_ask` and `init_given`, as the first had, from the same `playbooks/vars/init.yml`) - the
 password looked for when the recipe runs, since the questions may have just made `.vault_pass` - so it sees
 the settings exactly as `just deploy` will. The recipe skips it, with one line, when the vault is
 encrypted and neither `.vault_pass` nor `ANSIBLE_VAULT_PASSWORD_FILE` can open it. One play on `localhost`,
@@ -1078,7 +1113,8 @@ every task a read (held by `tests/unit/test_init_check.py`):
    each with its own permission read (`Datastore.AllocateSpace` and `Datastore.Audit` on `/storage/<name>`,
    `SDN.Use` on `/sdn/zones/localnetwork/<name>`, by the `init_candidates` filter). The value in effect, listed
    and usable, is `ok`; set in `local.yml` and not listed, or lacking a privilege, a problem; the default, not
-   listed, a question at a terminal - y or n for one usable candidate, a number for several, the unusable
+   listed, a question at a terminal - y or n for one usable candidate, a number for several, as
+   `init_access.yml`'s choice asks too (the `init_pick_question` and `init_pick` filters), the unusable
    shown with what they lack, or `inactive` (listed, but not reachable) - whose answer is written. With a
    template, the bridge is its `net0`'s and only `SDN.Use` on it is checked; a template with none on `net0` is
    a problem. A token that sees no candidate at all is told which privileges make Proxmox list one, with the

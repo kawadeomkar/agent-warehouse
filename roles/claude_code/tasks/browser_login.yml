@@ -180,13 +180,7 @@
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
-  loop:
-    - "{{ claude_code_login_output }}"
-    - "{{ claude_code_login_pipe }}"
-    - "{{ claude_code_login_pidfile }}"
-    - "{{ claude_code_login_run_file }}"
-    - "{{ claude_code_login_page_file }}"
-    - "{{ claude_code_login_forward_pidfile }}"
+  loop: "{{ claude_code_login_files }}"
   become: true
   become_user: "{{ claude_code_user }}"
   changed_when: false
@@ -259,12 +253,12 @@
     - name: browser_login | Fail when claude did not start the sign-in
       vars:
         claude_code_login_start_why: >-
-          {{ claude_code_login_said | regex_replace('\s+', ' ') | trim
+          {{ claude_code_login_said | one_line(none)
              or 'no output in ' ~ claude_code_login_start_seconds ~ ' seconds' }}
       ansible.builtin.fail:
         msg: >-
           claude on {{ inventory_hostname }} did not start the sign-in:
-          {{ claude_code_login_start_why ~ ('' if claude_code_login_start_why is search('[.!?]$') else '.') }}
+          {{ claude_code_login_start_why | full_stop }}
           Run {{ claude_code_login_command }} again.
       when: claude_code_login_url | length == 0
 
@@ -410,48 +404,31 @@
         claude_code_login_answered: "{{ claude_code_login_responded | bool }}"
         claude_code_login_skipped: "{{ not (claude_code_login_responded | bool) }}"
 
-    - name: browser_login | Say that no code was entered
+    # Nobody answered, said the way this attempt asked: no code pasted where
+    # the code was asked for, the browser not back where the run waited for
+    # it. One report and one record for both, since claude_code_login_responded
+    # is a code entered or, redirecting, the browser come back.
+    - name: browser_login | Say that nobody answered
+      vars:
+        claude_code_login_unanswered: >-
+          {{ ('the browser did not come back within ' ~ claude_code_login_approval_timeout ~ ' seconds')
+             if claude_code_login_redirecting | bool
+             else 'no code was entered (Enter, or no terminal to ask at)' }}
       ansible.builtin.debug:
         msg: >-
-          {{ inventory_hostname }}: no code was entered (Enter, or no terminal to ask at), so Claude Code is left
-          signed out there.
+          {{ inventory_hostname }}: {{ claude_code_login_unanswered }}, so Claude Code is left signed out there.
           {{ claude_code_login_command }} signs it in later.
-      register: claude_code_login_no_code_reported
-      when:
-        - not (claude_code_login_redirecting | bool)
-        - claude_code_login_entered | length == 0
+      register: claude_code_login_unanswered_reported
+      when: not (claude_code_login_responded | bool)
 
     - name: browser_login | Keep what is left to do for the end of the run
       ansible.builtin.set_stats:
         data:
           claude_code_next: >-
-            {{ {inventory_hostname: {'claude': claude_code_login_no_code_reported.msg}} }}
+            {{ {inventory_hostname: {'claude': claude_code_login_unanswered_reported.msg}} }}
         aggregate: true
         per_host: false
-      when:
-        - not (claude_code_login_redirecting | bool)
-        - claude_code_login_entered | length == 0
-
-    - name: browser_login | Say that the browser did not come back
-      ansible.builtin.debug:
-        msg: >-
-          {{ inventory_hostname }}: the browser did not come back within {{ claude_code_login_approval_timeout }} seconds,
-          so Claude Code is left signed out there. {{ claude_code_login_command }} signs it in later.
-      register: claude_code_login_no_return_reported
-      when:
-        - claude_code_login_redirecting | bool
-        - not (claude_code_login_responded | bool)
-
-    - name: browser_login | Keep what is left to do for the end of the run
-      ansible.builtin.set_stats:
-        data:
-          claude_code_next: >-
-            {{ {inventory_hostname: {'claude': claude_code_login_no_return_reported.msg}} }}
-        aggregate: true
-        per_host: false
-      when:
-        - claude_code_login_redirecting | bool
-        - not (claude_code_login_responded | bool)
+      when: not (claude_code_login_responded | bool)
 
     # An attempt lasts claude_code_login_attempt_seconds on top of the wait
     # below; past it Ansible's async limit has ended claude, and a code handed
@@ -647,14 +624,7 @@
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
-      loop:
-        - "{{ claude_code_login_output }}"
-        - "{{ claude_code_login_pipe }}"
-        - "{{ claude_code_login_pidfile }}"
-        - "{{ claude_code_login_run_file }}"
-        - "{{ claude_code_login_page_file }}"
-        - "{{ claude_code_login_forward_pidfile }}"
-        - "{{ claude_code_login_browser }}"
+      loop: "{{ claude_code_login_files }}"
       become: true
       become_user: "{{ claude_code_user }}"
       changed_when: false
@@ -677,7 +647,7 @@
   ansible.builtin.fail:
     msg: >-
       {{ inventory_hostname }}: the Claude sign-in did not complete.
-      {{ claude_code_login_why ~ ('' if claude_code_login_why is search('[.!?]$') else '.') }}
+      {{ claude_code_login_why | full_stop }}
       Run {{ claude_code_login_command }} again for a fresh sign-in page.
   when:
     - claude_code_login_responded | bool

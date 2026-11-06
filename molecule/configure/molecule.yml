@@ -1,10 +1,6 @@
 ---
 # Integration scenario: runs playbooks/configure.yml end to end against a
 # container that stands in for the freshly provisioned VM.
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../requirements.yml
 platforms:
   - name: claude-dev
     groups: [claude_vms]
@@ -16,15 +12,13 @@ platforms:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
-  name: ansible
   env:
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/roles
     ANSIBLE_FILTER_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/filter_plugins
-    # just code's session modules, for the handoff check in side_effect.yml.
+    # just code's session modules, and what they share, for the handoff check
+    # in side_effect.yml.
     ANSIBLE_LIBRARY: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/library
-  playbooks:
-    converge: converge.yml
-    side_effect: side_effect.yml
+    ANSIBLE_MODULE_UTILS: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/module_utils
   inventory:
     # group_vars/all/defaults.yml here is a symlink to the project's committed
     # inventory/group_vars/all/defaults.yml, so the real variable wiring is

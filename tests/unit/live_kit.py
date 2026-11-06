@@ -15,10 +15,12 @@ stream's.
 from __future__ import annotations
 
 import fcntl
+import itertools
 import os
 import re
 import struct
 import subprocess
+import sys
 import termios
 import time
 from pathlib import Path
@@ -39,17 +41,45 @@ callbacks_enabled = ansible.posix.profile_tasks
 """
 
 
-def collections_path() -> str:
-    """Where this machine's Galaxy collections are, so a run with a HOME of its own still finds them."""
-    for name in ("ANSIBLE_COLLECTIONS_PATH", "ANSIBLE_COLLECTIONS_PATHS"):
-        if os.environ.get(name):
-            return os.environ[name]
-    return str(Path.home() / ".ansible" / "collections")
+# A recipe in parts, as the justfile writes one: tools/live, the stamp its log and state take, and the recipe's own
+# end and trap at the top of the script.
+LIVE = REPO / "tools" / "live"
+STAMP = "20261026-131050"
+
+
+def justfiles_trap(recipe: str = "lint") -> str:
+    """The recipe's end and trap, as the justfile writes them: its {{ live }} the stand-in recipe's live."""
+    lines = [line.strip() for line in (REPO / "justfile").read_text().splitlines()]
+    start = lines.index(next(line for line in lines if line.startswith(f"{recipe} ")))
+    end = next(line for line in lines[start:] if line.startswith("live_end() {"))
+    trap = next(line for line in lines[start:] if line.startswith("trap ") and "live_end" in line)
+    assert "{{ live }}" in end, end
+    return end.replace("{{ live }}", "live") + "\n" + trap
+
+
+def recipe_in_parts(
+    root: Path, parts: list[str], title: str = "lint", *, python_flags: str = "", **settings: str
+) -> tuple[list[str], dict, Path]:
+    """A stand-in recipe in parts: the justfile's trap of the recipe the title names, then each of parts, as lines of
+    one bash script, its tools/live run by this Python with python_flags. Its argv, its environment, and where its run
+    keeps its state."""
+    recipe = title.split()[0]
+    script, logs = root / "recipe.sh", root / "logs"
+    python = f'"{sys.executable}"' + (f" {python_flags}" if python_flags else "")
+    script.write_text(
+        "#!/bin/bash\nset -eu\n"
+        f'live() {{ {python} "{LIVE}" --log-dir="{logs}" --stamp={STAMP} '
+        '--ansible-args="${ARGS:-}" "$@"; }\n' + justfiles_trap(recipe) + "\n" + "\n".join(parts) + "\n"
+    )
+    script.chmod(0o755)
+    state = root / "live" / f"{STAMP}-{recipe}.json"
+    return [str(script)], environment(root, title, CLAUDE_ON_PROXMOX_LIVE_STATE=str(state), **settings), state
 
 
 def environment(root: Path, title: str = "", config: str = CONFIG, **settings: str) -> dict:
     """A live run's environment: the harness's, CLAUDE_ON_PROXMOX_LIVE set to title (none for the stream), a log of
-    its own, colour on, a terminal type, UTF-8, and a HOME under root."""
+    its own, colour on, a terminal type, UTF-8, and a HOME under root. The Galaxy collections are still found where
+    they are: conftest.py sets ANSIBLE_COLLECTIONS_PATH, which the harness passes on (PASSED_ON)."""
     home = root / "home"
     home.mkdir(exist_ok=True)
     live = {
@@ -58,10 +88,19 @@ def environment(root: Path, title: str = "", config: str = CONFIG, **settings: s
         "TERM": "xterm-256color",
         "PYTHONUTF8": "1",
         "HOME": str(home),
-        "ANSIBLE_COLLECTIONS_PATH": collections_path(),
         **({"CLAUDE_ON_PROXMOX_LIVE": title} if title else {}),
     }
     return _env(root, config=config, **{**live, **settings})
+
+
+# Colour, a title and a bell: what a terminal acts on and does not show.
+ESCAPES = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x07")
+
+
+def next_steps(text: str) -> list[str]:
+    """NEXT STEPS' lines as printed, colour aside: under its block's rule, up to the first blank line."""
+    after = ESCAPES.sub("", text).replace("\r\n", "\n").split("##  NEXT STEPS\n", 1)[1].split("\n", 1)[1]
+    return list(itertools.takewhile(str.strip, after.splitlines()))
 
 
 class Ran:
@@ -74,6 +113,20 @@ class Ran:
     @property
     def transcript(self):
         return "\n".join(line.rstrip() for line in self.screen.transcript())
+
+    @property
+    def said(self) -> str:
+        """What a person was shown: the screen and what scrolled above it at a terminal, every byte piped."""
+        return self.text if self.screen is None else self.transcript
+
+    def table(self, heading: str) -> str:
+        """What was said after heading's first appearance, up to the first blank line: the table under a summary's
+        head, or a block said above it."""
+        return self.said.split(heading, 1)[1].split("\n\n", 1)[0]
+
+    def above_summary(self, recipe: str) -> str:
+        """What was said before the summary's head, `claude-on-proxmox  <recipe>`: the run's own words."""
+        return self.said.split(f"claude-on-proxmox  {recipe}", 1)[0]
 
     @property
     def frames(self):
@@ -169,7 +222,7 @@ def piped(argv, root, env, timeout=120) -> Ran:
     return Ran(process.returncode, output, log.read_text() if log.exists() else "")
 
 
-def playbook(root, inventory, path, *args):
+def playbook(inventory, path, *args):
     """The argv of ansible-playbook on a playbook."""
     return [ANSIBLE_PLAYBOOK, "-i", inventory, *args, path]
 

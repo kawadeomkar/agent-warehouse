@@ -35,11 +35,14 @@ from __future__ import annotations
 
 import datetime
 import fcntl
+import functools
 import importlib.util
 import json
 import os
 import pty
+import re
 import select
+import shutil
 import signal
 import socket
 import ssl
@@ -165,28 +168,153 @@ exit 1
 """
 
 
-def _stand_in_hosts(root: Path, logins: dict) -> dict:
-    """Inventory hosts, one per canned login, whose modules run with the stand-ins; returns their hostvars."""
+# What the stand-ins record, each in a file of its own: read as it is, empty while the file is missing - nothing
+# called that stand-in yet.
+def _text(path: Path) -> str:
+    return path.read_text() if path.exists() else ""
+
+
+def _lines(path: Path) -> list[str]:
+    return _text(path).splitlines()
+
+
+def _json_lines(path: Path) -> list:
+    return [json.loads(line) for line in _lines(path)]
+
+
+# Where the stand-in gh, claude and tailscale (tests/molecule/fake_*.sh) record each call, under a host's directory.
+GH_CALLS = (".config", "gh", "calls.log")
+CLAUDE_CALLS = (".claude", "fake", "calls.log")
+TAILSCALE_CALLS = (".tailscale-fake", "calls.log")
+
+
+def _calls(root: Path, host: str, *path: str) -> list[str]:
+    """What a stand-in recorded under host's directory, at path - GH_CALLS, say: a call a line."""
+    return _lines(root.joinpath(host, *path))
+
+
+def _executable(path: Path, text: str) -> Path:
+    """Write text to path as a program anyone may run; returns path."""
+    path.write_text(text)
+    path.chmod(0o755)
+    return path
+
+
+# Every user on the Ubuntu VMs the github_projects role configures has a group
+# of the same name, which its directory task sets; macOS has none for the
+# developer. Asked for that group, the modules of a host made with own_group
+# get the user's own primary group instead, so the role runs to its end here
+# as on a VM. It is the sitecustomize of OWN_GROUP_PYTHON, the interpreter
+# wrapper with root/pylib on its PYTHONPATH.
+OWN_GROUP = """import grp
+import os
+import pwd
+
+_getgrnam = grp.getgrnam
+_me = pwd.getpwuid(os.getuid()).pw_name
+
+
+def _getgrnam_or_own(name):
+    try:
+        return _getgrnam(name)
+    except KeyError:
+        if name != _me:
+            raise
+        return grp.getgrgid(os.getgid())
+
+
+grp.getgrnam = _getgrnam_or_own
+"""
+_WRAPPER = STAND_INS["python"].splitlines(keepends=True)
+_EXEC = next(index for index, line in enumerate(_WRAPPER) if line.startswith("exec "))
+OWN_GROUP_PYTHON = "".join(
+    [*_WRAPPER[:_EXEC], 'PYTHONPATH="$(dirname "$(dirname "$0")")/pylib"\n', "export PYTHONPATH\n", *_WRAPPER[_EXEC:]]
+)
+
+# ssh, scp and sftp for a VM that is down: what ssh says when nothing listens,
+# and the exit status the ssh plugin takes for "unreachable".
+SSH_REFUSED = """#!/bin/sh
+echo "$*" >> "$(dirname "$0")/ssh.log"
+echo "ssh: connect to host 192.0.2.10 port 22: Connection refused" >&2
+exit 255
+"""
+
+# The ssh first on a run's PATH, for a run that would otherwise reach this machine's own (_refusing_ssh), where
+# SSH_REFUSED is a host's connection: it records how it was called, a line each, in ssh-calls.log beside it, and
+# refuses as an unreachable host does.
+REFUSING_SSH = """#!/bin/sh
+printf '%s\\n' "$*" >> "$(dirname "$0")/ssh-calls.log"
+echo "ssh: connect to host stand-in port 22: Connection refused" >&2
+exit 255
+"""
+
+# What `getent passwd <user>` answers on the stand-in hosts: the user's home is
+# the host's own directory, as HOME already is for every module. macOS has no
+# getent, and the roles' entry points look the home up with it.
+GETENT = """#!/bin/sh
+[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
+printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
+"""
+
+
+def _local_hosts(
+    root: Path, names: Iterable[str], tools: dict | None = None, *, own_group: bool = False, address: str = "192.0.2.10"
+) -> dict:
+    """Stand-in VMs over the local connection, one per name, each with a directory of its own under root; their
+    hostvars, which the caller adds to.
+
+    root/bin holds the interpreter wrapper (STAND_INS["python"], or with own_group OWN_GROUP_PYTHON) and each of
+    tools, {name: text}, which the wrapper puts first on the modules' PATH; each host's interpreter is a link to it in
+    its own directory, its HOME. address is the ansible_host each is given, none when empty.
+    """
     bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in STAND_INS.items():
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
+    bin_dir.mkdir(parents=True)
+    _executable(bin_dir / "python", OWN_GROUP_PYTHON if own_group else STAND_INS["python"])
+    if own_group:
+        (root / "pylib").mkdir()
+        (root / "pylib" / "sitecustomize.py").write_text(OWN_GROUP)
+    for name, text in (tools or {}).items():
+        _executable(bin_dir / name, text)
     hosts = {}
-    for name, (status, rc) in logins.items():
+    for name in names:
         home = root / name
-        home.mkdir()
-        (home / "status.json").write_text(json.dumps(status))
-        (home / "rc").write_text(str(rc))
+        home.mkdir(exist_ok=True)
         (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
             "ansible_connection": "local",
             "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
-            # The home the role reads ~/.claude from: the host's directory,
-            # never the developer's.
-            "claude_code_home": str(home),
+            **({"ansible_host": address} if address else {}),
         }
+    return hosts
+
+
+def _unreachable(hostvars: dict, root: Path) -> None:
+    """Make a host of _local_hosts a VM that is down: reached over ssh, which the stand-in in root/bin refuses, so
+    nothing leaves this machine and nothing reads ~/.ssh."""
+    refused = str(_executable(root / "bin" / "ssh", SSH_REFUSED))
+    hostvars.update(
+        ansible_connection="ssh",
+        ansible_ssh_executable=refused,
+        ansible_scp_executable=refused,
+        ansible_sftp_executable=refused,
+        # No ControlPersist, so no socket directory is made for it.
+        ansible_ssh_args="",
+        ansible_control_path_dir=str(root / "cp"),
+    )
+
+
+def _stand_in_hosts(root: Path, logins: dict, **options) -> dict:
+    """Inventory hosts, one per canned login, whose modules run with the stand-ins; returns their hostvars.
+
+    options go to _local_hosts."""
+    hosts = _local_hosts(root, logins, {name: text for name, text in STAND_INS.items() if name != "python"}, **options)
+    for name, (status, rc) in logins.items():
+        home = root / name
+        (home / "status.json").write_text(json.dumps(status))
+        (home / "rc").write_text(str(rc))
+        # The home the role reads ~/.claude from: the host's directory,
+        # never the developer's.
+        hosts[name]["claude_code_home"] = str(home)
     return hosts
 
 
@@ -202,15 +330,29 @@ def _desktop(root: Path) -> Path:
     desktop = root / ".desktop"
     desktop.mkdir(exist_ok=True)
     for tool in (*DESKTOP_TOOLS, *GUARDED_TOOLS):
-        (desktop / tool).write_text(DESKTOP_STAND_IN)
-        (desktop / tool).chmod(0o755)
+        _executable(desktop / tool, DESKTOP_STAND_IN)
     return desktop
 
 
 def _desktop_calls(root: Path) -> str:
     """What the desktop stand-ins under root were asked to do: nothing, in a test that keeps to its rules."""
-    calls = root / ".desktop" / "calls.log"
-    return calls.read_text() if calls.exists() else ""
+    return _text(root / ".desktop" / "calls.log")
+
+
+def _refusing_ssh(root: Path, env: dict | None = None) -> dict:
+    """env with REFUSING_SSH first on PATH, from root/ssh-stand-in, and the desktop stand-ins after it: a run given
+    it as its env reaches no real ssh."""
+    stand_in = root / "ssh-stand-in"
+    stand_in.mkdir(exist_ok=True)
+    _executable(stand_in / "ssh", REFUSING_SSH)
+    return (env or {}) | {
+        "PATH": f"{stand_in}{os.pathsep}{_desktop(root)}{os.pathsep}{os.environ.get('PATH', os.defpath)}"
+    }
+
+
+def _ssh_calls(root: Path) -> str:
+    """What the refusing ssh under root was asked, a call a line: nothing, where no run reached for ssh."""
+    return _text(root / "ssh-stand-in" / "ssh-calls.log")
 
 
 def _fail_if_the_desktop_was_reached(root: Path) -> None:
@@ -235,8 +377,10 @@ def _env(root: Path, config: str = "", **settings: str) -> dict:
         ANSIBLE_CONFIG=ansible_config(root, config),
         ANSIBLE_ROLES_PATH=str(REPO / "roles"),
         ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),
-        # As ansible.cfg's library: playbooks a test writes elsewhere use just code's and destroy's modules too.
+        # As ansible.cfg's library and module_utils: playbooks a test writes elsewhere use just code's and destroy's
+        # modules too, and those import what they share.
         ANSIBLE_LIBRARY=str(REPO / "playbooks" / "library"),
+        ANSIBLE_MODULE_UTILS=str(REPO / "playbooks" / "module_utils"),
         ANSIBLE_NOCOLOR="1",
     )
     env.update(settings)
@@ -397,6 +541,7 @@ def _at_a_pseudo_terminal(
     act=None,
     timeout: float = 180,
     poll: float | Callable[[], float] = 0.2,
+    explain: Callable[[subprocess.Popen, int], str] | None = None,
 ) -> tuple[int, bytes]:
     """Run argv at a pseudo-terminal of its own, and read what it writes until it ends. Its rc and every byte.
 
@@ -407,10 +552,12 @@ def _at_a_pseudo_terminal(
     the bytes read and after each idle tick with b"", may type, resize or
     signal. An idle tick comes after poll seconds without output, or after
     what poll returns, when it is a function, asked before each wait. A run
-    that outlives timeout fails the test, its group killed.
+    that outlives timeout fails the test, its group killed, with what
+    explain(process, master) says of it after its output, when given.
     Every test that runs something at a terminal goes through here: the
-    sign-ins' and init's prompts (_run_at_a_terminal), and the live outputs
-    (test_status_live.py, test_deploy_live.py).
+    sign-ins' and init's prompts (_run_at_a_terminal), the live outputs
+    (test_status_live.py, test_deploy_live.py), and just code's Claude
+    terminal (test_code_session.py).
     """
     master, slave = pty.openpty()
     if size:
@@ -429,7 +576,8 @@ def _at_a_pseudo_terminal(
     try:
         while True:
             if time.monotonic() > deadline:
-                pytest.fail(f"the run did not finish within {timeout} seconds:\n" + output.decode(errors="replace"))
+                said = output.decode(errors="replace") + (f"\n{explain(process, master)}" if explain else "")
+                pytest.fail(f"the run did not finish within {timeout} seconds:\n{said}")
             ready, _, _ = select.select([master], [], [], poll() if callable(poll) else poll)
             chunk = b""
             if ready:
@@ -576,8 +724,261 @@ def _messages(report: dict, task: str) -> dict:
     }
 
 
+def _ran(report: dict, task: str, host: str | None = None) -> dict:
+    """The results of the tasks whose name ends with `task`, skipped ones left out: {host: [result, ...]}, in the
+    order they ran, for host alone when given."""
+    ran: dict = {}
+    for name, where, result in _results(report):
+        if name.endswith(task) and not result.get("skipped") and host in (None, where):
+            ran.setdefault(where, []).append(result)
+    return ran
+
+
 def _failures(report: dict) -> dict:
+    """What failed each host, by its last failed task: rescued failures too, and never a host unreachable."""
     return {host: f"{name}: {result.get('msg')}" for name, host, result in _results(report) if result.get("failed")}
+
+
+def _standing(report: dict) -> dict:
+    """What the run failed each host with, unlike _failures with a rescued failure left out and an unreachable host
+    in: the last failure of each host, if it stands."""
+    failures = {}
+    for name, host, result in _results(report):
+        if result.get("failed") or result.get("unreachable"):
+            failures[host] = f"{name}: {result.get('msg')}"
+    return {host: text for host, text in failures.items() if report["stats"][host]["failures"]}
+
+
+def _batches(report: dict, play: str) -> list[list[str]]:
+    """The hosts of each batch the play ran: the json callback reports each batch of a serial play as a play."""
+    return [
+        sorted({host for task in entry["tasks"] for host in task["hosts"]})
+        for entry in report["plays"]
+        if entry["play"]["name"] == play
+    ]
+
+
+def _task_seconds(report: dict, task: str, host: str) -> float:
+    """How long the task whose name ends with `task` ran for the host: the first that ran for it."""
+    for play in report["plays"]:
+        for entry in play["tasks"]:
+            if entry["task"]["name"].endswith(task) and host in entry["hosts"]:
+                duration = entry["task"]["duration"]
+                start, end = (
+                    datetime.datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end")
+                )
+                return (end - start).total_seconds()
+    raise AssertionError(f"no task {task!r} ran for {host}")
+
+
+def _init_next(report: dict) -> dict:
+    """What a run of just init's recorded for NEXT STEPS, by matter: just init's only, under a key no VM can have."""
+    left = _left_to_do(report)
+    assert set(left) <= {"just init"}, left
+    return left.get("just init", {})
+
+
+def _leaked(report: dict, secrets) -> list:
+    """Each of `secrets` the report holds. Module arguments reach a report only with ansible_inject_invocation on,
+    and a search of a run without them would find nothing whatever its tasks logged: the report must hold them."""
+    text = json.dumps(report)
+    assert '"invocation"' in text, "no module arguments in the report: run it with ansible_inject_invocation"
+    return [secret for secret in secrets if secret in text]
+
+
+# ------------------------------------------------------ the files themselves ---
+@functools.cache
+def _listed(pathspecs: tuple[str, ...], untracked: bool) -> tuple[Path, ...]:
+    flags = ["--cached", "--others", "--exclude-standard"] if untracked else []
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", *flags, "--", *pathspecs], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout
+    return tuple(sorted({REPO / name for name in listed.split("\0") if name and (REPO / name).is_file()}))
+
+
+def repo_files(*pathspecs: str, untracked: bool = False) -> list[Path]:
+    """The checkout's files that match git's pathspecs - all of them, given none - regular files only, sorted: the
+    tracked ones, and with untracked the new ones git does not ignore too, so a file is checked before its first
+    commit, while a working document git ignores (one at the top of docs/) never is. Listed once per process."""
+    return list(_listed(pathspecs, untracked))
+
+
+def repo_texts(*pathspecs: str, untracked: bool = False) -> list[tuple[Path, str]]:
+    """repo_files' files, each with its text: a file that is not UTF-8 text left out."""
+    texts = []
+    for path in repo_files(*pathspecs, untracked=untracked):
+        try:
+            texts.append((path, path.read_text(encoding="utf-8")))
+        except UnicodeDecodeError:
+            continue
+    return texts
+
+
+def load_module(path: str | Path, name: str | None = None, *, register: bool = True):
+    """A Python file imported by its path, relative to the checkout or absolute, as name - its file's stem unless
+    given - and in sys.modules under it unless register is false: a copy of its own, as a test that loads a module
+    afresh wants, which nothing else can find."""
+    path = REPO / path
+    spec = importlib.util.spec_from_file_location(name or path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    if register:
+        sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _every_task(node):
+    """Every task in a play list or a task list, in order: a play's pre_tasks, tasks, post_tasks and handlers, and
+    each block yielded before its block, rescue and always."""
+    for item in node if isinstance(node, list) else []:
+        if not isinstance(item, dict):
+            continue
+        if "tasks" in item or "pre_tasks" in item or "post_tasks" in item or "handlers" in item:
+            for key in ("pre_tasks", "tasks", "post_tasks", "handlers"):
+                yield from _every_task(item.get(key))
+            continue
+        yield item
+        for key in ("block", "rescue", "always"):
+            yield from _every_task(item.get(key))
+
+
+# What of a task is never logged: its name, its conditions, what it registers, no_log itself and its tags.
+NOT_LOGGED = frozenset({"name", "when", "changed_when", "failed_when", "until", "register", "no_log", "tags"})
+
+
+def _rendering(tasks: Iterable[dict], pattern: re.Pattern, *, ignore: Iterable[str] = NOT_LOGGED) -> dict:
+    """Each of tasks that renders what pattern matches, in anything but ignore's keys, by name: its no_log. A block
+    is its tasks, each looked at on its own."""
+    rendering = {}
+    for task in tasks:
+        if "block" in task:
+            continue
+        if pattern.search(json.dumps({key: value for key, value in task.items() if key not in ignore})):
+            rendering[task["name"]] = task.get("no_log")
+    return rendering
+
+
+def _deploy_import(root: Path, target: str) -> Path:
+    """deploy.yml's import of target - playbooks/github_login.yml, say - as it stands, its vars and its condition with
+    it, in a playbook of root's own that imports target by its whole path; returns that playbook."""
+    entries = [
+        entry
+        for entry in yaml.safe_load((REPO / "deploy.yml").read_text())
+        if entry.get("ansible.builtin.import_playbook") == target
+    ]
+    assert len(entries) == 1, entries
+    playbook = root / f"deploy_{Path(target).stem}.yml"
+    playbook.write_text(yaml.safe_dump([{**entries[0], "ansible.builtin.import_playbook": str(REPO / target)}]))
+    return playbook
+
+
+def _role_tasks_play(role: str, tasks_from: Iterable[str], name: str) -> dict:
+    """A play named name that runs each of a role's task files of tasks_from, in order, on every stand-in VM: the
+    part of the role under test, as its main.yml runs it."""
+    return {
+        "name": name,
+        "hosts": "claude_vms",
+        "gather_facts": False,
+        "tasks": [
+            {
+                "name": f"Run the role's {tasks} tasks",
+                "ansible.builtin.include_role": {"name": role, "tasks_from": tasks},
+            }
+            for tasks in tasks_from
+        ],
+    }
+
+
+def _scenario_vars(paths: Iterable[Path]) -> dict:
+    """What the given vars files set, merged in Ansible's order: later files win."""
+    merged: dict = {}
+    for path in paths:
+        merged.update(yaml.safe_load(path.read_text()) or {})
+    return merged
+
+
+# --------------------------------------------------------------------- just ---
+JUST = shutil.which("just")
+
+
+@functools.cache
+def just_json() -> dict:
+    """The justfile as just reads it (just --json): its recipes, assignments and settings, read once per process."""
+    return json.loads(subprocess.run([JUST, "--json"], cwd=REPO, capture_output=True, text=True, check=True).stdout)
+
+
+def public_recipes() -> dict[str, dict]:
+    """The recipes a person runs: every one but the private ones."""
+    return {name: recipe for name, recipe in just_json()["recipes"].items() if not recipe["private"]}
+
+
+def just_settings() -> set[str]:
+    """The assignments a person sets: the upper-case ones. The rest are the justfile's own workings."""
+    return {name for name in just_json()["assignments"] if name.isupper()}
+
+
+def _version(text: str) -> tuple[int, ...]:
+    """A version's numbers, to compare: 1.59.0 is (1, 59, 0)."""
+    return tuple(int(part) for part in text.split("."))
+
+
+# ---------------------------------------------------------------------- git ---
+# git as a test runs it: none of this machine's config, global or system - an insteadOf, a hook or
+# status.showUntrackedFiles there changes what git says and does - and an identity of its own to commit as.
+GIT_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "molecule",
+    "GIT_AUTHOR_EMAIL": "molecule@example.com",
+    "GIT_COMMITTER_NAME": "molecule",
+    "GIT_COMMITTER_EMAIL": "molecule@example.com",
+}
+
+
+def _bare_repos(git_root: Path, specs: Iterable[str]) -> None:
+    """One bare repository in git_root per spec - a name, or name:visibility as the fake GitHub takes it - with a
+    commit on main, as the Molecule prepare makes them: what tests/molecule/fake_github_api.py serves from there."""
+    env = {**os.environ, **GIT_ENV}
+    for spec in specs:
+        name = spec.split(":")[0]
+        src = git_root / "src" / name
+        src.mkdir(parents=True)
+        (src / "README.md").write_text(f"# {name}\n")
+        for argv in (
+            ["git", "init", "-q", "-b", "main", str(src)],
+            ["git", "-C", str(src), "add", "README.md"],
+            ["git", "-C", str(src), "commit", "-q", "-m", "init"],
+            ["git", "clone", "-q", "--bare", str(src), str(git_root / f"{name}.git")],
+        ):
+            subprocess.run(argv, check=True, env=env, capture_output=True)
+
+
+# ------------------------------------------------------------ the editors ---
+# An editor's plan inputs as code.yml hands them to the core (lib/claude_vm/editors/), for the tests that make a plan
+# themselves: alpha's window of its projects directory, every switch on, both editors' CLIs found - ZFS's event
+# daemon, zed, first on PATH, as on Ubuntu, which a plan never runs.
+EDITOR_ROOT = "/home/dev/projects"
+EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.claude-on-proxmox"
+ZEDITOR, VSCODE_CLI = "/usr/local/bin/zeditor", "/usr/local/bin/code"
+EDITOR_PROBE = {"which": ["/usr/sbin/zed", ZEDITOR, VSCODE_CLI], "versions": [[ZEDITOR, "Zed 0.210.4"]]}
+
+
+def editor_inputs(**over) -> dict:
+    """The inputs of an editor's plan, as code.yml gives them, with over in place of any."""
+    return {
+        "vm": {"name": "alpha", "vmid": 4013},
+        "target": EDITOR_ROOT,
+        "root": EDITOR_ROOT,
+        "files_dir": EDITOR_FILES_DIR,
+        "reach": "192.0.2.51",
+        "terminal": True,
+        "notes": True,
+        "notes_file": f"{EDITOR_FILES_DIR}/session/alpha-session.md",
+        "notes_dir": f"{EDITOR_FILES_DIR}/session",
+        "task_written": True,
+        "helpers": sorted(path.name for path in (REPO / "playbooks" / "files").iterdir()),
+        "probe": EDITOR_PROBE,
+    } | over
 
 
 # ------------------------------------------------------------ the fake APIs ---
@@ -591,10 +992,7 @@ FAKES = REPO / "tests" / "molecule"
 def _pve_cli(directory: Path, state: dict | None = None) -> Path:
     """The stand-in pveum, pvesh, pveversion, hostname and id (fake_pve_cli.py) in directory, the host's state given
     on top of its default; returns directory, to put first on PATH."""
-    spec = importlib.util.spec_from_file_location("fake_pve_cli", FAKES / "fake_pve_cli.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.install(directory, state)
+    return load_module(FAKES / "fake_pve_cli.py", register=False).install(directory, state)
 
 
 def _pve_cli_state(directory: Path) -> dict:
@@ -603,8 +1001,17 @@ def _pve_cli_state(directory: Path) -> dict:
 
 def _pve_cli_calls(directory: Path) -> list[list[str]]:
     """Every call the stand-ins in directory took, each its command and words."""
-    log = directory / "calls.log"
-    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return _json_lines(directory / "calls.log")
+
+
+def _pve_cli_writes(directory: Path) -> list[str]:
+    """The calls the stand-ins in directory took that change the host: every pveum but its one read, `user
+    permissions` (tools/proxmox-access.sh lists with pvesh)."""
+    return [
+        " ".join(call)
+        for call in _pve_cli_calls(directory)
+        if call[0] == "pveum" and call[1:3] != ["user", "permissions"]
+    ]
 
 
 def _free_port() -> int:
@@ -696,3 +1103,62 @@ def _pve(base: str, method: str, endpoint: str, **params) -> dict:
     unverified.verify_mode = ssl.CERT_NONE
     with urllib.request.urlopen(request, timeout=10, context=unverified) as answer:
         return json.loads(answer.read() or b"{}")
+
+
+def _fake_pve(directory: Path):
+    """The fake Proxmox on a loopback port, until the fixture ends, its state and its request log in directory/pve;
+    yields its https base URL."""
+    cert, key = _certificate(directory)
+    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(directory / "pve"), PVE_SECRET):
+        yield base.replace("http://", "https://")
+
+
+def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_polls: int = 3, **config) -> None:
+    """A VM in the fake at base, cloned from the template, given config - this project's tag when none is given - and,
+    when running, started, its agent asked agent_polls times: the fake refuses the first two polls, as an agent still
+    starting does, and answers from the third."""
+    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
+    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "claude-on-proxmox"}))
+    if running:
+        _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
+        for _ in range(agent_polls):
+            try:
+                _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
+            except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
+                pass
+
+
+def _pve_vars(directory: Path, base: str, pinned: dict | None = None) -> Path:
+    """directory/group_vars/all for a run against the fake at base: the project's defaults.yml, linked, and
+    fake_api.yml - the fake's address, the token's secret, the VM user, then pinned. Returns that directory."""
+    group_vars = directory / "group_vars" / "all"
+    group_vars.mkdir(parents=True, exist_ok=True)
+    defaults = group_vars / "defaults.yml"
+    if not defaults.is_symlink():
+        defaults.symlink_to(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")
+    api = {
+        "proxmox_api_host": "127.0.0.1",
+        "proxmox_api_port": int(base.rsplit(":", 1)[1]),
+        "vault_proxmox_api_token_secret": PVE_SECRET,
+        "vm_user": "dev",
+    }
+    (group_vars / "fake_api.yml").write_text(yaml.safe_dump({**api, **(pinned or {})}))
+    return group_vars
+
+
+def _pve_requests(directory: Path) -> list[dict]:
+    """Every request the fake Proxmox in directory/pve was sent, in order: its method, path and params."""
+    return _json_lines(directory / "pve" / "calls.log")
+
+
+def fake_fleet(directory: Path, version: str = "9.2.21"):
+    """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
+    its URL."""
+    for base in _fake_pve(directory):
+        _pve(base, "PUT", "fake/version", version=version)
+        for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
+            _pve_vm(base, vmid, name, running=running, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+            if name == "alpha":
+                # Made two days ago, so its day of history is its own; beta and gamma were made just now.
+                _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
+        yield base

@@ -131,14 +131,13 @@
       rescue:
         - name: Remember that Tailscale failed, for the end of the run
           vars:
-            claude_vm_tailscale_why: >-
-              {{ (ansible_failed_result.msg | default('no message', true)) | plain_text | regex_replace('\s+', ' ') | trim }}
+            claude_vm_tailscale_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
           ansible.builtin.set_fact:
             claude_vm_configure_failures: >-
               {{ claude_vm_configure_failures | default([])
-                 + [inventory_hostname ~ ': Tailscale failed at "' ~ (ansible_failed_task.name | default('a task'))
-                    ~ '": ' ~ claude_vm_tailscale_why ~ ('' if claude_vm_tailscale_why is search('[.!?]$') else '.')
-                    ~ ' Retry it with: just deploy ' ~ inventory_hostname ~ ' --tags tailscale'] }}
+                 + [(inventory_hostname ~ ': Tailscale failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_tailscale_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags tailscale')] }}
 
         - name: Say why, and go on
           ansible.builtin.debug:
@@ -160,7 +159,7 @@
     - name: Record where the code lives, for the alias play below
       ansible.builtin.set_fact:
         claude_vm_workspace: >-
-          {{ vm_projects_dir | default('', true) or ansible_facts.getent_passwd[vm_user][4] ~ '/projects' }}
+          {{ vm_projects_dir | default('', true) | projects_dir(ansible_facts.getent_passwd[vm_user][4]) }}
       tags: [always]
 
 # Records in Proxmox, where the VM cannot change it, each VM whose Tailscale has

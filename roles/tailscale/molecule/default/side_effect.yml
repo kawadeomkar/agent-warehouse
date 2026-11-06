@@ -148,23 +148,12 @@
         tailscale_enabled: false
 
     - name: Run the role with its package host unreachable
-      block:
-        - name: Run the role
-          ansible.builtin.include_role:
-            name: tailscale
-
-        - name: Fail, since the install should have
-          ansible.builtin.fail:
-            msg: The role installed Tailscale with its package host unreachable.
-      rescue:
-        - name: Assert it failed at the install, naming apt's reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_task.name == 'install | Install Tailscale'
-              - ansible_failed_result.msg is search('apt cache')
-              - ansible_failed_result.msg is search('could not be fetched')
-            fail_msg: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('') }}"
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: tailscale
+        refused_because: [apt cache, could not be fetched]
+        refused_at: '^install \| Install Tailscale$'
+        refused_unless: The role installed Tailscale with its package host unreachable.
 
     - name: Read what the failed install left
       ansible.builtin.stat:

@@ -2,9 +2,9 @@
 
 ## 7.1 `filter_plugins/proxmox.py`
 
-Five filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
+Four filters for reading Proxmox API output, one for a VM's tailnet address, and two for the managed
 SSH config. Their code is `lib/claude_vm/proxmox.py`'s, and the checks of what a VM or a person supplies
-(`guest_ipv4`, `ssh_alias_refusal`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
+(`guest_ipv4`, `ssh_alias_refusal`, `sshd_match_spec`) `lib/claude_vm/checks.py`'s (§7.10); a refusal is a `ValueError`, which
 ansible-core says with the filter's name.
 
 **`net_mac(net_config, default=_RAISE)`** — extracts the MAC from `virtio=BC:24:11:0E:72:04,bridge=vmbr0`.
@@ -27,12 +27,16 @@ anything else - a newline and a `ProxyCommand` after a valid address, a leading 
 that parses as one IPv4 address inside `100.64.0.0/10`, else `""`: tailscaled on the VM reports it, so
 it is held to the same rule as `guest_ipv4`.
 
-**`guest_address(vm_info, nic="net0")`** — the two above, composed the one way discovery and
-`just status` need: given what `proxmox_vm_info` registered for one VM read with `config` and
-`network`, the IPv4 the agent reports on the interface whose MAC is `config[nic]`. Returns `""` —
-never raises — for a failed or skipped call, a stopped VM, a silent agent or a missing NIC, so a
-caller sweeping the fleet skips that VM. Both playbooks pass `proxmox_nic`; they used to read
-`config.net0` inline, which ignored the NIC the role honours.
+**`guest_addresses(vms, configs, networks, nic="net0")`** — `net_mac` and `guest_ipv4`, composed the one
+way every reader of the fleet's addresses needs (`tasks/vm_addresses.yml`, which discovery, `just status`,
+`just code`, destroy and the alias refresh import): the cluster listing's VMs, each with an `address`, the
+IPv4 its agent reports on the interface whose MAC is its config's `nic`, from the `/config` and
+`/agent/network-get-interfaces` replies a `uri` loop registered, one per VM in the same order. A VM whose
+request failed or was skipped, that is stopped, whose agent has not answered, that has no such NIC or
+whose reply has another shape gets `""` — never an error — so a caller sweeping the fleet skips that VM,
+and no address is guessed without the MAC; only lists that cannot be paired raise. `vm_addresses.yml`
+passes `proxmox_nic`: reading `net0` regardless ignored the NIC the role honours, and left a VM whose LAN
+NIC is `net1` out of the fleet.
 
 **`proxmox_access_denied(msg)`** — whether a community.proxmox error means the token was refused:
 `40[13]` only in proxmoxer's status position (`"<status> <reason>: <detail>"`, after the module's own
@@ -58,9 +62,30 @@ config, so such an alias would take this machine's own connections to that host
 ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 **`ssh_alias_refusals(vms, hosts, chosen)`** is the same over a list, each refused VM as `{name, why,
 unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leaves out and says.
+**`ssh_hostname(vm, domain)`** — where a VM's alias points, its `HostName`: `<name>.<domain>` where the network
+resolves VM names (`claude_ssh_host_domain`), else the address its guest agent reported. The alias's block, the
+check that the user's ssh config reaches the managed file, and `just code`'s own connection all read it, so the
+editor and Ansible connect to the same place.
+**`sshd_match_spec(ssh_connection, user)`** — what `sshd -T -C` evaluates its `Match` blocks for: the
+user's sessions from where Ansible's own connection comes, read from its `SSH_CONNECTION` (client address
+and port, local address and port), or the loopback address where there is none (a container, a local run).
+`common` and `vscode_server` both ask sshd with it ([§5.7](roles.md#57-vscode_server--what-an-editors-remote-server-needs-on-the-host)).
 **`vms_not_named(vms, names)`** — the listing without the VMs named one of `names`, in order, a VM
 without a name kept: how discovery and the alias refresh leave out a VM named after a host of the
 inventory, which `add_host` would merge into it ([§4.3](lifecycle.md#43-playbooksdiscoveryml)).
+**`built_template(vms, name)`** — the built template named `name` in a listing, or `{}`: the first qemu VM
+of that name whose `template` is set, never a VM that merely shares the name, nor a container's template.
+How `just deploy` decides whether to build one and reads its node and config, how `just init` checks for
+one, and which one `just status` reads and reports. **`duplicate_names(vms)`** — the names more than one VM
+of a listing carries, sorted as Jinja's `sort` sorts them, a VM without a name none of them: Proxmox lets
+two VMs share a name, so discovery and the alias refresh refuse such a name among the tagged VMs, and
+destroy one it was given ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+**`proxmox_tags(tags)`** — a VM's tags as a list of whole tags, each trimmed, an empty one left out, their
+case as given: split on `;`, as Proxmox joins them on the wire, or `,`, as `proxmox_kvm` sends them and
+some versions echo them back ([§3](README.md#3-the-identity-model)). The one parser of them:
+`proxmox_vm`'s lookup, the Tailscale record (`tasks/tailscale_record.yml`), which writes them back as
+Proxmox gave them, and `just status`'s model; the whole-tag patterns in
+`inventory/group_vars/all/defaults.yml` match the joined form.
 
 **`proxmox_vm_drift(config, wanted)`** — what of a VM's settings differs from what `just deploy` would
 send, from its config as Proxmox reads it and the settings the role works out (`settings_drift.yml`):
@@ -95,17 +120,17 @@ Covered by 32 unit tests in `tests/unit/test_github_repos.py`.
 
 ## 7.3 VS Code's settings reader, `lib/claude_vm/editors/vscode.py`
 
-**`vscode_setting(text, key, default)`** — the value VS Code's `settings.json` gives `key`, for
-VS Code's plan to say whether the Claude terminal will start on its own. The file is JSONC: `//` and
-`/* */` comments and trailing commas are dropped in one pass that copies strings whole, so a `//`
-in a URL is not a comment and a commented-out `"task.allowAutomaticTasks": "off"` does not count.
-A key is read flat, as VS Code writes it, or nested, and the later spelling wins, as VS Code's own
-reader has it: dotted keys expand into a tree in file order, a nested object replaces what the flat
-keys built before it, and a key whose path runs into a value that is not an object is dropped.
-Empty text gives `default`; text that does not parse, or is not an object, gives `unparsable` when
-the caller passes one, which is how the plan says a file did not parse rather than take it for
-unset. Either way a run that only reports what the editor will do must not fail on the user's own
-settings. Read-only by construction; nothing in the project writes that file.
+**`vscode_setting(text, key, default="", unparsable="unparsable")`** — the value VS Code's
+`settings.json` gives `key`, for VS Code's plan to say whether the Claude terminal will start on its
+own. The file is JSONC: `//` and `/* */` comments and trailing commas are dropped in one pass that
+copies strings whole, so a `//` in a URL is not a comment and a commented-out
+`"task.allowAutomaticTasks": "off"` does not count. A key is read flat, as VS Code writes it, or
+nested, and the later spelling wins, as VS Code's own reader has it: dotted keys expand into a tree in
+file order, a nested object replaces what the flat keys built before it, and a key whose path runs
+into a value that is not an object is dropped. Empty text gives `default`; text that does not parse,
+or is not an object, gives `unparsable`, which is how the plan says a file did not parse rather than
+take it for unset. Either way a run that only reports what the editor will do must not fail on the
+user's own settings. Read-only by construction; nothing in the project writes that file.
 
 It is part of VS Code's family (§7.10), and no filter: the plan alone calls it, on the text the family's check read
 (`code_probe`). Covered by unit tests in `tests/unit/test_vscode_filters.py`.
@@ -170,10 +195,24 @@ controls and zero-width characters among them) replaced by a space, its lines, t
 line that reads in the order it was written. What every live run keeps of a report's lines
 (`lib/claude_vm/ansible/engine.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
 
-**`one_line(text, limit=120)`** — `visible_text`, then every newline and every other control character
-replaced by a space, runs of spaces collapsed, and the whole cut to `limit`, ending in "…". What
-`just status` keeps of every value a VM or Proxmox supplies, so none starts a line of its own in the
-report or in `--json` (§7.7). Covered by `tests/unit/test_status.py`, over a corpus of hostile values.
+**`one_line(text, limit=120)`** — `visible_text`, which removes every control character but tab and
+newline (a carriage return is removed, not made a space), then each newline and tab replaced by a space,
+runs of spaces collapsed, and the whole cut to `limit`, ending in "…", or never cut with `limit` none; what
+a VM printed is passed to it as it is. What `just status` keeps of every value a VM or Proxmox supplies, so
+none starts a line of its own in the report or in `--json` (§7.7), and what every live run keeps of a
+command's line or a test's name. Uncut, `one_line(none)`, it is how the playbooks and the roles quote what
+a VM or a tool printed - a failed module's message, a logout's stderr - in a message of their own.
+Covered by `tests/unit/test_status.py`, over a corpus of hostile values, and by `tests/unit/test_text_filter.py`.
+
+**`full_stop(text)`, `retry_line(text, command)`, `and_list(items)`** — the words those messages are built
+with, each written once. `full_stop` ends a quoted reason's sentence: as it is when it ends in `.`, `!` or
+`?`, else with a `.`, since a module's message often has none of its own ("One or more items failed") and
+one that has must not get a second. `retry_line` is that sentence, then `Retry it with: <command>`, the
+command ending the line with nothing after it, which would be pasted along with it; a sign-in's failure that
+already names its command is said as it is, which the sign-in playbooks decide before they call it.
+`and_list` says a list as words do: `alpha`, `alpha and beta`, `Claude, GitHub and Tailscale`, `""` for
+none, in `just deploy`'s opening message, `just init`'s report and `just status`'s items. Covered by
+`tests/unit/test_text_filter.py`, and the messages by the sign-in tests, which pin them.
 
 **`banner(body, title, host='', topic='')`** — the `#` block that sets a moment the run waits for the
 person apart from the task output around it: a rule 80 columns wide (the terminal's width when that is
@@ -184,9 +223,9 @@ screen as a backslash and an `n`. Every part goes through `plain_text`. The prom
 the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
 
 These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
-Ansible `plain_text`, `one_line` and `banner` as filters, and the callbacks, the engines and `tools/settings`
-import the module itself. `page_opener` and `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and
-`filter_plugins/desktop.py` their adapter.
+Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_list` as filters, and the
+callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
+`controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 
 ## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
 
@@ -211,12 +250,13 @@ A run waits for the person in three ways, and each is set apart:
 - **A page to approve**: a debug result tagged `attention_browser` is drawn as a block titled `ACTION
   REQUIRED IN YOUR BROWSER`, with the VM and the sign-in (from the task's role), instead of `ok: [host]
   =>` and a YAML dump. A retried task with the tag - Claude's and Tailscale's browser waits - says once
-  per VM that it is waiting, with the time left, instead of a `FAILED - RETRYING` line every few seconds
-  that pushed the page off the screen. Six tasks carry the tag, none looped; the device flow's
+  per VM that it is waiting, with the time left - every check still to come and the delay before each, one
+  more than Ansible's own `retries left` counts, as the live run counts it too - instead of a
+  `FAILED - RETRYING` line every few seconds that pushed the page off the screen. Six tasks carry the tag, none looped; the device flow's
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 31 reports that can say what to do later registers its message and records it straight
+  Each of the 24 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
   `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
   `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
@@ -236,7 +276,11 @@ A run waits for the person in three ways, and each is set apart:
   reached and a sign-in that failed, each with the `just login <vm> --only claude`, `github` or `tailscale`
   that retries it, and the work after a sign-in failing (`remote_control`, or `github` for the
   repositories), with its `just deploy <vm> --tags ...` - so a failure recorded after the role's own report
-  replaces that report's line. `github_login.yml` and `tailscale_login.yml` also say, for a VM whose Claude
+  replaces that report's line. The first two are one report the three share,
+  `playbooks/tasks/sign_in_failed.yml`, and the one below another, `playbooks/tasks/sign_in_held.yml`: the
+  only records whose stat is a template - the sign-in's, chosen from a map written out on the record, each
+  of whose stats `test_attention_callback.py` holds to the five as it holds a written-out one.
+  `github_login.yml` and `tailscale_login.yml` also say, for a VM whose Claude
   sign-in nobody answered, that theirs was not started and what starts it, only where the role would have
   started it (`github_projects_login_due`, `tailscale_login_due`, facts the role's question and sign-in go on
   too): that line takes the place of the role's report of the same sign-out, the one before it - for Tailscale
@@ -396,7 +440,14 @@ back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyy
 The filters'
 code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
-files; the filters decide from what they read, and touch no file.
+files; the filters decide from what they read, and touch no file. What the modules have in common is
+`playbooks/module_utils/claude_on_proxmox.py`'s, sent with each (§7.10): a session's ID, matched whole;
+the manifest's format and its reading, and a file's digest as the manifest records it; a transcript's line
+as the object it holds; the folders directly in a folder, never through a link; a version's order; the
+user's own processes, from `/proc`; and the one rule of what is a `claude`, which `claude_sessions_info`'s
+open sessions, `git_checkouts_info`'s `busy` and `vm_status_info`'s count (§7.7) all ask: the program or its
+first argument named `claude`, or either one Claude Code's npm package, so that npm's bin, run through its
+`node` shebang, is one too.
 
 **`claude_sessions_info`** — the transcripts under `<dir>/projects/<folder>/<id>.jsonl` of a Claude
 Code configuration directory, written in the last `days`, named in `ids`, or with `all` every one: per
@@ -464,12 +515,16 @@ and `open` (one a `claude` on the VM has open, given as `open_there`), one of no
 has in none; and with
 `wanted` (`--session`), its entry and the `problem` that refuses it, or `""`. A session's repository is
 its first directory's origin, else its gone worktree's checkout's, else `githubRepoPaths`; the VM's
-checkout of it is the one whose GitHub origin names it, of two the one named after it.
+checkout of it is the one whose GitHub origin names it, of two the one named after it. The plan reads
+an origin through two functions of `sessions.py` that no template calls, so neither is a filter:
 **`git_repository(url)`** is `owner/repo`, lowercased, of https, ssh and scp-like URLs and local paths
 alike, the host not compared: this machine's side, where a clone may reach GitHub by an SSH alias.
 **`github_repository(url)`** is the same of a GitHub origin only, and `""` of any other: the VM's side,
 whose checkouts just deploy cloned from GitHub, so that a local path or another host's repository there
-claims nothing. **`just_code_dir(projects, given)`** is just code's own directory on a VM -
+claims nothing. **`projects_dir(given, home)`** is the projects directory on a VM - `vm_projects_dir`, else
+`projects` in the VM user's home, without a trailing `/` - as configure's alias, just code, just status,
+destroy's save and the roles that clone into it and start Remote Control there all name it.
+**`just_code_dir(projects, given)`** is just code's own directory on a VM -
 `editor_files_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
 destroy's save, which reads the manifest there. **`claude_project_folder(path)`** is Claude Code's folder name for a path - every character
 but an ASCII letter or digit as `-` - refusing one over 200 characters, which Claude Code shortens with
@@ -522,8 +577,11 @@ the VMs, the storages, the template, what each VM said over SSH, the attention i
 problem, to do, and the exit code, 2, 1 or 0, from the highest. A role's own line is an item of that
 role's (`source`), drawn after its name as NEXT STEPS draws it. With `live` a value not read yet is pending, and nothing is ranked: the
 model of a frame the callback draws while the run goes on. **`status_text(model, color, reading, glyph,
-cols)`** — the report as text, every line within 100 columns, or within `cols` for a live frame, where
-`glyph` marks each pending value. The same functions draw the frames and the finished report.
+cols)`**, `tui/status.py`'s, which the callback calls and no template does, so it is no filter — the report
+as text, every line within 100 columns, or within `cols` for a live frame, where
+`glyph` marks each pending value. A VM's name longer than its column - 13 characters, 11 under ATTENTION - is
+cut to end in "…" in every section, so a cut name is never read as another VM's whole one. The same functions
+draw the frames and the finished report.
 
 **The callback** is the stdout callback `just status` chooses (`ANSIBLE_STDOUT_CALLBACK`, and
 `ANSIBLE_CALLBACKS_ENABLED` naming it alone, so `ansible.cfg`'s `profile_tasks` prints nothing into the
@@ -542,10 +600,11 @@ without a report.
 **`vm_status_info`** (`playbooks/library/`), the one module status runs on a VM, as the VM user and
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
-refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
-editor's windows, a process of the user's counted once, under the first editor whose `server` match in the
-editors list it meets: the module cannot import the core, so status hands it the rows' matches as its `editors`
-argument (`editor_servers`, §7.10), checked by Ansible's own argument spec. They are kept by the
+refreshes nothing) would make and how many are security ones, and the user's own claude processes (by the
+session modules' rule, §7.6) and each editor's windows, a process of the user's counted once, under the first
+editor whose `server` match in the editors list it meets: the module cannot import the core, so status hands it
+the rows' matches as its `editors` argument (`editor_servers`, §7.10), checked by Ansible's own argument spec.
+They are kept by the
 editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
 `vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
 as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
@@ -843,7 +902,15 @@ The Python that runs on this machine is moving into one package, `claude_vm`, in
 module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
 The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
 ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
-arguments.
+arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/claude_on_proxmox.py`,
+standard library only and no `AnsibleModule`, imported as `ansible.module_utils.claude_on_proxmox`: Ansible puts
+each playbook's `module_utils` folder on the path it builds that playbook's modules from, as it does its `library`
+folder, and `ansible.cfg`, the unit tests' environment (`tests/unit/harness.py`, and `conftest.py` for a module
+loaded in pytest's own process) and the `configure` scenario name it for what runs from elsewhere. ansible-lint's
+`args` rule imports each module in ansible-lint's own process, where no setting reaches, so `.ansible-lint` names a
+rules folder, `.config/ansible-lint-rules/`, whose one file holds no rule and puts the folder on the path. A helper in
+`playbooks/files/` runs as plain `python3 -I`, not as a module, so `claude-start.sh` keeps a copy of the shared
+test of a running `claude`, held equal to it by `tests/unit/test_code_session.py`.
 
 - **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
   when it is imported, only inside the function that needs one - but `proc.py`, the process table, whose every user
@@ -868,24 +935,25 @@ arguments.
   its first lookup of any filter. `plugin.own` checks, once per process, that the `claude_vm` imported is the
   adapter's own checkout's, by `os.path.samefile`, since APFS ignores case and a resolved path keeps the case it was
   given. pytest finds the package through `pythonpath` in `pyproject.toml`; ruff checks `lib/` against Python 3.12.
-- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories
-  and files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by
-  name), the folder or file it opens, and what it says. Each editor family is a module of free functions with one,
+- **The editors' plans** (`editors/`). A window of `just code` is a plan, data: what it refuses, the directories and
+  files it writes in just code's directory on the VM (by names relative to it), the helpers it copies (by name), the
+  folder or file it opens, and what it says. Each editor family is a module of free functions with one,
   `plan_open(editor, inputs)` (`vscode.py`, `zed.py`), the seam a `typing.Protocol` of that one member
   (`family.py`), never `@runtime_checkable`. `model.py` holds the records: a row of `claude_editors`, what the
   family's check found here (`Probe`), the inputs (`OpenInputs`, which grow by fields with defaults) and the plan.
   Every plan passes `registry.py` on every call: a refusal leaves alone; every write lies strictly inside just
-  code's directory (`commonpath` on the normalised join), outside the folders YAML writes there itself, the session
-  copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML lists, with its
-  directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in the family's
-  fixed shape over the first command `which` printed with one of the row's names whose `--version` says what the
-  row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised and writes
-  and launches them exactly as `code.yml` built them, and holds just code's directory to its rules only where it
-  writes there, as `code.yml` does; a family gives the Claude terminal only where its row says the window has one
-  (VS Code's, `started`; Zed's task file only at a helper path a task can be handed as it is). A row's `server`
-  (`ProcessMatch`) is how `just status` knows one of the editor's windows on the VM, a program named first, since a
-  match on the arguments alone would count any of the user's programs. `filter_plugins/editors.py` gives Ansible
-  `editor_open_plan` and `editor_servers`, the rows' matches as `vm_status_info`'s `editors` argument (§7.7).
+  code's directory (`common.below`, `commonpath` on the normalised join), outside the folders YAML writes there
+  itself, the session copies' and the notes' (`common.KEPT`), and over no helper's file; every helper is one YAML
+  lists, with its directory; every NEXT STEPS record names the inputs' VM; and the launch is the registry's own, in
+  the family's fixed shape over the first command `which` printed with one of the row's names whose `--version` says
+  what the row asks, so never ZFS's `zed`. Anything else is a `ValueError`. The plan compares paths normalised,
+  every "inside" by `common.below`, and writes and launches them exactly as `code.yml` built them, and holds just
+  code's directory to its rules only where it writes there, as `code.yml` does; a family gives the Claude terminal
+  only where its row says the window has one (VS Code's, `started`; Zed's task file only at a helper path a task can
+  be handed as it is). A row's `server` (`ProcessMatch`) is how `just status` knows one of the editor's windows on
+  the VM, a program named first, since a match on the arguments alone would count any of the user's programs.
+  `filter_plugins/editors.py` gives Ansible `editor_open_plan` and `editor_servers`, the rows' matches as
+  `vm_status_info`'s `editors` argument (§7.7).
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

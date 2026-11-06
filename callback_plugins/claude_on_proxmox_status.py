@@ -135,14 +135,9 @@ class CallbackModule(CallbackBase):
         self._out.title(f"status · reading {reading} VM{'' if reading == 1 else 's'}" if reading else "status")
         return text.split("\n") + [status_model.one_line(f"{glyph} {doing} · {elapsed}", cols - 1)]
 
-    def _redraw(self):
-        if self._live:
-            self._out.redraw()
-
     def _finish(self):
-        if self._live:
-            self._out.title("status · done")
-            self._out.finish()
+        self._out.title("status · done")
+        self._out.finish()
 
     # --- Ansible's events --------------------------------------------------------------------------------------
     def v2_playbook_on_start(self, playbook):
@@ -165,7 +160,7 @@ class CallbackModule(CallbackBase):
                     self._fleet_at = now
                 elif host != "localhost":
                     self._done_at[host] = now
-                self._redraw()
+                self._out.redraw()
         if (
             isinstance(facts.get("status_report"), dict)
             and host == "localhost"

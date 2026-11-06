@@ -29,31 +29,22 @@
     claude_vm_discovery: false
     claude_vm_login_raised_later: true
 
-# deploy.yml's own decisions for these two steps, behind claude_vm_login_named,
-# the play var each of their sign-in plays keeps: names given. Without them,
-# these stay false and the step reports. test_sign_in_plays.py holds each to
-# deploy.yml's.
+# After Claude's, as under deploy.yml (claude_vm_login_after_claude): each
+# sign-in play decides a VM from what Claude's left there, as deploy's do, for
+# names given (playbooks/vars/sign_in.yml). Without them, the step reports.
 - name: Sign gh in on each VM, and clone its private repositories
   ansible.builtin.import_playbook: github_login.yml
   vars:
     claude_vm_discovery: false
     claude_vm_login_raised_later: true
-    claude_vm_login_interactive: >-
-      {{ claude_vm_login_named | bool and (not (claude_code_login_skipped | default(false)) if github_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false)) }}
-    claude_vm_login_ask: >-
-      {{ claude_vm_login_named | bool and (not (github_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false))) }}
+    claude_vm_login_after_claude: true
 
 - name: Sign each VM in to Tailscale
   ansible.builtin.import_playbook: tailscale_login.yml
   vars:
     claude_vm_discovery: false
     claude_vm_login_raised_later: true
-    claude_vm_login_interactive: >-
-      {{ claude_vm_login_named | bool and (not (claude_code_login_skipped | default(false)) if tailscale_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false)) }}
-    claude_vm_login_ask: >-
-      {{ claude_vm_login_named | bool and (not (tailscale_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false))) }}
+    claude_vm_login_after_claude: true
   when: tailscale_enabled | default(true) | bool
 
 # just login exists to sign in: a VM any of whose sign-ins failed, or whose

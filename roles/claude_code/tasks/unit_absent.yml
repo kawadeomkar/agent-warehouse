@@ -1,0 +1,29 @@
+---
+# A Remote Control unit taken away, claude_code_unit_retired naming
+# which: the service, or the path unit that starts it when a login lands.
+# Stopped and disabled - removing the file alone leaves a loaded unit running
+# until the next reboot - its file removed, and systemd told. Included from
+# main.yml for each unit an earlier run left (Remote Control off, or an API
+# key), the path unit first, and from remote_control.yml for the path unit (a
+# login exists, or a setting blocks the feature): the two directions that
+# retire them, kept in one place so they cannot drift. As root, whoever
+# includes it: these are system units.
+- name: unit_absent | Stop and disable the unit
+  ansible.builtin.systemd_service:
+    name: "{{ claude_code_remote_control_service }}.{{ claude_code_unit_retired }}"
+    state: stopped
+    enabled: false
+  become: true
+
+- name: unit_absent | Remove the unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/{{ claude_code_remote_control_service }}.{{ claude_code_unit_retired }}
+    state: absent
+  become: true
+
+# Reports ok, not changed, and this file only runs for a unit there was to
+# remove - so this reloads exactly when something was removed.
+- name: unit_absent | Make systemd forget the unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true

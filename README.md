@@ -136,8 +136,8 @@ of roles, `tailscale_ssh` is a setting's, and `repo` a repository's on the VM.
 | `just deploy alpha beta` | Create and configure VMs and sign them in, then open a lone one in your editor. Re-run it after changing a setting (VM size applies when a VM is created) |
 | `just code alpha [--project repo] [--session <id>]` | Open a VM, or one repository on it, in your editor - VS Code with a Claude terminal by default, Zed with `--editor zed`; this machine's recent Claude sessions are copied there, and `--session` goes on with one of them |
 | `just login alpha` | Sign the VM in to Claude, GitHub and Tailscale where a sign-in was skipped; `--only claude`, `github` or `tailscale` for one of them |
-| `just status` | What every VM this project created is doing, and what needs doing next: read-only, live at a terminal, `--json` for scripts |
-| `just settings tailscale` | Each of a role's settings, its value and where it was set; one setting (`just settings tailscale_ssh`), or every one (`--all`, `--changed` for yours). `just settings tailscale_ssh --value true` sets one in `local.yml`, and `--reset` puts it back to its default; a secret is only said set or not set, and changes with `just vault` |
+| `just status` | The read-only report above, of every VM this project created; `--json` for scripts |
+| `just settings tailscale` | A role's settings, each value and where it was set, as above; `just settings tailscale_ssh --value true` sets one, `--reset` puts it back |
 | `just destroy alpha` | Save the Claude sessions only the VM has, sign it out of Claude, GitHub and Tailscale, then delete it |
 | `just logs` | The log of every run, newest first |
 | `ssh alpha` | The alias `just deploy` and `just code` keep pointed at the VM's address, in `~/.ssh/claude-on-proxmox.conf` (one `Include` line added to `~/.ssh/config`) |

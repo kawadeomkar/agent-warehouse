@@ -12,7 +12,6 @@ from claude_vm import proxmox as proxmox_filters
 net_mac = proxmox_filters.net_mac
 guest_ipv4 = checks.guest_ipv4
 tailnet_ipv4 = proxmox_filters.tailnet_ipv4
-guest_address = proxmox_filters.guest_address
 guest_addresses = proxmox_filters.guest_addresses
 proxmox_access_denied = proxmox_filters.proxmox_access_denied
 
@@ -52,6 +51,19 @@ class TestNetMac:
     def test_rejects_non_string(self):
         with pytest.raises(ValueError, match="expects a string"):
             net_mac(None)
+
+    # With a default, as a fleet-wide sweep passes one: it must not abort because one VM has no readable NIC. Without
+    # one it raises, as the two tests above hold.
+    def test_returns_the_default_when_no_mac_is_present(self):
+        assert net_mac("", "") == ""
+        assert net_mac("bridge=vmbr0", "") == ""
+
+    def test_returns_the_default_for_a_non_string(self):
+        assert net_mac(None, "") == ""
+        assert net_mac(["virtio=BC:24:11:00:00:01"], "") == ""
+
+    def test_a_default_does_not_mask_a_real_mac(self):
+        assert net_mac("virtio=BC:24:11:0E:72:04,bridge=vmbr0", "") == "bc:24:11:0e:72:04"
 
 
 class TestGuestIpv4:
@@ -197,74 +209,6 @@ class TestTailnetIpv4:
         assert tailnet_ipv4(["100.64.0.2 x", "100.127.255.254"]) == "100.127.255.254"
 
 
-class TestNetMacDefault:
-    """A fleet-wide sweep must not abort because one VM has no readable NIC."""
-
-    def test_returns_the_default_when_no_mac_is_present(self):
-        assert net_mac("", "") == ""
-        assert net_mac("bridge=vmbr0", "") == ""
-
-    def test_returns_the_default_for_a_non_string(self):
-        assert net_mac(None, "") == ""
-        assert net_mac(["virtio=BC:24:11:00:00:01"], "") == ""
-
-    def test_still_raises_without_a_default(self):
-        with pytest.raises(ValueError):
-            net_mac("bridge=vmbr0")
-
-    def test_a_default_does_not_mask_a_real_mac(self):
-        assert net_mac("virtio=BC:24:11:0E:72:04,bridge=vmbr0", "") == "bc:24:11:0e:72:04"
-
-
-def vm_info(config=None, network=None):
-    """What proxmox_vm_info registers for one VM read with config and network."""
-    vm = {"vmid": 9001, "name": "alpha"}
-    if config is not None:
-        vm["config"] = config
-    if network is not None:
-        vm["network"] = network
-    return {"changed": False, "proxmox_vms": [vm]}
-
-
-NET0 = "virtio=BC:24:11:0E:72:04,bridge=vmbr0"
-
-
-class TestGuestAddress:
-    def test_returns_the_address_of_the_configured_nic(self):
-        assert guest_address(vm_info({"net0": NET0}, [LO, DOCKER0, ETH0])) == "192.0.2.51"
-
-    def test_reads_the_mac_from_the_nic_it_is_given(self):
-        # A template whose LAN NIC is net1: reading net0 regardless is the bug
-        # that left such a VM out of just deploy --only configure and blank in just status.
-        info = vm_info({"net0": "virtio=02:00:00:00:00:01,bridge=vmbr1", "net1": NET0}, [LO, DOCKER0, ETH0])
-        assert guest_address(info, "net1") == "192.0.2.51"
-        assert guest_address(info, "net0") == ""
-
-    def test_defaults_to_net0(self):
-        assert guest_address(vm_info({"net0": NET0}, [ETH0])) == "192.0.2.51"
-
-    def test_empty_when_the_vm_has_no_such_nic(self):
-        # Never a guessed address: without the MAC, docker0 would come first.
-        assert guest_address(vm_info({"net1": NET0}, [DOCKER0, ETH0]), "net0") == ""
-        assert guest_address(vm_info({"net0": "bridge=vmbr0"}, [DOCKER0, ETH0])) == ""
-
-    def test_empty_while_the_agent_has_not_answered(self):
-        assert guest_address(vm_info({"net0": NET0})) == ""
-        assert guest_address(vm_info({"net0": NET0}, [])) == ""
-        assert guest_address(vm_info({"net0": NET0}, [iface("eth0", LAN_MAC, [])])) == ""
-
-    def test_empty_for_a_call_that_failed_or_was_skipped(self):
-        assert guest_address({"failed": True, "msg": "500 Internal Server Error: VM 4013 is not running"}) == ""
-        assert guest_address({"skipped": True}) == ""
-        assert guest_address({"proxmox_vms": []}) == ""
-        assert guest_address(None) == ""
-
-    def test_empty_for_malformed_answers(self):
-        assert guest_address(vm_info(None, [ETH0])) == ""
-        assert guest_address({"proxmox_vms": ["not-a-dict"]}) == ""
-        assert guest_address(vm_info({"net0": NET0}, {"eth0": ETH0})) == ""
-
-
 class TestProxmoxAccessDenied:
     @pytest.mark.parametrize(
         "msg",
@@ -308,6 +252,7 @@ def uri_result(data=None, status=200, skipped=False):
     return result
 
 
+NET0 = "virtio=BC:24:11:0E:72:04,bridge=vmbr0"
 ALPHA = {"vmid": 9001, "name": "alpha", "node": "pve", "status": "running", "tags": "claude-on-proxmox"}
 PARKED = {"vmid": 4013, "name": "parked", "node": "pve", "status": "stopped"}
 NAMELESS = {"vmid": 8001, "node": "pve2", "status": "unknown", "tags": "claude-on-proxmox"}
@@ -323,8 +268,10 @@ class TestGuestAddresses:
         assert rows == [{**ALPHA, "address": "192.0.2.51"}, {**PARKED, "address": ""}]
 
     def test_reads_the_nic_it_is_given(self):
-        config = uri_result({"net1": NET0})
-        network = uri_result({"result": [DOCKER0, ETH0]})
+        # A template whose LAN NIC is net1: reading net0 regardless is the bug
+        # that left such a VM out of just deploy --only configure and blank in just status.
+        config = uri_result({"net0": "virtio=02:00:00:00:00:01,bridge=vmbr1", "net1": NET0})
+        network = uri_result({"result": [LO, DOCKER0, ETH0]})
         assert guest_addresses([ALPHA], [config], [network], "net1")[0]["address"] == "192.0.2.51"
         assert guest_addresses([ALPHA], [config], [network], "net0")[0]["address"] == ""
 
@@ -343,8 +290,20 @@ class TestGuestAddresses:
         assert rows[0] == {**NAMELESS, "address": ""}
 
     def test_never_guesses_without_the_nics_mac(self):
-        rows = guest_addresses([ALPHA], [uri_result({})], [uri_result({"result": [DOCKER0, ETH0]})])
-        assert rows[0]["address"] == ""
+        # Without the MAC, docker0 would come first: no such NIC, or one whose config names no MAC.
+        configs = [uri_result({}), uri_result({"net1": NET0}), uri_result({"net0": "bridge=vmbr0"})]
+        network = uri_result({"result": [DOCKER0, ETH0]})
+        rows = guest_addresses([ALPHA] * 3, configs, [network] * 3)
+        assert [row["address"] for row in rows] == ["", "", ""]
+
+    def test_empty_for_answers_of_another_shape(self):
+        # A config that is no object, an agent reply without a list of interfaces, a reply that is no object.
+        rows = guest_addresses(
+            [ALPHA] * 3,
+            [uri_result("net0"), uri_result({"net0": NET0}), uri_result({"net0": NET0})],
+            [uri_result({"result": [ETH0]}), uri_result({"result": {"eth0": ETH0}}), uri_result([ETH0])],
+        )
+        assert [row["address"] for row in rows] == ["", "", ""]
 
     def test_rejects_lists_of_different_lengths(self):
         with pytest.raises(ValueError, match="1 VMs, 2 configs"):
@@ -414,6 +373,79 @@ class TestVmsNotNamed:
             proxmox_filters.vms_not_named({"vmid": 100}, [])
 
 
+class TestBuiltTemplate:
+    """The template deploy, init and status find by its name: a qemu VM of that name that is a template."""
+
+    NAME = "ubuntu-24.04-cloudinit"
+
+    def test_a_vm_that_merely_shares_the_name_is_no_template(self):
+        listing = [
+            {"vmid": 100, "type": "qemu", "name": self.NAME},
+            {"vmid": 101, "type": "qemu", "name": self.NAME, "template": 0},
+            {"vmid": 102, "type": "lxc", "name": self.NAME, "template": 1},
+            {"vmid": 103, "type": "qemu", "name": "other", "template": 1},
+            {"vmid": 104},
+        ]
+        assert proxmox_filters.built_template(listing, self.NAME) == {}
+        assert proxmox_filters.built_template([], self.NAME) == {}
+
+    def test_the_first_template_of_that_name(self):
+        listing = [
+            {"vmid": 100, "type": "qemu", "name": self.NAME},
+            {"vmid": 9000, "type": "qemu", "name": self.NAME, "template": 1, "node": "pve"},
+            {"vmid": 9001, "type": "qemu", "name": self.NAME, "template": 1, "node": "pve2"},
+        ]
+        assert proxmox_filters.built_template(listing, self.NAME)["vmid"] == 9000
+
+    def test_an_entry_that_names_no_type_counts_as_qemu(self):
+        entry = {"name": self.NAME, "template": 1, "node": "pve", "config": {}}
+        assert proxmox_filters.built_template([entry], self.NAME) == entry
+
+    def test_refuses_what_is_no_listing(self):
+        with pytest.raises(ValueError):
+            proxmox_filters.built_template({"name": self.NAME, "template": 1}, self.NAME)
+
+
+class TestProxmoxTags:
+    """A VM's tags as a list, however Proxmox or proxmox_kvm joined them."""
+
+    @pytest.mark.parametrize(
+        ("tags", "listed"),
+        [
+            ("claude-on-proxmox;claude-on-proxmox-tailscale", ["claude-on-proxmox", "claude-on-proxmox-tailscale"]),
+            # As proxmox_kvm sends them, and some versions echo them back.
+            ("ansible,claude-on-proxmox", ["ansible", "claude-on-proxmox"]),
+            (" Claude-On-Proxmox ; ;staging,", ["Claude-On-Proxmox", "staging"]),
+            ("", []),
+            (None, []),
+        ],
+    )
+    def test_each_tag_whole_trimmed_and_as_given(self, tags, listed):
+        assert proxmox_filters.proxmox_tags(tags) == listed
+
+    def test_a_tag_is_never_matched_inside_another(self):
+        tags = proxmox_filters.proxmox_tags("claude-on-proxmox-staging;not-claude-on-proxmox")
+        assert "claude-on-proxmox" not in tags
+
+
+class TestDuplicateNames:
+    """The names two VMs carry, which discovery, the alias refresh and destroy refuse to act on."""
+
+    def test_each_name_more_than_one_vm_carries_once_sorted_as_jinja_sorts(self):
+        names = ["twin", "Beta", "alpha", "twin", "beta", "twin", "solo", "Beta", "alpha"]
+        listing = [vm(name, vmid) for vmid, name in enumerate(names, start=100)]
+        assert proxmox_filters.duplicate_names(listing) == ["alpha", "Beta", "twin"]
+
+    def test_a_vm_without_a_name_is_none_of_them(self):
+        listing = [vm(None, 100), vm(None, 101), vm("", 102), vm("", 103), vm("alpha", 104)]
+        assert proxmox_filters.duplicate_names(listing) == []
+        assert proxmox_filters.duplicate_names([]) == []
+
+    def test_refuses_what_is_no_listing(self):
+        with pytest.raises(ValueError):
+            proxmox_filters.duplicate_names({"name": "twin"})
+
+
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
@@ -470,6 +502,78 @@ class TestSshAliasRefusal:
         hosts = ["pve", "localhost", "pve.lan"]
         assert said in checks.ssh_alias_refusal(name, hosts, [name])
         assert checks.ssh_alias_refusals([{"name": name}], hosts, [name])[0]["unnamed"] is False
+
+
+class TestSshHostname:
+    """Where an alias points: the alias's block, the Include check and just code's connection read the one rule."""
+
+    def test_the_address_the_agent_reported(self):
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}) == "192.0.2.51"
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}, "") == "192.0.2.51"
+
+    def test_the_name_in_the_domain_when_the_network_resolves_vm_names(self):
+        # Whatever the agent reported, or nothing at all.
+        assert checks.ssh_hostname({"name": "alpha", "address": "192.0.2.51"}, "lan") == "alpha.lan"
+        assert checks.ssh_hostname({"name": "alpha", "address": ""}, "lan") == "alpha.lan"
+
+    def test_no_address_and_no_domain_is_nowhere(self):
+        assert checks.ssh_hostname({"name": "alpha", "address": ""}) == ""
+        assert checks.ssh_hostname({"name": "alpha"}) == ""
+
+    def test_refuses_what_is_no_vm(self):
+        with pytest.raises(ValueError):
+            checks.ssh_hostname("alpha", "lan")
+
+
+class TestSshdMatchSpec:
+    def test_a_connection_gives_its_client_and_its_local_end(self):
+        # The branch a real VM takes: SSH_CONNECTION is "client port local port".
+        spec = checks.sshd_match_spec("192.0.2.5 50022 192.0.2.51 22", "dev")
+        assert spec == "user=dev,host=192.0.2.5,addr=192.0.2.5,laddr=192.0.2.51,lport=22"
+
+    @pytest.mark.parametrize("connection", ["", None, "192.0.2.5 50022"])
+    def test_without_a_whole_connection_the_loopback_address_stands_in(self, connection):
+        # A container or a local run has no SSH_CONNECTION.
+        assert checks.sshd_match_spec(connection, "dev") == "user=dev,host=127.0.0.1,addr=127.0.0.1"
+
+
+class TestProxmoxName:
+    # just init writes what the host reported into local.yml, which every later run reads as a template: a node,
+    # storage or bridge name that Proxmox would never give is neither offered nor written.
+    @pytest.mark.parametrize(
+        ("value", "kind"),
+        [("pve", "node"), ("pve-2", "node"), ("local-lvm", "storage"), ("nfs.data_1", "storage"), ("vmbr0", "bridge")],
+    )
+    def test_a_name_proxmox_gives_is_kept(self, value, kind):
+        assert checks.proxmox_name(value, kind) == value
+
+    @pytest.mark.parametrize(
+        ("value", "kind"),
+        [
+            ("{{ lookup('pipe', 'id') }}", "node"),
+            ("-pve", "node"),
+            ("a" * 64, "node"),
+            ("pve.lan", "node"),
+            ("1local", "storage"),
+            ("local-", "storage"),
+            ("vmbr0\n", "bridge"),
+            ("vmbr 0", "bridge"),
+            (None, "node"),
+            (7, "storage"),
+        ],
+    )
+    def test_anything_else_is_not(self, value, kind):
+        assert checks.proxmox_name(value, kind) == ""
+
+    def test_a_kind_it_does_not_know_is_refused(self):
+        with pytest.raises(ValueError, match="no kind 'pool'"):
+            checks.proxmox_name("tank", "pool")
+
+    def test_the_lists_keep_the_names_in_order_and_say_the_rest_as_json(self):
+        values = ["local-lvm", "{{ x }}", "nfs", "a b"]
+        assert checks.proxmox_names(values, "storage") == ["local-lvm", "nfs"]
+        assert checks.proxmox_names_refused(values, "storage") == ['"{{ x }}"', '"a b"']
+        assert checks.proxmox_names(None, "storage") == [] == checks.proxmox_names_refused(None, "storage")
 
 
 class TestSshConfigBlocks:

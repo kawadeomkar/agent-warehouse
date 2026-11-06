@@ -52,9 +52,6 @@ def jsonc_loads(text: str) -> object:
     return json.loads("".join(out))
 
 
-_UNSET = object()
-
-
 def _values_tree(settings: dict) -> dict:
     """Expand dotted keys into nested objects the way VS Code's ``toValuesTree`` does.
 
@@ -78,20 +75,17 @@ def _values_tree(settings: dict) -> dict:
     return tree
 
 
-def vscode_setting(text: str, key: str, default: object = None, unparsable: object = _UNSET) -> object:
+def vscode_setting(text: str, key: str, default: object = "", unparsable: object = "unparsable") -> object:
     """Return the value VS Code's settings.json ``text`` gives ``key``, or ``default``.
 
     Read-only and forgiving on purpose: a run that only wants to say what VS
     Code will do must not fail on the user's own editor settings. Empty text
     gives ``default``. Text that does not parse, or is not an object, gives
-    ``unparsable`` when that is passed and ``default`` otherwise, so a caller
-    can tell a broken file from an absent key. A key may be written flat
-    (``"task.allowAutomaticTasks"``), as VS Code writes it, or nested
-    (``"task": {"allowAutomaticTasks": ...}``); the later spelling wins, as
-    VS Code reads it.
+    ``unparsable``, so the plan tells a broken file from an absent key. A key
+    may be written flat (``"task.allowAutomaticTasks"``), as VS Code writes it,
+    or nested (``"task": {"allowAutomaticTasks": ...}``); the later spelling
+    wins, as VS Code reads it.
     """
-    if unparsable is _UNSET:
-        unparsable = default
     if not text or not text.strip():
         return default
     try:
@@ -159,12 +153,19 @@ def _github_said(inputs: OpenInputs) -> str:
     )
 
 
+def _notes_in_window(inputs: OpenInputs) -> bool:
+    """Whether the notes' folder lies in the window's own: only there is it a second folder of the workspace, since
+    VS Code stores the folders a user trusted, not their parents, and a folder added to a trusted workspace drops it to
+    Restricted Mode."""
+    return inputs.notes and common.below(inputs.notes_dir, inputs.target)
+
+
 def _workspace(inputs: OpenInputs) -> dict:
     """The workspace as data, written as to_nice_json writes it, so no path or message can break its JSON. Absolute
     paths throughout; the notes' folder a second one only where the window's own folder holds it."""
     vm, target, helpers = inputs.vm.name, inputs.target, posixpath.join(inputs.files_dir, common.HELPERS)
     notes_helper = f"{helpers}/session-notes.sh"
-    folder = inputs.notes and inputs.notes_dir.startswith(target + "/")
+    folder = _notes_in_window(inputs)
     folders = [{"path": target}] + ([{"path": inputs.notes_dir, "name": f"{vm} · session"}] if folder else [])
     own = posixpath.basename(inputs.files_dir)
     settings = {"files.exclude": {own: True}} if posixpath.dirname(inputs.files_dir) == target else {}
@@ -231,7 +232,7 @@ def _said(inputs: OpenInputs, auto: object, terminal: bool, again: str) -> tuple
     """What is said of the window, from what the user's own settings say VS Code will ask; again is the just code
     line that opens the whole projects directory's window."""
     vm, root, probe = inputs.vm.name, inputs.root, inputs.probe
-    below = inputs.files_dir.startswith(root + "/")
+    below = common.below(inputs.files_dir, root)
     trust_once = (
         ""
         if not below
@@ -281,7 +282,6 @@ def _said(inputs: OpenInputs, auto: object, terminal: bool, again: str) -> tuple
             + settings_note
             + trust_once
         )
-    folder = inputs.notes and inputs.notes_dir.startswith(inputs.target + "/")
     if not inputs.notes:
         notes_said = ""
     else:
@@ -290,7 +290,7 @@ def _said(inputs: OpenInputs, auto: object, terminal: bool, again: str) -> tuple
             if auto == "off"
             else f"The session notes open beside it each time ({inputs.notes_file})."
         )
-        if not folder:
+        if not _notes_in_window(inputs):
             covers = f", or trust the window of {again}, which covers them" if below else ""
             notes_said += (
                 " VS Code may ask once whether to open them, as a file outside this window's folder: Open"
@@ -341,7 +341,7 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
                 f" place either way: ssh {vm}.",
             ),
         )
-    auto = vscode_setting(inputs.probe.settings_text or "", "task.allowAutomaticTasks", "", unparsable="unparsable")
+    auto = vscode_setting(inputs.probe.settings_text or "", "task.allowAutomaticTasks")
     writes: tuple[VmWrite, ...] = ()
     opens = inputs.target
     if terminal:

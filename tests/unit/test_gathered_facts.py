@@ -14,11 +14,10 @@ from __future__ import annotations
 import ast
 import configparser
 import re
-import subprocess
 from pathlib import Path
 
 import yaml
-from harness import ANSIBLE_CFG
+from harness import ANSIBLE_CFG, repo_files
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -58,14 +57,7 @@ NAME = re.compile(r"(?:(?<![\w./])|(?<=\]\.)|(?<=\bvars\.)|(?<=\bansible_facts\.
 
 
 def _tracked() -> list[Path]:
-    listed = subprocess.run(
-        ["git", "ls-files", "-z", "--", "*.yml", "*.yaml", "*.j2", "*.yml.example"],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return [REPO / path for path in listed.split("\0") if path]
+    return repo_files("*.yml", "*.yaml", "*.j2", "*.yml.example")
 
 
 def test_no_tracked_file_reads_a_fact_as_a_top_level_variable():

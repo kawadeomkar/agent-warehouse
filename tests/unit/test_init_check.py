@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,24 +21,29 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import (
-    FAKES,
     LOGINS,
     PVE_SECRET,
     REPO,
-    _certificate,
-    _desktop,
     _env,
+    _every_task,
+    _executable,
     _failures,
+    _fake_pve,
     _free_port,
+    _init_next,
     _left_to_do,
     _messages,
     _pve,
+    _pve_requests,
+    _refusing_ssh,
     _results,
     _run,
     _run_at_a_terminal,
-    _serve,
+    _ssh_calls,
     _stand_in_hosts,
+    _text,
 )
+from harness import REFUSING_SSH as SSH_STAND_IN
 
 PLAYBOOK = REPO / "playbooks" / "init_check.yml"
 CLUSTER_VMS = REPO / "playbooks" / "tasks" / "cluster_vms.yml"
@@ -59,11 +63,6 @@ ROLE_8 = [
     "Datastore.Audit",
     "SDN.Use",
 ]
-SSH_STAND_IN = """#!/bin/sh
-printf '%s\\n' "$*" >> "$(dirname "$0")/ssh-calls.log"
-echo "ssh: connect to host 127.0.0.1 port 22: Connection refused" >&2
-exit 255
-"""
 # The node it says it is: pve, or what hostname-is beside it holds.
 HOSTNAME_STAND_IN = """#!/bin/sh
 printf '%s\\n' "$*" >> "$(dirname "$0")/hostname-calls.log"
@@ -76,9 +75,7 @@ DEPLOY_NEXT = "Next: just deploy alpha, which creates a VM named alpha (any name
 @pytest.fixture
 def fake_pve(tmp_path):
     """The fake Proxmox on a loopback port: its base URL."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        yield base.replace("http://", "https://")
+    yield from _fake_pve(tmp_path)
 
 
 def _port(base: str) -> int:
@@ -111,19 +108,15 @@ def _inventory_of(
     if pve == "local":
         if not (root / "bin").exists():
             hostvars = _stand_in_hosts(root, {"pve": LOGINS["logged-out"]})["pve"]
-            (root / "bin" / "hostname").write_text(HOSTNAME_STAND_IN)
-            (root / "bin" / "hostname").chmod(0o755)
+            _executable(root / "bin" / "hostname", HOSTNAME_STAND_IN)
         else:
             hostvars = {"ansible_connection": "local", "ansible_python_interpreter": str(root / "pve" / "python")}
         hostvars |= {"ansible_host": host, "ansible_user": "root"}
         env = {}
     else:
-        stand_ins = root / "ssh-stand-in"
-        stand_ins.mkdir(exist_ok=True)
-        (stand_ins / "ssh").write_text(SSH_STAND_IN)
-        (stand_ins / "ssh").chmod(0o755)
         hostvars = {"ansible_connection": "ssh", "ansible_host": host, "ansible_user": "root"}
-        env = {"PATH": f"{stand_ins}{os.pathsep}{_desktop(root)}{os.pathsep}{os.environ.get('PATH', os.defpath)}"}
+        # The refusing ssh first on PATH (SSH_STAND_IN).
+        env = _refusing_ssh(root)
     hosts = {"pve": hostvars} if proxmox_host else {}
     (root / "proxmox.yml").write_text(yaml.safe_dump({"proxmox": {"hosts": hosts}}))
     paths = {"init_vault_file": str(vault_file), "init_ssh_dir": str(root / "ssh"), "init_local_file": str(local)}
@@ -166,26 +159,8 @@ def _said(report: dict) -> str:
     return "\n".join(str(message) for message in _messages(report, "Say what each check found").values())
 
 
-def _next(report: dict) -> dict:
-    """What the run recorded for NEXT STEPS, by matter: just init's only, under a key no VM can have."""
-    left = _left_to_do(report)
-    assert set(left) <= {"just init"}, left
-    return left.get("just init", {})
-
-
-def _calls(tmp_path: Path) -> list[dict]:
-    log = tmp_path / "pve" / "calls.log"
-    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
-
-
-def _ssh_calls(root: Path) -> str:
-    log = root / "ssh-stand-in" / "ssh-calls.log"
-    return log.read_text() if log.exists() else ""
-
-
 def _hostname_calls(root: Path) -> str:
-    log = root / "bin" / "hostname-calls.log"
-    return log.read_text() if log.exists() else ""
+    return _text(root / "bin" / "hostname-calls.log")
 
 
 # ------------------------------------------------------------------- the checks ---
@@ -195,7 +170,7 @@ def test_nothing_is_checked_while_a_value_is_the_examples(tmp_path: Path, fake_p
     assert report["rc"] == 0, _failures(report)
     said = "\n".join(str(m) for m in _messages(report, "Say what is not set yet").values())
     assert "Proxmox is not checked yet: the Proxmox host address (inventory/hosts.yml) is still" in said
-    assert _calls(tmp_path) == [] and _ssh_calls(root) == ""
+    assert _pve_requests(tmp_path) == [] and _ssh_calls(root) == ""
     # Nothing new for NEXT STEPS: init_settings.yml's, printed before, names what is missing.
     assert _left_to_do(report) == {}
 
@@ -223,7 +198,7 @@ def test_every_check_passes_on_a_host_with_its_template_and_every_default_fits(t
     assert asked == []
     # The one step left, said last and kept for NEXT STEPS.
     assert said.rstrip().endswith("\n" + DEPLOY_NEXT)
-    assert _next(report) == {"init_check": DEPLOY_NEXT}
+    assert _init_next(report) == {"init_check": DEPLOY_NEXT}
 
 
 def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
@@ -236,12 +211,14 @@ def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
     assert "just init found" in "\n".join(_failures(report).values())
 
 
-def test_nothing_listening_names_the_address(tmp_path: Path, fake_pve: str) -> None:
+# An IPv6 address is said as a URL says it, in brackets.
+@pytest.mark.parametrize(("host", "url"), [("127.0.0.1", "127.0.0.1"), ("::1", "[::1]")], ids=["ipv4", "ipv6"])
+def test_nothing_listening_names_the_address(tmp_path: Path, fake_pve: str, host: str, url: str) -> None:
     root = tmp_path / "run"
     closed = _free_port()
-    report = _check(root, fake_pve, "ssh", {"proxmox_api_port": closed})
+    report = _check(root, fake_pve, "ssh", {"proxmox_api_port": closed}, host=host)
     assert report["rc"] != 0
-    assert f"nothing answered at https://127.0.0.1:{closed}" in _said(report)
+    assert f"nothing answered at https://{url}:{closed}" in _said(report)
 
 
 @pytest.mark.parametrize(("version", "agent"), [("8.2.4", "VM.Monitor"), ("9.2.13", "VM.GuestAgent.Audit")])
@@ -377,26 +354,22 @@ def test_no_key_suggests_one_from_the_ssh_directory(tmp_path: Path, fake_pve: st
     assert f'vm_ssh_public_keys: ["<the line in {root / "ssh" / "id_test.pub"}>"]' in _said(report)
 
 
+# A console password under its old name, vm_password, is a problem and never said: as a string in
+# test_next_steps_keep_each_problem_with_its_fix_and_no_deploy, as a number here, and empty, which sets nothing, in
+# test_every_check_passes_on_proxmox_ve_9_and_just_deploy_waits_for_the_username. The check reads nothing of Proxmox,
+# and adds its line to whatever else a run finds.
 def test_a_password_alone_is_a_problem(tmp_path: Path, fake_pve: str) -> None:
     # The console takes it; SSH, which just deploy configures the VMs over, does not.
     root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh", {"vm_ssh_public_keys": [], "vault_vm_password": "a-console-password"})
+    settings = {"vm_ssh_public_keys": [], "vault_vm_password": "a-console-password", "vm_password": 12345678}
+    report = _check(root, fake_pve, "ssh", settings)
     assert report["rc"] != 0
-    assert "!!   the VMs get only vault_vm_password, which is for the Proxmox console" in _said(report)
+    said = _said(report)
+    assert "!!   the VMs get only vault_vm_password, which is for the Proxmox console" in said
     assert "a-console-password" not in json.dumps(report)
-
-
-def test_a_password_under_its_old_name_is_a_problem_and_never_said(tmp_path: Path, fake_pve: str) -> None:
-    root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh", {"vm_password": "an-old-console-password"})
-    assert report["rc"] != 0
-    assert "!!   vm_password is set, which is vault_vm_password from 1.0" in _said(report)
-    assert "an-old-console-password" not in json.dumps(report)
-    # Empty, as vault.yml.example had it, it sets nothing and is no problem.
-    assert "vm_password is set" not in _said(_check(tmp_path / "empty", fake_pve, "ssh", {"vm_password": ""}))
     # A password YAML reads as a number is a password all the same, and names no Python error.
-    number = _said(_check(tmp_path / "number", fake_pve, "ssh", {"vm_password": 12345678}))
-    assert "vm_password is set, which is vault_vm_password" in number and "has no len" not in number
+    assert "!!   vm_password is set, which is vault_vm_password from 1.0" in said and "has no len" not in said
+    assert len([line for line in said.splitlines() if line.startswith("  !!   ")]) == 2, said
 
 
 def test_a_privilege_without_propagate_is_a_problem(tmp_path: Path, fake_pve: str) -> None:
@@ -418,20 +391,21 @@ def test_a_token_with_no_privileges_is_told_about_privilege_separation(tmp_path:
     assert "pveum aclmod /vms -token 'ansible@pve!ansible'" in _said(report)
 
 
-def test_every_check_passes_on_proxmox_ve_9(tmp_path: Path, fake_pve: str) -> None:
+def test_every_check_passes_on_proxmox_ve_9_and_just_deploy_waits_for_the_username(
+    tmp_path: Path, fake_pve: str
+) -> None:
+    # Every check passes, but the username is the example's: init_settings.yml's
+    # NEXT STEPS names it, and just deploy is not next yet. And vm_password
+    # empty, as vault.yml.example had it, sets nothing and is no problem.
     _pve(fake_pve, "PUT", "fake/version", version="9.2.13")
     root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh")
+    report = _check(root, fake_pve, "ssh", {"vault_github_username": "your-github-username", "vm_password": ""})
     assert report["rc"] == 0, _failures(report)
-    assert "ok   Proxmox VE 9.2.13" in _said(report) and "!!" not in _said(report)
-
-
-def test_an_ipv6_address_is_said_as_a_url_says_it(tmp_path: Path, fake_pve: str) -> None:
-    root = tmp_path / "run"
-    closed = _free_port()
-    report = _check(root, fake_pve, "ssh", {"proxmox_api_port": closed}, host="::1")
-    assert report["rc"] != 0
-    assert f"nothing answered at https://[::1]:{closed}" in _said(report)
+    said = _said(report)
+    assert "ok   Proxmox VE 9.2.13" in said and "!!" not in said
+    assert "vm_password is set" not in said
+    assert "just deploy alpha" not in said
+    assert _init_next(report) == {"init_check": ""}
 
 
 def test_a_plaintext_vault_is_a_problem(tmp_path: Path, fake_pve: str) -> None:
@@ -439,7 +413,7 @@ def test_a_plaintext_vault_is_a_problem(tmp_path: Path, fake_pve: str) -> None:
     report = _check(root, fake_pve, "ssh", vault="vault_proxmox_api_token_secret: x\n")
     assert report["rc"] != 0
     assert "!!   vault.yml is not encrypted, and every recipe refuses it: just vault encrypts it" in _said(report)
-    assert _next(report) == {
+    assert _init_next(report) == {
         "init_check": "just init found 1 problem for just deploy: fix it, then run just init again.\n"
         "  !!   vault.yml is not encrypted, and every recipe refuses it: just vault encrypts it"
     }
@@ -608,10 +582,13 @@ def test_without_a_template_a_bridge_is_offered_and_one_it_cannot_use_shown(tmp_
 
 
 def test_a_storage_given_is_written_even_where_the_default_fits(tmp_path: Path, fake_pve: str) -> None:
+    # With a bridge given equal to the template's, which is nothing to do: a scripted just init that gave --bridge
+    # runs again once deploy built the template. The bridge is checked before the storage is written.
     root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh", extra={"init_given": {"storage": "local-lvm"}})
+    report = _check(root, fake_pve, "ssh", extra={"init_given": {"storage": "local-lvm", "bridge": "vmbr0"}})
     assert report["rc"] == 0, _failures(report)
     assert '\nproxmox_storage: "local-lvm"\n' in _local(root)
+    assert "\nproxmox_bridge:" not in _local(root)
 
 
 def test_a_storage_given_that_will_not_do_fails_and_writes_nothing(tmp_path: Path, fake_pve: str) -> None:
@@ -645,12 +622,7 @@ def test_a_bridge_given_while_the_template_exists_is_refused(tmp_path: Path, fak
     assert "\nproxmox_storage:" not in _local(root)
 
 
-def test_a_bridge_given_equal_to_the_templates_is_nothing_to_do(tmp_path: Path, fake_pve: str) -> None:
-    # A scripted just init that gave --bridge runs again once deploy built the template.
-    root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh", extra={"init_given": {"bridge": "vmbr0"}})
-    assert report["rc"] == 0, _failures(report)
-    assert "\nproxmox_bridge:" not in _local(root)
+# A bridge given equal to the template's is nothing to do: test_a_storage_given_is_written_even_where_the_default_fits.
 
 
 # Nothing asked or written for storage while the node is unknown:
@@ -706,26 +678,24 @@ def test_no_host_in_the_proxmox_group_is_said_not_a_crash(tmp_path: Path, fake_p
 # ------------------------------------------------------------------ NEXT STEPS ---
 def test_next_steps_keep_each_problem_with_its_fix_and_no_deploy(tmp_path: Path, fake_pve: str) -> None:
     root = tmp_path / "run"
-    keyless = {"vm_ssh_public_keys": [], "vault_vm_password": ""}
+    keyless = {"vm_ssh_public_keys": [], "vault_vm_password": "", "vm_password": "an-old-console-password"}
     report = _check(root, fake_pve, "ssh", keyless, vault="vault_proxmox_api_token_secret: x\n")
     assert report["rc"] != 0
-    line = _next(report)["init_check"]
-    problems = [text for text in _said(report).splitlines() if text.startswith("  !!   ")]
-    assert len(problems) == 2, problems
+    line = _init_next(report)["init_check"]
+    said = _said(report)
+    problems = [text for text in said.splitlines() if text.startswith("  !!   ")]
+    assert len(problems) == 3, problems
     assert line == "\n".join(
-        ["just init found 2 problems for just deploy: fix them, then run just init again.", *problems]
+        ["just init found 3 problems for just deploy: fix them, then run just init again.", *problems]
     )
-    assert "ssh-keygen -t ed25519" in line and "just deploy alpha" not in line + _said(report)
+    assert "ssh-keygen -t ed25519" in line and "just deploy alpha" not in line + said
+    # The password under its old name is named, and never said.
+    assert "!!   vm_password is set, which is vault_vm_password from 1.0" in said
+    assert "an-old-console-password" not in json.dumps(report)
 
 
-def test_next_steps_leave_just_deploy_to_the_github_username(tmp_path: Path, fake_pve: str) -> None:
-    # Every check passes, but the username is the example's: init_settings.yml's
-    # NEXT STEPS names it, and just deploy is not next yet.
-    root = tmp_path / "run"
-    report = _check(root, fake_pve, "ssh", {"vault_github_username": "your-github-username"})
-    assert report["rc"] == 0, _failures(report)
-    assert "!!" not in _said(report) and "just deploy alpha" not in _said(report)
-    assert _next(report) == {"init_check": ""}
+# Nothing while the GitHub username is the example's:
+# test_every_check_passes_on_proxmox_ve_9_and_just_deploy_waits_for_the_username.
 
 
 def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path: Path, fake_pve: str) -> None:
@@ -737,7 +707,7 @@ def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path
     report = _check(root, fake_pve, "ssh", {"proxmox_node": "pve2"})
     assert report["rc"] == 0, _failures(report)
     assert "ok   node pve2: it holds the template" in _said(report) and "just deploy alpha" not in _said(report)
-    assert _next(report) == {
+    assert _init_next(report) == {
         "init_check": "just init could not check all that just deploy needs: run it again once it can.\n"
         "  --   the storage is not checked: node pve2 is not up\n"
         "  --   the template's bridge is not checked: node pve2 is not up"
@@ -745,17 +715,6 @@ def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path
 
 
 # ------------------------------------------------------------------- static ---
-def _tasks(node):
-    for item in node if isinstance(node, list) else []:
-        if isinstance(item, dict):
-            if "tasks" in item:
-                yield from _tasks(item["tasks"])
-                continue
-            yield item
-            for key in ("block", "rescue", "always"):
-                yield from _tasks(item.get(key))
-
-
 READ_ONLY = {
     "ansible.builtin.uri",
     "ansible.builtin.command",
@@ -788,7 +747,7 @@ def test_every_task_is_a_read_but_the_settings_written():
     # choice, a question or local.yml's writer - the one thing that writes, a
     # setting at a time.
     files = (PLAYBOOK, CLUSTER_VMS, CHOOSE)
-    tasks = [task for path in files for task in _tasks(yaml.safe_load(path.read_text()))]
+    tasks = [task for path in files for task in _every_task(yaml.safe_load(path.read_text()))]
     for task in tasks:
         if "block" in task:
             assert set(task) <= TASK_KEYS | {"block", "rescue", "always"}, task["name"]
@@ -807,7 +766,7 @@ def test_every_task_is_a_read_but_the_settings_written():
             entry = (task[module]["name"], task[module]["tasks_from"])
             assert set(task[module]) == {"name", "tasks_from"} and entry in ROLE_ENTRY_POINTS, task["name"]
             path = REPO / "roles" / entry[0] / "tasks" / f"{entry[1]}.yml"
-            assert {next(iter(set(t) - TASK_KEYS)) for t in _tasks(yaml.safe_load(path.read_text()))} == {
+            assert {next(iter(set(t) - TASK_KEYS)) for t in _every_task(yaml.safe_load(path.read_text()))} == {
                 "ansible.builtin.set_fact"
             }, path
 
@@ -818,7 +777,7 @@ def test_a_setting_is_written_only_at_a_terminal_or_as_given():
     writers = {
         task["name"]: " ".join(str(task["when"]).split())
         for path in (PLAYBOOK, CHOOSE)
-        for task in _tasks(yaml.safe_load(path.read_text()))
+        for task in _every_task(yaml.safe_load(path.read_text()))
         if str(task.get("ansible.builtin.include_tasks", "")).endswith("init_local_setting.yml")
     }
     assert sorted(writers) == [
@@ -847,7 +806,7 @@ def test_the_playbook_has_no_duplicate_key(tmp_path):
 
 
 def test_every_uri_call_passes_the_ca_and_hides_the_token():
-    for task in _tasks(yaml.safe_load(PLAYBOOK.read_text())):
+    for task in _every_task(yaml.safe_load(PLAYBOOK.read_text())):
         if "ansible.builtin.uri" in task:
             uri = task["ansible.builtin.uri"]
             assert uri["ca_path"] == "{{ proxmox_api_ca_path | default(omit, true) }}", task["name"]
@@ -855,13 +814,14 @@ def test_every_uri_call_passes_the_ca_and_hides_the_token():
 
 
 def test_no_run_reaches_a_real_ssh():
-    # Every run goes through _check, which gives the Proxmox host the local
-    # connection or puts the refusing ssh first on PATH, and points the vault
-    # and the key directory into the test's own.
+    # Every run goes through _check or _check_at_a_terminal, which give the Proxmox host the local connection or
+    # put the refusing ssh first on PATH, and point the vault and the key directory into the test's own.
     tree = ast.parse(Path(__file__).read_text())
+    callers = set()
     for function in ast.walk(tree):
         if isinstance(function, ast.FunctionDef):
             for call in ast.walk(function):
-                if isinstance(call, ast.Call) and getattr(call.func, "id", None) == "_run":
-                    assert function.name == "_check", function.name
+                if isinstance(call, ast.Call) and getattr(call.func, "id", None) in {"_run", "_run_at_a_terminal"}:
+                    callers.add((call.func.id, function.name))
+    assert callers == {("_run", "_check"), ("_run_at_a_terminal", "_check_at_a_terminal")}, callers
     assert SSH_STAND_IN.rstrip().endswith("exit 255") and "ssh-calls.log" in SSH_STAND_IN

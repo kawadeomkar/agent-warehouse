@@ -44,7 +44,7 @@ GROUP_VARS = ROOT / "inventory" / "group_vars" / "all"
 
 sys.path.insert(0, str(ROOT / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
 from claude_vm import plugin  # noqa: E402
-from claude_vm.wiring import parse_example, role_of, roles, set_by, specs, wiring  # noqa: E402
+from claude_vm.wiring import alias_of, parse_example, role_of, roles, set_by, specs, wiring  # noqa: E402
 
 plugin.own(str(ROOT / "lib"))  # this checkout's package, never another's that sys.path had first
 
@@ -109,17 +109,19 @@ def _attribute(recipe: dict, name: str):
     )
 
 
+def _word(parameter: dict) -> str:
+    """What a parameter that takes words stands for: its name in lower case, in the singular (NAMES: name)."""
+    name = parameter["name"].lower()
+    return name if parameter["kind"] == "singular" else name.removesuffix("s")
+
+
 def _usage(name: str, recipe: dict) -> str:
     """`just deploy [<name>...]`: the recipe and the words it takes, its options in the rows below it."""
     words = []
     for parameter in recipe["parameters"]:
         if parameter["long"] or parameter["short"] or parameter["name"] == "EXTRA":
             continue
-        word = (
-            parameter["name"].lower().removesuffix("s")
-            if parameter["kind"] != "singular"
-            else parameter["name"].lower()
-        )
+        word = _word(parameter)
         # code opens one VM: the one name it needs is not optional.
         if name == "code" and word == "name":
             words.append("<name>")
@@ -145,10 +147,9 @@ def commands() -> str:
     layout is this script's own, so a newer just generates the same page."""
     justfile = json.loads(_just("--json"))
     recipes = justfile["recipes"]
-    # An alias is listed under its recipe: the name a recipe had before.
-    aliases: dict[str, list[str]] = {}
-    for alias in sorted(justfile.get("aliases") or {}):
-        aliases.setdefault(justfile["aliases"][alias]["target"], []).append(alias)
+    # Each recipe has one name, and this page lists no other: an alias fails here rather than go unlisted.
+    if justfile.get("aliases"):
+        raise SystemExit(f"justfile: aliases ({', '.join(sorted(justfile['aliases']))}), which the commands page lacks")
     groups: dict[str, list[str]] = {}
     for name in _just("--summary", "--unsorted").split():
         recipe = recipes[name]
@@ -164,20 +165,8 @@ def commands() -> str:
             for parameter in recipe["parameters"]:
                 if parameter["name"] == "EXTRA":
                     continue
-                if parameter["long"]:
-                    spelled = _option(parameter)
-                else:
-                    word = (
-                        parameter["name"].lower().removesuffix("s")
-                        if parameter["kind"] != "singular"
-                        else parameter["name"].lower()
-                    )
-                    spelled = f"<{word}>"
+                spelled = _option(parameter) if parameter["long"] else f"<{_word(parameter)}>"
                 out.append(f"| {INDENT_CELL}`{spelled}` | {cell(parameter['help'] or '')} |")
-            for alias in aliases.get(name, []):
-                out.append(
-                    f"| {INDENT_CELL}`just {alias}` | Another name for `just {name}`, and the same in every way |"
-                )
         out.append("")
     return "\n".join(out)
 
@@ -196,8 +185,8 @@ def value(v) -> str:
     if v == "":
         return '`""`'
     if isinstance(v, str) and "{{" in v:
-        same = re.fullmatch(r"\{\{ (\w+) \}\}", v)
-        return f"same as `{same.group(1)}`" if same else "computed"
+        same = alias_of(v)
+        return f"same as `{same}`" if same else "computed"
     dumped = yaml.safe_dump(v, default_flow_style=True, width=1000).strip().removesuffix("...").strip()
     if "|" in dumped:
         # A pipe splits a GitHub table cell, and `\|` inside backticks shows its backslash on the site.
@@ -253,9 +242,9 @@ def settings() -> str:
                 if example not in ("", [], {}, None) and example != default:
                     notes.append(f"For example {value(example)}.")
                 shown = value(default)
-                same = re.fullmatch(r"\{\{ (\w+) \}\}", default) if isinstance(default, str) else None
-                if same and same.group(1) in fed_by:
-                    shown = f"same as `{fed_by[same.group(1)]}`"
+                same = alias_of(default)
+                if same in fed_by:
+                    shown = f"same as `{fed_by[same]}`"
                 out.append(f"| `{name}` | {shown} | {' '.join(notes)} |")
             out.append("")
     for title, groups in parse_example(GROUP_VARS / "vault.yml.example", secret=True):
@@ -272,21 +261,54 @@ def settings() -> str:
 
 
 def internals(role: str) -> str:
-    """The role's vars/main.yml as a table, every value as written: docsible's own reading of the file
-    shows a multi-line value as a placeholder."""
+    """The role's vars/main.yml as a table, every value as written - docsible's own reading of the file
+    shows a multi-line value as a placeholder - and what each is for, from the comment above it."""
     path = ROOT / "roles" / role / "vars" / "main.yml"
     values = (yaml.safe_load(path.read_text()) or {}) if path.exists() else {}
     if not values:
         return ""
+    purposes = _purposes(path.read_text())
     computed = sum(isinstance(v, str) and "{{" in v for v in values.values())
-    rows = "\n".join(f"| `{name}` | {_literal(v)} |" for name, v in values.items())
+    # Not escaped here: _role_section escapes every row of the page, this table's included.
+    said = {name: purposes.get(name, "").replace("|", "\\|") for name in values}
+    rows = "\n".join(f"| `{name}` | {said[name]} | {_literal(v)} |" for name, v in values.items())
     share = "All" if computed == len(values) else f"{computed} of the"
-    said = f" {share} {len(values)} are computed during a run, from earlier tasks' results." if computed else ""
+    count = f" {share} {len(values)} are computed during a run, from earlier tasks' results." if computed else ""
     return (
         f"## Internal values\n\nSet in `roles/{role}/vars/main.yml`. These are not settings: Ansible ranks a "
-        f"role's vars above `local.yml`, so a value set there has no effect.{said}\n\n"
-        f"| Name | Value |\n|---|---|\n{rows}"
+        f"role's vars above `local.yml`, so a value set there has no effect.{count} Each one's purpose is the first "
+        "sentence of the comment above it, where it has one of its own.\n\n"
+        f"| Name | Purpose | Value |\n|---|---|---|\n{rows}"
     )
+
+
+# A comment's banner ("# --- the browser sign-in ---"), which heads a group rather than describing a value.
+COMMENT_BANNER = re.compile(r"^#\s*-{3,}.*-{3,}\s*$")
+# What a vars file's comments open with, which says nothing of the value: "Internal, not meant to be overridden:".
+COMMENT_INTERNAL = re.compile(r"^Internal(?:, not meant to be overridden)?[:.]\s*")
+# A sentence's end: a full stop before a space and the next sentence, or at the end - not one in a name
+# (api.anthropic.com), a quotation ("Login successful.") or before an ellipsis ("Invalid code. ...").
+SENTENCE = re.compile(r"(.+?\.)(?=\s+[^\s.]|\s*$)")
+
+
+def _purposes(text: str) -> dict[str, str]:
+    """Each top-level key of a vars file and the first sentence of the comment lines straight above it: '' for a key
+    with none, which follows another and shares its comment."""
+    lines = text.splitlines()
+    out = {}
+    for i, line in enumerate(lines):
+        key = re.match(r"^([a-z_][a-z0-9_]*):", line)
+        if not key:
+            continue
+        start = i
+        while start > 0 and lines[start - 1].startswith("#"):
+            start -= 1
+        words = " ".join(c[1:].strip() for c in lines[start:i] if not COMMENT_BANNER.match(c) and c[1:].strip())
+        words = COMMENT_INTERNAL.sub("", words)
+        sentence = SENTENCE.match(words)
+        said = (sentence.group(1) if sentence else words).strip()
+        out[key.group(1)] = said[:1].upper() + said[1:]
+    return out
 
 
 def _literal(v) -> str:
@@ -297,20 +319,50 @@ def _literal(v) -> str:
     return f"`{text}`" if text else '`""`'
 
 
+def set_through() -> dict[str, str]:
+    """The sentence a role variable's description ends with when a setting of the example files reaches it through
+    the wiring: the nearest such setting, and the file it is set in. A variable that is a setting itself has none."""
+    _, feeds = wiring()
+    files = {}
+    for name, secret in (("local.yml.example", False), ("vault.yml.example", True)):
+        for _, groups in parse_example(GROUP_VARS / name, secret):
+            files.update({setting: name.removesuffix(".example") for _, found in groups for setting, _ in found})
+    sources: dict[str, list[str]] = {}
+    for setting, variables in feeds.items():
+        for var in variables:
+            sources.setdefault(var, []).append(setting)
+    out = {}
+    for var in sources:
+        level, seen = [] if var in files else sources[var], set()
+        while level:
+            found = [setting for setting in level if setting in files]
+            if found:
+                out[var] = "Set through " + " or ".join(f"`{s}` in {files[s]}" for s in found) + "."
+                break
+            seen.update(level)
+            level = [source for setting in level for source in sources.get(setting, []) if source not in seen]
+    return out
+
+
 def _role_section(role: str, section: str) -> str:
-    """docsible's output, finished: internal values put in, missing defaults filled, text escaped and
-    blank lines collapsed - outside the flowcharts' fences, which pass through as they are."""
+    """docsible's output, finished: internal values put in, missing defaults filled, the setting each variable is set
+    through said, text escaped and blank lines collapsed - outside the flowcharts' fences, which pass through as they
+    are."""
     defaults = yaml.safe_load((ROOT / "roles" / role / "defaults" / "main.yml").read_text()) or {}
+    own = specs()[role]
+    through = {var: said for var, said in set_through().items() if var in own}
     out: list[str] = []
     fence = False
     for line in section.replace(INTERNALS, internals(role)).splitlines():
         if line.startswith("```"):
             fence = not fence
         elif not fence:
+            var = re.match(r"\| `(\w+)` \|", line)
             if NO_DEFAULT in line:
-                var = re.match(r"\| `(\w+)` \|", line)
                 shown = value(defaults[var.group(1)]) if var and var.group(1) in defaults else ""
                 line = line.replace(NO_DEFAULT, shown)
+            if var and var.group(1) in through and line.rstrip().endswith("|"):
+                line = f"{line.rstrip()[:-1].rstrip()} {through[var.group(1)]} |"
             line = escape(line) if not line.startswith("|") else _escape_row(line)
             line = line.replace(INDENT, "&emsp;")
             if not line and (not out or not out[-1]):

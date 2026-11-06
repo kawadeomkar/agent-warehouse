@@ -46,7 +46,7 @@
                ~ tailscale_configure_command ~ tailscale_report_or_browser)
          if tailscale_refused_why | length > 0
          else ('Tailscale did not join with vault_tailscale_auth_key ('
-               ~ ((tailscale_join.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim) or 'no reason given')
+               ~ (tailscale_join.stderr | default('') | one_line(none) or 'no reason given')
                ~ '). ' ~ tailscale_configure_command ~ ' tries again' ~ tailscale_report_or_browser) }}
     tailscale_report_said:
       check-no-package: >-

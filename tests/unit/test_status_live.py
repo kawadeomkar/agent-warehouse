@@ -1,6 +1,6 @@
 """`just status` at a terminal: the live report, drawn and redrawn in place, then the finished one (lifecycle.md §4.6).
 
-Each test runs status.yml against the fake Proxmox (test_status.fake_fleet) with the callback just status chooses,
+Each test runs status.yml against the fake Proxmox (harness.fake_fleet) with the callback just status chooses,
 at a pseudo-terminal of its own whose size the test sets, and reads the bytes back through vt.VT, a small terminal:
 what is on the screen and in its scrollback when the run ends, and whether a frame ever wrapped. The finished report
 is the run log's, which Display writes and the live frames never reach.
@@ -8,24 +8,18 @@ is the run log's, which Display writes and the live frames never reach.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import re
 import signal
-import struct
-import subprocess
 import sys
-import termios
 from pathlib import Path
 
 import live_kit as kit
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, REPO, _env, _fail_if_the_desktop_was_reached
-from test_status import fake_fleet, status_root
+from harness import ANSIBLE_PLAYBOOK, REPO, _env, fake_fleet
+from test_status import status_root
 from vt import VT
-
-sys.path.insert(0, str(REPO / "callback_plugins"))
 
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 LIVE = {
@@ -59,10 +53,6 @@ def _inventory(root: Path) -> Path:
     return inventory
 
 
-def _size(fd: int, cols: int, rows: int) -> None:
-    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
-
-
 def _at_a_terminal(
     tmp_path: Path,
     base: str,
@@ -77,7 +67,7 @@ def _at_a_terminal(
 ):
     """Run status.yml at a pseudo-terminal of cols x rows: its rc, the VT the bytes went through, the raw bytes and
     the run log. resize, (cols, rows), changes the size once the first frame with the VMs is drawn; interrupt sends
-    Ctrl-C's SIGINT to the run's process group once both running VMs (test_status.fake_fleet) wait in ssh.
+    Ctrl-C's SIGINT to the run's process group once both running VMs (harness.fake_fleet) wait in ssh.
 
     Either holds every VM's ssh (test_status.SSH) until it is done: a Linux pty takes the rest of the run's output
     without blocking it, so the run could end before the test reads that frame. A resize lets the run go on once
@@ -145,31 +135,30 @@ def _shown(vt: VT) -> list[str]:
     return [line.rstrip() for line in vt.transcript()]
 
 
-def test_a_report_that_fits_is_redrawn_in_place_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60)
+def test_a_report_that_fits_is_redrawn_in_place_in_colour_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:
+    # At a colour terminal, as a person's is: a live smoke at one found the run log full of the report's colour codes.
+    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, colour=True)
     assert rc == 0, output.decode(errors="replace")
     assert output.count(b"\x1b[?2026h") >= 3, "the report was not drawn live"
+    assert b"\x1b[1;36mVMS" in output
     report = _report(log)
     # Everything the live frames drew was erased: the screen and its scrollback hold the finished report alone.
     assert _shown(vt) == [line.rstrip() for line in report]
     assert not vt.unknown and vt.frame_wraps == 0
     assert max(vt.ups) < 60
+    # The colour reaches the screen and never the log.
     assert not any(glyph in log for glyph in FRAMES) and "\x1b" not in log
 
 
-def test_a_window_shorter_than_the_report_shows_its_top_and_says_how_much_more(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 14)
+def test_a_short_narrow_window_shows_its_top_never_wraps_and_says_how_much_more(tmp_path, fleet) -> None:
+    # Shorter than the report and narrower than its lines: the frame is cut to both, and the line that says how
+    # much more is left fits 60 columns.
+    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 60, 14)
     assert rc == 0, output.decode(errors="replace")
     assert b"more lines, shown when the run ends" in output
-    # Cut to the height, a frame never scrolls: nothing of it is left in the scrollback.
-    assert _shown(vt) == [line.rstrip() for line in _report(log)]
-    assert max(vt.ups) <= 13 and vt.frame_wraps == 0
-
-
-def test_a_narrow_window_never_wraps_a_frame(tmp_path, fleet) -> None:
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 60, 40)
-    assert rc == 0, output.decode(errors="replace")
-    assert vt.frame_wraps == 0 and not vt.unknown
+    # Cut to the height, a frame never scrolls, and cut to the width it never wraps: nothing of it is left in the
+    # scrollback.
+    assert max(vt.ups) <= 13 and vt.frame_wraps == 0 and not vt.unknown
     # The finished report is printed whole, as text: the terminal wraps it, and nothing else is left.
     assert _shown(vt) == _wrapped(_report(log), 60)
 
@@ -200,15 +189,6 @@ def test_ctrl_c_erases_the_live_region_and_ends_the_run(tmp_path, fleet) -> None
     assert "interrupted" in shown.lower(), shown
 
 
-def test_colour_reaches_the_screen_and_never_the_log(tmp_path, fleet) -> None:
-    # A live smoke at a colour terminal found the run log full of the report's colour codes.
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, colour=True)
-    assert rc == 0, output.decode(errors="replace")
-    assert b"\x1b[1;36mVMS" in output
-    assert "\x1b" not in log
-    assert _shown(vt) == [line.rstrip() for line in _report(log)]
-
-
 def test_a_dumb_terminal_is_given_the_finished_report_only(tmp_path, fleet) -> None:
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, term="dumb")
     assert rc == 0, output.decode(errors="replace")
@@ -218,21 +198,12 @@ def test_a_dumb_terminal_is_given_the_finished_report_only(tmp_path, fleet) -> N
 
 def test_piped_the_finished_report_is_all_there_is(tmp_path, fleet) -> None:
     root, playbook = status_root(tmp_path, fleet)
-    log = root / "run.log"
-    process = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", str(_inventory(root)), "--check", str(playbook)],
-        cwd=root,
-        env=_env(root, ANSIBLE_LOG_PATH=str(log), TERM="xterm-256color", **LIVE),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        process_group=0,
-    )
-    _fail_if_the_desktop_was_reached(root)
-    assert process.returncode == 0, process.stderr
-    assert process.stdout.splitlines() == _report(log.read_text())
-    assert "\x1b" not in process.stdout
+    # No terminal at all, stdout and stderr one pipe: what is printed is the finished report, and nothing else.
+    env = _env(root, ANSIBLE_LOG_PATH=str(root / "run.log"), TERM="xterm-256color", **LIVE)
+    ran = kit.piped(kit.playbook(_inventory(root), playbook, "--check"), root, env)
+    assert ran.rc == 0, ran.text
+    assert ran.text.splitlines() == _report(ran.log)
+    assert "\x1b" not in ran.text
 
 
 WARNS = """\

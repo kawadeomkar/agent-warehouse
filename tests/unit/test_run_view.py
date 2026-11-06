@@ -50,6 +50,15 @@ def _plain(lines):
     return [SGR.sub("", line) for line in lines]
 
 
+# just deploy's stage table, which is also what a run of no declaration of its own is drawn by.
+STAGE_FILES = view.stage_files(view.recipes.RECIPES["deploy"])
+
+
+def _stages_of(files):
+    """Each play's (stage, step), from the file of its playbook alone."""
+    return view.stages_for([(f, None) for f in files])
+
+
 class Script:
     """A run fed events as Ansible sends them, one task at a time, the clock moved by each."""
 
@@ -106,7 +115,7 @@ def test_a_play_takes_its_stage_from_its_file_and_an_unnamed_one_from_a_neighbou
         "/r/playbooks/github_login.yml:66",
         "/r/deploy.yml:225",
     ]
-    assert view.stages_of(files) == [
+    assert _stages_of(files) == [
         ("template", None),
         ("template", None),
         ("configure", None),
@@ -115,8 +124,8 @@ def test_a_play_takes_its_stage_from_its_file_and_an_unnamed_one_from_a_neighbou
         ("sign in", "GitHub"),
         ("sign in", "GitHub"),
     ]
-    assert view.stages_of(["/elsewhere/site.yml:1"]) == [("run", None)]
-    assert view.stages_of([]) == []
+    assert _stages_of(["/elsewhere/site.yml:1"]) == [("run", None)]
+    assert _stages_of([]) == []
 
 
 def _play_files(path: Path) -> list[Path]:
@@ -130,7 +139,7 @@ def _play_files(path: Path) -> list[Path]:
 
 def test_the_stage_table_names_every_playbook_deploy_runs_in_the_order_it_runs_them():
     files = _play_files(REPO / "deploy.yml")
-    stages = view.stages_of([str(f) for f in files])
+    stages = _stages_of([str(f) for f in files])
     order = [stage for index, (stage, _) in enumerate(stages) if index == 0 or stages[index - 1][0] != stage]
     assert order == ["template", "provision", "configure", "sign in", "editor"]
     sign_ins = [
@@ -138,13 +147,13 @@ def test_the_stage_table_names_every_playbook_deploy_runs_in_the_order_it_runs_t
     ]
     assert sign_ins == ["Claude", "GitHub", "Tailscale"]
     named = {f.name for f in files} - {"deploy.yml", "discover.yml"}
-    assert named <= set(view.STAGE_FILES), named - set(view.STAGE_FILES)
+    assert named <= set(STAGE_FILES), named - set(STAGE_FILES)
     # What just deploy --only runs, a playbook of its own: playbooks/<the stage, - as _>.yml.
     recipe = (REPO / "justfile").read_text()
     only = re.search(r"\[arg\('STAGE', long='only', pattern='\(([a-z|-]+)\)\?'", recipe).group(1).split("|")
     for stage in only:
         name = f"{stage.replace('-', '_')}.yml"
-        assert (REPO / "playbooks" / name).is_file() and name in view.STAGE_FILES, name
+        assert (REPO / "playbooks" / name).is_file() and name in STAGE_FILES, name
 
 
 def test_count_tasks_counts_what_ansible_will_start(tmp_path):
@@ -547,7 +556,7 @@ def test_a_play_of_a_file_can_be_a_stage_of_its_own():
     ]
     assert view.stages_for(plays) == [("template", None), ("template", None), ("editor", None), ("finish", None)]
     # By its file alone, deploy.yml's last play takes its neighbour's, as before.
-    assert view.stages_of([path for path, _ in plays])[-1] == ("editor", None)
+    assert _stages_of([path for path, _ in plays])[-1] == ("editor", None)
 
 
 def _finish_plays():

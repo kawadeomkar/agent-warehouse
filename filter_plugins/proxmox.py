@@ -16,13 +16,15 @@ PROXMOX = (
     "ssh_config_blocks",
     "ssh_config_prune",
     "vms_not_named",
+    "built_template",
+    "duplicate_names",
+    "proxmox_tags",
     "net_mac",
     "tailnet_ipv4",
-    "guest_address",
     "guest_addresses",
     "proxmox_access_denied",
 )
-CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "guest_ipv4")
+CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "ssh_hostname", "guest_ipv4", "sshd_match_spec")
 
 
 class FilterModule:

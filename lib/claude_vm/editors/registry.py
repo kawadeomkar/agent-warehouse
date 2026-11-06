@@ -65,10 +65,10 @@ def checked(editor: Editor, inputs: OpenInputs, plan: OpenPlan) -> OpenPlan:
 
 
 def inside(root: str, name: str) -> str:
-    """root/name, strictly inside root: commonpath, on the normalised join, root normalised as well."""
+    """root/name, strictly inside root (common.below, on the normalised join), and never in "/" itself."""
     root = vm_path(root, "just code's directory")
     path = posixpath.normpath(posixpath.join(root, name))
-    if root == "/" or path == root or posixpath.commonpath([root, path]) != root:
+    if root == "/" or not common.below(path, root):
         raise ValueError(f"{name!r} is not inside {root}")
     return path
 

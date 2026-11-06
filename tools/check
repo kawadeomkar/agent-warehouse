@@ -129,7 +129,10 @@ settings)
   any=
   for file in "$@"; do [ ! -e "$file" ] || any=1; done
   [ -n "$any" ] || exit 0
-  exec "$bin/python" -I - "$@" << 'PYTHON'
+  # The checkout first, whose inventory defaults name what 1.1 renamed.
+  exec "$bin/python" -I - "$(dirname "$0")/.." "$@" << 'PYTHON'
+import os
+import re
 import sys
 
 import yaml
@@ -143,13 +146,6 @@ RENAMED = {
     "claude_vm_default_name": ("vm_default_name", "rename it there"),
     "vm_password": ("vault_vm_password", "it is a secret, so move it to vault.yml under that name, with just vault"),
 }
-# Each name 1.1 gave a new one: its new name. Still read through 1.x, so a file that sets one is told, never refused.
-NAMED_ANEW = {
-    "vscode_claude_terminal": "editor_claude_terminal",
-    "vscode_workspaces_dir": "editor_files_dir",
-    "vscode_session_notes": "editor_session_notes",
-    "vscode_claude_sessions": "claude_sessions_sync",
-}
 
 
 class Loader(yaml.SafeLoader):
@@ -157,6 +153,30 @@ class Loader(yaml.SafeLoader):
 
 
 Loader.add_multi_constructor("!", lambda loader, suffix, node: None)
+
+
+def named_anew(root):
+    """Each name 1.1 gave a new one, by its old name: a setting of the inventory defaults whose default is the old
+    name's value and nothing else ("{{ old }}"), neither name a role's variable, which starts with its role's name.
+    lib/claude_vm/wiring.py's named_anew finds the same pairs through the roles' argument_specs for just settings;
+    this needs neither Ansible nor that package, since it runs before every recipe. Such a name is still read
+    through 1.x, so a file that sets one is told, never refused: should the defaults not read, nothing is said,
+    rather than every recipe refused."""
+    try:
+        roles = tuple(f"{entry.name}_" for entry in os.scandir(os.path.join(root, "roles")) if entry.is_dir())
+        with open(os.path.join(root, "inventory", "group_vars", "all", "defaults.yml"), encoding="utf-8") as stream:
+            defaults = yaml.load(stream, Loader=Loader)
+        found = {}
+        for name, value in defaults.items():
+            old = re.fullmatch(r"\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}", value) if isinstance(value, str) else None
+            if old and old.group(1) in defaults and not name.startswith(roles) and not old.group(1).startswith(roles):
+                found[old.group(1)] = name
+        return found
+    except Exception:  # whatever stops it: a warning missed, never a recipe refused
+        return {}
+
+
+NAMED_ANEW = named_anew(sys.argv[1])
 
 
 def settings(data):
@@ -181,7 +201,7 @@ def group(data):
 
 
 found = False
-for path in sys.argv[1:]:
+for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
             data = yaml.load(stream, Loader=Loader)

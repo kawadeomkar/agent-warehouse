@@ -27,21 +27,11 @@ from pathlib import Path
 import jinja2
 import pytest
 import yaml
-from harness import REPO, _run
+from harness import REPO, _every_task, _run
 
 COMMON = REPO / "roles" / "common"
 SUDO = COMMON / "tasks" / "sudo.yml"
 DEFAULTS = REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-
-
-def _flat(tasks: list) -> list:
-    """Every task of a list, a block's own tasks after the block."""
-    found = []
-    for task in tasks:
-        found.append(task)
-        for part in ("block", "rescue", "always"):
-            found.extend(_flat(task.get(part, [])))
-    return found
 
 
 def _module(task: dict) -> str:
@@ -93,9 +83,7 @@ def test_a_new_cloud_init_instance_gets_no_rule_and_only_the_role_s_groups() -> 
 
 def test_off_takes_the_user_out_of_the_groups_that_reach_root_or_the_password() -> None:
     defaults = yaml.safe_load((COMMON / "defaults" / "main.yml").read_text())
-    specs = yaml.safe_load((COMMON / "meta" / "argument_specs.yml").read_text())["argument_specs"]["main"]["options"]
     assert set(defaults["common_user_groups_revoked"]) == {"adm", "cdrom", "lxd"}
-    assert specs["common_user_groups_revoked"]["default"] == defaults["common_user_groups_revoked"]
     leaving = _named(_off(), "groups that reach root")
     assert leaving["ansible.builtin.command"]["argv"][:2] == ["gpasswd", "--delete"]
     # A group the person asked for in common_user_groups stays.
@@ -130,7 +118,7 @@ def test_the_password_is_the_user_s_before_any_rule_goes() -> None:
 
 
 def test_every_task_that_renders_the_password_is_no_log() -> None:
-    for task in _flat(_off()):
+    for task in _every_task(_off()):
         module = _module(task)
         arguments = yaml.safe_dump({key: value for key, value in task[module].items() if key != "that"})
         # The password or its hash; common_user_passwordless_sudo is only a name.

@@ -83,8 +83,6 @@ class CallbackModule(DefaultCallback):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = "stdout"
     CALLBACK_NAME = "claude_on_proxmox"
-    NEXT_STATS = NEXT_STATS
-    COLOR = COLOR
 
     def __init__(self):
         super().__init__()
@@ -103,14 +101,12 @@ class CallbackModule(DefaultCallback):
         if WAITING_TAG in result.task.tags and result.task.action in DEBUG_ACTIONS and isinstance(msg, str):
             if self._last_task_banner != result.task._uuid:
                 self._print_task_banner(result.task)
-            name = result.task.get_name()
-            role = name.split(" : ", 1)[0] if " : " in name else ""
             self._display.display(
                 banner(
                     msg,
                     "ACTION REQUIRED IN YOUR BROWSER",
                     host=result.host.get_name(),
-                    topic=TOPICS.get(role, ""),
+                    topic=TOPICS.get(live.role_of(result.task), ""),
                 ),
                 color=COLOR,
             )
@@ -124,11 +120,9 @@ class CallbackModule(DefaultCallback):
         if key in self._waiting:
             return
         self._waiting.add(key)
-        left = result.result.get("retries", 0) - result.result.get("attempts", 0)
-        try:
-            seconds = left * int(result.task.delay)
-        except (TypeError, ValueError):
-            seconds = 0
+        # The checks still to come and the delay before each, as the live run counts them.
+        left, delay = live.retry_left(result)
+        seconds = left * delay
         said = (
             f"about {round(seconds / 60)} minutes"
             if seconds >= 120

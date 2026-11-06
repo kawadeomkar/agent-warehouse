@@ -30,11 +30,15 @@ sections 1 to 3 are on this page, and each later section is a page of its own.
 ## 1. Purpose and scope
 
 Create Ubuntu VMs on a Proxmox VE host and configure them as Claude Code development machines.
-One command provisions a fleet; another configures it; a third tears it down.
+One command, `just deploy`, builds the template when it needs one, creates and configures the VMs,
+signs them in and opens one in your editor; another, `just destroy`, releases and deletes them, and
+`just status` reports on them without changing anything.
 
-**In scope:** cloning VMs from a cloud-init template, cloud-init user/key/network setup, discovering
-VMs by tag, installing an OS baseline plus developer tooling, installing Claude Code, cloning a
-GitHub account's repositories, and deleting VMs safely.
+**In scope:** building the cloud-init template and cloning VMs from it, cloud-init user/key/network
+setup, discovering VMs by tag, installing an OS baseline plus developer tooling, installing Claude
+Code and Remote Control, cloning a GitHub account's repositories, signing the VMs in to Claude,
+GitHub and Tailscale, the SSH aliases and the editor's window on this machine, carrying Claude Code
+sessions between this machine and a VM, and releasing and deleting VMs safely.
 
 **Deliberately out of scope:** managing the Proxmox host itself beyond building one template,
 networking (no bridges, no VLANs, no static IP management), storage provisioning, clustering,
@@ -60,7 +64,7 @@ Four actors:
 ```mermaid
 flowchart TB
     subgraph C["Controller (your machine)"]
-        A["ansible-playbook<br/>your virtualenv"]
+        A["ansible-playbook<br/>the project's environment"]
         INV["inventory/<br/>hosts.yml + group_vars"]
         SSHC["~/.ssh/claude-on-proxmox.conf<br/>Host alpha → address"]
         VSC["Editor<br/>VS Code Remote - SSH, or Zed"]

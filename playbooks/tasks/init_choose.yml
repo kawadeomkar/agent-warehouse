@@ -73,10 +73,8 @@
   ansible.builtin.include_tasks: init_ask.yml
   vars:
     init_ask_name: "{{ init_choose_setting }}"
-    init_ask_label: >-
-      {{ 'Use ' ~ init_choose_usable[0] ~ '? y or n, Enter to decide later' if init_choose_usable | length == 1
-         else 'Number, Enter to decide later' }}
-    init_ask_kind: "{{ 'yes_no' if init_choose_usable | length == 1 else 'choice' }}"
+    init_ask_label: "{{ (init_choose_usable | init_pick_question).label }}"
+    init_ask_kind: "{{ (init_choose_usable | init_pick_question).kind }}"
     init_ask_choices: "{{ init_choose_usable }}"
     init_ask_hidden: false
     init_ask_given: ""
@@ -87,14 +85,13 @@
   when: init_choose_asked | bool and not init_choose_only_check | default(false) | bool
 
 # The value written: a given one the token can use, where local.yml sets
-# none, or the answer - y to the one candidate, or the one a number names.
+# none, or what the answer picks - y the one candidate, or the one a number
+# names (init_pick).
 - name: init_choose | Settle the value to write
   ansible.builtin.set_fact:
     init_choose_chosen: >-
       {{ init_choose_given if init_choose_given | length > 0
-         else init_choose_usable[0] if (init_answers | default({}))[init_choose_setting] | default('') == 'y'
-         else '' if (init_answers | default({}))[init_choose_setting] | default('') in ['', 'n']
-         else (init_answers | default({}))[init_choose_setting] }}
+         else (init_answers | default({}))[init_choose_setting] | default('') | init_pick(init_choose_usable) }}
     init_choose_writes: >-
       {{ (init_choose_given | length > 0 and not init_choose_set | bool)
          or (init_choose_asked | bool and (init_answers | default({}))[init_choose_setting] | default('') not in ['', 'n']) }}

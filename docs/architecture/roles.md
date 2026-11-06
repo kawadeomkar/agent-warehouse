@@ -47,7 +47,7 @@ settings, VM name, login credentials, VM ID. `proxmox_vm_state` is *not* asserte
 `meta/argument_specs.yml` declares its `choices`, validated before the first task runs. Then: look
 the VM up by name (with its config), refuse a duplicated name, record existence, then either refuse
 an existing VM that is a template or lacks the tag and branch to `present.yml`, or run the ownership
-check and `absent.yml`.
+check and `absent.yml`, both only for a VM that exists.
 
 **`tasks/present.yml`**
 
@@ -256,14 +256,10 @@ constraint rather than an omission. Anthropic supports exactly one credential fo
 | Interactive claude.ai `/login` (Pro, Max, Team, Enterprise) | yes | **yes** |
 
 It is on by default, and what happens is **derived from the credentials on the VM** rather than from
-a switch — because no switch can create the one credential that works. `just deploy --only configure` therefore
-does one of three things:
-
-| Credentials found | Outcome |
-|---|---|
-| `ANTHROPIC_API_KEY` configured | Off, with a message. A key outranks the login |
-| No key, no claude.ai login | Unit installed, service left stopped, a path unit waiting for the login (below), the sign-in command printed |
-| No key, claude.ai login present | Service enabled and started; the session appears in the app |
+a switch — because no switch can create the one credential that works. `just deploy --only configure`
+turns it off where an API key is configured, installs it stopped with a path unit waiting where there is
+no login yet, and starts it where a claude.ai login is: the steps are below, and what each outcome means
+for the user is the guide's [table](../guides/remote-control.md#what-a-run-does-on-each-vm).
 
 A login is what activates it: `just login --only claude` and `just deploy` start the server in the run that
 signs the VM in, and a login made any other way starts it through the path unit.
@@ -277,9 +273,9 @@ The role automates everything around the login and stops at it:
    configuring both would silently authenticate as the API account and the server would refuse to
    start. This is not a failure: with Remote Control on by default, a VM on the API path is a normal
    configuration, not a mistake. Off is enforced rather than skipped. `main.yml` decides once
-   (`claude_code_remote_control_wanted`) and either includes `remote_control.yml` or, if the unit
-   file this role installs exists, stops and disables the service, removes the file and reloads
-   systemd. Skipping alone left an earlier run's server taking sessions after the user opted out,
+   (`claude_code_remote_control_wanted`) and either includes `remote_control.yml` or, for each unit
+   file this role installs that exists, the path unit first, stops and disables the unit, removes the
+   file and reloads systemd (`tasks/unit_absent.yml`). Skipping alone left an earlier run's server taking sessions after the user opted out,
    and restarting on every boot with the key it could not use. Gating on the file keeps a VM that
    never had the unit untouched, and keeps check mode from asking `systemd_service` about a unit
    that does not exist.
@@ -472,7 +468,11 @@ failure does not name it already), records it - for NEXT STEPS too, under `claud
 on past it still lists it at the end - and a last play without serial fails each such VM, unless
 `just deploy` imported the playbook (`claude_vm_login_in_deploy`): deploy has done its job and goes on to
 GitHub and the editor's window. `rescue` handles failed tasks, never an unreachable host, so a play before it pings
-every VM with `ignore_unreachable` and records one that does not answer the same way. The rescued
+every VM with `ignore_unreachable` and records one that does not answer the same way. Both records are
+`playbooks/tasks/sign_in_failed.yml`, which GitHub's and Tailscale's sign-ins import as well: its fact,
+`claude_vm_<sign-in>_login_failure`, and its NEXT STEPS stat are named from the sign-in's word, the
+repository's one templated `set_fact` key (`set_fact` and `set_stats` template their keys), and the plays
+around it stay each playbook's own. The rescued
 block's condition is on its task, not on the block, whose `when` would also skip the rescue's message
 once the failure it tests for is recorded. The rescue's first
 task re-raises `pause`'s abort (Ctrl-C, then A): the person asked for the run to end, not for the next
@@ -493,7 +493,7 @@ while the file exists, which with no start limit would spin on a refused login a
 `systemctl stop`. `PathChanged=` fires on any change to the file - created, rewritten, renamed into
 place, removed, its mode changed - so a token refresh or a logout fires it again, and the unit lives
 only while the login is the one thing missing (`claude_code_remote_control_bridge_wanted`): the run
-that finds the VM signed in, or a settings blocker, removes it (`tasks/path_unit_absent.yml`, shared
+that finds the VM signed in, or a settings blocker, removes it (`tasks/unit_absent.yml`, shared
 with turning Remote Control off) before it starts the service, so a start the server refuses - an
 organisation that disabled Remote Control - leaves no path unit behind to start it again later.
 
@@ -522,8 +522,8 @@ container in with the stand-in, after which the real role starts Remote Control 
 
 ## 5.6 `github_projects` — sign in to GitHub, clone an account's repositories
 
-`main.yml` validates the username, resolves the target directory (the user's home is looked up only
-when `github_projects_dir` is empty), then includes `auth.yml` and `clone.yml`.
+`main.yml` validates the username, includes `auth.yml`, resolves the target directory from the home
+`auth.yml` read and makes it, then includes `clone.yml`.
 
 **Two credentials, one token.** A private repository is *listed* with an API token and *cloned*
 with a git credential, and a push or `gh pr create` later needs the latter again. The role gives
@@ -536,8 +536,10 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
 
 `auth.yml`, as `github_projects_user`:
 
-1. **Read gh's state**: `which gh` (a VM built with `dev_tools_install_gh` off gets a message, not a
-   failure), then `auth_status.yml`: `gh auth status --hostname github.com --json hosts`, which exits
+1. **Read gh's state**, as `just login --only github` reads it (`login_read.yml`): the user's home
+   (looked up only when `github_projects_home` does not give it), `which gh` (a VM built with
+   `dev_tools_install_gh` off gets a message, not a failure), then `auth_status.yml`:
+   `gh auth status --hostname github.com --json hosts`, which exits
    0 signed in or out and keeps its prose on stderr, and, when signed in, `gh auth token` under
    `no_log`, and the role's own marker (step 3). `vars/main.yml` turns the JSON into
    `github_projects_signed_in` and `github_projects_login_kind` - `env` from `tokenSource`, else
@@ -556,7 +558,12 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
    stdin, `no_log`. A headless VM
    has no credential store and gh would fall back to the plain-text file anyway; asking for it keeps
    a future gh that finds a store from putting the token where the role cannot read or remove it.
-   A refused token fails the host with gh's own line, which names the cause and never the token.
+   A refused token fails the host with gh's own line, which names the cause and never the token - but under
+   `auto`, one gh refuses for want of a scope (a classic token with `repo` alone, as earlier versions asked
+   for, lacks `read:org`) keeps listing and gh stays signed out, the scopes to add said
+   (`github_projects_token_short`): every VM shares the token, so failing it would fail every VM on upgrade.
+   `github_auth_method: token` still fails. Every task that renders the token is `no_log`, and a message or a
+   task var asks `github_projects_token_set`, never the token itself.
 3. **Sign out the login the role made when the vault token is cleared**, the other direction of
    the same rule, as `settings.yml` removes the API key it wrote. gh cannot tell the role's token
    from one the user pasted by hand, so the role leaves a marker whenever the login is the vault
@@ -604,9 +611,10 @@ user's `known_hosts`. `update_existing` defaults to **false** so a re-run never 
 
 ### `just login --only github`
 
-`playbooks/github_login.yml` (`just login --only github`) runs the role's `login` entry point, which looks
-the user's home up for itself (the marker lives under it, and only `main.yml` had resolved it, which
-the first real run found), decides from the same vars and reports how a VM is signed in - and, for a
+`playbooks/github_login.yml` (`just login --only github`) runs the role's `login` entry point, which reads
+gh's state as `auth.yml` does, the user's home included (the marker lives under it; when only `main.yml`
+looked it up, the entry point's first real run found it missing), decides from the same vars and
+reports how a VM is signed in - and, for a
 device-flow login that lacks the `workflow` scope, the `gh auth refresh` that adds it. It names only
 what can run there: with `github_auth: false` nothing, and for a vault token not applied yet the
 `just deploy ... --tags github_projects` that applies it. Given names, any number, it runs the device
@@ -666,7 +674,9 @@ flow asks for `github_projects_login_scopes` on top of gh's own and tells gh the
 ### Under `just deploy`, one VM at a time
 
 With `github_login_auto_start: false`, `just deploy` (and `just login` with names) asks first: Enter goes
-for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. With no terminal
+for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. The sign-in play
+decides both switches by the rule Tailscale's shares (`claude_vm_login_starts`, `claude_vm_login_asks` in
+`playbooks/vars/sign_in.yml`), after Claude's under both commands (`claude_vm_login_after_claude`). With no terminal
 a question would return nothing at once, which is Enter, and start a fifteen-minute flow nobody watches,
 so the justfile passes `claude_vm_login_terminal: false` then (`no_tty_args`), and `github_login.yml` asks
 no VM: one it would have asked (`claude_vm_login_unasked`) gets neither switch, so no flow, and is told
@@ -701,7 +711,8 @@ two, and proves the sshd one.
   `sshd_config` itself or a `Match User dev` block can each silently override the file this role
   just wrote. The role reads where the editor will connect from out of Ansible's own
   `SSH_CONNECTION` (without `become`, which drops it), asks `sshd -T -C user=<vm_user>,host=,addr=,
-  laddr=,lport=` what applies to that connection - plain `sshd -T` skips `Match` blocks - and fails
+  laddr=,lport=` what applies to that connection (the `sshd_match_spec` filter, which `common` uses too,
+  [§7.1](custom-code.md#71-filter_pluginsproxmoxpy)) - plain `sshd -T` skips `Match` blocks - and fails
   on forwarding that is off, limited to the remote direction, or removed by `DisableForwarding`,
   naming the file that does it (a `find` over `sshd_config` and the drop-ins, indented lines
   included, since that is how a `Match` block's settings are written). `sshd -T` parses the files

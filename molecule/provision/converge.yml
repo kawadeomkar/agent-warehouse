@@ -14,10 +14,9 @@
     - name: Clone a VM onto 9002
       ansible.builtin.uri:
         validate_certs: false
-        url: https://127.0.0.1:18007/api2/json/nodes/pve/qemu/9000/clone
+        url: "{{ proxmox_api_url }}/nodes/pve/qemu/9000/clone"
         method: POST
-        headers:
-          Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
+        headers: "{{ proxmox_api_headers }}"
         body_format: form-urlencoded
         body:
           newid: 9002

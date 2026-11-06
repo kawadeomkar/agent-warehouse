@@ -13,25 +13,24 @@
 
 from __future__ import annotations
 
-import importlib.util
 import inspect
 import io
 import json
 import re
 import signal
 import sys
-import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import ansible.utils.color  # noqa: F401 - imported at a stand-in terminal, it would ask curses for its fileno
 import pytest
 import yaml
-from harness import FAKES, PVE_SECRET, REPO, _certificate, _pve, _run, _serve
+from harness import PVE_SECRET, REPO, _executable, _pve_requests, _pve_vars, _run, fake_fleet, load_module
 
 from claude_vm import proxmox as proxmox_filters
 from claude_vm import text as text_filters
 from claude_vm.status import model as S
+from claude_vm.tui import screen
 from claude_vm.tui import status as T
 
 STATUS = REPO / "playbooks" / "status.yml"
@@ -446,7 +445,7 @@ def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_li
         "the template ubuntu-24.04-cloudinit differs from its settings (bridge vmbr0 → vmbr1;"
         " cpu host → x86-64-v2-AES), so the next just deploy rebuilds it, over root SSH"
     )
-    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · next deploy rebuilds it" in said, said
 
 
@@ -457,7 +456,7 @@ def test_a_template_kept_as_it_is_is_no_thing_to_do() -> None:
     )
     model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
     assert not [it for it in model["attention"] if it["vm"] == "template"]
-    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · differs, kept" in said, said
 
 
@@ -494,7 +493,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
         ],
         "settings": {"aliases_enabled": True, "tailscale_enabled": True, "editor_name": "VS Code"},
     }
-    lines = [T.plain(line) for line in T._access_lines(model)]
+    lines = [screen.plain(line) for line in T._access_lines(model)]
     column = lines[0].index("TAILNET")
     for line in lines[1:-1]:
         assert line[column - 2 : column] == "  " and line[column] != " ", line
@@ -540,9 +539,29 @@ def test_the_editor_cell_is_whole_beside_the_longest_name() -> None:
         return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
 
     model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
-    lines = [T.plain(line) for line in T._work_lines(model)]
+    lines = [screen.plain(line) for line in T._work_lines(model)]
     assert max(len(line) for line in lines) <= T.WIDTH, max(lines, key=len)
     assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
+
+
+def test_a_name_too_long_for_its_column_ends_in_an_ellipsis_in_every_section() -> None:
+    # One rule: SIGN-INS, SYSTEM and WORK cut a name at 13 and ATTENTION at 11 without a sign, where VMS and ACCESS
+    # ended it in "…" - and a name cut short with no sign reads as another VM's whole one.
+    name = "a-name-longer-than-its-column"
+    vm = {"name": name, "vmid": 101, "state": "stopped", "address": "192.0.2.10", "needs_ssh": True, "ssh": {}}
+    model = {
+        "vms": [vm],
+        "proxmox": {"nodes": ["pve"]},
+        "settings": {"aliases_enabled": False, "tailscale_enabled": False, "editor_name": "VS Code"},
+        "counts": {"unread": 0, "problem": 0, "todo": 1},
+        "attention": [S._item("todo", name, "x")],
+        "now": 1_800_000_000,
+    }
+    for section in (T._vms_lines, T._access_lines, T._signins_lines, T._system_lines, T._work_lines):
+        rows = [screen.plain(line) for line in section(model) if name[:10] in screen.plain(line)]
+        assert rows and all(f" {name[:12]}… " in row and name[:13] not in row for row in rows), (section, rows)
+    rows = [screen.plain(line) for line in T._attention_lines(model) if name[:10] in screen.plain(line)]
+    assert rows and all(f" {name[:10]}… " in row and name[:11] not in row for row in rows), rows
 
 
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
@@ -578,29 +597,6 @@ def test_a_live_frame_draws_a_spinner_where_a_value_is_pending_and_the_final_one
 # ---------------------------------------------------------------------------------- the playbook, faked ----
 
 
-def fake_fleet(directory: Path, version: str = "9.2.21"):
-    """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
-    its URL."""
-    cert, key = _certificate(directory)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(directory / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
-        _pve(base, "PUT", "fake/version", version=version)
-        for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", tags="claude-on-proxmox", ciuser="dev", onboot="1")
-            if name == "alpha":
-                # Made two days ago, so its day of history is its own; beta and gamma were made just now.
-                _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
-            if running:
-                _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
-                for _ in range(3):
-                    try:
-                        _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-                    except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-                        pass
-        yield base
-
-
 @pytest.fixture
 def fake_pve(tmp_path):
     yield from fake_fleet(tmp_path)
@@ -627,43 +623,34 @@ exit 255
 def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> tuple[Path, Path]:
     """A run directory for status.yml against the fake at base, with settings on top: the directory and playbook."""
     root = tmp_path / "run"
-    (root / "group_vars" / "all").mkdir(parents=True, exist_ok=True)
-    (root / "ssh").write_text(SSH)
-    (root / "ssh").chmod(0o755)
+    _pve_vars(
+        root,
+        base,
+        {
+            "vm_ssh_public_keys": [],
+            # Never the developer's ~/.ssh: the managed file is the test's own.
+            "claude_ssh_config_file": str(tmp_path / "ssh.conf"),
+            # Never a real ssh: the stand-in refuses as an unreachable VM does.
+            "ansible_ssh_executable": str(root / "ssh"),
+            # apt's simulation is the VM's: this machine has none.
+            "status_read_upgrades": False,
+            "status_report_file": "",
+            **(settings or {}),
+        },
+    )
+    _executable(root / "ssh", SSH)
     if not (root / "python").exists():
         (root / "python").symlink_to(sys.executable)
-    defaults = root / "group_vars" / "all" / "defaults.yml"
-    if not defaults.exists():
-        defaults.symlink_to(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")
-    port = int(base.rsplit(":", 1)[1])
-    (root / "group_vars" / "all" / "fake_api.yml").write_text(
-        yaml.safe_dump(
-            {
-                "proxmox_api_host": "127.0.0.1",
-                "proxmox_api_port": port,
-                "vault_proxmox_api_token_secret": PVE_SECRET,
-                "vm_user": "dev",
-                "vm_ssh_public_keys": [],
-                # Never the developer's ~/.ssh: the managed file is the test's own.
-                "claude_ssh_config_file": str(tmp_path / "ssh.conf"),
-                # Never a real ssh: the stand-in refuses as an unreachable VM does.
-                "ansible_ssh_executable": str(root / "ssh"),
-                # apt's simulation is the VM's: this machine has none.
-                "status_read_upgrades": False,
-                "status_report_file": "",
-                **(settings or {}),
-            }
-        )
-    )
     playbook = root / "status.yml"
     playbook.write_text(STATUS.read_text().replace("tasks/", f"{REPO / 'playbooks' / 'tasks'}/"))
     return root, playbook
 
 
-def _status_run(tmp_path, base, *extra, settings=None):
-    """status.yml from a run directory of its own, against the fake at base; returns the report and its model."""
+def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180):
+    """status.yml from a run directory of its own, against the fake at base, with hosts in its inventory; returns the
+    report and its model."""
     root, playbook = status_root(tmp_path, base, settings)
-    report = _run(root, playbook, {}, "--check", *extra, timeout=180)
+    report = _run(root, playbook, hosts or {}, "--check", *extra, timeout=timeout)
     model = None
     for play in report["plays"]:
         for task in play["tasks"]:
@@ -709,11 +696,23 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     missing = {part: sorted(PROMISED_KEYS[part.split()[0]] - set(keys)) for part, keys in held.items()}
     assert {part: keys for part, keys in missing.items() if keys} == {}
     # Read only: GETs, every one of them, and not one write.
-    calls = [json.loads(line) for line in (tmp_path / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(tmp_path)
     after_fixture = calls[[c["path"] for c in calls].index("/api2/json/cluster/resources") :]
     assert {c["method"] for c in after_fixture} == {"GET"}, {
         (c["method"], c["path"]) for c in after_fixture if c["method"] != "GET"
     }
+    # The host key held: status's ssh options reach ssh first, whatever Ansible adds after them, as the stand-in ssh
+    # recorded each call; ssh keeps the first value it is given, and test_status_vms has ssh -G resolve them.
+    ssh_calls = [json.loads(line) for line in (tmp_path / "run" / "ssh.log").read_text().splitlines()]
+    assert ssh_calls, "status never called ssh"
+    for argv in ssh_calls:
+        options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
+        for name, value in (
+            ("stricthostkeychecking", "StrictHostKeyChecking=yes"),
+            ("updatehostkeys", "UpdateHostKeys=no"),
+        ):
+            given = [option for option in options if option.lower().startswith(name + "=")]
+            assert given and given[0] == value, argv
 
 
 @pytest.mark.parametrize(("editor", "name"), [("zed", "Zed"), ("", "VS Code")])
@@ -941,17 +940,6 @@ def test_no_play_of_status_sets_how_to_reach_a_host() -> None:
         assert not any(key.startswith("ansible_") for key in play.get("vars") or {}), play["name"]
 
 
-def test_every_vm_status_adds_gets_the_vm_python() -> None:
-    adds = [
-        t
-        for t in _every_task()
-        if "ansible.builtin.add_host" in t and t["ansible.builtin.add_host"].get("name") == "{{ status_vm.name }}"
-    ]
-    assert adds and all(
-        t["ansible.builtin.add_host"]["ansible_python_interpreter"] == "{{ claude_vm_python }}" for t in adds
-    )
-
-
 # ----------------------------------------------------------------------------------------------- the callback ----
 
 
@@ -980,9 +968,7 @@ def callback(monkeypatch):
         terminal = _Terminal()
         monkeypatch.setattr(sys, "stdout", terminal)
         path = REPO / "callback_plugins" / "claude_on_proxmox_status.py"
-        spec = importlib.util.spec_from_file_location("claude_on_proxmox_status_under_test", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = load_module(path, "claude_on_proxmox_status_under_test", register=False)
         cb = module.CallbackModule()
         if cb._live:
             cb._out.region._terminal_size = lambda: (100, 60)
@@ -1097,22 +1083,8 @@ def test_a_report_is_drawn_only_from_the_report_play_s_own_task(callback, monkey
     assert cb._reported and len(shown) == 1 and "VMS" in shown[0], shown
 
 
-def test_a_module_s_warnings_are_shown_plain(callback, monkeypatch) -> None:
-    # ansible-core prints a module's warnings as they are, and a VM's root chooses them: a clipboard write, a title.
-    from ansible._internal._task import UnifiedTaskResult
-
-    cb, terminal = callback(quiet=True)
-    shown = []
-    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append(msg))
-    escapes = "\x1b]52;c;b3duZWQ=\x07\x1b]0;retitled\x07\x9b31m"
-    said = UnifiedTaskResult.from_module_result_dict(
-        {"warnings": ["warned " + escapes], "failed": True, "msg": escapes}
-    )
-    cb._current_task_result = SimpleNamespace(warnings=said.warnings, deprecations=[], exception=said.exception)
-    cb.v2_runner_on_ok(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
-    cb.v2_runner_on_failed(_ok("alpha", {}, action="vm_status_info", warnings=["warned"]))
-    assert shown and all(not re.search("[\x00-\x08\x0b-\x1f\x7f-\x9f]", line) for line in shown), shown
-    assert "[WARNING]: warned" in shown[0] and "retitled" not in "".join(shown), shown
+# A module's warnings are shown plain, a VM's root choosing them (a clipboard write, a title): ansible-core run for
+# real, test_attention_callback.py's test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too.
 
 
 def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callback, monkeypatch) -> None:
@@ -1364,14 +1336,14 @@ def test_the_longest_footer_and_kernel_fit_100_columns() -> None:
     for vm in fleet["vms"][:2]:
         vm["address"] = "192.0.2.60"
     model = S.status_report(found, "2026-10-25 14:32 PDT", 1_800_000_000)
-    model["attention"] = [S._item("todo", "alpha", "alpha", "x")] * 12
+    model["attention"] = [S._item("todo", "alpha", "x")] * 12
     model["counts"] = {"unread": 0, "problem": 0, "todo": 12}
     model["exit"] = 0
     model["proxmox"]["unread"] = ""
     footer = T.status_text(model).splitlines()[-1]
     assert footer == "exit 0 · nothing is wrong; 12 things wait for you · --only, --json: just help status"
     system = T._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
-    kernel = T.plain(system[1])
+    kernel = screen.plain(system[1])
     assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= T.WIDTH, kernel
 
 

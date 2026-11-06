@@ -1,9 +1,5 @@
 ---
 # Shared settings live in .config/molecule/config.yml at the project root.
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../../../requirements.yml
 platforms:
   - name: claude-on-proxmox-github_projects
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
@@ -14,7 +10,6 @@ platforms:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
-  name: ansible
   env:
     # Resolve roles from this repository's roles/ directory (not Galaxy).
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..

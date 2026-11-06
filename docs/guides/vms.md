@@ -101,6 +101,8 @@ in as each value is read; piped, or in `just logs`, only the finished report app
   in Proxmox waiting for a restart, a first deploy that did not finish, a missing alias, a disk 80% full,
   a reboot waiting, security upgrades, a sign-in to make - in the words `just login` uses).
 
+A VM's name too long for its column is cut to fit, and ends in "…".
+
 It reads each VM over SSH as the VM user, with the host key this machine already holds: a VM rebuilt or
 renamed since is "not read", and status never takes its new key - `just deploy <vm> --only configure`
 does. It never runs `claude` there, so a stored login shows as signed in, without its plan.

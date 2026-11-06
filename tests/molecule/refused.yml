@@ -1,0 +1,35 @@
+---
+# Shared by the role scenarios' side effects: run a role where it must refuse,
+# and assert that it did, and why. The block's fail says what going on would
+# mean; the rescue asserts the failure was the role's - never that fail - at
+# the task named, where one is, with a message that matches every pattern.
+#
+# Callers set refused_role, refused_because (regular expressions the message
+# must each match) and refused_unless (what going on would mean), and may set
+# refused_tasks_from (main by default) and refused_at (a regular expression
+# the failed task's name must match). The case's own inputs for the role go
+# on the same include, and reach the role through it.
+- name: molecule | refused | Run the role where it must refuse, {{ refused_role }}
+  block:
+    - name: molecule | refused | Run the role
+      ansible.builtin.include_role:
+        name: "{{ refused_role }}"
+        tasks_from: "{{ refused_tasks_from | default('main') }}"
+
+    - name: molecule | refused | The role should not have got this far
+      ansible.builtin.fail:
+        msg: "{{ refused_unless }}"
+  rescue:
+    - name: molecule | refused | Assert it refused, and why
+      ansible.builtin.assert:
+        that:
+          - ansible_failed_task.name != 'molecule | refused | The role should not have got this far'
+          - ansible_failed_task.name is search(refused_at | default(''))
+          - ansible_failed_result.msg is search(refused_pattern)
+        fail_msg: >-
+          Expected /{{ refused_pattern }}/ from "{{ ansible_failed_task.name }}", got:
+          {{ ansible_failed_result.msg | default('') }}
+        quiet: true
+      loop: "{{ refused_because }}"
+      loop_control:
+        loop_var: refused_pattern

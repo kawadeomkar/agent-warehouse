@@ -12,8 +12,9 @@ design, and a record that carries a VM's ID names it where the record is.
 from __future__ import annotations
 
 import re
-import subprocess
 from pathlib import Path
+
+from harness import repo_texts
 
 REPO = Path(__file__).resolve().parents[2]
 # The code: what runs, and what decides how it runs. Not the docs, the tests or the scenarios, which describe it.
@@ -33,16 +34,10 @@ CODE = [
 def _lines_naming(pattern: str, own: re.Pattern, kept: str = "") -> dict[str, int]:
     """Each file of the code outside `own` that has lines matching pattern, and how many; a line's names that 1.x
     promises (kept), which can never go, are taken out of it before it is matched."""
-    tracked = subprocess.run(
-        ["git", "ls-files", "--", *CODE], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout.split()
     found = {}
-    for path in tracked:
+    for file, text in repo_texts(*CODE):
+        path = str(file.relative_to(REPO))
         if own.search(path) or "/molecule/" in path:
-            continue
-        try:
-            text = (REPO / path).read_text(encoding="utf-8")
-        except (UnicodeDecodeError, FileNotFoundError):
             continue
         count = sum(
             1 for line in text.splitlines() if re.search(pattern, re.sub(kept, "", line) if kept else line, re.I)
@@ -67,7 +62,7 @@ VSCODE_OWN = re.compile(
     r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
-    "inventory/group_vars/all/defaults.yml": 19,
+    "inventory/group_vars/all/defaults.yml": 7,
     "inventory/group_vars/all/local.yml.example": 7,
     "justfile": 2,
     "lib/claude_vm/editors/model.py": 1,
@@ -116,14 +111,14 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/tui/run.py": 3,
     "lib/claude_vm/tui/status.py": 3,
     "lib/claude_vm/wiring.py": 1,
-    "playbooks/code.yml": 3,
+    "playbooks/code.yml": 2,
     "playbooks/configure.yml": 1,
-    "playbooks/destroy.yml": 17,
-    "playbooks/discover.yml": 3,
+    "playbooks/destroy.yml": 14,
+    "playbooks/discover.yml": 2,
     "playbooks/init_check.yml": 38,
     "playbooks/init_settings.yml": 16,
     "playbooks/provision.yml": 23,
-    "playbooks/ssh_config.yml": 3,
+    "playbooks/ssh_config.yml": 2,
     "playbooks/status.yml": 23,
     "playbooks/tailscale_login.yml": 1,
     "playbooks/tasks/cluster_vms.yml": 17,
@@ -148,7 +143,7 @@ def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
 # Zed's own: its two task files of just code's, and its family's module in the core. Elsewhere, a line that names it.
 ZED_OWN = re.compile(r"^(playbooks/tasks/zed_[a-z_]+\.yml|lib/claude_vm/editors/zed\.py)$")
 ZED_ELSEWHERE = {
-    "inventory/group_vars/all/defaults.yml": 12,
+    "inventory/group_vars/all/defaults.yml": 9,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
     "lib/claude_vm/editors/model.py": 1,

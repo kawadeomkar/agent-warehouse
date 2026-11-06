@@ -7,7 +7,8 @@ image every scenario runs, pinned by digest, which the weekly canary runs unpinn
 
 A release is an annotated SemVer tag on main (release.yml), its notes the pull requests merged since the last one,
 grouped by the label labels.yml gives each from its title's tag (.github/release.yml). Their scripts run here
-against a stand-in gh, which records what it was asked, and a scratch repository, never GitHub.
+against a stand-in gh, which records what it was asked, and a scratch repository, never GitHub. What a version
+number promises about, as CONTRIBUTING.md lists it, is held to the justfile.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from harness import GIT_ENV
 
 REPO = Path(__file__).resolve().parents[2]
 WORKFLOW = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
@@ -28,6 +30,7 @@ JOBS = WORKFLOW["jobs"]
 RESULT = JOBS["result"]
 # Not part of the gate: it runs on the weekly schedule against the unpinned image and may fail on purpose.
 OUTSIDE = {"canary"}
+NEEDS_JQ = pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
 
 
 def test_ci_result_needs_every_job_but_the_canary():
@@ -50,7 +53,7 @@ def test_no_job_of_the_gate_can_fail_and_still_succeed():
             assert "continue-on-error" not in step, (name, step.get("name"))
 
 
-@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
+@NEEDS_JQ
 @pytest.mark.parametrize(
     ("results", "passes"),
     [
@@ -61,17 +64,10 @@ def test_no_job_of_the_gate_can_fail_and_still_succeed():
         ({"lint": "skipped", "molecule": "failure"}, False),
     ],
 )
-def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(results, passes):
+def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(tmp_path, results, passes):
     (step,) = RESULT["steps"]
     needs = {name: {"result": results.get(name, "success"), "outputs": {}} for name in RESULT["needs"]}
-    # As GitHub runs a step's script on ubuntu-latest: bash -e with pipefail.
-    run = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
-        env={"PATH": f"{Path(shutil.which('jq')).parent}:/usr/bin:/bin", "NEEDS": json.dumps(needs)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    run, _ = _run(step["run"], tmp_path, tmp_path, NEEDS=json.dumps(needs))
     assert (run.returncode == 0) is passes, (results, run.stdout, run.stderr)
     for name in RESULT["needs"]:
         assert f"{name}: {results.get(name, 'success')}" in run.stdout
@@ -83,12 +79,8 @@ IMAGE = re.compile(r"\$\{MOLECULE_IMAGE:-(?P<repository>[\w./-]+)@sha256:[0-9a-f
 
 
 def _molecule_images() -> dict[str, list[str]]:
-    """The image of each platform, by configuration: the shared one, then every scenario's."""
-    files = [
-        REPO / ".config" / "molecule" / "config.yml",
-        *sorted(REPO.glob("molecule/*/molecule.yml")),
-        *sorted(REPO.glob("roles/*/molecule/*/molecule.yml")),
-    ]
+    """The image of each platform, by scenario. The shared configuration names none: Molecule replaces a list."""
+    files = [*sorted(REPO.glob("molecule/*/molecule.yml")), *sorted(REPO.glob("roles/*/molecule/*/molecule.yml"))]
     return {
         str(path.relative_to(REPO)): [platform["image"] for platform in yaml.safe_load(path.read_text())["platforms"]]
         for path in files
@@ -97,7 +89,8 @@ def _molecule_images() -> dict[str, list[str]]:
 
 def test_every_scenario_runs_the_one_image_pinned_by_digest():
     # Each scenario names its own platforms, so each repeats the image: a bump that missed one would leave that
-    # scenario on the old image without a word.
+    # scenario on the old image without a word. A platform in the shared configuration would never be used.
+    assert "platforms" not in yaml.safe_load((REPO / ".config" / "molecule" / "config.yml").read_text())
     images = _molecule_images()
     found = {image for each in images.values() for image in each}
     assert len(found) == 1, images
@@ -115,7 +108,6 @@ def test_the_canary_runs_the_pinned_image_unpinned():
 LABELS = yaml.safe_load((REPO / ".github" / "workflows" / "labels.yml").read_text())
 RELEASE = yaml.safe_load((REPO / ".github" / "workflows" / "release.yml").read_text())
 NOTES = yaml.safe_load((REPO / ".github" / "release.yml").read_text())
-NEEDS_JQ = pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
 
 
 def _title_tags() -> list[str]:
@@ -234,16 +226,7 @@ def test_a_title_is_never_run(tmp_path):
 
 
 def _git(cwd: Path, *args: str) -> str:
-    env = {
-        "PATH": os.environ["PATH"],
-        "HOME": str(cwd),
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_AUTHOR_NAME": "Test",
-        "GIT_AUTHOR_EMAIL": "test@example.com",
-        "GIT_COMMITTER_NAME": "Test",
-        "GIT_COMMITTER_EMAIL": "test@example.com",
-    }
+    env = {"PATH": os.environ["PATH"], "HOME": str(cwd), **GIT_ENV}
     return subprocess.run(["git", *args], cwd=cwd, env=env, capture_output=True, text=True, check=True).stdout
 
 
@@ -307,3 +290,43 @@ def test_a_tag_that_is_no_release_is_refused_before_anything_is_published(tmp_pa
     run, calls, _ = _release(tmp_path, tagged, tag)
     assert run.returncode == 1 and calls == [], (run.stdout, run.stderr, calls)
     assert f"::error::{tag} {said}" in run.stdout
+
+
+# ----------------------------------------------------------------------------- what a version promises about ---
+
+# The justfile's settings that are no part of the interface: where a run keeps its working files.
+UNPROMISED_SETTINGS = {"STATUS_DIR", "LIVE_DIR"}
+
+
+def _promised(pattern: str) -> set[str]:
+    """The names in backticks of the part of CONTRIBUTING.md's Releasing section that pattern's group holds."""
+    text = (REPO / "CONTRIBUTING.md").read_text()
+    section = text[text.index("## Releasing") :]
+    return set(re.findall(r"`([\w-]+)`", re.search(pattern, section, re.S).group(1)))
+
+
+def _recipes(group: str) -> set[str]:
+    """The justfile's recipes in a group: each recipe's [group] attribute sits in the lines above its header."""
+    found, attributes = set(), []
+    for line in (REPO / "justfile").read_text().splitlines():
+        if line.startswith("["):
+            attributes.append(line)
+        elif header := re.match(r"^([a-z][\w-]*)\b(?! *:=)[^#]*:$", line):
+            if f"[group('{group}')]" in attributes:
+                found.add(header.group(1))
+            attributes = []
+    return found
+
+
+def test_the_interface_a_version_promises_is_the_justfiles():
+    """CONTRIBUTING.md names what a version number promises about - the recipes people use, the roles --tags takes,
+    the settings every recipe reads - and what it does not, the contributor recipes. A recipe added to the justfile's
+    use group, a role to configure_roles or a setting read from the environment would otherwise fall outside the
+    promise without a word."""
+    justfile = (REPO / "justfile").read_text()
+    assert _promised(r"the `just` commands people use - (.*?) - and their options") == _recipes("use") | {"help"}
+    assert _promised(r"The contributor commands - (.*?) - the justfile's other settings") == _recipes("develop")
+    roles = re.search(r"^configure_roles := '([^']*)'$", justfile, re.M).group(1).split()
+    assert _promised(r"the role names `just deploy --tags` takes: (.*?);") == set(roles)
+    settings = set(re.findall(r"^([A-Z_]+) := env\('\1'", justfile, re.M))
+    assert _promised(r"from the environment or before its name: (.*?);") == settings - UNPROMISED_SETTINGS

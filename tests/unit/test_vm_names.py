@@ -21,8 +21,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _pve, _run
-from test_status import _status_run, fake_fleet, status_root
+from harness import REPO, _messages, _pve_vm, _results, _run, fake_fleet
+from test_status import _status_run, status_root
 
 PLAYBOOKS = REPO / "playbooks"
 # The Proxmox host's address read from the inventory's host, as group_vars/all/defaults.yml has it: a VM merged into
@@ -36,14 +36,7 @@ def fleet(tmp_path):
     localhost."""
     for base in fake_fleet(tmp_path):
         for vmid, name in [(9013, "pve"), (9014, "localhost")]:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", tags="claude-on-proxmox", ciuser="dev", onboot="1")
-            _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
-            for _ in range(3):
-                try:
-                    _pve(base, "GET", f"nodes/pve/qemu/{vmid}/agent/network-get-interfaces")
-                except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-                    pass
+            _pve_vm(base, vmid, name, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
         yield base
 
 
@@ -54,32 +47,35 @@ def _proxmox_inventory(root: Path) -> list[str]:
     return ["-i", str(inventory)]
 
 
+def _playbook(tmp_path: Path, base: str, path: Path, *extra: str, settings: dict = FROM_THE_HOST) -> dict:
+    """A playbook of the project's against the fake, from a run directory of its own with settings, the files it
+    imports where they are: deploy.yml's playbooks/, or a playbook's tasks/. extra goes on the command line."""
+    root, _ = status_root(tmp_path, base, settings)
+    text = path.read_text()
+    if path.parent == REPO:
+        text = text.replace(" playbooks/", f" {PLAYBOOKS}/")
+    else:
+        text = text.replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
+    (root / path.name).write_text(text)
+    return _run(root, root / path.name, {}, *_proxmox_inventory(root), *extra, timeout=180)
+
+
 def _discover(tmp_path: Path, base: str, *extra: str) -> dict:
-    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
-    playbook = root / "discover.yml"
-    playbook.write_text((PLAYBOOKS / "discover.yml").read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/"))
-    return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
+    return _playbook(tmp_path, base, PLAYBOOKS / "discover.yml", *extra)
 
 
 def _refresh(tmp_path: Path, base: str, *extra: str) -> dict:
     """playbooks/ssh_config.yml against the fake, its managed file the test's own (tmp_path / "ssh.conf")."""
     settings = {**FROM_THE_HOST, "claude_ssh_user_config": str(tmp_path / "config"), "claude_ssh_config_include": False}
-    root, _ = status_root(tmp_path, base, settings)
-    playbook = root / "ssh_config.yml"
-    playbook.write_text((PLAYBOOKS / "ssh_config.yml").read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/"))
-    return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
+    return _playbook(tmp_path, base, PLAYBOOKS / "ssh_config.yml", *extra, settings=settings)
 
 
-def _creating(tmp_path: Path, base: str, playbook: str, names: str) -> dict:
-    """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own."""
-    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
-    if playbook == "deploy.yml":
-        text = (REPO / "deploy.yml").read_text().replace(" playbooks/", f" {PLAYBOOKS}/")
-    else:
-        text = (PLAYBOOKS / playbook).read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
-    (root / playbook).write_text(text)
+def _creating(tmp_path: Path, base: str, playbook: str, names: str, *inventory: str) -> dict:
+    """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own; inventory, more
+    -i arguments."""
+    path = REPO / "deploy.yml" if playbook == "deploy.yml" else PLAYBOOKS / playbook
     extra = json.dumps({"vm_name": names, "deploy_sign_in": False})
-    return _run(root, root / playbook, {}, *_proxmox_inventory(root), "-e", extra, timeout=180)
+    return _playbook(tmp_path, base, path, *inventory, "-e", extra)
 
 
 def _block(name: str) -> str:
@@ -87,11 +83,21 @@ def _block(name: str) -> str:
 
 
 def _task(report: dict, name: str) -> dict:
-    for play in report["plays"]:
-        for task in play["tasks"]:
-            if task["task"]["name"] == name:
-                return task["hosts"]["localhost"]
-    return {}
+    """What the first task of that name did on localhost."""
+    return next((result for task, host, result in _results(report) if task == name and host == "localhost"), {})
+
+
+def _refused(report: dict) -> list[dict]:
+    """vm_names.yml's failed refusals, on localhost."""
+    return [
+        result
+        for task, host, result in _results(report)
+        if host == "localhost" and task.startswith("vm_names | ") and result.get("failed")
+    ]
+
+
+# Discovery and the alias refresh say it alike, from one task file.
+LEFT_OUT = "vms_requested | Say which tagged VMs are left out for their name"
 
 
 def test_discovery_leaves_out_a_vm_named_after_a_host_of_the_inventory_and_says_so(tmp_path, fleet) -> None:
@@ -100,7 +106,7 @@ def test_discovery_leaves_out_a_vm_named_after_a_host_of_the_inventory_and_says_
     added = _task(report, "Add the reachable ones to the inventory")
     names = [r["claude_vm_found"]["name"] for r in added["results"] if not r.get("skipped")]
     assert sorted(names) == ["alpha", "beta"]
-    said = _task(report, "Say which tagged VMs are left out for their name")["msg"]
+    said = _messages(report, LEFT_OUT)["localhost"]
     assert "localhost" in said and "pve" in said
 
 
@@ -129,17 +135,9 @@ def test_status_shows_such_a_vm_unread_and_reads_the_rest_through_the_api_s_own_
 def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotted_one(tmp_path, fleet) -> None:
     # An earlier version wrote an alias for any tagged VM, so the managed file may hold one for the VM named pve - the
     # Proxmox host's root SSH - or for one named like an address. Tagged VMs still carry both names here.
-    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9015, name="3232235777")
-    _pve(fleet, "PUT", "nodes/pve/qemu/9015/config", tags="claude-on-proxmox", ciuser="dev")
+    _pve_vm(fleet, 9015, "3232235777", tags="claude-on-proxmox", ciuser="dev")
     # A dotted name: the user's own, written by a run that named it. Running, so the refresh has its address.
-    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9016, name="alpha.lab")
-    _pve(fleet, "PUT", "nodes/pve/qemu/9016/config", tags="claude-on-proxmox", ciuser="dev")
-    _pve(fleet, "POST", "nodes/pve/qemu/9016/status/start")
-    for _ in range(3):
-        try:
-            _pve(fleet, "GET", "nodes/pve/qemu/9016/agent/network-get-interfaces")
-        except Exception:  # noqa: BLE001 - the fake refuses the first polls on purpose
-            pass
+    _pve_vm(fleet, 9016, "alpha.lab", running=True, tags="claude-on-proxmox", ciuser="dev")
     managed = tmp_path / "ssh.conf"
     managed.write_text(_block("pve") + _block("3232235777") + _block("alpha.lab"))
     report = _refresh(tmp_path, fleet)
@@ -148,11 +146,14 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     assert re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
     # Left as it was: neither refreshed nor removed by a run that did not name it.
     assert _block("alpha.lab") in text
-    said = _task(report, "Report what was kept, pruned and left alone")["msg"]
+    said = _messages(report, "Report what was kept, pruned and left alone")["localhost"]
     # alpha and beta: alpha.lab had an address, and was left out.
     assert said.startswith("2 aliases refreshed in ")
     assert "which an earlier version wrote: pve, 3232235777" in said
     assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
+    # The tagged VMs named pve and localhost get no alias, and the run says so, as discovery does.
+    said = _messages(report, LEFT_OUT)["localhost"]
+    assert "localhost" in said and "pve" in said
 
 
 @pytest.mark.parametrize("playbook", ["deploy.yml", "provision.yml"])
@@ -160,9 +161,9 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     ("name", "said"),
     [
         ("pve", "pve is the name of a host in the inventory"),
+        # The address the inventory reaches the Proxmox host at is one more address, refused as this one is: the
+        # inventory's ansible_host is reached only through a host name, the next test's.
         ("3232235777", "ssh reads it as an address"),
-        # The address the inventory reaches the Proxmox host at.
-        ("127.0.0.1", "ssh reads it as an address"),
     ],
 )
 def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, fleet, playbook, name, said) -> None:
@@ -171,13 +172,24 @@ def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, flee
     before = calls.read_text() if calls.exists() else ""
     report = _creating(tmp_path, fleet, playbook, f"alpha,{name}")
     assert report["rc"] != 0
-    refused = [
-        task["hosts"]["localhost"]
-        for play in report["plays"]
-        for task in play["tasks"]
-        if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
-    ]
+    refused = _refused(report)
     assert len(refused) == 1 and said in refused[0]["msg"], refused
+    assert calls.read_text() == before
+
+
+def test_a_name_this_machine_reaches_another_host_by_is_refused_before_proxmox_is_asked(tmp_path, fleet) -> None:
+    # claude_vm_inventory_names holds each inventory host's ansible_host too: an alias of that name, included ahead of
+    # the user's own ssh config, would take this machine's connections to that host to the VM. The Proxmox host is
+    # reached at an address here, which the address check refuses first; only a host reached by a name tests this half.
+    calls = tmp_path / "pve" / "calls.log"
+    before = calls.read_text() if calls.exists() else ""
+    nas = tmp_path / "nas.yml"
+    nas.write_text(yaml.safe_dump({"all": {"hosts": {"nas": {"ansible_host": "nas.example"}}}}))
+    report = _creating(tmp_path, fleet, "provision.yml", "alpha,nas.example", "-i", str(nas))
+    assert report["rc"] != 0
+    refused = _refused(report)
+    assert len(refused) == 1, refused
+    assert "nas.example" in refused[0]["msg"] and "it names a host of the inventory" in refused[0]["msg"], refused
     assert calls.read_text() == before
 
 
@@ -193,8 +205,11 @@ def test_a_name_with_a_dot_passes_the_checks_deploy_makes_first(tmp_path, fleet)
 
 @pytest.mark.parametrize("playbook", ["provision.yml", "destroy.yml", "code.yml", "discover.yml", "ssh_config.yml"])
 def test_every_playbook_that_takes_names_refuses_a_host_of_the_inventory(playbook: str) -> None:
+    # Itself, or through the opening discovery and the alias refresh share, which does first.
     text = (PLAYBOOKS / playbook).read_text()
-    assert "import_tasks: tasks/vm_names.yml" in text
+    opening = yaml.safe_load((PLAYBOOKS / "tasks" / "vms_requested.yml").read_text())
+    assert opening[0]["ansible.builtin.import_tasks"] == "vm_names.yml"
+    assert "import_tasks: tasks/vm_names.yml" in text or "import_tasks: tasks/vms_requested.yml" in text
 
 
 def test_the_vm_just_code_opens_counts_as_named_even_in_a_bare_deploy() -> None:

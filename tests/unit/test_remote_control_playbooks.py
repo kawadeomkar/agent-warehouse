@@ -368,7 +368,13 @@ def test_the_path_unit_is_retired_before_remote_control_starts():
             for step in [task, *task.get("block", [])]
         )
 
-    retire = [i for i, task in enumerate(tasks) if task.get("ansible.builtin.include_tasks") == "path_unit_absent.yml"]
+    def retires_the_path_unit(task: dict) -> bool:
+        return (
+            task.get("ansible.builtin.include_tasks") == "unit_absent.yml"
+            and (task.get("vars") or {}).get("claude_code_unit_retired") == "path"
+        )
+
+    retire = [i for i, task in enumerate(tasks) if retires_the_path_unit(task)]
     start = [i for i, task in enumerate(tasks) if starts_the_service(task)]
     assert retire and start, (retire, start)
     assert max(retire) < min(start), (retire, start)

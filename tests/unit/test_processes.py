@@ -98,18 +98,21 @@ def _by_argv(word: str) -> list[int]:
     return found
 
 
-def test_descendants_lists_a_grandchild_in_a_session_of_its_own(tmp_path):
+def test_descendants_lists_a_grandchild_in_a_session_of_its_own_and_end_ends_it_with_its_parent(tmp_path):
     child, grandchild = _child_and_grandchild(tmp_path)
     try:
         assert processes.descendants(child.pid) == [grandchild]
         assert os.getpgid(grandchild) == grandchild != os.getpgid(child.pid)
     finally:
-        processes.end(child.pid)
+        signalled = processes.end(child.pid)
         child.wait()
-    _until(lambda: not _alive(grandchild), "the grandchild gone")
+    # The tree ended whole, where a kill of the child's group leaves the grandchild (the next test): nothing of it is
+    # left.
+    assert signalled == [child.pid, grandchild]
+    _until(lambda: not _alive(grandchild), "the grandchild gone with the child")
 
 
-def test_a_kill_of_the_group_leaves_the_grandchild_behind_and_end_does_not(tmp_path):
+def test_a_kill_of_the_group_leaves_the_grandchild_behind(tmp_path):
     # What the harness did: the child's group ends, the grandchild lives on under PID 1.
     child, grandchild = _child_and_grandchild(tmp_path)
     os.killpg(child.pid, signal.SIGKILL)
@@ -123,13 +126,6 @@ def test_a_kill_of_the_group_leaves_the_grandchild_behind_and_end_does_not(tmp_p
     finally:
         processes.end(grandchild)
     _until(lambda: not _alive(grandchild), "the grandchild gone")
-    # And the same tree, ended whole: nothing of it is left.
-    (tmp_path / "again").mkdir()
-    child, grandchild = _child_and_grandchild(tmp_path / "again")
-    signalled = processes.end(child.pid)
-    child.wait()
-    assert signalled == [child.pid, grandchild]
-    _until(lambda: not _alive(grandchild), "the grandchild gone with the child")
 
 
 def test_end_signals_a_child_of_this_group_alone_and_never_the_group(tmp_path):

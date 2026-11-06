@@ -6,38 +6,26 @@ with; this is the mechanism.
 
 ## Authentication
 
-Authentication is API tokens only, never a password. [Proxmox access](../getting-started/proxmox-access.md) documents the
-dedicated `ansible@pve` token used rather than `root@pam`. It holds only the VM privileges the `proxmox_vm` role
-uses, but on `/vms`, which propagates to every VM of the host, this project's or not: whoever holds it can set the
-SSH keys cloud-init installs on any VM there, restart it, and delete it. The ownership tag keeps the project's
-own runs off other VMs; it does not limit the token, and any user of the host can set it, so on a shared host
-every tagged VM a token lists is treated as its holder's
-([SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)
-says what that means, and [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) what to do);
-a grant scoped to a Proxmox pool is planned. `tools/proxmox-access.sh` makes the token:
-`just init` runs it on the Proxmox host over root SSH only after showing what it would run and taking a `y`,
-creates only what is missing, changes nothing that exists, and pipes the token's secret from the script's
-stdout into the encrypted vault under `no_log` - never on the screen or a command line. A vault it cannot
-write deletes the token again, since its secret, shown once, would be lost. `validate_certs` defaults to `false`
-because Proxmox ships a self-signed certificate, and the same page covers trusting the PVE CA to turn it
-on. Until it is on, the token goes to whatever answers at the host's address, and the VMs themselves are on
-that network: `proxmox_bridge`, by default `vmbr0`, with no Proxmox firewall on their network device, so root
-on one of them can try to answer for the host. `just init` fetching the CA and turning validation on by
-default is planned.
+Authentication is API tokens only, never a password: a dedicated `ansible@pve` token rather than `root@pam`,
+holding only the VM privileges the `proxmox_vm` role uses ([Proxmox access](../getting-started/proxmox-access.md)).
+What the token reaches, what a shared host means and what to do about it, and the certificate it is sent to
+unchecked by default are trade-offs
+[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
+with what to do in [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) and
+[Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate).
+`tools/proxmox-access.sh` makes the token: `just init` runs it on the Proxmox host over root SSH only after
+showing what it would run and taking a `y`, it creates only what is missing and changes nothing that exists, and
+the token's secret goes from the script's stdout into the encrypted vault under `no_log` - never on the screen or
+a command line. A vault it cannot write deletes the token again, since its secret, shown once, would be lost.
 
 ## Tailscale
 
-Tailscale ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)) widens what a VM can reach and what
-can reach it. What a tailnet's default policy allows, the policy edit that bounds a tagged VM, and what
-sudo on the VM can still do are trade-offs
+What a tailnet's default policy allows, the policy edit that bounds a tagged VM, and what sudo on the VM can still
+do are trade-offs
 [SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
-and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the
-edit itself. The mechanism: the auth key is used for a first join only, on stdin, under `no_log`, and a
-VM whose Tailscale a run has seen signed in, or signing in, is recorded by a tag in Proxmox, which the VM
-cannot change, so a VM logged out from inside is never handed the key again; the
-web login's page is opened only when it is Tailscale's own, and the report names the tailnet joined,
-since a pending page is readable by every local user on the VM. The VM keeps its own resolver
-(`tailscale_accept_dns: false`).
+and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the edit
+itself. How the auth key joins a VM once, and never a VM Proxmox records as having had a login, is
+[§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet); how it travels is under [Secrets](#secrets) below.
 
 ## Secrets
 
@@ -62,6 +50,43 @@ any word after its options - make's spelling, `TOKEN_SECRET=...`, or the bare va
 a fixed message that never says it (an unknown recipe or a pattern refusal would print the word). A
 scripted `just init` reads it from `--token-secret-file`'s file or from `CLAUDE_ON_PROXMOX_TOKEN_SECRET`
 in the environment, inside the playbook, so it is on no command line at all.
+
+### The credentials a run handles
+
+Every task that hands the GitHub token on is `no_log`, which also keeps it out of the VM's journal: a module
+logs the arguments its spec does not mark `no_log`, stdin included. `github_repos` strips the token from what it
+returns and masks the stripped form as well ([§7.2](custom-code.md#72-rolesgithub_projectslibrarygithub_repospy)).
+`tests/unit/test_github_auth.py` holds each such task to `no_log` and greps every run, module arguments
+injected, for every canned token.
+
+The Claude sign-in's one-time code (`roles/claude_code/tasks/browser_login.yml`) is read at a `pause` under
+`no_log`, or given as `claude_code_login_code`, and travels to the VM on stdin into a `0600` named pipe only that
+`claude auth login` reads. With pipelining on, as `ansible.cfg` sets it, it is never written to a file or a
+command line; with pipelining off - which `ANSIBLE_KEEP_REMOTE_FILES=1`, Ansible's switch for debugging a
+module, forces - the module that carries it is a file on the VM, and that switch keeps the file. The login it
+produces is Claude Code's own `~/.claude/.credentials.json`, `0600`, which the project never reads.
+`tests/unit/test_claude_login.py` holds both prompts and both writers to `no_log` and greps whole runs for the
+code.
+
+The Tailscale auth key goes to the VM as `tailscale up --auth-key=file:/dev/stdin`, the key the `command`
+module's stdin under `no_log`, so it is on no command line and in no file, and it is never stored there:
+tailscaled keeps the node's own keys, not the auth key. `tests/unit/test_tailscale.py` holds that task to be
+the only one that renders the key, and greps every run, module arguments included, and every file, for every
+canned key; the role's Molecule scenario searches the VM for it after the join. The Tailscale API credential
+that deletes a VM's device is used only on this machine, in `uri` calls under `no_log`, and never reaches a VM.
+`tests/unit/test_release.py` holds that destroy's release reaches no GitHub credential revocation endpoint, and
+greps its whole output, module arguments included, for every canned credential.
+
+### What a VM says, quoted here
+
+What `claude`, `gh` and `ssh` print on the VM, which its user controls, is quoted in a message only through the
+`plain_text` filter, every escape sequence and control character removed; so are the warnings, deprecations and
+failure messages a module there returns, which ansible-core prints as they are, and a dry run's diffs, which the
+stdout callbacks print through `plain_summary` ([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
+NEXT STEPS takes its lines from the project's own `set_stats` tasks only, and `just status` its report from its
+own play on this machine, since any module's result can carry custom stats and facts. No sign-in page opens
+through a `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
+a command line.
 
 ## Nothing environment-specific is committed
 
@@ -173,7 +198,15 @@ VS Code's is changed. Every
 alias write is validated by the real ssh client before it lands, an
 alias the user's own config already names is refused, and the Molecule scenarios point the managed
 file into the ephemeral directory with the `Include` off, guarded by a unit test, because the
-`configure` scenario's `localhost` is the developer's machine. SSH agent forwarding to the VM is off
+`configure` scenario's `localhost` is the developer's machine. A bug there reaches every `ssh` on the machine,
+and the VM chooses what goes in: its address is what its own guest agent reported, which `guest_ipv4` takes only
+when it parses as one IPv4 address, and a name or an address that is not one plain word is refused, since a
+newline in either would add a directive (`ProxyCommand` runs here). Its name is Proxmox's, chosen by whoever
+made it, and the managed file is included ahead of the user's own config: a name ssh would take for another host
+gets no alias, refused when named and left out of a fleet-wide refresh, said, and a name with a dot gets one only
+when the user names it ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)). A VM
+named after a host of the inventory is kept out wherever a name becomes a host
+([§4.3](lifecycle.md#43-playbooksdiscoveryml)). SSH agent forwarding to the VM is off
 and documented as a choice: the VM user is root-equivalent and runs an AI agent, and `ForwardAgent`
 would hand it every key in the user's agent.
 
@@ -229,19 +262,12 @@ own - held to that by `tests/unit/test_code_session.py`. The file's first line i
 and a `tasks.json` there without it is someone else's: left as it is, and said. The helper starts a fresh
 `claude` where a `claude` of a terminal already has the folder open, so two never write one transcript, and reads
 Claude Code's registry with an isolated Python (`python3 -I`), so no `json.py` or other module of the folder - a
-repository's root, often - runs in place of the standard library's. Zed
-lists the task in a window whose folder holds that directory, in Restricted Mode too (seen on Zed 1.26.2), as it
-lists a repository's own tasks; elsewhere `just code` says to run `claude` in Zed's terminal, which is the VM's.
+repository's root, often - runs in place of the standard library's.
 
 The project binds no key and publishes no tag: Zed's spawn by tag starts every task that carries it, a
 repository's in the window too, so a published tag would be a trigger any cloned repository, or a Claude talked
-into it, could plant. The key the guide shows is the user's own, bound to a tag of their own, in their own Zed
-files; it reaches every window, local ones too, where its guarded command finds no helper and does nothing.
-Trusting the projects directory's window trusts every checkout in it - their project settings, language servers
-and MCP servers - so the guide never advises it for the Claude task alone; a Zed that holds a folder's tasks back
-until it is trusted is met with the user's own task, which needs no trust. Zed's Agent Panel runs its Claude Agent on the VM as well, with its tools, the VM's `~/.claude`
-and its claude.ai login, as seen on Zed 1.26.2; the terminal still comes first, since that agent's Claude Code is
-its own ([§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time)).
-Zed shows just code's own directory on the VM, the copied sessions' mirror in it, where VS Code's window
-hides it: its project panel, search and its own AI features can read the transcripts unless the user
-excludes the mirror (`claude-sessions/`) in their Zed settings.
+into it, could plant. Why the terminal comes before Zed's Agent Panel, whose Claude Agent runs on the VM with a
+Claude Code of its own, is [§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time);
+what the user decides in Zed - its trust, a key of their own, the files it shows - is
+[What Zed decides](../guides/zed.md#what-zed-decides). Zed's remote server, in the VM's `~/.zed_server`, and that
+agent, in `~/.local/share/zed/`, are the VM user's to replace, as VS Code Server's is.

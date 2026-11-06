@@ -1,9 +1,5 @@
 ---
 # Shared settings live in .config/molecule/config.yml at the project root.
-dependency:
-  name: galaxy
-  options:
-    requirements-file: ../../../../requirements.yml
 platforms:
   - name: claude-on-proxmox-proxmox_template
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
@@ -14,11 +10,21 @@ platforms:
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
 provisioner:
-  name: ansible
   env:
     # Resolve roles from this repository's roles/ directory (not Galaxy).
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/..
     # The template's comparison and record (qm_config, proxmox_template_drift, proxmox_template_record).
     ANSIBLE_FILTER_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/../../filter_plugins
-  playbooks:
-    side_effect: side_effect.yml
+  inventory:
+    # What every run of the role here is built with, converge's and the side
+    # effect's; a case passes only what it changes.
+    host_vars:
+      claude-on-proxmox-proxmox_template:
+        proxmox_template_qm: /usr/local/bin/qm
+        proxmox_template_virt_customize: /usr/local/bin/virt-customize
+        # libguestfs is faked here rather than installed into the container.
+        proxmox_template_manage_libguestfs: false
+        proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
+        proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
+        proxmox_template_storage: local-zfs
+        proxmox_template_bridge: vmbr1

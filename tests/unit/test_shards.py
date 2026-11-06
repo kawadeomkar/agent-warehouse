@@ -6,6 +6,7 @@ Each look is a collection of the suite in a pytest of its own, as each CI shard 
 
 from __future__ import annotations
 
+import functools
 import os
 import subprocess
 import sys
@@ -17,6 +18,9 @@ REPO = Path(__file__).resolve().parents[2]
 PYTEST = Path(sys.executable).with_name("pytest")
 
 
+# Made once for the module: both tests read the three shards of 3, each a collection of the whole suite. The module
+# is one xdist group (its fixture), so they share one worker and its cache.
+@functools.cache
 def _collected(*args: str) -> list[str]:
     """The node IDs a run of tests/unit with args would run."""
     # Nothing of this run's own pytest, an xdist worker's included.

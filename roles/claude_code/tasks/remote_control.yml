@@ -206,7 +206,9 @@
   register: claude_code_remote_control_bridge
 
 - name: remote_control | Remove the unit that waited for the login
-  ansible.builtin.include_tasks: path_unit_absent.yml
+  ansible.builtin.include_tasks: unit_absent.yml
+  vars:
+    claude_code_unit_retired: path
   when:
     - not (claude_code_remote_control_bridge_wanted | bool)
     - claude_code_remote_control_bridge.stat.exists

@@ -19,8 +19,8 @@ repositories so the role can be tested without network access:
                          as GitHub answers; what it was handed is kept
   /fake/revoked          what /credentials/revoke was handed, for the tests
 
-A token is a stand-in too: "bad-token" is refused, one starting with "stranger"
-belongs to another account, and anything else is <name>'s own.
+A token is a stand-in too: "bad-token" is refused, and anything else is
+<name>'s own.
 
 Usage: fake_github_api.py <port> <username> <git_root> <repo-spec>...
   repo-spec: name[:fork][:archived][:empty][:fresh][:private]
@@ -39,7 +39,6 @@ GIT_ROOT = sys.argv[3]
 SPECS = sys.argv[4:]
 PAGE_SIZE = 2
 ACCOUNT = {"login": USERNAME, "id": 4242, "name": "Molecule Tester", "email": None, "type": "User"}
-STRANGER = {"login": "stranger", "id": 7, "name": None, "email": None, "type": "User"}
 ORG = {"login": "acme-org", "id": 99, "name": "Acme", "email": None, "type": "Organization"}
 # The shape of GitHub's /meta, with a key that parses but is nobody's.
 META = {"ssh_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMoleculeTestKeyDoNotUse0000000000000000000"]}
@@ -93,7 +92,7 @@ class Handler(BaseHTTPRequestHandler):
         token = auth[len("Bearer ") :]
         if token == "bad-token":
             return None
-        return STRANGER if token.startswith("stranger") else ACCOUNT
+        return ACCOUNT
 
     def _page(self, items, url):
         page = int(parse_qs(url.query).get("page", ["1"])[0])
@@ -126,7 +125,7 @@ class Handler(BaseHTTPRequestHandler):
             if account is None:
                 self._send(401, {"message": "Requires authentication"})
             else:
-                self._page(repos(private_too=account is ACCOUNT), url)
+                self._page(repos(private_too=True), url)
         elif url.path.startswith(f"/repos/{USERNAME}/") and url.path.endswith("/branches"):
             name = url.path[len(f"/repos/{USERNAME}/") : -len("/branches")]
             found = branches(name, private_too=self._account() is ACCOUNT)

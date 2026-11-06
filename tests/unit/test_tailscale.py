@@ -47,7 +47,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from datetime import datetime
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,20 +55,32 @@ import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
 from harness import (
-    FAKES,
+    GETENT,
     GUARDED_TOOLS,
-    PVE_SECRET,
-    STAND_INS,
-    _certificate,
+    JUST,
+    TAILSCALE_CALLS,
+    _deploy_import,
     _env,
+    _every_task,
     _failures,
+    _fake_pve,
+    _leaked,
     _left_to_do,
+    _lines,
+    _local_hosts,
     _messages,
     _pve,
+    _pve_requests,
+    _pve_vars,
+    _pve_vm,
+    _ran,
+    _rendering,
     _results,
+    _role_tasks_play,
     _run,
     _run_at_a_terminal,
-    _serve,
+    _scenario_vars,
+    _task_seconds,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -99,10 +111,6 @@ CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 DPKG_QUERY = """#!/bin/sh
 # Stand-in dpkg-query: what dpkg says about tailscale on this host.
 cat "$STAND_IN/dpkg-status" 2>/dev/null || { echo "dpkg-query: no packages found matching tailscale" >&2; exit 1; }
-"""
-GETENT = """#!/bin/sh
-[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
-printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
 """
 
 
@@ -197,20 +205,10 @@ EXTRA = {
 
 def _hosts(root: Path, cases: dict) -> dict:
     """Inventory hosts, one per case, whose modules run the stand-in tailscale with their own HOME; returns hostvars."""
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in (
-        ("python", STAND_INS["python"]),
-        ("tailscale", FAKE.read_text()),
-        ("dpkg-query", DPKG_QUERY),
-        ("getent", GETENT),
-    ):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    hosts = _local_hosts(root, cases, {"tailscale": FAKE.read_text(), "dpkg-query": DPKG_QUERY, "getent": GETENT})
     for name, case in cases.items():
         home = root / name
-        (home / "markers").mkdir(parents=True)
+        (home / "markers").mkdir()
         if case.get("package", True):
             (home / "dpkg-status").write_text("installed")
         if case.get("ours", True) and case.get("package", True):
@@ -226,11 +224,8 @@ def _hosts(root: Path, cases: dict) -> dict:
         state.mkdir()
         for file_name, content in case.get("ts", {}).items():
             (state / file_name).write_text(content)
-        (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
-            "ansible_connection": "local",
-            "ansible_python_interpreter": str(home / "python"),
-            "ansible_host": "192.0.2.10",
+            **hosts[name],
             "tailscale_marker_dir": str(home / "markers"),
             "tailscale_auth_key": KEYS[case["key"]] if case.get("key") else "",
             # Never the developer's browser: the guard below holds every scenario to it.
@@ -245,18 +240,8 @@ def _hosts(root: Path, cases: dict) -> dict:
 
 def _role_play() -> dict:
     """ownership.yml on, as main.yml runs them once the package is in place."""
-    return {
-        "name": "Tailscale, from the state on",
-        "hosts": "claude_vms",
-        "gather_facts": False,
-        "tasks": [
-            {
-                "name": f"Run the role's {tasks_from} tasks",
-                "ansible.builtin.include_role": {"name": "tailscale", "tasks_from": tasks_from},
-            }
-            for tasks_from in ("ownership", "state", "connect", "settings", "report")
-        ],
-    }
+    tasks_from = ("ownership", "state", "connect", "settings", "report")
+    return _role_tasks_play("tailscale", tasks_from, "Tailscale, from the state on")
 
 
 def _role_run(root: Path, hosts: dict, *args: str) -> dict:
@@ -267,8 +252,7 @@ def _role_run(root: Path, hosts: dict, *args: str) -> dict:
 
 
 def _calls(root: Path, host: str) -> list[str]:
-    log = root / host / ".tailscale-fake" / "calls.log"
-    return log.read_text().splitlines() if log.exists() else []
+    return _lines(root.joinpath(host, *TAILSCALE_CALLS))
 
 
 def _ups(calls: list[str]) -> list[str]:
@@ -660,9 +644,7 @@ def test_every_report_is_one_line_of_plain_text(configured):
 def test_no_key_reaches_a_report_an_argument_or_a_file(configured):
     root, first, first_calls, second = configured
     for report in (first, second):
-        text = json.dumps(report)
-        for key in KEYS.values():
-            assert key not in text
+        assert _leaked(report, KEYS.values()) == []
     for host in CASES:
         assert not any("tskey" in call for call in _calls(root, host)), host
     # Only the inventory itself, which hands each host its key, holds one.
@@ -727,17 +709,6 @@ WEB_CASES = {
     "signed-in": {"ts": _joined("signed-in"), "marker": NODE},
 }
 WEB_EXTRA = {**EXTRA, "claude_vm_discovery": False, "tailscale_login_poll_seconds": 1}
-
-
-def _seconds(report: dict, task: str, host: str) -> float:
-    """How long the task whose name ends with `task` ran for the host: the sign-in runs one VM per batch."""
-    for play in report["plays"]:
-        for entry in play["tasks"]:
-            if entry["task"]["name"].endswith(task) and host in entry["hosts"]:
-                duration = entry["task"]["duration"]
-                start, end = (datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end"))
-                return (end - start).total_seconds()
-    raise AssertionError(f"no task {task!r} ran for {host}")
 
 
 @pytest.fixture(scope="module")
@@ -829,7 +800,7 @@ def test_an_approval_that_waits_for_an_admin_ends_the_wait_and_is_said(web_login
     assert "admin-late" in _messages(report, SAY_PAGE)
     # NeedsMachineAuth ends the wait at the poll that sees it, never the
     # 30 seconds this run waits for an approval.
-    assert _seconds(report, "Wait for the page to be approved", "admin-late") < 15
+    assert _task_seconds(report, "Wait for the page to be approved", "admin-late") < 15
     assert _said(report)["admin-late"] == (
         "admin-late: signed in to Tailscale and waiting for an admin to approve it at"
         " https://login.tailscale.com/admin/machines; it connects by itself once approved."
@@ -1029,19 +1000,13 @@ AFTER_CLAUDE = {
     "quiet": {"claude_code_login_answered": False, "claude_code_login_skipped": False},
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
 }
+# What tailscale_login.yml says of a VM whose sign-in it held back (playbooks/tasks/sign_in_held.yml, GitHub's too).
+HELD_SAID = "sign_in_held | Say why the sign-in was not started"
 
 
 def _deploy_tailscale(root: Path) -> Path:
     """deploy.yml's Tailscale import, as it stands, with its vars and condition."""
-    entries = [
-        entry
-        for entry in yaml.safe_load((REPO / "deploy.yml").read_text())
-        if entry.get("ansible.builtin.import_playbook") == "playbooks/tailscale_login.yml"
-    ]
-    assert len(entries) == 1, entries
-    playbook = root / "deploy_tailscale.yml"
-    playbook.write_text(yaml.safe_dump([{**entries[0], "ansible.builtin.import_playbook": str(LOGIN)}]))
-    return playbook
+    return _deploy_import(root, "playbooks/tailscale_login.yml")
 
 
 def _deploy_step(root: Path, **extra) -> dict:
@@ -1054,11 +1019,7 @@ def _deploy_step(root: Path, **extra) -> dict:
 
 
 def _asked(report: dict) -> set:
-    return {
-        host
-        for name, host, result in _results(report)
-        if name.endswith("Ask whether to sign this VM in to Tailscale now") and not result.get("skipped")
-    }
+    return set(_ran(report, "Ask whether to sign this VM in to Tailscale now"))
 
 
 @pytest.fixture(scope="module")
@@ -1078,11 +1039,8 @@ def test_just_deploy_starts_the_web_login_by_itself_for_every_vm_but_one_whose_c
 
 
 def _not_started(report: dict) -> list:
-    return [
-        (host, result["msg"])
-        for name, host, result in _results(report)
-        if name == "Say why Tailscale's sign-in was not started" and not result.get("skipped")
-    ]
+    said = _ran(report, HELD_SAID)
+    return [(host, result["msg"]) for host, results in said.items() for result in results]
 
 
 NOT_STARTED = (
@@ -1338,26 +1296,11 @@ RECORD_HOSTS = {
 @pytest.fixture
 def recording(tmp_path):
     """The fake Proxmox holding TO_RECORD, and configure.yml's record play in a directory set up to run against it."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
+    for base in _fake_pve(tmp_path):
         for vmid, name, tags in TO_RECORD:
-            _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-            _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **({"tags": tags} if tags else {"delete": "tags"}))
+            _pve_vm(base, vmid, name, **({"tags": tags} if tags else {"delete": "tags"}))
         root = tmp_path / "run"
-        (root / "group_vars" / "all").mkdir(parents=True)
-        (root / "group_vars" / "all" / "defaults.yml").symlink_to(
-            REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-        )
-        (root / "group_vars" / "all" / "fake_api.yml").write_text(
-            yaml.safe_dump(
-                {
-                    "proxmox_api_host": "127.0.0.1",
-                    "proxmox_api_port": int(base.rsplit(":", 1)[1]),
-                    "vault_proxmox_api_token_secret": PVE_SECRET,
-                }
-            )
-        )
+        _pve_vars(root, base)
         plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
         (root / "tasks").symlink_to(REPO / "playbooks" / "tasks")
         playbook = root / "record.yml"
@@ -1371,7 +1314,7 @@ def _tags(base: str) -> dict:
 
 
 def _config_writes(root: Path) -> list:
-    calls = [json.loads(line) for line in (root.parent / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(root.parent)
     return [call["path"] for call in calls if call["method"] in ("PUT", "POST") and call["path"].endswith("/config")]
 
 
@@ -1408,8 +1351,7 @@ def test_check_mode_records_nothing(recording):
 def test_a_record_proxmox_cannot_write_is_said_and_the_others_are_still_written(recording):
     base, root, playbook = recording
     # A second VM to record, beside fresh, whose node is down: Proxmox cannot answer for fresh alone.
-    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=9106, name="second")
-    _pve(base, "PUT", "nodes/pve/qemu/9106/config", tags="claude-on-proxmox")
+    _pve_vm(base, 9106, "second")
     _pve(base, "PUT", "fake/vm-node", vmid=9101, node="pve2")
     hosts = {
         **RECORD_HOSTS,
@@ -1444,24 +1386,17 @@ def test_a_record_is_written_with_the_tags_as_proxmox_gave_them(recording):
     # user's in capitals - a host whose Tag Style keeps case - stays so, and a record in capitals counts.
     base, root, playbook = recording
     _pve(base, "PUT", "nodes/pve/qemu/9101/config", tags="Claude-On-Proxmox;KeepMe", **{"fake-verbatim-tags": 1})
-    _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=9107, name="shouting")
-    _pve(
-        base,
-        "PUT",
-        "nodes/pve/qemu/9107/config",
-        tags="claude-on-proxmox;CLAUDE-ON-PROXMOX-TAILSCALE",
-        **{"fake-verbatim-tags": 1},
-    )
+    _pve_vm(base, 9107, "shouting", tags="claude-on-proxmox;CLAUDE-ON-PROXMOX-TAILSCALE", **{"fake-verbatim-tags": 1})
     hosts = {
         **RECORD_HOSTS,
         "shouting": {"proxmox_vm_id": 9107, "tailscale_joined_before": False, "tailscale_login_to_record": True},
     }
-    calls = len((root.parent / "pve" / "calls.log").read_text().splitlines())
+    calls = len(_pve_requests(root.parent))
     report = _run(root, playbook, hosts, timeout=120)
     assert report["rc"] == 0, _failures(report)
     sent = [
         (call["path"], sorted(call["params"].get("tags", "").split(",")))
-        for call in map(json.loads, (root.parent / "pve" / "calls.log").read_text().splitlines()[calls:])
+        for call in _pve_requests(root.parent)[calls:]
         if call["method"] in ("PUT", "POST") and call["path"].endswith("/config")
     ]
     # In any order: Proxmox keeps its own.
@@ -1477,7 +1412,7 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
     def add_hosts(playbook: str) -> list:
         tasks = []
         for play in yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text()):
-            tasks += _all_tasks(play.get("tasks", []))
+            tasks += _every_task(play.get("tasks", []))
         return [task["ansible.builtin.add_host"] for task in tasks if "ansible.builtin.add_host" in task]
 
     # Only reads them: no run of status's here (test_status.py holds every one to status_root).
@@ -1543,35 +1478,20 @@ def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():
 
 
 # ------------------------------------------------------------ static guards ---
-def _all_tasks(tasks: list) -> list:
-    """Every task, those inside blocks and rescues included."""
-    found = []
-    for task in tasks or []:
-        found.append(task)
-        for key in ("block", "rescue", "always"):
-            found.extend(_all_tasks(task.get(key, [])))
-    return found
-
-
 def _role_tasks() -> dict:
-    return {path.name: _all_tasks(yaml.safe_load(path.read_text())) for path in sorted((ROLE / "tasks").glob("*.yml"))}
+    return {
+        path.name: list(_every_task(yaml.safe_load(path.read_text())))
+        for path in sorted((ROLE / "tasks").glob("*.yml"))
+    }
 
 
-NOT_LOGGED = {"name", "when", "changed_when", "failed_when", "until", "register", "no_log", "tags"}
 KEY_VAR = re.compile(r"\btailscale_auth_key\b")
 
 
 def test_only_the_join_renders_the_key_and_it_is_no_log():
     # Without no_log the key goes to the VM's journal - a module logs the
     # arguments its spec does not mark no_log, stdin included - and into results.
-    rendering = {}
-    for tasks in _role_tasks().values():
-        for task in tasks:
-            if "block" in task:
-                continue
-            args = {key: value for key, value in task.items() if key not in NOT_LOGGED}
-            if KEY_VAR.search(json.dumps(args)):
-                rendering[task["name"]] = task.get("no_log")
+    rendering = _rendering((task for tasks in _role_tasks().values() for task in tasks), KEY_VAR)
     assert rendering == {JOIN: True}, rendering
 
 
@@ -1608,7 +1528,7 @@ def test_the_log_switch_is_a_drop_in_written_before_the_package():
 def test_off_never_disables_the_unit_of_a_package_it_then_removes():
     # deb-systemd-helper remembers a disable, and a Tailscale installed again by
     # hand afterwards came up disabled and never started.
-    absent = _all_tasks(yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()))
+    absent = _every_task(yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()))
     stop = next(task for task in absent if task.get("name") == "absent | Stop tailscaled")
     enabled = stop["ansible.builtin.systemd_service"]["enabled"]
     assert enabled == "{{ omit if tailscale_package_present | bool else false }}", enabled
@@ -1720,13 +1640,6 @@ def test_configure_runs_the_role_last_in_a_rescued_block_and_deploy_defers_its_f
 
 
 # ------------------------------------------- every test setup kept off Tailscale ---
-def _scenario_vars(paths) -> dict:
-    merged: dict = {}
-    for path in paths:
-        merged.update(yaml.safe_load(path.read_text()) or {})
-    return merged
-
-
 def _runs_the_role(scenario: Path) -> bool:
     return any(
         re.search(r"configure\.yml|deploy\.yml|role: tailscale|name: tailscale", path.read_text())
@@ -1777,8 +1690,10 @@ def test_the_vagrantfile_keeps_tailscale_off_the_network():
 def test_every_role_scenario_is_in_the_justfile_and_ci():
     # Both lists are written by hand: a role left out of them is never tested.
     with_scenarios = {path.parent.parent.name for path in (REPO / "roles").glob("*/molecule/default")}
-    justfile = (REPO / "justfile").read_text()
-    roles = set(re.search(r"^scenario_roles := '(.*)'$", justfile, flags=re.M).group(1).split())
+    evaluated = subprocess.run(
+        [JUST, "--evaluate", "scenario_roles"], cwd=REPO, capture_output=True, text=True, check=True
+    )
+    roles = set(evaluated.stdout.split())
     ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
     matrix = set(ci["jobs"]["molecule"]["strategy"]["matrix"]["role"])
     assert with_scenarios == roles == matrix, (with_scenarios, roles, matrix)

@@ -19,21 +19,28 @@ from test_justfile import JUST, _env, _linters, _merged, _stand_in
 SAYS = 'for n in 1 2 3; do echo "{tool}: checked file-$n"; sleep 0.1; done'
 
 
-def _lint(root, *args, fails="", settings_too=()):
-    settings = _linters(root)
+def _drawn_just(root, settings, *words, says, logs, timeout=120):
+    """just with test_justfile's settings, then words, at a pseudo-terminal of its own: each linter in root/bin a
+    stand-in whose body is says(tool), and tools/live run by the environment's Python. Its log is every log in
+    root/logs that matches logs, in their order: the run's own."""
     # The environment's Python itself, its packages with it: a link to it elsewhere finds no virtualenv.
     (root / "bin" / "python").unlink()
     (root / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
     (root / "bin" / "python").chmod(0o755)
     for tool in ("yamllint", "ansible-lint", "ruff", "ansible-playbook", "pre-commit"):
-        body = SAYS.format(tool=tool) + (f'\necho "{tool}: something is wrong"; exit 2' if tool == fails else "")
-        _stand_in(root / "bin", tool, body)
+        _stand_in(root / "bin", tool, says(tool))
     env = kit.environment(root, "", **_env())
     env.pop("ANSIBLE_LOG_PATH")
-    ran = kit.at_a_terminal([JUST, *_merged(settings), *settings_too, "lint", *args], kit.REPO, env, timeout=120)
-    logs = sorted((root / "logs").glob("*-lint.log"))
-    ran.log = logs[-1].read_text() if logs else ""
+    ran = kit.at_a_terminal([JUST, *_merged(settings), *words], kit.REPO, env, timeout=timeout)
+    ran.log = "".join(log.read_text() for log in sorted((root / "logs").glob(logs)))
     return ran
+
+
+def _lint(root, *args, fails="", settings_too=()):
+    def says(tool):
+        return SAYS.format(tool=tool) + (f'\necho "{tool}: something is wrong"; exit 2' if tool == fails else "")
+
+    return _drawn_just(root, _linters(root), *settings_too, "lint", *args, says=says, logs="*-lint.log")
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +62,7 @@ def test_lint_is_drawn_as_its_checks_each_to_come_until_it_runs(passed):
     assert not any(re.search(r"\d+/\d+", frame) for frame in passed.frames), "a check is one command: no counts"
     screen = passed.transcript
     assert re.search(r"^claude-on-proxmox  lint yaml ansible python · done in \d+ s · ", screen, re.M), screen
-    table = screen.split("CHECKS", 1)[1].split("\n\n", 1)[0]
+    table = passed.table("CHECKS")
     assert [line.split()[1] for line in table.splitlines()[1:]] == ["yaml", "ansible", "python"], table
 
 

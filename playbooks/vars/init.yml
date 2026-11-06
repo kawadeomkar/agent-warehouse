@@ -1,0 +1,37 @@
+---
+# What just init's two playbooks share, init_settings.yml and init_check.yml,
+# each of which names this file in its vars_files: whether it may ask, the
+# values given, the files it reads and writes, what their examples ship with,
+# and what it reads of local.yml and the vault. Lazy, as a play's vars are:
+# the last two read the registers each playbook's own reads leave,
+# init_local_read and init_vault_read. Every test points the files into its
+# own directory with -e, which outranks a vars file. Every name starts with
+# init_, as every name either playbook sets does.
+
+# True only when just init sees a terminal and was not given --no-prompt.
+# Every write is under it, or under a value given for it.
+init_ask: false
+# The values given on just init's command line, checked by its recipe: host,
+# token_user, token_name, token_secret_file, github_user and tailscale for the
+# questions; storage and bridge for the checks.
+init_given: {}
+
+init_root: "{{ playbook_dir | dirname }}"
+init_hosts_file: "{{ init_root }}/inventory/hosts.yml"
+init_local_file: "{{ init_root }}/inventory/group_vars/all/local.yml"
+init_vault_file: "{{ init_root }}/inventory/group_vars/all/vault.yml"
+init_vault_pass_file: "{{ init_root }}/.vault_pass"
+
+# What the example files ship with.
+init_host_placeholder: 192.0.2.10
+init_secret_placeholder: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+init_github_placeholder: your-github-username
+
+# What local.yml sets; and whether the vault is encrypted, all that is kept of
+# a read whose text, plaintext, holds the secret.
+init_local_settings: "{{ (init_local_read.content | b64decode | from_yaml) or {} }}"
+init_vault_encrypted: "{{ (init_vault_read.content | b64decode).startswith('$ANSIBLE_VAULT') }}"
+
+# How every write into a YAML file is validated: it must still parse, by this
+# run's own Python.
+init_yaml_validate: "{{ ansible_playbook_python }} -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' %s"

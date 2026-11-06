@@ -12,37 +12,16 @@ printing the API's raw answer instead of the sentence.
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ansible_config
+from harness import REPO, _run
+from test_filters import BUILT
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 LOOKUP = "Look up the template by name"
 REPORT = "Report what this run will do"
 WAITS = "opens a page in your browser, and the run waits for you there."
-
-
-# The template as roles/proxmox_template builds it with its defaults, as Proxmox gives its config back.
-IMAGE = "https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img"
-BUILT = {
-    "name": "ubuntu-24.04-cloudinit",
-    "agent": "enabled=1",
-    "cpu": "host",
-    "ostype": "l26",
-    "net0": "virtio=BC:24:11:40:CD:BD,bridge=vmbr0",
-    "scsi0": "local-lvm:base-9000-disk-0,discard=on,size=3584M",
-    "scsihw": "virtio-scsi-pci",
-    "serial0": "socket",
-    "vga": "serial0",
-    "template": 1,
-    "description": f"Built by claude-on-proxmox: build=1; image={IMAGE}; packages=qemu-guest-agent; sha256=ab12",
-}
 
 
 def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> str:
@@ -72,28 +51,12 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         # the report says the editor by.
         "claude_editors": defaults["claude_editors"],
         "claude_editor_key": defaults["claude_editor_key"],
+        # Whether a template that differs is rebuilt, as the inventory defaults say, outside the role.
+        "proxmox_template_rebuild": defaults["proxmox_template_rebuild"],
         **extra,
     }
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    # The template role's comparison, which the play includes, and its filter.
-    env.update(
-        ANSIBLE_CONFIG=ansible_config(tmp_path),
-        ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json",
-        ANSIBLE_ROLES_PATH=str(REPO / "roles"),
-        ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),
-    )
-    result = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-c", "local", "-e", json.dumps(variables), str(playbook)],
-        cwd=tmp_path,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    report = json.loads(result.stdout)
+    report = _run(tmp_path, playbook, {}, "-e", json.dumps(variables))
+    assert report["rc"] == 0, report["stderr"][-2000:]
     said = [
         host["msg"]
         for play in report["plays"]
@@ -106,41 +69,48 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
     return said[0]
 
 
-def test_a_built_template_is_said_in_words(tmp_path):
-    said = _said(tmp_path, built=True)
-    assert said.startswith('Template "ubuntu-24.04-cloudinit" is already built, so this run needs no SSH'), said
+# The template as roles/proxmox_template builds it with its defaults, as Proxmox gives its config back: test_filters'
+# BUILT, the one copy a proxmox_template_build bump changes.
+@pytest.mark.parametrize(
+    ("built", "config", "extra", "starts"),
+    [
+        pytest.param(
+            True, None, {}, 'Template "ubuntu-24.04-cloudinit" is already built, so this run needs no SSH', id="built"
+        ),
+        pytest.param(
+            False, None, {}, 'Template "ubuntu-24.04-cloudinit" does not exist yet; building it first', id="missing"
+        ),
+        pytest.param(
+            True,
+            {**BUILT, "net0": "virtio=BC:24:11:40:CD:BD,bridge=vmbr1", "cpu": "x86-64-v2-AES"},
+            {},
+            'Template "ubuntu-24.04-cloudinit" differs from its settings (cpu x86-64-v2-AES → host; bridge vmbr1 →'
+            " vmbr0), so this run rebuilds it first, over SSH as root@",
+            id="differs",
+        ),
+        pytest.param(
+            True,
+            {k: v for k, v in BUILT.items() if k != "description"},
+            {},
+            'Template "ubuntu-24.04-cloudinit" differs from its settings (no record of how it was built, so it was'
+            " built by an earlier version of this project), so this run rebuilds it first",
+            id="earlier-version",
+        ),
+        pytest.param(
+            True,
+            {**BUILT, "vga": "std"},
+            {"proxmox_template_rebuild": False},
+            'Template "ubuntu-24.04-cloudinit" differs from its settings (vga std → serial0), and is kept as it is'
+            " since proxmox_template_rebuild is false, so this run needs no SSH to the Proxmox host.",
+            id="kept",
+        ),
+    ],
+)
+def test_the_template_is_said_as_the_lookup_found_it(tmp_path, built, config, extra, starts):
+    said = _said(tmp_path, built=built, config=config, **extra)
+    # In words, never the lookup's raw answer.
+    assert said.startswith(starts), said
     assert "proxmox_vms" not in said
-
-
-def test_a_missing_template_is_said_to_be_built_first(tmp_path):
-    said = _said(tmp_path, built=False)
-    assert said.startswith('Template "ubuntu-24.04-cloudinit" does not exist yet; building it first'), said
-
-
-def test_a_template_that_differs_from_its_settings_is_said_to_be_rebuilt_with_each_difference(tmp_path):
-    config = {**BUILT, "net0": "virtio=BC:24:11:40:CD:BD,bridge=vmbr1", "cpu": "x86-64-v2-AES"}
-    said = _said(tmp_path, built=True, config=config)
-    assert said.startswith(
-        'Template "ubuntu-24.04-cloudinit" differs from its settings (cpu x86-64-v2-AES → host; bridge vmbr1 → vmbr0),'
-        " so this run rebuilds it first, over SSH as root@"
-    ), said
-
-
-def test_a_template_an_earlier_version_built_is_said_to_be_rebuilt(tmp_path):
-    said = _said(tmp_path, built=True, config={k: v for k, v in BUILT.items() if k != "description"})
-    assert said.startswith(
-        'Template "ubuntu-24.04-cloudinit" differs from its settings (no record of how it was built, so it was built'
-        " by an earlier version of this project), so this run rebuilds it first"
-    ), said
-
-
-def test_a_template_kept_as_it_is_is_said_to_differ_and_needs_no_ssh(tmp_path):
-    config = {**BUILT, "vga": "std"}
-    said = _said(tmp_path, built=True, config=config, proxmox_template_rebuild=False)
-    assert said.startswith(
-        'Template "ubuntu-24.04-cloudinit" differs from its settings (vga std → serial0), and is kept as it is since'
-        " proxmox_template_rebuild is false, so this run needs no SSH to the Proxmox host."
-    ), said
 
 
 @pytest.mark.parametrize("sign_in", [True, False])
@@ -187,18 +157,22 @@ def test_only_the_sign_ins_that_open_a_page_are_said(tmp_path, settings, sign_in
     assert said.endswith(f" {each} {WAITS}"), said
 
 
-def test_a_run_with_no_page_to_open_says_no_sign_in(tmp_path):
+# The window is said in the editor chosen.
+@pytest.mark.parametrize(
+    ("editor", "ending"),
+    [
+        pytest.param(
+            {},
+            "Then provisioning and configuring alpha, which takes several minutes, and opening alpha in VS Code.",
+            id="default",
+        ),
+        pytest.param({"editor": "zed"}, "which takes several minutes, and opening alpha in Zed.", id="zed"),
+    ],
+)
+def test_a_run_with_no_page_to_open_says_no_sign_in_and_the_editor(tmp_path, editor, ending):
     settings = {"anthropic_api_key": "an-api-key", "github_token": "a-token", "tailscale_auth_key": KEY}
-    said = _said(tmp_path, built=True, **settings)
-    assert said.endswith(
-        "Then provisioning and configuring alpha, which takes several minutes, and opening alpha in VS Code."
-    ), said
-
-
-def test_the_window_is_said_in_the_editor_chosen(tmp_path):
-    settings = {"anthropic_api_key": "an-api-key", "github_token": "a-token", "tailscale_auth_key": KEY}
-    said = _said(tmp_path, built=True, editor="zed", **settings)
-    assert said.endswith("which takes several minutes, and opening alpha in Zed."), said
+    said = _said(tmp_path, built=True, **editor, **settings)
+    assert said.endswith(ending), said
 
 
 # The VMs were joined with commas only, so two read as three things to do:

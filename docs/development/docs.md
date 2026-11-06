@@ -34,12 +34,13 @@ hand and kept on every run, which is where context goes.
 |---|---|---|
 | `reference/commands.md` | the `justfile`'s recipes as `just --json` gives them, grouped by their `[group]`: each one's `[doc]`, and the `help` of each of its options and words | `BEGIN_GENERATED: commands` |
 | `reference/settings.md` | `local.yml.example` and `vault.yml.example`: each comment block and the settings under it, grouped by banner; the default from `defaults.yml` or the role's `defaults/main.yml`; the role variable each setting ends up in, followed through `defaults.yml`'s wiring, with the first sentence of its `argument_specs` description | `BEGIN_GENERATED: settings` |
-| `reference/roles/<role>.md` | `roles/<role>/`: the variables of each entry point from `meta/argument_specs.yml` (a default it leaves out comes from `defaults/main.yml`), the internal values in `vars/main.yml`, and every task in `tasks/` with a flowchart of each task file, rendered by [docsible](https://github.com/docsible/docsible) with `tools/templates/role.md.j2` | `BEGIN_GENERATED: role` |
+| `reference/roles/<role>.md` | `roles/<role>/`: the variables of each entry point from `meta/argument_specs.yml` (a default it leaves out comes from `defaults/main.yml`, and the setting of the example files that reaches a variable through the wiring ends its description), the internal values in `vars/main.yml`, each with the first sentence of the comment above it, and every task in `tasks/` with a flowchart of each task file, rendered by [docsible](https://github.com/docsible/docsible) with `tools/templates/role.md.j2` | `BEGIN_GENERATED: role` |
 
 `tools/docs.py` does all three; `just docs` runs it, and so does a pre-commit hook whenever a commit
 touches one of the sources. To change what a generated section says, change its source - a role
 variable's `description:` in `argument_specs.yml`, the comment above a setting in `local.yml.example`
-or `vault.yml.example`, a default in `defaults.yml` or a role's `defaults/main.yml`, a task file, a recipe's
+or `vault.yml.example`, a default in `defaults.yml` or a role's `defaults/main.yml`, the comment above an internal
+value in a role's `vars/main.yml`, a task file, a recipe's
 `[doc()]` or `[arg(help=...)]` - and run `just docs`. A new role gets its page, with the markers and a title, the first time
 `just docs` runs; add it to the `nav` in `zensical.toml`. Text taken from a source is escaped outside
 code spans, so a placeholder such as `<name>` reads as text rather than vanishing as an HTML tag.
@@ -63,7 +64,7 @@ for that last reason `tools/docs.py` writes the internal-values table itself. Th
 docsible's, with their labels lowercased and their punctuation removed. Task comments stay off: in
 docsible 0.8.0, the release pinned, they break its tables. docsible is pre-1.0 and that release is from
 November 2025; should it stop being maintained, `ansible-doc -t role -j`, which ships with ansible-core,
-gives the variables as JSON. The role pages come to about 2,250 lines, most of them tasks and internal
+gives the variables as JSON. The role pages come to about 3,000 lines, most of them tasks and internal
 values; should they grow too large to read, the internal values are the part to leave out.
 
 ## Building the site
@@ -86,9 +87,10 @@ build - so the pages would build with another generator unchanged.
 ## Publishing
 
 `.github/workflows/docs.yml` builds the site strictly and deploys it to GitHub Pages whenever a push
-to `main` changes `docs/`, `zensical.toml`, `pyproject.toml` or `uv.lock`, and on demand from the Actions
-tab. It installs only the `docs` group, at the versions `uv.lock` locks, so the published site is the
-one the tests build. Pull requests need no job of their own: `just test unit` builds the site and compares it
+to `main` changes `docs/`, `zensical.toml`, `pyproject.toml`, `uv.lock` or the setup action, and on demand from
+the Actions tab. It takes Python and uv from `.github/actions/setup`, as every CI job does, without the rest of the
+toolchain (`install: "false"`), and installs only the `docs` group, at the versions `uv.lock` locks, so the
+published site is the one the tests build. Pull requests need no job of their own: `just test unit` builds the site and compares it
 with GitHub's rendering already. The repository's Pages source must be set to GitHub Actions (Settings →
 Pages) for the deploy to run.
 
@@ -105,6 +107,7 @@ Pages) for the deploy to run.
   spaces, text read as an HTML tag), or a ```` ```mermaid ```` fence does not become a diagram;
 - a code span holds a closing tag such as `< /dev/tty` written without its space, which drops the rest
   of a page from the site;
+- a page shows a character reference as text (`&amp;emsp;`, escaped twice, shows as `&emsp;` on both);
 - a page repeats a heading, whose anchor GitHub and the site would number differently;
 - a page in `docs/` is not in the `nav`, or the `nav` names a page that does not exist;
 - a link in `docs/` leaves `docs/` by a relative path, which works on GitHub and breaks on the site
@@ -115,6 +118,9 @@ Pages) for the deploy to run.
   reader to the wiki do, or cites an architecture section (`docs/architecture/roles.md §5.5`) that is
   not on that page;
 - a page refers to an architecture section on another page by its § without linking it;
+- a page or `CLAUDE.md` names a repository path in backticks that is neither a file or folder of the checkout
+  nor one git ignores on purpose, as a file moved or renamed leaves its old path behind;
+- a file in a folder that [the file map](../architecture/file-map.md) lists file by file is not named there;
 - the README's set-up commands, files table or Proxmox token commands differ from the copies in
   [Your first deploy](../getting-started/first-deploy.md) and [Proxmox access](../getting-started/proxmox-access.md).
 

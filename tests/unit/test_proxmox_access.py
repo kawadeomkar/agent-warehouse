@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _pve_cli, _pve_cli_calls, _pve_cli_state
+from harness import REPO, _pve_cli, _pve_cli_calls, _pve_cli_state, _pve_cli_writes
 
 SCRIPT = REPO / "tools" / "proxmox-access.sh"
 SECRET = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -30,8 +30,6 @@ PLAN = [
     "pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM",
     "pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox",
 ]
-# The calls that change the host.
-WRITES = (["pveum", "role"], ["pveum", "user", "add"], ["pveum", "acl"], ["pveum", "user", "token"])
 
 
 def _access(tmp_path: Path, *args: str, state: dict | None = None, path: str | None = None):
@@ -50,11 +48,8 @@ def _access(tmp_path: Path, *args: str, state: dict | None = None, path: str | N
 
 
 def _writes(tmp_path: Path) -> list[str]:
-    return [
-        " ".join(call)
-        for call in _pve_cli_calls(tmp_path / "pve")
-        if any(call[: len(write)] == write for write in WRITES) and call[1:3] != ["user", "permissions"]
-    ]
+    """The calls that changed the stand-in host."""
+    return _pve_cli_writes(tmp_path / "pve")
 
 
 def _acls(tmp_path: Path) -> list[tuple]:
@@ -310,11 +305,11 @@ def test_the_privileges_are_the_ones_just_init_checks() -> None:
     assert "agent=VM.GuestAgent.Audit; else agent=VM.Monitor" in text
 
 
-def test_the_commands_the_docs_show_are_the_ones_it_runs(tmp_path: Path) -> None:
+def test_the_commands_the_docs_show_are_the_ones_it_runs() -> None:
+    # PLAN is what its dry run prints: test_the_dry_run_prints_the_commands_and_changes_nothing.
     page = (REPO / "docs" / "getting-started" / "proxmox-access.md").read_text()
     shown = re.search(r"it runs:\n\n```text\n(.*?)```", page, re.S).group(1).splitlines()
     assert shown == PLAN
-    assert _access(tmp_path, "--dry-run").stdout.splitlines() == shown
 
 
 def test_its_stdout_is_data_and_its_talk_is_stderr() -> None:

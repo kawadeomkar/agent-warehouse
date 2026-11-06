@@ -8,17 +8,8 @@
 # (vars/main.yml, github_projects_listing_token). Nothing here fails a VM that
 # is merely signed out: public repositories still clone, and the run says what
 # is missing.
-- name: auth | Look for gh
-  ansible.builtin.command:
-    argv: [which, gh]
-  register: github_projects_gh_which
-  changed_when: false
-  failed_when: false
-  check_mode: false
-
-- name: auth | Read gh's login state
-  ansible.builtin.include_tasks: auth_status.yml
-  when: github_projects_gh_found | bool
+- name: auth | Read gh and its login state
+  ansible.builtin.include_tasks: login_read.yml
 
 # --json came to `gh auth status` in gh 2.81.0 (2025-10-01), and the role
 # depends on it. The JSON form exits 0 signed in or out, so a non-zero exit is
@@ -29,9 +20,7 @@
   ansible.builtin.fail:
     msg: >-
       gh on {{ inventory_hostname }} could not report its login state:
-      {{ github_projects_status_said or 'no output' }}.
-      `gh auth status --json` needs gh 2.81.0 or newer. Install gh from GitHub's apt repository
-      (dev_tools_install_gh: true), or set github_auth: false to leave gh alone.
+      {{ github_projects_status_said or 'no output' }}. {{ github_projects_gh_too_old_said }}
   when:
     - github_projects_auth | bool
     - github_projects_gh_found | bool
@@ -188,11 +177,7 @@
     mode: "0700"
   become: true
   become_user: "{{ github_projects_user }}"
-  when:
-    - github_projects_auth_wanted | bool
-    - github_projects_token_wanted | bool
-    - github_projects_signed_in | bool
-    - github_projects_stored_token == github_projects_token
+  when: github_projects_marker_due | bool
 
 - name: auth | Remember that the login is this role's
   ansible.builtin.copy:
@@ -201,11 +186,7 @@
     mode: "0600"
   become: true
   become_user: "{{ github_projects_user }}"
-  when:
-    - github_projects_auth_wanted | bool
-    - github_projects_token_wanted | bool
-    - github_projects_signed_in | bool
-    - github_projects_stored_token == github_projects_token
+  when: github_projects_marker_due | bool
 
 # Whenever gh is signed in, github_auth or not: clone.yml clones a private
 # repository over https only when git will ask gh for it, and a login made by

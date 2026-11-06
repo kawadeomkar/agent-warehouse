@@ -10,6 +10,10 @@ callback_plugins/claude_on_proxmox_status.py   just status's own: the report dra
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
+CONTRIBUTING.md                   setting up, testing a change, the conventions, releasing
+SECURITY.md                       the security policy: how to report, the scope, the known trade-offs
+LICENSE                           MIT
+Vagrantfile                       configure.yml on a real VirtualBox VM (just vagrant), with no real credentials
 docs/                             the wiki (docs/development/docs.md): getting-started/, guides/, reference/
                                   (generated in part), architecture/ (these pages), development/
 zensical.toml                     the wiki as a site: navigation, theme, GitHub-style anchors
@@ -27,6 +31,12 @@ tools/stale_scripts.py            just install: the locked packages whose comman
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/proxmox-access.sh           on the Proxmox host, as root: the API role, user, grants and token, what is missing of them
 pyproject.toml, uv.lock           the pinned and locked Python tooling (§13); requirements.yml: the Galaxy collections
+.ansible-lint, .yamllint          the linters' settings: ansible-lint's production profile, and yamllint, which skips
+                                  what git ignores
+.pre-commit-config.yaml           the hooks run on commit (tools/git-hook) and by just lint, outside ones pinned by commit
+.gitleaks.toml                    what CI's secret scans of the tree and of the commits leave out
+.gitignore, .editorconfig         what git leaves out - your settings, the vault, logs, the sessions saved - and how
+                                  files end their lines
 
 playbooks/
   template.yml                    one-time: build the cloud-init template (SSH to PVE)
@@ -41,6 +51,8 @@ playbooks/
                                   the offer to make it, its secret; the vault encrypted
   init_check.yml                  just init's checks: the API and token, privileges, the template or root SSH, node, storage, bridge, a key
   inventory/init.yml              init_settings.yml's own inventory: the controller alone, no group_vars
+  vars/init.yml                   what init_settings.yml and init_check.yml share: init_ask, init_given, the files,
+                                  the examples' placeholders, the reads of local.yml and the vault, the YAML validate
   configure.yml                   discover, then common → vscode_server → dev_tools → claude_code → github_projects,
                                   then tailscale in a rescued block, then the Proxmox record of each Tailscale login,
                                   then an SSH alias per configured VM on the controller, and a last play failing what
@@ -55,9 +67,14 @@ playbooks/
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
+  module_utils/                   claude_on_proxmox.py, what those modules share, sent with each: the session ID,
+                                  the manifest, a transcript's line, a folder's folders, a version's order, whether
+                                  a process is claude
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
   vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
                                   are (read, never written)
+  vars/sign_in.yml                the rules the three sign-in plays share, written once: names given, one VM at a
+                                  time, whether GitHub's and Tailscale's start or ask, a sign-in held back or left unasked
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
   tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the
@@ -68,9 +85,15 @@ playbooks/
                                   Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
+  tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
+  tasks/vms_requested.yml         the tagged VMs asked for and their addresses, those named after a host of the
+                                  inventory left out and said, two of one name refused (discover, ssh_config)
   tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
                                   key is never sent to it again (configure.yml, tailscale_login.yml)
+  tasks/sign_in_failed.yml        a VM a sign-in did not sign in - not reached, or its sign-in failed - remembered,
+                                  said and kept for NEXT STEPS (claude_login.yml, github_login.yml, tailscale_login.yml)
+  tasks/sign_in_held.yml          GitHub's or Tailscale's sign-in held back for a VM, said and kept for NEXT STEPS
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
@@ -90,7 +113,8 @@ roles/                            one role per concern, each with defaults/, met
   dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys)
   claude_code/                    native or npm install, settings.json, Remote Control and the path unit that
                                   starts it when a login lands; tasks/login.yml, browser_login.yml (the sign-in),
-                                  after_login.yml, path_unit_absent.yml; release.yml, and release_pause.yml and
+                                  after_login.yml, home.yml (the user's home, for login and status),
+                                  unit_absent.yml; release.yml, and release_pause.yml and
                                   release_resume.yml around destroy's save of the VM's sessions; status.yml (just status)
   github_projects/                tasks/auth.yml (gh sign-in, credential helper), clone.yml, login.yml (login_read.yml,
                                   login_report.yml), device_flow.yml (the sign-in), status.yml (just status);
@@ -113,8 +137,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.5)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
                                   as the callback and a run in parts say them (§7.5)
-                                  ansible/parts.py, a run in parts: a command drawn as a part, the state between parts,
-                                  the run's end (§7.8)
+                                  ansible/parts.py, a run in parts: the driver every drawn run shares, a command drawn
+                                  as a part, the state between parts, the run's end (§7.8)
                                   ansible/engine.py, the engine that draws a playbook run live: Ansible's events in,
                                   the region, the run's own words and the summary out; the stdout callback hands it
                                   every event (§7.5)
@@ -128,10 +152,12 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes
                                   (§7.10)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
-                                  net_mac, guest_ipv4, guest_address, guest_addresses;
+                                  net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
                                   proxmox_access_denied; the managed SSH config: ssh_config_blocks, ssh_config_prune,
-                                  ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host
+                                  ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host;
+                                  built_template, the template of that name in a listing; duplicate_names, the names
+                                  two VMs of it carry; proxmox_tags, a VM's tags as a list
 filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
                                   window as a plan, and editor_servers, each editor's window as vm_status_info knows
                                   it (§7.10)
@@ -139,26 +165,28 @@ filter_plugins/desktop.py         the adapter of lib/claude_vm/desktop.py: page_
                                   controller_run and its state, the run a Claude sign-in waits for (§7.4)
 filter_plugins/text.py            the adapter of lib/claude_vm/text.py: plain_text, what a VM printed made safe
                                   to quote;
-                                  one_line, one line of it; banner, the block a prompt is set in; and plain_summary, a
+                                  one_line, one line of it; full_stop, retry_line and and_list, the words messages
+                                  are built with; banner, the block a prompt is set in; and plain_summary, a
                                   module's warnings and errors made plain, which the callbacks import
-filter_plugins/status.py          the adapter of just status's model and text: status_fleet, status_vm_api,
-                                  status_report,
-                                  status_text (§7.7)
+filter_plugins/status.py          the adapter of just status's model: status_fleet, status_vm_api, status_report (§7.7)
 filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and checks.py: init_answer, the rule each
                                   just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
+                                  init_pick_question and init_pick, how one of them is asked for and what an answer picks;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
-                                  which VM checkout by origin; git_repository
-                                  and github_repository, owner/repo of a remote URL here and of a GitHub one on the VM;
-                                  claude_project_folder, Claude Code's folder for a path; claude_session_dirs; just_code_dir,
+                                  which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on
+                                  the VM;
+                                  claude_project_folder, Claude Code's folder for a path; claude_session_dirs;
+                                  projects_dir, the projects directory on a VM; just_code_dir,
                                   just code's own directory on a VM; claude_sessions_saved, what of a VM's sessions destroy saves;
                                   claude_sessions_listed, how just code says the sessions it left out
 inventory/
   hosts.yml.example               the only address anyone supplies
   controller.yml                  localhost, so it picks up group_vars/all
   group_vars/all/defaults.yml     shared defaults + the role wiring
-  group_vars/all/{local,vault}.yml.example
+  group_vars/all/local.yml.example   every setting, commented: the settings reference is rendered from it
+  group_vars/all/vault.yml.example   every secret, for the vault
 
 tests/
   check_no_local_files.sh         tracked-file guard (also runs in CI)
@@ -169,14 +197,24 @@ tests/
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py)
-  molecule/                       shared fakes: PVE API, qm, virt-customize, GitHub API, gh, claude, tailscale,
-                                  Tailscale API, the Anthropic Messages API (for the real claude in configure)
+  molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
+                                  fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
+                                  the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
+                                  fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
+                                  And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
+                                  start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
+                                  refused.yml runs a role where it must refuse and asserts why
 molecule/
   provision/                      provision.yml + discover.yml against the fake API
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
-.config/molecule/config.yml       driver, pinned image, shared provisioner settings
+.config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
+.config/ansible-lint-rules/       claude_on_proxmox_module_utils.py, no rule: puts playbooks/module_utils/ on the
+                                  path in ansible-lint's own process, where its args rule imports the modules in
+                                  playbooks/library/
 .github/                          CI, releases and the sections of their notes (release.yml), the labels
                                   pull requests get from their titles, the docs site, the composite setup
-                                  action, Dependabot and the CODEOWNERS that asks for its pull requests' review
+                                  action, Dependabot (dependabot.yml) and the CODEOWNERS that asks for its pull
+                                  requests' review
 ```

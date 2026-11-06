@@ -47,14 +47,24 @@ from pathlib import Path
 import pytest
 import yaml
 from harness import (
-    PVE_SECRET,
+    CLAUDE_CALLS,
+    GETENT,
     REPO,
     STAND_INS,
-    _certificate,
+    TAILSCALE_CALLS,
+    _calls,
+    _every_task,
     _failures,
+    _fake_pve,
+    _leaked,
     _left_to_do,
+    _local_hosts,
     _messages,
     _pve,
+    _pve_requests,
+    _pve_vars,
+    _pve_vm,
+    _results,
     _run,
     _run_at_a_terminal,
     _serve,
@@ -83,11 +93,6 @@ SECRETS = [
     REFUSED_CLIENT_SECRET,
     "tskey-api-oauth-0000",
 ]
-
-GETENT = """#!/bin/sh
-[ "$1" = passwd ] || { echo "stand-in getent: unexpected database $1" >&2; exit 3; }
-printf '%s:x:1000:1000:%s:%s:/bin/bash\\n' "$2" "$2" "$HOME"
-"""
 
 # One VM per way a release can go. "api" is the Tailscale API credential the
 # vault holds, and "method" tailscale_api_auth_method where a case sets it:
@@ -207,19 +212,15 @@ def _get(url: str):
 
 
 def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
-    for name, text in (
-        ("python", STAND_INS["python"]),
-        ("bash", STAND_INS["bash"]),
-        ("getent", GETENT),
-        ("claude", (FAKES / "fake_claude.sh").read_text()),
-        ("gh", (FAKES / "fake_gh.sh").read_text()),
-        ("tailscale", (FAKES / "fake_tailscale.sh").read_text()),
-    ):
-        (bin_dir / name).write_text(text)
-        (bin_dir / name).chmod(0o755)
-    hosts = {}
+    tools = {
+        "bash": STAND_INS["bash"],
+        "getent": GETENT,
+        "claude": (FAKES / "fake_claude.sh").read_text(),
+        "gh": (FAKES / "fake_gh.sh").read_text(),
+        "tailscale": (FAKES / "fake_tailscale.sh").read_text(),
+    }
+    # No ansible_host: the release play reads each VM's address from claude_vm_release_address, below.
+    hosts = _local_hosts(root, cases, tools, address="")
     for name, case in cases.items():
         home = root / name
         (home / ".claude" / "fake").mkdir(parents=True)
@@ -242,10 +243,9 @@ def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
             (state / "node-id").write_text(case["node"])
         if case.get("sessions"):
             _vm_sessions(home, home / "ws" if case.get("workspaces") else None)
-        (home / "python").symlink_to(bin_dir / "python")
         api = case.get("api", "")
         hosts[name] = {
-            "ansible_connection": "local",
+            **hosts[name],
             "ansible_python_interpreter": str(home / ("python" if case.get("answers", True) else "no-python")),
             "vm_user": "dev",
             **({"destroy_test_undeletable": True} if case.get("undeletable") else {}),
@@ -302,7 +302,8 @@ def _destroy_tail(root: Path, saved: Path | None = None) -> Path:
         "ansible.builtin.fail": {"msg": f"{REFUSED}."},
         "when": "destroy_test_undeletable | default(false) | bool",
     }
-    tasks = next(play["tasks"] for play in plays if any(task.get("name") == REPORT for task in play.get("tasks", [])))
+    holder = next(play for play in plays if any(task.get("name") == REPORT for task in play.get("tasks", [])))
+    tasks = holder["tasks"]
     at = next(index for index, task in enumerate(tasks) if task.get("name") == REPORT)
     # The report and its record for NEXT STEPS, then the kept aliases' and
     # theirs: a record's condition naming its report's task var failed every
@@ -314,14 +315,19 @@ def _destroy_tail(root: Path, saved: Path | None = None) -> Path:
         "Say which aliases were kept, and why",
         "Keep what is left to do for the end of the run",
     ]
-    on_these = json.loads(json.dumps(report).replace("groups['claude_vm_doomed']", "groups['claude_vms']"))
+    # With its play's vars, which the report and its records read the VMs from.
+    on_these = json.loads(
+        json.dumps({"vars": holder.get("vars", {}), "tasks": report}).replace(
+            "groups['claude_vm_doomed']", "groups['claude_vms']"
+        )
+    )
     playbook = root / "destroy_tail.yml"
     playbook.write_text(
         yaml.safe_dump(
             [
                 {**release, "hosts": "claude_vms"},
                 {**delete, "hosts": "claude_vms"},
-                {"name": "Report", "hosts": "localhost", "gather_facts": False, "tasks": on_these},
+                {"name": "Report", "hosts": "localhost", "gather_facts": False, **on_these},
             ]
         )
     )
@@ -372,7 +378,7 @@ def released(tmp_path_factory, fake_github, fake_tailscale):
 
 def _said(report: dict) -> dict:
     lines = {}
-    for name, _host, result in _results_of(report):
+    for name, _host, result in _results(report):
         if name.endswith(REPORT):
             for item in result.get("results", []):
                 vm = item.get("claude_release_name")
@@ -381,25 +387,13 @@ def _said(report: dict) -> dict:
     return lines
 
 
-def _results_of(report: dict):
-    for play in report["plays"]:
-        for task in play["tasks"]:
-            for host, result in task["hosts"].items():
-                yield task["task"]["name"], host, result
-
-
-def _calls(root: Path, host: str, *path: str) -> list[str]:
-    log = root.joinpath(host, *path)
-    return log.read_text().splitlines() if log.exists() else []
-
-
 def test_a_vm_signed_in_to_everything_is_released_from_everything(released):
     root, report, revoked, deleted = released
     assert report["rc"] == 0, _failures(report)
     assert not (root / "everything" / ".claude" / ".credentials.json").exists()
-    assert "auth logout" in _calls(root, "everything", ".claude", "fake", "calls.log")
+    assert "auth logout" in _calls(root, "everything", *CLAUDE_CALLS)
     assert not (root / "everything" / ".config" / "gh" / "fake-token").exists()
-    assert "logout" in _calls(root, "everything", ".tailscale-fake", "calls.log")
+    assert "logout" in _calls(root, "everything", *TAILSCALE_CALLS)
     assert "nEVERYTHING" in deleted
     assert _said(report)["everything"] == (
         "everything: released - Claude Code: signed out; GitHub: gh signed out; the token this project signed it in"
@@ -444,7 +438,7 @@ def test_a_logout_gh_refuses_is_said_never_reported_as_done(released):
 def test_without_an_api_credential_the_node_is_logged_out_and_its_device_named(released):
     root, report, revoked, deleted = released
     assert "nVAULT" not in deleted
-    assert "logout" in _calls(root, "vault-token", ".tailscale-fake", "calls.log")
+    assert "logout" in _calls(root, "vault-token", *TAILSCALE_CALLS)
     assert _said(report)["vault-token"].endswith(
         f"Tailscale: logged out; its device stays in your tailnet until you delete it at {ADMIN}, or a VM built again"
         " under its name joins as <name>-1."
@@ -623,7 +617,7 @@ def test_with_the_save_off_the_sessions_go_with_the_vm_and_it_is_said(released):
 
 def test_no_transcript_reaches_the_output(released):
     _, report, _, _ = released
-    assert MARKER not in json.dumps(report)
+    assert _leaked(report, [MARKER]) == []
 
 
 # What a VM deleted unreleased leaves to remove by hand, after the reason it was not released.
@@ -638,15 +632,15 @@ LEFT = (
 
 def test_a_vm_with_no_address_is_left_as_it_is_and_what_is_left_named(released):
     root, report, _, _ = released
-    assert _calls(root, "unreached", ".tailscale-fake", "calls.log") == []
+    assert _calls(root, "unreached", *TAILSCALE_CALLS) == []
     assert _said(report)["unreached"] == f"unreached: had no address to reach it at, so it was not released: {LEFT}"
 
 
 def test_a_vm_that_does_not_answer_is_left_as_it_is_and_what_is_left_named(released):
     # It has an address; Ansible finds nothing to run there. Deleted as it is, as one whose SSH fails.
     root, report, _, _ = released
-    assert _calls(root, "unanswering", ".tailscale-fake", "calls.log") == []
-    assert "auth logout" not in _calls(root, "unanswering", ".claude", "fake", "calls.log")
+    assert _calls(root, "unanswering", *TAILSCALE_CALLS) == []
+    assert "auth logout" not in _calls(root, "unanswering", *CLAUDE_CALLS)
     assert _said(report)["unanswering"] == f"unanswering: could not be reached, so it was not released: {LEFT}"
 
 
@@ -666,7 +660,7 @@ def test_a_vm_released_and_then_refused_its_deletion_says_both_and_keeps_its_lin
 def test_every_vm_asked_for_gets_exactly_one_line(released):
     # Those deleted and those not, never one twice: the report loops over every VM of the run.
     _, report, _, _ = released
-    (lines,) = [result["results"] for name, _, result in _results_of(report) if name.endswith(REPORT)]
+    (lines,) = [result["results"] for name, _, result in _results(report) if name.endswith(REPORT)]
     assert sorted(item["claude_release_name"] for item in lines) == sorted(CASES)
 
 
@@ -707,8 +701,7 @@ def test_next_steps_keep_each_vm_with_something_left_to_do_and_nothing_for_one_r
 
 def test_no_token_key_or_secret_reaches_the_output(released):
     _, report, _, _ = released
-    text = json.dumps(report)
-    assert [secret for secret in SECRETS if secret in text] == []
+    assert _leaked(report, SECRETS) == []
 
 
 @pytest.fixture(scope="module")
@@ -739,10 +732,10 @@ def kept(tmp_path_factory, fake_github, fake_tailscale):
 def test_a_vm_whose_sessions_could_not_be_saved_is_neither_released_nor_deleted(kept):
     root, report = kept
     assert (root / "kept" / ".claude" / ".credentials.json").exists()
-    assert "auth logout" not in _calls(root, "kept", ".claude", "fake", "calls.log")
+    assert "auth logout" not in _calls(root, "kept", *CLAUDE_CALLS)
     (why,) = [
         result["ansible_facts"]["claude_vm_delete_failure"]
-        for name, host, result in _results_of(report)
+        for name, host, result in _results(report)
         if name == "Keep the VM, whose sessions could not be saved"
     ]
     assert why.startswith(
@@ -760,7 +753,7 @@ def test_a_vm_kept_by_its_save_is_said_to_be_kept_for_that_and_never_for_a_delet
     _, report = kept
     (error,) = [
         result["ansible_facts"]["claude_vm_save_error"]
-        for name, host, result in _results_of(report)
+        for name, host, result in _results(report)
         if name == "Keep the VM, whose sessions could not be saved"
     ]
     assert error.startswith("session_save | Bring them here: The sessions could not be brought here: ")
@@ -824,7 +817,7 @@ def test_without_the_release_the_save_still_reaches_the_vm_first(unreleased):
     assert (saved / "projects" / VM_FOLDER / f"{STARTED}.jsonl").exists()
     # Nothing is released: still signed in.
     assert (root / "held" / ".claude" / ".credentials.json").exists()
-    assert "auth logout" not in _calls(root, "held", ".claude", "fake", "calls.log")
+    assert "auth logout" not in _calls(root, "held", *CLAUDE_CALLS)
     said = _said(report)["held"]
     assert said.startswith("held: deleted without being released (destroy_release: false): its Tailscale device")
     assert said.endswith(
@@ -855,7 +848,7 @@ def test_a_vm_whose_sudo_refuses_is_saved_and_deleted_unreleased_and_said_why(un
     saved = _saved(root, "unsudo")
     assert (saved / "projects" / VM_FOLDER / f"{STARTED}.jsonl").exists()
     assert (root / "unsudo" / ".claude" / ".credentials.json").exists()
-    assert "auth logout" not in _calls(root, "unsudo", ".claude", "fake", "calls.log")
+    assert "auth logout" not in _calls(root, "unsudo", *CLAUDE_CALLS)
     said = _said(report)["unsudo"]
     assert said.startswith("unsudo: sudo on it failed (")
     assert ", so it was not released: its Tailscale device" in said
@@ -871,16 +864,6 @@ def _action(task: dict) -> str:
     return action
 
 
-def _flat(tasks: list) -> list:
-    """Every task, those in a block, its rescue and its always included."""
-    flat = []
-    for task in tasks:
-        flat.append(task)
-        for part in ("block", "rescue", "always"):
-            flat += _flat(task.get(part, []))
-    return flat
-
-
 def test_destroy_releases_before_it_deletes_and_starts_a_stopped_vm_only_to_release_it():
     plays = yaml.safe_load(DESTROY.read_text())
     names = [play.get("name") for play in plays]
@@ -891,7 +874,7 @@ def test_destroy_releases_before_it_deletes_and_starts_a_stopped_vm_only_to_rele
     # a play's vars apply to its delegated tasks too, and sent the Tailscale
     # API's credential to the VM.
     assert not any(name.startswith("ansible_") for name in release.get("vars", {})), release.get("vars")
-    add = next(task for task in _flat(plays[0]["tasks"]) if task["name"] == "Add each VM as a host to delete")
+    add = next(task for task in _every_task(plays[0]["tasks"]) if task["name"] == "Add each VM as a host to delete")
     assert {"ansible_connection", "ansible_host", "ansible_user"} <= set(add["ansible.builtin.add_host"])
     delete = plays[names.index("Delete the VMs on Proxmox")]
     assert delete["vars"]["ansible_connection"] == "local"
@@ -1000,13 +983,12 @@ def test_the_save_reads_the_vm_under_no_log_and_writes_only_here_as_this_user(tm
 
 def test_a_vm_started_for_its_release_is_stopped_again_when_its_deletion_fails():
     plays = yaml.safe_load(DESTROY.read_text())
-    tasks = [task for play in plays for task in _flat(play.get("tasks", []))]
+    tasks = [task for play in plays for task in _every_task(play.get("tasks", []))]
     remember = next(task for task in tasks if task["name"] == "Remember which VMs this run started")
     assert "claude_vm_release_started" in remember["ansible.builtin.set_fact"]
     again = next(task for task in tasks if task["name"] == "Stop again each VM this run started but could not delete")
     assert again["ansible.builtin.import_tasks"] == "tasks/vm_stop.yml"
     assert "rejectattr('name', 'in', claude_vm_gone)" in again["vars"]["claude_vm_stop_query"]
-    assert "selectattr('claude_vm_deleted', 'defined')" in again["vars"]["claude_vm_gone"]
     stop = yaml.safe_load((REPO / "playbooks" / "tasks" / "vm_stop.yml").read_text())[0]
     assert stop["ansible.builtin.uri"]["url"].endswith("/status/stop") and stop["no_log"] is True
     # After the deletion, and first in its play: nothing there that fails
@@ -1015,6 +997,9 @@ def test_a_vm_started_for_its_release_is_stopped_again_when_its_deletion_fails()
     holder = next(play for play in plays if again in play.get("tasks", []))
     assert names.index(holder["name"]) > names.index("Delete the VMs on Proxmox")
     assert holder["tasks"][0] is again
+    # The VMs gone are the play's, read from what the delete play recorded of each.
+    assert "selectattr('claude_vm_deleted', 'defined')" in holder["vars"]["claude_vm_gone"]
+    assert "map('extract', hostvars)" in holder["vars"]["claude_vm_doomed_vars"]
 
 
 def test_a_deletion_that_fails_is_raised_only_after_the_stop_and_the_report():
@@ -1067,7 +1052,7 @@ def test_the_wait_for_a_started_vm_is_for_the_address_of_its_own_nic():
     # Any address would do before: a bridge the guest grew (docker0,
     # tailscale0) could end the wait before DHCP, and vm_addresses.yml, which
     # pairs by the NIC's MAC, then found none and the VM went unreleased.
-    tasks = _flat(yaml.safe_load(DESTROY.read_text())[0]["tasks"])
+    tasks = list(_every_task(yaml.safe_load(DESTROY.read_text())[0]["tasks"]))
     wait = next(
         task for task in tasks if task["name"] == "Wait for each started VM's guest agent and its NIC's address"
     )
@@ -1095,7 +1080,9 @@ def test_destroy_lists_the_cluster_again_whatever_it_started():
     # and destroy failed before it began.
     plays = yaml.safe_load(DESTROY.read_text())
     again = next(
-        task for task in _flat(plays[0]["tasks"]) if task["name"] == "List the VMs again, with the ones just started"
+        task
+        for task in _every_task(plays[0]["tasks"])
+        if task["name"] == "List the VMs again, with the ones just started"
     )
     assert "when" not in again
 
@@ -1117,6 +1104,22 @@ def test_no_play_sets_how_to_reach_a_host_in_its_vars():
             play_vars = play.get("vars") or {}
             assert not reaching & set(play_vars), (path.name, play.get("name"), sorted(reaching & set(play_vars)))
             assert play_vars.get("ansible_connection", "local") == "local", (path.name, play.get("name"))
+
+
+def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
+    # The VM user's ssh sessions have ~/.local/bin first on PATH (common's 15- drop-in), where interpreter
+    # discovery would take a python3.13 uv put there and run modules with it, as root where the play becomes
+    # it. Every add_host that gives a VM an address to be reached at pins the VM's own Python instead.
+    publishing = {}
+    for path in [REPO / "deploy.yml", *sorted((REPO / "playbooks").glob("*.yml"))]:
+        for play in yaml.safe_load(path.read_text()) or []:
+            for task in _every_task(play.get("tasks") or []):
+                added = task.get("ansible.builtin.add_host")
+                if isinstance(added, dict) and "ansible_host" in added:
+                    publishing.setdefault(path.stem, []).append(task["name"])
+                    assert "claude_vm_python" in str(added.get("ansible_python_interpreter", "")), (path.stem, task)
+    # By stem: test_status.py holds every test file that names the status playbook to status_root.
+    assert sorted(publishing) == ["code", "destroy", "discover", "provision", "status"], publishing
 
 
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])
@@ -1173,11 +1176,8 @@ PARKED = 9001
 @pytest.fixture
 def fake_pve(tmp_path):
     """The fake Proxmox, holding one stopped VM of this project's, its listing lagging a start by one listing."""
-    cert, key = _certificate(tmp_path)
-    for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(tmp_path / "pve"), PVE_SECRET):
-        base = base.replace("http://", "https://")
-        _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=PARKED, name="parked")
-        _pve(base, "PUT", f"nodes/pve/qemu/{PARKED}/config", tags="claude-on-proxmox")
+    for base in _fake_pve(tmp_path):
+        _pve_vm(base, PARKED, "parked")
         _pve(base, "PUT", "fake/listing-lag", listings=1)
         yield base
 
@@ -1185,21 +1185,7 @@ def fake_pve(tmp_path):
 def _head(tmp_path, fake_pve):
     """A directory to run destroy.yml's first play from against the fake, and that play with the addresses after it."""
     root = tmp_path / "run"
-    (root / "group_vars" / "all").mkdir(parents=True)
-    (root / "group_vars" / "all" / "defaults.yml").symlink_to(
-        REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-    )
-    port = int(fake_pve.rsplit(":", 1)[1])
-    (root / "group_vars" / "all" / "fake_api.yml").write_text(
-        yaml.safe_dump(
-            {
-                "proxmox_api_host": "127.0.0.1",
-                "proxmox_api_port": port,
-                "vault_proxmox_api_token_secret": PVE_SECRET,
-                "vm_user": "dev",
-            }
-        )
-    )
+    _pve_vars(root, fake_pve)
     plays = yaml.safe_load(DESTROY.read_text())
     # Its task files where they are: the play runs from a copy here.
     confirm = json.loads(json.dumps(plays[0]).replace('"tasks/', f'"{REPO / "playbooks" / "tasks"}/'))
@@ -1231,11 +1217,11 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
     assert report["rc"] == 0, _failures(report)
     said = {
-        host: result.get("claude_vm_release_address") for name, host, result in _results_of(report) if name == "Address"
+        host: result.get("claude_vm_release_address") for name, host, result in _results(report) if name == "Address"
     }
     assert said == {"parked": f"192.0.2.{PARKED % 200 + 50}"}
     # The listing did lag: the run's own relisting still showed it stopped.
-    calls = [json.loads(line) for line in (tmp_path / "pve" / "calls.log").read_text().splitlines()]
+    calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
 
 
@@ -1251,4 +1237,4 @@ def test_a_relative_folder_for_the_saved_sessions_is_refused_before_anything_sta
     assert failure.startswith(
         "Refuse a folder for the saved sessions that is not an absolute path: destroy_sessions_dir"
     )
-    assert not [name for name, _, _ in _results_of(report) if name.startswith("cluster_vms |")]
+    assert not [name for name, _, _ in _results(report) if name.startswith("cluster_vms |")]

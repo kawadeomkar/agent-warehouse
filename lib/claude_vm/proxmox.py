@@ -1,10 +1,12 @@
-"""Proxmox's API and qm read: guest agent output, a refused token, the managed SSH config's blocks, the drift of a
-VM's and a template's settings. Stdlib only, nothing read or written (docs/architecture/custom-code.md §7.1)."""
+"""Proxmox's API and qm read: guest agent output, a refused token, the managed SSH config's blocks, the built template
+and the duplicated names in a listing, a VM's tags, the drift of a VM's and a template's settings. Stdlib only,
+nothing read or written (docs/architecture/custom-code.md §7.1)."""
 
 from __future__ import annotations
 
 import ipaddress
 import re
+from collections import Counter
 from urllib.parse import unquote
 
 from .checks import _alias_refusal, _ipv4, guest_ipv4
@@ -63,30 +65,6 @@ def tailnet_ipv4(addresses):
     return ""
 
 
-def guest_address(vm_info, nic="net0"):
-    """Return the address a VM's guest agent reports on one of its NICs, or "".
-
-    ``vm_info`` is what ``proxmox_vm_info`` registers for a single VM read with
-    ``config: current`` and ``network: true``. The NIC's MAC is read from
-    ``config[nic]`` and picks the agent's matching interface, so a bridge the
-    guest grew later (docker0) is never returned. ``nic`` is the one setting
-    that decides this, which is why every caller passes ``proxmox_nic``.
-
-    Anything that leaves one VM without an address - the call failed, the VM is
-    stopped, the agent has not answered, the VM has no such NIC - gives "",
-    never an error: callers sweep a whole fleet and skip that VM rather than
-    abort for every other one, and never guess an address without the MAC.
-    """
-    vms = vm_info.get("proxmox_vms") if isinstance(vm_info, dict) else None
-    vm = vms[0] if isinstance(vms, list) and vms else None
-    if not isinstance(vm, dict) or not isinstance(vm.get("config"), dict):
-        return ""
-    mac = net_mac(vm["config"].get(nic), "")
-    if not mac or not isinstance(vm.get("network"), list):
-        return ""
-    return guest_ipv4(vm["network"], mac) or ""
-
-
 def guest_addresses(vms, configs, networks, nic="net0"):
     """Pair each VM of a cluster listing with the address its agent reports.
 
@@ -94,9 +72,16 @@ def guest_addresses(vms, configs, networks, nic="net0"):
     ``networks`` are the registered results of a ``uri`` loop over them, one
     per VM in the same order, reading ``/config`` and
     ``/agent/network-get-interfaces``. Returns the entries with an ``address``
-    key added: the IPv4 the agent reports on ``nic``, or "" for a VM whose
-    request failed, was skipped, or whose NIC or agent gave nothing - never an
-    error, for the reasons ``guest_address`` gives.
+    key added: the IPv4 the agent reports on the interface whose MAC is the
+    config's ``nic``, so a bridge the guest grew later (docker0) is never
+    returned. ``nic`` is the one setting that decides this, which is why the
+    caller passes ``proxmox_nic``.
+
+    Anything that leaves one VM without an address - its request failed or was
+    skipped, the VM is stopped, the agent has not answered, the VM has no such
+    NIC, an answer of another shape - gives that VM "", never an error: the
+    caller sweeps a whole fleet and skips that VM rather than abort for every
+    other one, and never guesses an address without the MAC.
     """
     if not isinstance(vms, list) or not isinstance(configs, list) or not isinstance(networks, list):
         raise ValueError("guest_addresses expects three lists")
@@ -111,16 +96,11 @@ def guest_addresses(vms, configs, networks, nic="net0"):
 
     rows = []
     for vm, config, network in zip(vms, configs, networks, strict=True):
-        interfaces = body(network)
-        vm_info = {
-            "proxmox_vms": [
-                {
-                    "config": body(config),
-                    "network": interfaces.get("result") if isinstance(interfaces, dict) else None,
-                }
-            ]
-        }
-        rows.append({**vm, "address": guest_address(vm_info, nic)})
+        settings, interfaces = body(config), body(network)
+        mac = net_mac(settings.get(nic), "") if isinstance(settings, dict) else ""
+        reported = interfaces.get("result") if isinstance(interfaces, dict) else None
+        address = (guest_ipv4(reported, mac) or "") if mac and isinstance(reported, list) else ""
+        rows.append({**vm, "address": address})
     return rows
 
 
@@ -215,6 +195,44 @@ def vms_not_named(vms, names):
     return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
 
 
+def built_template(vms, name):
+    """The built template named ``name`` among ``vms`` (the cluster listing's entries, or proxmox_vm_info's), or {}.
+
+    A qemu VM of that name whose ``template`` is set, as Proxmox lists a template (1): a VM that merely shares the
+    template's name (0, or no key at all) is no template, nor is a container's. An entry that names no type counts
+    as qemu. Of two, the first.
+    """
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise ValueError(f"built_template expects a list, got {type(vms).__name__}")
+    for vm in vms:
+        if isinstance(vm, dict) and vm.get("type", "qemu") == "qemu" and vm.get("name") == name and vm.get("template"):
+            return vm
+    return {}
+
+
+def proxmox_tags(tags):
+    """A VM's tags, as a list: split on ";" or ",", each trimmed, an empty one left out, the case as given.
+
+    Proxmox joins tags with ";" on the wire, lowercased; proxmox_kvm sends them joined with ",", and some versions
+    echo that back. Whole tags, so that a caller compares a tag whole: claude-on-proxmox is never
+    claude-on-proxmox-staging.
+    """
+    return [tag.strip() for tag in re.split(r"[;,]", str(tags or "")) if tag.strip()]
+
+
+def duplicate_names(vms):
+    """The names more than one entry of ``vms`` (the cluster listing's) carries, sorted as Jinja's sort sorts them,
+    regardless of case; an entry without a name is none of them.
+
+    Proxmox lets two VMs share a name, and what finds a VM by its name - add_host, an alias, destroy's release -
+    would act on one of them only, unpredictably.
+    """
+    if isinstance(vms, (str, dict)) or not hasattr(vms, "__iter__"):
+        raise ValueError(f"duplicate_names expects a list, got {type(vms).__name__}")
+    counts = Counter(vm["name"] for vm in vms if isinstance(vm, dict) and vm.get("name"))
+    return sorted((name for name, count in counts.items() if count > 1), key=lambda name: str(name).lower())
+
+
 _SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)
 
 
@@ -225,6 +243,13 @@ def _size_bytes(text):
         return None
     unit = (match.group(2) or "G").upper()
     return int(float(match.group(1)) * 1024 ** ("KMGT".index(unit) + 1))
+
+
+def scsi0_storage(scsi0):
+    """The storage a disk's property string names (``local-lvm:vm-9001-disk-0,size=32G``): its volume, the first item,
+    is "<storage>:<name>". "" for a disk that names none."""
+    volume = str(scsi0 or "").split(",", 1)[0]
+    return volume.split(":", 1)[0] if ":" in volume else ""
 
 
 def _disk_size(scsi0):
@@ -368,7 +393,7 @@ def proxmox_template_drift(config, wanted):
         "cpu": _option(config.get("cpu"), "cputype"),
         "ostype": str(config.get("ostype") or ""),
         "bridge": _option(config.get("net0"), "bridge"),
-        "storage": str(config.get("scsi0") or "").split(":", 1)[0] if ":" in str(config.get("scsi0") or "") else "",
+        "storage": scsi0_storage(config.get("scsi0")),
         "scsihw": str(config.get("scsihw") or ""),
         "agent": _option(config.get("agent"), "enabled"),
         "serial0": str(config.get("serial0") or ""),

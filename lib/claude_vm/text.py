@@ -15,6 +15,12 @@ one_line keeps a value a VM chose to one line of a report: `just status`
 (claude_vm.status.model) draws its report from them, and every live run
 (claude_vm.run.model) its reports, and a newline in a directory's name
 would otherwise start a line of its own - a forged item with a command to run.
+Uncut, it is how a playbook or a role quotes what a VM or a tool printed in a
+message of its own.
+
+full_stop, retry_line and and_list are the words those messages are built with,
+so each is written once: a quoted reason ending its sentence, the command that
+retries a failure, a list said as "a, b and c".
 
 plain_events is for the stdout callbacks: what a module returns as warnings,
 deprecations or a failure's message is the VM's to choose, and Display prints
@@ -67,18 +73,49 @@ def visible_text(text):
 
 
 def one_line(text, limit=120):
-    """Return ``text`` as one line of plain text, at most ``limit`` characters, ending in "…" when cut.
+    """Return ``text`` as one line of plain text, at most ``limit`` characters, ending in "…" when cut; with ``limit``
+    None, never cut.
 
-    visible_text first, so whole escape sequences go and each Unicode format or
-    separator character is a space; then each newline, carriage return and tab
-    becomes one too, and runs of spaces one. None is "".
+    visible_text first, so whole escape sequences and every control character
+    but tab and newline go - a carriage return among them, removed, not made a
+    space - and each Unicode format or separator character is a space; then each
+    newline and tab becomes one too, and runs of spaces one. None is "". What a
+    VM printed is passed as it is: nothing needs cleaning first.
     """
-    if text is None:
-        return ""
-    cleaned = "".join(" " if unicodedata.category(ch) == "Cc" else ch for ch in visible_text(text))
-    cleaned = _SPACES.sub(" ", cleaned).strip()
+    cleaned = _SPACES.sub(" ", visible_text(text).replace("\n", " ").replace("\t", " ")).strip()
+    if limit is None:
+        return cleaned
     limit = max(int(limit), 1)
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1].rstrip() + "…"
+
+
+_SENTENCE_END = re.compile(r"[.!?]$")
+
+
+def full_stop(text):
+    """Return ``text`` ending its sentence: as it is when it ends in ".", "!" or "?", else with a "." after it.
+
+    A message goes on after the reason it quotes, a module's or a tool's, which
+    often has no stop of its own ("One or more items failed") and must not get a
+    second where it has one. None reads as "".
+    """
+    text = "" if text is None else str(text)
+    return text if _SENTENCE_END.search(text) else text + "."
+
+
+def retry_line(text, command):
+    """Return ``text`` as a sentence, then the command that retries what failed: "<text>. Retry it with: <command>".
+
+    The command ends the line with no stop after it, which would be pasted
+    along with it.
+    """
+    return f"{full_stop(text)} Retry it with: {command}"
+
+
+def and_list(items):
+    """Return ``items`` as words say them: "a", "a and b", "a, b and c"; "" for none."""
+    words = [str(item) for item in items or []]
+    return words[0] if len(words) == 1 else ", ".join(words[:-1]) + " and " + words[-1] if words else ""
 
 
 # The block's width: these columns, or the terminal's when it is narrower,

@@ -12,7 +12,6 @@ variable, so no other run is drawn (docs/architecture/custom-code.md §7.5).
 
 from __future__ import annotations
 
-import itertools
 import json
 import re
 import subprocess
@@ -21,11 +20,14 @@ from pathlib import Path
 
 import live_kit as kit
 import pytest
+from harness import repo_files
+from test_attention_callback import _vm_module
+
+from claude_vm.ansible import engine
+from claude_vm.run import recipes
 
 REPO = Path(__file__).resolve().parents[2]
 PROMPT = "alpha: paste the code here, or press Enter to skip"
-# Colour, a title and a bell: what a terminal acts on and does not show.
-ESCAPES = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x07")
 
 PLAYBOOKS = {
     "deploy.yml": """
@@ -222,12 +224,6 @@ NEXT_STEPS = [
 ]
 
 
-def _next_steps(text):
-    """NEXT STEPS' lines as printed, colour aside: under its block's rule, up to the first blank line."""
-    after = ESCAPES.sub("", text).replace("\r\n", "\n").split("##  NEXT STEPS\n", 1)[1].split("\n", 1)[1]
-    return list(itertools.takewhile(str.strip, after.splitlines()))
-
-
 @pytest.fixture
 def stand_in(tmp_path):
     for name, text in PLAYBOOKS.items():
@@ -256,7 +252,7 @@ def _deploy(
     them."""
     _fresh(root)
     return kit.at_a_terminal(
-        kit.playbook(root, root / "hosts", root / "deploy.yml", *args),
+        kit.playbook(root / "hosts", root / "deploy.yml", *args),
         root,
         _environment(root, title, env),
         cols=cols,
@@ -270,7 +266,7 @@ def _deploy(
 
 def _piped(root, *args, title="deploy alpha", env=None, playbook="deploy.yml", timeout=120):
     _fresh(root)
-    argv = kit.playbook(root, root / "hosts", root / playbook, *args)
+    argv = kit.playbook(root / "hosts", root / playbook, *args)
     return kit.piped(argv, root, _environment(root, title, env), timeout=timeout)
 
 
@@ -308,10 +304,10 @@ def test_a_deploy_at_a_terminal_is_drawn_in_place_and_leaves_its_words_and_the_s
     assert stages == ["template", "provision", "configure", "sign in", "editor"], screen
     assert screen.index("STAGES") < screen.index("##  NEXT STEPS") and "alpha: just login alpha --only github" in screen
     # Each line whole, as the stream prints it: the terminal wraps a long one, and a fleet's lines stay their own.
-    assert _next_steps(ran.text) == _next_steps(ran.log) == NEXT_STEPS, ran.text
+    assert kit.next_steps(ran.text) == kit.next_steps(ran.log) == NEXT_STEPS, ran.text
     assert "\nALPHA  192.0.2.61 · VM 104 · new\n" in screen
     # configure's "not started", which the sign-in's report on Remote Control made old, is said above only.
-    alpha = screen.split("\nALPHA  ", 1)[1].split("\n\n", 1)[0]
+    alpha = ran.table("\nALPHA  ")
     assert " Remote Control is live for alpha." in alpha and "not started" not in alpha, alpha
     # The tab says where the run is, a wait for the person and the end ring once each.
     titles = ran.screen.titles
@@ -337,7 +333,7 @@ def test_the_log_is_the_streams_with_the_runs_own_words_added(stand_in):
     assert any(line.startswith("STAGES") for line in added), added
     # NEXT STEPS is the stream's, line for line, drawn or piped.
     piped = _piped(stand_in)
-    assert _next_steps(streamed.text) == _next_steps(drawn.text) == _next_steps(piped.text) == NEXT_STEPS
+    assert kit.next_steps(streamed.text) == kit.next_steps(drawn.text) == kit.next_steps(piped.text) == NEXT_STEPS
 
 
 def test_a_dry_run_is_drawn_with_its_diffs_above(stand_in):
@@ -447,19 +443,9 @@ def test_a_failure_says_what_failed_whole_wherever_it_is(tmp_path):
     assert re.search(r"^\d+ tasks · nothing changed · 4 failed \(4 VMs\)", text, re.M), text
 
 
-# A module as a VM's root can make any module there answer: warnings and a failure's message carrying a clipboard
-# write (OSC 52), a title, a screen erase and an 8-bit CSI, which ansible-core prints as they are, on stderr - which
-# the region lets through to the screen - and in the log.
-VM_SAID = """#!/usr/bin/python
-from ansible.module_utils.basic import AnsibleModule
-
-ESCAPES = "\\x1b]52;c;b3duZWQ=\\x07\\x1b]0;retitled\\x07\\x1b[2J\\x9b31m"
-module = AnsibleModule(argument_spec={"fail": {"type": "bool", "default": False}})
-module.warn("warned " + ESCAPES)
-if module.params["fail"]:
-    module.fail_json(msg="failed " + ESCAPES)
-module.exit_json(changed=False)
-"""
+# A module as a VM's root can make any module there answer (test_attention_callback.VM_MODULE): warnings and a
+# failure's message carrying a clipboard write (OSC 52), a title, a screen erase and an 8-bit CSI, which ansible-core
+# prints as they are, on stderr - which the region lets through to the screen - and in the log.
 VM_SAYS = """
 - name: A VM's modules
   hosts: alpha
@@ -475,11 +461,10 @@ VM_SAYS = """
 
 def test_what_a_vm_s_module_says_is_drawn_plain_on_the_screen_and_in_the_log(stand_in):
     (stand_in / "vm_says.yml").write_text(VM_SAYS)
-    (stand_in / "library").mkdir()
-    (stand_in / "library" / "vm_said.py").write_text(VM_SAID)
+    _vm_module(stand_in)
     _fresh(stand_in)
     ran = kit.at_a_terminal(
-        kit.playbook(stand_in, stand_in / "hosts", stand_in / "vm_says.yml"),
+        kit.playbook(stand_in / "hosts", stand_in / "vm_says.yml"),
         stand_in,
         _environment(stand_in, "deploy alpha", None),
     )
@@ -588,13 +573,10 @@ def test_verbose_without_the_variable_or_without_a_log_the_run_is_streamed(stand
 
 
 def test_no_other_test_or_scenario_draws_a_run():
-    tracked = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True).stdout
     mentions = sorted(
-        name
-        for name in tracked.splitlines()
-        if not name.endswith(".md")
-        and (REPO / name).is_file()
-        and "CLAUDE_ON_PROXMOX_LIVE" in (REPO / name).read_text(errors="replace")
+        str(path.relative_to(REPO))
+        for path in repo_files()
+        if path.suffix != ".md" and "CLAUDE_ON_PROXMOX_LIVE" in path.read_text(errors="replace")
     )
     # The callback that hands the run to the engine, the engines that read it - a playbook's, a command's and the
     # tool that decides whether a command is drawn, and pytest's plugin, whose file it names - and the declarations
@@ -611,7 +593,6 @@ def test_no_other_test_or_scenario_draws_a_run():
         "tests/unit/live_kit.py",
         "tests/unit/live_pytest.py",
         "tests/unit/test_deploy_live.py",
-        "tests/unit/test_init_live.py",
         "tests/unit/test_justfile.py",
         "tests/unit/test_live_commands.py",
         "tests/unit/test_login_live.py",
@@ -626,14 +607,8 @@ def test_no_other_test_or_scenario_draws_a_run():
             recipe = line.split()[0].rstrip(":")
         if "CLAUDE_ON_PROXMOX_LIVE" in line:
             naming.add(recipe)
-    assert naming <= set(_recipes().RECIPES), naming
+    assert naming <= set(recipes.RECIPES), naming
     assert {"deploy", "login", "destroy", "code", "lint", "init", "test"} <= naming, naming
-
-
-def _recipes():
-    from claude_vm.run import recipes
-
-    return recipes
 
 
 RAISED = """
@@ -696,7 +671,7 @@ def test_a_failure_raised_again_is_drawn_under_its_cause_with_its_own_words(tmp_
     # The cause, by its step and VM, and the raise's own words; never the raise's task as if it were the failure.
     assert "✗ tailscale · alpha: Join the tailnet" in text and "tailscale up timed out" in text, text
     assert "alpha: Tailscale failed. Retry it with: just deploy alpha --tags tailscale" in text
-    assert "Fail where Tailscale failed" not in text.split("claude-on-proxmox  deploy", 1)[0]
+    assert "Fail where Tailscale failed" not in ran.above_summary("deploy")
     assert re.search(r"^claude-on-proxmox  deploy --only configure alpha · failed after \d+ s at tailscale", text, re.M)
     # A report of several lines keeps them, and their indent.
     wrote = text.split("alpha  Wrote:\n", 1)[1].splitlines()[:2]
@@ -707,14 +682,13 @@ def test_a_failure_raised_again_is_drawn_under_its_cause_with_its_own_words(tmp_
     # The failure is its cause's step's: tailscale's row is the failed one.
     assert re.search(r"^ ✗ tailscale ", text, re.M) and re.search(r"^ ✓ configure ", text, re.M), text
     # NEXT STEPS whole, past the block's width: the command is copied from one line.
-    assert _next_steps(text) == [
+    assert kit.next_steps(text) == [
         "alpha: a line far longer than any banner is wide, which names a command to copy whole, just deploy alpha"
         " --tags tailscale, and goes on past eighty columns, never wrapped by its words"
     ], text
 
 
 def test_the_vms_a_run_was_given_are_read_from_its_extra_vars():
-    engine = kit_engine()
     assert engine.vm_names(['{"vm_name": "alpha,beta"}', "x=1"]) == ["alpha", "beta"]
     assert engine.vm_names(["vm_name=gamma"]) == ["gamma"]
     assert engine.vm_names(['{"vm_name": "alpha\\nProxyCommand x,-bad"}']) == []
@@ -725,13 +699,7 @@ def test_a_name_the_run_s_facts_hold_is_a_vm_s_only_whole():
     # refs.NAME, matched in full: a name with a space, a ; or a line break is no VM's, and a line break would break
     # the region's count of the lines it drew.
     names = ["alpha", "alpha beta", "al;pha", "alpha\nx", {"name": "beta"}, {"name": "beta\n"}]
-    assert kit_engine().Engine._names(names) == ["alpha", "beta"]
-
-
-def kit_engine():
-    from claude_vm.ansible import engine
-
-    return engine
+    assert engine.Engine._names(names) == ["alpha", "beta"]
 
 
 def test_a_tasks_file_is_the_one_the_import_nearest_the_play_names(tmp_path):

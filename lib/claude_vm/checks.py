@@ -113,6 +113,30 @@ def ssh_alias_refusals(vms, hosts=None, chosen=None):
     return refused
 
 
+def ssh_hostname(vm, domain=""):
+    """Where a VM's alias points, its ``HostName``: ``<name>.<domain>`` where the network resolves VM names
+    (``domain``, claude_ssh_host_domain), else the address its guest agent reported, ``""`` for none.
+
+    The alias's block, the check that the user's ssh config reaches it, and the connection just code makes all
+    read it here, so the editor and Ansible connect to the same place.
+    """
+    if not isinstance(vm, dict):
+        raise ValueError(f"ssh_hostname expects a VM, got {type(vm).__name__}")
+    if domain:
+        return f"{vm['name']}.{domain}"
+    return str(vm.get("address") or "")
+
+
+def sshd_match_spec(ssh_connection, user):
+    """What ``sshd -T -C`` evaluates its Match blocks for: ``user``'s sessions, coming from where the connection
+    Ansible made comes from. ``ssh_connection`` is its ``SSH_CONNECTION`` (client address, client port, local address,
+    local port); a container or a local run has none, and the loopback address stands in."""
+    fields = str(ssh_connection or "").split()
+    if len(fields) == 4:
+        return f"user={user},host={fields[0]},addr={fields[0]},laddr={fields[2]},lport={fields[3]}"
+    return f"user={user},host=127.0.0.1,addr=127.0.0.1"
+
+
 _LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
 
 # What Proxmox itself allows as the name of a node (a host name's first label),

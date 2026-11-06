@@ -6,52 +6,28 @@
 - name: Refuse to delete a VM this project does not own
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
     - name: Create a VM this project did not create
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9002
-          name: someones-nas
-      delegate_to: localhost
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures: [{vmid: 9002, name: someones-nas}]
 
     - name: Try to delete it by name
-      block:
-        - name: Run the role against the untagged VM
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: someones-nas
-            proxmox_vm_state: absent
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_vm deleted "someones-nas", which carries no
-              claude-on-proxmox tag. The ownership guard is not working.
-      rescue:
-        - name: Assert it refused for the right reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('did not create it')
-              - ansible_failed_result.msg is search('someones-nas')
-            fail_msg: >-
-              Expected an ownership refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: someones-nas
+        proxmox_vm_state: absent
+        refused_because: [did not create it, someones-nas]
+        refused_unless: >-
+          proxmox_vm deleted "someones-nas", which carries no
+          claude-on-proxmox tag. The ownership guard is not working.
 
     - name: Assert the VM is still there
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9002/status/current"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9002/status/current"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_survivor
       failed_when: proxmox_vm_survivor.json.data.name != 'someones-nas'
@@ -69,46 +45,26 @@
   hosts: all
   gather_facts: false
   vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
     side_effect_lookalikes:
-      - {vmid: 9301, name: lookalike-suffix, tags: claude-on-proxmox-staging}
-      - {vmid: 9302, name: lookalike-prefix, tags: not-claude-on-proxmox}
+      - {vmid: 9301, name: lookalike-suffix, config: {tags: claude-on-proxmox-staging}}
+      - {vmid: 9302, name: lookalike-prefix, config: {tags: not-claude-on-proxmox}}
   tasks:
-    - name: Clone the lookalikes and the VM tagged second
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: "{{ proxmox_vm_fixture.vmid }}"
-          name: "{{ proxmox_vm_fixture.name }}"
-      delegate_to: localhost
-      loop: "{{ side_effect_lookalikes + [{'vmid': 9303, 'name': 'tagged-second', 'tags': 'ansible;claude-on-proxmox'}] }}"
-      loop_control:
-        loop_var: proxmox_vm_fixture
-        label: "{{ proxmox_vm_fixture.name }}"
+    - name: Make the lookalikes and the VM tagged second
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures: "{{ side_effect_lookalikes + [{'vmid': 9303, 'name': 'tagged-second', 'config': {'tags': 'ansible;claude-on-proxmox'}}] }}"
 
-    - name: Give each its tags
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/{{ proxmox_vm_fixture.vmid }}/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: "{{ proxmox_vm_fixture.tags }}"
-      delegate_to: localhost
-      loop: "{{ side_effect_lookalikes + [{'vmid': 9303, 'name': 'tagged-second', 'tags': 'ansible;claude-on-proxmox'}] }}"
-      loop_control:
-        loop_var: proxmox_vm_fixture
-        label: "{{ proxmox_vm_fixture.name }}"
-
+    # The role must refuse each, for the ownership reason, whichever way it is asked.
     - name: Try to provision and to delete each lookalike
-      ansible.builtin.include_tasks: tasks/lookalike.yml
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: "{{ proxmox_vm_lookalike.name }}"
+        proxmox_vm_state: "{{ proxmox_vm_lookalike.state }}"
+        refused_because: [did not create it, "{{ proxmox_vm_lookalike.name }}"]
+        refused_unless: >-
+          proxmox_vm accepted "{{ proxmox_vm_lookalike.name }}" (tags {{ proxmox_vm_lookalike.config.tags }}) for
+          state {{ proxmox_vm_lookalike.state }}. The ownership tag is being matched as a substring, not a whole tag.
       loop: >-
         {{ (side_effect_lookalikes | map('combine', {'state': 'present'}) | list)
            + (side_effect_lookalikes | map('combine', {'state': 'absent'}) | list) }}
@@ -126,8 +82,8 @@
     - name: Read what is left of the three
       ansible.builtin.uri:
         validate_certs: false
-        url: "https://127.0.0.1:18006/api2/json/cluster/resources?type=vm"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/cluster/resources?type=vm"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_lookalike_state
 
@@ -155,24 +111,12 @@
       become: true
 
     - name: Try to provision claude-dev reading a NIC it does not have
-      block:
-        - name: Run the role with proxmox_vm_nic set to net9
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_nic: net9
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm carried on without a MAC for net9, so it would have guessed an address.
-      rescue:
-        - name: Assert it refused because the NIC could not be read
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('Could not read a MAC address from net9')
-              - ansible_failed_result.msg is search('set proxmox_vm_nic')
-            fail_msg: "Expected a NIC refusal, got: {{ ansible_failed_result.msg }}"
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_nic: net9
+        refused_because: [Could not read a MAC address from net9, set proxmox_vm_nic]
+        refused_unless: proxmox_vm carried on without a MAC for net9, so it would have guessed an address.
 
     - name: Read the requests the attempt made
       ansible.builtin.slurp:
@@ -204,24 +148,12 @@
       become: true
 
     - name: Try to provision claude-dev with a token the agent refuses
-      block:
-        - name: Run the role with the noagent token
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_api_token_id: noagent
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm reported an address through a token the guest agent refuses.
-      rescue:
-        - name: Assert it failed naming the missing privilege
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('did not report an\s+address')
-              - ansible_failed_result.msg is search('VM.GuestAgent.Audit')
-            fail_msg: "Expected the no-address failure, got: {{ ansible_failed_result.msg }}"
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_api_token_id: noagent
+        refused_because: ['did not report an\s+address', VM.GuestAgent.Audit]
+        refused_unless: proxmox_vm reported an address through a token the guest agent refuses.
 
     - name: Read the requests the attempt made
       ansible.builtin.slurp:
@@ -248,58 +180,30 @@
 - name: Refuse to change a VM this project does not own
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
     - name: Try to provision over the untagged VM
-      block:
-        - name: Run the role against the untagged VM
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: someones-nas
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_vm configured "someones-nas", which carries no
-              claude-on-proxmox tag. It would now pass the delete guard.
-      rescue:
-        - name: Assert it refused because the VM is not this project's
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('did not create it')
-              - ansible_failed_result.msg is search('someones-nas')
-            fail_msg: >-
-              Expected an ownership refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: someones-nas
+        refused_because: [did not create it, someones-nas]
+        refused_unless: >-
+          proxmox_vm configured "someones-nas", which carries no
+          claude-on-proxmox tag. It would now pass the delete guard.
 
     - name: Try to provision over the template
-      block:
-        - name: Run the role with the template's name
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: ubuntu-24.04-cloudinit
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm configured the template it clones every VM from.
-      rescue:
-        - name: Assert it refused because the VM is a template
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('is the name of a template')
-            fail_msg: >-
-              Expected a template refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: ubuntu-24.04-cloudinit
+        refused_because: [is the name of a template]
+        refused_unless: proxmox_vm configured the template it clones every VM from.
 
     - name: Read the untagged VM after the attempt
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9002/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9002/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_foreign_cfg
 
@@ -314,28 +218,10 @@
         quiet: true
 
     # What an interrupted run leaves behind: cloned and tagged, then nothing.
-    - name: Clone a VM the way the role does
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9010
-          name: half-built
-      delegate_to: localhost
-
-    - name: Tag it, then stop as if the run had died
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9010/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox
-      delegate_to: localhost
+    - name: Clone a VM the way the role does, tag it, then stop as if the run had died
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures: [{vmid: 9010, name: half-built, config: {tags: claude-on-proxmox}}]
 
     - name: Run the role against the half-built VM
       ansible.builtin.include_role:
@@ -346,8 +232,8 @@
     - name: Read what the half-built VM was configured with
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9010/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9010/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_repaired_cfg
 
@@ -426,10 +312,6 @@
 - name: Cover the paths converge does not reach
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
     # vm_ipconfig, which feeds this, is documented as the way to give a single VM a fixed
     # address (one value, so every VM a run provisions would share it), but
@@ -453,8 +335,8 @@
     - name: Read what the static VM was configured with
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/{{ proxmox_vm_resolved_id }}/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/{{ proxmox_vm_resolved_id }}/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_static_cfg
 
@@ -493,25 +375,13 @@
     # wiki devotes a section to creating one. The user should get something
     # better than a raw proxmoxer traceback.
     - name: Run the role with a bad API token
-      block:
-        - name: Attempt a lookup that must fail
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: claude-dev
-            proxmox_vm_api_token_secret: definitely-not-the-secret
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm accepted a bad API token.
-      rescue:
-        - name: Assert the failure names an authentication problem
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('[Aa]uthentication|[Aa]uthorization|401')
-            fail_msg: >-
-              Expected a clear authentication failure, got:
-              {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: claude-dev
+        proxmox_vm_api_token_secret: definitely-not-the-secret
+        refused_because: ['[Aa]uthentication|[Aa]uthorization|401']
+        refused_unless: proxmox_vm accepted a bad API token.
 
 # The checks that stand between a mistake and the template, or a VM that is not
 # the one meant. Each is one assert in the role, easy to reorder or drop in a
@@ -519,42 +389,25 @@
 - name: Refuse clashing VMIDs, duplicate names and tagged templates
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
     # On a taken VMID proxmox_kvm clones nothing, reports ok, and returns the
     # *template's* VMID. Trusting that would tag and configure the template.
     - name: Try to clone onto a VMID that is already taken
-      block:
-        - name: Run the role with proxmox_vm_id pinned to someones-nas's VMID
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: pinned-clash
-            proxmox_vm_id: 9002
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_vm carried on after a clone onto a taken VMID created nothing,
-              so every later task pointed at the template.
-      rescue:
-        - name: Assert it refused because the clone changed nothing
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('changed nothing')
-              - ansible_failed_result.msg is search('9002')
-            fail_msg: >-
-              Expected a VMID collision refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: pinned-clash
+        proxmox_vm_id: 9002
+        refused_because: [changed nothing, '9002']
+        refused_unless: >-
+          proxmox_vm carried on after a clone onto a taken VMID created nothing,
+          so every later task pointed at the template.
 
     - name: Read the template after the clash
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9000/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9000/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_template_cfg
 
@@ -570,79 +423,36 @@
 
     # Two VMs this project owns, sharing a name. Either could be the one meant,
     # so the role must touch neither - not configure one, not delete one.
-    - name: Clone two VMs with the same name
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: "{{ proxmox_vm_twin }}"
-          name: twin
-      delegate_to: localhost
-      loop: [9101, 9102]
-      loop_control:
-        loop_var: proxmox_vm_twin
-
-    - name: Tag both, so ownership is not what stops the role
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/{{ proxmox_vm_twin }}/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox
-      delegate_to: localhost
-      loop: [9101, 9102]
-      loop_control:
-        loop_var: proxmox_vm_twin
+    # Both tagged, so ownership is not what stops the role.
+    - name: Clone two VMs with the same name, both tagged
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures:
+          - {vmid: 9101, name: twin, config: {tags: claude-on-proxmox}}
+          - {vmid: 9102, name: twin, config: {tags: claude-on-proxmox}}
 
     - name: Try to provision the duplicated name
-      block:
-        - name: Run the role against the duplicated name
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: twin
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm configured one of two VMs named "twin".
-      rescue:
-        - name: Assert provisioning refused because the name is duplicated
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('2 VMs are named "twin"')
-            fail_msg: >-
-              Expected a duplicate-name refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: twin
+        refused_because: ['2 VMs are named "twin"']
+        refused_unless: proxmox_vm configured one of two VMs named "twin".
 
     - name: Try to delete the duplicated name
-      block:
-        - name: Run the role against the duplicated name with state absent
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: twin
-            proxmox_vm_state: absent
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm deleted one of two VMs named "twin".
-      rescue:
-        - name: Assert deletion refused because the name is duplicated
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('2 VMs are named "twin"')
-            fail_msg: >-
-              Expected a duplicate-name refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: twin
+        proxmox_vm_state: absent
+        refused_because: ['2 VMs are named "twin"']
+        refused_unless: proxmox_vm deleted one of two VMs named "twin".
 
     - name: Read both twins after the attempts
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/{{ proxmox_vm_twin }}/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/{{ proxmox_vm_twin }}/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_twin_cfgs
       loop: [9101, 9102]
@@ -658,93 +468,41 @@
 
     # The ownership tag alone must not make a template deletable: every VM is
     # cloned from it, and a tag is one click in the Proxmox UI.
-    - name: Clone a VM to turn into a template
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9103
-          name: tagged-template
-      delegate_to: localhost
-
-    - name: Tag it as this project's
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9103/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox
-      delegate_to: localhost
-
-    - name: Convert it to a template
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9103/template"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-      delegate_to: localhost
+    - name: Clone a VM, tag it as this project's and convert it to a template
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures: [{vmid: 9103, name: tagged-template, config: {tags: claude-on-proxmox}, template: true}]
 
     - name: Try to delete the tagged template
-      block:
-        - name: Run the role against the tagged template with state absent
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: tagged-template
-            proxmox_vm_state: absent
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm deleted a template because it carried the ownership tag.
-      rescue:
-        - name: Assert deletion refused because it is a template
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('is a template')
-              - ansible_failed_result.msg is search('tagged-template')
-            fail_msg: >-
-              Expected a template refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: tagged-template
+        proxmox_vm_state: absent
+        refused_because: [is a template, tagged-template]
+        refused_unless: proxmox_vm deleted a template because it carried the ownership tag.
 
     # proxmox_vm_allow_untagged_delete waives the ownership check, not the
     # template check. They once shared an assert that the flag skipped whole,
     # so asking to delete an untagged VM deleted the template instead.
     - name: Try to delete the tagged template with untagged deletes allowed
-      block:
-        - name: Run the role against the tagged template with the ownership check waived
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_name: tagged-template
-            proxmox_vm_state: absent
-            proxmox_vm_allow_untagged_delete: true
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_vm deleted a template because proxmox_vm_allow_untagged_delete
-              was set.
-      rescue:
-        - name: Assert deletion was still refused because it is a template
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('is a template')
-              - ansible_failed_result.msg is search('tagged-template')
-            fail_msg: >-
-              Expected a template refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_name: tagged-template
+        proxmox_vm_state: absent
+        proxmox_vm_allow_untagged_delete: true
+        refused_because: [is a template, tagged-template]
+        refused_unless: >-
+          proxmox_vm deleted a template because proxmox_vm_allow_untagged_delete
+          was set.
 
     # Left in place: verify.yml asserts no stop or DELETE reached it.
     - name: Assert the tagged template is still there
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9103/status/current"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9103/status/current"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_template_survivor
       failed_when: proxmox_vm_template_survivor.json.data.name != 'tagged-template'
@@ -756,37 +514,14 @@
 - name: Leave a stopped VM stopped, without waiting for its agent
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
-    - name: Clone a VM that stays stopped
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9104
-          name: stopped-vm
-      delegate_to: localhost
-
     # Tagged and with a cloud-init user: a finished VM of this project's, so
     # there is nothing to repair and nothing that would start it.
-    - name: Make it look fully configured, and leave it stopped
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9104/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox
-          ciuser: dev
-          agent: enabled=1
-      delegate_to: localhost
+    - name: Clone a VM that looks fully configured, and leave it stopped
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures:
+          - {vmid: 9104, name: stopped-vm, config: {tags: claude-on-proxmox, ciuser: dev, agent: enabled=1}}
 
     - name: Run the role against the stopped VM
       ansible.builtin.include_role:
@@ -803,8 +538,8 @@
     - name: Read the stopped VM's status
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9104/status/current"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9104/status/current"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_stopped_status
 
@@ -856,37 +591,16 @@
 - name: Finish a VM whose run died after the settings call
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
-    - name: Clone a VM the way the role does
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9011
-          name: died-after-settings
-      delegate_to: localhost
-
-    # What the claim and settings calls leave behind, and nothing after them:
-    # the disk is the template's size and the VM has never been started.
-    - name: Apply the settings, then stop as if the run had died
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9011/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox,claude-on-proxmox-unfinished
-          ciuser: dev
-          agent: enabled=1
-      delegate_to: localhost
+    # What the clone, claim and settings calls leave behind, and nothing after
+    # them: the disk is the template's size and the VM has never been started.
+    - name: Clone a VM and apply the settings, then stop as if the run had died
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures:
+          - vmid: 9011
+            name: died-after-settings
+            config: {tags: "claude-on-proxmox,claude-on-proxmox-unfinished", ciuser: dev, agent: enabled=1}
 
     - name: Run the role against the unfinished VM
       ansible.builtin.include_role:
@@ -897,16 +611,16 @@
     - name: Read the VM's config after that run
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9011/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9011/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_unfinished_cfg
 
     - name: Read the VM's status after that run
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9011/status/current"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9011/status/current"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_unfinished_status
 
@@ -973,43 +687,15 @@
 - name: Finish a running VM whose run died before the untag
   hosts: all
   gather_facts: false
-  vars:
-    side_effect_api: "https://127.0.0.1:18006/api2/json/nodes/pve/qemu"
-    side_effect_headers:
-      Authorization: "PVEAPIToken=ansible@pve!ansible=molecule-test-secret"
   tasks:
-    - name: Clone a VM the way the role does
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9000/clone"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          newid: 9105
-          name: died-before-untag
-      delegate_to: localhost
-
-    - name: Apply the settings, as the run did before it died
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9105/config"
-        method: PUT
-        headers: "{{ side_effect_headers }}"
-        body_format: form-urlencoded
-        body:
-          tags: claude-on-proxmox,claude-on-proxmox-unfinished
-          ciuser: dev
-          agent: enabled=1
-      delegate_to: localhost
-
-    - name: Start it, as the run did before it died
-      ansible.builtin.uri:
-        validate_certs: false
-        url: "{{ side_effect_api }}/9105/status/start"
-        method: POST
-        headers: "{{ side_effect_headers }}"
-      delegate_to: localhost
+    - name: Clone a VM, apply the settings and start it, as the run did before it died
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
+      vars:
+        pve_vm_fixtures:
+          - vmid: 9105
+            name: died-before-untag
+            config: {tags: "claude-on-proxmox,claude-on-proxmox-unfinished", ciuser: dev, agent: enabled=1}
+            start: true
 
     - name: Run the role against the running unfinished VM
       ansible.builtin.include_role:
@@ -1020,8 +706,8 @@
     - name: Read the VM's config after that run
       ansible.builtin.uri:
         validate_certs: false
-        url: "{{ side_effect_api }}/9105/config"
-        headers: "{{ side_effect_headers }}"
+        url: "{{ pve_vm_api_url }}/nodes/pve/qemu/9105/config"
+        headers: "{{ pve_vm_headers }}"
       delegate_to: localhost
       register: proxmox_vm_untag_cfg
 
@@ -1158,40 +844,20 @@
       become: true
 
     - name: Try a minimum of 0
-      block:
-        - name: Run the role with proxmox_vm_memory_min_mb 0
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_memory_min_mb: 0
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm went on with a minimum memory of 0, which removes the balloon device.
-      rescue:
-        - name: Assert it refused the minimum of 0
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('vm_memory_min_mb must be from 1 to vm_memory_mb \(8192\), got "0"')
-            fail_msg: "Expected the minimum memory refusal, got: {{ ansible_failed_result.msg }}"
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_memory_min_mb: 0
+        refused_because: ['vm_memory_min_mb must be from 1 to vm_memory_mb \(8192\), got "0"']
+        refused_unless: proxmox_vm went on with a minimum memory of 0, which removes the balloon device.
 
     - name: Try a minimum above the memory
-      block:
-        - name: Run the role with proxmox_vm_memory_min_mb 8193
-          ansible.builtin.include_role:
-            name: proxmox_vm
-          vars:
-            proxmox_vm_memory_min_mb: 8193
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_vm went on with a minimum memory above the memory, which Proxmox refuses.
-      rescue:
-        - name: Assert it refused the minimum above the memory
-          ansible.builtin.assert:
-            that: ansible_failed_result.msg is search('got "8193"')
-            fail_msg: "Expected the minimum memory refusal, got: {{ ansible_failed_result.msg }}"
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_vm
+        proxmox_vm_memory_min_mb: 8193
+        refused_because: ['got "8193"']
+        refused_unless: proxmox_vm went on with a minimum memory above the memory, which Proxmox refuses.
 
     - name: Read the requests the attempts made
       ansible.builtin.slurp:

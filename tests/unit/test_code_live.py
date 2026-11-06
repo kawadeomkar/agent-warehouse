@@ -58,18 +58,6 @@ STEPS = (
 )
 
 
-def _seed(base):
-    """alpha, tagged and running, its agent answering as a VM long up does."""
-    harness._pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=VMID, name="alpha")
-    harness._pve(base, "PUT", f"nodes/pve/qemu/{VMID}/config", tags="claude-on-proxmox")
-    harness._pve(base, "POST", f"nodes/pve/qemu/{VMID}/status/start")
-    for _ in range(3):
-        try:
-            harness._pve(base, "GET", f"nodes/pve/qemu/{VMID}/agent/network-get-interfaces")
-        except Exception:  # noqa: BLE001 - the refusals are the point
-            pass
-
-
 def _code(root, title, vm="alpha", piped=False, editor="vscode"):
     world = tcs._world(root / "world")
     bin_dir = root / "bin"
@@ -89,18 +77,11 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
         harness.FAKES / "fake_pve_api.py", str(cert), str(key), str(root / "pve"), harness.PVE_SECRET
     )
     try:
-        _seed(f"https://127.0.0.1:{port}")
+        base = f"https://127.0.0.1:{port}"
+        # alpha, tagged and running, its agent answering as a VM long up does.
+        harness._pve_vm(base, VMID, "alpha", running=True)
         inventory = root / "inventory"
-        (inventory / "group_vars" / "all").mkdir(parents=True)
-        defaults = harness.REPO / "inventory" / "group_vars" / "all" / "defaults.yml"
-        (inventory / "group_vars" / "all" / "defaults.yml").symlink_to(defaults)
-        api = {
-            "proxmox_api_host": "127.0.0.1",
-            "proxmox_api_port": port,
-            "vault_proxmox_api_token_secret": harness.PVE_SECRET,
-            "vm_user": "dev",
-        }
-        (inventory / "group_vars" / "all" / "pinned.yml").write_text(json.dumps(api))
+        harness._pve_vars(inventory, base)
         (inventory / "hosts.yml").write_text(
             f"all:\n  hosts:\n    localhost:\n      ansible_connection: local\n"
             f"      ansible_python_interpreter: {sys.executable}\n"
@@ -121,7 +102,7 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
         desktop = env["PATH"].split(os.pathsep)[0]
         # VS Code's command and `which` the stand-ins', then the system's directories alone: never this machine's own.
         env["PATH"] = os.pathsep.join([str(bin_dir), desktop, "/usr/bin", "/bin", "/usr/sbin", "/sbin"])
-        argv = kit.playbook(root, inventory, tcs.CODE, "-e", json.dumps(extra))
+        argv = kit.playbook(inventory, tcs.CODE, "-e", json.dumps(extra))
         ran = kit.piped(argv, root, env, timeout=300) if piped else kit.at_a_terminal(argv, root, env, timeout=300)
     finally:
         pve.terminate()
@@ -155,21 +136,19 @@ def test_a_window_is_drawn_by_its_steps_with_its_vm_in_the_header_and_opens(open
     assert any(line.startswith("code --remote ssh-remote+") for line in opened.code), opened.code
 
 
-def test_the_summary_says_each_step_and_no_row_of_the_fleets_skipped_tasks(opened):
-    table = opened.transcript.split("STEPS", 1)[1].split("\n\n", 1)[0]
+@pytest.mark.parametrize("fixture", ["opened", "zed_opened"])
+def test_the_summary_says_each_step_and_no_row_of_the_fleets_skipped_tasks(request, fixture):
+    # In each editor: Zed's window step begins at its first task as VS Code's does, so the shared helper and the
+    # task file are drawn under it, never under the notes before it.
+    table = request.getfixturevalue(fixture).table("STEPS")
     # Each step by its whole name, in its order; just deploy's fleet, skipped, no row.
     said = [re.match(r"^ ✓ (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
     assert said == list(STEPS), table
 
 
 def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed_opened):
-    # The window step begins at Zed's first task as at VS Code's: the shared helper and the task file are drawn
-    # under it, never under the notes before it.
     assert zed_opened.rc == 0, zed_opened.text
     zed_opened.assert_drawn_and_gone()
-    table = zed_opened.transcript.split("STEPS", 1)[1].split("\n\n", 1)[0]
-    said = [re.match(r"^ ✓ (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
-    assert said == list(STEPS), table
     projects = zed_opened.world["vm"] / "projects"
     assert zed_opened.code == [f"zed ssh://alpha{projects}"], zed_opened.code
     tasks = projects / ".claude-on-proxmox" / ".zed" / "tasks.json"
@@ -180,5 +159,5 @@ def test_a_vm_that_is_not_there_is_said_under_the_step_it_failed_in(missing):
     text = missing.text
     assert missing.rc == 2, text
     assert re.search(r"^✗ find the VM · gamma: Find the VM", text, re.M), text
-    assert "Fail as just code does, outside just deploy" not in text.split("claude-on-proxmox  code", 1)[0]
+    assert "Fail as just code does, outside just deploy" not in missing.above_summary("code")
     assert re.search(r"^claude-on-proxmox  code gamma · failed after .* at find the VM", text, re.M), text

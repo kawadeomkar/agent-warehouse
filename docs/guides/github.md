@@ -54,12 +54,10 @@ after another, since the browser takes one sign-in at a time. A code left unappr
 fifteen minutes and that VM's sign-in fails saying so, after the others have had their turn; run it
 again for a fresh code. `just deploy` starts it for every VM but one whose Claude sign-in nobody
 answered, which it says, with `just login alpha --only github` to start it later, and a run with no
-terminal skips it, as nobody is there to approve it. Once the code is shown
+terminal skips it ([What a run asks of you](runs.md#what-a-run-asks-of-you)). Once the code is shown
 the run waits until it is approved or expires, and Ctrl-C there ends the whole run; with
-`github_login_auto_start: false` it asks first, and `n` leaves a VM for later - and a run with no
-terminal, which nobody can answer, asks nothing and leaves each such VM, saying so with
-`just login alpha --only github` to start it. `just deploy --only configure` never
-runs it. On a controller with no browser or clipboard, or whose `BROWSER` runs a shell, `cmd.exe` or
+`github_login_auto_start: false` it asks first, and `n` leaves a VM for later. `just deploy --only configure`
+never runs it. On a controller with no browser or clipboard, or whose `BROWSER` runs a shell, `cmd.exe` or
 PowerShell, the run prints the page and the code and waits all the same, and `login_desktop: false` makes it never try. The terminal that `just
 code` opens runs the same flow after the Claude sign-in, with the page opening by itself and the code
 printed to copy (a Remote-SSH terminal cannot fill your clipboard); Ctrl-C there skips it and starts

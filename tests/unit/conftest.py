@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import re
 import statistics
 import subprocess
-import sys
 from pathlib import Path
 
+import ansible.module_utils
 import interrupts
 import pytest
 from ansible.module_utils import basic
 from ansible.module_utils.testing import patch_module_args
 
 ROOT = Path(__file__).resolve().parents[2]
+# What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
+# module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
+ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
 # The Galaxy collections every Ansible a test starts reads: this checkout's own, as every recipe points Ansible at
 # them (tools/env-run --collections). just test exports the same; one set by hand is kept.
 os.environ.setdefault(
@@ -64,16 +66,6 @@ def fail_main(main, args):
     with patch_module_args(args), pytest.raises(AnsibleFailJson) as exc:
         main()
     return exc.value.args[0]
-
-
-def load_module(relative_path):
-    """Import a module file from the repo by path (roles/*/library/*.py)."""
-    path = ROOT / relative_path
-    spec = importlib.util.spec_from_file_location(path.stem, path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[path.stem] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 # Each test's serial duration, by node ID, that --shard balances by; a test it lacks counts as the mean.

@@ -16,7 +16,7 @@
     argv: [bash, -lc, claude auth status]
   become: true
   become_user: "{{ claude_code_user }}"
-  register: claude_code_release_status
+  register: claude_code_remote_control_auth
   changed_when: false
   failed_when: false
 
@@ -28,7 +28,7 @@
   register: claude_code_release_logout
   changed_when: true
   failed_when: false
-  when: claude_code_release_signed_in | bool
+  when: (claude_code_remote_control_status.loggedIn | default(false)) | bool
 
 # What became of the login, for destroy's last play to say per VM: a fact,
 # since that play reads it through hostvars, and set on every run of this file

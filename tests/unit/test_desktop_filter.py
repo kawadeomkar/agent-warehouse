@@ -3,7 +3,6 @@ on this machine, and the run waiting here for a sign-in, as a VM records it and 
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import pathlib
@@ -126,14 +125,6 @@ def test_a_browser_that_is_a_command_interpreter_opens_nothing(browser):
 )
 def test_a_browser_that_only_looks_like_one_still_opens(browser, argv):
     assert page_opener(URL, browser, []) == argv
-
-
-def test_the_filters_are_registered():
-    # filter_plugins/desktop.py is the adapter; test_claude_vm.py holds each of its filters to the core's function.
-    spec = importlib.util.spec_from_file_location("desktop_adapter", REPO / "filter_plugins" / "desktop.py")
-    adapter = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(adapter)
-    assert set(adapter.FilterModule().filters()) == {"page_opener", "controller_run", "controller_run_state"}
 
 
 # ------------------------------------------------- the run waiting for a sign-in

@@ -10,15 +10,13 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
-from harness import ansible_config
+from harness import REPO, _failures, _run
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 TEMPLATE = REPO / "playbooks" / "templates" / "vm_session.md.j2"
 START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"
 LIVE = f"{START}\n## Signed in\n\n| | as of 14:02 on 12 Oct |\n|---|---|\n| Claude Code | `dev@example.com` |\n{END}"
@@ -54,10 +52,11 @@ SECTIONS = [
 ]
 
 
-def _render(tmp_path: Path, **overrides) -> str:
+def _render(root: Path, overrides: dict) -> str:
     """The notes as code.yml's "Write the session notes on the VM" writes them, with FACTS and overrides."""
-    out = tmp_path / "notes.md"
-    playbook = tmp_path / "render.yml"
+    root.mkdir(parents=True)
+    out = root / "notes.md"
+    playbook = root / "render.yml"
     playbook.write_text(
         json.dumps(
             [
@@ -76,24 +75,9 @@ def _render(tmp_path: Path, **overrides) -> str:
             ]
         )
     )
-    env = {
-        "ANSIBLE_CONFIG": ansible_config(tmp_path),
-        "ANSIBLE_NOCOLOR": "1",
-        "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin",
-        "HOME": str(tmp_path),
-    }
-    extra = {**FACTS, **overrides, "ansible_connection": "local", "ansible_python_interpreter": sys.executable}
-    result = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-e", json.dumps(extra), str(playbook)],
-        cwd=tmp_path,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
+    local = {"localhost": {"ansible_connection": "local", "ansible_python_interpreter": sys.executable}}
+    report = _run(root, playbook, local, "-e", json.dumps({**FACTS, **overrides}), timeout=120)
+    assert report["rc"] == 0, (_failures(report), report["stderr"][-2000:])
     return out.read_text()
 
 
@@ -101,8 +85,41 @@ def _outside(text: str) -> str:
     return text[: text.index(START)] + text[text.index(END) + len(END) :]
 
 
-def test_the_sections_in_order_with_the_placeholder_until_the_window_has_opened(tmp_path):
-    text = _render(tmp_path)
+# An editor whose window runs no task, and lists its Claude task (Zed), as code.yml says it.
+LISTED = {"code_editor": "zed", "code_editor_name": "Zed", "code_editor_tasks": False, "code_editor_claude": "listed"}
+# Every set of facts a test renders the notes with, by name: each rendered once, for the module (notes).
+VARIANTS = {
+    "default": {},
+    # What the window wrote in the live section, carried over.
+    "live": {"code_notes_live": LIVE},
+    # VS Code's notes, the editor said rather than left to the template's default.
+    "vscode said": {"code_editor_name": "VS Code", "code_editor_tasks": True, "code_editor_claude": "started"},
+    # Zed's Claude task: written, the window of another folder, not written, unset.
+    "zed, task": {**LISTED, "code_claude_task_there": True},
+    "zed, task, one project": {**LISTED, "code_claude_task_there": True, "code_target": "/home/dev/projects/repo"},
+    "zed, no task": {**LISTED, "code_claude_task_there": False},
+    "zed, task unset": LISTED,
+    # A run whose --editor is not the setting's editor (code.yml's code_editor_flag).
+    "zed, --editor zed": {**LISTED, "code_claude_task_there": True, "code_editor_flag": " --editor zed"},
+    "vscode, --editor vscode": {"code_editor": "vscode", "code_editor_flag": " --editor vscode"},
+    "switched off": {"tailscale_enabled": False, "claude_code_remote_control": False, "github_auth": False},
+    "no sizes": {"claude_vm_addressed": [{key: value for key, value in VM.items() if not key.startswith("max")}]},
+    # A window of one repository.
+    "one project": {"code_target": "/home/dev/projects/discord-music-bot"},
+}
+
+
+@pytest.fixture(scope="module")
+def notes(tmp_path_factory) -> dict[str, str]:
+    """Every variant's notes, side by side: each is a playbook run of its own, about two seconds long."""
+    root = tmp_path_factory.mktemp("notes")
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        runs = {name: pool.submit(_render, root / re.sub(r"\W+", "-", name), given) for name, given in VARIANTS.items()}
+    return {name: run.result() for name, run in runs.items()}
+
+
+def test_the_sections_in_order_with_the_placeholder_until_the_window_has_opened(notes):
+    text = notes["default"]
     at = [text.index(section) for section in SECTIONS]
     assert at == sorted(at), at
     live = text[text.index(START) : text.index(END) + len(END)]
@@ -111,8 +128,6 @@ def test_the_sections_in_order_with_the_placeholder_until_the_window_has_opened(
     assert text.startswith("# alpha\n\nVM 101 on Proxmox node **pve** · written by `just code` on your machine")
 
 
-# An editor whose window runs no task, and lists its Claude task (Zed), as code.yml says it.
-LISTED = {"code_editor": "zed", "code_editor_name": "Zed", "code_editor_tasks": False, "code_editor_claude": "listed"}
 LISTED_TASK = (
     "- In the window of `just code alpha`, the task **Claude (just code)** runs Claude Code in a terminal of Zed's,"
     " which is this VM's: it picks the folder's conversation up, or starts a fresh one where a `claude` already has it"
@@ -121,10 +136,10 @@ LISTED_TASK = (
 )
 
 
-def test_in_an_editor_whose_window_runs_no_task_the_notes_say_what_to_do_instead(tmp_path):
+def test_in_an_editor_whose_window_runs_no_task_the_notes_say_what_to_do_instead(notes):
     # Zed runs nothing as its window opens: no Claude terminal below, no Session notes task to refresh the live
     # section or to run by hand, and none of VS Code's own fixes.
-    zed = _render(tmp_path, **LISTED, code_claude_task_there=False)
+    zed = notes["zed, no task"]
     live = zed[zed.index(START) : zed.index(END) + len(END)]
     placeholder = "Zed does not fill this in: `just status alpha` on your machine says what is signed in."
     assert live == f"{START}\n## Signed in\n\n{placeholder}\n{END}"
@@ -133,24 +148,21 @@ def test_in_an_editor_whose_window_runs_no_task_the_notes_say_what_to_do_instead
     for vs_code in ("Tasks:", "VS Code", "The terminal below", "Restricted Mode", "Session notes**"):
         assert vs_code not in zed, vs_code
     # VS Code's notes, as before, whether the editor is said or left to the template's default.
-    vscode = {"code_editor_name": "VS Code", "code_editor_tasks": True, "code_editor_claude": "started"}
-    assert _render(tmp_path, **vscode) == _render(tmp_path)
+    assert notes["vscode said"] == notes["default"]
 
 
-def test_the_notes_say_a_listed_claude_task_only_where_just_code_wrote_it(tmp_path):
+def test_the_notes_say_a_listed_claude_task_only_where_just_code_wrote_it(notes):
     # There - written, just code's directory inside the projects directory, and over no tasks file of someone else's
     # - the task is named by its label, with the editor's guide for how to start it and no key; every window of the
     # VM opens these notes, so they say which window lists it, and nothing of one window's.
-    written = _render(tmp_path, **LISTED, code_claude_task_there=True)
+    written = notes["zed, task"]
     assert LISTED_TASK in written
     assert "Run `claude` in Zed's terminal" not in written
-    assert _render(tmp_path, **LISTED, code_claude_task_there=True, code_target="/home/dev/projects/repo") == written
+    assert notes["zed, task, one project"] == written
     # Not there - the directory outside the projects directory, the terminal's switch off, a path the task could
     # not be handed, a tasks file of someone else's - no word of a task.
-    for name, value in (("not written", False), ("unset", None)):
-        given = {"code_claude_task_there": value} if value is not None else {}
-        text = _render(tmp_path, **LISTED, **given)
-        start_here = text.split("## Start here", 1)[1].split("##", 1)[0]
+    for name in ("zed, no task", "zed, task unset"):
+        start_here = notes[name].split("## Start here", 1)[1].split("##", 1)[0]
         assert "task" not in start_here and "Run `claude` in Zed's terminal" in start_here, name
     # No key of the project's, and nothing of Zed's own words in the template: the editor's name and guide come in.
     assert "ctrl-" not in written and "cmd-" not in written
@@ -160,14 +172,14 @@ def test_the_notes_say_a_listed_claude_task_only_where_just_code_wrote_it(tmp_pa
 # A bare just code opens the editor setting's editor: where --editor chose another, code.yml's code_editor_flag puts
 # it on every just code line of the notes, so they open this run's window again.
 RUNS = {
-    "no --editor": ({}, "just code alpha", "trusting the window of `just code alpha` once"),
+    "no --editor": ("default", "just code alpha", "trusting the window of `just code alpha` once"),
     "the setting vscode, --editor zed": (
-        {**LISTED, "code_claude_task_there": True, "code_editor_flag": " --editor zed"},
+        "zed, --editor zed",
         "just code alpha --editor zed",
         "- In the window of `just code alpha --editor zed`, the task **Claude (just code)**",
     ),
     "the setting zed, --editor vscode": (
-        {"code_editor": "vscode", "code_editor_flag": " --editor vscode"},
+        "vscode, --editor vscode",
         "just code alpha --editor vscode",
         "trusting the window of `just code alpha --editor vscode` once",
     ),
@@ -175,9 +187,9 @@ RUNS = {
 
 
 @pytest.mark.parametrize("run", RUNS)
-def test_the_notes_just_code_lines_open_the_window_of_the_run_s_editor(tmp_path, run):
-    given, line, also = RUNS[run]
-    text = _render(tmp_path, **given)
+def test_the_notes_just_code_lines_open_the_window_of_the_run_s_editor(notes, run):
+    variant, line, also = RUNS[run]
+    text = notes[variant]
     assert f"`{line}`, or one repository: `{line} --project <repo>` |" in text, text
     assert f"| `{line}` | open this window again |" in text, text
     assert also in text, text
@@ -185,15 +197,15 @@ def test_the_notes_just_code_lines_open_the_window_of_the_run_s_editor(tmp_path,
         assert "`just code alpha`" not in text, text
 
 
-def test_what_the_window_wrote_is_carried_over_as_it_is(tmp_path):
-    text = _render(tmp_path, code_notes_live=LIVE)
+def test_what_the_window_wrote_is_carried_over_as_it_is(notes):
+    text = notes["live"]
     assert LIVE in text and text.count(START) == 1
     # Nothing outside it depends on when it was written: an unchanged VM, an unchanged file.
-    assert _outside(text) == _outside(_render(tmp_path))
+    assert _outside(text) == _outside(notes["default"])
 
 
-def test_the_vm_s_facts_and_the_commands_with_its_name(tmp_path):
-    text = _render(tmp_path)
+def test_the_vm_s_facts_and_the_commands_with_its_name(notes):
+    text = notes["default"]
     assert "| Machine | 2 cores · 4 GiB memory · 32 GiB disk |" in text
     assert "| LAN address | `192.0.2.51` (DHCP, as the guest agent reported it) |" in text
     for command in (
@@ -213,27 +225,26 @@ def test_the_vm_s_facts_and_the_commands_with_its_name(tmp_path):
     assert ".ts.net" not in _outside(text)
 
 
-def test_switched_off_parts_are_left_out(tmp_path):
-    text = _render(tmp_path, tailscale_enabled=False, claude_code_remote_control=False, github_auth=False)
+def test_switched_off_parts_are_left_out(notes):
+    text = notes["switched off"]
     assert "Tailscale" not in _outside(text)
     assert "Remote Control" not in text and "claude-remote-control" not in text
     assert "--only github" not in text
 
 
-def test_a_listing_without_the_vm_s_sizes_leaves_the_machine_row_out(tmp_path):
-    bare = {key: value for key, value in VM.items() if not key.startswith("max")}
-    text = _render(tmp_path, claude_vm_addressed=[bare])
+def test_a_listing_without_the_vm_s_sizes_leaves_the_machine_row_out(notes):
+    text = notes["no sizes"]
     assert "| Machine |" not in text and "| User | `dev` · projects in `/home/dev/projects` |" in text
 
 
-def test_every_window_of_the_vm_writes_the_same_notes(tmp_path):
+def test_every_window_of_the_vm_writes_the_same_notes(notes):
     # One file per VM, opened by each of its windows: nothing of one window's in it.
-    assert _render(tmp_path, code_target="/home/dev/projects/discord-music-bot") == _render(tmp_path)
+    assert notes["one project"] == notes["default"]
 
 
 @pytest.mark.parametrize("marker", ["${", "{{", "{%", "gho_", "ghp_", "tskey-", "sk-ant-"])
-def test_nothing_a_template_or_a_secret_would_leave(tmp_path, marker):
-    assert marker not in _render(tmp_path, code_notes_live=LIVE)
+def test_nothing_a_template_or_a_secret_would_leave(notes, marker):
+    assert marker not in notes["live"]
 
 
 def test_no_time_is_written_outside_the_live_section():

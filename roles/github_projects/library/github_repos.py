@@ -270,7 +270,7 @@ def check_api_url(module, api_url, token):
         module.fail_json(msg=f"Refusing to send a token over plain HTTP to {parsed.hostname}; use https.")
 
 
-def run_module():
+def main():
     module = AnsibleModule(
         argument_spec=dict(
             username=dict(type="str", required=True),
@@ -307,10 +307,6 @@ def run_module():
     user = {field: account.get(field) for field in USER_FIELDS} if account else {}
 
     module.exit_json(changed=False, repos=repos, total=len(all_repos), user=user)
-
-
-def main():
-    run_module()
 
 
 if __name__ == "__main__":

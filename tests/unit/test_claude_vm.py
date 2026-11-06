@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
+from harness import repo_files
 
 from claude_vm import plugin, wire
 from claude_vm.records import Checked, plain
@@ -26,9 +27,14 @@ NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
 AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
 
 
+def _python(script: str) -> str:
+    """What script prints, run by this Python isolated (-I): none of this process's modules or path, but what it
+    puts on its path itself."""
+    return subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True).stdout
+
+
 def _tracked(path: str) -> list[str]:
-    run = subprocess.run(["git", "ls-files", "--", path], cwd=REPO, capture_output=True, text=True, check=True)
-    return run.stdout.split()
+    return [str(file.relative_to(REPO)) for file in repo_files(path)]
 
 
 def _core_modules() -> list[str]:
@@ -47,6 +53,22 @@ def test_lib_holds_the_one_package_claude_vm() -> None:
     assert {Path(path).parts[1] for path in _tracked("lib")} == {"claude_vm"}
 
 
+def test_what_runs_on_a_vm_never_imports_the_package() -> None:
+    # A module goes to the VM with only what it imports from module_utils, and a helper runs there as plain python3 -I:
+    # an import of claude_vm works here, where lib/ is on the path, and fails on every VM. They are handed data.
+    vm_side = [
+        path
+        for path in _tracked("playbooks/library")
+        + _tracked("playbooks/module_utils")
+        + _tracked("playbooks/files")
+        + _tracked("roles")
+        if path.startswith("playbooks/") or "/library/" in path
+    ]
+    assert len(vm_side) >= 9, vm_side
+    for path in vm_side:
+        assert not re.search(r"^\s*(from|import)\s+claude_vm\b", (REPO / path).read_text(), re.M), path
+
+
 @pytest.mark.parametrize("name", _core_modules())
 def test_no_core_module_loads_ansible_yaml_asyncio_or_subprocess_when_imported(name) -> None:
     # Each in an interpreter of its own, so one module's imports never hide another's.
@@ -57,8 +79,7 @@ importlib.import_module({name!r})
 loaded = {{key.split(".")[0] for key in sys.modules}}
 print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert set(json.loads(run.stdout)) <= AT_IMPORT.get(name, set())
+    assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, set())
 
 
 def test_importing_the_package_imports_no_module_of_it() -> None:
@@ -66,8 +87,7 @@ def test_importing_the_package_imports_no_module_of_it() -> None:
         f"import sys; sys.path.insert(0, {str(LIB)!r}); import claude_vm; "
         "print(sorted(m for m in sys.modules if m.startswith('claude_vm')))"
     )
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert run.stdout.strip() == "['claude_vm']"
+    assert _python(script).strip() == "['claude_vm']"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -193,8 +213,7 @@ from claude_vm.refs import VmRef
 made["to_wire"](VmRef(name="alpha", vmid=4013))
 print(before, "claude_vm.wire" in sys.modules, made["to_wire"].__name__)
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert run.stdout.split() == ["False", "True", "to_wire"]
+    assert _python(script).split() == ["False", "True", "to_wire"]
 
 
 def test_an_adapter_refuses_another_checkout_s_claude_vm(tmp_path) -> None:
@@ -232,8 +251,7 @@ for name, call in filters.items():
     found[name] = [call.__name__, where["name"], callable(core)]
 print(json.dumps({{"loaded": loaded, "found": found}}))
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    said = json.loads(run.stdout)
+    said = json.loads(_python(script))
     assert said["loaded"] == []
     assert said["found"] and all(made == [name, name, True] for name, made in said["found"].items()), said["found"]
 

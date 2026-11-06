@@ -12,21 +12,16 @@ from pathlib import Path
 
 import tomllib
 import yaml
+from harness import _version
 
 REPO = Path(__file__).resolve().parents[2]
 
 
-def _version(text: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in text.split("."))
-
-
 def test_the_vm_s_uv_is_no_older_than_the_controller_s() -> None:
     defaults = yaml.safe_load((REPO / "roles" / "dev_tools" / "defaults" / "main.yml").read_text())
-    specs = yaml.safe_load((REPO / "roles" / "dev_tools" / "meta" / "argument_specs.yml").read_text())
     dev = tomllib.loads((REPO / "pyproject.toml").read_text())["dependency-groups"]["dev"]
     controller = next(re.fullmatch(r"uv==([0-9.]+)", pin).group(1) for pin in dev if pin.startswith("uv=="))
     vm = defaults["dev_tools_uv_version"]
-    assert specs["argument_specs"]["main"]["options"]["dev_tools_uv_version"]["default"] == vm
     assert _version(vm) >= _version(controller), (
         f"dev_tools_uv_version {vm} is older than pyproject.toml's uv {controller}"
     )

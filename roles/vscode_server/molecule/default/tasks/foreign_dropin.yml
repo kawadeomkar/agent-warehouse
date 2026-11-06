@@ -1,0 +1,26 @@
+---
+# One drop-in of someone else's that takes the forwarding away: written, the
+# role run over it and refused, naming the setting and the file, and the
+# drop-in removed whatever happened, so a case that fails leaves nothing
+# behind for the next.
+- name: foreign_dropin | Take the forwarding away in {{ vscode_server_foreign.file }}
+  block:
+    - name: foreign_dropin | Write the drop-in
+      ansible.builtin.copy:
+        content: "{{ vscode_server_foreign.content }}"
+        dest: /etc/ssh/sshd_config.d/{{ vscode_server_foreign.file }}
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: foreign_dropin | Run the role over it
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: vscode_server
+        refused_because: ["{{ vscode_server_foreign.said }}", "{{ vscode_server_foreign.file | regex_escape }}"]
+        refused_unless: The role accepted {{ vscode_server_foreign.file }}.
+  always:
+    - name: foreign_dropin | Remove the drop-in
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/{{ vscode_server_foreign.file }}
+        state: absent

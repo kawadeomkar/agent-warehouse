@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[2]
 GROUP_VARS = ROOT / "inventory" / "group_vars" / "all"
 # "# ---------------------------------------------------------------- setup ----"
 BANNER = re.compile(r"^# -{3,} (.+?) -{3,}$")
+# A value that is one variable's and nothing else: "{{ vm_cores }}".
+ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$")
 
 
 def roles() -> list[str]:
@@ -65,6 +67,25 @@ def wiring() -> tuple[dict, dict[str, list[str]]]:
                         args = yaml.safe_load("[" + m.group(3).replace("'", '"') + "]")
                         defaults.setdefault(m.group(2), args[0])
     return defaults, feeds
+
+
+def alias_of(value) -> str | None:
+    """The variable a value is the value of and nothing else ("{{ name }}"), or None."""
+    match = ALIAS.match(value) if isinstance(value, str) else None
+    return match.group(1) if match else None
+
+
+def named_anew(defaults: dict, role_specs: dict[str, dict[str, dict]]) -> dict[str, str]:
+    """Each name a setting had in 1.0 that 1.1 gave a new one, with the new name: a default that is the old name's
+    value and nothing else, neither of them a role's variable (editor_claude_terminal: "{{ vscode_claude_terminal }}").
+    The new name is the one read, and wins whenever both are set. tools/check derives the same pairs from
+    defaults.yml alone, without this package, since it runs before every recipe."""
+    found = {}
+    for name, default in defaults.items():
+        old = alias_of(default)
+        if old in defaults and not role_of(name, role_specs) and not role_of(old, role_specs):
+            found[old] = name
+    return found
 
 
 def role_of(variable: str, role_specs: dict[str, dict[str, dict]]) -> str | None:

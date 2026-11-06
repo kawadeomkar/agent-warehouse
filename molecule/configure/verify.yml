@@ -218,9 +218,6 @@
           StartLimitIntervalUSec={{ verify_rc_service.status.StartLimitIntervalUSec | default('?') }}
         quiet: true
 
-# The alias configure.yml left on the controller, in the ephemeral directory
-# host_vars/localhost.yml points it at. Resolved with the real ssh client, as
-# the editor's connection would be.
     # Tailscale, configured last: installed, its daemon running with logs off,
     # the VM joined by the vault key through the stand-in - and the key nowhere
     # on the VM, since it went in on standard input.
@@ -277,6 +274,9 @@
         fail_msg: "Files holding the Tailscale key: {{ verify_tailscale_key.stdout_lines | join(', ') }}"
         quiet: true
 
+# The alias configure.yml left on the controller, in the ephemeral directory
+# host_vars/localhost.yml points it at. Resolved with the real ssh client, as
+# the editor's connection would be.
 - name: Verify the SSH alias written on the controller
   hosts: localhost
   gather_facts: false

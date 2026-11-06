@@ -68,16 +68,14 @@
       register: claude_deploy_template
       changed_when: false
 
-    # `template` is 1 on a template and absent or 0 otherwise, so map it with a
-    # default rather than assuming the key is there - a VM that merely shares
-    # the template's name is not a built template.
+    # A VM that merely shares the template's name is not a built template
+    # (built_template). The import of the template play below reads whether
+    # there is one through hostvars, so it is a fact.
     - name: Record whether the template is already built
       ansible.builtin.set_fact:
+        claude_template: "{{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_name) }}"
         claude_template_exists: >-
-          {{ (claude_deploy_template.proxmox_vms
-              | selectattr('name', 'equalto', proxmox_template_name)
-              | map(attribute='template', default=0)
-              | select | list | length) > 0 }}
+          {{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_name) | length > 0 }}
 
     # The clone is sent to proxmox_node, and Proxmox reads the template's
     # configuration on the node it is sent to, so a template on any other
@@ -86,11 +84,7 @@
     # both nodes named (docs/getting-started/requirements.md).
     - name: Fail when the template is on another node
       vars:
-        claude_template_node: >-
-          {{ claude_deploy_template.proxmox_vms
-             | selectattr('name', 'equalto', proxmox_template_name)
-             | selectattr('template', 'defined') | selectattr('template', 'truthy')
-             | map(attribute='node') | first | default(proxmox_node) }}
+        claude_template_node: "{{ claude_template.node | default(proxmox_node) }}"
       ansible.builtin.assert:
         that: claude_template_node == proxmox_node
         fail_msg: >-
@@ -110,18 +104,14 @@
         name: proxmox_template
         tasks_from: drift
       vars:
-        proxmox_template_drift_config: >-
-          {{ claude_deploy_template.proxmox_vms
-             | selectattr('name', 'equalto', proxmox_template_name)
-             | selectattr('template', 'defined') | selectattr('template', 'truthy')
-             | map(attribute='config') | first | default({}) }}
+        proxmox_template_drift_config: "{{ claude_template.config | default({}) }}"
       when: claude_template_exists | bool
 
     - name: Record whether the template is to be rebuilt
       ansible.builtin.set_fact:
         claude_template_rebuild: >-
           {{ claude_template_exists | bool and proxmox_template_drift | default([]) | length > 0
-             and proxmox_template_rebuild | default(true) | bool }}
+             and proxmox_template_rebuild | bool }}
 
     # Said up front, because the run stops for the person after the minutes of
     # configuration, and a prompt left waiting long enough has a sign-in page
@@ -143,9 +133,7 @@
              if claude_template_exists | bool
              else 'Template "' ~ proxmox_template_name ~ '" does not exist yet; building it first, over SSH as root@'
                   ~ claude_deploy_root ~ '.' }}
-        claude_deploy_vms: >-
-          {{ (claude_vm_names[:-1] | join(', ') ~ ' and ' ~ claude_vm_names[-1]) if claude_vm_names | length > 1
-             else claude_vm_names | join }}
+        claude_deploy_vms: "{{ claude_vm_names | and_list }}"
         # The sign-ins that open a page in the browser, by the rules each role
         # decides by: Claude's where no API key takes the place of a login
         # (claude_code's login.yml), GitHub's where gh is signed in by the device
@@ -163,10 +151,7 @@
                                         and (tailscale_auth_key | default('', true) | length) == 0) else [])
              if deploy_sign_in | bool else [] }}
         claude_deploy_sign_ins: >-
-          {{ (', then signing in to '
-              ~ ((claude_deploy_pages[:-1] | join(', ') ~ ' and ' ~ claude_deploy_pages[-1]) if claude_deploy_pages | length > 1
-                 else claude_deploy_pages | join))
-             if claude_deploy_pages | length > 0 else '' }}
+          {{ (', then signing in to ' ~ claude_deploy_pages | and_list) if claude_deploy_pages | length > 0 else '' }}
         claude_deploy_window: >-
           {{ (', and opening ' ~ claude_vm_names[0] ~ ' in '
               ~ (claude_editors[claude_editor_key] | default({})).name | default(claude_editor_key))
@@ -220,7 +205,9 @@
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool
 
-# VM by VM, since this flow waits up to fifteen minutes for a browser. With
+# VM by VM, since this flow waits up to fifteen minutes for a browser, and
+# after Claude's (claude_vm_login_after_claude): the sign-in play decides each
+# VM from what Claude's left there (playbooks/vars/sign_in.yml). With
 # github_login_auto_start, the default, it starts by itself for every VM but
 # one whose Claude sign-in was skipped, which nobody was there to answer. Off,
 # every VM but that one is asked first, as GitHub can then be left for later:
@@ -232,11 +219,7 @@
   ansible.builtin.import_playbook: playbooks/github_login.yml
   vars:
     claude_vm_discovery: false
-    claude_vm_login_interactive: >-
-      {{ not (claude_code_login_skipped | default(false)) if github_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false) }}
-    claude_vm_login_ask: >-
-      {{ not (github_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false)) }}
+    claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool
 
@@ -249,11 +232,7 @@
   ansible.builtin.import_playbook: playbooks/tailscale_login.yml
   vars:
     claude_vm_discovery: false
-    claude_vm_login_interactive: >-
-      {{ not (claude_code_login_skipped | default(false)) if tailscale_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false) }}
-    claude_vm_login_ask: >-
-      {{ not (tailscale_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false)) }}
+    claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool and tailscale_enabled | default(true) | bool
 

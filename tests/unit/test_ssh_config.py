@@ -19,16 +19,16 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ansible_config
+from harness import ANSIBLE_PLAYBOOK, REPO, _env, _fail_if_the_desktop_was_reached
 
-REPO = Path(__file__).resolve().parents[2]
-ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 TASK_FILE = REPO / "playbooks" / "tasks" / "ssh_config.yml"
 SSH = "ssh"
 
@@ -61,16 +61,9 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
     )
     # No project config or inventory: a developer's own inventory would bring
     # in a vault this cannot open, and the defaults under test are passed here.
-    # None of the shell's Ansible settings, but where this checkout's collections are (conftest.py).
-    env = {k: v for k, v in os.environ.items() if not k.startswith("ANSIBLE_") or k == "ANSIBLE_COLLECTIONS_PATH"}
-    # HOME is the temporary one too: the task file recognises the ~/... and
-    # ${HOME}/... spellings of the Include by it.
-    # The project's filters, as ansible.cfg loads them: ssh_alias_refusal decides which names may be an alias.
-    env.update(
-        ANSIBLE_CONFIG=ansible_config(tmp_path, f"filter_plugins = {REPO / 'filter_plugins'}\n"),
-        ANSIBLE_NOCOLOR="1",
-        HOME=str(tmp_path / "home"),
-    )
+    # The harness's environment, its filters among it (ssh_alias_refusals decides which names may be an alias), and
+    # HOME the temporary one too: the task file recognises the ~/... and ${HOME}/... spellings of the Include by it.
+    env = _env(tmp_path, HOME=str(tmp_path / "home"))
     # The project default for the options, from inventory/group_vars, which
     # the wrapper does not load; the task file itself defaults to none.
     extra_vars = {
@@ -82,14 +75,19 @@ def _run(tmp_path: Path, vms: list[dict], state: str = "present", **extra) -> su
         **_paths(tmp_path),
         **extra,
     }
-    return subprocess.run(
+    result = subprocess.run(
         [str(ANSIBLE_PLAYBOOK), "-i", "localhost,", "-e", json.dumps(extra_vars), str(playbook)],
         cwd=tmp_path,
         env=env,
+        # As the harness runs every playbook: never pytest's terminal, and a group of its own.
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=False,
+        process_group=0,
     )
+    _fail_if_the_desktop_was_reached(tmp_path)
+    return result
 
 
 def _changed(result: subprocess.CompletedProcess[str]) -> int:
@@ -110,15 +108,22 @@ def _blocks(text: str) -> list[str]:
     return re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M)
 
 
-def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
-    """What the real ssh client makes of the managed file, as an editor's ssh would."""
-    result = subprocess.run(
-        [SSH, "-G", "-F", _paths(tmp_path)["claude_ssh_config_file"], alias],
+def _ssh_g(config: Path | str, alias: str = "alpha", home: Path | None = None) -> str:
+    """What the real ssh client makes of alias from config alone (-F), with home as its HOME when given: never the
+    developer's ~/.ssh/config."""
+    return subprocess.run(
+        [SSH, "-G", "-F", str(config), alias],
+        env=None if home is None else {**os.environ, "HOME": str(home)},
         capture_output=True,
         text=True,
         check=True,
-    )
-    return dict(line.split(" ", 1) for line in result.stdout.splitlines() if " " in line)
+    ).stdout
+
+
+def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
+    """What the real ssh client makes of the managed file, as an editor's ssh would."""
+    said = _ssh_g(_paths(tmp_path)["claude_ssh_config_file"], alias)
+    return dict(line.split(" ", 1) for line in said.splitlines() if " " in line)
 
 
 def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Path) -> None:
@@ -147,9 +152,7 @@ def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Pa
     assert resolved["serveraliveinterval"] == "30"
     assert "alpha: ssh alpha   |   just code alpha   (opens /home/dev/projects)" in result.stdout
 
-
-def test_a_second_run_changes_nothing(tmp_path: Path) -> None:
-    assert _run(tmp_path, [ALPHA, BETA]).returncode == 0
+    # And a second run changes nothing.
     again = _run(tmp_path, [ALPHA, BETA])
     assert again.returncode == 0, again.stdout + again.stderr
     assert _changed(again) == 0
@@ -272,17 +275,6 @@ def test_without_a_workspace_the_connect_line_says_just_code_and_guesses_no_path
     assert "/home/dev/projects" not in result.stdout
 
 
-def test_the_mode_of_an_existing_user_config_is_left_alone(tmp_path: Path) -> None:
-    user_config = _user_config(tmp_path)
-    user_config.parent.mkdir(parents=True)
-    user_config.write_text("Host github.com\n    User git\n")
-    user_config.chmod(0o644)
-    result = _run(tmp_path, [ALPHA])
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert user_config.read_text().startswith("Include ")
-    assert oct(user_config.stat().st_mode & 0o777) == "0o644"
-
-
 def _a_directory_of_a_group_the_user_is_not_in() -> Path | None:
     """On macOS a new file takes its directory's group, and /private/tmp is wheel's: a place to make one."""
     base = Path("/private/tmp")
@@ -291,29 +283,38 @@ def _a_directory_of_a_group_the_user_is_not_in() -> Path | None:
     return base
 
 
-@pytest.mark.skipif(
-    _a_directory_of_a_group_the_user_is_not_in() is None, reason="needs macOS and a directory of a foreign group"
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        False,
+        # Ansible's atomic move copies the old file's attributes only after a
+        # chown to its group, which fails for a group the user is not in, and the
+        # file came out 0600: only the explicit mode keeps it as it was.
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                _a_directory_of_a_group_the_user_is_not_in() is None,
+                reason="needs macOS and a directory of a foreign group",
+            ),
+        ),
+    ],
+    ids=["own-group", "foreign-group"],
 )
-def test_the_mode_survives_a_group_the_user_is_not_in() -> None:
-    # Ansible's atomic move copies the old file's attributes only after a
-    # chown to its group, which fails for a group the user is not in, and the
-    # file came out 0600: only the explicit mode keeps it as it was.
-    import shutil
-    import tempfile
-
-    root = Path(tempfile.mkdtemp(dir=_a_directory_of_a_group_the_user_is_not_in()))
+def test_the_mode_of_an_existing_user_config_is_left_alone(tmp_path: Path, foreign: bool) -> None:
+    root = Path(tempfile.mkdtemp(dir=_a_directory_of_a_group_the_user_is_not_in())) if foreign else tmp_path
     try:
         user_config = _user_config(root)
         user_config.parent.mkdir(parents=True)
         user_config.write_text("Host github.com\n    User git\n")
         user_config.chmod(0o644)
-        assert user_config.stat().st_gid not in os.getgroups()
+        assert not foreign or user_config.stat().st_gid not in os.getgroups()
         result = _run(root, [ALPHA])
         assert result.returncode == 0, result.stdout + result.stderr
         assert user_config.read_text().startswith("Include ")
         assert oct(user_config.stat().st_mode & 0o777) == "0o644"
     finally:
-        shutil.rmtree(root)
+        if foreign:
+            shutil.rmtree(root)
 
 
 @pytest.mark.parametrize(
@@ -345,13 +346,7 @@ def test_an_include_already_there_in_another_spelling_is_not_added_again(tmp_pat
 
 def _probe(tmp_path: Path, config: Path) -> str:
     """What the real ssh client makes of the user's config, with the temporary home."""
-    return subprocess.run(
-        [SSH, "-G", "-F", str(config), "alpha"],
-        env={**os.environ, "HOME": str(tmp_path / "home")},
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    return _ssh_g(config, home=tmp_path / "home")
 
 
 def _ssh_reads_include(tmp_path: Path, line: str) -> bool:
@@ -361,14 +356,7 @@ def _ssh_reads_include(tmp_path: Path, line: str) -> bool:
     (home / ".ssh" / "claude-on-proxmox.conf").write_text("Host alpha\n    HostName 192.0.2.99\n")
     config = home / ".ssh" / "config"
     config.write_text(f"{line}\n")
-    out = subprocess.run(
-        [SSH, "-G", "-F", str(config), "alpha"],
-        env={**os.environ, "HOME": str(home)},
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return "hostname 192.0.2.99" in out
+    return "hostname 192.0.2.99" in _ssh_g(config, home=home)
 
 
 def test_an_include_below_a_host_block_does_not_count(tmp_path: Path) -> None:
@@ -399,22 +387,31 @@ def test_a_bad_option_fails_validation_and_leaves_the_file_alone(tmp_path: Path)
     assert _managed(tmp_path) == before
 
 
-@pytest.mark.parametrize(
-    "vm",
-    [
-        {"name": "evil", "address": "192.0.2.7\n    ProxyCommand touch owned", "user": "dev"},
-        {"name": "evil", "address": "-oProxyCommand=touch owned", "user": "dev"},
-        {"name": "evil\n    ProxyCommand touch owned", "address": "192.0.2.7", "user": "dev"},
-    ],
-)
-def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_written(tmp_path: Path, vm: dict) -> None:
+def _failed(result: subprocess.CompletedProcess[str]) -> str:
+    """The message of the one task that failed, as the default callback prints its result."""
+    match = re.search(r"^fatal: \[localhost\]: FAILED! => (.*)$", result.stdout, flags=re.M)
+    assert match, result.stdout + result.stderr
+    return json.loads(match.group(1))["msg"]
+
+
+def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
     # The address is what a VM's guest agent reported, which the VM chooses.
     # guest_ipv4 already refuses this; the task file must hold on its own.
+    # One task refuses every such VM in one message, so one run shows each kind.
+    unsafe = [
+        {"name": "evil-address-newline", "address": "192.0.2.7\n    ProxyCommand touch owned", "user": "dev"},
+        {"name": "evil-address-option", "address": "-oProxyCommand=touch owned", "user": "dev"},
+        {"name": "evil\n    ProxyCommand touch owned", "address": "192.0.2.7", "user": "dev"},
+    ]
     assert _run(tmp_path, [ALPHA]).returncode == 0
     before = _managed(tmp_path)
-    result = _run(tmp_path, [ALPHA, vm])
+    result = _run(tmp_path, [ALPHA, *unsafe])
     assert result.returncode != 0
-    assert "is not one plain word" in result.stdout
+    said = _failed(result)
+    assert "is not one plain word" in said
+    # Each named, as the task writes a name (to_json): a newline in one is never a line of the message.
+    assert all(json.dumps(vm["name"]) in said for vm in unsafe), said
+    assert '"alpha"' not in said
     assert _managed(tmp_path) == before
     assert "ProxyCommand" not in _managed(tmp_path)
     assert not (tmp_path / "owned").exists()
@@ -429,28 +426,21 @@ def _named(*names: str) -> dict:
     return {"vm_name": ",".join(names), "claude_vm_names_chosen": list(names)}
 
 
-@pytest.mark.parametrize(
-    ("name", "said"),
-    [
-        # The managed file is included ahead of the user's own config: this
-        # machine's root SSH to the Proxmox host would go to the address the VM reported.
-        ("192.0.2.10", "ssh reads it as an address"),
-        ("3232235777", "ssh reads it as an address"),
-        ("0x7f000001", "ssh reads it as an address"),
-        ("pve", "names a host of the inventory"),
-        ("pve.lan", "names a host of the inventory"),
-    ],
-)
-def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
-    tmp_path: Path, name: str, said: str
-) -> None:
-    # Named on the just line or not, an address or a name of the inventory is never an alias.
+def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
+    # Named on the just line or not, an address or a name of the inventory is never an alias. The managed file is
+    # included ahead of the user's own config: this machine's root SSH to the Proxmox host would go to the address the
+    # VM reported. One task refuses every such name, in one message, so one run of an address and a name of the
+    # inventory, both given (a dot is no excuse), shows the task's wiring; which names ssh takes for another host,
+    # 3232235777 and 0x7f000001 among them, is the filter's, test_filters' TestSshAliasRefusal.
+    refused = {"192.0.2.10": "ssh reads it as an address", "pve.lan": "it names a host of the inventory"}
     assert _run(tmp_path, [ALPHA], **INVENTORY).returncode == 0
     before = _managed(tmp_path)
-    vms = [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}]
-    result = _run(tmp_path, vms, **INVENTORY, **_named("alpha", name))
+    vms = [ALPHA, *({"name": name, "address": "192.0.2.66", "user": "dev"} for name in refused)]
+    result = _run(tmp_path, vms, **INVENTORY, **_named("alpha", *refused))
     assert result.returncode != 0
-    assert "Not writing an alias for " + name in result.stdout and said in result.stdout
+    said = _failed(result)
+    assert said.startswith("Not writing an alias for 192.0.2.10, pve.lan: "), said
+    assert all(f"{name}: {why}" in said for name, why in refused.items()), said
     assert _managed(tmp_path) == before
 
 
@@ -520,6 +510,42 @@ def test_every_playbook_scenario_keeps_the_managed_file_out_of_the_home_director
     assert found.get("claude_ssh_config_include") is False, f"{scenario.name}: claude_ssh_config_include must be false"
 
 
+def _commands(items: list) -> list:
+    """Every command task, those in a block, its rescue and its always included."""
+    found = []
+    for item in items or []:
+        if "ansible.builtin.command" in item:
+            found.append(item["ansible.builtin.command"])
+        for section in ("block", "rescue", "always"):
+            found += _commands(item.get(section))
+    return found
+
+
+def test_every_child_run_of_a_scenario_takes_its_inventory_and_with_it_the_pins() -> None:
+    # The pins above live in the scenario's group_vars, so they reach a child ansible-playbook a verify starts only
+    # through the scenario's own inventory: verify_playbook_cmd, which passes ansible_inventory_sources, defined in
+    # the scenario's host_vars or a play's vars. A child run given an inventory of its own would write the
+    # developer's ~/.ssh.
+    runs = 0
+    for verify in sorted((REPO / "molecule").glob("*/verify.yml")):
+        plays = yaml.safe_load(verify.read_text()) or []
+        defined = [_scenario_vars(verify.parent).get("verify_playbook_cmd")]
+        defined += [(play.get("vars") or {}).get("verify_playbook_cmd") for play in plays]
+        for each in filter(None, defined):
+            assert "ansible_inventory_sources" in each and "--inventory=" in each, verify
+        for play in plays:
+            for command in _commands(play.get("tasks")):
+                text = json.dumps(command)
+                # A playbook run, however it names the playbook: verify_playbook_cmd itself included, so that the
+                # count below is of every run.
+                if re.search(r"ansible-playbook|playbooks/|_playbook\b|verify_playbook_cmd", text):
+                    assert "verify_playbook_cmd" in text and any(defined), (verify, text[:200])
+                    runs += 1
+    # The provision scenario's deploy, discover, destroy, ssh_config and code runs, the refusals' runner among them:
+    # enough to show the guard reads them, whatever tables they are later written as.
+    assert runs >= 10, runs
+
+
 def test_the_vagrantfile_switches_the_managed_file_off() -> None:
     assert re.search(r"^\s*claude_ssh_config: false,", (REPO / "Vagrantfile").read_text(), flags=re.M)
 
@@ -558,11 +584,4 @@ def test_an_include_ssh_does_not_expand_is_not_taken_for_ours(tmp_path: Path) ->
     lines = user_config.read_text().splitlines()
     assert lines[0] == f"Include {_paths(tmp_path)['claude_ssh_config_file']}"
     assert "Include $HOME/.ssh/claude-on-proxmox.conf" in lines
-    probe = subprocess.run(
-        [SSH, "-G", "-F", str(user_config), "alpha"],
-        env={**os.environ, "HOME": str(tmp_path / "home")},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "hostname 192.0.2.51" in probe.stdout
+    assert "hostname 192.0.2.51" in _probe(tmp_path, user_config)

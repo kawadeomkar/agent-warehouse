@@ -27,7 +27,7 @@
 
 - name: web_login | Fail with what tailscale said, when it would not start the login
   vars:
-    tailscale_web_up_said: "{{ tailscale_web_up.stderr | default('') | plain_text | regex_replace('\\s+', ' ') | trim }}"
+    tailscale_web_up_said: "{{ tailscale_web_up.stderr | default('') | one_line(none) }}"
   ansible.builtin.assert:
     that: >-
       tailscale_web_up.rc == 0
@@ -53,7 +53,7 @@
     tailscale_web_state_said: >-
       {{ ((tailscale_web_state.stdout | from_json).BackendState | default('?'))
          if tailscale_web_state.rc | default(1) == 0
-         else (tailscale_web_state.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim) }}
+         else tailscale_web_state.stderr | default('') | one_line(none) }}
   ansible.builtin.assert:
     that: >-
       tailscale_web_page | length > 0

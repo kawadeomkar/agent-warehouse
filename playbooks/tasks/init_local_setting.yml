@@ -8,6 +8,9 @@
 #                       stays a string and a boolean a boolean
 #   init_local_file     the file
 #
+# and the validate of every YAML write, init_yaml_validate, from vars/init.yml,
+# which both playbooks that include this load.
+#
 # just init writes only what is not set yet, so a key already set on a line of
 # its own fails here: the caller has said so before it got this far, and a
 # second line would silently win over the first.
@@ -40,7 +43,7 @@
     regexp: "^#\\s?{{ init_setting_key }}:"
     firstmatch: true
     line: "{{ init_setting_key }}: {{ init_setting_value | to_json }}"
-    validate: "{{ ansible_playbook_python }} -c 'import sys, yaml; yaml.safe_load(open(sys.argv[1]))' %s"
+    validate: "{{ init_yaml_validate }}"
 
 - name: init_local_setting | Read local.yml back
   ansible.builtin.slurp:

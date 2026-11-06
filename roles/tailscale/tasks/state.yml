@@ -32,7 +32,7 @@
 - name: state | Fail when the tailscaled this role started does not answer
   vars:
     tailscale_status_said: >-
-      {{ (tailscale_status_raw.stderr | default('') | plain_text | regex_replace('\s+', ' ') | trim)
+      {{ tailscale_status_raw.stderr | default('') | one_line(none)
          or 'it exited ' ~ tailscale_status_raw.rc | default('?') }}
   ansible.builtin.assert:
     that: tailscale_daemon_up | bool

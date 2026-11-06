@@ -7,15 +7,18 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
-import subprocess
-import sys
 import typing
 from pathlib import Path
 
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, ansible_config
+from harness import EDITOR_FILES_DIR as FD
+from harness import EDITOR_PROBE as FOUND
+from harness import EDITOR_ROOT as ROOT
+from harness import VSCODE_CLI as CODE
+from harness import ZEDITOR as ZED
+from harness import _run
+from harness import editor_inputs as given
 
 from claude_vm.editors import common, model, registry
 from claude_vm.editors.family import Family
@@ -25,27 +28,7 @@ from claude_vm.wire import to_wire
 
 REPO = Path(__file__).resolve().parents[2]
 ROWS = yaml.safe_load((REPO / "inventory/group_vars/all/defaults.yml").read_text())["claude_editors"]
-HELPERS = sorted(path.name for path in (REPO / "playbooks/files").iterdir())
-ROOT, FD = "/home/dev/projects", "/home/dev/projects/.claude-on-proxmox"
-ZED, CODE = "/usr/local/bin/zeditor", "/usr/local/bin/code"
-# ZFS's zed first on PATH, as on Ubuntu: the plan never runs it.
-FOUND = {"which": ["/usr/sbin/zed", ZED, CODE], "versions": [[ZED, "Zed 0.210.4"]]}
-
-
-def given(**over):
-    return {
-        "vm": {"name": "alpha", "vmid": 4013},
-        "target": ROOT,
-        "root": ROOT,
-        "files_dir": FD,
-        "terminal": True,
-        "notes": True,
-        "notes_file": f"{FD}/session/alpha-session.md",
-        "notes_dir": f"{FD}/session",
-        "task_written": True,
-        "helpers": HELPERS,
-        "probe": FOUND,
-    } | over
+# The inputs, as code.yml gives them: given(), harness.editor_inputs, ZFS's zed first on PATH (FOUND).
 
 
 WINDOW_CASES = [
@@ -138,13 +121,8 @@ def test_zfs_s_zed_is_never_the_command_run():
     assert plan["launch"] == [ZED, f"ssh://alpha{ROOT}"]
 
 
-def test_zed_s_task_file_is_marked_and_written_as_to_nice_json_writes_it():
-    plan = registry.editor_open_plan("zed", ROWS, given())
-    (tasks,) = [w for w in plan["vm_writes"] if w["kind"] == "file"]
-    head, body = tasks["content"].split("\n", 1)
-    assert head == "// Written by just code (claude-on-proxmox); edits here are overwritten."
-    assert json.loads(body)[0]["args"] == [f"{FD}/helpers/claude-start.sh"]
-    assert body == json.dumps(json.loads(body), indent=2, sort_keys=True, separators=(",", ": ")) + "\n"
+# Zed's task file, marked and written as to_nice_json writes it: test_code_session.py's
+# test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory, of the same plan, with the whole task.
 
 
 def test_a_foreign_task_file_is_left_and_said():
@@ -220,6 +198,24 @@ def test_no_write_leaves_just_code_s_directory(name):
         VmFile(kind="file", path=name, mode="0644", content="")
     with pytest.raises(ValueError):
         registry.inside(FD, name)
+
+
+@pytest.mark.parametrize(
+    ("path", "top", "inside"),
+    [
+        (f"{FD}/session", ROOT, True),
+        ("/home/dev//projects/./.claude-on-proxmox", "/home/dev/projects/", True),  # as a setting may spell them
+        (ROOT, ROOT, False),  # a folder is not inside itself
+        (f"{ROOT}/.", ROOT, False),
+        (f"{ROOT}-old/x", ROOT, False),  # a sibling whose name starts the same
+        (f"{FD}/../../x", ROOT, False),
+        ("relative", ROOT, False),  # a setting left relative or empty is inside nothing, never an error
+        ("", ROOT, False),
+    ],
+)
+def test_one_rule_says_whether_a_path_lies_inside_another(path, top, inside):
+    # The families' Claude terminal and notes, and the registry's writes, all ask common.below.
+    assert common.below(path, top) is inside
 
 
 @pytest.mark.parametrize(
@@ -310,32 +306,9 @@ def test_the_filter_takes_ansible_s_own_values(tmp_path):
         ],
     }
     (tmp_path / "plan.yml").write_text(yaml.safe_dump([play]))
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "ANSIBLE_CONFIG": ansible_config(tmp_path),
-        "ANSIBLE_FILTER_PLUGINS": str(REPO / "filter_plugins"),
-        "ANSIBLE_STDOUT_CALLBACK": "ansible.builtin.json",
-    } | {
-        # The checkout's own collections, as every recipe exports them: the json callback is ansible.posix's.
-        name: os.environ[name]
-        for name in ("ANSIBLE_COLLECTIONS_PATH",)
-        if name in os.environ
-    }
-    run = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", str(tmp_path / "hosts"), str(tmp_path / "plan.yml")],
-        env=env,
-        cwd=tmp_path,
-        # As the harness runs every playbook: nothing to read on stdin, and a process group of its own.
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert run.returncode == 0, run.stdout + run.stderr
-    tasks = json.loads(run.stdout)["plays"][0]["tasks"]
+    report = _run(tmp_path, tmp_path / "plan.yml", {}, timeout=120)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    tasks = report["plays"][0]["tasks"]
     said = {task["task"]["name"]: task["hosts"]["localhost"].get("msg") for task in tasks}
     assert said["Say"] == ["open_plan", ZED, f"ssh://alpha{ROOT}"] and said["Servers"] == list(ROWS)
     assert said["Next"] == {"alpha": {"editor": "just code alpha --project 'my repo'", "window": ""}}

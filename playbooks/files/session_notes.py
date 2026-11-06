@@ -64,11 +64,17 @@ def parsed(answer):
         return None
 
 
-def claude_row(answer):
+def row(answer, missing, read, *args):
+    # One row's value: missing for a tool that is not there, the same words for any that did not answer, and
+    # otherwise what read makes of the answer. Each reader below is handed only an answer.
     if answer is None:
-        return "not installed"
+        return missing
     if answer == "timeout":
         return "unknown (no answer in 2 s)"
+    return read(answer, *args)
+
+
+def claude_row(answer):
     status = parsed(answer)
     if not isinstance(status, dict):
         return "unknown (claude auth status gave no status)"
@@ -83,10 +89,6 @@ def claude_row(answer):
 
 
 def remote_control_row(answer):
-    if answer is None:
-        return "unknown (no systemctl)"
-    if answer == "timeout":
-        return "unknown (no answer in 2 s)"
     state = clean(answer[1].strip() or "unknown")
     if state == "active":
         return f"live: open claude.ai/code or the Claude app, and pick **{clean(vm)}**"
@@ -94,10 +96,6 @@ def remote_control_row(answer):
 
 
 def github_row(answer):
-    if answer is None:
-        return "gh not installed"
-    if answer == "timeout":
-        return "unknown (no answer in 2 s)"
     # Signed out, gh prints {"hosts":{}}: no github.com entry. Only output that is
     # not that JSON at all is a gh too old for --json.
     report = parsed(answer)
@@ -114,10 +112,6 @@ def github_row(answer):
 
 
 def tailscale_row(answer, user):
-    if answer is None:
-        return "not installed"
-    if answer == "timeout":
-        return "unknown (no answer in 2 s)"
     status = parsed(answer)
     if not isinstance(status, dict):
         return "unknown (tailscale status gave no status)"
@@ -157,10 +151,10 @@ def main():
         github = pool.submit(run, "gh", "auth", "status", "--hostname", "github.com", "--json", "hosts")
         tailscale = pool.submit(run, "tailscale", "status", "--json")
         rows = [
-            ("Claude Code", claude_row(claude.result())),
-            ("Remote Control", remote_control_row(remote.result())),
-            ("GitHub (`gh`)", github_row(github.result())),
-            ("Tailscale", tailscale_row(tailscale.result(), user)),
+            ("Claude Code", row(claude.result(), "not installed", claude_row)),
+            ("Remote Control", row(remote.result(), "unknown (no systemctl)", remote_control_row)),
+            ("GitHub (`gh`)", row(github.result(), "gh not installed", github_row)),
+            ("Tailscale", row(tailscale.result(), "not installed", tailscale_row, user)),
         ]
     live = "\n".join(
         [START, "## Signed in", "", f"| | as of {now().strftime('%H:%M %Z on %d %b')} |", "|---|---|"]

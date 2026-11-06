@@ -13,12 +13,14 @@ ansible-core says with the filter's name.
 
 from __future__ import annotations
 
+import functools
 import re
 import time
 from datetime import UTC, datetime
 
+from ..proxmox import built_template, proxmox_tags, scsi0_storage
 from ..refs import NAME
-from ..text import one_line, plural
+from ..text import and_list, one_line, plural
 
 # The report's sections, in the order they are drawn: vms and storage read only the API, the rest the VMs over SSH
 # too - access for the tailnet column, sign-ins for the roles' reads, system for vm_status_info, work for the
@@ -91,10 +93,6 @@ def _data(result):
     return body.get("data") if isinstance(body, dict) else None
 
 
-def _tags(entry):
-    return [t for t in re.split(r"[;,]", str(entry.get("tags") or "").lower()) if t]
-
-
 def _config_value(config, key):
     return config.get(key) if isinstance(config, dict) else None
 
@@ -102,15 +100,6 @@ def _config_value(config, key):
 def _ctime(config):
     match = re.search(r"(?:^|,)ctime=(\d+)", str(_config_value(config, "meta") or ""))
     return int(match.group(1)) if match else None
-
-
-def _disk(config):
-    """scsi0 as {storage, bytes}; bytes from size=, in Proxmox's own units."""
-    text = str(_config_value(config, "scsi0") or "")
-    storage = text.split(":", 1)[0] if ":" in text.split(",", 1)[0] else ""
-    match = re.search(r"(?:^|,)size=([0-9.]+)([KMGT])", text)
-    size = int(float(match.group(1)) * 1024 ** "KMGT".index(match.group(2)) * 1024) if match else None
-    return {"storage": storage, "bytes": size}
 
 
 def _pick(config):
@@ -198,19 +187,22 @@ def status_fleet(
     for entry in requested:
         if "name" in entry:
             counts[entry["name"]] = counts.get(entry["name"], 0) + 1
-    template = None
     template_name = settings.get("template_name")
-    for entry in entries:
-        if entry.get("template") and entry.get("name") == template_name:
-            template = {
-                "name": template_name,
-                "vmid": entry.get("vmid"),
-                "node": entry.get("node"),
-                "storage": _disk(template_config or {}).get("storage", ""),
-                "ctime": _ctime(template_config or {}),
-                "drift": [str(d) for d in template_drift or []],
-                "rebuild": bool(settings.get("template_rebuild", True)),
-            }
+    # The one status.yml read the config of.
+    built = built_template(entries, template_name)
+    template = (
+        {
+            "name": template_name,
+            "vmid": built.get("vmid"),
+            "node": built.get("node"),
+            "storage": scsi0_storage(_config_value(template_config, "scsi0")),
+            "ctime": _ctime(template_config or {}),
+            "drift": [str(d) for d in template_drift or []],
+            "rebuild": bool(settings.get("template_rebuild", True)),
+        }
+        if built
+        else None
+    )
     vms = []
     for entry in sorted(requested, key=lambda e: ("name" not in e, str(e.get("name", "")), e.get("vmid", 0))):
         found = by_vmid.get(entry.get("vmid"), {})
@@ -239,7 +231,7 @@ def status_fleet(
                 "uptime": entry.get("uptime"),
                 "maxdisk": entry.get("maxdisk"),
                 "address": found.get("address", ""),
-                "unfinished": f"{tag}-unfinished" in _tags(entry),
+                "unfinished": f"{tag}-unfinished" in [t.lower() for t in proxmox_tags(entry.get("tags"))],
                 "config": config,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
                 # Read in play 2, by name: a VM that is not can only be shown from the listing.
@@ -247,7 +239,7 @@ def status_fleet(
                 "skipped": reason,
             }
         )
-    disk_storages = {_disk(vm["config"]).get("storage") for vm in vms} - {""}
+    disk_storages = {scsi0_storage(_config_value(vm["config"], "scsi0")) for vm in vms} - {""}
     wanted = disk_storages | {settings.get("storage", "")} - {""}
     ours_vmids = {vm["vmid"] for vm in vms} | {e.get("vmid") for e in ours}
     shown = []
@@ -410,9 +402,14 @@ SYSTEM_KEYS = (
 )
 
 
+def _read(result):
+    """Whether a module's registered result holds what it read: a result, not failed, unreachable or skipped."""
+    return isinstance(result, dict) and not (result.get("failed") or result.get("unreachable") or result.get("skipped"))
+
+
 def status_system_read(result):
     """What vm_status_info read of a VM, as the "system" part: its fields alone, or None when it was not read."""
-    if not isinstance(result, dict) or result.get("failed") or result.get("unreachable") or result.get("skipped"):
+    if not _read(result):
         return None
     return {key: result.get(key) for key in SYSTEM_KEYS}
 
@@ -453,13 +450,20 @@ def _ago(seconds):
     return "just now"
 
 
-def _item(level, vm, subject, text, command="", source="status"):
-    return {"level": level, "vm": vm, "source": source, "subject": subject, "text": text, "command": command}
+def _item(level, vm, text, command="", source="status"):
+    """An attention item about vm - a VM, a storage, the template or Proxmox - which is also what it is said under."""
+    return {"level": level, "vm": vm, "source": source, "subject": vm, "text": text, "command": command}
 
 
-def _and(names):
-    names = list(names)
-    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1] if names else ""
+def _add(items, vm, level, text, command="", source="status"):
+    """An attention item about vm, appended to items."""
+    items.append(_item(level, vm, text, command, source))
+
+
+def _full(used, total):
+    """How full a disk is, and what that asks for: a problem from 90%, something to do from 80%, else nothing."""
+    fill = used / total
+    return fill, "problem" if fill >= 0.9 else "todo" if fill >= 0.8 else None
 
 
 def _drift_item(vm, drift, settings):
@@ -492,76 +496,57 @@ def _drift_item(vm, drift, settings):
     name = vm["name"]
     parts = []
     if asks:
-        parts.append(f"local.yml asks for {_and(asks)}; {name} has {_and(has)}")
+        parts.append(f"local.yml asks for {and_list(asks)}; {name} has {and_list(has)}")
     if cloud_init:
-        parts.append(f"{'Its' if parts else 'its'} cloud-init {_and(cloud_init)} differ from the settings")
+        parts.append(f"{'Its' if parts else 'its'} cloud-init {and_list(cloud_init)} differ from the settings")
     text = ". ".join(parts)
     command = f"just ANSIBLE_ARGS='-e proxmox_vm_force_update=true' deploy {name} --only provision"
     note = f"(this also resets {name}'s tags, and starts it if it is stopped"
     if cloud_init:
         note += "; its next boot then runs as a new cloud-init instance, which regenerates its SSH host keys"
-    return _item("todo", name, name, text, f"{command} {note})")
+    return _item("todo", name, text, f"{command} {note})")
 
 
 def _vm_items(vm, settings, live):
     """The attention items of one VM, from what was read of it."""
     items = []
     name = vm.get("name") or f"VMID {vm.get('vmid')}"
+    add = functools.partial(_add, items, name)
     skipped = vm.get("skipped")
     if skipped == "node":
-        items.append(
-            _item(
-                "unread",
-                name,
-                name,
-                f"its node {vm.get('node')} is down, so Proxmox lists no more of it",
-                "start the node, or remove the VM from Proxmox if the node is gone",
-            )
+        add(
+            "unread",
+            f"its node {vm.get('node')} is down, so Proxmox lists no more of it",
+            "start the node, or remove the VM from Proxmox if the node is gone",
         )
         return items
     if skipped == "duplicate":
-        items.append(
-            _item(
-                "problem",
-                name,
-                name,
-                f"more than one VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}: deploy and"
-                " destroy refuse both, and status reads neither past the listing",
-                "rename or remove the duplicates in Proxmox",
-            )
+        add(
+            "problem",
+            f"more than one VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}: deploy and"
+            " destroy refuse both, and status reads neither past the listing",
+            "rename or remove the duplicates in Proxmox",
         )
         return items
     if skipped == "name":
-        items.append(
-            _item(
-                "unread",
-                name,
-                name,
-                "its name is not one a recipe takes, so status reads no more of it",
-                "rename it in Proxmox",
-            )
-        )
+        add("unread", "its name is not one a recipe takes, so status reads no more of it", "rename it in Proxmox")
         return items
     if skipped == "nameless":
         return items
     if vm.get("unfinished"):
-        items.append(_item("todo", name, name, "its first deploy did not finish", f"just deploy {name}"))
+        add("todo", "its first deploy did not finish", f"just deploy {name}")
     api = vm.get("api")
     # A VM of the inventory's, with discovery off, is never asked of Proxmox.
     if api is None and not live and vm.get("read") and not vm.get("inventory"):
-        items.append(_item("unread", name, name, "Proxmox did not answer for it"))
+        add("unread", "Proxmox did not answer for it")
     status = vm.get("state")
     if status == "running" and not vm.get("address") and api is not None:
         if (vm.get("uptime") or 0) > 180:
-            items.append(
-                _item(
-                    "unread",
-                    name,
-                    name,
-                    f"it has run {uptime_said(vm.get('uptime'))} and its guest agent reports no address on"
-                    f" {settings.get('nic', 'net0')}",
-                    "check the guest agent in Proxmox's console for it",
-                )
+            add(
+                "unread",
+                f"it has run {uptime_said(vm.get('uptime'))} and its guest agent reports no address on"
+                f" {settings.get('nic', 'net0')}",
+                "check the guest agent in Proxmox's console for it",
             )
     drift = vm.get("drift")
     if drift:
@@ -569,33 +554,25 @@ def _vm_items(vm, settings, live):
         if item:
             items.append(item)
     if api and api.get("pending"):
-        items.append(
-            _item(
-                "todo",
-                name,
-                name,
-                f"{_and(api['pending'])} changed in Proxmox and {'waits' if len(api['pending']) == 1 else 'wait'}"
-                " for a restart",
-                f"restart {name} from Proxmox",
-            )
+        add(
+            "todo",
+            f"{and_list(api['pending'])} changed in Proxmox and {'waits' if len(api['pending']) == 1 else 'wait'}"
+            " for a restart",
+            f"restart {name} from Proxmox",
         )
     root = vm.get("root")
     if root and isinstance(root.get("used"), (int, float)) and root.get("total"):
-        fill = root["used"] / root["total"]
-        if fill >= 0.8:
-            items.append(
-                _item(
-                    "problem" if fill >= 0.9 else "todo",
-                    name,
-                    name,
-                    f"its root disk is {fill:.0%} full ({fmt_gib(root['used'])} of {fmt_gib(root['total'])} GiB):"
-                    " Claude, Docker and apt fail on a full one",
-                    f"free space on {name}, or grow vm_disk_size in local.yml",
-                )
+        fill, level = _full(root["used"], root["total"])
+        if level:
+            add(
+                level,
+                f"its root disk is {fill:.0%} full ({fmt_gib(root['used'])} of {fmt_gib(root['total'])} GiB):"
+                " Claude, Docker and apt fail on a full one",
+                f"free space on {name}, or grow vm_disk_size in local.yml",
             )
     aliases = settings.get("aliases_enabled")
     if aliases and vm.get("address") and vm.get("alias") is False and status == "running":
-        items.append(_item("todo", name, name, "it has no SSH alias", "just deploy --only ssh-config"))
+        add("todo", "it has no SSH alias", "just deploy --only ssh-config")
     return items
 
 
@@ -608,7 +585,7 @@ def status_work_read(result, directory):
     """What git_checkouts_info's work read of a VM's checkouts, as the "work" part: the directory read, how many
     checkouts and extra worktrees it holds, and per checkout what is on no remote or not committed. None when it was
     not read."""
-    if not isinstance(result, dict) or result.get("failed") or result.get("unreachable") or result.get("skipped"):
+    if not _read(result):
         return None
     checkouts = [c for c in result.get("checkouts") or [] if isinstance(c, dict) and isinstance(c.get("work"), dict)]
     repositories = []
@@ -748,16 +725,17 @@ def _ssh_items(vm, settings, live, now):
     """The attention items of what was read of a VM over SSH, each role's own line among them."""
     items = []
     name = vm.get("name")
+    add = functools.partial(_add, items, name)
+    user = settings.get("vm_user") or "dev"
     ssh = vm.get("ssh")
     if not vm.get("needs_ssh"):
         return items
     if ssh is None:
         if not live:
-            items.append(_item("unread", name, name, "not read over SSH: the run ended before it was"))
+            add("unread", "not read over SSH: the run ended before it was")
         return items
     if ssh.get("unreachable"):
-        text, command = _ssh_refusal(vm, ssh, settings)
-        items.append(_item("unread", name, name, text, command))
+        add("unread", *_ssh_refusal(vm, ssh, settings))
         return items
     unread = ssh.get("unread") or {}
     for part, said in (
@@ -768,17 +746,17 @@ def _ssh_items(vm, settings, live, now):
         ("work", "its checkouts"),
     ):
         if unread.get(part):
-            items.append(_item("unread", name, name, f"{said} was not read: {unread[part]}"))
+            add("unread", f"{said} was not read: {unread[part]}")
     system = ssh.get("system")
     if system:
         if (system.get("unread") or {}).get("upgrades"):
-            items.append(_item("unread", name, name, f"apt's upgrades were not read: {system['unread']['upgrades']}"))
+            add("unread", f"apt's upgrades were not read: {system['unread']['upgrades']}")
         if system.get("reboot_required"):
             running, newest = system.get("kernel") or "", system.get("kernel_newest") or ""
             why = (
                 f"kernel {short_kernel(newest)} is installed, {short_kernel(running)} runs"
                 if newest and running and newest != running
-                else f"{_and(system.get('reboot_packages') or []) or 'an upgrade'} asks for one"
+                else f"{and_list(system.get('reboot_packages') or []) or 'an upgrade'} asks for one"
             )
             busy = []
             if system.get("claude"):
@@ -790,114 +768,74 @@ def _ssh_items(vm, settings, live, now):
                 if windows.get(key):
                     busy.append(plural(windows[key], f"{editor or key} window"))
             text = f"waits for a reboot: {why}" + (
-                f"; {_and(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
+                f"; {and_list(busy)} {'is' if len(busy) == 1 and busy[0].startswith('1 ') else 'are'} open there"
                 if busy
                 else ""
             )
-            items.append(
-                _item(
-                    "todo",
-                    name,
-                    name,
-                    text,
-                    "restart it from Proxmox once they are done, then just deploy --only ssh-config"
-                    if busy
-                    else "restart it from Proxmox, then just deploy --only ssh-config",
-                )
+            add(
+                "todo",
+                text,
+                "restart it from Proxmox once they are done, then just deploy --only ssh-config"
+                if busy
+                else "restart it from Proxmox, then just deploy --only ssh-config",
             )
         if isinstance(system.get("security"), int) and system["security"] > 0:
-            user = settings.get("vm_user") or "dev"
             waits = "waits" if system["security"] == 1 else "wait"
-            items.append(
-                _item(
-                    "todo",
-                    name,
-                    name,
-                    f"{plural(system['security'], 'security upgrade')} {waits} to be installed",
-                    f"ssh -t {user}@{vm.get('address') or name} sudo apt-get upgrade",
-                )
+            add(
+                "todo",
+                f"{plural(system['security'], 'security upgrade')} {waits} to be installed",
+                f"ssh -t {user}@{vm.get('address') or name} sudo apt-get upgrade",
             )
     claude = ssh.get("claude")
     if claude:
         if not claude.get("installed"):
-            items.append(
-                _item("todo", name, name, "Claude Code is not installed", f"just deploy {name} --tags claude_code")
-            )
+            add("todo", "Claude Code is not installed", f"just deploy {name} --tags claude_code")
         elif not claude.get("api_key") and not claude.get("login_stored"):
-            items.append(
-                _item(
-                    "todo",
-                    name,
-                    name,
-                    "not signed in. Run "
-                    + (claude.get("login_command") or f"just login {name} --only claude")
-                    + " to sign in from your machine: it opens the sign-in page and asks for the code the page shows.",
-                    source="claude_code",
-                )
+            add(
+                "todo",
+                "not signed in. Run "
+                + (claude.get("login_command") or f"just login {name} --only claude")
+                + " to sign in from your machine: it opens the sign-in page and asks for the code the page shows.",
+                source="claude_code",
             )
         state, said = remote_control(claude, now)
         unit = claude.get("unit") or "claude-remote-control"
-        user = settings.get("vm_user") or "dev"
         if state == "down":
-            items.append(
-                _item(
-                    "problem",
-                    name,
-                    name,
-                    f"Remote Control is not running: {unit} is {said}",
-                    f"ssh {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then just deploy {name}"
-                    " --tags claude_code starts it again",
-                )
+            add(
+                "problem",
+                f"Remote Control is not running: {unit} is {said}",
+                f"ssh {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then just deploy {name}"
+                " --tags claude_code starts it again",
             )
         elif state == "not-set-up":
-            items.append(
-                _item("todo", name, name, "Remote Control is not set up", f"just deploy {name} --tags claude_code")
-            )
+            add("todo", "Remote Control is not set up", f"just deploy {name} --tags claude_code")
         elif state == "stopped" and claude.get("login_stored"):
-            items.append(
-                _item(
-                    "todo",
-                    name,
-                    name,
-                    "Remote Control is stopped",
-                    f"just deploy {name} --tags claude_code starts it, or says what stops it",
-                )
+            add(
+                "todo",
+                "Remote Control is stopped",
+                f"just deploy {name} --tags claude_code starts it, or says what stops it",
             )
     github = ssh.get("github")
     if github:
         if github.get("unchecked"):
-            items.append(
-                _item("unread", name, name, f"gh could not check its login with GitHub: {github.get('error')}")
-            )
+            add("unread", f"gh could not check its login with GitHub: {github.get('error')}")
         elif github.get("left") and github.get("line"):
-            items.append(_item("todo", name, name, github["line"], source="github_projects"))
+            add("todo", github["line"], source="github_projects")
     tailscale = ssh.get("tailscale")
     if tailscale and tailscale.get("enabled"):
         case = tailscale.get("case")
         if case == "check-daemon-down":
-            items.append(
-                _item(
-                    "problem", name, name, "tailscaled is not running", f"just deploy {name} --tags tailscale starts it"
-                )
-            )
+            add("problem", "tailscaled is not running", f"just deploy {name} --tags tailscale starts it")
         elif case == "check-no-package":
-            items.append(
-                _item(
-                    "todo", name, name, "Tailscale is not installed", f"just deploy {name} --tags tailscale installs it"
-                )
-            )
+            add("todo", "Tailscale is not installed", f"just deploy {name} --tags tailscale installs it")
         elif case == "would-join":
-            items.append(
-                _item(
-                    "todo",
-                    name,
-                    name,
-                    "Tailscale is not signed in; vault_tailscale_auth_key joins it",
-                    f"just deploy {name} --tags tailscale",
-                )
+            add(
+                "todo",
+                "Tailscale is not signed in; vault_tailscale_auth_key joins it",
+                f"just deploy {name} --tags tailscale",
             )
         elif tailscale.get("left") and tailscale.get("line"):
-            items.append(_item("todo", name, name, tailscale["line"], source="tailscale"))
+            add("todo", tailscale["line"], source="tailscale")
     return items
 
 
@@ -911,7 +849,7 @@ def _template_items(template):
         f"the template {template.get('name')} differs from its settings ({'; '.join(drift)}), so the next just"
         " deploy rebuilds it, over root SSH"
     )
-    return [_item("todo", "template", "template", text, "just deploy --only template rebuilds it now")]
+    return [_item("todo", "template", text, "just deploy --only template rebuilds it now")]
 
 
 def _storage_items(storages):
@@ -919,17 +857,15 @@ def _storage_items(storages):
     for s in storages:
         used, total = s.get("used"), s.get("total")
         if isinstance(used, (int, float)) and total:
-            fill = used / total
-            if fill >= 0.8:
-                items.append(
-                    _item(
-                        "problem" if fill >= 0.9 else "todo",
-                        s["storage"],
-                        s["storage"],
-                        f"it is {fill:.0%} full ({fmt_gib(used)} of {fmt_gib(total)} GiB): as it fills, the VMs on"
-                        " it get I/O errors",
-                        "free space on it, or move disks off it",
-                    )
+            fill, level = _full(used, total)
+            if level:
+                _add(
+                    items,
+                    s["storage"],
+                    level,
+                    f"it is {fill:.0%} full ({fmt_gib(used)} of {fmt_gib(total)} GiB): as it fills, the VMs on"
+                    " it get I/O errors",
+                    "free space on it, or move disks off it",
                 )
     return items
 
@@ -1027,14 +963,14 @@ def status_report(found, read_at="", now=None, live=False):
         )
     items = []
     if proxmox.get("unread"):
-        items.append(_item("unread", "proxmox", "proxmox", proxmox["unread"], settings.get("proxmox_hint", "")))
+        _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
         text = f"no VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}"
         if nameless:
             vmids = ", ".join(str(n.get("vmid")) for n in nameless)
             text += f"; Proxmox lists {plural(len(nameless), 'VM')} without a name, on a node that is down: {vmids}"
-        items.append(_item("unread", name, name, text, "just status lists every VM this project created"))
+        _add(items, name, "unread", text, "just status lists every VM this project created")
     for vm in vms:
         items += _vm_items(vm, settings, live)
         items += _ssh_items(vm, settings, live, now)

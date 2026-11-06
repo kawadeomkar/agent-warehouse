@@ -33,7 +33,9 @@ jobs:
         run: |
           # Dependabot's titles are its own (build(deps): ...), and it labels its pull requests itself.
           [ "$AUTHOR" != "dependabot[bot]" ] || exit 0
-          # The label each tag gives, which .github/release.yml makes a section of the notes.
+          # The tags, in CONTRIBUTING.md's order, and the label each gives, which .github/release.yml makes a section
+          # of the notes.
+          tags='feat fix cleanup docs test ci build'
           label_of() {
             case "$1" in
               feat) echo enhancement ;;
@@ -44,10 +46,10 @@ jobs:
           }
           has() { printf '%s' "$LABELS" | jq -e --arg label "$1" 'index($label) != null' > /dev/null; }
           # The first tag in the title: a stacked pull request's starts [1/2] [Topic] [feat].
-          kind=$(printf '%s\n' "$TITLE" | grep -o -E '\[(feat|fix|cleanup|docs|test|ci|build)\]' | head -n 1 | tr -d '[]' || true)
+          kind=$(printf '%s\n' "$TITLE" | grep -o -E "\[(${tags// /|})\]" | head -n 1 | tr -d '[]' || true)
           want=$(label_of "$kind")
           # A title retagged: the label of its old tag goes.
-          for other in feat fix cleanup docs test ci build; do
+          for other in $tags; do
             label=$(label_of "$other")
             if [ "$label" != "$want" ] && has "$label"; then
               gh api --method DELETE "repos/$REPO/issues/$NUMBER/labels/$label" > /dev/null
@@ -55,8 +57,10 @@ jobs:
             fi
           done
           if [ -z "$want" ]; then
-            tags='[feat], [fix], [cleanup], [docs], [test], [ci] or [build]'
-            echo "::warning::The title has none of $tags (CONTRIBUTING.md), so no label and no section of the release notes"
+            # [feat], [fix], ..., [ci] or [build]
+            listed=$(printf '[%s], ' $tags)
+            listed=${listed%, }
+            echo "::warning::The title has none of ${listed%, *} or ${listed##*, } (CONTRIBUTING.md), so no label and no section of the release notes"
             exit 0
           fi
           if has "$want"; then

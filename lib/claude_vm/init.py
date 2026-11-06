@@ -105,6 +105,26 @@ def init_answer_rule(kind):
     return RULES[kind]
 
 
+def init_pick_question(candidates):
+    """How just init asks for one of ``candidates``: ``{"kind", "label"}``, ``yes_no`` for the only one there is
+    and ``choice``, a number, for several, which the question's text lists."""
+    items = list(candidates or [])
+    if len(items) == 1:
+        return {"kind": "yes_no", "label": f"Use {items[0]}? y or n, Enter to decide later"}
+    return {"kind": "choice", "label": "Number, Enter to decide later"}
+
+
+def init_pick(answer, candidates):
+    """What an answer to init_pick_question's question picks among ``candidates``, ``""`` for none: ``y`` the first
+    (the only one, asked about), ``n`` or Enter nothing, and anything else - the item a number named, as
+    init_answer took it - itself."""
+    text = "" if answer is None else str(answer)
+    if text == "y":
+        items = list(candidates or [])
+        return items[0] if items else ""
+    return "" if text in ("", "n") else text
+
+
 def with_setting(text, key, value, placeholder=""):
     """Return YAML ``text`` with top-level ``key`` set to ``value``, written as JSON.
 
@@ -148,7 +168,6 @@ def _size(value):
         if size < 1024 or unit == "PiB":
             return f"{size:.0f} {unit}" if size >= 10 or unit == "B" else f"{size:.1f} {unit}"
         size /= 1024
-    return ""
 
 
 def init_candidates(results, key, prefix, required):

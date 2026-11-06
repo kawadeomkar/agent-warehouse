@@ -143,12 +143,19 @@ import tempfile
 import time
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.claude_on_proxmox import (
+    MANIFEST_FORMAT,
+    SESSION_ID,
+    file_digest,
+    folders,
+    manifest_key,
+    read_manifest,
+    transcript_entry,
+)
 
 # How Claude Code's system prompt names the auto-memory folder (2.1.308): read from each entry, never computed,
 # since the folder is Claude Code's own name for the directory the session was started in.
 MEMORY_AT = re.compile(r"persistent file-based memory at `([^`\n]+)`")
-MANIFEST_FORMAT = 1
-SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # A copy keeps the other machine's file time while it is this recent; Claude Code sweeps a transcript
 # 30 days after its file time.
 FRESH = 14 * 86400
@@ -161,14 +168,6 @@ def _escaped(text):
 
 def _line(entry):
     return json.dumps(entry, ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
-
-
-def _entry(line):
-    try:
-        entry = json.loads(line)
-    except ValueError:
-        return {}
-    return entry if isinstance(entry, dict) else {}
 
 
 def _strings(value):
@@ -227,10 +226,15 @@ def edit_transcript(data, session, checkout, memory, here="", results="", folder
     )
     results_escaped = _escaped(results.rstrip("/") + "/") if results else b""
     for line in data.splitlines(keepends=True):
-        if results_at and b"/tool-results/" in line and results_at.search(line) and _entry(line).get("type") == "user":
+        if (
+            results_at
+            and b"/tool-results/" in line
+            and results_at.search(line)
+            and transcript_entry(line).get("type") == "user"
+        ):
             line = results_at.sub(lambda _: results_escaped, line)
         if b'"prompt_snapshot"' in line:
-            entry = _entry(line)
+            entry = transcript_entry(line)
             attachment = entry.get("attachment")
             if entry.get("type") == "attachment" and isinstance(attachment, dict):
                 if attachment.get("type") == "prompt_snapshot":
@@ -242,7 +246,7 @@ def edit_transcript(data, session, checkout, memory, here="", results="", folder
                     if here and _left_behind(here, [folder] if folder else [], found).search(line):
                         return b"", "its recorded prompt names a memory folder in a form just code does not know"
         if b'"worktree-state"' in line:
-            entry = _entry(line)
+            entry = transcript_entry(line)
             if entry.get("type") == "worktree-state":
                 bound = bool(entry.get("worktreeSession"))
         out.append(line)
@@ -254,14 +258,6 @@ def edit_transcript(data, session, checkout, memory, here="", results="", folder
 
 def _digest(data):
     return hashlib.sha256(data).hexdigest()
-
-
-def _file_digest(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _directory(path, created):
@@ -287,16 +283,6 @@ def _write(path, data, mtime):
         if os.path.exists(temporary):
             os.unlink(temporary)
         raise
-
-
-def read_manifest(path):
-    try:
-        with open(path, encoding="utf-8") as handle:
-            found = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    copies = found.get("sessions") if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
-    return {str(key): str(value) for key, value in copies.items()} if isinstance(copies, dict) else {}
 
 
 def copy_time(source, current, now):
@@ -348,11 +334,7 @@ def classify(current, recorded, digest, moved=False):
 def _folders_holding(dest, sessions):
     """{id: [folder, ...]}: the folders of ``dest``/projects that hold a transcript of each session ID asked about."""
     wanted, found = {session["id"] for session in sessions}, {}
-    try:
-        folders = [entry for entry in os.scandir(os.path.join(dest, "projects")) if entry.is_dir(follow_symlinks=False)]
-    except OSError:
-        return found
-    for folder in folders:
+    for folder in folders(os.path.join(dest, "projects")):
         try:
             names = {entry.name for entry in os.scandir(folder.path)}
         except OSError:
@@ -389,13 +371,9 @@ def _tool_results(source, target, check, created):
 def _prune(mirror, keep, check):
     """Remove from ``mirror`` every session that is not in ``keep``; return whether anything was."""
     removed = False
-    try:
-        folders = [entry for entry in os.scandir(mirror) if entry.is_dir(follow_symlinks=False)]
-    except OSError:
-        return removed
-    for folder in folders:
+    for folder in folders(mirror):
         for entry in list(os.scandir(folder.path)):
-            session = entry.name[: -len(".jsonl")] if entry.name.endswith(".jsonl") else entry.name
+            session = entry.name.removesuffix(".jsonl")
             if (folder.name, session) in keep:
                 continue
             removed = True
@@ -428,7 +406,7 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
     try:
         for session in sessions:
             sid, folder = session["id"], session["folder"]
-            key = f"{folder}/{sid}.jsonl"
+            key = manifest_key(folder, sid)
             source = os.path.join(mirror, key)
             try:
                 with open(source, "rb") as handle:
@@ -447,21 +425,21 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                 result["unreadable"].append({"id": sid, "why": why or "it holds no complete line"})
                 continue
             digest, target = _digest(edited), os.path.join(dest, "projects", key)
-            current = _file_digest(target) if os.path.isfile(target) and not os.path.islink(target) else None
+            current = file_digest(target) if os.path.isfile(target) and not os.path.islink(target) else None
             if os.path.lexists(target) and current is None:
                 result["diverged"].append(sid)
                 continue
             others = [other for other in holding.get(sid, []) if other != folder] if current is None else []
             # The one other folder holding it, with the very copy this module wrote there: the session moved on
             # the other machine (/cd there), not here.
-            old = f"{others[0]}/{sid}.jsonl" if len(others) == 1 else ""
+            old = manifest_key(others[0], sid) if len(others) == 1 else ""
             old_path = os.path.join(dest, "projects", old)
             mac_move = (
                 bool(old)
                 and recorded.get(old) is not None
                 and os.path.isfile(old_path)
                 and not os.path.islink(old_path)
-                and _file_digest(old_path) == recorded[old]
+                and file_digest(old_path) == recorded[old]
             )
             if others and not mac_move:
                 result["held"][sid] = others[0]

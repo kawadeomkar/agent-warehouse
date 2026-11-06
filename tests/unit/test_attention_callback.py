@@ -14,7 +14,6 @@ report task records what it leaves to do.
 from __future__ import annotations
 
 import configparser
-import importlib.util
 import os
 import re
 import subprocess
@@ -23,15 +22,13 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import _env
+from harness import _env, load_module
 
 REPO = Path(__file__).resolve().parents[2]
 ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 PLUGINS = REPO / "callback_plugins"
 
-_spec = importlib.util.spec_from_file_location("claude_on_proxmox_callback", PLUGINS / "claude_on_proxmox.py")
-_callback = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_callback)
+_callback = load_module(PLUGINS / "claude_on_proxmox.py", "claude_on_proxmox_callback", register=False)
 
 RULE = "#" * 80
 
@@ -48,10 +45,7 @@ WAITS = {
 # task that records it for NEXT STEPS (docs/architecture/custom-code.md §7.5).
 REPORTS = {
     "roles/claude_code/tasks/login.yml": ["login | Report the login state and what to do about it"],
-    "roles/claude_code/tasks/browser_login.yml": [
-        "browser_login | Say that no code was entered",
-        "browser_login | Say that the browser did not come back",
-    ],
+    "roles/claude_code/tasks/browser_login.yml": ["browser_login | Say that nobody answered"],
     "roles/claude_code/tasks/remote_control.yml": [
         "remote_control | Report where to reach the session",
         "remote_control | Say exactly what to run",
@@ -65,22 +59,10 @@ REPORTS = {
     "roles/github_projects/tasks/clone.yml": ["clone | Say that an organisation gives no git identity"],
     "roles/tailscale/tasks/login.yml": ["login | Say why there is nothing to sign in"],
     "roles/tailscale/tasks/report.yml": ["report | Say how this VM is on Tailscale"],
-    "playbooks/claude_login.yml": [
-        "Say which VM could not be reached",
-        "Say why, and go on with the next VM",
-        "Say why",
-    ],
-    "playbooks/github_login.yml": [
-        "Say which VM could not be reached",
-        "Say why GitHub's sign-in was not started",
-        "Say why, and go on with the next VM",
-        "Say why",
-    ],
-    "playbooks/tailscale_login.yml": [
-        "Say which VM could not be reached",
-        "Say why Tailscale's sign-in was not started",
-        "Say why, and go on with the next VM",
-    ],
+    "playbooks/claude_login.yml": ["Say why"],
+    "playbooks/github_login.yml": ["Say why"],
+    "playbooks/tasks/sign_in_failed.yml": ["sign_in_failed | Say why, and go on with the next VM"],
+    "playbooks/tasks/sign_in_held.yml": ["sign_in_held | Say why the sign-in was not started"],
     "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
     "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
@@ -175,12 +157,9 @@ def test_untagged_output_is_the_default_callbacks_byte_for_byte(tmp_path):
     ours, _, _ = _play(tmp_path, EVERY_KIND)
     default, _, _ = _play(tmp_path, EVERY_KIND, "default")
     assert "msg: plain" in ours and "FAILED - RETRYING" in ours and "...ignoring" in ours
+    # No NEXT STEPS when nothing was recorded: the default callback, which ours is byte for byte, prints none.
+    assert "NEXT STEPS" not in ours
     assert _masked(ours) == _masked(default)
-
-
-def test_no_next_steps_when_nothing_was_recorded(tmp_path):
-    out, _, _ = _play(tmp_path, EVERY_KIND)
-    assert "NEXT STEPS" not in out
 
 
 def test_a_browser_message_is_a_block_named_for_its_sign_in(tmp_path):
@@ -231,7 +210,8 @@ def test_a_browser_wait_says_once_that_it_waits_and_an_untagged_one_retries_alou
       changed_when: false
 """,
     )
-    assert out.count("Waiting for you in the browser for localhost (about 4 seconds left; Ctrl-C ends the run)") == 1
+    # Five runs to come after the first, a second's delay before each: Ansible's "4 retries left" is one short.
+    assert out.count("Waiting for you in the browser for localhost (about 5 seconds left; Ctrl-C ends the run)") == 1
     assert "FAILED - RETRYING: [localhost]: Wait for the page to be approved" not in out
     assert "FAILED - RETRYING: [localhost]: Untagged (2 retries left)." in out
 
@@ -330,13 +310,20 @@ VM_PLAY = """
         fail: true
       ignore_errors: true
 """
+
+
+def _vm_module(root: Path) -> None:
+    """VM_MODULE as the module vm_said, in the library of a play run from root."""
+    (root / "library").mkdir()
+    (root / "library" / "vm_said.py").write_text(VM_MODULE)
+
+
 # Every byte a terminal acts on but the tab and the newline: ESC, BEL, the C1 controls.
 TERMINAL_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path):
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, err, log = _play(tmp_path, VM_PLAY, ANSIBLE_DIFF_ALWAYS="1")
     for name, text in (("stdout", out), ("stderr", err), ("log", log)):
         assert not TERMINAL_CONTROL.search(text), (name, text)
@@ -356,8 +343,7 @@ def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path
 def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path):
     # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
     # hand, and would still pass if ansible-core stopped setting it.
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, err, log = _play(tmp_path, VM_PLAY, "claude_on_proxmox_status")
     for name, text in (("stdout", out), ("stderr", err), ("log", log)):
         assert not TERMINAL_CONTROL.search(text), (name, text)
@@ -369,8 +355,7 @@ def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path
 def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
     # Why NEXT STEPS reads the set_stats tasks' own results: the default callback,
     # showing the run's custom stats, shows the module's line among them.
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, _, _ = _play(tmp_path, VM_PLAY, "default", ANSIBLE_SHOW_CUSTOM_STATS="1")
     assert "evil.example" in out[out.index("PLAY RECAP") :], out
 
@@ -509,6 +494,22 @@ def test_every_prompt_is_drawn_by_banner():
     assert all("| banner(" in prompt for prompt in prompts), prompts
 
 
+# The one stat a record names by a template: the sign-in's, in the task files the three sign-in playbooks share.
+SIGN_IN_STAT = "{{ claude_vm_sign_in_stats[claude_vm_sign_in] }}"
+
+
+def _sign_in_stats(record: dict, stat: str) -> bool:
+    """Whether a record's stat is the sign-in's, chosen from a map written out on the record itself, each of whose
+    stats is one of the five: whatever the sign-in, its line goes under one of them, or the record fails to run."""
+    stats = (record.get("vars") or {}).get("claude_vm_sign_in_stats")
+    return (
+        stat == SIGN_IN_STAT
+        and isinstance(stats, dict)
+        and len(stats) > 0
+        and all(isinstance(name, str) and name in _callback.NEXT_STATS for name in stats.values())
+    )
+
+
 def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     followed, borrowed = {}, []
     for relative, names in REPORTS.items():
@@ -529,14 +530,13 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
                     ]
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
-    stats = [
-        task["ansible.builtin.set_stats"]
-        for path in _files()
-        for task in _tasks(path)
-        if "ansible.builtin.set_stats" in task
-    ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 31
-    assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
+    records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 24
+    for record in records:
+        data = record["ansible.builtin.set_stats"]["data"]
+        assert len(data) == 1, record
+        (stat,) = data
+        assert stat in _callback.NEXT_STATS or _sign_in_stats(record, stat), record
 
 
 def _hidden(node) -> bool:
