@@ -61,6 +61,8 @@ playbooks/
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
   vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
                                   are (read, never written)
+  vars/sign_in.yml                the rules the three sign-in plays share, written once: names given, one VM at a
+                                  time, whether GitHub's and Tailscale's start or ask, a sign-in held back or left unasked
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
   tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the
@@ -76,6 +78,9 @@ playbooks/
   tasks/vms_misnamed.yml          says which tagged VMs a fleet-wide run leaves out for their name (discover, ssh_config)
   tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
                                   key is never sent to it again (configure.yml, tailscale_login.yml)
+  tasks/sign_in_failed.yml        a VM a sign-in did not sign in - not reached, or its sign-in failed - remembered,
+                                  said and kept for NEXT STEPS (claude_login.yml, github_login.yml, tailscale_login.yml)
+  tasks/sign_in_held.yml          GitHub's or Tailscale's sign-in held back for a VM, said and kept for NEXT STEPS
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward

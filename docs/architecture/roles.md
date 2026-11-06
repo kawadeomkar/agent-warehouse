@@ -472,7 +472,11 @@ failure does not name it already), records it - for NEXT STEPS too, under `claud
 on past it still lists it at the end - and a last play without serial fails each such VM, unless
 `just deploy` imported the playbook (`claude_vm_login_in_deploy`): deploy has done its job and goes on to
 GitHub and the editor's window. `rescue` handles failed tasks, never an unreachable host, so a play before it pings
-every VM with `ignore_unreachable` and records one that does not answer the same way. The rescued
+every VM with `ignore_unreachable` and records one that does not answer the same way. Both records are
+`playbooks/tasks/sign_in_failed.yml`, which GitHub's and Tailscale's sign-ins import as well: its fact,
+`claude_vm_<sign-in>_login_failure`, and its NEXT STEPS stat are named from the sign-in's word, the
+repository's one templated `set_fact` key (`set_fact` and `set_stats` template their keys), and the plays
+around it stay each playbook's own. The rescued
 block's condition is on its task, not on the block, whose `when` would also skip the rescue's message
 once the failure it tests for is recorded. The rescue's first
 task re-raises `pause`'s abort (Ctrl-C, then A): the person asked for the run to end, not for the next
@@ -669,7 +673,9 @@ flow asks for `github_projects_login_scopes` on top of gh's own and tells gh the
 ### Under `just deploy`, one VM at a time
 
 With `github_login_auto_start: false`, `just deploy` (and `just login` with names) asks first: Enter goes
-for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. With no terminal
+for a VM whose Claude code was entered and `n` skips it; any other VM goes on `y` only. The sign-in play
+decides both switches by the rule Tailscale's shares (`claude_vm_login_starts`, `claude_vm_login_asks` in
+`playbooks/vars/sign_in.yml`), after Claude's under both commands (`claude_vm_login_after_claude`). With no terminal
 a question would return nothing at once, which is Enter, and start a fifteen-minute flow nobody watches,
 so the justfile passes `claude_vm_login_terminal: false` then (`no_tty_args`), and `github_login.yml` asks
 no VM: one it would have asked (`claude_vm_login_unasked`) gets neither switch, so no flow, and is told

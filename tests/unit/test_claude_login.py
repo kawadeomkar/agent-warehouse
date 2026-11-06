@@ -228,6 +228,10 @@ def _turns(report: dict) -> list[str]:
 # claude_login.yml's sign-in play, serial where it prompts, and the play after it for every VM at once.
 SIGN_IN_PLAY = "Sign Claude Code in, or say how each VM is signed in"
 AFTER_PLAY = "Start Remote Control on each VM signed in just now"
+# The play before them that pings every VM, and what the three sign-in playbooks say of a VM not signed in
+# (playbooks/tasks/sign_in_failed.yml): one that play could not reach, or one whose sign-in failed.
+REACH_PLAY = "Reach each VM before its sign-in"
+FAILED_SAID = "sign_in_failed | Say why, and go on with the next VM"
 
 
 def _seconds_per_turn(report: dict) -> dict:
@@ -386,7 +390,7 @@ def test_next_steps_keep_a_sign_in_left_to_do_and_nothing_once_signed_in(signed)
     assert "just login skipped --only claude" in left["skipped"]["claude"]
     # A code claude refused, or one it could not read, is a failed sign-in:
     # its line, with the command that retries it, which no report recorded.
-    said = _messages(report, "Say why, and go on with the next VM")
+    said = _messages(report, FAILED_SAID)
     for host in ("rejected", "invalid"):
         assert left[host]["claude"] == said[host]
         assert f"just login {host} --only claude" in said[host], said[host]
@@ -394,7 +398,7 @@ def test_next_steps_keep_a_sign_in_left_to_do_and_nothing_once_signed_in(signed)
 
 def test_next_steps_keep_a_vm_not_reached_with_the_command_that_retries_it(signed):
     _, report = signed
-    unreached = _messages(report, "Say which VM could not be reached")["down"]
+    unreached = _messages(report, FAILED_SAID)["down"]
     assert _left_to_do(report)["down"]["claude"] == unreached
     assert "down could not be reached" in unreached and "Connection refused." in unreached, unreached
     assert unreached.endswith("Retry it with: just login down --only claude"), unreached
@@ -509,7 +513,15 @@ def test_a_vm_that_cannot_be_reached_is_named_and_the_vms_after_it_have_their_tu
     # down was tried, by the stand-in ssh, said at once, and never handed a sign-in.
     assert (root / "bin" / "ssh.log").exists()
     assert _calls(root, "down") == []
-    said = _messages(report, "Say which VM could not be reached")
+    said = {
+        host: result["msg"]
+        for entry in report["plays"]
+        if entry["play"]["name"] == REACH_PLAY
+        for task in entry["tasks"]
+        if task["task"]["name"] == FAILED_SAID
+        for host, result in task["hosts"].items()
+        if not result.get("skipped")
+    }
     assert set(said) == {"down"}, said
     assert said["down"].startswith("down could not be reached, so it was not signed in"), said["down"]
     failures = _standing(report)
@@ -526,7 +538,7 @@ def test_a_failed_sign_in_is_said_in_its_turn_and_raised_once_every_vm_had_its_o
         (index, result["msg"])
         for index, entry in enumerate(report["plays"])
         for task in entry["tasks"]
-        if task["task"]["name"] == "Say why, and go on with the next VM"
+        if task["task"]["name"] == FAILED_SAID
         for vm, result in task["hosts"].items()
         if vm == host and not result.get("skipped")
     ]

@@ -49,9 +49,11 @@ What these guard:
   nobody answered is said once, with the command that starts it, and never in
   a report; a VM signed in has nothing left.
 - just login (playbooks/login.yml) runs the three in deploy's order and by its
-  rules: GitHub's device flow is not started for a VM whose Claude sign-in
-  nobody answered, a VM whose Claude sign-in failed sits out the sign-ins after
-  it and fails the run, and with no names every step reports, starting nothing.
+  rules, which the sign-in plays read from one file (playbooks/vars/sign_in.yml)
+  under both: GitHub's device flow is not started for a VM whose Claude sign-in
+  nobody answered, a VM whose Claude sign-in failed still has its GitHub and
+  Tailscale turns and fails the run at its end, and with no names every step
+  reports, starting nothing.
 - A scripted just login, with no terminal and a Claude code given, asks no
   "sign in now?" question with github_login_auto_start off: pause would answer
   at once with nothing, which is Enter for that VM, and start GitHub's
@@ -106,6 +108,12 @@ CLAUDE_SIGN_IN = "Sign Claude Code in, or say how each VM is signed in"
 GITHUB_SIGN_IN = "Sign gh in to GitHub, or say how each VM is signed in"
 GITHUB_AFTER = "Configure the repositories of each VM signed in"
 TAILSCALE_SIGN_IN = "Sign each VM in to Tailscale, or say how it is on it"
+# The tasks the three sign-in playbooks share: a VM not signed in, remembered and said
+# (playbooks/tasks/sign_in_failed.yml) - one their reach play could not reach, or one whose sign-in their rescue
+# caught, told apart by host - and a sign-in held back (playbooks/tasks/sign_in_held.yml).
+FAILED_KEPT = "sign_in_failed | Remember why this VM's sign-in failed"
+FAILED_SAID = "sign_in_failed | Say why, and go on with the next VM"
+HELD_SAID = "sign_in_held | Say why the sign-in was not started"
 
 # A code fake_claude.sh accepts, or refuses where the case says so.
 CODE = "fake-code#fake-state"
@@ -287,7 +295,7 @@ def test_github_login_names_a_vm_it_cannot_reach_and_signs_in_the_vms_after_it(g
     # And the work after its sign-in.
     assert (root / "gamma" / "projects" / "pub" / "README.md").exists()
     assert _gh_calls(root, "beta") == []
-    assert _said(report, "Say which VM could not be reached", "beta")
+    assert _said(report, FAILED_SAID, "beta")
     assert report["rc"] != 0
     failures = _standing(report)
     # And delta's clone, after its sign-in (below).
@@ -303,7 +311,7 @@ def test_a_failed_sign_in_is_said_in_its_turn_and_raised_once_every_vm_had_its_o
         (index, result["msg"])
         for index, entry in enumerate(report["plays"])
         for task in entry["tasks"]
-        if task["task"]["name"] == "Say why, and go on with the next VM"
+        if task["task"]["name"] == FAILED_SAID
         for host, result in task["hosts"].items()
         if host == "alpha" and not result.get("skipped")
     ]
@@ -322,10 +330,10 @@ def test_next_steps_keep_a_failed_sign_in_and_a_vm_not_reached_with_the_command_
     # Said, and raised at the end, but recorded nowhere: NEXT STEPS forgot both. Claude's are in test_claude_login.py.
     _, report = github_named
     left = _left_to_do(report)
-    (failed,) = _said(report, "Say why, and go on with the next VM", "alpha")
+    (failed,) = _said(report, FAILED_SAID, "alpha")
     assert left["alpha"]["github"] == failed
     assert "just login alpha --only github" in failed, failed
-    (unreached,) = _said(report, "Say which VM could not be reached", "beta")
+    (unreached,) = _said(report, FAILED_SAID, "beta")
     assert left["beta"]["github"] == unreached
     assert "beta could not be reached" in unreached and "Connection refused." in unreached, unreached
     assert unreached.endswith("Retry it with: just login beta --only github"), unreached
@@ -352,7 +360,7 @@ def test_just_deploy_names_a_vm_it_cannot_reach_in_every_sign_in_and_goes_on(dep
     root, report = deployed
     assert report["rc"] == 0, _standing(report)
     assert _standing(report) == {}
-    said = _said(report, "Say which VM could not be reached", "b-down")
+    said = _said(report, FAILED_SAID, "b-down")
     assert len(said) == 3, said
     assert "b-down could not be reached, so it was not signed in" in said[0]
     assert "b-down could not be reached, so gh was not signed in there" in said[1]
@@ -366,11 +374,11 @@ def test_just_deploy_keeps_each_sign_in_a_vm_missed_for_next_steps(deployed):
     # deploy raises no failed sign-in at its end: NEXT STEPS is where it stays.
     _, report = deployed
     left = _left_to_do(report)
-    said = _said(report, "Say which VM could not be reached", "b-down")
+    said = _said(report, FAILED_SAID, "b-down")
     assert [left["b-down"][matter] for matter in ("claude", "github", "tailscale")] == said, (left["b-down"], said)
     for matter, line in zip(("claude", "github", "tailscale"), said, strict=True):
         assert line.endswith(f"Retry it with: just login b-down --only {matter}"), line
-    assert left["a-rejected"]["claude"] == _said(report, "Say why, and go on with the next VM", "a-rejected")[0]
+    assert left["a-rejected"]["claude"] == _said(report, FAILED_SAID, "a-rejected")[0]
     assert "just login a-rejected --only claude" in left["a-rejected"]["claude"]
     assert left["c-accepted"]["claude"] == ""
 
@@ -408,7 +416,7 @@ def test_a_failure_after_the_claude_sign_in_is_said_as_such_and_fails_just_login
     root, report = after_claude
     # Signed in: what failed came after.
     assert _signed_in(root, "epsilon")
-    assert not _ran(report, "Remember why this VM's sign-in failed", "epsilon")
+    assert not _ran(report, FAILED_KEPT, "epsilon")
     assert report["rc"] != 0
     failures = _standing(report)
     assert set(failures) == {"epsilon"}, failures
@@ -422,8 +430,8 @@ def test_just_deploy_fails_at_its_end_on_a_failure_after_a_sign_in_and_not_on_a_
     root, report = deployed_after
     assert _signed_in(root, "b-after")
     # The sign-in play caught a-rejected's refused code, and nothing of b-after.
-    assert _ran(report, "Remember why this VM's sign-in failed", "a-rejected")
-    assert not _ran(report, "Remember why this VM's sign-in failed", "b-after")
+    assert _ran(report, FAILED_KEPT, "a-rejected")
+    assert not _ran(report, FAILED_KEPT, "b-after")
     recorded = [
         result["ansible_facts"]["claude_vm_configure_failures"]
         for name, host, result in _results(report)
@@ -444,7 +452,7 @@ def test_a_clone_failure_after_the_device_flow_names_the_repository_and_how_to_r
     root, report = github_named
     assert (root / "delta" / ".config" / "gh" / "fake-token").read_text().strip() == DEVICE_TOKEN
     assert (root / "delta" / "projects" / "pub" / "README.md").exists()
-    assert not _ran(report, "Remember why this VM's sign-in failed", "delta")
+    assert not _ran(report, FAILED_KEPT, "delta")
     assert report["rc"] != 0
     message = _standing(report)["delta"]
     assert message.startswith("Fail where the work after the sign-in failed: "), message
@@ -525,7 +533,7 @@ def test_deploy_sign_in_false_runs_neither_sign_in(switched_off):
 def test_just_deploy_names_a_refused_code_and_signs_in_the_vm_after_it(deployed):
     root, report = deployed
     assert report["rc"] == 0, _standing(report)
-    said = _said(report, "Say why, and go on with the next VM", "a-rejected")
+    said = _said(report, FAILED_SAID, "a-rejected")
     assert len(said) == 1, said
     assert "a-rejected: the Claude sign-in did not complete" in said[0]
     assert "just login a-rejected --only claude again" in said[0]
@@ -585,7 +593,7 @@ def test_just_login_says_once_why_github_s_sign_in_was_not_started_and_only_for_
     # The role's report says only "not signed in"; this says why nothing
     # signed it in, and what does.
     _, report = logged_in
-    said = {host: _said(report, "Say why GitHub's sign-in was not started", host) for host in report["stats"]}
+    said = {host: _said(report, HELD_SAID, host) for host in report["stats"]}
     assert {host: lines for host, lines in said.items() if lines} == {
         "a-unanswered": [
             "a-unanswered: GitHub's sign-in was not started, since its Claude sign-in was skipped:"
@@ -608,7 +616,7 @@ def test_just_login_with_no_terminal_starts_no_device_flow_it_would_have_asked_a
     assert _signed_in(tmp_path, "alpha")
     assert not _ran(report, "Ask whether to sign gh in to GitHub now for alpha", "alpha")
     assert not _device_flow(tmp_path, "alpha")
-    assert _said(report, "Say why GitHub's sign-in was not started", "alpha") == [
+    assert _said(report, HELD_SAID, "alpha") == [
         "alpha: GitHub's sign-in was not started, since this run has no terminal to ask at:"
         " just login alpha --only github starts it."
     ]
@@ -664,7 +672,7 @@ def test_just_login_without_names_reports_every_vm_and_starts_nothing(tmp_path, 
         assert not any(call.startswith("auth login") for call in _gh_calls(tmp_path, host))
         # The role's work after a sign-in follows only a sign-in, or names.
         assert not _ran(report, "Run the role now that gh is signed in", host)
-        assert not _ran(report, "Say why GitHub's sign-in was not started", host)
+        assert not _ran(report, HELD_SAID, host)
 
 
 def test_just_login_imports_the_three_sign_ins_as_they_are():
@@ -675,30 +683,11 @@ def test_just_login_imports_the_three_sign_ins_as_they_are():
     assert imported == ["discover.yml", "claude_login.yml", "github_login.yml", "tailscale_login.yml"]
     for entry in entries[1:4]:
         assert entry["vars"]["claude_vm_login_raised_later"] is True, entry["name"]
+    # GitHub's and Tailscale's after Claude's, so each decides a VM from Claude's outcome there, by the one rule
+    # their plays read (playbooks/vars/sign_in.yml), as under deploy.yml; with names given, which they read too.
+    for entry in entries[2:4]:
+        assert entry["vars"]["claude_vm_login_after_claude"] is True, entry["name"]
     assert "hosts" in entries[-1], "login.yml raises what the sign-ins left in a play of its own, last"
-
-
-def _flat(expression: str) -> str:
-    """A Jinja expression as one line, without its braces."""
-    text = " ".join(expression.split())
-    assert text.startswith("{{ ") and text.endswith(" }}"), text
-    return text[3:-3]
-
-
-def _vars_of_import(path: Path, playbook: str) -> dict:
-    """The vars a playbook gives its import of playbook (named relative to the importing file)."""
-    return next(e for e in yaml.safe_load(path.read_text()) if e.get("ansible.builtin.import_playbook") == playbook)[
-        "vars"
-    ]
-
-
-@pytest.mark.parametrize("step", ["github_login.yml", "tailscale_login.yml"])
-@pytest.mark.parametrize("decision", ["claude_vm_login_interactive", "claude_vm_login_ask"])
-def test_just_login_decides_github_and_tailscale_as_just_deploy_does(step, decision):
-    """login.yml's decisions are deploy.yml's own, behind the names given, so the two cannot drift."""
-    deploy = _flat(_vars_of_import(DEPLOY, f"playbooks/{step}")[decision])
-    login = _flat(_vars_of_import(LOGIN, step)[decision])
-    assert login == f"claude_vm_login_named | bool and ({deploy})", (login, deploy)
 
 
 # ------------------------------------------------------------- batches

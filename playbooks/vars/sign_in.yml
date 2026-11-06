@@ -1,0 +1,58 @@
+---
+# The sign-in plays' own variables, which claude_login.yml, github_login.yml
+# and tailscale_login.yml name in their vars_files, so that each rule the
+# three read is written once. Lazy, as a play's vars are. A vars file outranks
+# a play's vars, which the vars of deploy.yml's and login.yml's imports are,
+# so no name here is one an import passes: claude_vm_login_interactive,
+# claude_vm_login_after_claude, claude_vm_login_in_deploy and
+# claude_vm_login_raised_later stay theirs.
+
+# Names given (any number): sign in. Without them, a report.
+claude_vm_login_named: >-
+  {{ (vm_name | default('', true) | split(',') | map('trim') | select | list | length) > 0 }}
+
+# Where GitHub's or Tailscale's sign-in can prompt - names given, or just
+# deploy - its play takes one VM at a time, since each opens its own page and
+# waits for its own approval; a report reads the fleet at once.
+claude_vm_login_batched: >-
+  {{ claude_vm_login_in_deploy | default(false) | bool or claude_vm_login_named | bool }}
+
+# Whether GitHub's or Tailscale's sign-in starts for a VM, and whether it asks
+# first. After Claude's, as just deploy and just login run them
+# (claude_vm_login_after_claude, which both pass), it is decided VM by VM from
+# what Claude's left there, for a run that signs in - just deploy, or names
+# given: with the sign-in's own claude_vm_login_auto_start (its play's, from
+# github_login_auto_start or tailscale_login_auto_start), the default, it
+# starts for every VM but one whose Claude sign-in was skipped, which nobody
+# was there to answer; off, every VM but that one is asked first, and Enter
+# signs in one whose Claude sign-in was answered - "y" any other (signed in
+# already, or an API key). Run alone (just login --only github), names given
+# sign in, and nothing is asked. A report starts and asks nothing.
+claude_vm_login_starts: >-
+  {{ (claude_vm_login_batched | bool
+      and (not (claude_code_login_skipped | default(false)) if claude_vm_login_auto_start | bool
+           else claude_code_login_answered | default(false)))
+     if claude_vm_login_after_claude | default(false) | bool
+     else claude_vm_login_named | bool }}
+claude_vm_login_asks: >-
+  {{ claude_vm_login_after_claude | default(false) | bool and claude_vm_login_batched | bool
+     and not (claude_vm_login_auto_start | bool) and not (claude_code_login_skipped | default(false)) }}
+
+# A VM just deploy, or just login with names, leaves out of GitHub's or
+# Tailscale's sign-in because nobody answered its Claude sign-in: told so
+# (tasks/sign_in_held.yml). Never in a report, which starts nothing for any VM.
+claude_vm_login_held: >-
+  {{ claude_vm_login_batched | bool
+     and claude_code_login_skipped | default(false) | bool
+     and not (claude_vm_login_starts | bool)
+     and not (claude_vm_login_asks | bool) }}
+
+# A VM that would be asked first, in a run with no terminal to ask at: the
+# justfile then passes claude_vm_login_terminal: false (no_tty_args), and
+# pause would come back at once with nothing, which is Enter - a
+# fifteen-minute device flow, or a web login, started for nobody. Such a VM is
+# neither asked nor signed in, and told so (tasks/sign_in_held.yml). Unset, as
+# in a run of ansible-playbook by hand, a person is taken to be there to
+# answer.
+claude_vm_login_unasked: >-
+  {{ claude_vm_login_asks | bool and not (claude_vm_login_terminal | default(true) | bool) }}

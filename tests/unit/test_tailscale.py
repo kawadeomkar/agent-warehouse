@@ -998,6 +998,8 @@ AFTER_CLAUDE = {
     "quiet": {"claude_code_login_answered": False, "claude_code_login_skipped": False},
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
 }
+# What tailscale_login.yml says of a VM whose sign-in it held back (playbooks/tasks/sign_in_held.yml, GitHub's too).
+HELD_SAID = "sign_in_held | Say why the sign-in was not started"
 
 
 def _deploy_tailscale(root: Path) -> Path:
@@ -1035,7 +1037,7 @@ def test_just_deploy_starts_the_web_login_by_itself_for_every_vm_but_one_whose_c
 
 
 def _not_started(report: dict) -> list:
-    said = _ran(report, "Say why Tailscale's sign-in was not started")
+    said = _ran(report, HELD_SAID)
     return [(host, result["msg"]) for host, results in said.items() for result in results]
 
 

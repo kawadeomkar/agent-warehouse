@@ -59,22 +59,10 @@ REPORTS = {
     "roles/github_projects/tasks/clone.yml": ["clone | Say that an organisation gives no git identity"],
     "roles/tailscale/tasks/login.yml": ["login | Say why there is nothing to sign in"],
     "roles/tailscale/tasks/report.yml": ["report | Say how this VM is on Tailscale"],
-    "playbooks/claude_login.yml": [
-        "Say which VM could not be reached",
-        "Say why, and go on with the next VM",
-        "Say why",
-    ],
-    "playbooks/github_login.yml": [
-        "Say which VM could not be reached",
-        "Say why GitHub's sign-in was not started",
-        "Say why, and go on with the next VM",
-        "Say why",
-    ],
-    "playbooks/tailscale_login.yml": [
-        "Say which VM could not be reached",
-        "Say why Tailscale's sign-in was not started",
-        "Say why, and go on with the next VM",
-    ],
+    "playbooks/claude_login.yml": ["Say why"],
+    "playbooks/github_login.yml": ["Say why"],
+    "playbooks/tasks/sign_in_failed.yml": ["sign_in_failed | Say why, and go on with the next VM"],
+    "playbooks/tasks/sign_in_held.yml": ["sign_in_held | Say why the sign-in was not started"],
     "playbooks/tasks/tailscale_record.yml": ["tailscale_record | Say each VM whose record could not be written"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
     "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
@@ -506,6 +494,22 @@ def test_every_prompt_is_drawn_by_banner():
     assert all("| banner(" in prompt for prompt in prompts), prompts
 
 
+# The one stat a record names by a template: the sign-in's, in the task files the three sign-in playbooks share.
+SIGN_IN_STAT = "{{ claude_vm_sign_in_stats[claude_vm_sign_in] }}"
+
+
+def _sign_in_stats(record: dict, stat: str) -> bool:
+    """Whether a record's stat is the sign-in's, chosen from a map written out on the record itself, each of whose
+    stats is one of the five: whatever the sign-in, its line goes under one of them, or the record fails to run."""
+    stats = (record.get("vars") or {}).get("claude_vm_sign_in_stats")
+    return (
+        stat == SIGN_IN_STAT
+        and isinstance(stats, dict)
+        and len(stats) > 0
+        and all(isinstance(name, str) and name in _callback.NEXT_STATS for name in stats.values())
+    )
+
+
 def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     followed, borrowed = {}, []
     for relative, names in REPORTS.items():
@@ -526,14 +530,13 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
                     ]
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
-    stats = [
-        task["ansible.builtin.set_stats"]
-        for path in _files()
-        for task in _tasks(path)
-        if "ansible.builtin.set_stats" in task
-    ]
-    assert len(stats) == sum(len(names) for names in REPORTS.values()) == 30
-    assert all(len(stat["data"]) == 1 and next(iter(stat["data"])) in _callback.NEXT_STATS for stat in stats), stats
+    records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 24
+    for record in records:
+        data = record["ansible.builtin.set_stats"]["data"]
+        assert len(data) == 1, record
+        (stat,) = data
+        assert stat in _callback.NEXT_STATS or _sign_in_stats(record, stat), record
 
 
 def _hidden(node) -> bool:

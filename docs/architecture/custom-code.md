@@ -252,7 +252,7 @@ A run waits for the person in three ways, and each is set apart:
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 31 reports that can say what to do later registers its message and records it straight
+  Each of the 24 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
   `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
   `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
@@ -272,7 +272,11 @@ A run waits for the person in three ways, and each is set apart:
   reached and a sign-in that failed, each with the `just login <vm> --only claude`, `github` or `tailscale`
   that retries it, and the work after a sign-in failing (`remote_control`, or `github` for the
   repositories), with its `just deploy <vm> --tags ...` - so a failure recorded after the role's own report
-  replaces that report's line. `github_login.yml` and `tailscale_login.yml` also say, for a VM whose Claude
+  replaces that report's line. The first two are one report the three share,
+  `playbooks/tasks/sign_in_failed.yml`, and the one below another, `playbooks/tasks/sign_in_held.yml`: the
+  only records whose stat is a template - the sign-in's, chosen from a map written out on the record, each
+  of whose stats `test_attention_callback.py` holds to the five as it holds a written-out one.
+  `github_login.yml` and `tailscale_login.yml` also say, for a VM whose Claude
   sign-in nobody answered, that theirs was not started and what starts it, only where the role would have
   started it (`github_projects_login_due`, `tailscale_login_due`, facts the role's question and sign-in go on
   too): that line takes the place of the role's report of the same sign-out, the one before it - for Tailscale

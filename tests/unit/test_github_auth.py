@@ -1543,6 +1543,8 @@ AFTER_CLAUDE = {
     "skipped": {"claude_code_login_answered": False, "claude_code_login_skipped": True},
     "quiet": {},
 }
+# What github_login.yml says of a VM whose sign-in it held back (playbooks/tasks/sign_in_held.yml, Tailscale's too).
+HELD_SAID = "sign_in_held | Say why the sign-in was not started"
 
 
 def _deploy_github_step(root: Path) -> Path:
@@ -1631,7 +1633,7 @@ def test_deploy_says_once_why_gh_s_sign_in_was_not_started_where_the_claude_sign
     said = [
         (host, result["msg"])
         for name, host, result in _results(report)
-        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+        if name == HELD_SAID and not result.get("skipped")
     ]
     line = (
         "skipped: GitHub's sign-in was not started, since its Claude sign-in was skipped:"
@@ -1664,7 +1666,7 @@ def test_with_no_terminal_asking_first_asks_nothing_and_starts_no_flow_it_would_
     said = {
         host: result["msg"]
         for name, host, result in _results(report)
-        if name == "Say why GitHub's sign-in was not started" and not result.get("skipped")
+        if name == HELD_SAID and not result.get("skipped")
     }
     assert said == {
         "typed": NO_TERMINAL.format("typed"),

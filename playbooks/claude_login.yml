@@ -31,30 +31,15 @@
       ignore_unreachable: true
       register: claude_vm_reach
 
-    # The command that retries it ends the line, with no full stop after it:
-    # one would be pasted along with it.
-    - name: Remember that the VM could not be reached
+    # Said, and kept for NEXT STEPS under the sign-in's own matter, which a
+    # later record of the VM would replace.
+    - name: Remember, say and record that the VM could not be reached
+      ansible.builtin.import_tasks: tasks/sign_in_failed.yml
       vars:
-        claude_vm_failed_why: "{{ claude_vm_reach.msg | default('no answer', true) | one_line(none) }}"
-      ansible.builtin.set_fact:
-        claude_vm_claude_login_failure: >-
+        claude_vm_sign_in: claude
+        claude_vm_sign_in_why: >-
           {{ inventory_hostname }} could not be reached, so it was not signed in:
-          {{ claude_vm_failed_why | retry_line('just login ' ~ inventory_hostname ~ ' --only claude') }}
-      when: claude_vm_reach is unreachable
-
-    - name: Say which VM could not be reached
-      ansible.builtin.debug:
-        msg: "{{ claude_vm_claude_login_failure }}"
-      when: claude_vm_reach is unreachable
-
-    # NEXT STEPS (callback_plugins/claude_on_proxmox.py): the line above, under
-    # the sign-in's own matter, which a later record of the VM would replace.
-    - name: Keep what is left to do for the end of the run
-      ansible.builtin.set_stats:
-        data:
-          claude_code_next: "{{ {inventory_hostname: {'claude': claude_vm_claude_login_failure}} }}"
-        aggregate: true
-        per_host: false
+          {{ claude_vm_reach.msg | default('no answer', true) | one_line(none) }}
       when: claude_vm_reach is unreachable
 
 # One VM at a time when a sign-in can prompt, since the prompt reads one
@@ -65,11 +50,12 @@
 - name: Sign Claude Code in, or say how each VM is signed in
   hosts: claude_vms
   gather_facts: false
+  # Names given (claude_vm_login_named): a rule the sign-in plays share.
+  vars_files:
+    - vars/sign_in.yml
   vars:
     # Names given (any number), or just deploy: sign in. Bare: report.
-    claude_vm_login_prompts: >-
-      {{ claude_vm_login_interactive
-         | default((vm_name | default('', true) | split(',') | map('trim') | select | list | length) > 0) }}
+    claude_vm_login_prompts: "{{ claude_vm_login_interactive | default(claude_vm_login_named) }}"
   serial: "{{ 1 if claude_vm_login_prompts | bool else '100%' }}"
 
   tasks:
@@ -97,29 +83,14 @@
             msg: "{{ ansible_failed_result.msg }}"
           when: ansible_failed_result.msg | default('') is search('user requested abort')
 
-        # The role's own failures name the command that retries them; any
-        # other gets it added, so the line NEXT STEPS keeps names it too.
-        - name: Remember why this VM's sign-in failed
+        # Said with the command that retries it, and kept for NEXT STEPS in
+        # place of whatever an earlier report of the run left for this VM's
+        # sign-in.
+        - name: Remember, say and record why the sign-in failed
+          ansible.builtin.import_tasks: tasks/sign_in_failed.yml
           vars:
-            claude_vm_failed_why: "{{ ansible_failed_result.msg | default('the sign-in failed', true) | string | trim }}"
-            claude_vm_retry: just login {{ inventory_hostname }} --only claude
-          ansible.builtin.set_fact:
-            claude_vm_claude_login_failure: >-
-              {{ claude_vm_failed_why if claude_vm_retry in claude_vm_failed_why
-                 else claude_vm_failed_why | retry_line(claude_vm_retry) }}
-
-        - name: Say why, and go on with the next VM
-          ansible.builtin.debug:
-            msg: "{{ claude_vm_claude_login_failure }}"
-
-        # NEXT STEPS: the line above, which replaces whatever an earlier report
-        # of the run left for this VM's sign-in.
-        - name: Keep what is left to do for the end of the run
-          ansible.builtin.set_stats:
-            data:
-              claude_code_next: "{{ {inventory_hostname: {'claude': claude_vm_claude_login_failure}} }}"
-            aggregate: true
-            per_host: false
+            claude_vm_sign_in: claude
+            claude_vm_sign_in_why: "{{ ansible_failed_result.msg | default('the sign-in failed', true) | string | trim }}"
 
 # What a sign-in leads to, for every VM signed in just now, after the last
 # prompt: Remote Control's start and its stay-up check. A failure here is not

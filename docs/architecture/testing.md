@@ -39,7 +39,7 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
-pytest over `tests/unit/`: 2969 tests. By file:
+pytest over `tests/unit/`: 2961 tests. By file:
 
 - **The package** (`test_claude_vm.py` 70): `lib/` holds `claude_vm` alone; every core module imports in a fresh
   `python -I` of its own without loading `ansible`, `yaml`, `asyncio` or `subprocess` (`proc.py` alone loads
@@ -220,7 +220,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   and a pytest run with `interrupts.py`'s conftest sent SIGTERM and SIGHUP to its whole group mid-task - one
   process, and a controller with two xdist workers each holding a playbook - ending as interrupted with every
   playbook and its task's worker gone.
-- **`github_repos`** (`test_github_repos.py` 38) and the **tracked-file guard** (`test_tracked_files.py`
+- **`github_repos`** (`test_github_repos.py` 34) and the **tracked-file guard** (`test_tracked_files.py`
   98), both ways.
 - **The CI gate** (`test_ci.py` 25): `CI result` needs every job of `ci.yml` but the canary, runs `if:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
@@ -260,18 +260,19 @@ pytest over `tests/unit/`: 2969 tests. By file:
   every canned token; and two device flows with the desktop steps on, against recorders of the test's own
   first on PATH, opening GitHub's own page whether gh named it or another, which is said and never shown,
   nor quoted where a failure quotes gh's own lines - gh's status page among them.
-- **The sign-in playbooks** (`test_sign_in_plays.py` 37): `claude_login.yml`, `github_login.yml` and
+- **The sign-in playbooks** (`test_sign_in_plays.py` 33): `claude_login.yml`, `github_login.yml` and
   `deploy.yml`'s own sign-in steps end to end - a VM whose ssh refuses the connection among VMs that
   sign in (for `claude_login.yml` alone, in `test_claude_login.py`'s run), a failed sign-in said in its
   turn, a failure after a sign-in (Remote Control's start, a clone) told apart from a failed one and
   raised at the end of `just deploy`, deploy with no terminal - GitHub's device flow started by itself for
   each VM whose Claude code was entered, refused or not, and for none whose sign-in nobody answered - a
   refused code and `deploy_sign_in: false`, and one VM per batch only where a sign-in prompts; and
-  `login.yml` - `just login` - running the three in deploy's order and by its rules, held to deploy.yml's
-  own decisions: no device flow for a VM whose Claude sign-in nobody answered, said once for it and in
-  no report, nor, with no terminal, for one a code signed in that `github_login_auto_start: false` would
-  have asked about, a VM whose code was refused or whose Remote Control failed to start still given its GitHub
-  and Tailscale turns and failed at the end, and a report without names; and NEXT STEPS holding each
+  `login.yml` - `just login` - running the three in deploy's order and by its rules, the ones its sign-in
+  plays read from `playbooks/vars/sign_in.yml` under deploy too: no device flow for a VM whose Claude
+  sign-in nobody answered, said once for it and in no report, nor, with no terminal, for one a code signed
+  in that `github_login_auto_start: false` would have asked about, a VM whose code was refused or whose
+  Remote Control failed to start still given its GitHub and Tailscale turns and failed at the end, and a
+  report without names; and NEXT STEPS holding each
   failed sign-in, unreachable VM and failure after a sign-in, with the command that retries it.
 - **Tailscale** (`test_tailscale.py` 94): the role's files from `ownership.yml` on, and
   `tailscale_login.yml` whole, against the stand-in `tailscale`, with stand-ins for `dpkg-query` and

@@ -205,7 +205,9 @@
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool
 
-# VM by VM, since this flow waits up to fifteen minutes for a browser. With
+# VM by VM, since this flow waits up to fifteen minutes for a browser, and
+# after Claude's (claude_vm_login_after_claude): the sign-in play decides each
+# VM from what Claude's left there (playbooks/vars/sign_in.yml). With
 # github_login_auto_start, the default, it starts by itself for every VM but
 # one whose Claude sign-in was skipped, which nobody was there to answer. Off,
 # every VM but that one is asked first, as GitHub can then be left for later:
@@ -217,11 +219,7 @@
   ansible.builtin.import_playbook: playbooks/github_login.yml
   vars:
     claude_vm_discovery: false
-    claude_vm_login_interactive: >-
-      {{ not (claude_code_login_skipped | default(false)) if github_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false) }}
-    claude_vm_login_ask: >-
-      {{ not (github_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false)) }}
+    claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool
 
@@ -234,11 +232,7 @@
   ansible.builtin.import_playbook: playbooks/tailscale_login.yml
   vars:
     claude_vm_discovery: false
-    claude_vm_login_interactive: >-
-      {{ not (claude_code_login_skipped | default(false)) if tailscale_login_auto_start | default(true) | bool
-         else claude_code_login_answered | default(false) }}
-    claude_vm_login_ask: >-
-      {{ not (tailscale_login_auto_start | default(true) | bool) and not (claude_code_login_skipped | default(false)) }}
+    claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
   when: deploy_sign_in | bool and tailscale_enabled | default(true) | bool
 

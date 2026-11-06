@@ -498,14 +498,16 @@ stopped is not in `claude_vms`, and a host that failed a role has been dropped f
 it. `claude_login.yml` and `github_login.yml` are imported with discovery off,
 `claude_vm_login_in_deploy` (a failed sign-in is said, not raised, so deploy goes on) and
 `when: deploy_sign_in | bool`. The Claude one is interactive (`claude_vm_login_interactive: true`); the
-GitHub one decides VM by VM, from what the Claude step left on each VM
-([§5.5](roles.md#55-claude_code--install-claude-code)): a VM whose Claude sign-in
-nobody answered (`claude_code_login_skipped` - Enter at the prompt, or a browser that never came back) is
-left, and told so where the flow would have run (`github_projects_login_due`), with `just login <vm>
---only github`, the line NEXT STEPS keeps. With `github_login_auto_start` (the default) every other VM starts at once; off, each is asked
-first (`claude_vm_login_ask`, the role's `github_projects_login_ask`): Enter signs in one whose Claude
-sign-in was answered, `y` one that showed none (signed in already, or an API key). `tailscale_login.yml`
-follows the same way with `tailscale_login_auto_start`, and `when: deploy_sign_in | bool and
+GitHub one is imported with `claude_vm_login_after_claude`, and its play decides VM by VM, from what the
+Claude step left on each VM ([§5.5](roles.md#55-claude_code--install-claude-code)), by the rule the
+sign-in plays share (`claude_vm_login_starts` and `claude_vm_login_asks` in `playbooks/vars/sign_in.yml`):
+a VM whose Claude sign-in nobody answered (`claude_code_login_skipped` - Enter at the prompt, or a
+browser that never came back) is left, and told so where the flow would have run
+(`github_projects_login_due`), with `just login <vm> --only github`, the line NEXT STEPS keeps. With
+`github_login_auto_start` (the default) every other VM starts at once; off, each is asked first (the role's
+`github_projects_login_ask`): Enter signs in one whose Claude sign-in was answered, `y` one that showed
+none (signed in already, or an API key). `tailscale_login.yml` follows the same way, by the same rule,
+with `tailscale_login_auto_start`, and `when: deploy_sign_in | bool and
 tailscale_enabled | default(true) | bool` (§4.10): a VM an auth key joined during configuration is only
 reported. A run with no terminal gets `deploy_sign_in: false` from the justfile's `no_tty_args`: sign-ins
 that start by themselves would otherwise each wait for a browser nobody watches. It gets
@@ -928,7 +930,11 @@ reach play (every VM at once, `ignore_unreachable`, an unreachable one recorded 
 play, `serial: 1` when names are given or under deploy and the fleet at once for a bare report, its
 `block` including the role's `login` entry point with the condition on the include task and a `rescue`
 that re-raises `pause`'s abort and records the failure; and a last play failing those VMs, which deploy
-skips. The role decides everything ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)): a VM
+skips. The three sign-in playbooks share what they do with a VM not signed in: `tasks/sign_in_failed.yml`
+remembers, says and records one the reach play could not reach or the rescue caught, in the sign-in's own
+fact (`claude_vm_tailscale_login_failure` here) and under its own stat, both named from the sign-in's word,
+and `tasks/sign_in_held.yml` says GitHub's or Tailscale's sign-in held back - only their plays are each
+playbook's. The role decides everything ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)): a VM
 with Tailscale off, not installed, or installed by hand gets one line and nothing else, a VM signed in already is reported, and only one this role installed that
 is waiting in `NeedsLogin` is asked (under deploy) and signed in by the web login.
 
@@ -939,8 +945,10 @@ is waiting in `NeedsLogin` is asked (under deploy) and signed in by the web logi
 them. As under deploy, a VM goes on to its next sign-in after one that failed, or after the work it leads
 to failing (Remote Control's start): each playbook's last play leaves what failed
 (`claude_vm_login_raised_later`), and `login.yml`'s own last play fails each such VM once all three have
-had their turn, with every message. Between them it passes what deploy passes (§4.7), but only where names were given
-(`claude_vm_login_named`, the play var both later sign-in plays keep): GitHub and Tailscale start by
+had their turn, with every message. GitHub's and Tailscale's are imported with
+`claude_vm_login_after_claude`, as deploy imports them (§4.7), so their plays decide each VM by the rule
+deploy's do - `playbooks/vars/sign_in.yml`, their `vars_files`, with the other rules they share - but only
+where names were given (`claude_vm_login_named`): GitHub and Tailscale start by
 themselves for a VM whose Claude sign-in was answered, are asked about first with
 `github_login_auto_start` or `tailscale_login_auto_start` off - with no terminal to ask at, neither
 asked nor started (§4.7), since a scripted `just login` given `claude_code_login_code` would otherwise

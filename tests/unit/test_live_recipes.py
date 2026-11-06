@@ -66,15 +66,35 @@ def _drawn(name):
     return FILE_PREFIX.sub("", name)
 
 
-def _set_facts(items):
-    """Every fact the set_fact tasks among items set."""
+# A set_fact key templated from its task file's input, as tasks/sign_in_failed.yml's claude_vm_{{ claude_vm_sign_in
+# }}_login_failure: the fact is one of the keys the values the imports pass that input make.
+TEMPLATED_KEY = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def _passed(name):
+    """Every literal value an import passes the task file's input `name` in its vars."""
     return {
-        fact
-        for item in items
-        for action in SET_FACT & set(item)
-        if isinstance(item[action], dict)
-        for fact in item[action]
+        item["vars"][name]
+        for _, item in TASKS
+        if IMPORTS & set(item)
+        and isinstance(item.get("vars"), dict)
+        and isinstance(item["vars"].get(name), str)
+        and "{{" not in item["vars"][name]
     }
+
+
+def _set_facts(items):
+    """Every fact the set_fact tasks among items set, a templated key once for each value its input is passed. A
+    templated key that no import passes a value for stays as it is written, so no declared fact can match it."""
+    facts = set()
+    for item in items:
+        for action in SET_FACT & set(item):
+            if isinstance(item[action], dict):
+                for key in item[action]:
+                    found = TEMPLATED_KEY.search(key)
+                    values = _passed(found[1]) if found else set()
+                    facts |= {TEMPLATED_KEY.sub(value, key, count=1) for value in values} if values else {key}
+    return facts
 
 
 def _playbook(name):
