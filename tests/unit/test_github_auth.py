@@ -78,6 +78,7 @@ from harness import (
     STAND_INS,
     _desktop,
     _failures,
+    _leaked,
     _left_to_do,
     _messages,
     _results,
@@ -1573,11 +1574,7 @@ def test_no_token_ever_reaches_the_output(request, fixture):
     reports = _reports(request.getfixturevalue(fixture))
     assert reports, fixture
     for report in reports:
-        text = json.dumps(report)
-        # The search sees module arguments only with invocation injected.
-        assert '"invocation"' in text, fixture
-        for token in CANNED:
-            assert token not in text, (fixture, token)
+        assert _leaked(report, CANNED) == [], fixture
 
 
 def _scenario_vars(paths: list[Path]) -> dict:

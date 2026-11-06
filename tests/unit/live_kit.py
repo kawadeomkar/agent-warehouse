@@ -19,6 +19,7 @@ import os
 import re
 import struct
 import subprocess
+import sys
 import termios
 import time
 from pathlib import Path
@@ -37,6 +38,37 @@ stdout_callback = claude_on_proxmox
 callback_plugins = {REPO / "callback_plugins"}
 callbacks_enabled = ansible.posix.profile_tasks
 """
+
+
+# A recipe in parts, as the justfile writes one: tools/live, the stamp its log and state take, and the recipe's own
+# end and trap at the top of the script.
+LIVE = REPO / "tools" / "live"
+STAMP = "20261026-131050"
+
+
+def justfiles_trap(recipe: str = "lint") -> str:
+    """The recipe's end and trap, as the justfile writes them: its {{ live }} the stand-in recipe's live."""
+    lines = [line.strip() for line in (REPO / "justfile").read_text().splitlines()]
+    start = lines.index(next(line for line in lines if line.startswith(f"{recipe} ")))
+    end = next(line for line in lines[start:] if line.startswith("live_end() {"))
+    trap = next(line for line in lines[start:] if line.startswith("trap ") and "live_end" in line)
+    assert "{{ live }}" in end, end
+    return end.replace("{{ live }}", "live") + "\n" + trap
+
+
+def recipe_in_parts(root: Path, parts: list[str], title: str = "lint", **settings: str) -> tuple[list[str], dict, Path]:
+    """A stand-in recipe in parts: the justfile's trap of the recipe the title names, then each of parts, as lines of
+    one bash script. Its argv, its environment, and where its run keeps its state."""
+    recipe = title.split()[0]
+    script, logs = root / "recipe.sh", root / "logs"
+    script.write_text(
+        "#!/bin/bash\nset -eu\n"
+        f'live() {{ "{sys.executable}" "{LIVE}" --log-dir="{logs}" --stamp={STAMP} '
+        '--ansible-args="${ARGS:-}" "$@"; }\n' + justfiles_trap(recipe) + "\n" + "\n".join(parts) + "\n"
+    )
+    script.chmod(0o755)
+    state = root / "live" / f"{STAMP}-{recipe}.json"
+    return [str(script)], environment(root, title, CLAUDE_ON_PROXMOX_LIVE_STATE=str(state), **settings), state
 
 
 def collections_path() -> str:

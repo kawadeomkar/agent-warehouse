@@ -86,6 +86,7 @@ from harness import (
     _env,
     _failures,
     _inventory,
+    _leaked,
     _left_to_do,
     _messages,
     _results,
@@ -179,6 +180,8 @@ def _hosts(root: Path, cases: dict) -> dict:
             "claude_code_login_desktop": False,
             "claude_code_remote_control": False,
             "claude_code_login_timeout": case.get("timeout", TIMEOUT),
+            # Every module's arguments in the report, so that a search of it for a code or a secret means something.
+            "ansible_inject_invocation": True,
             # The async job's directory, under the host's HOME: async_status
             # resolves "~" through the connection's shell, which here is the
             # developer's real home (see test_github_auth.py).
@@ -477,11 +480,7 @@ def test_vms_are_signed_in_one_after_another(signed):
 
 def test_no_code_and_no_secret_reach_the_output(signed):
     _, report = signed
-    text = json.dumps(report)
-    for code in CODES.values():
-        assert code not in text
-    assert CREDENTIALS not in text
-    assert API_KEY not in text
+    assert _leaked(report, [*CODES.values(), CREDENTIALS, API_KEY]) == []
 
 
 def test_the_desktop_steps_never_run_in_a_test(signed):

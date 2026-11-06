@@ -611,7 +611,6 @@ def test_no_other_test_or_scenario_draws_a_run():
         "tests/unit/live_kit.py",
         "tests/unit/live_pytest.py",
         "tests/unit/test_deploy_live.py",
-        "tests/unit/test_init_live.py",
         "tests/unit/test_justfile.py",
         "tests/unit/test_live_commands.py",
         "tests/unit/test_login_live.py",

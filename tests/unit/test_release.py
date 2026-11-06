@@ -52,6 +52,7 @@ from harness import (
     STAND_INS,
     _certificate,
     _failures,
+    _leaked,
     _left_to_do,
     _messages,
     _pve,
@@ -623,7 +624,7 @@ def test_with_the_save_off_the_sessions_go_with_the_vm_and_it_is_said(released):
 
 def test_no_transcript_reaches_the_output(released):
     _, report, _, _ = released
-    assert MARKER not in json.dumps(report)
+    assert _leaked(report, [MARKER]) == []
 
 
 # What a VM deleted unreleased leaves to remove by hand, after the reason it was not released.
@@ -707,8 +708,7 @@ def test_next_steps_keep_each_vm_with_something_left_to_do_and_nothing_for_one_r
 
 def test_no_token_key_or_secret_reaches_the_output(released):
     _, report, _, _ = released
-    text = json.dumps(report)
-    assert [secret for secret in SECRETS if secret in text] == []
+    assert _leaked(report, SECRETS) == []
 
 
 @pytest.fixture(scope="module")

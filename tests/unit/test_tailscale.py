@@ -62,6 +62,7 @@ from harness import (
     _certificate,
     _env,
     _failures,
+    _leaked,
     _left_to_do,
     _messages,
     _pve,
@@ -660,9 +661,7 @@ def test_every_report_is_one_line_of_plain_text(configured):
 def test_no_key_reaches_a_report_an_argument_or_a_file(configured):
     root, first, first_calls, second = configured
     for report in (first, second):
-        text = json.dumps(report)
-        for key in KEYS.values():
-            assert key not in text
+        assert _leaked(report, KEYS.values()) == []
     for host in CASES:
         assert not any("tskey" in call for call in _calls(root, host)), host
     # Only the inventory itself, which hands each host its key, holds one.

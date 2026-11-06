@@ -2290,29 +2290,6 @@ def test_every_task_that_reads_a_transcript_is_no_log():
             assert task.get("no_log") is True, task["name"]
 
 
-def test_the_provision_scenario_never_reads_the_developer_s_vscode_settings():
-    # Every code.yml run in the scenario passes verify_code_vars, which pins
-    # vscode_user_settings_file into the ephemeral directory; a refusal case
-    # that builds its own base must pin it too. What just code says depends
-    # on that file, so a run that fell through to the developer's own would
-    # pass or fail by the machine it runs on.
-    plays = yaml.safe_load(PROVISION_VERIFY.read_text())
-    play = next(p for p in plays if "verify_code_vars" in (p.get("vars") or {}))
-    pinned = play["vars"]["verify_code_vars"]["vscode_user_settings_file"]
-    assert "MOLECULE_EPHEMERAL_DIRECTORY" in pinned
-    runs = [t for t in _tasks(play["tasks"]) if "verify_code_playbook" in str(t.get("ansible.builtin.command", ""))]
-    assert len(runs) >= 6
-    for task in runs:
-        # On the command line, or on the stdin of the task that runs the refusals.
-        assert "verify_code_vars" in str(task["ansible.builtin.command"]), task["name"]
-    # The refusal cases, set on a task or on the block around them.
-    cases = [case for item in _with_vars(play["tasks"]) for case in item["vars"].get("verify_code_cases", [])]
-    assert len(cases) >= 12, cases
-    for case in cases:
-        if "base" in case:
-            assert "vscode_user_settings_file" in case["base"], case
-
-
 def _with_vars(items):
     """Every task and block with vars of its own, blocks' sections included."""
     for item in items:
@@ -2340,17 +2317,34 @@ def test_no_window_run_reads_or_writes_the_developer_s_claude_code(tmp_path):
     assert '"HOME": str(tmp_path)' in source and '"CLAUDE_CONFIG_DIR": str(config)' in source
 
 
-def test_the_provision_scenario_never_reads_or_writes_the_developer_s_claude_code():
-    # The scenario runs code.yml with this machine as the VM: both ends would be the developer's own.
+# What the provision scenario pins into its ephemeral directory on every run of code.yml: the VS Code settings file,
+# on which what just code says depends, and both ends of the session handoff, since the VM is this machine there.
+PINNED = {
+    "vscode settings": ("vscode_user_settings_file",),
+    "claude code": ("code_session_source_dir", "code_session_dest_dir"),
+}
+
+
+@pytest.mark.parametrize("keys", PINNED.values(), ids=PINNED.keys())
+def test_the_provision_scenario_never_reads_or_writes_the_developer_s_own(keys):
+    # Every code.yml run passes verify_code_vars, which pins them; a refusal case that builds its own base pins them
+    # too; and every deploy.yml run, which ends with code.yml, has them on its command line.
     plays = yaml.safe_load(PROVISION_VERIFY.read_text())
     play = next(p for p in plays if "verify_code_vars" in (p.get("vars") or {}))
-    for key in ("code_session_source_dir", "code_session_dest_dir"):
+    for key in keys:
         assert "MOLECULE_EPHEMERAL_DIRECTORY" in play["vars"]["verify_code_vars"][key], key
     runs = [t for t in _tasks(play["tasks"]) if "verify_code_playbook" in str(t.get("ansible.builtin.command", ""))]
+    assert len(runs) >= 6
     for task in runs:
-        for case in (task.get("vars") or {}).get("verify_code_cases", []):
-            if "base" in case:
-                assert {"code_session_source_dir", "code_session_dest_dir"} <= set(case["base"]), case
+        # On the command line, or on the stdin of the task that runs the refusals.
+        assert "verify_code_vars" in str(task["ansible.builtin.command"]), task["name"]
+    # The refusal cases sit on the block around the task that runs them, which a walk of the tasks never yields.
+    cases = [case for item in _with_vars(play["tasks"]) for case in item["vars"].get("verify_code_cases", [])]
+    assert len(cases) >= 12, cases
+    for case in cases:
+        if "base" in case:
+            assert set(keys) <= set(case["base"]), case
+    # The run that refuses to clone on another node stops long before code.yml.
     deploys = [
         task
         for each in plays
@@ -2360,26 +2354,7 @@ def test_the_provision_scenario_never_reads_or_writes_the_developer_s_claude_cod
     assert deploys
     for task in deploys:
         argv = str(task["ansible.builtin.command"]["argv"])
-        assert "code_session_source_dir" in argv and "code_session_dest_dir" in argv, task["name"]
-
-
-def test_the_provision_scenario_s_deploy_runs_never_read_the_developer_s_vscode_settings_either():
-    # just deploy ends with code.yml, so every deploy.yml run there pins the
-    # file too, though none of them gets as far as reading it.
-    plays = yaml.safe_load(PROVISION_VERIFY.read_text())
-    runs = [
-        task
-        for play in plays
-        for task in _tasks(play.get("tasks") or [])
-        if "deploy.yml" in str(task.get("ansible.builtin.command", ""))
-    ]
-    assert runs
-    for task in runs:
-        argv = str(task["ansible.builtin.command"]["argv"])
-        # The run that refuses to clone on another node stops long before code.yml.
-        if "pve2" in argv:
-            continue
-        assert "vscode_user_settings_file" in argv and "MOLECULE_EPHEMERAL_DIRECTORY" in argv, task["name"]
+        assert all(key in argv for key in keys) and "MOLECULE_EPHEMERAL_DIRECTORY" in argv, task["name"]
 
 
 # ---------------------------------------------------------------- the session notes in the window ---

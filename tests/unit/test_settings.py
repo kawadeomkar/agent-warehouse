@@ -123,8 +123,11 @@ def scenarios(tmp_path_factory) -> dict[str, Path]:
 
 
 def _run(
-    scenarios: dict, inventory: str | Path, *args: str, password: bool | str = True
+    scenarios: dict, inventory: str | Path, *args: str, password: bool | str | Path = True
 ) -> subprocess.CompletedProcess:
+    """The tool on an inventory of the scenarios, its vault opened with the scenarios' password file (password True),
+    the one `password` names (a path), the one ANSIBLE_VAULT_PASSWORD_FILE names ("env"), or none (False); a fake
+    secret in what it printed fails the run."""
     root = scenarios["root"]
     env = {
         "PATH": os.environ["PATH"],
@@ -136,6 +139,8 @@ def _run(
     given = []
     if password == "env":
         env["ANSIBLE_VAULT_PASSWORD_FILE"] = str(root / "pw")
+    elif isinstance(password, Path):
+        given = ["--vault-password-file", str(password)]
     elif password:
         given = ["--vault-password-file", str(root / "pw")]
     result = subprocess.run(
@@ -283,28 +288,7 @@ def test_a_vault_with_no_password_is_refused_printing_nothing(scenarios) -> None
 def test_a_wrong_password_is_said(scenarios, tmp_path) -> None:
     wrong = tmp_path / "wrong"
     wrong.write_text("not-the-password\n")
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(TOOL),
-            "--inventory",
-            str(scenarios["base"]),
-            "--vault-password-file",
-            str(wrong),
-            "--",
-            "tailscale",
-        ],
-        cwd=REPO,
-        env={
-            "PATH": os.environ["PATH"],
-            "HOME": str(scenarios["root"] / "home"),
-            "ANSIBLE_COLLECTIONS_PATH": _collections(),
-            **QUIET,
-        },
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = _run(scenarios, "base", "--", "tailscale", password=wrong)
     assert result.returncode == 1 and result.stdout == ""
     assert f"vault.yml could not be opened with {wrong}" in result.stderr
 

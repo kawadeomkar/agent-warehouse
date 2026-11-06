@@ -306,11 +306,9 @@ github_projects_login_command: just login {{ inventory_hostname }} --only github
 github_projects_configure_command: just deploy {{ inventory_hostname }} --tags github_projects
 
 # --- releasing the VM before it is destroyed (release.yml) ---
-# The token gh held, read under no_log; '' when it held none. Every task that
-# renders it is no_log.
-github_projects_release_token: >-
-  {{ github_projects_release_token_raw.stdout | default('') | trim
-     if (github_projects_release_token_raw.rc | default(1)) == 0 else '' }}
+# release.yml reads the token gh held into github_projects_stored_token, as
+# auth_status.yml does, but whether gh can reach GitHub or not: a release signs
+# out offline too.
 github_projects_device_marker_digest: >-
   {{ (github_projects_device_marker_raw.content | b64decode | trim)
      if github_projects_device_marker_raw.content is defined else '' }}
@@ -318,9 +316,9 @@ github_projects_device_marker_digest: >-
 # VM writes the marker, so the vault token, every VM's, is never taken for it
 # whatever the marker says.
 github_projects_release_ours: >-
-  {{ github_projects_release_token | length > 0 and github_projects_device_marker_digest | length > 0
-     and github_projects_device_marker_digest == github_projects_release_token | hash('sha256')
-     and github_projects_release_token != github_projects_token }}
+  {{ github_projects_stored_token | length > 0 and github_projects_device_marker_digest | length > 0
+     and github_projects_device_marker_digest == github_projects_stored_token | hash('sha256')
+     and github_projects_stored_token != github_projects_token }}
 # Whether `gh auth logout` ended the login, said as the summary below says it:
 # a logout gh refused - two accounts, say, where it asks which - is named.
 github_projects_release_signed_out: >-
@@ -332,17 +330,17 @@ github_projects_release_signed_out: >-
 # A token the summary says stays valid until the user revokes it - any but the
 # vault's, which is every VM's: something left to do, for destroy's NEXT STEPS.
 github_projects_release_unrevoked: >-
-  {{ github_projects_release_token | length > 0
+  {{ github_projects_stored_token | length > 0
      and (github_projects_release_ours | bool
-          or not (github_projects_token | length > 0 and github_projects_release_token == github_projects_token)) }}
+          or not (github_projects_token | length > 0 and github_projects_stored_token == github_projects_token)) }}
 github_projects_release_summary: >-
-  {{ '' if github_projects_release_token | length == 0
+  {{ '' if github_projects_stored_token | length == 0
      else (github_projects_release_signed_out ~ '; the token this project signed it in with stays valid until revoked at'
            ~ ' https://github.com/settings/applications, under GitHub CLI - which signs out every gh you have, so'
            ~ ' destroy does not')
      if github_projects_release_ours | bool
      else (github_projects_release_signed_out ~ " (vault_github_token is every VM's, so it is not revoked)")
-     if github_projects_token | length > 0 and github_projects_release_token == github_projects_token
+     if github_projects_token | length > 0 and github_projects_stored_token == github_projects_token
      else (github_projects_release_signed_out ~ '; its token is not one this project recorded making (a sign-in by'
            ~ ' hand, or one before this version), and stays valid until revoked - at https://github.com/settings/tokens'
            ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,'

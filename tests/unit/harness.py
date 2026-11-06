@@ -580,6 +580,14 @@ def _failures(report: dict) -> dict:
     return {host: f"{name}: {result.get('msg')}" for name, host, result in _results(report) if result.get("failed")}
 
 
+def _leaked(report: dict, secrets) -> list:
+    """Each of `secrets` the report holds. Module arguments reach a report only with ansible_inject_invocation on,
+    and a search of a run without them would find nothing whatever its tasks logged: the report must hold them."""
+    text = json.dumps(report)
+    assert '"invocation"' in text, "no module arguments in the report: run it with ansible_inject_invocation"
+    return [secret for secret in secrets if secret in text]
+
+
 # ------------------------------------------------------------ the fake APIs ---
 # The fakes in tests/molecule/ on a loopback port of their own, for the tests
 # that run a playbook against one: the fake Proxmox is TLS, with a certificate

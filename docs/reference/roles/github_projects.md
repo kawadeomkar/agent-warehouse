@@ -70,7 +70,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 57 of the 63 are computed during a run, from earlier tasks' results.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 56 of the 62 are computed during a run, from earlier tasks' results.
 
 | Name | Value |
 |---|---|
@@ -130,12 +130,11 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_git_identity_wanted` | <code>{{ {'user.name': github_projects_git_user_name if github_projects_git_user_name &#124; length > 0 else '' if 'user.name' in github_projects_git_identity_set else github_projects_git_name, 'user.email': github_projects_git_user_email if github_projects_git_user_email &#124; length > 0 else '' if 'user.email' in github_projects_git_identity_set else github_projects_git_email} &#124; dict2items &#124; selectattr('value') &#124; items2dict }}</code> |
 | `github_projects_login_command` | `just login {{ inventory_hostname }} --only github` |
 | `github_projects_configure_command` | `just deploy {{ inventory_hostname }} --tags github_projects` |
-| `github_projects_release_token` | <code>{{ github_projects_release_token_raw.stdout &#124; default('') &#124; trim if (github_projects_release_token_raw.rc &#124; default(1)) == 0 else '' }}</code> |
 | `github_projects_device_marker_digest` | <code>{{ (github_projects_device_marker_raw.content &#124; b64decode &#124; trim) if github_projects_device_marker_raw.content is defined else '' }}</code> |
-| `github_projects_release_ours` | <code>{{ github_projects_release_token &#124; length > 0 and github_projects_device_marker_digest &#124; length > 0 and github_projects_device_marker_digest == github_projects_release_token &#124; hash('sha256') and github_projects_release_token != github_projects_token }}</code> |
+| `github_projects_release_ours` | <code>{{ github_projects_stored_token &#124; length > 0 and github_projects_device_marker_digest &#124; length > 0 and github_projects_device_marker_digest == github_projects_stored_token &#124; hash('sha256') and github_projects_stored_token != github_projects_token }}</code> |
 | `github_projects_release_signed_out` | <code>{{ 'gh signed out' if (github_projects_release_logout.rc &#124; default(1)) == 0 else ('gh could not sign out (' ~ ((github_projects_release_logout.stderr &#124; default('') &#124; plain_text &#124; regex_replace('\s+', ' ') &#124; trim) or 'no reason given') ~ ')') }}</code> |
-| `github_projects_release_unrevoked` | <code>{{ github_projects_release_token &#124; length > 0 and (github_projects_release_ours &#124; bool or not (github_projects_token &#124; length > 0 and github_projects_release_token == github_projects_token)) }}</code> |
-| `github_projects_release_summary` | <code>{{ '' if github_projects_release_token &#124; length == 0 else (github_projects_release_signed_out ~ '; the token this project signed it in with stays valid until revoked at' ~ ' https://github.com/settings/applications, under GitHub CLI - which signs out every gh you have, so' ~ ' destroy does not') if github_projects_release_ours &#124; bool else (github_projects_release_signed_out ~ " (vault_github_token is every VM's, so it is not revoked)") if github_projects_token &#124; length > 0 and github_projects_release_token == github_projects_token else (github_projects_release_signed_out ~ '; its token is not one this project recorded making (a sign-in by' ~ ' hand, or one before this version), and stays valid until revoked - at https://github.com/settings/tokens' ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,' ~ ' which signs out every gh you have') }}</code> |
+| `github_projects_release_unrevoked` | <code>{{ github_projects_stored_token &#124; length > 0 and (github_projects_release_ours &#124; bool or not (github_projects_token &#124; length > 0 and github_projects_stored_token == github_projects_token)) }}</code> |
+| `github_projects_release_summary` | <code>{{ '' if github_projects_stored_token &#124; length == 0 else (github_projects_release_signed_out ~ '; the token this project signed it in with stays valid until revoked at' ~ ' https://github.com/settings/applications, under GitHub CLI - which signs out every gh you have, so' ~ ' destroy does not') if github_projects_release_ours &#124; bool else (github_projects_release_signed_out ~ " (vault_github_token is every VM's, so it is not revoked)") if github_projects_token &#124; length > 0 and github_projects_stored_token == github_projects_token else (github_projects_release_signed_out ~ '; its token is not one this project recorded making (a sign-in by' ~ ' hand, or one before this version), and stays valid until revoked - at https://github.com/settings/tokens' ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,' ~ ' which signs out every gh you have') }}</code> |
 | `github_projects_login_left` | <code>{{ github_projects_gh_found &#124; bool and ((github_projects_auth_status.rc &#124; default(0) != 0 and github_projects_auth &#124; bool) or (github_projects_signed_in &#124; bool and github_projects_login_kind == 'oauth' and 'workflow' not in (github_projects_auth_account.scopes &#124; default(''))) or (not github_projects_signed_in &#124; bool and github_projects_auth &#124; bool and not (github_projects_token_wanted &#124; bool and github_projects_token_set &#124; bool and github_projects_login_role_follows &#124; bool))) }}</code> |
 
 ## Tasks
@@ -450,7 +449,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Look up home directory of {{ github_projects_user }} | `ansible.builtin.getent` | <code>github_projects_home &#124; length == 0</code> |
 | Read the token gh stored | `ansible.builtin.command` |  |
 | Read the marker of the login this role's device flow made | `ansible.builtin.slurp` |  |
-| Sign gh out | `ansible.builtin.command` | <code>github_projects_release_token &#124; length > 0</code> |
+| Sign gh out | `ansible.builtin.command` | <code>github_projects_stored_token &#124; length > 0</code> |
 | Record what became of the login | `ansible.builtin.set_fact` |  |
 
 ```mermaid
@@ -468,7 +467,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| release___Look_up_home_directory_of_github_projects_user0[release   look up home directory of github<br>projects user<br>When: **github projects home   length    0**]:::task
   release___Look_up_home_directory_of_github_projects_user0-->|Task| release___Read_the_token_gh_stored1[release   read the token gh stored]:::task
   release___Read_the_token_gh_stored1-->|Task| release___Read_the_marker_of_the_login_this_role_s_device_flow_made2[release   read the marker of the login this role s<br>device flow made]:::task
-  release___Read_the_marker_of_the_login_this_role_s_device_flow_made2-->|Task| release___Sign_gh_out3[release   sign gh out<br>When: **github projects release token   length   0**]:::task
+  release___Read_the_marker_of_the_login_this_role_s_device_flow_made2-->|Task| release___Sign_gh_out3[release   sign gh out<br>When: **github projects stored token   length   0**]:::task
   release___Sign_gh_out3-->|Task| release___Record_what_became_of_the_login4[release   record what became of the login]:::task
   release___Record_what_became_of_the_login4-->End
 ```

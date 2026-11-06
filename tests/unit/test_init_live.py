@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 
 import harness
 import live_kit as kit
@@ -20,15 +19,6 @@ import pytest
 import test_init_check as tic
 import test_init_settings as tis
 
-LIVE = harness.REPO / "tools" / "live"
-STAMP = "20261026-131050"
-RECIPE = """#!/bin/bash
-set -eu
-live_end() {{ "{python}" "{live}" --log-dir "{logs}" --stamp {stamp} end "$1"; }}
-trap 'live_end $?' EXIT
-"{playbook}" -i "{init_inventory}" -e '{settings}' "{settings_playbook}"
-"{playbook}" -i "{proxmox}" -e '{checks}' "{check_playbook}"
-"""
 # The questions, each typed once it has the terminal: a GitHub user, no Tailscale, the host, the token ID as it is,
 # the secret.
 ANSWERS = {
@@ -53,26 +43,14 @@ def _init(root, pve, check_settings=None):
     (root / "settings").mkdir()
     files = tis._files(root / "settings")
     paths, env = tic._inventory_of(root / "checks", pve, "ssh", check_settings, tic.VAULT_HEADER, "127.0.0.1")
-    state = root / "live" / f"{STAMP}-init.json"
-    script = root / "recipe.sh"
-    script.write_text(
-        RECIPE.format(
-            python=sys.executable,
-            live=LIVE,
-            logs=root / "logs",
-            stamp=STAMP,
-            playbook=kit.ANSIBLE_PLAYBOOK,
-            init_inventory=tis.INVENTORY,
-            settings=json.dumps(files | {"init_ask": True}),
-            settings_playbook=tis.PLAYBOOK,
-            proxmox=root / "checks" / "proxmox.yml",
-            checks=json.dumps(paths),
-            check_playbook=tic.PLAYBOOK,
-        )
-    )
-    script.chmod(0o755)
-    environment = kit.environment(root, "init", CLAUDE_ON_PROXMOX_LIVE_STATE=str(state), **env)
-    ran = kit.at_a_terminal([script], root, environment, prompts=ANSWERS, timeout=240)
+    # The recipe's two playbooks, each as it is: they join the run through the exported title and state.
+    settings, checks = json.dumps(files | {"init_ask": True}), json.dumps(paths)
+    parts = [
+        f'"{kit.ANSIBLE_PLAYBOOK}" -i "{tis.INVENTORY}" -e \'{settings}\' "{tis.PLAYBOOK}"',
+        f'"{kit.ANSIBLE_PLAYBOOK}" -i "{root / "checks" / "proxmox.yml"}" -e \'{checks}\' "{tic.PLAYBOOK}"',
+    ]
+    argv, environment, state = kit.recipe_in_parts(root, parts, "init", **env)
+    ran = kit.at_a_terminal(argv, root, environment, prompts=ANSWERS, timeout=240)
     ran.state = state
     return ran
 

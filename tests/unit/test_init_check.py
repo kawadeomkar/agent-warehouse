@@ -855,13 +855,14 @@ def test_every_uri_call_passes_the_ca_and_hides_the_token():
 
 
 def test_no_run_reaches_a_real_ssh():
-    # Every run goes through _check, which gives the Proxmox host the local
-    # connection or puts the refusing ssh first on PATH, and points the vault
-    # and the key directory into the test's own.
+    # Every run goes through _check or _check_at_a_terminal, which give the Proxmox host the local connection or
+    # put the refusing ssh first on PATH, and point the vault and the key directory into the test's own.
     tree = ast.parse(Path(__file__).read_text())
+    callers = set()
     for function in ast.walk(tree):
         if isinstance(function, ast.FunctionDef):
             for call in ast.walk(function):
-                if isinstance(call, ast.Call) and getattr(call.func, "id", None) == "_run":
-                    assert function.name == "_check", function.name
+                if isinstance(call, ast.Call) and getattr(call.func, "id", None) in {"_run", "_run_at_a_terminal"}:
+                    callers.add((call.func.id, function.name))
+    assert callers == {("_run", "_check"), ("_run_at_a_terminal", "_check_at_a_terminal")}, callers
     assert SSH_STAND_IN.rstrip().endswith("exit 255") and "ssh-calls.log" in SSH_STAND_IN
