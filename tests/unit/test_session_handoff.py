@@ -1,4 +1,5 @@
-"""The pieces of just code's session handoff: lib/claude_vm/sessions.py and the modules in playbooks/library/.
+"""The pieces of just code's session handoff: lib/claude_vm/sessions.py, the modules in playbooks/library/ and
+what they share, playbooks/module_utils/claude_on_proxmox.py.
 
 Which session goes to which checkout on the VM, what a copy is made of, and
 when an existing copy is left alone. Every transcript, ~/.claude and checkout
@@ -21,6 +22,7 @@ import time
 from pathlib import Path
 
 import pytest
+from ansible.module_utils import claude_on_proxmox as shared
 from conftest import run_main
 from harness import load_module
 
@@ -494,9 +496,31 @@ def test_an_open_session_is_one_a_running_claude_registered(tmp_path, a_claude):
     assert found == {ID: a_claude, OTHER: 0, third: 0}
     # The registry alone, whatever transcripts there are.
     assert info.open_sessions(str(root)) == {ID: a_claude}
-    assert not info._is_claude(["python3", "-m", "pytest"]) and info._is_claude(
-        ["node", "/x/@anthropic-ai/claude-code/cli.js"]
-    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "claude"),
+    [
+        (["claude", "--resume", "x"], True),
+        (["/home/dev/.local/bin/claude"], True),
+        (["node", "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"], True),
+        # npm's bin, run through its node shebang.
+        (["node", "/usr/bin/claude"], True),
+        (["bash", "-l"], False),
+        (["python3", "-m", "pytest"], False),
+        # Only the program and its first argument: what it works on is not what it is.
+        (["vim", "notes.md", "claude"], False),
+    ],
+)
+def test_a_claude_process_is_told_by_its_argv(argv, claude):
+    assert shared.is_claude(argv) is claude
+
+
+def test_every_module_asks_the_one_rule_of_a_claude_process():
+    # The shared file's: claude_sessions_info's open sessions, git_checkouts_info's busy checkouts and vm_status_info's
+    # count, none with a rule of its own.
+    for module in sorted((REPO / "playbooks" / "library").glob("*.py")):
+        assert "@anthropic-ai/claude-code" not in module.read_text(), module.name
 
 
 def test_a_claude_s_command_line_is_read_from_proc_where_there_is_one(tmp_path):
@@ -504,8 +528,8 @@ def test_a_claude_s_command_line_is_read_from_proc_where_there_is_one(tmp_path):
     (proc / "self").mkdir(parents=True)
     (proc / "42").mkdir()
     (proc / "42" / "cmdline").write_bytes(b"/home/dev/.local/bin/claude\0--resume\0x\0")
-    assert info._argv(42, str(proc)) == ["/home/dev/.local/bin/claude", "--resume", "x"]
-    assert info._argv(43, str(proc)) == []
+    assert shared.process_argv(42, str(proc)) == ["/home/dev/.local/bin/claude", "--resume", "x"]
+    assert shared.process_argv(43, str(proc)) == []
 
 
 def test_the_registry_is_returned_whatever_the_transcripts(tmp_path, patch_module, a_claude):
@@ -759,13 +783,6 @@ def test_a_branch_git_would_not_take_is_refused(tmp_path, patch_module, branch):
 
     repo = _repository(tmp_path / "demo", "")
     assert "not a branch name" in fail_main(checkouts.main, {"paths": [str(repo)], "branch": branch})["msg"]
-
-
-def test_a_claude_process_is_told_by_its_argv():
-    assert checkouts._claude([b"claude", b"--resume", b"x"])
-    assert checkouts._claude([b"/home/dev/.local/bin/claude", b""])
-    assert checkouts._claude([b"node", b"/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js"])
-    assert not checkouts._claude([b"bash", b"-l"])
 
 
 def test_busy_names_the_claude_processes_working_inside(tmp_path):

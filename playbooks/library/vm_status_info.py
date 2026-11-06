@@ -143,9 +143,9 @@ import subprocess
 import threading
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.claude_on_proxmox import is_claude, own_processes, version_key
 
 APT_GET = "/usr/bin/apt-get"
-VERSION = re.compile(r"(\d+)")
 INST = re.compile(r"^Inst (\S+) .*\(([^)]*)\)")
 # One entry of the editors argument: the core's ProcessMatch (lib/claude_vm/editors/model.py), field for field.
 EDITOR = {
@@ -160,10 +160,6 @@ EDITOR = {
 def _read(root, path):
     with open(os.path.join(root, path.lstrip("/")), encoding="utf-8", errors="replace") as handle:
         return handle.read()
-
-
-def _version_key(release):
-    return [int(part) for part in VERSION.findall(release)]
 
 
 def os_release(root):
@@ -185,7 +181,7 @@ def kernels(root):
     except OSError:
         names = []
     installed = [name[len("vmlinuz-") :] for name in names if name.startswith("vmlinuz-")]
-    newest = max(installed, key=_version_key) if installed else ""
+    newest = max(installed, key=version_key) if installed else ""
     return {"kernel": running, "kernel_newest": newest}
 
 
@@ -244,27 +240,10 @@ def processes(root, editors=()):
     """This user's claude processes, and each editor's windows as the editors argument knows them, from /proc, by the
     editor's key in the editors list (claude_editors); editor_windows is every editor's together, and vscode_windows
     stays as 1.0 has it."""
-    proc = os.path.join(root, "proc")
     claude = 0
     by = {match["key"]: 0 for match in editors}
-    uid = os.getuid()
-    try:
-        names = os.listdir(proc)
-    except OSError:
-        names = []
-    for name in names:
-        if not name.isdigit():
-            continue
-        try:
-            if os.stat(os.path.join(proc, name)).st_uid != uid:
-                continue
-            with open(os.path.join(proc, name, "cmdline"), "rb") as handle:
-                argv = [arg.decode("utf-8", "replace") for arg in handle.read().split(b"\0") if arg]
-        except OSError:
-            continue
-        if not argv:
-            continue
-        if os.path.basename(argv[0]) == "claude" or any("@anthropic-ai/claude-code" in arg for arg in argv[:2]):
+    for _, argv, _ in own_processes(os.path.join(root, "proc")):
+        if is_claude(argv):
             claude += 1
         else:
             key = next((match["key"] for match in editors if window(argv, match)), None)

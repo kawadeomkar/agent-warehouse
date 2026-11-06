@@ -18,10 +18,10 @@
 # the current directory first on sys.path, and this one runs in the folder the terminal opens in, often a
 # repository's root, whose json.py, subprocess.py or re.py would then run in place of the standard library's -
 # before Claude Code asks whether the folder is trusted, and able to have the check ask for a --continue. -I also
-# leaves out the PYTHON* variables and the user's site-packages. A pid counts as a running claude as
-# playbooks/library/claude_sessions_info.py counts it, its four functions below copied unchanged (a test holds
-# them equal): the native binary, or Claude Code's npm package under node, by the process's argv, from /proc or
-# ps; one whose argv cannot be read counts as running.
+# leaves out the PYTHON* variables and the user's site-packages. A pid counts as a running claude as the modules
+# count it, playbooks/module_utils/claude_on_proxmox.py's four functions below copied unchanged (a test holds them
+# equal): the native binary, or Claude Code's npm package under node, by the process's argv, from /proc or ps; one
+# whose argv cannot be read counts as running.
 #
 # No exec, so the script ends with exit 0 whatever claude did.
 if ! command -v claude >/dev/null 2>&1; then
@@ -35,7 +35,7 @@ import subprocess
 import sys
 
 
-def _alive(pid):
+def alive(pid):
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -47,13 +47,13 @@ def _alive(pid):
     return True
 
 
-def _is_claude(argv):
+def is_claude(argv):
     """Whether a process's argv is Claude Code's: the native binary, or the npm package under node."""
     names = [os.path.basename(arg) for arg in argv[:2]]
     return "claude" in names or any("@anthropic-ai/claude-code" in arg for arg in argv[:2])
 
 
-def _argv(pid, proc="/proc"):
+def process_argv(pid, proc="/proc"):
     """The argv of process ``pid``, from /proc where there is one, else ps; None when it cannot be read."""
     if os.path.isdir(os.path.join(proc, "self")):
         try:
@@ -77,12 +77,12 @@ def _argv(pid, proc="/proc"):
     return found.stdout.split()
 
 
-def _running_claude(pid, proc="/proc"):
+def running_claude(pid, proc="/proc"):
     """Whether ``pid`` is a running claude. A pid reused by another program since is not; one unreadable is."""
-    if not _alive(pid):
+    if not alive(pid):
         return False
-    argv = _argv(pid, proc)
-    return argv is None or _is_claude(argv)
+    argv = process_argv(pid, proc)
+    return argv is None or is_claude(argv)
 
 
 def _open_here(folder, config):
@@ -107,7 +107,7 @@ def _open_here(folder, config):
             continue
         # One entry that cannot be used is passed over, never the end of the whole check.
         try:
-            if os.path.realpath(cwd) == here and _running_claude(pid):
+            if os.path.realpath(cwd) == here and running_claude(pid):
                 return True
         except (OSError, ValueError):
             continue

@@ -133,7 +133,6 @@ version:
   type: str
 """
 
-import hashlib
 import json
 import os
 import re
@@ -141,16 +140,18 @@ import subprocess
 import time
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.claude_on_proxmox import (
+    SESSION_ID,
+    file_digest,
+    folders,
+    manifest_key,
+    read_manifest,
+    running_claude,
+    transcript_entry,
+    version_key,
+)
 
-# A session's ID: what just code accepts as --session, and what Claude Code names a transcript.
-SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 VERSION = re.compile(r"\d+(?:\.\d+)+")
-# claude_sessions_copy's manifest, read as it reads it.
-MANIFEST_FORMAT = 1
-
-
-def _version_key(text):
-    return tuple(int(part) for part in text.split("."))
 
 
 def summarize(path):
@@ -163,73 +164,18 @@ def summarize(path):
         for line in handle:
             if not line.endswith(b"\n"):
                 break
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                continue
-            if not isinstance(entry, dict):
-                continue
+            entry = transcript_entry(line)
             cwd, version, branch = entry.get("cwd"), entry.get("version"), entry.get("gitBranch")
             if not found["cwd"] and isinstance(cwd, str):
                 found["cwd"] = cwd
             if isinstance(version, str) and VERSION.fullmatch(version):
-                if not found["version"] or _version_key(version) > _version_key(found["version"]):
+                if not found["version"] or version_key(version) > version_key(found["version"]):
                     found["version"] = version
             if isinstance(branch, str) and branch:
                 found["branch"] = branch
             if entry.get("type") in ("user", "assistant"):
                 found["conversation"] = True
     return found
-
-
-def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OverflowError:
-        return False
-    return True
-
-
-def _is_claude(argv):
-    """Whether a process's argv is Claude Code's: the native binary, or the npm package under node."""
-    names = [os.path.basename(arg) for arg in argv[:2]]
-    return "claude" in names or any("@anthropic-ai/claude-code" in arg for arg in argv[:2])
-
-
-def _argv(pid, proc="/proc"):
-    """The argv of process ``pid``, from /proc where there is one, else ps; None when it cannot be read."""
-    if os.path.isdir(os.path.join(proc, "self")):
-        try:
-            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as handle:
-                return [part.decode("utf-8", "replace") for part in handle.read().split(b"\0") if part]
-        except FileNotFoundError:
-            return []
-        except OSError:
-            return None
-    try:
-        found = subprocess.run(
-            ["ps", "-o", "command=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            stdin=subprocess.DEVNULL,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return found.stdout.split()
-
-
-def _running_claude(pid, proc="/proc"):
-    """Whether ``pid`` is a running claude. A pid reused by another program since is not; one unreadable is."""
-    if not _alive(pid):
-        return False
-    argv = _argv(pid, proc)
-    return argv is None or _is_claude(argv)
 
 
 def open_sessions(path, proc="/proc"):
@@ -254,43 +200,18 @@ def open_sessions(path, proc="/proc"):
         if not isinstance(entry, dict):
             continue
         pid, session = entry.get("pid"), entry.get("sessionId")
-        if isinstance(pid, int) and pid > 0 and isinstance(session, str) and _running_claude(pid, proc):
+        if isinstance(pid, int) and pid > 0 and isinstance(session, str) and running_claude(pid, proc):
             found[session] = pid
     return found
-
-
-def read_manifest(path):
-    """The copies just code recorded in ``path``: ``<folder>/<id>.jsonl`` to the digest it wrote, or {}."""
-    try:
-        with open(path, encoding="utf-8") as handle:
-            found = json.load(handle)
-    except (OSError, ValueError):
-        return {}
-    copies = found.get("sessions") if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
-    return {str(key): str(value) for key, value in copies.items()} if isinstance(copies, dict) else {}
-
-
-def _file_digest(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def memory_folders(path):
     """The folders under ``path``/projects whose memory/ holds at least one file, at any depth."""
     found = []
-    try:
-        folders = sorted(
-            entry.name for entry in os.scandir(os.path.join(path, "projects")) if entry.is_dir(follow_symlinks=False)
-        )
-    except OSError:
-        return found
-    for folder in folders:
-        memory = os.path.join(path, "projects", folder, "memory")
+    for folder in folders(os.path.join(path, "projects")):
+        memory = os.path.join(folder.path, "memory")
         if os.path.isdir(memory) and not os.path.islink(memory) and any(files for _, _, files in os.walk(memory)):
-            found.append(folder)
+            found.append(folder.name)
     return found
 
 
@@ -304,14 +225,7 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
     projects, wanted, sessions = os.path.join(path, "projects"), set(ids), []
     opened = open_sessions(path) if opened is None else opened
     copied_ids = {os.path.basename(key)[: -len(".jsonl")] for key in manifest or {}}
-    try:
-        folders = sorted(
-            (entry for entry in os.scandir(projects) if entry.is_dir(follow_symlinks=False)),
-            key=lambda entry: entry.name,
-        )
-    except OSError:
-        return sessions
-    for folder in folders:
+    for folder in folders(projects):
         try:
             files = sorted(os.scandir(folder.path), key=lambda entry: entry.name)
         except OSError:
@@ -329,8 +243,8 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 continue
             try:
                 summary = summarize(item.path)
-                recorded = (manifest or {}).get(f"{folder.name}/{item.name}")
-                copied = recorded is not None and _file_digest(item.path) == recorded
+                recorded = (manifest or {}).get(manifest_key(folder.name, session))
+                copied = recorded is not None and file_digest(item.path) == recorded
             except OSError:
                 continue
             sessions.append(

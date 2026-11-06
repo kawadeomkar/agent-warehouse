@@ -377,8 +377,10 @@ def _env(root: Path, config: str = "", **settings: str) -> dict:
         ANSIBLE_CONFIG=ansible_config(root, config),
         ANSIBLE_ROLES_PATH=str(REPO / "roles"),
         ANSIBLE_FILTER_PLUGINS=str(REPO / "filter_plugins"),
-        # As ansible.cfg's library: playbooks a test writes elsewhere use just code's and destroy's modules too.
+        # As ansible.cfg's library and module_utils: playbooks a test writes elsewhere use just code's and destroy's
+        # modules too, and those import what they share.
         ANSIBLE_LIBRARY=str(REPO / "playbooks" / "library"),
+        ANSIBLE_MODULE_UTILS=str(REPO / "playbooks" / "module_utils"),
         ANSIBLE_NOCOLOR="1",
     )
     env.update(settings)

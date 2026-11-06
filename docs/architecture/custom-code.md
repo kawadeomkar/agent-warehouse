@@ -403,7 +403,14 @@ back of a VM's own before deleting it ([§4.5](lifecycle.md#45-playbooksdestroyy
 The filters'
 code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
-files; the filters decide from what they read, and touch no file.
+files; the filters decide from what they read, and touch no file. What the modules have in common is
+`playbooks/module_utils/claude_on_proxmox.py`'s, sent with each (§7.10): a session's ID, matched whole;
+the manifest's format and its reading, and a file's digest as the manifest records it; a transcript's line
+as the object it holds; the folders directly in a folder, never through a link; a version's order; the
+user's own processes, from `/proc`; and the one rule of what is a `claude`, which `claude_sessions_info`'s
+open sessions, `git_checkouts_info`'s `busy` and `vm_status_info`'s count (§7.7) all ask: the program or its
+first argument named `claude`, or either one Claude Code's npm package, so that npm's bin, run through its
+`node` shebang, is one too.
 
 **`claude_sessions_info`** — the transcripts under `<dir>/projects/<folder>/<id>.jsonl` of a Claude
 Code configuration directory, written in the last `days`, named in `ids`, or with `all` every one: per
@@ -551,10 +558,11 @@ without a report.
 **`vm_status_info`** (`playbooks/library/`), the one module status runs on a VM, as the VM user and
 never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
 it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
-refreshes nothing) would make and how many are security ones, and the user's own claude processes and each
-editor's windows, a process of the user's counted once, under the first editor whose `server` match in the
-editors list it meets: the module cannot import the core, so status hands it the rows' matches as its `editors`
-argument (`editor_servers`, §7.10), checked by Ansible's own argument spec. They are kept by the
+refreshes nothing) would make and how many are security ones, and the user's own claude processes (by the
+session modules' rule, §7.6) and each editor's windows, a process of the user's counted once, under the first
+editor whose `server` match in the editors list it meets: the module cannot import the core, so status hands it
+the rows' matches as its `editors` argument (`editor_servers`, §7.10), checked by Ansible's own argument spec.
+They are kept by the
 editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
 `vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
 as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
@@ -852,7 +860,15 @@ The Python that runs on this machine is moving into one package, `claude_vm`, in
 module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
 The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
 ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
-arguments.
+arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/claude_on_proxmox.py`,
+standard library only and no `AnsibleModule`, imported as `ansible.module_utils.claude_on_proxmox`: Ansible puts
+each playbook's `module_utils` folder on the path it builds that playbook's modules from, as it does its `library`
+folder, and `ansible.cfg`, the unit tests' environment (`tests/unit/harness.py`, and `conftest.py` for a module
+loaded in pytest's own process) and the `configure` scenario name it for what runs from elsewhere. ansible-lint's
+`args` rule imports each module in ansible-lint's own process, where no setting reaches, so `.ansible-lint` names a
+rules folder, `.config/ansible-lint-rules/`, whose one file holds no rule and puts the folder on the path. A helper in
+`playbooks/files/` runs as plain `python3 -I`, not as a module, so `claude-start.sh` keeps a copy of the shared
+test of a running `claude`, held equal to it by `tests/unit/test_code_session.py`.
 
 - **Nothing outside `claude_vm/ansible/` imports `ansible`**, and no module imports `yaml`, `subprocess` or `asyncio`
   when it is imported, only inside the function that needs one - but `proc.py`, the process table, whose every user

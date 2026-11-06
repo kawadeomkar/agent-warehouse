@@ -58,7 +58,10 @@ def test_what_runs_on_a_vm_never_imports_the_package() -> None:
     # an import of claude_vm works here, where lib/ is on the path, and fails on every VM. They are handed data.
     vm_side = [
         path
-        for path in _tracked("playbooks/library") + _tracked("playbooks/files") + _tracked("roles")
+        for path in _tracked("playbooks/library")
+        + _tracked("playbooks/module_utils")
+        + _tracked("playbooks/files")
+        + _tracked("roles")
         if path.startswith("playbooks/") or "/library/" in path
     ]
     assert len(vm_side) >= 9, vm_side

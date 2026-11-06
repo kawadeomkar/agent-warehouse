@@ -9,12 +9,16 @@ import statistics
 import subprocess
 from pathlib import Path
 
+import ansible.module_utils
 import interrupts
 import pytest
 from ansible.module_utils import basic
 from ansible.module_utils.testing import patch_module_args
 
 ROOT = Path(__file__).resolve().parents[2]
+# What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
+# module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
+ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
 # The Galaxy collections every Ansible a test starts reads: this checkout's own, as every recipe points Ansible at
 # them (tools/env-run --collections). just test exports the same; one set by hand is kept.
 os.environ.setdefault(

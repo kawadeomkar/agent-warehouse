@@ -20,6 +20,13 @@ kinds:
   - inventory: "inventory/hosts.yml.example"
   - tasks: "tests/molecule/*.yml"
 
+# The modules in playbooks/library/ import what they share from playbooks/module_utils/, and the args rule imports
+# each of them in ansible-lint's own process, where no module_utils folder is on the path: the one file of this rules
+# folder puts that one there, and holds no rule, so ansible-lint's own rules are kept.
+rulesdir:
+  - .config/ansible-lint-rules/
+use_default_rules: true
+
 enable_list:
   - args
   - empty-string-compare

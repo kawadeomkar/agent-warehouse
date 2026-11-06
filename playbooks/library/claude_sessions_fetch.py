@@ -108,10 +108,10 @@ import tempfile
 import threading
 
 from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.claude_on_proxmox import SESSION_ID
 
-SESSION_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 # What just destroy asks for: a transcript, the folder beside it, or a project's auto memory.
-NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID}(?:\.jsonl)?|memory)")
+NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID.pattern}(?:\.jsonl)?|memory)")
 # How many of the entries left out are named: a VM can send any number.
 LISTED = 50
 # A host or user that ssh could read as an option, or that is not one word.

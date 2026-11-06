@@ -185,6 +185,8 @@ def test_the_module_runs_no_program_but_apt_and_that_by_path() -> None:
     source = (LIBRARY / "vm_status_info.py").read_text()
     assert source.count("subprocess.run(") == 1 and 'APT_GET = "/usr/bin/apt-get"' in source
     assert "run_command" not in source and "os.system" not in source and "Popen" not in source
+    # Nor does what it takes from the modules' shared file: ps is the session modules' read of one pid's argv there.
+    assert not re.search(r"\b(process_argv|running_claude)\b", source)
     assert '"-s"' in source and "Debug::NoLocking=1" in source
 
 

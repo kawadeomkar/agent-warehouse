@@ -55,6 +55,9 @@ playbooks/
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
+  module_utils/                   claude_on_proxmox.py, what those modules share, sent with each: the session ID,
+                                  the manifest, a transcript's line, a folder's folders, a version's order, whether
+                                  a process is claude
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
   vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
                                   are (read, never written)
@@ -181,6 +184,8 @@ molecule/
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
+.config/ansible-lint-rules/       no rule: puts playbooks/module_utils/ on the path in ansible-lint's own process,
+                                  where its args rule imports the modules in playbooks/library/
 .github/                          CI, releases and the sections of their notes (release.yml), the labels
                                   pull requests get from their titles, the docs site, the composite setup
                                   action, Dependabot and the CODEOWNERS that asks for its pull requests' review

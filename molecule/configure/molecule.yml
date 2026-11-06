@@ -15,8 +15,10 @@ provisioner:
   env:
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/roles
     ANSIBLE_FILTER_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/filter_plugins
-    # just code's session modules, for the handoff check in side_effect.yml.
+    # just code's session modules, and what they share, for the handoff check
+    # in side_effect.yml.
     ANSIBLE_LIBRARY: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/library
+    ANSIBLE_MODULE_UTILS: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/module_utils
   inventory:
     # group_vars/all/defaults.yml here is a symlink to the project's committed
     # inventory/group_vars/all/defaults.yml, so the real variable wiring is

@@ -792,9 +792,9 @@ def _window(
         window["block"].append({"name": "Show it", "ansible.builtin.debug": {"msg": "{{ " + show + " }}"}})
     window["block"].append({"name": "Reach the window", "ansible.builtin.debug": {"msg": "reached"}})
     (root / "window.yml").write_text(yaml.safe_dump([play]))
-    # What code.yml finds beside itself: the task files it imports, its modules, its templates, the vars files it
-    # names and the helpers it copies.
-    for name in ("tasks", "library", "templates", "vars", "files"):
+    # What code.yml finds beside itself: the task files it imports, its modules and what they share, its templates,
+    # the vars files it names and the helpers it copies.
+    for name in ("tasks", "library", "module_utils", "templates", "vars", "files"):
         (root / name).symlink_to(REPO / "playbooks" / name)
 
     # The harness's environment, its PATH the stand-ins' alone.
@@ -1665,7 +1665,7 @@ def test_a_git_above_the_projects_directory_refuses_nothing(zed_writes):
 
 # The shared helper, run as the task runs it - `bash <helper>`, in the window's folder - against a stand-in claude
 # and a registry of Claude Code's in the test's own directory, with a claude of a terminal running where a case has
-# one: a stand-in named claude, which the helper takes for one as claude_sessions_info.py does.
+# one: a stand-in named claude, which the helper takes for one as the modules do.
 START_HELPER = HELPERS / "claude-start.sh"
 NOT_RUNNING = 99999999
 
@@ -1774,16 +1774,16 @@ def _start_python() -> str:
     return text.split("<<'EOF'\n", 1)[1].split("\nEOF\n", 1)[0]
 
 
-def test_the_shared_helper_counts_a_running_claude_as_claude_sessions_info_does():
-    # Its copy of the module's test, function by function: the native binary or the npm package under node, from
+def test_the_shared_helper_counts_a_running_claude_as_the_modules_do():
+    # Its copy of the modules' test, function by function: the native binary or the npm package under node, from
     # /proc or ps, one whose argv cannot be read counted as running.
     def functions(source: str) -> dict:
         return {node.name: ast.dump(node) for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
 
     helper = functions(_start_python())
-    module = functions((REPO / "playbooks" / "library" / "claude_sessions_info.py").read_text())
-    for name in ("_alive", "_is_claude", "_argv", "_running_claude"):
-        assert helper[name] == module[name], name
+    shared = functions((REPO / "playbooks" / "module_utils" / "claude_on_proxmox.py").read_text())
+    for name in ("alive", "is_claude", "process_argv", "running_claude"):
+        assert helper[name] == shared[name], name
 
 
 def test_the_shared_helper_is_fixed_text_run_with_no_arguments():

@@ -397,11 +397,11 @@ token; `github_auth_method: token` still fails. The status JSON carries
   VS Code's own (`claude-terminal.sh`, `session-notes.sh`, `session_notes.py`; their variables are in
   `playbooks/vars/vscode.yml`), and the one every editor shares, `claude-start.sh` (`code_shared_helpers`), run
   as `bash <helper>` with no arguments: a fresh `claude` where Claude Code's registry names a running `claude` of
-  a terminal in the folder (counted as `claude_sessions_info.py` counts one, its copy held equal), else `claude
-  --continue`; its Python is isolated (`python3 -I`), since the folder, often a repository's root, would otherwise
-  be first on `sys.path` and its `json.py` run. Its path is in a task of the user's own, so it stays
-  (`test_persisted_names.py`). Anything variable reaches a helper as an argument, and no task file carries script
-  text. The allowlist holds a `copy`
+  a terminal in the folder (counted as the modules count one, by a copy of `playbooks/module_utils/`'s test held
+  equal to it), else `claude --continue`; its Python is isolated (`python3 -I`), since the folder, often a
+  repository's root, would otherwise be first on `sys.path` and its `json.py` run. Its path is in a task of the
+  user's own, so it stays (`test_persisted_names.py`). Anything variable reaches a helper as an argument, and no
+  task file carries script text. The allowlist holds a `copy`
   to `content`, or to `src: "{{ code_helper }}"` over `code_shared_helpers + code_helpers`, which together name
   each file of `playbooks/files/` once, and only a helper the editor's plan names: nothing else of this machine's
   is ever sent. Every name `code.yml` sets starts with `code_`, a prefix
