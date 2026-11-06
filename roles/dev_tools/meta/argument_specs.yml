@@ -5,7 +5,7 @@ argument_specs:
     options:
       dev_tools_user:
         type: str
-        description: User added to the docker group. Set through vm_user in local.yml.
+        description: User added to the docker group.
       dev_tools_install_node:
         type: bool
         description: Install Node.js from NodeSource, and the packages in dev_tools_npm_global_packages. false skips it and removes nothing.

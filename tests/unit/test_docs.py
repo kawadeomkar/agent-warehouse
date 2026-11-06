@@ -417,6 +417,55 @@ def test_every_repository_path_in_a_code_span_is_a_file_or_one_git_ignores():
     assert {span: str(page) for span, page in absent.items() if span not in ignored} == {}
 
 
+# The folders docs/architecture/file-map.md names file by file, the checkout's own top among them. Each role's page
+# lists its task files, generated, and §11.1 the unit tests, so the map gives roles/ and tests/unit/ as a whole.
+FILE_MAP_FOLDERS = {
+    ".",
+    ".config/ansible-lint-rules",
+    ".config/molecule",
+    ".github",
+    "callback_plugins",
+    "filter_plugins",
+    "inventory",
+    "inventory/group_vars/all",
+    "lib/claude_vm",
+    "lib/claude_vm/ansible",
+    "lib/claude_vm/editors",
+    "lib/claude_vm/run",
+    "lib/claude_vm/status",
+    "lib/claude_vm/tui",
+    "playbooks",
+    "playbooks/files",
+    "playbooks/inventory",
+    "playbooks/library",
+    "playbooks/module_utils",
+    "playbooks/tasks",
+    "playbooks/templates",
+    "playbooks/vars",
+    "tests",
+    "tests/molecule",
+    "tools",
+    "tools/templates",
+}
+
+
+def test_the_file_map_names_every_file_of_the_folders_it_lists():
+    """The file map is a tree in a fence, written by hand, which no other check reads: a file added beside the ones it
+    names went unsaid there (playbooks/tasks/vm_stop.yml, until a review found it). Every file directly in a folder it
+    lists file by file is named in it - by its name, or a Python module by its module's name, as the map names the
+    modules of playbooks/library/."""
+    text = (DOCS / "architecture" / "file-map.md").read_text()
+    unnamed = []
+    for path in _files():
+        rel = path.relative_to(REPO)
+        if str(rel.parent) not in FILE_MAP_FOLDERS or rel.name == "__init__.py":
+            continue
+        names = [rel.name] + ([rel.stem] if rel.suffix == ".py" else [])
+        if not any(re.search(rf"(?<![\w.-]){re.escape(name)}(?![\w-])", text) for name in names):
+            unnamed.append(str(rel))
+    assert unnamed == [], "name each in docs/architecture/file-map.md"
+
+
 def _sections() -> dict[str, Path]:
     """Every numbered architecture section, by number, and the page that holds it."""
     out = {}

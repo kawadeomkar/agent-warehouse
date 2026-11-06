@@ -5,18 +5,17 @@ argument_specs:
     options:
       github_projects_user: &gp_user
         type: str
-        description: Local user that owns the checkouts. Set through vm_user in local.yml.
+        description: Local user that owns the checkouts.
       github_projects_username:
         type: str
         required: true
-        description: GitHub account to list repositories for. Set through vault_github_username in vault.yml.
+        description: GitHub account to list repositories for.
       github_projects_token:
         type: str
         no_log: true
         description:
           - Lists private repositories and, with github_projects_auth, signs gh in on the VM where gh is signed out or
-            signed in by this role. A login made by hand stays, and the token then only lists. Set through
-            vault_github_token in vault.yml.
+            signed in by this role. A login made by hand stays, and the token then only lists.
       github_projects_api_url:
         type: str
         description: Base URL of the GitHub REST API that lists the repositories and, for ssh clones, GitHub's host keys. Tests point it at a stand-in.
@@ -25,7 +24,7 @@ argument_specs:
         description: Home directory of github_projects_user. Empty looks it up on the VM.
       github_projects_dir:
         type: path
-        description: Destination directory. Defaults to ~/projects. Set through vm_projects_dir in local.yml.
+        description: Destination directory. Defaults to ~/projects.
       github_projects_include_forks:
         type: bool
         description: Also clone repositories that are forks.
@@ -35,7 +34,7 @@ argument_specs:
       github_projects_include:
         type: list
         elements: str
-        description: Repository names to clone. Empty means every repository of the user. Set through github_projects in local.yml.
+        description: Repository names to clone. Empty means every repository of the user.
       github_projects_exclude:
         type: list
         elements: str
@@ -54,20 +53,20 @@ argument_specs:
         type: bool
         description:
           - Sign gh in (from the token, or by a device-flow login the user makes once) and make it git's credential
-            helper. Set through github_auth in local.yml.
+            helper.
       github_projects_auth_method:
         type: str
         choices: [auto, web, token]
         description:
           - auto takes the token when set, else the device flow; web is the device flow always; token is the token only,
-            put over any login gh holds. Set through github_auth_method in local.yml.
+            put over any login gh holds.
       github_projects_login_scopes:
         type: list
         elements: str
-        description: Scopes the device flow asks for on top of gh's own (repo, read:org, gist). Set through github_login_scopes in local.yml.
+        description: Scopes the device flow asks for on top of gh's own (repo, read:org, gist).
       github_projects_login_desktop:
         type: bool
-        description: During the device flow, open the page and copy the code on the controller. Off in every test. Set through login_desktop in local.yml.
+        description: During the device flow, open the page and copy the code on the controller. Off in every test.
       github_projects_sign_in_follows:
         type: bool
         description:
@@ -77,12 +76,12 @@ argument_specs:
         type: str
         description:
           - git user.name for github_projects_user, written always. Empty derives it from the GitHub account, and only
-            where ~/.gitconfig has none yet. Set through git_user_name in local.yml.
+            where ~/.gitconfig has none yet.
       github_projects_git_user_email:
         type: str
         description:
           - git user.email for github_projects_user, written always. Empty uses GitHub's noreply address for the account,
-            and only where ~/.gitconfig has none yet. Set through git_user_email in local.yml.
+            and only where ~/.gitconfig has none yet.
   login:
     short_description: Say whether gh is signed in to GitHub, and how, and sign it in by the device flow when asked
     description:
@@ -138,4 +137,4 @@ argument_specs:
       github_projects_token:
         type: str
         no_log: true
-        description: The vault token, only to say that a login with it is every VM's. Set through vault_github_token in vault.yml.
+        description: The vault token, only to say that a login with it is every VM's.

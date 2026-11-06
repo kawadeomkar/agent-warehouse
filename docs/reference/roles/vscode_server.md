@@ -17,8 +17,8 @@ It runs whichever editor just code opens - Claude's sign-in in the browser and Z
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `vscode_server_enabled` | bool | `true` | Write the sshd drop-in and the inotify limit, and check what sshd applies. false removes both files. Set through vscode_remote in local.yml. |
-| `vscode_server_user` | str | `dev` | The user the editor connects as, whose connection the sshd check evaluates Match blocks for. Set through vm_user in local.yml. |
+| `vscode_server_enabled` | bool | `true` | Write the sshd drop-in and the inotify limit, and check what sshd applies. false removes both files. Set through vscode_remote in local.yml. Set through `vscode_remote` in local.yml. |
+| `vscode_server_user` | str | `dev` | The user the editor connects as, whose connection the sshd check evaluates Match blocks for. Set through `vm_user` in local.yml. |
 | `vscode_server_client_alive_interval` | int | `60` | Seconds of silence after which sshd checks that a connection is alive (ClientAliveInterval); the drop-in sets it for every SSH connection, the editor's included. |
 | `vscode_server_client_alive_count_max` | int | `3` | Unanswered checks after which sshd drops the connection (ClientAliveCountMax), so a client that went to sleep is reaped after interval times count seconds. |
 | `vscode_server_inotify_watches` | int | `524288` | fs.inotify.max_user_watches, raised for an editor's file watcher on a large workspace. |

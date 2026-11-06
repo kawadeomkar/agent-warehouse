@@ -13,7 +13,7 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `dev_tools_user` | str | `dev` | User added to the docker group. Set through vm_user in local.yml. |
+| `dev_tools_user` | str | `dev` | User added to the docker group. Set through `vm_user` in local.yml. |
 | `dev_tools_install_node` | bool | `true` | Install Node.js from NodeSource, and the packages in dev_tools_npm_global_packages. false skips it and removes nothing. |
 | `dev_tools_install_docker` | bool | `true` | Install Docker Engine from Docker's repository and add dev_tools_user to the docker group. false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run put it in, since that group is root. |
 | `dev_tools_install_gh` | bool | `true` | Install the GitHub CLI from its repository; github_projects signs in and clones private repositories through it. false skips it and removes nothing. |

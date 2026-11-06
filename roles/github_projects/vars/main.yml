@@ -24,7 +24,7 @@ github_projects_auth_account: >-
      | selectattr('active', 'defined') | selectattr('active') | list | first | default({}) }}
 
 github_projects_signed_in: "{{ (github_projects_auth_account.state | default('')) == 'success' }}"
-# gh could not check its login with GitHub - no network, GitHub down - rather than GitHub refusing the token:
+# Whether gh could not check its login with GitHub - no network, GitHub down - rather than GitHub refusing the token:
 # `gh auth status --json` says both as state "error", and only a refusal carries GitHub's own "HTTP 401" or
 # "HTTP 403". just status says it was not checked, never "not signed in".
 github_projects_auth_unchecked: >-
@@ -76,7 +76,7 @@ github_projects_token_wanted: >-
 github_projects_web_wanted: >-
   {{ github_projects_auth_method == 'web'
      or (github_projects_auth_method == 'auto' and github_projects_token | length == 0) }}
-# Internal: gh would not sign in with the vault token for want of a scope - a
+# Internal: whether gh would not sign in with the vault token for want of a scope - a
 # classic token with repo alone, as earlier versions asked for, lacks the
 # read:org gh requires. Under auto that token goes on listing, as it did then.
 github_projects_token_short: >-
@@ -154,7 +154,7 @@ github_projects_login_pages_foreign: >-
      | reject('match', github_projects_login_page_pattern) | unique | list }}
 github_projects_login_page_foreign: "{{ github_projects_login_pages_foreign | length > 0 }}"
 github_projects_login_page_withheld: "<a page that is not GitHub's own>"
-# Internal: gh's own lines, without the closing line the start task writes
+# Internal: the lines gh printed, without the closing line the start task writes
 # after it ("gh exited: N"), for the messages that quote what gh said - a
 # failure's among them - with each of those pages replaced, whole, by the
 # placeholder: a page of the VM's choosing is never printed for you to follow.
@@ -193,16 +193,17 @@ github_projects_stored_token: >-
   {{ github_projects_stored_token_raw.stdout | default('') | trim
      if github_projects_stored_token_raw.rc | default(1) == 0 else '' }}
 
-# Whether the login gh holds is one this role made. The role cannot tell its
-# token from one the user pasted by hand, so it leaves a marker when it signs
-# in - the digest of the token, beside the user's own config - and only a
-# stored token with that digest is ever signed out. No marker, no logout: a
-# login the user made, a token of their own included, stays.
-# Absolute, from the home main.yml resolved: a "~" in a copy task's dest is
-# expanded through the connection's shell, not the module's environment.
+# The user's home, absolute, from the one main.yml resolved: a "~" in a copy
+# task's dest is expanded through the connection's shell, not the module's
+# environment.
 github_projects_home_dir: >-
   {{ github_projects_home if github_projects_home | length > 0
      else ansible_facts.getent_passwd[github_projects_user][4] }}
+# The marker that tells a login this role made. The role cannot tell its token
+# from one the user pasted by hand, so it leaves a marker when it signs in - the
+# digest of the token, beside the user's own config - and only a stored token
+# with that digest is ever signed out. No marker, no logout: a login the user
+# made, a token of their own included, stays.
 github_projects_marker_file: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login"
 # The same, for a login this role's device flow made: the digest of the token
 # it left gh, apart from the marker above, whose logout rules are the vault
@@ -210,11 +211,14 @@ github_projects_marker_file: "{{ github_projects_home_dir }}/.config/claude-on-p
 # from this role's sign-in - from one pasted by hand, and from the vault's,
 # which every VM shares. None is revoked (release.yml).
 github_projects_device_marker_file: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-device-login"
+# The digest the first marker holds, or ''.
 github_projects_marker_digest: >-
   {{ (github_projects_marker_raw.content | b64decode | trim)
      if github_projects_marker_raw.content is defined else '' }}
 # What the marker holds for the vault token: its digest, never the token.
 github_projects_token_digest: "{{ github_projects_token | hash('sha256') }}"
+# Whether the login gh holds is one this role made: the stored token's digest is
+# the marker's.
 github_projects_login_is_ours: >-
   {{ github_projects_signed_in | bool
      and github_projects_stored_token | length > 0
@@ -329,6 +333,8 @@ github_projects_configure_command: just deploy {{ inventory_hostname }} --tags g
 # release.yml reads the token gh held into github_projects_stored_token, as
 # auth_status.yml does, but whether gh can reach GitHub or not: a release signs
 # out offline too.
+
+# The digest the device flow's marker holds, or ''.
 github_projects_device_marker_digest: >-
   {{ (github_projects_device_marker_raw.content | b64decode | trim)
      if github_projects_device_marker_raw.content is defined else '' }}
@@ -345,13 +351,14 @@ github_projects_release_signed_out: >-
   {{ 'gh signed out' if (github_projects_release_logout.rc | default(1)) == 0
      else ('gh could not sign out ('
            ~ (github_projects_release_logout.stderr | default('') | one_line(none) or 'no reason given') ~ ')') }}
-# One clause for destroy's report on the VM; empty where gh held no login.
-# A token the summary says stays valid until the user revokes it - any but the
-# vault's, which is every VM's: something left to do, for destroy's NEXT STEPS.
+# Whether the summary says the token stays valid until the user revokes it - any
+# but the vault's, which is every VM's: something left to do, for destroy's NEXT
+# STEPS.
 github_projects_release_unrevoked: >-
   {{ github_projects_stored_token | length > 0
      and (github_projects_release_ours | bool
           or not (github_projects_token | length > 0 and github_projects_stored_token == github_projects_token)) }}
+# One clause for destroy's report on the VM; empty where gh held no login.
 github_projects_release_summary: >-
   {{ '' if github_projects_stored_token | length == 0
      else (github_projects_release_signed_out ~ '; the token this project signed it in with stays valid until revoked at'

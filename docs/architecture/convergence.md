@@ -8,15 +8,10 @@ task reporting `changed`.
 A run that dies between the clone and the settings call leaves a VM
 that exists but has no cloud-init user, no SSH keys and no agent. Keying the settings call off
 existence would skip the repair forever and then wait out the whole agent poll budget for an agent
-that was never enabled. So:
-
-```jinja
-proxmox_vm_needs_configuration =
-     (not proxmox_vm_exists)
-  or (proxmox_vm_force_update | bool)
-  or (proxmox_vm_lookup.proxmox_vms[0].config.ciuser | default('', true) | length == 0)
-  or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags)   # "claude-on-proxmox-unfinished"
-```
+that was never enabled. So `proxmox_vm_needs_configuration`
+([its value](../reference/roles/proxmox_vm.md#internal-values)) holds for a VM that does not exist yet, for
+`proxmox_vm_force_update`, for a config with no cloud-init user (`ciuser`), and for one tagged
+`proxmox_vm_unfinished_tag`, `claude-on-proxmox-unfinished`.
 
 The cloud-init user is written only by the settings call, and the template has none, so its absence
 is the marker that the call did not complete. That call is not the last step, though: the resize and

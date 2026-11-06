@@ -13,13 +13,13 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `common_user` | str | `dev` | Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Set through vm_user in local.yml. |
+| `common_user` | str | `dev` | Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Set through `vm_user` in local.yml. |
 | `common_user_shell` | str | `/bin/bash` | Login shell of common_user. |
 | `common_user_groups` | list of `str` | `[sudo]` | Groups common_user is added to. Groups it already has are kept. |
 | `common_user_passwordless_sudo` | bool | `true` | Let common_user run sudo without a password, through a sudoers drop-in, which the playbooks' become relies on. false makes sudo ask for common_user_password, which the playbooks then become root with, and needs it set. It removes the role's drop-in and cloud-init's own rule for the user (90-cloud-init-users), keeps a new cloud-init instance from writing that rule again (cloud.cfg.d), takes the user out of common_user_groups_revoked, and fails if sudo still lets the user run anything without a password. |
-| `common_user_password` | str | `""` | The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role. Set through vault_vm_password in vault.yml. A secret: never logged. |
+| `common_user_password` | str | `""` | The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role. A secret: never logged. Set through `vault_vm_password` in vault.yml. |
 | `common_user_groups_revoked` | list of `str` | `[adm, cdrom, lxd]` | Groups common_user is taken out of when common_user_passwordless_sudo is false, unless common_user_groups lists one. cloud-init gives the user it creates all three. lxd gets LXD from Ubuntu's lxd-installer on first use, root wherever snapd runs; cdrom reads the cloud-init drive, which holds the password's hash; adm reads every system log. |
-| `common_user_ssh_public_keys` | list of `str` | `[]` | Public keys added to common_user's authorized_keys. Keys already there are kept. Set through vm_ssh_public_keys in local.yml. |
+| `common_user_ssh_public_keys` | list of `str` | `[]` | Public keys added to common_user's authorized_keys. Keys already there are kept. Set through `vm_ssh_public_keys` in local.yml. |
 | `common_timezone` | str | `Etc/UTC` | Timezone name from /usr/share/zoneinfo, such as Europe/Berlin, linked to /etc/localtime. |
 | `common_manage_hostname` | bool | `true` | Set the hostname to common_hostname. Never done in a container (common_container_virt_types). |
 | `common_hostname` | str | same as `inventory_hostname` | Hostname given to the VM. Defaults to the inventory hostname, the VM's name. |
@@ -32,21 +32,21 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 | `common_apt_keep_downloads` | bool | `false` | false deletes each package apt downloads once it is installed, empties apt's download cache daily, and empties it once of what was left there. true keeps them, as apt-get does by default. |
 | `common_container_virt_types` | list of `str` | `[docker, container, containerd, podman, lxc]` | Virtualisation types under which the hostname is not set, because the host is a container. |
 | `common_packages` | list of `str` | `[apt-transport-https, bash-completion, build-essential, ca-certificates, curl, fd-find, git, gnupg, htop, jq, less, openssh-server, python3, python3-pip, python3-debian, python3-venv, qemu-guest-agent, ripgrep, rsync, tmux, tree, unzip, vim, wget, zip, zstd]` | Baseline packages every VM gets. Setting it replaces the baseline; add packages with common_extra_packages instead. |
-| `common_extra_packages` | list of `str` | `[]` | More packages to install on top of common_packages. Set through vm_extra_packages in local.yml. |
+| `common_extra_packages` | list of `str` | `[]` | More packages to install on top of common_packages. Set through `vm_extra_packages` in local.yml. |
 | `common_enabled_services` | list of `str` | `[qemu-guest-agent]` | Services enabled at boot and started, where systemd runs. qemu-guest-agent is started only where the VM has its port, /dev/virtio-ports/org.qemu.guest_agent.0, which Proxmox adds while the VM's agent is enabled. |
 | `common_masked_units` | list of `str` | `[fwupd.service, fwupd-refresh.timer, multipathd.service, multipathd.socket, ModemManager.service, udisks2.service, snapd.service, snapd.socket, snapd.seeded.service]` | Units masked and stopped where systemd runs, of those the VM has; snapd's only while no snap is installed. [] masks none, and a unit taken off the list stays masked. |
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 5 are computed during a run, from earlier tasks' results.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 5 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
-| Name | Value |
-|---|---|
-| `common_guest_agent_port` | `/dev/virtio-ports/org.qemu.guest_agent.0` |
-| `common_ssh_path_system` | <code>{{ common_environment.content &#124; default('') &#124; b64decode &#124; regex_findall('^PATH="?([^"\n]*)"?[ \t]*$', multiline=True) &#124; first &#124; default('', true) or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin' }}</code> |
-| `common_ssh_path` | <code>{{ (common_ssh_path_dirs &#124; map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/') &#124; list + [common_ssh_path_system]) &#124; join(':') }}</code> |
-| `common_ssh_path_dropin` | `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf` |
-| `common_cloud_init_user_cfg` | `/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg` |
+| Name | Purpose | Value |
+|---|---|---|
+| `common_guest_agent_port` | Where a VM's guest-agent port appears. | `/dev/virtio-ports/org.qemu.guest_agent.0` |
+| `common_ssh_path_system` | The rest of the PATH sshd gives common_user's sessions, after common_ssh_path_dirs: the one /etc/environment sets, as it is now, which PAM gives every other session. | <code>{{ common_environment.content &#124; default('') &#124; b64decode &#124; regex_findall('^PATH="?([^"\n]*)"?[ \t]*$', multiline=True) &#124; first &#124; default('', true) or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin' }}</code> |
+| `common_ssh_path` | The PATH the drop-in gives common_user's ssh sessions, and the drop-in: whole, since SetEnv takes no variables. | <code>{{ (common_ssh_path_dirs &#124; map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/') &#124; list + [common_ssh_path_system]) &#124; join(':') }}</code> |
+| `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf` |
+| `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg` |
 
 ## Tasks
 

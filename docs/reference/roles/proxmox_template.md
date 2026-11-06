@@ -20,8 +20,8 @@ Runs on the PVE node over SSH. Downloads a cloud image, creates a VM with `qm`, 
 | `proxmox_template_image_url` | str | `https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img` | Cloud image downloaded and imported as the template's root disk. |
 | `proxmox_template_image_checksum` | str | `sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS` | get_url checksum spec. Set to an empty string to skip verification. |
 | `proxmox_template_image_dir` | path | `/var/lib/vz/claude-on-proxmox` | Directory on the node that keeps the pristine download. Created if missing. Keep it outside the content directories of a storage, or Proxmox lists the image in the UI (under template/iso it appeared as an ISO). |
-| `proxmox_template_storage` | str | `local-lvm` | Proxmox storage the root disk and the cloud-init drive are created on. Set through proxmox_storage in local.yml. |
-| `proxmox_template_bridge` | str | `vmbr0` | Bridge the template's net0 is attached to, and so every clone's. Set through proxmox_bridge in local.yml. |
+| `proxmox_template_storage` | str | `local-lvm` | Proxmox storage the root disk and the cloud-init drive are created on. Set through `proxmox_storage` in local.yml. |
+| `proxmox_template_bridge` | str | `vmbr0` | Bridge the template's net0 is attached to, and so every clone's. Set through `proxmox_bridge` in local.yml. |
 | `proxmox_template_cores` | int | `2` | CPU cores of the template itself. proxmox_vm sets each VM's own. |
 | `proxmox_template_memory_mb` | int | `2048` | Memory of the template itself, in MB. proxmox_vm sets each VM's own. |
 | `proxmox_template_cpu_type` | str | `host` | CPU type (qm --cpu), which every VM cloned from the template keeps. |
@@ -45,18 +45,18 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 ## Internal values
 
-Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 3 of the 8 are computed during a run, from earlier tasks' results.
+Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 3 of the 8 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
-| Name | Value |
-|---|---|
-| `proxmox_template_build` | `1` |
-| `proxmox_template_scsihw` | `virtio-scsi-pci` |
-| `proxmox_template_serial0` | `socket` |
-| `proxmox_template_vga` | `serial0` |
-| `proxmox_template_packages` | <code>{{ proxmox_template_customize_packages &#124; join(',') if proxmox_template_install_guest_agent &#124; bool else '' }}</code> |
-| `proxmox_template_wanted` | `{"cpu": "{{ proxmox_template_cpu_type }}", "ostype": "{{ proxmox_template_ostype }}", "bridge": "{{ proxmox_template_bridge }}", "storage": "{{ proxmox_template_storage }}", "scsihw": "{{ proxmox_template_scsihw }}", "agent": "1", "serial0": "{{ proxmox_template_serial0 }}", "vga": "{{ proxmox_template_vga }}", "build": "{{ proxmox_template_build }}", "image": "{{ proxmox_template_image_url }}", "packages": "{{ proxmox_template_packages }}"}` |
-| `proxmox_template_differences` | <code>{{ (proxmox_template_existing.stdout &#124; qm_config) &#124; proxmox_template_drift(proxmox_template_wanted) if proxmox_template_existing.rc &#124; default(1) == 0 else [] }}</code> |
-| `proxmox_template_rebuilding` | <code>{{ proxmox_template_differences &#124; length > 0 and proxmox_template_rebuild &#124; bool }}</code> |
+| Name | Purpose | Value |
+|---|---|---|
+| `proxmox_template_build` | The build steps' own version. | `1` |
+| `proxmox_template_scsihw` | The qm settings the role gives every template, which no setting changes. | `virtio-scsi-pci` |
+| `proxmox_template_serial0` |  | `socket` |
+| `proxmox_template_vga` |  | `serial0` |
+| `proxmox_template_packages` | The packages put into the disk: none without the guest agent, which is what puts them there. | <code>{{ proxmox_template_customize_packages &#124; join(',') if proxmox_template_install_guest_agent &#124; bool else '' }}</code> |
+| `proxmox_template_wanted` | What a template built now is, field by field, as proxmox_template_drift compares it. | `{"cpu": "{{ proxmox_template_cpu_type }}", "ostype": "{{ proxmox_template_ostype }}", "bridge": "{{ proxmox_template_bridge }}", "storage": "{{ proxmox_template_storage }}", "scsihw": "{{ proxmox_template_scsihw }}", "agent": "1", "serial0": "{{ proxmox_template_serial0 }}", "vga": "{{ proxmox_template_vga }}", "build": "{{ proxmox_template_build }}", "image": "{{ proxmox_template_image_url }}", "packages": "{{ proxmox_template_packages }}"}` |
+| `proxmox_template_differences` | How the template at proxmox_template_vmid differs from that, read from `qm config` (tasks/main.yml's first task): nothing when there is no template there. | <code>{{ (proxmox_template_existing.stdout &#124; qm_config) &#124; proxmox_template_drift(proxmox_template_wanted) if proxmox_template_existing.rc &#124; default(1) == 0 else [] }}</code> |
+| `proxmox_template_rebuilding` | Whether that template is rebuilt: it differs, and proxmox_template_rebuild leaves rebuilding on. | <code>{{ proxmox_template_differences &#124; length > 0 and proxmox_template_rebuild &#124; bool }}</code> |
 
 ## Tasks
 

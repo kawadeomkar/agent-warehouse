@@ -5,7 +5,7 @@ argument_specs:
     options:
       claude_code_user: &cc_user
         type: str
-        description: User Claude Code is set up for. Its ~/.claude is written, its login read, and Remote Control run as it. Set through vm_user in local.yml.
+        description: User Claude Code is set up for. Its ~/.claude is written, its login read, and Remote Control run as it.
       claude_code_install_method: &cc_install_method
         type: str
         choices: [native, npm]
@@ -23,7 +23,6 @@ argument_specs:
         no_log: true
         description:
           - Written to the env block of ~/.claude/settings.json. Clearing it removes the key an earlier run wrote there.
-            Set through vault_anthropic_api_key in vault.yml.
       claude_code_settings:
         type: dict
         no_log: true
@@ -91,7 +90,7 @@ argument_specs:
         type: str
         description:
           - The user whose login is read and, when asked, made. The commands that read or make it run as this user,
-            through become. Set through vm_user in local.yml.
+            through become.
       claude_code_anthropic_api_key:
         type: str
         no_log: true
@@ -106,7 +105,7 @@ argument_specs:
             playbooks; without it this entry point only reports.
       claude_code_login_desktop:
         type: bool
-        description: Open the sign-in page in the controller's browser. Off in every test. Set through login_desktop in local.yml.
+        description: Open the sign-in page in the controller's browser. Off in every test.
       claude_code_login_redirect:
         type: bool
         description:

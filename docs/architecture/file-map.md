@@ -10,6 +10,10 @@ callback_plugins/claude_on_proxmox_status.py   just status's own: the report dra
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
+CONTRIBUTING.md                   setting up, testing a change, the conventions, releasing
+SECURITY.md                       the security policy: how to report, the scope, the known trade-offs
+LICENSE                           MIT
+Vagrantfile                       configure.yml on a real VirtualBox VM (just vagrant), with no real credentials
 docs/                             the wiki (docs/development/docs.md): getting-started/, guides/, reference/
                                   (generated in part), architecture/ (these pages), development/
 zensical.toml                     the wiki as a site: navigation, theme, GitHub-style anchors
@@ -27,6 +31,12 @@ tools/stale_scripts.py            just install: the locked packages whose comman
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/proxmox-access.sh           on the Proxmox host, as root: the API role, user, grants and token, what is missing of them
 pyproject.toml, uv.lock           the pinned and locked Python tooling (§13); requirements.yml: the Galaxy collections
+.ansible-lint, .yamllint          the linters' settings: ansible-lint's production profile, and yamllint, which skips
+                                  what git ignores
+.pre-commit-config.yaml           the hooks run on commit (tools/git-hook) and by just lint, outside ones pinned by commit
+.gitleaks.toml                    what CI's secret scans of the tree and of the commits leave out
+.gitignore, .editorconfig         what git leaves out - your settings, the vault, logs, the sessions saved - and how
+                                  files end their lines
 
 playbooks/
   template.yml                    one-time: build the cloud-init template (SSH to PVE)
@@ -103,7 +113,8 @@ roles/                            one role per concern, each with defaults/, met
   dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys)
   claude_code/                    native or npm install, settings.json, Remote Control and the path unit that
                                   starts it when a login lands; tasks/login.yml, browser_login.yml (the sign-in),
-                                  after_login.yml, unit_absent.yml; release.yml, and release_pause.yml and
+                                  after_login.yml, home.yml (the user's home, for login and status),
+                                  unit_absent.yml; release.yml, and release_pause.yml and
                                   release_resume.yml around destroy's save of the VM's sessions; status.yml (just status)
   github_projects/                tasks/auth.yml (gh sign-in, credential helper), clone.yml, login.yml (login_read.yml,
                                   login_report.yml), device_flow.yml (the sign-in), status.yml (just status);
@@ -174,7 +185,8 @@ inventory/
   hosts.yml.example               the only address anyone supplies
   controller.yml                  localhost, so it picks up group_vars/all
   group_vars/all/defaults.yml     shared defaults + the role wiring
-  group_vars/all/{local,vault}.yml.example
+  group_vars/all/local.yml.example   every setting, commented: the settings reference is rendered from it
+  group_vars/all/vault.yml.example   every secret, for the vault
 
 tests/
   check_no_local_files.sh         tracked-file guard (also runs in CI)
@@ -185,9 +197,12 @@ tests/
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py)
-  molecule/                       shared fakes: PVE API, qm, virt-customize, GitHub API, gh, claude, tailscale,
-                                  Tailscale API, the Anthropic Messages API (for the real claude in configure);
-                                  and the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
+  molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
+                                  fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
+                                  the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
+                                  fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
+                                  And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why
 molecule/
@@ -195,9 +210,11 @@ molecule/
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
-.config/ansible-lint-rules/       no rule: puts playbooks/module_utils/ on the path in ansible-lint's own process,
-                                  where its args rule imports the modules in playbooks/library/
+.config/ansible-lint-rules/       claude_on_proxmox_module_utils.py, no rule: puts playbooks/module_utils/ on the
+                                  path in ansible-lint's own process, where its args rule imports the modules in
+                                  playbooks/library/
 .github/                          CI, releases and the sections of their notes (release.yml), the labels
                                   pull requests get from their titles, the docs site, the composite setup
-                                  action, Dependabot and the CODEOWNERS that asks for its pull requests' review
+                                  action, Dependabot (dependabot.yml) and the CODEOWNERS that asks for its pull
+                                  requests' review
 ```

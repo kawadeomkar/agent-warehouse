@@ -5,7 +5,7 @@ argument_specs:
     options:
       common_user:
         type: str
-        description: Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys. Set through vm_user in local.yml.
+        description: Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys.
       common_user_shell:
         type: str
         description: Login shell of common_user.
@@ -26,7 +26,6 @@ argument_specs:
         no_log: true
         description:
           - The password sudo asks common_user for when common_user_passwordless_sudo is false, set by the role.
-          - Set through vault_vm_password in vault.yml.
       common_user_groups_revoked:
         type: list
         elements: str
@@ -37,7 +36,7 @@ argument_specs:
       common_user_ssh_public_keys:
         type: list
         elements: str
-        description: Public keys added to common_user's authorized_keys. Keys already there are kept. Set through vm_ssh_public_keys in local.yml.
+        description: Public keys added to common_user's authorized_keys. Keys already there are kept.
       common_timezone:
         type: str
         description: Timezone name from /usr/share/zoneinfo, such as Europe/Berlin, linked to /etc/localtime.
@@ -93,7 +92,7 @@ argument_specs:
         type: list
         elements: str
         default: []
-        description: More packages to install on top of common_packages. Set through vm_extra_packages in local.yml.
+        description: More packages to install on top of common_packages.
       common_enabled_services:
         type: list
         elements: str

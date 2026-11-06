@@ -43,8 +43,9 @@ tailscale_joined_marker_text: >-
 tailscale_daemon_up: "{{ (tailscale_status_raw.rc | default(1)) == 0 }}"
 tailscale_state: "{{ (tailscale_status_raw.stdout | from_json) if tailscale_daemon_up | bool else {} }}"
 tailscale_backend: "{{ tailscale_state.BackendState | default('NoState') }}"
-# NoState: tailscaled has not heard from its control server yet. Starting:
-# joined, waiting for a relay or a peer. Neither says anything to act on.
+# Whether the state has settled: NoState is a tailscaled that has not heard from
+# its control server yet, Starting one joined and waiting for a relay or a peer,
+# and neither says anything to act on.
 tailscale_settled: "{{ tailscale_backend not in ['NoState', 'Starting'] }}"
 tailscale_joined: "{{ tailscale_state.HaveNodeKey | default(false) | bool }}"
 tailscale_auth_url: "{{ tailscale_state.AuthURL | default('') }}"
@@ -172,6 +173,7 @@ tailscale_joined_now: >-
      and tailscale_backend == 'Running' }}
 
 # --- The web login (login.yml, web_login.yml) ---
+# What was typed at login.yml's question, and whether the web login runs.
 # Asked about a VM someone is here for (just deploy, a Claude code entered),
 # Enter or "y" goes and anything else - "n" - stays; asked about any other,
 # only "y" goes. A run with no terminal, where pause would return at once with
@@ -300,10 +302,8 @@ tailscale_release_joined: "{{ tailscale_release_state.HaveNodeKey | default(fals
 tailscale_release_node: "{{ (tailscale_release_state.Self | default({}, true)).ID | default('', true) }}"
 tailscale_release_installed: >-
   {{ tailscale_release_unit.stat.exists | default(false) or (tailscale_release_status.rc | default(1)) == 0 }}
-# One clause for destroy's report on the VM; empty where there was nothing on
-# Tailscale to release.
-# The summary's cases that name a device to delete by hand: something left to
-# do, for destroy's NEXT STEPS. Not installed, never joined, removed, or gone
+# Whether the summary names a device to delete by hand: something left to do,
+# for destroy's NEXT STEPS. Not installed, never joined, removed, or gone
 # already leaves nothing.
 tailscale_release_device_left: >-
   {{ tailscale_release_installed | bool
@@ -312,6 +312,8 @@ tailscale_release_device_left: >-
               and ((tailscale_release_logout.rc | default(1)) != 0
                    or tailscale_api_credential == 'none'
                    or not (tailscale_api_deleted | bool or tailscale_api_gone_already | bool)))) }}
+# One clause for destroy's report on the VM; empty where there was nothing on
+# Tailscale to release.
 tailscale_release_summary: >-
   {{ '' if not (tailscale_release_installed | bool)
      else ('tailscaled did not answer, so the node could not be logged out: delete its device at '
@@ -331,10 +333,10 @@ tailscale_release_summary: >-
 tailscale_absent_node: >-
   {{ (((tailscale_absent_status.stdout | from_json).Self | default({}, true)).ID | default('', true))
      if (tailscale_absent_status.rc | default(1)) == 0 else '' }}
-# tailscaled did not answer, so a login the node had could not be ended.
+# Whether tailscaled did not answer, so a login the node had could not be ended.
 tailscale_absent_unasked: >-
   {{ tailscale_package_present | bool and (tailscale_absent_status.rc | default(1)) != 0 }}
-# tailscaled answered, and its logout failed.
+# Whether tailscaled answered, and its logout failed.
 tailscale_absent_logout_failed: >-
   {{ (tailscale_logout | default({'skipped': true})) is not skipped and (tailscale_logout.rc | default(0)) != 0 }}
 # A login may be left on the node, in the state the package's removal keeps.

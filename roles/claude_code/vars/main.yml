@@ -360,17 +360,18 @@ claude_code_remote_control_stay_up_seconds: 20
 # --- releasing the VM before it is destroyed (release.yml) ---
 # Its login is claude_code_remote_control_status, read as login.yml reads it.
 
-# The service, not the path unit that waits for a login: only a running
-# server had a session to take offline.
-# Stopped by release_pause.yml, for destroy's save or for this release.
+# Whether release_pause.yml stopped the Remote Control service, for destroy's
+# save or for this release: the service, not the path unit that waits for a
+# login, since only a running server had a session to take offline.
 claude_code_release_rc_stopped: >-
   {{ claude_code_release_paused.results | default([])
      | selectattr('changed', 'defined') | selectattr('changed')
      | selectattr('item.item', 'equalto', 'service') | list | length > 0 }}
-# One clause for destroy's report on the VM; empty where Claude Code had no
-# login and no Remote Control to end.
+# Why `claude auth logout` failed, on one line.
 claude_code_release_why: >-
   {{ claude_code_release_logout.stderr | default('') | one_line(none) or 'no reason given' }}
+# One clause for destroy's report on the VM; empty where Claude Code had no
+# login and no Remote Control to end.
 claude_code_release_summary: >-
   {{ ((['Remote Control stopped (its session stays in the Claude app, offline)']
        if claude_code_release_rc_stopped | bool else [])

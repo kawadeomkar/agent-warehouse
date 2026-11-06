@@ -7,7 +7,8 @@ image every scenario runs, pinned by digest, which the weekly canary runs unpinn
 
 A release is an annotated SemVer tag on main (release.yml), its notes the pull requests merged since the last one,
 grouped by the label labels.yml gives each from its title's tag (.github/release.yml). Their scripts run here
-against a stand-in gh, which records what it was asked, and a scratch repository, never GitHub.
+against a stand-in gh, which records what it was asked, and a scratch repository, never GitHub. What a version
+number promises about, as CONTRIBUTING.md lists it, is held to the justfile.
 """
 
 from __future__ import annotations
@@ -289,3 +290,43 @@ def test_a_tag_that_is_no_release_is_refused_before_anything_is_published(tmp_pa
     run, calls, _ = _release(tmp_path, tagged, tag)
     assert run.returncode == 1 and calls == [], (run.stdout, run.stderr, calls)
     assert f"::error::{tag} {said}" in run.stdout
+
+
+# ----------------------------------------------------------------------------- what a version promises about ---
+
+# The justfile's settings that are no part of the interface: where a run keeps its working files.
+UNPROMISED_SETTINGS = {"STATUS_DIR", "LIVE_DIR"}
+
+
+def _promised(pattern: str) -> set[str]:
+    """The names in backticks of the part of CONTRIBUTING.md's Releasing section that pattern's group holds."""
+    text = (REPO / "CONTRIBUTING.md").read_text()
+    section = text[text.index("## Releasing") :]
+    return set(re.findall(r"`([\w-]+)`", re.search(pattern, section, re.S).group(1)))
+
+
+def _recipes(group: str) -> set[str]:
+    """The justfile's recipes in a group: each recipe's [group] attribute sits in the lines above its header."""
+    found, attributes = set(), []
+    for line in (REPO / "justfile").read_text().splitlines():
+        if line.startswith("["):
+            attributes.append(line)
+        elif header := re.match(r"^([a-z][\w-]*)\b(?! *:=)[^#]*:$", line):
+            if f"[group('{group}')]" in attributes:
+                found.add(header.group(1))
+            attributes = []
+    return found
+
+
+def test_the_interface_a_version_promises_is_the_justfiles():
+    """CONTRIBUTING.md names what a version number promises about - the recipes people use, the roles --tags takes,
+    the settings every recipe reads - and what it does not, the contributor recipes. A recipe added to the justfile's
+    use group, a role to configure_roles or a setting read from the environment would otherwise fall outside the
+    promise without a word."""
+    justfile = (REPO / "justfile").read_text()
+    assert _promised(r"the `just` commands people use - (.*?) - and their options") == _recipes("use") | {"help"}
+    assert _promised(r"The contributor commands - (.*?) - the justfile's other settings") == _recipes("develop")
+    roles = re.search(r"^configure_roles := '([^']*)'$", justfile, re.M).group(1).split()
+    assert _promised(r"the role names `just deploy --tags` takes: (.*?);") == set(roles)
+    settings = set(re.findall(r"^([A-Z_]+) := env\('\1'", justfile, re.M))
+    assert _promised(r"from the environment or before its name: (.*?);") == settings - UNPROMISED_SETTINGS

@@ -18,7 +18,7 @@ argument_specs:
             through vscode_remote in local.yml.
       vscode_server_user:
         type: str
-        description: The user the editor connects as, whose connection the sshd check evaluates Match blocks for. Set through vm_user in local.yml.
+        description: The user the editor connects as, whose connection the sshd check evaluates Match blocks for.
       vscode_server_client_alive_interval:
         type: int
         description:

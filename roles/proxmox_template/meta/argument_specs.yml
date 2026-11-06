@@ -31,10 +31,10 @@ argument_specs:
             image in the UI (under template/iso it appeared as an ISO).
       proxmox_template_storage:
         type: str
-        description: Proxmox storage the root disk and the cloud-init drive are created on. Set through proxmox_storage in local.yml.
+        description: Proxmox storage the root disk and the cloud-init drive are created on.
       proxmox_template_bridge:
         type: str
-        description: Bridge the template's net0 is attached to, and so every clone's. Set through proxmox_bridge in local.yml.
+        description: Bridge the template's net0 is attached to, and so every clone's.
       proxmox_template_cores:
         type: int
         description: CPU cores of the template itself. proxmox_vm sets each VM's own.

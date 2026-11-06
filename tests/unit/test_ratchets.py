@@ -62,7 +62,7 @@ VSCODE_OWN = re.compile(
     r"^(roles/vscode_server/|playbooks/tasks/vscode_[a-z_]+\.yml$|playbooks/vars/vscode\.yml$|lib/claude_vm/editors/vscode\.py$)"
 )
 VSCODE_ELSEWHERE = {
-    "inventory/group_vars/all/defaults.yml": 19,
+    "inventory/group_vars/all/defaults.yml": 7,
     "inventory/group_vars/all/local.yml.example": 7,
     "justfile": 2,
     "lib/claude_vm/editors/model.py": 1,
@@ -143,7 +143,7 @@ def test_proxmox_is_read_outside_its_own_files_no_more_than_it_is_now() -> None:
 # Zed's own: its two task files of just code's, and its family's module in the core. Elsewhere, a line that names it.
 ZED_OWN = re.compile(r"^(playbooks/tasks/zed_[a-z_]+\.yml|lib/claude_vm/editors/zed\.py)$")
 ZED_ELSEWHERE = {
-    "inventory/group_vars/all/defaults.yml": 12,
+    "inventory/group_vars/all/defaults.yml": 9,
     "inventory/group_vars/all/local.yml.example": 3,
     "justfile": 1,
     "lib/claude_vm/editors/model.py": 1,

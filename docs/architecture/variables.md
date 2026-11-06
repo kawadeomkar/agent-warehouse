@@ -64,20 +64,11 @@ RSA or ECDSA gets the role's actionable "set vm_ssh_public_keys" message rather 
 
 ## 6.3 Computed internals
 
-`roles/proxmox_vm/vars/main.yml` holds nine expressions, most of which read registers set by tasks. They are
-**vars, not facts**, and that is load-bearing:
-
-| Var | Derived from | Purpose |
-|---|---|---|
-| `proxmox_vm_found_config` | `proxmox_vm_lookup` for an existing VM, `proxmox_vm_config` for one just cloned | the VM's config, read once |
-| `proxmox_vm_found_mac` | that config | the VM's own NIC MAC, `""` if unreadable |
-| `proxmox_vm_found_node` | `proxmox_vm_lookup`, else `proxmox_vm_node` | where every call about an existing VM goes |
-| `proxmox_vm_reported_address` | `proxmox_vm_net` + the MAC | the agent's IPv4 for that NIC |
-| `proxmox_vm_found_tags` | `proxmox_vm_lookup` | tags as a list, lowercased, `;`/`,` both handled (`proxmox_tags`) |
-| `proxmox_vm_sent_tags` | `proxmox_vm_tags` | the same list lowercased, as Proxmox stores it |
-| `proxmox_vm_unfinished_tag` | `proxmox_vm_sent_tags[0]` | `claude-on-proxmox-unfinished`, carried from the settings call until the start succeeds |
-| `proxmox_vm_needs_configuration` | existence + the lookup's `ciuser` and tags + `force_update` | see [§8](convergence.md) |
-| `proxmox_vm_forget_address` | the agent's reported address | which host key to drop; empty for a stopped VM, which destroy cannot address |
+`roles/proxmox_vm/vars/main.yml` holds the role's computed internals - the VM's config, MAC, node, address and
+tags as the lookup found them, whether it needs configuring, the names its host key is forgotten under - most of
+them reading registers set by tasks. Its [reference page](../reference/roles/proxmox_vm.md#internal-values)
+lists each, generated from the file with the comment that says what it is for. They are **vars, not facts**, and
+that is load-bearing:
 
 > **Do not convert these to `set_fact`.** The role can run more than once for the same host in one
 > play — the role scenario's `side_effect.yml` includes it back to back — and a `set_fact` survives a

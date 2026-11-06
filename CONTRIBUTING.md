@@ -16,21 +16,13 @@ just init     # just install (the locked packages, the Galaxy collections), git 
 just test     # lint (syntax and hooks included), unit tests, every Molecule scenario
 ```
 
-`just init` runs `just install`, installs the git hook (`tools/git-hook`, which runs the pre-commit hooks
-from the environment of the checkout being committed in), copies `inventory/hosts.yml.example`
-and the two `group_vars` examples into place where they are missing, and asks for the values a first
-deploy needs (`just init --no-prompt` asks nothing; a checkout that only runs the tests needs none).
-`just install` puts the versions locked in `uv.lock` into the project's environment, which
-`tools/env-run` finds: a virtualenv of yours - `PYTHON=/path/to/python`, or the Python `python3` is here
-when it is one (the one you activated, or one a version manager chose) - whose other packages it leaves
-alone, or else the checkout's own, which it makes with uv on a Python uv downloads, in the checkout's folder
-outside it (`tools/env-run --data`; never a `.venv` in the checkout). The Galaxy collections go into that
-folder too, so a worktree on another branch never changes the main checkout's. It changes nothing that is
-current, so it is also the command to run after a pull; `just clean env` deletes the checkout's own
-environment and collections. Please run the tools through `just`, or `tools/env-run <tool>` as the git hooks
-do, which run them from that environment, with those collections, rather than whatever is first on `PATH`,
-and refuse a Python that is not a virtualenv - Molecule in particular resolves `ansible-playbook` from
-`PATH` and will silently use a different ansible-core if the environment is not first.
+`just init` runs `just install`, installs the git hook (`tools/git-hook`), copies the example settings into place
+where they are missing, and asks for the values a first deploy needs (`just init --no-prompt` asks nothing; a
+checkout that only runs the tests needs none). `just install` puts the versions `uv.lock` locks into the project's
+environment - a virtualenv of yours (`PYTHON=`, or `python3` here when it is one), or else the checkout's own,
+outside the checkout - and the Galaxy collections into the checkout's own folder; run it again after a pull. Run
+every tool through `just`, or `tools/env-run <tool>` as the git hooks do, never from `PATH`. How the environment is
+chosen and where it lives: [Toolchain](docs/architecture/toolchain.md).
 
 The pins live in `pyproject.toml`: the playbooks' own in `[project]`, the linters' and tests' in the
 `dev` group. After changing one, run `just install --lock` and commit `uv.lock` with it; `just lint` fails on a
@@ -39,19 +31,11 @@ touching a pin. Dependabot proposes the weekly updates itself.
 
 ## Testing a change
 
-| Command | What it runs |
-|---------|--------------|
-| `just lint` | every linter: `uv lock --check`, yamllint, ansible-lint (production profile), ruff, `just --fmt --check`, `--syntax-check` on every playbook against your `inventory/`, and the pre-commit hooks those do not cover. `yaml`, `ansible`, `python`, `just`, `syntax`... runs some |
-| `just test` | `just lint`, then everything below but Vagrant: the local quality gate |
-| `just test unit` | pytest: the custom filters (the sign-ins' page opener and `plain_text` among them), VS Code's settings reader (its plan's own, in `lib/claude_vm/editors/vscode.py`), the `github_repos` module, the tracked-file guard, configure tags, the Remote Control playbooks, the Claude sign-in (`claude_login.yml` against a stand-in `claude`, and at a pseudo-terminal: the prompt, a partly copied code, an expired attempt, Ctrl-C then A), the three sign-in playbooks and deploy's sign-in steps end to end, an unreachable VM among them, Tailscale (the role's files, `tailscale_login.yml` and deploy's Tailscale step against a stand-in `tailscale`, check mode, `configure.yml`'s rescue, and the guards that keep every test setup off Tailscale), the GitHub sign-in (`auth.yml`, `clone.yml` and `github_login.yml` against a stand-in `gh` and the fake GitHub API), the managed SSH config (and that no scenario writes into `~/.ssh`), the Claude terminal's script (once at a pseudo-terminal), `code.yml`'s window step in `just deploy` and out of it, and its allowlist, the Claude Code session handoff (the plan, the copies, `--session`'s refusals and fast-forward between real checkouts) and `just destroy`'s save of a VM's sessions, and the justfile's guards (every recipe against stand-ins: the names as JSON, the patterns and the rules, the checkout guard, `code`'s one name, `init`'s secret never said) |
-| `just test --role common,dev_tools` | one or more role scenarios (`role` for all of them, `molecule` for every scenario) |
-| `just test integration` | `playbooks/configure.yml` end to end in a container |
-| `just test provision` | `provision.yml` + `discover.yml` against a fake Proxmox API |
-| `just vagrant` | `configure.yml` on a real VirtualBox VM |
-
-Every run of these through `just` that uses Ansible, Molecule included, is also written to `.logs/`
-(`just logs` lists them), which is the place to read a failure back once the terminal has scrolled.
-The directory is git-ignored and blocked by the tracked-file guard: logs name hosts and addresses.
+`just lint` runs every linter, and `just test` runs it, then the unit tests and every Molecule scenario: the
+gate CI runs. Each takes a part - `just lint python`, `just test unit`, `just test --role common` - and
+[Testing](docs/development/testing.md) lists them all, with what each runs. Every run of these that uses
+Ansible is also written to `.logs/` (`just logs` lists them), git-ignored and refused by the tracked-file
+guard, since logs name hosts and addresses.
 
 Every role has a Molecule scenario, and a change to a role should keep its scenario passing - including the
 idempotence stage, which reruns the converge and fails on any changed task.
@@ -101,12 +85,9 @@ secret gets a canned value and a place in those searches.
   `github_projects_username`. The comment above each one is its entry in the wiki's settings
   reference.
 - **Documentation** lives in the wiki in `docs/`, and changes in the same pull request as the
-  behaviour it describes. Its reference pages are generated: after changing a role's
-  `argument_specs.yml`, `defaults/main.yml`, `vars/main.yml` or task files,
-  `inventory/group_vars/all/defaults.yml` (it and the roles' `defaults/main.yml` feed the settings
-  page's Default column), `local.yml.example`, `vault.yml.example` or a recipe's `[doc]` or `[arg]` help in the `justfile`,
-  run `just docs` and commit the result
-  ([docs/development/docs.md](docs/development/docs.md)).
+  behaviour it describes. Its reference pages are generated: edit their sources - which
+  [docs/development/docs.md](docs/development/docs.md) lists - and run `just docs`, which the commit hook
+  runs too.
 - **Idempotence** is not optional. A task that reports `changed` on a second run will fail CI.
 - **A moment the run waits for the person is set apart.** A `pause` or `vars_prompt` passes its text
   through the `banner` filter (`'…' | banner('USER INPUT REQUIRED', host=inventory_hostname,

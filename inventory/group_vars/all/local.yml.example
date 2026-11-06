@@ -85,8 +85,10 @@
 # Sign gh in on each VM (from vault_github_token, or by GitHub's device flow,
 # which just deploy and just login --only github run for you) and make it git's
 # credential helper, so private repositories clone and git push works. false
-# leaves gh and ~/.gitconfig alone. auto takes the token when there is one, else
-# the device flow; web is the device flow always; token is the token only.
+# leaves gh and ~/.gitconfig alone, and a token then only lists: a private
+# repository it lists is skipped, not cloned. auto takes the token when there is
+# one, else the device flow; web is the device flow always, a token then only
+# listing; token is the token only, and an empty one fails by name.
 # github_auth: true
 # github_auth_method: auto
 # just deploy starts the device flow by itself; false asks first, VM by VM.
@@ -95,7 +97,8 @@
 # workflow lets a push change .github/workflows/.
 # github_login_scopes: [workflow]
 # The git identity on each VM. Empty: your GitHub display name (or login) and
-# GitHub's noreply address for your account.
+# GitHub's noreply address for your account, so no private email lands in
+# commits by default.
 # git_user_name: ""
 # git_user_email: ""
 
@@ -122,18 +125,21 @@
 # vscode_remote: true
 # On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf,
 # included from the top of ~/.ssh/config, so `ssh alpha` and your editor
-# follow the VM's address. Set false to keep out of ~/.ssh entirely,
-# or claude_ssh_config_include false to write the file but not the Include line.
+# follow the VM's address; just destroy removes a VM's. Set false to keep out of
+# ~/.ssh entirely, or claude_ssh_config_include false to write the file but not
+# the Include line, which the run then prints for you to add.
 # claude_ssh_config: true
 # claude_ssh_config_include: true
 # Point aliases at <name>.<domain> instead of the address, on a network whose
-# DNS resolves VM names; then a lease that moves no longer matters.
+# DNS resolves VM names (a router that registers DHCP leases, or avahi with
+# "local"); then a lease that moves no longer matters.
 # claude_ssh_host_domain: lan
 # The key each alias names (IdentityFile). Empty lets ssh pick, which finds the
 # default key vm_ssh_public_keys reads.
 # claude_ssh_identity_file: ~/.ssh/id_ed25519
 # Off on purpose: the VM user is root-equivalent and runs Claude Code, and
-# agent forwarding hands them every key in your agent.
+# agent forwarding hands them every key in your agent. Pushes go through gh,
+# signed in on the VM itself.
 # claude_ssh_forward_agent: false
 # Extra "Key value" lines written into each alias, as they are.
 # ServerAliveInterval keeps the editor's connection from going stale behind a
@@ -153,7 +159,8 @@
 # editor_claude_terminal: true
 # Where those files go on the VM, as an absolute path of its own, never inside
 # a repository: just code refuses one in a checkout of vm_projects_dir. Empty:
-# .claude-on-proxmox in vm_projects_dir.
+# .claude-on-proxmox in vm_projects_dir. A directory that already exists keeps
+# its mode; files written before a move stay where they were.
 # editor_files_dir: ""
 # A page about the VM - addresses, what is signed in, the just commands - that
 # just code writes on the VM. In VS Code it opens beside the Claude terminal
@@ -161,9 +168,11 @@
 # needs editor_claude_terminal; in Zed it is written without that refresh, for
 # you to open once.
 # editor_session_notes: true
-# Copy this machine's Claude Code sessions of the VM's repositories, the last 30
-# days of them, to the VM on every just code, so /resume there lists them. Their
-# transcripts hold whatever their tools printed: false keeps them here.
+# Copy this machine's Claude Code sessions of the VM's repositories - matched by
+# git origin - the last 30 days of them, to the VM on every just code, so
+# /resume there lists them (Ctrl+A for every project). Their transcripts hold
+# whatever their tools printed: false keeps them here, though --session still
+# copies its one session.
 # claude_sessions_sync: true
 # The four above by their names in 1.0, still read through 1.x while the new
 # name is not set; where both are, the new one wins. `just settings <name>
@@ -214,21 +223,35 @@
 
 # ------------------------------------------------ Sign-ins and teardown ---
 # just deploy ends with the VM signed in to Claude, GitHub and Tailscale and
-# open in your editor (editor, above); the sign-ins each open a page and wait
-# for you, one VM at a time. false leaves them to just login.
+# open in your editor (editor, above). The sign-ins are the steps only you
+# can take, each a page in your browser that the run waits for you at, one VM
+# at a time. Claude's comes back to the VM by itself once you authorise (or takes
+# the code the page shows, pasted at the prompt), GitHub's has its code on your
+# clipboard, and Tailscale's asks you to connect the device. GitHub's and
+# Tailscale's start by themselves (github_login_auto_start,
+# tailscale_login_auto_start) for every VM but one whose Claude sign-in nobody
+# answered, and none runs where a vault token or key signs the VM in. A run
+# with no terminal skips them all. false leaves them to just login.
 # deploy_sign_in: true
-# Open the VM in the editor (editor, above) at the end of a one-VM just deploy.
+# Open the VM in the editor (editor, above) at the end of a one-VM just deploy;
+# a deploy of several ends with each VM's just code line.
 # deploy_code: true
-# Before just destroy deletes a VM, sign it out of Claude and of gh, and take it
-# off your tailnet. A stopped VM is started for it. false deletes the VMs
-# without releasing them, their sessions still saved first.
+# Before just destroy deletes a VM, sign it out of Claude - stopping Remote
+# Control - and of gh, and take it off your tailnet, its device deleted with
+# tailscale_api_auth_method. gh's token stays valid: revoking GitHub CLI at
+# GitHub signs out every gh you have, so the report says where, and destroy
+# does not. A stopped VM is started for it. false deletes the VMs without
+# releasing them, their sessions still saved first.
 # destroy_release: true
-# And before that, save the Claude Code sessions and auto memory that exist only
-# on the VM into destroy_sessions_dir here; a VM whose save fails is kept.
-# false deletes them with the VM.
+# And before that, save what of each VM's Claude Code sessions exists only on
+# its disk - those begun there, the copies just code made that were continued
+# there, and their auto memory - into destroy_sessions_dir here, as the VM had
+# them, plain files and folders only; `claude --resume <path>` continues one. A
+# VM whose save fails is kept, neither released nor deleted. false deletes them
+# with the VM.
 # destroy_save_sessions: true
-# A folder per VM and run, an absolute path or one starting with ~. Empty:
-# .sessions/ in this checkout (git-ignored).
+# A folder per VM and run, <name>-<YYYYMMDD-HHMMSS>, 0700, in an absolute path
+# or one starting with ~. Empty: .sessions/ in this checkout (git-ignored).
 # The transcripts hold whatever their tools printed, and stay until you delete them.
 # destroy_sessions_dir: ""
 # Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run
@@ -252,20 +275,27 @@
 # holds - vault_tailscale_api_token first, else vault_tailscale_oauth_client_id
 # and vault_tailscale_oauth_client_secret (devices:core) - and only logs the VM
 # out with neither; none only logs it out; token and oauth use that one only.
+# An OAuth client reaches only the devices with its tags, so it may not delete
+# one joined by the web login.
 # tailscale_api_auth_method: auto
 # Tailscale SSH on the tailnet address (needs an ssh rule in your tailnet policy).
 # tailscale_ssh: false
 # Use the subnet routes other devices on your tailnet advertise.
 # tailscale_accept_routes: false
-# Let your tailnet's DNS settings change the VM's resolver.
+# Let your tailnet's DNS settings change the VM's resolver. Off, the VM keeps
+# the one DHCP gave it, and your devices still reach it by its tailnet name; on,
+# a tailnet that overrides local DNS sends all its lookups to the tailnet's
+# nameservers (docs/guides/tailscale.md).
 # tailscale_accept_dns: false
 # Tags asked for at the join; leave empty with a tagged key.
 # tailscale_advertise_tags: [tag:claude-vm]
 # A control server of your own, such as Headscale.
 # tailscale_login_server: https://headscale.example.com
-# Keep tailscaled from uploading its logs to Tailscale.
+# Keep tailscaled from uploading its logs to Tailscale, which also ends
+# Tailscale's technical support for the VMs.
 # tailscale_upload_logs: false
-# Seconds the web login waits for your approval.
+# Seconds the web login waits for your approval. The page stays valid for 7
+# days, and a VM approved later joins by itself.
 # tailscale_login_timeout: 300
 # The machine name, when the VM's own name is not the one you want there.
 # tailscale_hostname: alpha

@@ -13,7 +13,8 @@ common_ssh_path_system: >-
      | regex_findall('^PATH="?([^"\n]*)"?[ \t]*$', multiline=True)
      | first | default('', true)
      or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin' }}
-# SetEnv takes no variables, so the drop-in holds the whole PATH.
+# The PATH the drop-in gives common_user's ssh sessions, and the drop-in: whole,
+# since SetEnv takes no variables.
 common_ssh_path: >-
   {{ (common_ssh_path_dirs
       | map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/')
