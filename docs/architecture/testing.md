@@ -388,8 +388,8 @@ pytest over `tests/unit/`: 2969 tests. By file:
   `0600`, and the secret in neither the output nor the log, typed or given, with module arguments injected
   and the log at `-vvv`; a vault read and written as it is with `ANSIBLE_VERBOSITY` and `ANSIBLE_DEBUG` both in the
   environment, every `ansible-vault` run quiet; statically, every write under `init_ask` and every task that renders the secret
-  or the vault's text `no_log`. Cases one run can show share it: two wrong answers to a run, every value given
-  in one, and the values that break their rules, or differ from what is set, each refused together; the tests
+  or the vault's text `no_log`. Cases one run can show share it: every question answered wrong in one run, every
+  value given in one, and the values that break their rules, or differ from what is set, each refused together; the tests
   read and write the vault themselves in process (`VaultLib`), and only the playbook starts `ansible-vault`.
   The offer to make the token, against a stand-in Proxmox host (the local
   connection, `fake_pve_cli.py` first on its `PATH`): `y` running `tools/proxmox-access.sh` and the vault
@@ -435,7 +435,7 @@ pytest over `tests/unit/`: 2969 tests. By file:
   bridge, no host in the `proxmox` group, and the playbook loading with duplicate keys made fatal. NEXT
   STEPS: nothing recorded while a value is the example's; `just deploy alpha` once every check passes, said
   last in the report too, and nothing while the GitHub username is the example's; each problem with its fix,
-  one and two of them; and what could not be checked when nothing is wrong - the template on a node just
+  one and three of them; and what could not be checked when nothing is wrong - the template on a node just
   gone down, still listed by name (the fake's `named=1`). Statically: every task a read or a NEXT STEPS record (a `uri` a GET that saves nothing), every `uri` with the CA
   path and `no_log`, the settings written only through `tasks/init_local_setting.yml` at a terminal or as
   given, and no run reaching a real `ssh`. Running

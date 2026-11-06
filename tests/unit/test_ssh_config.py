@@ -19,8 +19,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -150,9 +152,7 @@ def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Pa
     assert resolved["serveraliveinterval"] == "30"
     assert "alpha: ssh alpha   |   just code alpha   (opens /home/dev/projects)" in result.stdout
 
-
-def test_a_second_run_changes_nothing(tmp_path: Path) -> None:
-    assert _run(tmp_path, [ALPHA, BETA]).returncode == 0
+    # And a second run changes nothing.
     again = _run(tmp_path, [ALPHA, BETA])
     assert again.returncode == 0, again.stdout + again.stderr
     assert _changed(again) == 0
@@ -275,17 +275,6 @@ def test_without_a_workspace_the_connect_line_says_just_code_and_guesses_no_path
     assert "/home/dev/projects" not in result.stdout
 
 
-def test_the_mode_of_an_existing_user_config_is_left_alone(tmp_path: Path) -> None:
-    user_config = _user_config(tmp_path)
-    user_config.parent.mkdir(parents=True)
-    user_config.write_text("Host github.com\n    User git\n")
-    user_config.chmod(0o644)
-    result = _run(tmp_path, [ALPHA])
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert user_config.read_text().startswith("Include ")
-    assert oct(user_config.stat().st_mode & 0o777) == "0o644"
-
-
 def _a_directory_of_a_group_the_user_is_not_in() -> Path | None:
     """On macOS a new file takes its directory's group, and /private/tmp is wheel's: a place to make one."""
     base = Path("/private/tmp")
@@ -294,29 +283,38 @@ def _a_directory_of_a_group_the_user_is_not_in() -> Path | None:
     return base
 
 
-@pytest.mark.skipif(
-    _a_directory_of_a_group_the_user_is_not_in() is None, reason="needs macOS and a directory of a foreign group"
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        False,
+        # Ansible's atomic move copies the old file's attributes only after a
+        # chown to its group, which fails for a group the user is not in, and the
+        # file came out 0600: only the explicit mode keeps it as it was.
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                _a_directory_of_a_group_the_user_is_not_in() is None,
+                reason="needs macOS and a directory of a foreign group",
+            ),
+        ),
+    ],
+    ids=["own-group", "foreign-group"],
 )
-def test_the_mode_survives_a_group_the_user_is_not_in() -> None:
-    # Ansible's atomic move copies the old file's attributes only after a
-    # chown to its group, which fails for a group the user is not in, and the
-    # file came out 0600: only the explicit mode keeps it as it was.
-    import shutil
-    import tempfile
-
-    root = Path(tempfile.mkdtemp(dir=_a_directory_of_a_group_the_user_is_not_in()))
+def test_the_mode_of_an_existing_user_config_is_left_alone(tmp_path: Path, foreign: bool) -> None:
+    root = Path(tempfile.mkdtemp(dir=_a_directory_of_a_group_the_user_is_not_in())) if foreign else tmp_path
     try:
         user_config = _user_config(root)
         user_config.parent.mkdir(parents=True)
         user_config.write_text("Host github.com\n    User git\n")
         user_config.chmod(0o644)
-        assert user_config.stat().st_gid not in os.getgroups()
+        assert not foreign or user_config.stat().st_gid not in os.getgroups()
         result = _run(root, [ALPHA])
         assert result.returncode == 0, result.stdout + result.stderr
         assert user_config.read_text().startswith("Include ")
         assert oct(user_config.stat().st_mode & 0o777) == "0o644"
     finally:
-        shutil.rmtree(root)
+        if foreign:
+            shutil.rmtree(root)
 
 
 @pytest.mark.parametrize(
@@ -389,22 +387,31 @@ def test_a_bad_option_fails_validation_and_leaves_the_file_alone(tmp_path: Path)
     assert _managed(tmp_path) == before
 
 
-@pytest.mark.parametrize(
-    "vm",
-    [
-        {"name": "evil", "address": "192.0.2.7\n    ProxyCommand touch owned", "user": "dev"},
-        {"name": "evil", "address": "-oProxyCommand=touch owned", "user": "dev"},
-        {"name": "evil\n    ProxyCommand touch owned", "address": "192.0.2.7", "user": "dev"},
-    ],
-)
-def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_written(tmp_path: Path, vm: dict) -> None:
+def _failed(result: subprocess.CompletedProcess[str]) -> str:
+    """The message of the one task that failed, as the default callback prints its result."""
+    match = re.search(r"^fatal: \[localhost\]: FAILED! => (.*)$", result.stdout, flags=re.M)
+    assert match, result.stdout + result.stderr
+    return json.loads(match.group(1))["msg"]
+
+
+def test_a_name_or_address_that_is_not_one_word_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
     # The address is what a VM's guest agent reported, which the VM chooses.
     # guest_ipv4 already refuses this; the task file must hold on its own.
+    # One task refuses every such VM in one message, so one run shows each kind.
+    unsafe = [
+        {"name": "evil-address-newline", "address": "192.0.2.7\n    ProxyCommand touch owned", "user": "dev"},
+        {"name": "evil-address-option", "address": "-oProxyCommand=touch owned", "user": "dev"},
+        {"name": "evil\n    ProxyCommand touch owned", "address": "192.0.2.7", "user": "dev"},
+    ]
     assert _run(tmp_path, [ALPHA]).returncode == 0
     before = _managed(tmp_path)
-    result = _run(tmp_path, [ALPHA, vm])
+    result = _run(tmp_path, [ALPHA, *unsafe])
     assert result.returncode != 0
-    assert "is not one plain word" in result.stdout
+    said = _failed(result)
+    assert "is not one plain word" in said
+    # Each named, as the task writes a name (to_json): a newline in one is never a line of the message.
+    assert all(json.dumps(vm["name"]) in said for vm in unsafe), said
+    assert '"alpha"' not in said
     assert _managed(tmp_path) == before
     assert "ProxyCommand" not in _managed(tmp_path)
     assert not (tmp_path / "owned").exists()
@@ -419,28 +426,21 @@ def _named(*names: str) -> dict:
     return {"vm_name": ",".join(names), "claude_vm_names_chosen": list(names)}
 
 
-@pytest.mark.parametrize(
-    ("name", "said"),
-    [
-        # The managed file is included ahead of the user's own config: this
-        # machine's root SSH to the Proxmox host would go to the address the VM reported.
-        ("192.0.2.10", "ssh reads it as an address"),
-        ("3232235777", "ssh reads it as an address"),
-        ("0x7f000001", "ssh reads it as an address"),
-        ("pve", "names a host of the inventory"),
-        ("pve.lan", "names a host of the inventory"),
-    ],
-)
-def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(
-    tmp_path: Path, name: str, said: str
-) -> None:
-    # Named on the just line or not, an address or a name of the inventory is never an alias.
+def test_a_name_given_that_ssh_would_take_for_another_host_is_refused_and_nothing_is_written(tmp_path: Path) -> None:
+    # Named on the just line or not, an address or a name of the inventory is never an alias. The managed file is
+    # included ahead of the user's own config: this machine's root SSH to the Proxmox host would go to the address the
+    # VM reported. One task refuses every such name, in one message, so one run of an address and a name of the
+    # inventory, both given (a dot is no excuse), shows the task's wiring; which names ssh takes for another host,
+    # 3232235777 and 0x7f000001 among them, is the filter's, test_filters' TestSshAliasRefusal.
+    refused = {"192.0.2.10": "ssh reads it as an address", "pve.lan": "it names a host of the inventory"}
     assert _run(tmp_path, [ALPHA], **INVENTORY).returncode == 0
     before = _managed(tmp_path)
-    vms = [ALPHA, {"name": name, "address": "192.0.2.66", "user": "dev"}]
-    result = _run(tmp_path, vms, **INVENTORY, **_named("alpha", name))
+    vms = [ALPHA, *({"name": name, "address": "192.0.2.66", "user": "dev"} for name in refused)]
+    result = _run(tmp_path, vms, **INVENTORY, **_named("alpha", *refused))
     assert result.returncode != 0
-    assert "Not writing an alias for " + name in result.stdout and said in result.stdout
+    said = _failed(result)
+    assert said.startswith("Not writing an alias for 192.0.2.10, pve.lan: "), said
+    assert all(f"{name}: {why}" in said for name, why in refused.items()), said
     assert _managed(tmp_path) == before
 
 

@@ -305,11 +305,11 @@ def test_the_privileges_are_the_ones_just_init_checks() -> None:
     assert "agent=VM.GuestAgent.Audit; else agent=VM.Monitor" in text
 
 
-def test_the_commands_the_docs_show_are_the_ones_it_runs(tmp_path: Path) -> None:
+def test_the_commands_the_docs_show_are_the_ones_it_runs() -> None:
+    # PLAN is what its dry run prints: test_the_dry_run_prints_the_commands_and_changes_nothing.
     page = (REPO / "docs" / "getting-started" / "proxmox-access.md").read_text()
     shown = re.search(r"it runs:\n\n```text\n(.*?)```", page, re.S).group(1).splitlines()
     assert shown == PLAN
-    assert _access(tmp_path, "--dry-run").stdout.splitlines() == shown
 
 
 def test_its_stdout_is_data_and_its_talk_is_stderr() -> None:

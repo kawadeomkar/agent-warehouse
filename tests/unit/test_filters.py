@@ -53,6 +53,19 @@ class TestNetMac:
         with pytest.raises(ValueError, match="expects a string"):
             net_mac(None)
 
+    # With a default, as a fleet-wide sweep passes one: it must not abort because one VM has no readable NIC. Without
+    # one it raises, as the two tests above hold.
+    def test_returns_the_default_when_no_mac_is_present(self):
+        assert net_mac("", "") == ""
+        assert net_mac("bridge=vmbr0", "") == ""
+
+    def test_returns_the_default_for_a_non_string(self):
+        assert net_mac(None, "") == ""
+        assert net_mac(["virtio=BC:24:11:00:00:01"], "") == ""
+
+    def test_a_default_does_not_mask_a_real_mac(self):
+        assert net_mac("virtio=BC:24:11:0E:72:04,bridge=vmbr0", "") == "bc:24:11:0e:72:04"
+
 
 class TestGuestIpv4:
     def test_returns_the_address_of_the_matching_nic(self):
@@ -195,25 +208,6 @@ class TestTailnetIpv4:
 
     def test_a_bad_entry_does_not_hide_a_good_one_after_it(self):
         assert tailnet_ipv4(["100.64.0.2 x", "100.127.255.254"]) == "100.127.255.254"
-
-
-class TestNetMacDefault:
-    """A fleet-wide sweep must not abort because one VM has no readable NIC."""
-
-    def test_returns_the_default_when_no_mac_is_present(self):
-        assert net_mac("", "") == ""
-        assert net_mac("bridge=vmbr0", "") == ""
-
-    def test_returns_the_default_for_a_non_string(self):
-        assert net_mac(None, "") == ""
-        assert net_mac(["virtio=BC:24:11:00:00:01"], "") == ""
-
-    def test_still_raises_without_a_default(self):
-        with pytest.raises(ValueError):
-            net_mac("bridge=vmbr0")
-
-    def test_a_default_does_not_mask_a_real_mac(self):
-        assert net_mac("virtio=BC:24:11:0E:72:04,bridge=vmbr0", "") == "bc:24:11:0e:72:04"
 
 
 def vm_info(config=None, network=None):

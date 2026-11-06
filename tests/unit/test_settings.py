@@ -101,7 +101,7 @@ def _scenario(root: Path, name: str, local_extra: str, env: dict, address: str =
 
 
 @pytest.fixture(scope="module")
-def scenarios(tmp_path_factory) -> dict[str, Path]:
+def scenarios(tmp_path_factory) -> dict:
     root = tmp_path_factory.mktemp("settings")
     (root / "pw").write_text(PASSWORD)
     (root / "home" / ".ssh").mkdir(parents=True)
@@ -112,7 +112,7 @@ def scenarios(tmp_path_factory) -> dict[str, Path]:
     copied = "tailscale_login_server: \"{{ lookup('ansible.builtin.vars', 'vault_' ~ 'github_token') }}\"\n"
     empty = root / "empty" / "inventory"
     empty.mkdir(parents=True)
-    return {
+    scenarios = {
         "root": root,
         "base": _scenario(root, "base", "# A secret vaulted inline in local.yml\n" + inline, env, "192.0.2.55"),
         "copied": _scenario(root, "copied", copied, env),
@@ -120,6 +120,9 @@ def scenarios(tmp_path_factory) -> dict[str, Path]:
         "plain": _scenario(root, "plain", "", env),
         "empty": empty,
     }
+    # A read view's run, made once for the module however many tests read it: the scenarios are never written.
+    scenarios["cached"] = functools.cache(lambda inventory, args: _run(scenarios, inventory, *args))
+    return scenarios
 
 
 def _run(
@@ -163,27 +166,21 @@ def _run(
     return result
 
 
-@functools.cache
-def _cached(scenarios_id: int, inventory: str, args: tuple) -> subprocess.CompletedProcess:
-    return _run(_SCENARIOS[scenarios_id], inventory, *args)
-
-
-_SCENARIOS: dict[int, dict] = {}
-
-
-def _report(scenarios: dict, *args: str, inventory: str = "base") -> dict:
+def _rows(result: subprocess.CompletedProcess) -> dict:
     """The JSON report of a run that works, its rows by name."""
-    _SCENARIOS[id(scenarios)] = scenarios
-    result = _cached(id(scenarios), inventory, ("--json=true", *args))
     assert result.returncode == 0, result.stderr[-2000:]
     report = json.loads(result.stdout)
     report["rows"] = {row["name"]: row for row in report["settings"]}
     return report
 
 
+def _report(scenarios: dict, *args: str, inventory: str = "base") -> dict:
+    """The JSON report of a run on a scenario, made once."""
+    return _rows(scenarios["cached"](inventory, ("--json=true", *args)))
+
+
 def _text(scenarios: dict, *args: str) -> str:
-    _SCENARIOS[id(scenarios)] = scenarios
-    result = _cached(id(scenarios), "base", args)
+    result = scenarios["cached"]("base", args)
     assert result.returncode == 0, result.stderr[-2000:]
     return result.stdout
 
@@ -463,11 +460,7 @@ def test_the_vm_settings_are_what_their_role_variables_read(scenarios, tmp_path)
 
 def _report_of(scenarios: dict, inventory: Path, *args: str) -> dict:
     """As _report, of an inventory of the test's own, never cached."""
-    result = _run(scenarios, inventory, "--json=true", *args)
-    assert result.returncode == 0, result.stderr[-2000:]
-    report = json.loads(result.stdout)
-    report["rows"] = {row["name"]: row for row in report["settings"]}
-    return report
+    return _rows(_run(scenarios, inventory, "--json=true", *args))
 
 
 def test_the_json_keeps_every_key_1x_promises(scenarios) -> None:
@@ -501,6 +494,15 @@ def _local(inventory: Path) -> Path:
 
 def _set(scenarios: dict, inventory: Path, name: str, value: str, *args: str) -> subprocess.CompletedProcess:
     return _run(scenarios, inventory, f"--value={value}", *args, "--", name)
+
+
+def _refused(scenarios: dict, inventory: Path, said: str, *args: str) -> subprocess.CompletedProcess:
+    """A run of the tool with args that refuses, saying said: exit 1, nothing on stdout, local.yml byte for byte."""
+    before = _local(inventory).read_bytes()
+    result = _run(scenarios, inventory, *args)
+    assert result.returncode == 1 and result.stdout == "" and said in result.stderr, result.stderr[-500:]
+    assert _local(inventory).read_bytes() == before
+    return result
 
 
 def _only_change(before: str, after: str) -> list[tuple[str, str]]:
@@ -609,14 +611,16 @@ def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, valu
         # The editors just code has files for, and no other.
         ("editor", "emacs", "editor takes one of vscode, zed: the value given is not one"),
         ("tailscale_advertise_tags", "[unclosed", "is not YAML"),
+        # A secret of the vault's, as a plain value and where a number goes: refused as the secret it is, unsaid
+        # (_run holds that). Named, so that no test's ID carries the secret.
+        pytest.param("vm_default_name", FAKE["vault_github_token"], "a secret the vault holds", id="secret-as-text"),
+        pytest.param("vm_cores", FAKE["vault_github_token"], "a secret the vault holds", id="secret-as-number"),
     ],
 )
 def test_a_value_its_type_does_not_take_is_refused_and_nothing_written(scenarios, tmp_path, name, value, said) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
-    result = _set(scenarios, inventory, name, value)
-    assert result.returncode == 1 and result.stdout == "" and said in result.stderr, result.stderr[-500:]
-    assert _local(inventory).read_bytes() == before
+    result = _refused(scenarios, _writable(scenarios, tmp_path), said, f"--value={value}", "--", name)
+    # Never said back: a value typed may be a secret.
+    assert value not in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -632,13 +636,9 @@ def test_a_value_its_type_does_not_take_is_refused_and_nothing_written(scenarios
     ],
 )
 def test_a_secret_is_refused_for_just_vault_and_the_value_never_said(scenarios, tmp_path, name) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
     typed = "typed-on-the-command-line-0000"
-    result = _set(scenarios, inventory, name, typed)
-    assert result.returncode == 1 and result.stdout == ""
-    assert "just vault" in result.stderr and typed not in result.stderr
-    assert _local(inventory).read_bytes() == before
+    result = _refused(scenarios, _writable(scenarios, tmp_path), "just vault", f"--value={typed}", "--", name)
+    assert typed not in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -653,46 +653,35 @@ def test_a_secret_is_refused_for_just_vault_and_the_value_never_said(scenarios, 
     ],
 )
 def test_what_is_not_one_setting_for_every_vm_is_refused(scenarios, tmp_path, name, said) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
-    result = _set(scenarios, inventory, name, "anything")
-    assert result.returncode == 1 and said in result.stderr, result.stderr[-500:]
-    assert _local(inventory).read_bytes() == before
+    _refused(scenarios, _writable(scenarios, tmp_path), said, "--value=anything", "--", name)
 
 
 def test_an_expression_or_a_control_character_is_refused(scenarios, tmp_path) -> None:
     inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
     ran = tmp_path / "ran"
-    expression = _set(scenarios, inventory, "vm_default_name", "{{ lookup('pipe', 'touch " + str(ran) + "') }}")
-    assert expression.returncode == 1 and "never an expression" in expression.stderr
-    control = _set(scenarios, inventory, "vm_default_name", "a\tb")
-    assert control.returncode == 1 and "without a control character" in control.stderr
-    assert _local(inventory).read_bytes() == before and not ran.exists()
+    expression = "{{ lookup('pipe', 'touch " + str(ran) + "') }}"
+    _refused(scenarios, inventory, "never an expression", f"--value={expression}", "--", "vm_default_name")
+    _refused(scenarios, inventory, "without a control character", "--value=a\tb", "--", "vm_default_name")
+    assert not ran.exists()
 
 
 def test_an_expression_or_a_secret_spelt_with_yaml_s_escapes_is_refused(scenarios, tmp_path) -> None:
     # A list is parsed as YAML, which decodes \x7b to {: the text holds no {{, the value written would.
     inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
     ran = tmp_path / "ran"
     escaped = "[\"\\x7b{ lookup('pipe', 'touch " + str(ran) + "') }}\"]"
-    expression = _set(scenarios, inventory, "tailscale_advertise_tags", escaped)
-    assert expression.returncode == 1 and "never an expression" in expression.stderr, expression.stderr[-500:]
+    _refused(scenarios, inventory, "never an expression", f"--value={escaped}", "--", "tailscale_advertise_tags")
     token = FAKE["vault_github_token"]
     spelt = '["\\x' + format(ord(token[0]), "02x") + token[1:] + '"]'
-    secret = _set(scenarios, inventory, "tailscale_advertise_tags", spelt)
-    assert secret.returncode == 1 and "a secret the vault holds" in secret.stderr, secret.stderr[-500:]
-    assert token[1:] not in secret.stdout + secret.stderr
-    assert _local(inventory).read_bytes() == before and not ran.exists()
+    secret = _refused(
+        scenarios, inventory, "a secret the vault holds", f"--value={spelt}", "--", "tailscale_advertise_tags"
+    )
+    assert token[1:] not in secret.stderr
+    assert not ran.exists()
 
 
-def test_a_vault_secret_given_as_a_plain_value_is_refused_unsaid(scenarios, tmp_path) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
-    result = _set(scenarios, inventory, "vm_default_name", FAKE["vault_github_token"])
-    assert result.returncode == 1 and "a secret the vault holds" in result.stderr
-    assert _local(inventory).read_bytes() == before
+# A vault secret given as a plain value is refused unsaid:
+# test_a_value_its_type_does_not_take_is_refused_and_nothing_written.
 
 
 def test_a_value_already_set_writes_nothing(scenarios, tmp_path) -> None:
@@ -729,10 +718,7 @@ def test_two_lines_setting_one_name_are_refused(scenarios, tmp_path) -> None:
     inventory = _writable(scenarios, tmp_path)
     local = _local(inventory)
     local.write_text(local.read_text() + "vm_cores: 6\n")
-    before = local.read_bytes()
-    result = _set(scenarios, inventory, "vm_cores", "8")
-    assert result.returncode == 1 and "sets vm_cores on 2 lines" in result.stderr
-    assert local.read_bytes() == before
+    _refused(scenarios, inventory, "sets vm_cores on 2 lines", "--value=8", "--", "vm_cores")
 
 
 def test_a_layout_the_read_back_does_not_hold_writes_nothing(scenarios, tmp_path) -> None:
@@ -740,10 +726,8 @@ def test_a_layout_the_read_back_does_not_hold_writes_nothing(scenarios, tmp_path
     inventory = _writable(scenarios, tmp_path)
     local = _local(inventory)
     local.write_text(local.read_text() + "tailscale_accept_dns: &dns true\ntailscale_accept_routes: *dns\n")
-    before = local.read_bytes()
-    result = _set(scenarios, inventory, "tailscale_accept_dns", "false")
-    assert result.returncode == 1 and "can be changed safely: nothing was written" in result.stderr
-    assert local.read_bytes() == before
+    said = "can be changed safely: nothing was written"
+    _refused(scenarios, inventory, said, "--value=false", "--", "tailscale_accept_dns")
 
 
 def test_the_read_views_change_says_what_the_writer_takes(scenarios) -> None:
@@ -757,14 +741,7 @@ def test_the_read_views_change_says_what_the_writer_takes(scenarios) -> None:
     assert tailscale["tailscale_ssh"]["change"] == "just settings tailscale_ssh --value <value>"
 
 
-def test_value_names_one_setting(scenarios) -> None:
-    for args in (
-        ("--value=true",),
-        ("--value=true", "--all=true"),
-        ("--value=true", "--changed=true", "--", "vm_cores"),
-    ):
-        result = _run(scenarios, "base", *args)
-        assert result.returncode == 1 and "each change one setting, named beside it" in result.stderr, args
+# --value names one setting: test_value_or_reset_names_one_setting.
 
 
 # ------------------------------------------------------------------------------- --reset: back to the default ---
@@ -889,21 +866,17 @@ def test_reset_takes_out_a_per_vm_name_set_by_hand(scenarios, tmp_path) -> None:
     ],
 )
 def test_reset_of_a_secret_or_the_hosts_address_is_refused(scenarios, tmp_path, name, said) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    before = _local(inventory).read_bytes()
-    result = _reset(scenarios, inventory, name)
-    assert result.returncode == 1 and said in result.stderr, result.stderr[-500:]
-    assert _local(inventory).read_bytes() == before
+    _refused(scenarios, _writable(scenarios, tmp_path), said, "--reset=true", "--", name)
 
 
-def test_reset_names_one_setting_and_never_beside_value(scenarios) -> None:
-    for args in (
-        ("--reset=true",),
-        ("--reset=true", "--all=true"),
-        ("--reset=true", "--changed=true", "--", "vm_cores"),
-    ):
+@pytest.mark.parametrize("change", ["--value=true", "--reset=true"], ids=["value", "reset"])
+def test_value_or_reset_names_one_setting(scenarios, change) -> None:
+    for args in ((change,), (change, "--all=true"), (change, "--changed=true", "--", "vm_cores")):
         result = _run(scenarios, "base", *args)
         assert result.returncode == 1 and "each change one setting, named beside it" in result.stderr, args
+
+
+def test_reset_is_never_beside_value(scenarios) -> None:
     both = _run(scenarios, "base", "--reset=true", "--value=4", "--", "vm_cores")
     assert both.returncode == 1 and "one or the other" in both.stderr
 
@@ -928,14 +901,7 @@ def test_an_unknown_name_is_never_said_back_but_close_ones_are_named(scenarios) 
     assert "did you mean vm_cores" in _run(scenarios, "base", "--", "vm_core").stderr
 
 
-def test_a_refused_value_is_never_said_back(scenarios, tmp_path) -> None:
-    inventory = _writable(scenarios, tmp_path)
-    for name, value in (("vm_cores", "abcdefghijk"), ("tailscale_advertise_tags", "[unclosedxyz")):
-        result = _set(scenarios, inventory, name, value)
-        assert result.returncode == 1 and value not in result.stderr, result.stderr[-300:]
-    # A secret of the vault's, where a number goes: refused as the secret it is, unsaid (_run holds that).
-    token = _set(scenarios, inventory, "vm_cores", FAKE["vault_github_token"])
-    assert token.returncode == 1 and "a secret the vault holds" in token.stderr
+# A refused value is never said back: test_a_value_its_type_does_not_take_is_refused_and_nothing_written, every row.
 
 
 def test_a_role_variable_set_by_hand_is_written_where_it_is(scenarios, tmp_path) -> None:
@@ -963,10 +929,7 @@ def test_a_key_not_on_a_line_of_its_own_is_never_written_twice(scenarios, tmp_pa
     inventory = _writable(scenarios, tmp_path)
     local = _local(inventory)
     local.write_text(local.read_text().replace("\nvm_cores: 4\n", '\n"vm_cores": 4\n'))
-    before = local.read_bytes()
-    result = _set(scenarios, inventory, "vm_cores", "8")
-    assert result.returncode == 1 and "not on a line of its own" in result.stderr
-    assert local.read_bytes() == before
+    _refused(scenarios, inventory, "not on a line of its own", "--value=8", "--", "vm_cores")
 
 
 def test_a_group_var_of_hosts_yml_ranks_below_local_yml_as_ansibles_does(scenarios, tmp_path) -> None:

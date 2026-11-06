@@ -161,9 +161,9 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     ("name", "said"),
     [
         ("pve", "pve is the name of a host in the inventory"),
+        # The address the inventory reaches the Proxmox host at is one more address, refused as this one is: the
+        # inventory's ansible_host is reached only through a host name, the next test's.
         ("3232235777", "ssh reads it as an address"),
-        # The address the inventory reaches the Proxmox host at.
-        ("127.0.0.1", "ssh reads it as an address"),
     ],
 )
 def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, fleet, playbook, name, said) -> None:
