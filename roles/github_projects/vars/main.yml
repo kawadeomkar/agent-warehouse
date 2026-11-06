@@ -229,8 +229,8 @@ github_projects_listing_token_set: "{{ github_projects_listing_token | length > 
 github_projects_dotted: >-
   {{ github_projects_listing.repos | map(attribute='name') | select('match', '[.]') | list }}
 
-# The repositories after the role's own filters: never-pushed ones out, the
-# exclude list out, the include list in when there is one.
+# The repositories after the role's own filters: empty ones out (no branch to
+# check out), the exclude list out, the include list in when there is one.
 github_projects_candidates: >-
   {{ github_projects_listing.repos
      | rejectattr('empty')

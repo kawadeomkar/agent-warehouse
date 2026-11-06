@@ -6,10 +6,10 @@
     - name: Stat expected and unexpected checkouts
       ansible.builtin.stat:
         path: "/home/dev/projects/{{ item }}"
-      loop: [alpha, beta, gamma, delta, excluded-one, epsilon, secret]
+      loop: [alpha, beta, gamma, delta, excluded-one, epsilon, secret, zeta]
       register: github_projects_verify_dirs
 
-    - name: Assert the non-fork, non-archived, non-excluded, non-empty repos were cloned, the private one included
+    - name: Assert the non-fork, non-archived, non-excluded, non-empty repos were cloned, the private one included, the fresh one not
       ansible.builtin.assert:
         that:
           - github_projects_verify_dirs.results[0].stat.exists
@@ -19,6 +19,7 @@
           - not github_projects_verify_dirs.results[4].stat.exists
           - not github_projects_verify_dirs.results[5].stat.exists
           - github_projects_verify_dirs.results[6].stat.exists
+          - not github_projects_verify_dirs.results[7].stat.exists
           - github_projects_verify_dirs.results[0].stat.pw_name == 'dev'
         quiet: true
 

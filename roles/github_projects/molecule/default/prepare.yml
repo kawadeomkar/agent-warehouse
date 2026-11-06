@@ -13,6 +13,8 @@
       - delta:archived
       - excluded-one
       - epsilon:empty
+      # Created and given no commit: a push time like any other, no branch.
+      - zeta:fresh
       - secret:private
   tasks:
     - name: Create the target user
