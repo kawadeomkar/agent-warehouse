@@ -11,21 +11,12 @@ import textwrap
 import time
 
 from ..status.model import fmt_gib, remote_control, short_kernel, uptime_said, work_said
-from . import screen as _screen
+from .screen import PENDING, bar, cut, plural, render, seg, spark
 
-seg, plain, pad, cut, render, bar, spark, plural = (
-    _screen.seg,
-    _screen.plain,
-    _screen.pad,
-    _screen.cut,
-    _screen.render,
-    _screen.bar,
-    _screen.spark,
-    _screen.plural,
-)
-PENDING = _screen.PENDING
 # The widest line the report draws, a tested limit.
 WIDTH = 100
+# The widest a VM's name is drawn, in every section: so a row fits WIDTH with every cell at its widest.
+NAME_WIDTH = 13
 
 
 # ------------------------------------------------------------------------------------------------- the text ----
@@ -35,6 +26,20 @@ def _dot(state):
     return {"running": ("●", "g"), "stopped": ("○", "d"), "paused": ("●", "y")}.get(state, ("●", "y"))
 
 
+def _short(name, width):
+    """A name cut to width, ending in "…" when it is longer: never cut without a sign, so a cut name is never read as
+    another VM's whole one."""
+    return name if len(name) <= width else name[: width - 1] + "…"
+
+
+def _others(others, nodes):
+    """The VMs on the cluster that are not this project's, as totals in one sentence: never one by name."""
+    return (
+        f"+ {plural(others['count'], 'other VM')} on {nodes}, not this project's: {plural(others['vcpus'], 'vCPU')},"
+        f" {fmt_gib(others['mem'])} GiB, {others['running']} running"
+    )
+
+
 def _vms_lines(model):
     vms = model["vms"]
     others = model.get("others") or {}
@@ -42,17 +47,7 @@ def _vms_lines(model):
     lines = []
     if not vms:
         if others.get("count"):
-            lines.append(
-                [
-                    seg("VMS", "h"),
-                    seg(
-                        f"  + {plural(others['count'], 'other VM')} on {nodes}, not this project's:"
-                        f" {plural(others['vcpus'], 'vCPU')}, {fmt_gib(others['mem'])} GiB,"
-                        f" {others['running']} running",
-                        "d",
-                    ),
-                ]
-            )
+            lines.append([seg("VMS", "h"), seg(f"  {_others(others, nodes)}", "d")])
         return lines
     vcpus = sum(int(vm.get("vcpus") or 0) for vm in vms)
     mem = sum(int(vm.get("maxmem") or 0) for vm in vms)
@@ -66,8 +61,7 @@ def _vms_lines(model):
             ),
         ]
     )
-    # A name past 13 characters is cut, so the row fits 100 columns with every cell at its widest.
-    nw = min(13, max([5] + [len(vm.get("name") or "(no name)") for vm in vms]))
+    nw = min(NAME_WIDTH, max([5] + [len(vm.get("name") or "(no name)") for vm in vms]))
     lines.append(
         [
             seg(
@@ -77,8 +71,7 @@ def _vms_lines(model):
         ]
     )
     for vm in vms:
-        name = vm.get("name") or "(no name)"
-        name = name if len(name) <= nw else name[: nw - 1] + "…"
+        name = _short(vm.get("name") or "(no name)", nw)
         state = vm.get("state") or "unknown"
         dot, style = _dot(state)
         if vm.get("skipped") == "node":
@@ -110,17 +103,7 @@ def _vms_lines(model):
         if isinstance(pressure, (int, float)) and pressure > 0.10:
             lines.append([seg(f"{'':{14 + nw}}waited for the host's CPU {pressure:.0%} of the last hour", "d")])
     if others.get("count"):
-        lines.append(
-            [
-                seg(
-                    f"       + {plural(others['count'], 'other VM')} on"
-                    f" {', '.join(others.get('nodes') or []) or nodes},"
-                    f" not this project's: {plural(others['vcpus'], 'vCPU')}, {fmt_gib(others['mem'])} GiB,"
-                    f" {others['running']} running",
-                    "d",
-                )
-            ]
-        )
+        lines.append([seg(f"       {_others(others, ', '.join(others.get('nodes') or []) or nodes)}", "d")])
     return lines
 
 
@@ -171,7 +154,25 @@ def _ssh_vms(model):
 
 
 def _name_width(vms):
-    return min(13, max([5] + [len(vm["name"]) for vm in vms]))
+    return min(NAME_WIDTH, max([5] + [len(vm["name"]) for vm in vms]))
+
+
+def _ssh_table(model):
+    """A section read over SSH, a row per VM: its VMs, how wide their names are drawn, and where its first column
+    starts, past the name and never before the section's title ends."""
+    vms = _ssh_vms(model)
+    nw = _name_width(vms)
+    return vms, nw, max(nw + 3, 10)
+
+
+def _columns(names, widths):
+    """A table's column heads: each but the last padded to its column's width."""
+    return "".join(name.ljust(width) for name, width in zip(names[:-1], widths, strict=True)) + names[-1]
+
+
+def _name_cell(vm, nw, first):
+    """A row's first cell: the VM's name, cut to nw, padded to where the first column starts."""
+    return seg(f" {_short(vm['name'], nw):<{first - 1}}")
 
 
 def _cell(text, width, style=""):
@@ -198,8 +199,7 @@ def _access_lines(model):
     for vm in vms:
         state = vm.get("state")
         lan = vm.get("address") or ("stopped" if state == "stopped" else "—")
-        name = vm["name"] if len(vm["name"]) <= nw else vm["name"][: nw - 1] + "…"
-        row = [seg(f" {name:<{nw}}   "), seg(f"{lan:<14}", "d" if not vm.get("address") else "")]
+        row = [seg(f" {_short(vm['name'], nw):<{nw}}   "), seg(f"{lan:<14}", "d" if not vm.get("address") else "")]
         if aliases:
             # A cell one short and a space: two spaces before the tailnet column, an alias cut or not.
             alias = _cell(vm["name"] if vm.get("alias") else "none", alias_width - 1, "" if vm.get("alias") else "y")
@@ -294,28 +294,16 @@ def _not_read_cell(vm):
 
 
 def _signins_lines(model):
-    vms = _ssh_vms(model)
+    vms, nw, first = _ssh_table(model)
     if not vms:
         return []
-    nw = _name_width(vms)
-    first = max(nw + 3, len("SIGN-INS") + 2)
     widths = (25, 25, 18)
-    head = [
-        seg("SIGN-INS", "h"),
-        seg(
-            " " * (first - len("SIGN-INS"))
-            + "CLAUDE CODE".ljust(widths[0])
-            + "REMOTE CONTROL".ljust(widths[1])
-            + "GITHUB".ljust(widths[2])
-            + "TAILSCALE",
-            "d",
-        ),
-    ]
-    lines = [head]
+    columns = _columns(("CLAUDE CODE", "REMOTE CONTROL", "GITHUB", "TAILSCALE"), widths)
+    lines = [[seg("SIGN-INS", "h"), seg(" " * (first - len("SIGN-INS")) + columns, "d")]]
     now = model.get("now") or time.time()
     for vm in vms:
         ssh = vm.get("ssh") or {}
-        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        row = [_name_cell(vm, nw, first)]
         claude, github, tailscale = ssh.get("claude"), ssh.get("github"), ssh.get("tailscale")
         cells = [
             _claude_cell(claude) if claude else _not_read_cell(vm),
@@ -331,30 +319,17 @@ def _signins_lines(model):
 
 
 def _system_lines(model):
-    vms = _ssh_vms(model)
+    vms, nw, first = _ssh_table(model)
     if not vms:
         return []
-    nw = _name_width(vms)
-    first = max(nw + 3, len("SYSTEM") + 4)
     widths = (16, 29, 17)
-    head = [
-        seg("SYSTEM", "h"),
-        seg(
-            " " * (first - len("SYSTEM"))
-            + "OS".ljust(widths[0])
-            + "KERNEL".ljust(widths[1])
-            + "LOAD 1 / 15 MIN".ljust(widths[2])
-            + "UPDATES",
-            "d",
-        ),
-    ]
-    lines = [head]
+    columns = _columns(("OS", "KERNEL", "LOAD 1 / 15 MIN", "UPDATES"), widths)
+    lines = [[seg("SYSTEM", "h"), seg(" " * (first - len("SYSTEM")) + columns, "d")]]
     for vm in vms:
         system = (vm.get("ssh") or {}).get("system")
-        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        row = [_name_cell(vm, nw, first)]
         if not system:
-            text, style = _not_read_cell(vm)
-            lines.append(row + [seg(text, style)])
+            lines.append(row + [seg(*_not_read_cell(vm))])
             continue
         os_name = re.sub(r"\s+LTS$", "", str(system.get("os") or "—"))
         running, newest = short_kernel(system.get("kernel")), short_kernel(system.get("kernel_newest"))
@@ -393,7 +368,7 @@ def _attention_lines(model):
     lines = [head]
     for it in items:
         style = {"unread": "r", "problem": "r", "todo": "y"}[it["level"]]
-        prefix = f" {it['subject'][:11]:<12}"
+        prefix = f" {_short(it['subject'], 11):<12}"
         source = f"{it['source'].split('_')[0]}: " if it.get("source") not in (None, "status") else ""
         text = textwrap.wrap(source + it["text"], WIDTH - 15, break_on_hyphens=False) or [""]
         first = [seg(" "), seg("●", style), seg(prefix)]
@@ -410,37 +385,26 @@ def _attention_lines(model):
 
 
 def _work_lines(model):
-    vms = _ssh_vms(model)
+    vms, nw, first = _ssh_table(model)
     if not vms:
         return []
-    nw = _name_width(vms)
-    first = max(nw + 3, 10)
     # Narrow enough that the last column's "10 windows" still fits 100 columns after a name of 13: 16 + 73 + 10.
     widths = (24, 40, 9)
     directory = next(
         (((vm.get("ssh") or {}).get("work") or {}).get("dir") for vm in vms if (vm.get("ssh") or {}).get("work")),
         "~/projects",
     )
+    columns = _columns(("CHECKED", "NOT ON ANY REMOTE, OR NOT COMMITTED", "CLAUDE", "EDITOR"), widths)
     lines = [
         [seg("WORK", "h"), seg(f"  in {directory}, as of each checkout's last fetch", "d")],
-        [
-            seg(
-                " " * first
-                + "CHECKED".ljust(widths[0])
-                + "NOT ON ANY REMOTE, OR NOT COMMITTED".ljust(widths[1])
-                + "CLAUDE".ljust(widths[2])
-                + "EDITOR",
-                "d",
-            )
-        ],
+        [seg(" " * first + columns, "d")],
     ]
     for vm in vms:
         ssh = vm.get("ssh") or {}
         work, system = ssh.get("work"), ssh.get("system")
-        row = [seg(f" {vm['name'][:nw]:<{first - 1}}")]
+        row = [_name_cell(vm, nw, first)]
         if not work:
-            text, style = _not_read_cell(vm)
-            lines.append(row + [seg(text, style)])
+            lines.append(row + [seg(*_not_read_cell(vm))])
             continue
         checked = plural(work.get("checkouts") or 0, "checkout")
         if work.get("worktrees"):

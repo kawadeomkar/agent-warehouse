@@ -30,6 +30,7 @@ from harness import PVE_SECRET, REPO, _executable, _pve_requests, _pve_vars, _ru
 from claude_vm import proxmox as proxmox_filters
 from claude_vm import text as text_filters
 from claude_vm.status import model as S
+from claude_vm.tui import screen
 from claude_vm.tui import status as T
 
 STATUS = REPO / "playbooks" / "status.yml"
@@ -444,7 +445,7 @@ def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_li
         "the template ubuntu-24.04-cloudinit differs from its settings (bridge vmbr0 → vmbr1;"
         " cpu host → x86-64-v2-AES), so the next just deploy rebuilds it, over root SSH"
     )
-    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · next deploy rebuilds it" in said, said
 
 
@@ -455,7 +456,7 @@ def test_a_template_kept_as_it_is_is_no_thing_to_do() -> None:
     )
     model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
     assert not [it for it in model["attention"] if it["vm"] == "template"]
-    said = "\n".join(T.plain(line) for line in T._storage_lines(model))
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · differs, kept" in said, said
 
 
@@ -492,7 +493,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
         ],
         "settings": {"aliases_enabled": True, "tailscale_enabled": True, "editor_name": "VS Code"},
     }
-    lines = [T.plain(line) for line in T._access_lines(model)]
+    lines = [screen.plain(line) for line in T._access_lines(model)]
     column = lines[0].index("TAILNET")
     for line in lines[1:-1]:
         assert line[column - 2 : column] == "  " and line[column] != " ", line
@@ -538,9 +539,29 @@ def test_the_editor_cell_is_whole_beside_the_longest_name() -> None:
         return {"name": name, "needs_ssh": True, "ssh": {"work": {"checkouts": 24}, "system": system}}
 
     model = {"vms": [vm("a-thirteen-ch", 10), vm("zed-trial", 1)], "settings": {}}
-    lines = [T.plain(line) for line in T._work_lines(model)]
+    lines = [screen.plain(line) for line in T._work_lines(model)]
     assert max(len(line) for line in lines) <= T.WIDTH, max(lines, key=len)
     assert lines[2].endswith("10 windows") and lines[3].endswith("1 window"), lines
+
+
+def test_a_name_too_long_for_its_column_ends_in_an_ellipsis_in_every_section() -> None:
+    # One rule: SIGN-INS, SYSTEM and WORK cut a name at 13 and ATTENTION at 11 without a sign, where VMS and ACCESS
+    # ended it in "…" - and a name cut short with no sign reads as another VM's whole one.
+    name = "a-name-longer-than-its-column"
+    vm = {"name": name, "vmid": 101, "state": "stopped", "address": "192.0.2.10", "needs_ssh": True, "ssh": {}}
+    model = {
+        "vms": [vm],
+        "proxmox": {"nodes": ["pve"]},
+        "settings": {"aliases_enabled": False, "tailscale_enabled": False, "editor_name": "VS Code"},
+        "counts": {"unread": 0, "problem": 0, "todo": 1},
+        "attention": [S._item("todo", name, "x")],
+        "now": 1_800_000_000,
+    }
+    for section in (T._vms_lines, T._access_lines, T._signins_lines, T._system_lines, T._work_lines):
+        rows = [screen.plain(line) for line in section(model) if name[:10] in screen.plain(line)]
+        assert rows and all(f" {name[:12]}… " in row and name[:13] not in row for row in rows), (section, rows)
+    rows = [screen.plain(line) for line in T._attention_lines(model) if name[:10] in screen.plain(line)]
+    assert rows and all(f" {name[:10]}… " in row and name[:11] not in row for row in rows), rows
 
 
 def test_a_hostile_value_never_starts_a_line_of_its_own() -> None:
@@ -1315,14 +1336,14 @@ def test_the_longest_footer_and_kernel_fit_100_columns() -> None:
     for vm in fleet["vms"][:2]:
         vm["address"] = "192.0.2.60"
     model = S.status_report(found, "2026-10-25 14:32 PDT", 1_800_000_000)
-    model["attention"] = [S._item("todo", "alpha", "alpha", "x")] * 12
+    model["attention"] = [S._item("todo", "alpha", "x")] * 12
     model["counts"] = {"unread": 0, "problem": 0, "todo": 12}
     model["exit"] = 0
     model["proxmox"]["unread"] = ""
     footer = T.status_text(model).splitlines()[-1]
     assert footer == "exit 0 · nothing is wrong; 12 things wait for you · --only, --json: just help status"
     system = T._system_lines({**model, "vms": [{"name": "alpha", "needs_ssh": True, "ssh": {"system": SYSTEM}}]})
-    kernel = T.plain(system[1])
+    kernel = screen.plain(system[1])
     assert "6.8.0-142 · 6.8.0-147 waits" in kernel and len(kernel) <= T.WIDTH, kernel
 
 

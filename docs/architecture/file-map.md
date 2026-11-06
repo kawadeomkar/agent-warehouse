@@ -115,8 +115,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.5)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
                                   as the callback and a run in parts say them (§7.5)
-                                  ansible/parts.py, a run in parts: a command drawn as a part, the state between parts,
-                                  the run's end (§7.8)
+                                  ansible/parts.py, a run in parts: the driver every drawn run shares, a command drawn
+                                  as a part, the state between parts, the run's end (§7.8)
                                   ansible/engine.py, the engine that draws a playbook run live: Ansible's events in,
                                   the region, the run's own words and the summary out; the stdout callback hands it
                                   every event (§7.5)

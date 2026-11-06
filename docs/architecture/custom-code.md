@@ -530,7 +530,9 @@ problem, to do, and the exit code, 2, 1 or 0, from the highest. A role's own lin
 role's (`source`), drawn after its name as NEXT STEPS draws it. With `live` a value not read yet is pending, and nothing is ranked: the
 model of a frame the callback draws while the run goes on. **`status_text(model, color, reading, glyph,
 cols)`** — the report as text, every line within 100 columns, or within `cols` for a live frame, where
-`glyph` marks each pending value. The same functions draw the frames and the finished report.
+`glyph` marks each pending value. A VM's name longer than its column - 13 characters, 11 under ATTENTION - is
+cut to end in "…" in every section, so a cut name is never read as another VM's whole one. The same functions
+draw the frames and the finished report.
 
 **The callback** is the stdout callback `just status` chooses (`ANSIBLE_STDOUT_CALLBACK`, and
 `ANSIBLE_CALLBACKS_ENABLED` naming it alone, so `ansible.cfg`'s `profile_tasks` prints nothing into the
