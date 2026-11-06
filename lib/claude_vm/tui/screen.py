@@ -101,10 +101,11 @@ plural = _plural  # a count and its word, as every report says one
 
 
 def duration(seconds):
-    """A duration as a report says it: 0.6 s, 33 s, 3:58."""
-    if seconds < 10:
+    """A duration as a report says it: 0.6 s, 33 s, 3:58. Its form follows the value as it is said, so 9.96 s is 10 s
+    and 59.6 s is 1:00, never 10.0 s, a character wider than any other, nor 60 s."""
+    if round(seconds, 1) < 10:
         return f"{seconds:.1f} s"
-    if seconds < 60:
+    if round(seconds) < 60:
         return f"{round(seconds)} s"
     minutes, rest = divmod(round(seconds), 60)
     return f"{minutes}:{rest:02d}"

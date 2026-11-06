@@ -53,10 +53,18 @@ def test_a_sparkline_has_a_mark_per_value_and_a_space_for_none():
 
 
 @pytest.mark.parametrize(
-    ("seconds", "said"), [(0.04, "0.0 s"), (0.6, "0.6 s"), (9.94, "9.9 s"), (33.4, "33 s"), (238, "3:58")]
+    ("seconds", "said"),
+    [(0.04, "0.0 s"), (0.6, "0.6 s"), (9.94, "9.9 s"), (9.96, "10 s"), (33.4, "33 s"), (59.6, "1:00"), (238, "3:58")],
 )
 def test_a_duration_reads_as_the_reports_say_it(seconds, said):
     assert screen.duration(seconds) == said
+
+
+def test_no_duration_under_an_hour_is_wider_than_five_characters():
+    # A run's summary sets each time right of its name in six columns (tui/run.py): a sixth character, as 9.96 s
+    # once took as 10.0 s, leaves no space between them.
+    wide = [said for said in map(screen.duration, (n / 100 for n in range(360_000))) if len(said) > 5]
+    assert not wide, sorted(set(wide))
 
 
 def test_a_clock_counts_minutes_and_seconds_from_zero():
