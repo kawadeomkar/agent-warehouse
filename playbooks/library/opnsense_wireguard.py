@@ -89,6 +89,12 @@ options:
       keepalive:
         description: Seconds between keepalives; 0 for none. Left as it is when not given.
         type: int
+  reconfigure:
+    description:
+      - Under O(state=apply), reconfigure WireGuard on the router even when no change is made: a peer saved but not
+        running, after a reconfigure that failed or never came, is applied. Nothing in check mode.
+    type: bool
+    default: false
   timeout:
     description: Seconds to wait for the router on each request.
     type: int
@@ -670,8 +676,9 @@ def plan(changes, instance, peers):
     return requests
 
 
-def apply(router, changes, instance, peers, check_mode, result):
-    """Make the changes, deletes first; reconfigure once if anything was written, even when a later change failed."""
+def apply(router, changes, instance, peers, check_mode, result, again=False):
+    """Make the changes, deletes first; reconfigure once if anything was written, even when a later change failed, or
+    when asked to (again): what is saved but not running, after a reconfigure that failed or never came."""
     requests = plan(changes, instance, peers)
     result["results"] = [
         {
@@ -705,6 +712,8 @@ def apply(router, changes, instance, peers, check_mode, result):
         else:
             result["changed"] = True
         result["results"][index]["result"] = outcome
+    if again and failure is None:
+        result["changed"] = True
     if result["changed"] and not check_mode:
         try:
             answer = router.call("POST", "/api/wireguard/service/reconfigure", {})
@@ -734,9 +743,9 @@ def run(router, params, check_mode, result):
     instance, peers, listed = read(router, params["instance"])
     result["instance"], result["peers"] = public(instance, peers)
     result["listed"] = listed
-    if params["state"] == "apply" and params["changes"]:
+    if params["state"] == "apply" and (params["changes"] or params["reconfigure"]):
         changes = [dict(change) for change in params["changes"]]
-        apply(router, changes, instance, peers, check_mode, result)
+        apply(router, changes, instance, peers, check_mode, result, again=params["reconfigure"])
         if result["changed"] and not check_mode:
             instance, peers, result["listed"] = read(router, params["instance"])
             result["instance"], result["peers"] = public(instance, peers)
@@ -766,6 +775,7 @@ def main():
                     "keepalive": {"type": "int"},
                 },
             },
+            "reconfigure": {"type": "bool", "default": False},
             "timeout": {"type": "int", "default": 30},
         },
         supports_check_mode=True,

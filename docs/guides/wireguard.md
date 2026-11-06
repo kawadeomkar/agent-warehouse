@@ -133,6 +133,11 @@ The run reads the router's version first and refuses one below 26.7.2, before an
 Every answer the API gives is stripped of the instance's private key, which the API returns in plain text, before
 anything is kept or said.
 
+After writing, the run applies the instance once. A peer saved but not running - a reconfigure that failed, or a
+write the router saved after its answer was lost - is applied again on the next run, while the instance is on.
+`just destroy` with `destroy_release: false` writes nothing on the router either: it says the peer to remove, as for
+a server of your own.
+
 ## What the role touches
 
 Only what it made, by names of its own: the marker `/var/lib/claude-on-proxmox/wireguard-installed`, written before

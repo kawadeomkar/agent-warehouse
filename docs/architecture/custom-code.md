@@ -1008,7 +1008,9 @@ and `tests/unit/test_choices.py` holds the three equal.
   member's marks once the plan is applied), to the hub the inputs name; a peer only by the name `<tag>-<vm>` of a VM
   it was given, with that VM's own key, used by no other peer, on the hub or in the plan, and its own address alone,
   as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
-  were read only in part. WireGuard's family gives each VM its marked
+  were read only in part; the plan's `hub` the inputs' kind, which `tasks/vpn_apply.yml` writes by (never a variable
+  of the import beside it, which an import's `vars:` do not reach), and `reapply` - a peer saved as planned that the
+  hub does not run - only on such a hub read whole whose instance is on. WireGuard's family gives each VM its marked
   address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free - of the
   project's VMs, and of every address the hub holds where it is read: its peers' but the members' own, and its own;
   one key is one peer, the lower VM ID's, so a VM cloned with another's key is said and not joined; and it

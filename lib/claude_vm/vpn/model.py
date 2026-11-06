@@ -90,6 +90,8 @@ class Hub(Checked):
     public_key: str = ""
     endpoint: str = ""  # host:port, what the VMs dial
     peers: tuple[HubPeer, ...] = ()
+    enabled: bool = False  # the instance is on, where the hub has instances
+    running: tuple[str, ...] = ()  # the keys of the peers WireGuard runs there, as the hub said: saved is not applied
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -182,6 +184,8 @@ class MemberPlan(Checked):
 
     vpn: str
     refusals: tuple[str, ...] = ()  # beside a refusal the registry keeps nothing else
+    hub: HubKind = "none"  # the inputs' hub, whose kind decides who writes the peers: tasks/vpn_apply.yml reads it here
+    reapply: bool = False  # the hub has the peers as planned saved, but runs one without them: applied again
     marks: tuple[MarkChange, ...] = ()
     peers: tuple[PeerWrite, ...] = ()
     tunnels: tuple[Tunnel, ...] = ()

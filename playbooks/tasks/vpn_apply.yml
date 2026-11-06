@@ -11,9 +11,11 @@
   vars:
     claude_vm_marks_changes: "{{ claude_vpn_plan.marks | default([]) }}"
 
-# A hub with an API: the plan's peers written there, and the instance applied
-# once, only when something changed; nothing in check mode. Only the
-# project's own peers reach here, held by the core to every mark of theirs.
+# A hub with an API, as the plan says - its hub's kind is the inputs', held to
+# them by the core: the plan's peers written there, and the instance applied
+# once, when something changed or when it runs short of what is saved
+# (reapply); nothing in check mode. Only the project's own peers reach here,
+# held by the core to every mark of theirs.
 - name: vpn_apply | Write the plan's peers on the hub
   opnsense_wireguard:
     url: "https://{{ hostvars[groups['wireguard_hub'][0]].ansible_host }}"
@@ -27,10 +29,10 @@
       {{ claude_vpn_plan.peers | default([]) | map('dict2items')
          | map('selectattr', 'key', 'in', ['kind', 'name', 'ref', 'public_key', 'address'])
          | map('selectattr', 'value') | map('items2dict') | list }}
+    reconfigure: "{{ claude_vpn_plan.reapply | default(false) }}"
   when:
-    - claude_vpn_planned | default('') == 'wireguard'
-    - wireguard_hub | default('manual') == 'opnsense'
-    - claude_vpn_plan.peers | default([]) | length > 0
+    - claude_vpn_plan.hub | default('none') == 'opnsense'
+    - claude_vpn_plan.peers | default([]) | length > 0 or claude_vpn_plan.reapply | default(false)
 
 - name: vpn_apply | Say each VM's place on the network
   ansible.builtin.debug:

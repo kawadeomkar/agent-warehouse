@@ -33,7 +33,8 @@ from pathlib import Path
 import pytest
 import yaml
 from conftest import fail_main, run_main
-from harness import FAKES, _certificate, _results, _run, _serve, load_module
+from harness import FAKES, REPO, _certificate, _results, _run, _serve, fake_fleet, load_module
+from test_status import status_root
 
 wireguard = load_module("playbooks/library/opnsense_wireguard.py")
 FAKE = FAKES / "fake_opnsense.py"
@@ -409,6 +410,23 @@ def test_a_second_run_of_the_same_changes_writes_nothing_and_reconfigures_nothin
     assert _fixture(router, "state")["reconfigures"] == 1
 
 
+def test_a_peer_a_failed_reconfigure_left_saved_is_applied_when_asked_with_no_change(router, patch_module):
+    # The reconfigure after the add fails: beta is saved, and WireGuard runs without it. A later run that asks for
+    # it reconfigures with nothing to write; check mode asks the router for nothing.
+    _fixture(router, "reconfigure", {"answer": "failed"})
+    fail_main(wireguard.main, _apply(router, [ADD_BETA]))
+    _fixture(router, "reconfigure", {"answer": "result"})
+    saved = run_main(wireguard.main, _args(router))
+    assert ADD_BETA["public_key"] not in saved["handshakes"]
+    writes = len(_writes(router))
+    checked = run_main(wireguard.main, _apply(router, [], reconfigure=True, _ansible_check_mode=True))
+    assert checked["changed"] is True and checked["reconfigured"] is False and len(_writes(router)) == writes
+    again = run_main(wireguard.main, _apply(router, [], reconfigure=True))
+    assert again["changed"] is True and again["reconfigured"] is True
+    assert _writes(router)[writes:] == ["/api/wireguard/service/reconfigure"]
+    assert ADD_BETA["public_key"] in again["handshakes"]
+
+
 def test_an_address_a_delete_frees_is_free_for_an_add_of_the_same_run(router, patch_module):
     reuse = {**ADD_BETA, "address": "198.51.100.140/32"}
     result = run_main(wireguard.main, _apply(router, [reuse, DROP_OLD]))
@@ -569,3 +587,47 @@ def test_a_playbook_run_prints_no_secret_and_its_check_mode_writes_nothing(route
     assert not {"privkey", "%privkey", "psk"} & _keys(report)
     # The check run wrote nothing; the refused add is the run's one write, and nothing was reconfigured.
     assert _writes(router) == ["/api/wireguard/client/add_client"]
+
+
+def test_configure_writes_the_vm_s_peer_on_the_router_and_a_second_run_writes_nothing(router, tmp_path):
+    # configure.yml's plan play as it is, against the fake Proxmox and the fake router: the plan updates alpha's peer
+    # - the project's, by every mark - to the VM's key and the address it is given, and the router applies it once.
+    # Nothing but the module's own tests had run it with an API hub: its write was skipped on every run.
+    for base in fake_fleet(tmp_path):
+        settings = {
+            "vpn": "wireguard",
+            "wireguard_hub": "opnsense",
+            "wireguard_hub_instance": "homeserver",
+            "wireguard_hub_cert_sha256": router.pin,
+            "wireguard_hub_api_key": API_KEY,
+            "wireguard_hub_api_secret": API_SECRET,
+            "wireguard_vm_prefix": "198.51.100.128/25",
+            "wireguard_hub_endpoint": "192.0.2.1:51820",
+        }
+        root, _ = status_root(tmp_path, base, settings)
+        (root / "hub.yml").write_text(
+            yaml.safe_dump(
+                {"wireguard_hub": {"hosts": {"router": {"ansible_host": router.url.removeprefix("https://")}}}}
+            )
+        )
+        plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+        (plan,) = [play for play in plays if play.get("name") == "Plan each VM's place on the WireGuard network"]
+        playbook = root / "plan.yml"
+        playbook.write_text(yaml.safe_dump([plan]).replace("tasks/vpn_", f"{REPO / 'playbooks' / 'tasks'}/vpn_"))
+        alpha = {
+            "ansible_connection": "local",
+            "claude_vm_listed_id": 9010,
+            "claude_vm_marks": [],
+            "wireguard_public_key": _key(0x61),
+        }
+        args = ("-i", str(root / "hub.yml"), "-e", json.dumps({"vm_name": ["alpha"]}))
+        first = _run(root, playbook, {"alpha": alpha}, *args, timeout=180)
+        assert first["rc"] == 0, first["stderr"]
+        state = _fixture(router, "state")
+        assert state["clients"][ALPHA]["pubkey"] == _key(0x61)
+        assert state["clients"][ALPHA]["tunneladdress"] == ["198.51.100.129/32"]
+        assert state["reconfigures"] == 1
+        writes = len(_writes(router))
+        second = _run(root, playbook, {"alpha": alpha}, *args, timeout=180)
+        assert second["rc"] == 0, second["stderr"]
+        assert len(_writes(router)) == writes and _fixture(router, "state")["reconfigures"] == 1

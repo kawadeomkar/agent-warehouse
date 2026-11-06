@@ -7,7 +7,9 @@
 #
 # Input, through vars: on the import: claude_vpn_planned, the VPN whose members
 # are planned (a key of claude_vpns); claude_vpn_hosts, the names of the VMs;
-# claude_vpn_phase, configure or release.
+# claude_vpn_phase, configure or release; and claude_vpn_hub_kind, which a
+# release that writes nothing (destroy_release: false) sets to manual, else
+# wireguard_hub.
 # Begun empty on every import, so that neither is ever an earlier one's: with
 # no Proxmox VM to plan, the plan is nothing and nothing is applied.
 - name: vpn_members | Begin the VMs to plan, and the plan
@@ -60,7 +62,7 @@
   check_mode: false
   when:
     - claude_vpn_planned == 'wireguard'
-    - wireguard_hub | default('manual') == 'opnsense'
+    - claude_vpn_hub_kind | default(wireguard_hub | default('manual')) == 'opnsense'
     - claude_vpn_members | length > 0
     - >-
       claude_vpn_phase != 'release'
@@ -92,7 +94,8 @@
     # VM of the project holds, from Proxmox's listing (claude_vm_all), the
     # members' own left out.
     claude_vpn_wireguard:
-      hub: "{{ claude_vpn_hub_read if wireguard_hub == 'opnsense' else claude_vpn_hub_set }}"
+      hub: >-
+        {{ claude_vpn_hub_read if claude_vpn_hub_kind | default(wireguard_hub) == 'opnsense' else claude_vpn_hub_set }}
       vm_prefix: "{{ wireguard_vm_prefix }}"
       keepalive: "{{ wireguard_keepalive | int }}"
       taken: >-
@@ -109,7 +112,7 @@
     # The hub as the settings say it (manual), or as the router read it (opnsense): its instance's tunnel network
     # and key are the router's own.
     claude_vpn_hub_set:
-      kind: "{{ wireguard_hub }}"
+      kind: "{{ claude_vpn_hub_kind | default(wireguard_hub) }}"
       network: "{{ wireguard_hub_network }}"
       public_key: "{{ wireguard_hub_public_key }}"
       endpoint: "{{ wireguard_hub_endpoint }}"
@@ -124,6 +127,9 @@
       public_key: "{{ (claude_vpn_hub.instance | default({})).public_key | default('') }}"
       endpoint: "{{ wireguard_hub_endpoint }}"
       peers: "{{ claude_vpn_hub.peers | default([]) }}"
+      # What WireGuard runs there, which a reconfigure that failed leaves short of what is saved.
+      enabled: "{{ (claude_vpn_hub.instance | default({})).enabled | default(false) }}"
+      running: "{{ claude_vpn_hub.handshakes | default({}) | list }}"
   when: claude_vpn_members | length > 0
 
 # Each VPN's plan by its key, for a later play: the VMs' own reads it there.

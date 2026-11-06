@@ -156,23 +156,33 @@ def _owned(inputs: MemberInputs, peer: HubPeer) -> bool:
     return common.owned(inputs.tag, inputs.vm_prefix, hub.instance, peer.name, peer.addresses, peer.instances)
 
 
-def _hub_peer(inputs: MemberInputs, member: Member, address: str) -> tuple[PeerWrite | None, str, str]:
-    """The change a hub with an API needs for a VM's peer, what is said of it, and what is left to do: an add, an
-    update of the peer it has by the VM's name and every mark of the project's, or nothing where it is as the plan has
-    it - or where the hub's peers were read only in part, since one not read may be the VM's."""
+def _hub_peer(inputs: MemberInputs, member: Member, address: str) -> tuple[PeerWrite | None, str, str, bool]:
+    """The change a hub with an API needs for a VM's peer, what is said of it, what is left to do, and whether the hub
+    is to be applied again: an add, an update of the peer it has by the VM's name and every mark of the project's, or
+    nothing where it is as the plan has it - or where the hub's peers were read only in part, since one not read may
+    be the VM's."""
     vm, name, instance = member.vm.name, common.peer_name(inputs.tag, member.vm.name), inputs.hub.instance
     mine = [peer for peer in inputs.hub.peers if peer.name == name and _owned(inputs, peer)]
     if mine and mine[0].public_key == member.public_key and mine[0].addresses == (f"{address}/32",):
-        return None, f"its peer {name} on {instance} is as it should be", ""
+        if inputs.hub.listed and inputs.hub.enabled and member.public_key not in inputs.hub.running:
+            # Saved, but a reconfigure that failed or never came left WireGuard without it: applied again.
+            return (
+                None,
+                f"its peer {name} on {instance} is saved but not running, so {instance} is applied again",
+                "",
+                True,
+            )
+        return None, f"its peer {name} on {instance} is as it should be", "", False
     if not inputs.hub.listed:
         return (
             None,
             f"its peer {name} is not written this run: the router listed {instance}'s peers only in part",
             f"{vm}: its peer {name} on {instance} is not written yet: just deploy {vm} --only configure tries again.",
+            False,
         )
     if not mine:
         wanted = PeerWrite(kind="add", name=name, public_key=member.public_key, address=f"{address}/32", vm=member.vm)
-        return wanted, f"its peer {name} is added to {instance}", ""
+        return wanted, f"its peer {name} is added to {instance}", "", False
     return (
         PeerWrite(
             kind="update",
@@ -184,6 +194,7 @@ def _hub_peer(inputs: MemberInputs, member: Member, address: str) -> tuple[PeerW
         ),
         f"its peer {name} on {instance} is updated",
         "",
+        False,
     )
 
 
@@ -191,6 +202,7 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
     network = common.hub_network(inputs.hub.network)
     addresses = _addresses(inputs)
     marks, peers, tunnels, aliases, report, steps = [], [], [], [], [], []
+    reapply = False
     api = inputs.hub.kind == "opnsense"
     # A key a peer of someone else's holds already: the hub would refuse a second peer with it.
     foreign = {peer.public_key for peer in inputs.hub.peers if not _owned(inputs, peer)}
@@ -351,8 +363,9 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
         elif inputs.reach == "tunnel":
             moves = f"just deploy {vm} --only configure moves its SSH alias to {address} once it has reached the server"
         if api:
-            change, said, left = _hub_peer(inputs, member, address)
+            change, said, left, again = _hub_peer(inputs, member, address)
             peers += [change] if change else []
+            reapply = reapply or again
             report.append(
                 Said(vm=vm, text=f"{vm}: on WireGuard at {address}; {said}." + (f" {moves}." if moves else ""))
             )
@@ -396,6 +409,8 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
         peers += _pruned(inputs, report)
     return MemberPlan(
         vpn=vpn.key,
+        hub=inputs.hub.kind,
+        reapply=reapply,
         marks=tuple(marks),
         peers=tuple(peers),
         tunnels=tuple(tunnels),
@@ -477,7 +492,9 @@ def _release(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                 " server.",
             )
         )
-    return MemberPlan(vpn=vpn.key, peers=tuple(peers), report=tuple(report), next_steps=tuple(steps))
+    return MemberPlan(
+        vpn=vpn.key, hub=inputs.hub.kind, peers=tuple(peers), report=tuple(report), next_steps=tuple(steps)
+    )
 
 
 def plan_members(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:

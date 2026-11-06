@@ -47,6 +47,11 @@ def checked(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan) -> MemberPlan:
         raise ValueError(f"{vpn.key}'s plan is {plan.vpn}'s")
     if plan.refusals:  # a refusal marks, writes and says nothing else
         return MemberPlan(vpn=vpn.key, refusals=plan.refusals)
+    if plan.hub != inputs.hub.kind:
+        # Who writes the peers is the hub's kind as the inputs give it: tasks/vpn_apply.yml reads it in the plan.
+        raise ValueError(f"{vpn.key}'s plan is for a hub of kind {plan.hub}, not {inputs.hub.kind}")
+    if plan.reapply and (inputs.hub.kind != "opnsense" or not inputs.hub.listed or not inputs.hub.enabled):
+        raise ValueError(f"{vpn.key}'s plan applies again a hub it cannot read whole, or one that is off")
     members = {member.vm.name: member for member in inputs.members}
 
     def member_of(vm: object) -> None:

@@ -511,6 +511,10 @@
             claude_vpn_planned: wireguard
             claude_vpn_hosts: "{{ claude_vm_wireguard_gone }}"
             claude_vpn_phase: release
+            # destroy_release: false releases nothing: a hub with an API is then left as a manual one is, and
+            # the peer to remove said.
+            claude_vpn_hub_kind: >-
+              {{ wireguard_hub | default('manual') if destroy_release | default(true) | bool else 'manual' }}
 
         - name: Say each peer to remove
           ansible.builtin.import_tasks: tasks/vpn_apply.yml

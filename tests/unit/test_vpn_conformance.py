@@ -342,47 +342,54 @@ TUNNEL = Tunnel(
 )
 PEER = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A)
 WSLIPS = {
-    "a tunnel outside the range": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, address="203.0.113.5/24"),)),
+    "a tunnel outside the range": MemberPlan(
+        vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, address="203.0.113.5/24"),)
+    ),
     "a tunnel at the range's network address": MemberPlan(
-        vpn="wireguard", tunnels=(replace(TUNNEL, address="198.51.100.128/24"),)
+        vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, address="198.51.100.128/24"),)
     ),
     "a tunnel at an address another VM holds": MemberPlan(
-        vpn="wireguard", tunnels=(replace(TUNNEL, address="198.51.100.140/24"),)
+        vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, address="198.51.100.140/24"),)
     ),
-    "a tunnel for a VM that is leaving": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, vm=B),)),
-    "two tunnels at one address": MemberPlan(vpn="wireguard", tunnels=(TUNNEL, TUNNEL)),
-    "a tunnel to another hub": MemberPlan(vpn="wireguard", tunnels=(replace(TUNNEL, hub_public_key=KEY_B),)),
+    "a tunnel for a VM that is leaving": MemberPlan(vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, vm=B),)),
+    "two tunnels at one address": MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL, TUNNEL)),
+    "a tunnel to another hub": MemberPlan(
+        vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, hub_public_key=KEY_B),)
+    ),
     "a tunnel routing more than the hub's network": MemberPlan(
-        vpn="wireguard", tunnels=(replace(TUNNEL, allowed_ips=("0.0.0.0/0",)),)
+        vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, allowed_ips=("0.0.0.0/0",)),)
     ),
-    "a peer of no VM": MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, vm=None),)),
+    "a peer of no VM": MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, vm=None),)),
     "a peer by another name": MemberPlan(
-        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, name="claude-on-proxmox-beta"),)
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, name="claude-on-proxmox-beta"),)
     ),
     "a peer with another VM's key": MemberPlan(
-        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=KEY_B),)
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=KEY_B),)
     ),
     "a peer with the hub's key": MemberPlan(
-        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=HUB_KEY),)
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=HUB_KEY),)
     ),
     "a peer allowed more than its address": MemberPlan(
-        vpn="wireguard", tunnels=(TUNNEL,), peers=(replace(PEER, address="198.51.100.0/24"),)
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, address="198.51.100.0/24"),)
     ),
-    "a peer twice": MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(PEER, PEER)),
-    "a peer removed whose VM stays": MemberPlan(vpn="wireguard", peers=(replace(PEER, kind="delete"),)),
+    "a peer twice": MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(PEER, PEER)),
+    "a peer removed whose VM stays": MemberPlan(vpn="wireguard", hub="manual", peers=(replace(PEER, kind="delete"),)),
     "a peer added for a VM that is leaving": MemberPlan(
-        vpn="wireguard", peers=(replace(PEER, vm=B, name="claude-on-proxmox-beta", public_key=KEY_B),)
+        vpn="wireguard", hub="manual", peers=(replace(PEER, vm=B, name="claude-on-proxmox-beta", public_key=KEY_B),)
     ),
     "a mark outside the range": MemberPlan(
         vpn="wireguard",
+        hub="manual",
         marks=(MarkChange(vm=A, add=("wg-203.0.113.5",), unwritten="({reason})", matter="wireguard_address"),),
     ),
     "a Tailscale mark": MemberPlan(
         vpn="wireguard",
+        hub="manual",
         marks=(MarkChange(vm=A, add=("tailscale",), unwritten="({reason})", matter="wireguard_address"),),
     ),
     "two WireGuard addresses on one VM": MemberPlan(
         vpn="wireguard",
+        hub="manual",
         marks=(
             MarkChange(
                 vm=A, add=("wg-198.51.100.130", "wg-198.51.100.131"), unwritten="({reason})", matter="wireguard_address"
@@ -401,6 +408,7 @@ def test_the_core_refuses_wireguard_s_slips(slip):
 def test_the_core_takes_wireguard_s_own_plan_whole():
     plan = MemberPlan(
         vpn="wireguard",
+        hub="manual",
         marks=(MarkChange(vm=A, add=("wg-198.51.100.130",), unwritten="({reason})", matter="wireguard_address"),),
         tunnels=(TUNNEL,),
         peers=(PEER, PeerWrite(kind="delete", name="claude-on-proxmox-beta", address="198.51.100.140/32", vm=B)),
@@ -485,7 +493,11 @@ REACHED = MarkChange(
 
 def test_the_core_takes_an_alias_to_an_address_the_vm_has_reached():
     plan = MemberPlan(
-        vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),), marks=(REACHED,)
+        vpn="wireguard",
+        hub="manual",
+        tunnels=(TTUNNEL,),
+        aliases=(AliasAddress(vm=A, address="198.51.100.130"),),
+        marks=(REACHED,),
     )
     assert registry.checked(WVPN, TINPUTS, plan) is plan
 
@@ -493,18 +505,24 @@ def test_the_core_takes_an_alias_to_an_address_the_vm_has_reached():
 @pytest.mark.parametrize(
     "slip",
     [
-        MemberPlan(vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.131"),)),
-        MemberPlan(vpn="wireguard", tunnels=(replace(TTUNNEL, allowed_ips=("198.51.100.0/24",)),)),
-        MemberPlan(vpn="wireguard", tunnels=(replace(TTUNNEL, reach="lan"),)),
+        MemberPlan(
+            vpn="wireguard", hub="manual", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.131"),)
+        ),
+        MemberPlan(vpn="wireguard", hub="manual", tunnels=(replace(TTUNNEL, allowed_ips=("198.51.100.0/24",)),)),
+        MemberPlan(vpn="wireguard", hub="manual", tunnels=(replace(TTUNNEL, reach="lan"),)),
         MemberPlan(
             vpn="wireguard",
+            hub="manual",
             tunnels=(TTUNNEL,),
             aliases=(AliasAddress(vm=A, address="198.51.100.130"), AliasAddress(vm=A, address="198.51.100.130")),
             marks=(REACHED,),
         ),
-        MemberPlan(vpn="wireguard", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),)),
+        MemberPlan(
+            vpn="wireguard", hub="manual", tunnels=(TTUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),)
+        ),
         MemberPlan(
             vpn="wireguard",
+            hub="manual",
             tunnels=(TTUNNEL,),
             aliases=(AliasAddress(vm=A, address="198.51.100.130"),),
             marks=(replace(REACHED, add=("wg-198.51.100.130",)),),
@@ -525,7 +543,9 @@ def test_the_core_refuses_a_tunnel_reach_slip(slip):
 
 
 def test_an_alias_under_lan_reach_is_refused():
-    plan = MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),))
+    plan = MemberPlan(
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), aliases=(AliasAddress(vm=A, address="198.51.100.130"),)
+    )
     with pytest.raises(ValueError):
         registry.checked(WVPN, WINPUTS, plan)
 
@@ -674,7 +694,7 @@ def test_the_core_refuses_any_write_on_a_hub_read_only_in_part():
     add = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.129/32", vm=A)
     tunnel = replace(TUNNEL, address="198.51.100.129/24", endpoint="192.0.2.1:51820")
     with pytest.raises(ValueError, match="could not read whole"):
-        registry.checked(WVPN, partial, MemberPlan(vpn="wireguard", tunnels=(tunnel,), peers=(add,)))
+        registry.checked(WVPN, partial, MemberPlan(vpn="wireguard", hub="opnsense", tunnels=(tunnel,), peers=(add,)))
 
 
 def test_no_vm_is_given_an_address_the_hub_holds_already():
@@ -707,12 +727,12 @@ def test_two_vms_with_one_key_are_one_peer_the_lower_vm_id_s():
 def test_the_core_refuses_two_peers_with_one_key_and_a_tunnel_at_another_vm_s_address():
     twice = PeerWrite(kind="add", name="claude-on-proxmox-beta", public_key=KEY_A, address="198.51.100.131/32", vm=B)
     with pytest.raises(ValueError, match="one key"):
-        plan = MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(PEER, twice))
+        plan = MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(PEER, twice))
         registry.checked(WVPN, model.inputs_from(wg(WG_A, WG_B)), plan)
     inputs = model.inputs_from(wg(WG_A, WG_B | {"marks": ["wg-198.51.100.130"]}))
     with pytest.raises(ValueError, match="not a free address"):
         # alpha at .130, which beta - no tunnel this run - still holds.
-        registry.checked(WVPN, inputs, MemberPlan(vpn="wireguard", tunnels=(TUNNEL,)))
+        registry.checked(WVPN, inputs, MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,)))
 
 
 @pytest.mark.parametrize("tag", ["wg-999.0.0.1", "wg-010.0.0.1", "wg-198.51.100.130-other", "wg-198.51.100"])
@@ -729,6 +749,32 @@ def test_a_wide_range_is_walked_never_listed():
     hub = HUB | {"network": "10.0.0.0/8"}
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=hub, vm_prefix="10.0.0.0/8", taken=["10.0.0.1"]))
     assert plan["tunnels"][0]["address"] == "10.0.0.2/8"
+
+
+def test_a_peer_saved_but_not_running_has_the_hub_applied_again():
+    # A reconfigure that failed, or a write the router saved after its answer was lost: the next run finds the peer
+    # as it should be, and WireGuard there without it.
+    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    alpha = WG_A | {"marks": ["wg-198.51.100.129"]}
+    hub = OPN | {"peers": peers, "enabled": True}
+    stale = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, hub=hub | {"running": []}))
+    assert stale["reapply"] is True and stale["peers"] == [] and stale["hub"] == "opnsense"
+    assert "is saved but not running" in stale["report"][0]["text"]
+    running = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, hub=hub | {"running": [KEY_A]}))
+    assert running["reapply"] is False and "is as it should be" in running["report"][0]["text"]
+    # An instance that is off is the user's to turn on: never applied again run after run.
+    off = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, hub=hub | {"enabled": False, "running": []}))
+    assert off["reapply"] is False
+
+
+def test_the_plan_names_its_hub_s_kind_which_the_core_holds_to_the_inputs():
+    manual = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A))
+    assert manual["hub"] == "manual" and manual["reapply"] is False
+    inputs = model.inputs_from(wg(WG_A))
+    with pytest.raises(ValueError, match="for a hub of kind opnsense"):
+        registry.checked(WVPN, inputs, MemberPlan(vpn="wireguard", hub="opnsense"))
+    with pytest.raises(ValueError, match="applies again"):
+        registry.checked(WVPN, inputs, MemberPlan(vpn="wireguard", hub="manual", reapply=True))
 
 
 def test_at_destroy_an_opnsense_hub_has_the_leaving_vm_s_own_peer_removed_by_its_ref():
@@ -772,9 +818,11 @@ OSLIPS = {
 @pytest.mark.parametrize("slip", sorted(OSLIPS))
 def test_the_core_refuses_an_opnsense_hub_s_slips(slip):
     with pytest.raises(ValueError):
-        registry.checked(WVPN, OINPUTS, MemberPlan(vpn="wireguard", tunnels=(OTUNNEL,), peers=(OSLIPS[slip],)))
+        registry.checked(
+            WVPN, OINPUTS, MemberPlan(vpn="wireguard", hub="opnsense", tunnels=(OTUNNEL,), peers=(OSLIPS[slip],))
+        )
 
 
 def test_the_core_takes_an_update_of_the_vm_s_own_peer():
-    plan = MemberPlan(vpn="wireguard", tunnels=(OTUNNEL,), peers=(OUPDATE,))
+    plan = MemberPlan(vpn="wireguard", hub="opnsense", tunnels=(OTUNNEL,), peers=(OUPDATE,))
     assert registry.checked(WVPN, OINPUTS, plan) is plan
