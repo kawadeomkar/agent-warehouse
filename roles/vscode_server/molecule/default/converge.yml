@@ -3,10 +3,5 @@
   hosts: all
   become: true
   roles:
+    # With the values molecule.yml's inventory gives every run of the role here.
     - role: vscode_server
-      vars:
-        # Not the defaults, so verify.yml can tell the template was rendered
-        # from them rather than copied.
-        vscode_server_client_alive_interval: 45
-        vscode_server_client_alive_count_max: 4
-        vscode_server_inotify_watches: 262144

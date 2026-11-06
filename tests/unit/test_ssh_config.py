@@ -523,20 +523,23 @@ def _commands(items: list) -> list:
 
 def test_every_child_run_of_a_scenario_takes_its_inventory_and_with_it_the_pins() -> None:
     # The pins above live in the scenario's group_vars, so they reach a child ansible-playbook a verify starts only
-    # through the scenario's own inventory: verify_playbook_cmd, which passes ansible_inventory_sources. A child run
-    # given an inventory of its own would write the developer's ~/.ssh.
+    # through the scenario's own inventory: verify_playbook_cmd, which passes ansible_inventory_sources, defined in
+    # the scenario's host_vars or a play's vars. A child run given an inventory of its own would write the
+    # developer's ~/.ssh.
     runs = 0
     for verify in sorted((REPO / "molecule").glob("*/verify.yml")):
-        for play in yaml.safe_load(verify.read_text()) or []:
-            defined = (play.get("vars") or {}).get("verify_playbook_cmd")
-            if defined is not None:
-                assert "ansible_inventory_sources" in defined and "--inventory=" in defined, verify
+        plays = yaml.safe_load(verify.read_text()) or []
+        defined = [_scenario_vars(verify.parent).get("verify_playbook_cmd")]
+        defined += [(play.get("vars") or {}).get("verify_playbook_cmd") for play in plays]
+        for each in filter(None, defined):
+            assert "ansible_inventory_sources" in each and "--inventory=" in each, verify
+        for play in plays:
             for command in _commands(play.get("tasks")):
                 text = json.dumps(command)
                 # A playbook run, however it names the playbook: verify_playbook_cmd itself included, so that the
                 # count below is of every run.
                 if re.search(r"ansible-playbook|playbooks/|_playbook\b|verify_playbook_cmd", text):
-                    assert "verify_playbook_cmd" in text, (verify, text[:200])
+                    assert "verify_playbook_cmd" in text and any(defined), (verify, text[:200])
                     runs += 1
     # The provision scenario's deploy, discover, destroy, ssh_config and code runs, the refusals' runner among them:
     # enough to show the guard reads them, whatever tables they are later written as.

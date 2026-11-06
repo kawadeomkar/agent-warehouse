@@ -172,7 +172,10 @@ tests/
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py)
   molecule/                       shared fakes: PVE API, qm, virt-customize, GitHub API, gh, claude, tailscale,
-                                  Tailscale API, the Anthropic Messages API (for the real claude in configure)
+                                  Tailscale API, the Anthropic Messages API (for the real claude in configure);
+                                  and the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
+                                  start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
+                                  refused.yml runs a role where it must refuse and asserts why
 molecule/
   provision/                      provision.yml + discover.yml against the fake API
   configure/                      configure.yml end to end in a container

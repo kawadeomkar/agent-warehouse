@@ -125,22 +125,14 @@
 
     - name: Run the role's ssh PATH tasks over it
       block:
-        - name: Include the ssh PATH tasks
-          ansible.builtin.include_role:
-            name: common
-            tasks_from: ssh_path
-
-        - name: Fail, since the check should have
-          ansible.builtin.fail:
-            msg: the role accepted a drop-in that gives dev another PATH first
-      rescue:
-        - name: Check the role failed naming the drop-in that won
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_task.name is search('Fail when sshd does not give')
-              - ansible_failed_result.msg is search('/etc/ssh/sshd_config.d/05-molecule-setenv.conf')
-              - ansible_failed_result.msg is search('setenv PATH=/usr/bin:/bin')
-            quiet: true
+        - name: Include the ssh PATH tasks, which must fail naming the drop-in that won
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+          vars:
+            refused_role: common
+            refused_tasks_from: ssh_path
+            refused_at: Fail when sshd does not give
+            refused_because: [/etc/ssh/sshd_config.d/05-molecule-setenv.conf, 'setenv PATH=/usr/bin:/bin']
+            refused_unless: the role accepted a drop-in that gives dev another PATH first
       always:
         - name: Remove that drop-in
           ansible.builtin.file:

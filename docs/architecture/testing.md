@@ -533,10 +533,14 @@ list rather than merging it. The shared file turns Molecule's dependency step of
 collections in and `just test` checks them first (`tools/check collections`). Each runs create → prepare →
 converge → **idempotence** → side_effect → verify → destroy.
 
+A role scenario's side effect runs the role where it must refuse through one task file,
+`tests/molecule/refused.yml`: the role inside a `block`/`rescue`, then an assert that the failure was
+the role's, at the task named where one is, with a message that matches every pattern the case gives.
+
 `vscode_server`'s side effect takes the forwarding away three ways, each in a drop-in of its own,
-runs the role inside a `block`/`rescue`, and asserts the failure names the setting and the file:
-`AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`, and a
-`Match User dev` block sorted last that limits forwarding to the remote direction - the case a
+runs the role over it, asserts the failure names the setting and the file, and removes the drop-in
+whatever happened: `AllowTcpForwarding no` sorted before the role's drop-in, `DisableForwarding yes`,
+and a `Match User dev` block sorted last that limits forwarding to the remote direction - the case a
 global `sshd -T` cannot see. Then it runs the role switched off and asserts both files are gone, and
 switched on again for verify, which reads the drop-in, the sysctl file and `sshd -T` (forwarding on,
 converge's keepalive values in effect).
@@ -633,9 +637,9 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 - fleet-wide discovery with two tagged VMs named `twin` must exit non-zero with the duplicate-name
   refusal;
+- `discover.yml --check`, as `just deploy --check` runs it, must still find `alpha`;
 - re-running `provision.yml` after shutting `beta` down must exit 0, publish `alpha`, report `beta` as
   stopped and leave it stopped;
-- `discover.yml --check`, as `just deploy --check` runs it, must still find `alpha`;
 - `deploy.yml` for the stopped `beta` must report the template as built, and with
   `proxmox_template_name` pointing at nothing, as about to be built;
 - `destroy.yml` must refuse without confirmation (the prompt's non-interactive default), refuse
@@ -732,6 +736,12 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
   was made, which `PUT /api2/json/fake/disk-ctime?vmid=&ctime=` backdates. No change waits for a restart, and
   every VM's root disk is 11 GiB used of 31.
+
+The fixture VMs the `proxmox_vm` and `provision` scenarios meet are made through the fake API by one task
+file, `tests/molecule/pve_vm.yml`: each cloned from the template, then given a config, made a template or
+started where its entry says. A config write of a fixture's carries no `name`, and every one the role makes
+does, which is how both verifies tell the two apart. `tests/molecule/prepare_pve.yml` and
+`tests/molecule/prepare_github.yml` start the fake APIs in a scenario's container.
 
 Beside these, the `proxmox_template` scenario serves a "cloud image" locally, with a real `SHA256SUMS`
 file, and a fake `/etc/pve/.vmlist` that places a VMID on a second node. The `tailscale` role scenario

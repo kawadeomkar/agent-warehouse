@@ -7,4 +7,4 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../tests/molecule/prepare_pve.yml"
       vars:
         prepare_pve_source: "{{ playbook_dir }}/../../tests/molecule/fake_pve_api.py"
-        prepare_pve_port: 18007
+        prepare_pve_port: "{{ proxmox_api_port }}"

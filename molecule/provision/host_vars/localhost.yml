@@ -1,6 +1,30 @@
 ---
 # Everything the API needs lives in group_vars/all/fake_api.yml, so that the
 # hosts provision.yml creates per VM get it too. Only the controller's own
-# connection details belong here.
+# connection details belong here, and what the scenario's own plays, all on
+# localhost, share.
 ansible_connection: local
 ansible_python_interpreter: "{{ ansible_playbook_python }}"
+
+# The fixture VMs verify.yml makes straight through the API
+# (tests/molecule/pve_vm.yml), over the committed wiring.
+pve_vm_api_url: "{{ proxmox_api_url }}"
+pve_vm_headers: "{{ proxmox_api_headers }}"
+
+# The child runs verify.yml starts: the same ansible-playbook and the same
+# inventory as this run, so the child sees the committed group_vars, the fake
+# API's endpoint and every pin this scenario sets there
+# (tests/unit/test_ssh_config.py holds each run to it). The rest of Molecule's
+# settings (roles path, filter plugins, collections) reach it through the
+# environment it inherits.
+verify_playbook_cmd: >-
+  {{ [ansible_playbook_python | dirname ~ '/ansible-playbook']
+     + (ansible_inventory_sources | map('regex_replace', '^', '--inventory=') | list) }}
+verify_playbook_env:
+  # One JSON document per result, so a message is never wrapped across
+  # lines the way the yaml result format wraps it.
+  ANSIBLE_CALLBACK_RESULT_FORMAT: json
+  ANSIBLE_NOCOLOR: "1"
+  # The fake VMs report 192.0.2.x, which drops packets: a child run that
+  # reaches for one waits this out, not Ansible's 10 s.
+  ANSIBLE_TIMEOUT: "3"

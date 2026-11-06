@@ -8,32 +8,14 @@
   become: true
   tasks:
     - name: Try to build the template as VMID 8000
-      block:
-        - name: Run the role against the sibling node's VMID
-          ansible.builtin.include_role:
-            name: proxmox_template
-          vars:
-            proxmox_template_vmid: 8000
-            proxmox_template_qm: /usr/local/bin/qm
-            proxmox_template_virt_customize: /usr/local/bin/virt-customize
-            proxmox_template_manage_libguestfs: false
-            proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-            proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_template built VMID 8000, which .vmlist says node pve2
-              holds. The cluster-wide VMID check is not working.
-      rescue:
-        - name: Assert it refused for the right reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('VMID 8000 exists on node pve2')
-              - ansible_failed_result.msg is search('proxmox_template_vmid')
-            fail_msg: >-
-              Expected a sibling-node refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_template
+        proxmox_template_vmid: 8000
+        refused_because: [VMID 8000 exists on node pve2, proxmox_template_vmid]
+        refused_unless: >-
+          proxmox_template built VMID 8000, which .vmlist says node pve2
+          holds. The cluster-wide VMID check is not working.
 
     - name: Assert nothing was built for 8000
       ansible.builtin.stat:
@@ -57,32 +39,14 @@
         creates: /var/lib/fake-qm/9002.conf
 
     - name: Try to build the template as VMID 9002
-      block:
-        - name: Run the role against the half-built VMID
-          ansible.builtin.include_role:
-            name: proxmox_template
-          vars:
-            proxmox_template_vmid: 9002
-            proxmox_template_qm: /usr/local/bin/qm
-            proxmox_template_virt_customize: /usr/local/bin/virt-customize
-            proxmox_template_manage_libguestfs: false
-            proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-            proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_template accepted VMID 9002, which holds a VM that was
-              never converted to a template. The reuse check is not working.
-      rescue:
-        - name: Assert it refused for the right reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('VMID 9002 exists but is not the finished template "ubuntu-24.04-cloudinit"')
-              - ansible_failed_result.msg is search('qm destroy 9002')
-            fail_msg: >-
-              Expected the reuse refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_template
+        proxmox_template_vmid: 9002
+        refused_because: ['VMID 9002 exists but is not the finished template "ubuntu-24.04-cloudinit"', qm destroy 9002]
+        refused_unless: >-
+          proxmox_template accepted VMID 9002, which holds a VM that was
+          never converted to a template. The reuse check is not working.
 
     - name: Assert 9002 was left as it was
       ansible.builtin.slurp:
@@ -101,32 +65,14 @@
         creates: /var/lib/fake-qm/9003.conf
 
     - name: Try to build the template as VMID 9003
-      block:
-        - name: Run the role against the other template's VMID
-          ansible.builtin.include_role:
-            name: proxmox_template
-          vars:
-            proxmox_template_vmid: 9003
-            proxmox_template_qm: /usr/local/bin/qm
-            proxmox_template_virt_customize: /usr/local/bin/virt-customize
-            proxmox_template_manage_libguestfs: false
-            proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-            proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: >-
-              proxmox_template accepted VMID 9003, a template named
-              other-template, as its own. The name check is not working.
-      rescue:
-        - name: Assert it refused for the right reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('VMID 9003 exists but is not the finished template "ubuntu-24.04-cloudinit"')
-              - ansible_failed_result.msg is search('qm destroy 9003')
-            fail_msg: >-
-              Expected the name-mismatch refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_template
+        proxmox_template_vmid: 9003
+        refused_because: ['VMID 9003 exists but is not the finished template "ubuntu-24.04-cloudinit"', qm destroy 9003]
+        refused_unless: >-
+          proxmox_template accepted VMID 9003, a template named
+          other-template, as its own. The name check is not working.
 
     - name: Assert 9003 was left as it was
       ansible.builtin.slurp:
@@ -141,15 +87,6 @@
 - name: Rebuild a template that keeps no record of its build
   hosts: all
   become: true
-  vars:
-    proxmox_template_converged: &converged
-      proxmox_template_qm: /usr/local/bin/qm
-      proxmox_template_virt_customize: /usr/local/bin/virt-customize
-      proxmox_template_manage_libguestfs: false
-      proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-      proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-      proxmox_template_storage: local-zfs
-      proxmox_template_bridge: vmbr1
   tasks:
     - name: Take the record out of 9000's notes, as an earlier version built it
       ansible.builtin.lineinfile:
@@ -160,7 +97,6 @@
     - name: Run the role with the settings it was built with
       ansible.builtin.include_role:
         name: proxmox_template
-      vars: *converged
 
     - name: Read 9000 as rebuilt
       ansible.builtin.slurp:
@@ -187,30 +123,12 @@
     - name: Try to rebuild it on another bridge
       block:
         - name: Run the role with a bridge 9000 does not have
-          ansible.builtin.include_role:
-            name: proxmox_template
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
           vars:
-            proxmox_template_qm: /usr/local/bin/qm
-            proxmox_template_virt_customize: /usr/local/bin/virt-customize
-            proxmox_template_manage_libguestfs: false
-            proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-            proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-            proxmox_template_storage: local-zfs
+            refused_role: proxmox_template
             proxmox_template_bridge: vmbr2
-
-        - name: The role should not have got this far
-          ansible.builtin.fail:
-            msg: proxmox_template rebuilt 9000, which Proxmox would not remove.
-      rescue:
-        - name: Assert it refused for the right reason
-          ansible.builtin.assert:
-            that:
-              - ansible_failed_result.msg is search('would not remove it to rebuild it')
-              - ansible_failed_result.msg is search('still in use by linked clone')
-              - ansible_failed_result.msg is search('proxmox_template_rebuild to false')
-            fail_msg: >-
-              Expected the linked-clone refusal, got: {{ ansible_failed_result.msg }}
-            quiet: true
+            refused_because: [would not remove it to rebuild it, still in use by linked clone, proxmox_template_rebuild to false]
+            refused_unless: proxmox_template rebuilt 9000, which Proxmox would not remove.
       always:
         - name: Unmark 9000
           ansible.builtin.file:
@@ -232,12 +150,6 @@
       ansible.builtin.include_role:
         name: proxmox_template
       vars:
-        proxmox_template_qm: /usr/local/bin/qm
-        proxmox_template_virt_customize: /usr/local/bin/virt-customize
-        proxmox_template_manage_libguestfs: false
-        proxmox_template_image_url: http://127.0.0.1:8080/noble-server-cloudimg-amd64.img
-        proxmox_template_image_checksum: sha256:http://127.0.0.1:8080/SHA256SUMS
-        proxmox_template_storage: local-zfs
         proxmox_template_bridge: vmbr2
         proxmox_template_rebuild: false
 
