@@ -255,8 +255,8 @@ pytest over `tests/unit/`, file by file:
   credential fill` proving that git itself gets the token through the config written, deploy's GitHub
   step per VM - starting by itself, and asking first with `github_login_auto_start: false`: Enter and `n`
   at a pseudo-terminal, and with no terminal (`claude_vm_login_terminal: false`) no question and no flow,
-  each VM told why - every task that renders a token held to `no_log`, and the whole output searched for
-  every canned token; and two device flows with the desktop steps on, against recorders of the test's own
+  each VM told why - every task that renders a token held to `no_log`, and the whole output, module arguments
+  injected (`ansible_inject_invocation`), searched for every canned token; and two device flows with the desktop steps on, against recorders of the test's own
   first on PATH, opening GitHub's own page whether gh named it or another, which is said and never shown,
   nor quoted where a failure quotes gh's own lines - gh's status page among them.
 - **The sign-in playbooks** (`test_sign_in_plays.py`): `claude_login.yml`, `github_login.yml` and
@@ -738,7 +738,8 @@ does, which is how both verifies tell the two apart. `tests/molecule/prepare_pve
 Beside these, the `proxmox_template` scenario serves a "cloud image" locally, with a real `SHA256SUMS`
 file, and a fake `/etc/pve/.vmlist` that places a VMID on a second node. The `tailscale` role scenario
 and the `configure` scenario install the real Tailscale package and daemon - log upload off from its
-first start - with the stand-in `tailscale` in front of it, so no test reaches a Tailscale service.
+first start - with the stand-in `tailscale` in front of it, `fake_tailscale.sh`, which each scenario that runs
+the role installs in its `prepare.yml`, so no test reaches a Tailscale service.
 Every scenario and both unit harnesses turn `login_desktop` off, so no test opens this machine's
 browser or touches its clipboard.
 

@@ -558,7 +558,12 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
    stdin, `no_log`. A headless VM
    has no credential store and gh would fall back to the plain-text file anyway; asking for it keeps
    a future gh that finds a store from putting the token where the role cannot read or remove it.
-   A refused token fails the host with gh's own line, which names the cause and never the token.
+   A refused token fails the host with gh's own line, which names the cause and never the token - but under
+   `auto`, one gh refuses for want of a scope (a classic token with `repo` alone, as earlier versions asked
+   for, lacks `read:org`) keeps listing and gh stays signed out, the scopes to add said
+   (`github_projects_token_short`): every VM shares the token, so failing it would fail every VM on upgrade.
+   `github_auth_method: token` still fails. Every task that renders the token is `no_log`, and a message or a
+   task var asks `github_projects_token_set`, never the token itself.
 3. **Sign out the login the role made when the vault token is cleared**, the other direction of
    the same rule, as `settings.yml` removes the API key it wrote. gh cannot tell the role's token
    from one the user pasted by hand, so the role leaves a marker whenever the login is the vault

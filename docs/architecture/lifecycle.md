@@ -32,7 +32,8 @@ show, so the build records it in the template's notes, one line: the build steps
 template is), the image's URL, the packages put into it, and its SHA-256, kept but never compared. One
 definition of what a build makes, the role's `proxmox_template_wanted`, feeds both the build and the
 comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
-`drift` entry point, on the config the API gives, and the role itself on `qm config`'s, which
+`drift` entry point, on the config the API gives (`proxmox_vm_info` with `config: current`), and the role
+itself on `qm config`'s, which
 `qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
 built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new
 image is downloaded and customised, so a download that fails leaves it; the customised copy goes either
@@ -322,7 +323,8 @@ placeholders, fanning out over `forks`; it looks each VM up again and applies th
 VM. It runs in a block: `claude_vm_deleted` after it marks a VM gone, and a deletion that fails is
 rescued - a play in which every VM fails ends the run - into `claude_vm_delete_failure` and
 `claude_vm_delete_error`, its reason alone, raised by the last play. Its `known_hosts` task is `throttle: 1`, because parallel deletes would otherwise each rewrite
-the same file and restore a key another had just removed.
+the same file and restore a key another had just removed. It never forgets the Proxmox host's key, or another
+inventory host's (`proxmox_vm_known_hosts_kept`), under any name, whatever address the VM reported last.
 
 **Play 3 — forget the alias (localhost).** `tasks/ssh_config.yml` with `state: absent` for the VMs
 that are actually gone: the delete play sets `claude_vm_deleted` only after the role, which a host that
@@ -670,7 +672,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    opens, and how it gets its Claude terminal (`claude_terminal`: `started` as the window opens, VS Code's;
    `listed` for the user to pick, Zed's; or `none`); its `family`, the core's module that plans its window; the
    names its command goes by here (`cli_candidates`), and what that command's `--version` must say where another
-   program shares a name (`version_re`). Where the window runs none (Zed), the notes are written
+   program shares a name (`version_re`). Whether a window runs just code's tasks and how it gets its Claude
+   terminal are said apart, though with these two rows they agree: no Claude task is decided from
+   `window_tasks` alone. Where the window runs none (Zed), the notes are written
    without the Claude terminal, worded for it, and `--session` needs no terminal: the report says the
    `claude --resume` to run, with the cautions every editor's report says. Zed's plan writes,
    with `editor_claude_terminal` and only where just code's directory is inside the projects directory and the
@@ -761,7 +765,21 @@ one checkout's fast-forward; a workspace directory that already exists keeps its
 `editor_files_dir` may name one of the user's own. `tests/unit/test_code_session.py` holds
 every task in `code.yml` to an allowlist - read-only here, or delegated to the VM - and the
 `provision` scenario checks the settings file it planted is byte-for-byte untouched after every
-run. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
+run. The allowlist follows `code.yml`'s own imports all the way down (`tasks/session_read.yml`,
+`tasks/session_write.yml`, the editors' check files, `tasks/editor_open.yml`); only the shared
+`cluster_vms.yml`, `vm_addresses.yml`, `ssh_config.yml` and `vm_names.yml` are not followed. A task there is
+read-only on this machine (`stat`, `getent`, `find`, `slurp`, `which` and `code`), one of the handoff's readers
+(`claude_sessions_info`, `git_checkouts_info`) here or on the VM, `--session`'s `git`, the handoff's `rsync`
+to the VM, the alias through `tasks/ssh_config.yml`, or one of eight writes, each under its exact condition in
+`WRITERS_WHEN` and delegated to the VM: just code's own directory, made first and 0755 where new; the editor
+plan's directories, the helpers it names and its files, each written under `{{ code_ws_dir }}/` or
+`{{ code_helpers_dir }}/`; the notes and theirs; and the sessions' directory and their copies. A `copy` is to
+`content`, or to `src: "{{ code_helper }}"` over `code_shared_helpers + code_helpers`, which together name each
+file of `playbooks/files/` once, and only a helper the editor's plan names, so nothing else of this machine's is
+ever sent. The one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal
+comes before the first write; and a `shell`, a writer in a `block` or a `connection` fails the test by name.
+The helpers are run against stand-ins with nothing else on PATH, never in a login shell there, which would put
+this machine's own `code` and `tailscale` back. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
 **The session notes.** In VS Code, with `editor_session_notes` (the default, with the terminal), a page about the
@@ -778,7 +796,8 @@ live. Side by side, the notes open a moment after the Claude terminal and usuall
 focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its Python part
 (`session_notes.py`, beside it) does: Python runs in the background, bash waits for it 5 s at most, runs `code -r <notes>` in the foreground
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
-open and VS Code never prints the command line. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
+open and VS Code never prints the command line; it never `exec`s into Python, which would leave the notes to
+Python's fate. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
 --json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
 its closing marker, atomically, 0600, in a regular file that has them; every value is cleaned as
 `plain_text` cleans, no command it runs prints a token, and the Tailscale row carries the `ssh` command
