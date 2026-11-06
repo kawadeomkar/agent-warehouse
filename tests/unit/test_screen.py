@@ -8,11 +8,8 @@ duration reads as the reports say it (docs/architecture/custom-code.md §7.8).
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
 from claude_vm.tui import screen
 
 

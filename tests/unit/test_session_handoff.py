@@ -213,6 +213,8 @@ def _session(sid=ID, cwd="/Users/me/demo", **extra):
 
 
 THERE = [{"path": CHECKOUT, "name": "demo", "origin": "https://github.com/octo/demo.git"}]
+# This machine's checkout of the same repository.
+HERE_DEMO = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
 
 
 def _plan(sessions, here, there=THERE, version="2.1.308", repo_paths=None, **kwargs):
@@ -247,7 +249,7 @@ def test_another_repository_is_not_copied(origin):
 
 def test_a_folder_named_like_a_checkout_of_another_repository_does_not_match():
     # The VM's demo folder holds someone else's demo: the name alone says nothing.
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     there = [{"path": CHECKOUT, "name": "demo", "origin": "https://github.com/someone-else/demo.git"}]
     assert _plan([_session()], here, there)["sessions"] == []
 
@@ -262,7 +264,7 @@ def test_a_gone_worktree_resolves_through_its_checkout():
     cwd = "/Users/me/demo/.claude/worktrees/fix-x"
     here = [
         {"path": cwd, "exists": False, "origin": ""},
-        {"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"},
+        *HERE_DEMO,
     ]
     assert [item["id"] for item in _plan([_session(cwd=cwd)], here)["sessions"]] == [ID]
 
@@ -279,19 +281,19 @@ def test_a_session_with_no_directory_or_no_message_is_not_copied():
 
 
 def test_a_session_newer_than_the_vm_s_claude_is_left_and_named():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     plan = _plan([_session(version="2.1.310"), _session(OTHER, version="2.1.9")], here, version="2.1.308")
     assert plan["newer"] == [ID] and [item["id"] for item in plan["sessions"]] == [OTHER]
 
 
 def test_without_claude_on_the_vm_nothing_is_copied():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     plan = _plan([_session()], here, version="")
     assert plan["sessions"] == [] and plan["claude"] is False
 
 
 def test_two_checkouts_of_one_repository_take_the_one_named_after_it_or_neither():
-    here = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
+    here = HERE_DEMO
     both = [*THERE, {"path": "/home/dev/projects/demo-copy", "name": "demo-copy", "origin": "git@github.com:octo/demo"}]
     assert [item["checkout"] for item in _plan([_session()], here, both)["sessions"]] == [CHECKOUT]
     neither = [{**item, "name": item["name"] + "-x", "path": item["path"] + "-x"} for item in both]
@@ -299,9 +301,6 @@ def test_two_checkouts_of_one_repository_take_the_one_named_after_it_or_neither(
     assert plan["sessions"] == [] and plan["ambiguous"] == [
         {"id": ID, "repository": "octo/demo", "names": "demo-copy-x, demo-x"}
     ]
-
-
-HERE_DEMO = [{"path": "/Users/me/demo", "exists": True, "origin": "https://github.com/octo/demo.git"}]
 
 
 @pytest.mark.parametrize(

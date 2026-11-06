@@ -69,46 +69,6 @@ ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 ANSIBLE_CFG = "[defaults]\ninject_facts_as_vars = false\n"
 
 
-@functools.cache
-def _listed(pathspecs: tuple[str, ...], untracked: bool) -> tuple[Path, ...]:
-    flags = ["--cached", "--others", "--exclude-standard"] if untracked else []
-    listed = subprocess.run(
-        ["git", "ls-files", "-z", *flags, "--", *pathspecs], cwd=REPO, capture_output=True, text=True, check=True
-    ).stdout
-    return tuple(sorted({REPO / name for name in listed.split("\0") if name and (REPO / name).is_file()}))
-
-
-def repo_files(*pathspecs: str, untracked: bool = False) -> list[Path]:
-    """The checkout's files that match git's pathspecs - all of them, given none - regular files only, sorted: the
-    tracked ones, and with untracked the new ones git does not ignore too, so a file is checked before its first
-    commit, while a working document git ignores (one at the top of docs/) never is. Listed once per process."""
-    return list(_listed(pathspecs, untracked))
-
-
-def repo_texts(*pathspecs: str, untracked: bool = False) -> list[tuple[Path, str]]:
-    """repo_files' files, each with its text: a file that is not UTF-8 text left out."""
-    texts = []
-    for path in repo_files(*pathspecs, untracked=untracked):
-        try:
-            texts.append((path, path.read_text(encoding="utf-8")))
-        except UnicodeDecodeError:
-            continue
-    return texts
-
-
-def load_module(path: str | Path, name: str | None = None, *, register: bool = True):
-    """A Python file imported by its path, relative to the checkout or absolute, as name - its file's stem unless
-    given - and in sys.modules under it unless register is false: a copy of its own, as a test that loads a module
-    afresh wants, which nothing else can find."""
-    path = REPO / path
-    spec = importlib.util.spec_from_file_location(name or path.stem, path)
-    module = importlib.util.module_from_spec(spec)
-    if register:
-        sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def ansible_config(directory: Path, extra: str = "") -> str:
     """Write the ansible.cfg of a run in directory - ANSIBLE_CFG, then extra - and return its path, for ANSIBLE_CONFIG.
 
@@ -318,7 +278,7 @@ def _local_hosts(
     hosts = {}
     for name in names:
         home = root / name
-        home.mkdir()
+        home.mkdir(exist_ok=True)
         (home / "python").symlink_to(bin_dir / "python")
         hosts[name] = {
             "ansible_connection": "local",
@@ -825,6 +785,46 @@ def _leaked(report: dict, secrets) -> list:
 
 
 # ------------------------------------------------------ the files themselves ---
+@functools.cache
+def _listed(pathspecs: tuple[str, ...], untracked: bool) -> tuple[Path, ...]:
+    flags = ["--cached", "--others", "--exclude-standard"] if untracked else []
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", *flags, "--", *pathspecs], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout
+    return tuple(sorted({REPO / name for name in listed.split("\0") if name and (REPO / name).is_file()}))
+
+
+def repo_files(*pathspecs: str, untracked: bool = False) -> list[Path]:
+    """The checkout's files that match git's pathspecs - all of them, given none - regular files only, sorted: the
+    tracked ones, and with untracked the new ones git does not ignore too, so a file is checked before its first
+    commit, while a working document git ignores (one at the top of docs/) never is. Listed once per process."""
+    return list(_listed(pathspecs, untracked))
+
+
+def repo_texts(*pathspecs: str, untracked: bool = False) -> list[tuple[Path, str]]:
+    """repo_files' files, each with its text: a file that is not UTF-8 text left out."""
+    texts = []
+    for path in repo_files(*pathspecs, untracked=untracked):
+        try:
+            texts.append((path, path.read_text(encoding="utf-8")))
+        except UnicodeDecodeError:
+            continue
+    return texts
+
+
+def load_module(path: str | Path, name: str | None = None, *, register: bool = True):
+    """A Python file imported by its path, relative to the checkout or absolute, as name - its file's stem unless
+    given - and in sys.modules under it unless register is false: a copy of its own, as a test that loads a module
+    afresh wants, which nothing else can find."""
+    path = REPO / path
+    spec = importlib.util.spec_from_file_location(name or path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    if register:
+        sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _every_task(node):
     """Every task in a play list or a task list, in order: a play's pre_tasks, tasks, post_tasks and handlers, and
     each block yielded before its block, rescue and always."""

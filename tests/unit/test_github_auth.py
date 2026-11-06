@@ -1344,8 +1344,8 @@ def test_a_run_over_the_output_of_an_earlier_failed_run_reads_only_the_new_code(
     # is unlinked, not truncated, before gh starts: the stale gh keeps its own
     # inode, and the new wait sees neither the old code nor its closing lines.
     root, report = stale
-    # The role after the login may stop at its directory task on macOS, as
-    # above; the flow itself must have gone through.
+    # The flow itself must have gone through: the whole role after the login
+    # is the approved run's to hold.
     flow_failures = {
         host: text
         for host, text in _failures(report).items()

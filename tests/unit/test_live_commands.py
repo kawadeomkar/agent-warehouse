@@ -24,12 +24,22 @@ from pathlib import Path
 import live_kit as kit
 import pytest
 
+# lib/claude_vm/ansible/parts.py, as tools/live imports it.
+from claude_vm.ansible import parts
+
 SAYS = "import os, sys; print('one'); print('two', os.environ.get('CLAUDE_ON_PROXMOX_LIVE', 'unset'))"
 FAILS = "import sys; [print(f'line-{n}') for n in range(1, 51)]; sys.exit(3)"
 
 
 def _part(step, code, stage="lint"):
     return f'live run {stage} --step {step} -- "{sys.executable}" -c "{code}"'
+
+
+def _playbook_part(root: Path, text: str) -> str:
+    """A playbook as a part: text as root/part.yml, run on this machine's localhost by the command it returns."""
+    (root / "part.yml").write_text(text)
+    (root / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
+    return f'"{kit.ANSIBLE_PLAYBOOK}" -i "{root / "hosts"}" "{root / "part.yml"}"'
 
 
 @pytest.fixture(scope="module")
@@ -51,17 +61,19 @@ def test_a_command_passed_through_is_exactly_what_it_printed_and_never_sees_the_
 
 
 @pytest.mark.parametrize(
-    ("why", "env"),
+    ("why", "env", "python_flags"),
     [
-        ("no title", {"CLAUDE_ON_PROXMOX_LIVE": ""}),
-        ("a -v", {"ARGS": "-f 30 -vv"}),
-        ("a bare -vvv", {"ARGS": "-vvv"}),
+        pytest.param("no title", {"CLAUDE_ON_PROXMOX_LIVE": ""}, "", id="no-title"),
+        pytest.param("a -v", {"ARGS": "-f 30 -vv"}, "", id="a-v"),
+        pytest.param("a bare -vvv", {"ARGS": "-vvv"}, "", id="a-bare-vvv"),
         # LIVE_DIR=: no state to carry the run between its parts, which would each say a run of their own.
-        ("no state", {"CLAUDE_ON_PROXMOX_LIVE_STATE": ""}),
+        pytest.param("no state", {"CLAUDE_ON_PROXMOX_LIVE_STATE": ""}, "", id="no-state"),
+        # A Python with no site-packages, as a fresh virtualenv before just install: neither PyYAML nor ansible-core.
+        pytest.param("no packages", {}, "-S", id="no-packages"),
     ],
 )
-def test_at_a_terminal_a_part_is_passed_through_without_a_title_or_with_a_v(tmp_path, why, env):
-    argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS)])
+def test_at_a_terminal_a_part_is_passed_through_without_a_title_or_with_a_v(tmp_path, why, env, python_flags):
+    argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS)], python_flags=python_flags)
     environment.update(env)
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
     assert ran.rc == 0, ran.text
@@ -87,17 +99,6 @@ def test_a_command_passed_through_keeps_an_ignored_ctrl_c_and_says_one_it_cannot
         argv, env, state = kit.recipe_in_parts(tmp_path, [f'live run lint --step cannot -- "{command}"'])
         ran = kit.piped(argv, tmp_path, env)
         assert ran.rc == rc and str(command) in ran.text, ran.text
-
-
-def test_without_its_packages_a_part_is_passed_through(tmp_path):
-    # A Python with no site-packages, as a fresh virtualenv before just install: neither PyYAML nor ansible-core.
-    argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS)])
-    script = tmp_path / "recipe.sh"
-    script.write_text(
-        script.read_text().replace(f'"{sys.executable}" "{kit.LIVE}"', f'"{sys.executable}" -S "{kit.LIVE}"')
-    )
-    ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
-    assert ran.rc == 0 and kit.SYNC_ON not in ran.raw and "two unset" in ran.text, ran.text
 
 
 def test_parts_are_drawn_as_one_run_and_its_end_says_it_whatever_ended_it(two_parts):
@@ -140,13 +141,6 @@ def test_the_state_is_the_run_s_alone(tmp_path):
     assert ran.rc == 0 and "CHECKS" in ran.transcript and "test ·" not in ran.transcript, ran.transcript
 
 
-def _commands():
-    """lib/claude_vm/ansible/parts.py, as tools/live imports it."""
-    from claude_vm.ansible import parts
-
-    return parts
-
-
 def test_a_save_prunes_only_the_states_a_run_left_behind(tmp_path):
     # LIVE_DIR comes from the environment, so it may be a folder of another tool's: its files are never touched.
     live = tmp_path / "live"
@@ -163,7 +157,7 @@ def test_a_save_prunes_only_the_states_a_run_left_behind(tmp_path):
     two_days_ago = time.time() - 2 * 24 * 3600
     for path in (left, events, temporary, *theirs):
         os.utime(path, (two_days_ago, two_days_ago))
-    _commands().save_state(live / "20261027-090000-lint-1.json", {"version": 1})
+    parts.save_state(live / "20261027-090000-lint-1.json", {"version": 1})
     assert not left.exists() and not events.exists() and not temporary.exists()
     assert (
         fresh.exists() and all(path.exists() for path in theirs) and (live / "20261020-101011-lint-5.json").is_symlink()
@@ -174,12 +168,11 @@ def test_a_save_prunes_only_the_states_a_run_left_behind(tmp_path):
 def test_the_pytest_reader_keeps_its_events_beside_the_run_s_state(tmp_path):
     # Every test's ID and each failure's words: in the run's own 0700 directory, named so the prune knows them, never
     # in the system's temporary directory.
-    commands = _commands()
     state = tmp_path / "live" / "20261027-090000-test-77.json"
     part = type("Part", (), {"state_path": str(state)})()
-    reader = commands.Pytest(part)
+    reader = parts.Pytest(part)
     events = Path(reader.env()["CLAUDE_ON_PROXMOX_LIVE_PYTEST"])
-    assert events.parent == state.parent and commands.OWN.fullmatch(events.name), events
+    assert events.parent == state.parent and parts.OWN.fullmatch(events.name), events
     assert stat.S_IMODE(events.stat().st_mode) == 0o600 and stat.S_IMODE(state.parent.stat().st_mode) == 0o700
 
 
@@ -261,11 +254,11 @@ def test_a_ctrl_c_before_the_part_s_handler_is_taken_once_it_is_in_and_the_part_
 
 def test_a_part_whose_command_a_signal_ended_or_that_cannot_run_exits_as_a_shell_says_it(tmp_path):
     killed = "import os, signal; print('ending', flush=True); os.kill(os.getpid(), signal.SIGTERM)"
-    for parts, rc, said in (
+    for lines, rc, said in (
         ([_part("killed", killed)], 143, r"^✗ killed: python\S* \(.*\) · exit 143$"),
         ([f'live run lint --step missing -- "{tmp_path / "missing"}"'], 127, r"^✗ missing: missing \(.*\) · exit 127$"),
     ):
-        argv, environment, state = kit.recipe_in_parts(tmp_path, parts)
+        argv, environment, state = kit.recipe_in_parts(tmp_path, lines)
         ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
         assert ran.rc == rc and re.search(said, ran.transcript, re.M), ran.transcript
 
@@ -273,7 +266,7 @@ def test_a_part_whose_command_a_signal_ended_or_that_cannot_run_exits_as_a_shell
 def test_a_run_whose_end_fails_exits_with_its_part_s_status_all_the_same(tmp_path):
     # The justfile's trap: an end that cannot say the run - here a state it cannot read - changes nothing of how
     # the recipe ends.
-    unreadable = json.dumps({"version": _commands().view.STATE_VERSION, "title": "lint", "tasks": 1})
+    unreadable = json.dumps({"version": parts.view.STATE_VERSION, "title": "lint", "tasks": 1})
     broken = f"printf %s '{unreadable}' > \"$CLAUDE_ON_PROXMOX_LIVE_STATE\""
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), broken, "exit 3"])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
@@ -282,7 +275,7 @@ def test_a_run_whose_end_fails_exits_with_its_part_s_status_all_the_same(tmp_pat
 
 
 def test_no_bar_falls_from_one_part_to_the_next():
-    view = _commands().drawn
+    view = parts.drawn
     run = view.Run("lint", 0.0)
     run.parts = True
     assert run._clamped("title", 0.6) == 0.6
@@ -303,9 +296,7 @@ PAUSED = """
 
 
 def test_a_playbook_part_ctrl_c_ended_before_its_stats_saves_what_it_did_said_stopped(tmp_path):
-    (tmp_path / "part.yml").write_text(PAUSED)
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    playbook = f'"{kit.ANSIBLE_PLAYBOOK}" -i "{tmp_path / "hosts"}" "{tmp_path / "part.yml"}"'
+    playbook = _playbook_part(tmp_path, PAUSED)
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), playbook])
     seen = []
 
@@ -352,9 +343,7 @@ PLAYBOOK = """
 
 
 def test_a_playbook_is_a_part_too_and_its_next_steps_wait_for_the_end(tmp_path):
-    (tmp_path / "part.yml").write_text(PLAYBOOK)
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    playbook = f'"{kit.ANSIBLE_PLAYBOOK}" -i "{tmp_path / "hosts"}" "{tmp_path / "part.yml"}"'
+    playbook = _playbook_part(tmp_path, PLAYBOOK)
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), playbook])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=120)
     assert ran.rc == 0, ran.text
@@ -444,20 +433,24 @@ def test_a_command_is_named_by_its_program_past_env(tmp_path):
     assert re.search(r"^✗ fails: fails \(", ran.transcript, re.M), ran.transcript
 
 
-def test_a_playbook_part_ctrl_c_stopped_is_said_stopped(tmp_path):
-    # ansible-playbook exits 99 after Ctrl-C: the run stopped, it did not fail.
-    argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), "exit 99"])
+@pytest.mark.parametrize(
+    ("lines", "rc"),
+    [
+        # A playbook part Ctrl-C stopped: ansible-playbook exits 99 after Ctrl-C, and the run stopped, it did not fail.
+        pytest.param([_part("says", SAYS), "exit 99"], 99, id="a-playbook-part-ctrl-c-stopped"),
+        # A Ctrl-C between two parts can end the recipe with bash saying 0: the steps it listed and never reached
+        # say so.
+        pytest.param(
+            [_part("says", SAYS).replace("--step says", '--step says --plan "says next"', 1), "exit 0"],
+            0,
+            id="well-before-its-listed-steps",
+        ),
+    ],
+)
+def test_a_run_ended_short_is_said_stopped(tmp_path, lines, rc):
+    argv, environment, state = kit.recipe_in_parts(tmp_path, lines)
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
-    assert ran.rc == 99, ran.text
-    assert re.search(r"^claude-on-proxmox  lint · stopped after \d+ s at says", ran.transcript, re.M), ran.transcript
-
-
-def test_a_run_that_ends_well_before_its_listed_steps_is_said_stopped(tmp_path):
-    # A Ctrl-C between two parts can end the recipe with bash saying 0: the steps it listed and never reached say so.
-    listed = _part("says", SAYS).replace("--step says", '--step says --plan "says next"', 1)
-    argv, environment, state = kit.recipe_in_parts(tmp_path, [listed, "exit 0"])
-    ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
-    assert ran.rc == 0, ran.text
+    assert ran.rc == rc, ran.text
     assert re.search(r"^claude-on-proxmox  lint · stopped after \d+ s at says", ran.transcript, re.M), ran.transcript
 
 
@@ -491,9 +484,7 @@ LONG = (
 
 def test_next_steps_says_each_record_line_for_line_as_the_stream_does(tmp_path):
     # just init's records: bullets under the line that counts them, and a paragraph longer than any terminal, whole.
-    (tmp_path / "part.yml").write_text(RECORDED % LONG)
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    playbook = f'"{kit.ANSIBLE_PLAYBOOK}" -i "{tmp_path / "hosts"}" "{tmp_path / "part.yml"}"'
+    playbook = _playbook_part(tmp_path, RECORDED % LONG)
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), playbook])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=120)
     assert ran.rc == 0, ran.text

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _pve_vm, _run, fake_fleet
+from harness import REPO, _messages, _pve_vm, _results, _run, fake_fleet
 from test_status import _status_run, status_root
 
 PLAYBOOKS = REPO / "playbooks"
@@ -47,33 +47,35 @@ def _proxmox_inventory(root: Path) -> list[str]:
     return ["-i", str(inventory)]
 
 
+def _playbook(tmp_path: Path, base: str, path: Path, *extra: str, settings: dict = FROM_THE_HOST) -> dict:
+    """A playbook of the project's against the fake, from a run directory of its own with settings, the files it
+    imports where they are: deploy.yml's playbooks/, or a playbook's tasks/. extra goes on the command line."""
+    root, _ = status_root(tmp_path, base, settings)
+    text = path.read_text()
+    if path.parent == REPO:
+        text = text.replace(" playbooks/", f" {PLAYBOOKS}/")
+    else:
+        text = text.replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
+    (root / path.name).write_text(text)
+    return _run(root, root / path.name, {}, *_proxmox_inventory(root), *extra, timeout=180)
+
+
 def _discover(tmp_path: Path, base: str, *extra: str) -> dict:
-    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
-    playbook = root / "discover.yml"
-    playbook.write_text((PLAYBOOKS / "discover.yml").read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/"))
-    return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
+    return _playbook(tmp_path, base, PLAYBOOKS / "discover.yml", *extra)
 
 
 def _refresh(tmp_path: Path, base: str, *extra: str) -> dict:
     """playbooks/ssh_config.yml against the fake, its managed file the test's own (tmp_path / "ssh.conf")."""
     settings = {**FROM_THE_HOST, "claude_ssh_user_config": str(tmp_path / "config"), "claude_ssh_config_include": False}
-    root, _ = status_root(tmp_path, base, settings)
-    playbook = root / "ssh_config.yml"
-    playbook.write_text((PLAYBOOKS / "ssh_config.yml").read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/"))
-    return _run(root, playbook, {}, *_proxmox_inventory(root), *extra, timeout=180)
+    return _playbook(tmp_path, base, PLAYBOOKS / "ssh_config.yml", *extra, settings=settings)
 
 
 def _creating(tmp_path: Path, base: str, playbook: str, names: str, *inventory: str) -> dict:
     """deploy.yml or provision.yml against the fake, with names given, from a run directory of its own; inventory, more
     -i arguments."""
-    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
-    if playbook == "deploy.yml":
-        text = (REPO / "deploy.yml").read_text().replace(" playbooks/", f" {PLAYBOOKS}/")
-    else:
-        text = (PLAYBOOKS / playbook).read_text().replace("tasks/", f"{PLAYBOOKS / 'tasks'}/")
-    (root / playbook).write_text(text)
+    path = REPO / "deploy.yml" if playbook == "deploy.yml" else PLAYBOOKS / playbook
     extra = json.dumps({"vm_name": names, "deploy_sign_in": False})
-    return _run(root, root / playbook, {}, *_proxmox_inventory(root), *inventory, "-e", extra, timeout=180)
+    return _playbook(tmp_path, base, path, *inventory, "-e", extra)
 
 
 def _block(name: str) -> str:
@@ -81,11 +83,17 @@ def _block(name: str) -> str:
 
 
 def _task(report: dict, name: str) -> dict:
-    for play in report["plays"]:
-        for task in play["tasks"]:
-            if task["task"]["name"] == name:
-                return task["hosts"]["localhost"]
-    return {}
+    """What the first task of that name did on localhost."""
+    return next((result for task, host, result in _results(report) if task == name and host == "localhost"), {})
+
+
+def _refused(report: dict) -> list[dict]:
+    """vm_names.yml's failed refusals, on localhost."""
+    return [
+        result
+        for task, host, result in _results(report)
+        if host == "localhost" and task.startswith("vm_names | ") and result.get("failed")
+    ]
 
 
 # Discovery and the alias refresh say it alike, from one task file.
@@ -98,7 +106,7 @@ def test_discovery_leaves_out_a_vm_named_after_a_host_of_the_inventory_and_says_
     added = _task(report, "Add the reachable ones to the inventory")
     names = [r["claude_vm_found"]["name"] for r in added["results"] if not r.get("skipped")]
     assert sorted(names) == ["alpha", "beta"]
-    said = _task(report, LEFT_OUT)["msg"]
+    said = _messages(report, LEFT_OUT)["localhost"]
     assert "localhost" in said and "pve" in said
 
 
@@ -138,13 +146,13 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     assert re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
     # Left as it was: neither refreshed nor removed by a run that did not name it.
     assert _block("alpha.lab") in text
-    said = _task(report, "Report what was kept, pruned and left alone")["msg"]
+    said = _messages(report, "Report what was kept, pruned and left alone")["localhost"]
     # alpha and beta: alpha.lab had an address, and was left out.
     assert said.startswith("2 aliases refreshed in ")
     assert "which an earlier version wrote: pve, 3232235777" in said
     assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
     # The tagged VMs named pve and localhost get no alias, and the run says so, as discovery does.
-    said = _task(report, LEFT_OUT)["msg"]
+    said = _messages(report, LEFT_OUT)["localhost"]
     assert "localhost" in said and "pve" in said
 
 
@@ -164,12 +172,7 @@ def test_a_name_no_vm_may_have_is_refused_before_proxmox_is_asked(tmp_path, flee
     before = calls.read_text() if calls.exists() else ""
     report = _creating(tmp_path, fleet, playbook, f"alpha,{name}")
     assert report["rc"] != 0
-    refused = [
-        task["hosts"]["localhost"]
-        for play in report["plays"]
-        for task in play["tasks"]
-        if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
-    ]
+    refused = _refused(report)
     assert len(refused) == 1 and said in refused[0]["msg"], refused
     assert calls.read_text() == before
 
@@ -184,12 +187,7 @@ def test_a_name_this_machine_reaches_another_host_by_is_refused_before_proxmox_i
     nas.write_text(yaml.safe_dump({"all": {"hosts": {"nas": {"ansible_host": "nas.example"}}}}))
     report = _creating(tmp_path, fleet, "provision.yml", "alpha,nas.example", "-i", str(nas))
     assert report["rc"] != 0
-    refused = [
-        task["hosts"]["localhost"]
-        for play in report["plays"]
-        for task in play["tasks"]
-        if task["task"]["name"].startswith("vm_names | ") and task["hosts"]["localhost"].get("failed")
-    ]
+    refused = _refused(report)
     assert len(refused) == 1, refused
     assert "nas.example" in refused[0]["msg"] and "it names a host of the inventory" in refused[0]["msg"], refused
     assert calls.read_text() == before

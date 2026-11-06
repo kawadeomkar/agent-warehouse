@@ -27,6 +27,12 @@ NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
 AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
 
 
+def _python(script: str) -> str:
+    """What script prints, run by this Python isolated (-I): none of this process's modules or path, but what it
+    puts on its path itself."""
+    return subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True).stdout
+
+
 def _tracked(path: str) -> list[str]:
     return [str(file.relative_to(REPO)) for file in repo_files(path)]
 
@@ -70,8 +76,7 @@ importlib.import_module({name!r})
 loaded = {{key.split(".")[0] for key in sys.modules}}
 print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert set(json.loads(run.stdout)) <= AT_IMPORT.get(name, set())
+    assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, set())
 
 
 def test_importing_the_package_imports_no_module_of_it() -> None:
@@ -79,8 +84,7 @@ def test_importing_the_package_imports_no_module_of_it() -> None:
         f"import sys; sys.path.insert(0, {str(LIB)!r}); import claude_vm; "
         "print(sorted(m for m in sys.modules if m.startswith('claude_vm')))"
     )
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert run.stdout.strip() == "['claude_vm']"
+    assert _python(script).strip() == "['claude_vm']"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -206,8 +210,7 @@ from claude_vm.refs import VmRef
 made["to_wire"](VmRef(name="alpha", vmid=4013))
 print(before, "claude_vm.wire" in sys.modules, made["to_wire"].__name__)
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    assert run.stdout.split() == ["False", "True", "to_wire"]
+    assert _python(script).split() == ["False", "True", "to_wire"]
 
 
 def test_an_adapter_refuses_another_checkout_s_claude_vm(tmp_path) -> None:
@@ -245,8 +248,7 @@ for name, call in filters.items():
     found[name] = [call.__name__, where["name"], callable(core)]
 print(json.dumps({{"loaded": loaded, "found": found}}))
 """
-    run = subprocess.run([sys.executable, "-I", "-c", script], capture_output=True, text=True, check=True)
-    said = json.loads(run.stdout)
+    said = json.loads(_python(script))
     assert said["loaded"] == []
     assert said["found"] and all(made == [name, name, True] for name, made in said["found"].items()), said["found"]
 

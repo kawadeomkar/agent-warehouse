@@ -57,14 +57,18 @@ def justfiles_trap(recipe: str = "lint") -> str:
     return end.replace("{{ live }}", "live") + "\n" + trap
 
 
-def recipe_in_parts(root: Path, parts: list[str], title: str = "lint", **settings: str) -> tuple[list[str], dict, Path]:
+def recipe_in_parts(
+    root: Path, parts: list[str], title: str = "lint", *, python_flags: str = "", **settings: str
+) -> tuple[list[str], dict, Path]:
     """A stand-in recipe in parts: the justfile's trap of the recipe the title names, then each of parts, as lines of
-    one bash script. Its argv, its environment, and where its run keeps its state."""
+    one bash script, its tools/live run by this Python with python_flags. Its argv, its environment, and where its run
+    keeps its state."""
     recipe = title.split()[0]
     script, logs = root / "recipe.sh", root / "logs"
+    python = f'"{sys.executable}"' + (f" {python_flags}" if python_flags else "")
     script.write_text(
         "#!/bin/bash\nset -eu\n"
-        f'live() {{ "{sys.executable}" "{LIVE}" --log-dir="{logs}" --stamp={STAMP} '
+        f'live() {{ {python} "{LIVE}" --log-dir="{logs}" --stamp={STAMP} '
         '--ansible-args="${ARGS:-}" "$@"; }\n' + justfiles_trap(recipe) + "\n" + "\n".join(parts) + "\n"
     )
     script.chmod(0o755)

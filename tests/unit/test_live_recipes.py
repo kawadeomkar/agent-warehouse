@@ -22,6 +22,7 @@ SET_FACT = {"set_fact", "ansible.builtin.set_fact", "ansible.legacy.set_fact"}
 IMPORTS = {f"{prefix}import_{kind}" for prefix in ("", "ansible.builtin.") for kind in ("tasks", "role", "playbook")}
 
 
+from claude_vm.ansible.engine import FILE_PREFIX  # noqa: E402
 from claude_vm.run import recipes  # noqa: E402
 
 RECIPES = sorted(recipes.RECIPES)
@@ -56,12 +57,24 @@ TASKS = [(path, item) for path in _yaml_files() for item in _items(_load_yaml(pa
 
 def _with_imports(path):
     """A playbook's items and those of the task files it imports statically, followed down: the tasks Ansible starts."""
-    items = list(_items(_load_yaml(path)))
-    for item in list(items):
-        for key in ("import_tasks", "ansible.builtin.import_tasks"):
-            if isinstance(item.get(key), str) and "{{" not in item[key]:
-                items += _with_imports(path.parent / item[key])
-    return items
+    return [*_items(_load_yaml(path)), *(item for file in _imported_files(path) for item in _items(_load_yaml(file)))]
+
+
+def _drawn(name):
+    """A task's name as the engine draws it, without a task file's prefix (claude_vm.ansible.engine.drawn_name): how a
+    step matches the task it starts at."""
+    return FILE_PREFIX.sub("", name)
+
+
+def _set_facts(items):
+    """Every fact the set_fact tasks among items set."""
+    return {
+        fact
+        for item in items
+        for action in SET_FACT & set(item)
+        if isinstance(item[action], dict)
+        for fact in item[action]
+    }
 
 
 def _playbook(name):
@@ -134,12 +147,9 @@ def test_every_task_a_step_starts_at_is_one_ansible_starts_and_every_task_file_i
     files = [path.as_posix() for path in _yaml_files()]
     for stage in recipe.stages:
         items = [item for play in stage.plays for item in _with_imports(_playbook(play.partition(":")[0]))]
-        # By name as the engine draws it, without a task file's prefix (claude_vm.ansible.engine.drawn_name), which
-        # is how a step matches the task it starts at.
+        # By name as the engine draws it.
         tasks = {
-            re.sub(r"^[a-z0-9_]+ \| ", "", item["name"]): item
-            for item in items
-            if isinstance(item.get("name"), str) and "block" not in item
+            _drawn(item["name"]): item for item in items if isinstance(item.get("name"), str) and "block" not in item
         }
         for step in stage.steps:
             for task in getattr(step, "starts", ()):
@@ -173,7 +183,7 @@ def test_a_step_begun_in_an_imported_file_begins_at_its_first_task(name):
         for step in stage.steps:
             for start in getattr(step, "starts", ()):
                 for path, tasks in files.items():
-                    names = [re.sub(r"^[a-z0-9_]+ \| ", "", task["name"]) for task in tasks]
+                    names = [_drawn(task["name"]) for task in tasks]
                     if start in names:
                         assert names[0] == start, (
                             f"{name}: {step.label}: {start!r} is not the first task of {path.name}"
@@ -187,17 +197,13 @@ def test_the_window_begins_at_every_editor_s_first_task_of_its_window():
     for name in ("code", "deploy"):
         stage = next(stage for stage in recipes.RECIPES[name].stages if any(s.label == "window" for s in stage.steps))
         window = next(step for step in stage.steps if step.label == "window")
-        assert re.sub(r"^[a-z0-9_]+ \| ", "", first) in window.starts, (name, first)
+        assert _drawn(first) in window.starts, (name, first)
 
 
 @pytest.mark.parametrize("name", RECIPES)
 def test_every_fact_a_declaration_reads_is_set_by_a_task(name):
     recipe = recipes.RECIPES[name]
-    set_facts = set()
-    for _, item in TASKS:
-        for action in SET_FACT & set(item):
-            if isinstance(item[action], dict):
-                set_facts |= set(item[action])
+    set_facts = _set_facts(item for _, item in TASKS)
     facts = set()
     for stage in recipe.stages:
         for part in (stage, *stage.steps):
@@ -226,13 +232,7 @@ def test_a_vms_address_and_id_are_where_the_engine_reads_them():
         for action in ADD_HOST & set(item)
     ]
     assert added and all({"ansible_host", "proxmox_vm_id"} <= set(each) for each in added), added
-    set_facts = {
-        fact
-        for item in _items(_load_yaml(REPO / "playbooks" / "tasks" / "vm_addresses.yml"))
-        for action in SET_FACT & set(item)
-        if isinstance(item[action], dict)
-        for fact in item[action]
-    }
+    set_facts = _set_facts(_items(_load_yaml(REPO / "playbooks" / "tasks" / "vm_addresses.yml")))
     assert "claude_vm_addressed" in set_facts, set_facts
 
 

@@ -29,6 +29,7 @@ JOBS = WORKFLOW["jobs"]
 RESULT = JOBS["result"]
 # Not part of the gate: it runs on the weekly schedule against the unpinned image and may fail on purpose.
 OUTSIDE = {"canary"}
+NEEDS_JQ = pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
 
 
 def test_ci_result_needs_every_job_but_the_canary():
@@ -51,7 +52,7 @@ def test_no_job_of_the_gate_can_fail_and_still_succeed():
             assert "continue-on-error" not in step, (name, step.get("name"))
 
 
-@pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
+@NEEDS_JQ
 @pytest.mark.parametrize(
     ("results", "passes"),
     [
@@ -62,17 +63,10 @@ def test_no_job_of_the_gate_can_fail_and_still_succeed():
         ({"lint": "skipped", "molecule": "failure"}, False),
     ],
 )
-def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(results, passes):
+def test_ci_result_passes_only_when_each_job_succeeded_or_was_skipped(tmp_path, results, passes):
     (step,) = RESULT["steps"]
     needs = {name: {"result": results.get(name, "success"), "outputs": {}} for name in RESULT["needs"]}
-    # As GitHub runs a step's script on ubuntu-latest: bash -e with pipefail.
-    run = subprocess.run(
-        ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]],
-        env={"PATH": f"{Path(shutil.which('jq')).parent}:/usr/bin:/bin", "NEEDS": json.dumps(needs)},
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    run, _ = _run(step["run"], tmp_path, tmp_path, NEEDS=json.dumps(needs))
     assert (run.returncode == 0) is passes, (results, run.stdout, run.stderr)
     for name in RESULT["needs"]:
         assert f"{name}: {results.get(name, 'success')}" in run.stdout
@@ -116,7 +110,6 @@ def test_the_canary_runs_the_pinned_image_unpinned():
 LABELS = yaml.safe_load((REPO / ".github" / "workflows" / "labels.yml").read_text())
 RELEASE = yaml.safe_load((REPO / ".github" / "workflows" / "release.yml").read_text())
 NOTES = yaml.safe_load((REPO / ".github" / "release.yml").read_text())
-NEEDS_JQ = pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed (GitHub's runners have it)")
 
 
 def _title_tags() -> list[str]:

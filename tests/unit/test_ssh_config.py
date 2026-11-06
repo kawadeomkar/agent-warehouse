@@ -106,15 +106,22 @@ def _blocks(text: str) -> list[str]:
     return re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M)
 
 
-def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
-    """What the real ssh client makes of the managed file, as an editor's ssh would."""
-    result = subprocess.run(
-        [SSH, "-G", "-F", _paths(tmp_path)["claude_ssh_config_file"], alias],
+def _ssh_g(config: Path | str, alias: str = "alpha", home: Path | None = None) -> str:
+    """What the real ssh client makes of alias from config alone (-F), with home as its HOME when given: never the
+    developer's ~/.ssh/config."""
+    return subprocess.run(
+        [SSH, "-G", "-F", str(config), alias],
+        env=None if home is None else {**os.environ, "HOME": str(home)},
         capture_output=True,
         text=True,
         check=True,
-    )
-    return dict(line.split(" ", 1) for line in result.stdout.splitlines() if " " in line)
+    ).stdout
+
+
+def _resolve(tmp_path: Path, alias: str) -> dict[str, str]:
+    """What the real ssh client makes of the managed file, as an editor's ssh would."""
+    said = _ssh_g(_paths(tmp_path)["claude_ssh_config_file"], alias)
+    return dict(line.split(" ", 1) for line in said.splitlines() if " " in line)
 
 
 def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Path) -> None:
@@ -341,13 +348,7 @@ def test_an_include_already_there_in_another_spelling_is_not_added_again(tmp_pat
 
 def _probe(tmp_path: Path, config: Path) -> str:
     """What the real ssh client makes of the user's config, with the temporary home."""
-    return subprocess.run(
-        [SSH, "-G", "-F", str(config), "alpha"],
-        env={**os.environ, "HOME": str(tmp_path / "home")},
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    return _ssh_g(config, home=tmp_path / "home")
 
 
 def _ssh_reads_include(tmp_path: Path, line: str) -> bool:
@@ -357,14 +358,7 @@ def _ssh_reads_include(tmp_path: Path, line: str) -> bool:
     (home / ".ssh" / "claude-on-proxmox.conf").write_text("Host alpha\n    HostName 192.0.2.99\n")
     config = home / ".ssh" / "config"
     config.write_text(f"{line}\n")
-    out = subprocess.run(
-        [SSH, "-G", "-F", str(config), "alpha"],
-        env={**os.environ, "HOME": str(home)},
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return "hostname 192.0.2.99" in out
+    return "hostname 192.0.2.99" in _ssh_g(config, home=home)
 
 
 def test_an_include_below_a_host_block_does_not_count(tmp_path: Path) -> None:
@@ -587,11 +581,4 @@ def test_an_include_ssh_does_not_expand_is_not_taken_for_ours(tmp_path: Path) ->
     lines = user_config.read_text().splitlines()
     assert lines[0] == f"Include {_paths(tmp_path)['claude_ssh_config_file']}"
     assert "Include $HOME/.ssh/claude-on-proxmox.conf" in lines
-    probe = subprocess.run(
-        [SSH, "-G", "-F", str(user_config), "alpha"],
-        env={**os.environ, "HOME": str(tmp_path / "home")},
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    assert "hostname 192.0.2.51" in probe.stdout
+    assert "hostname 192.0.2.51" in _probe(tmp_path, user_config)

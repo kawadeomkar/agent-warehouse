@@ -21,6 +21,10 @@ from pathlib import Path
 import live_kit as kit
 import pytest
 from harness import repo_files
+from test_attention_callback import _vm_module
+
+from claude_vm.ansible import engine
+from claude_vm.run import recipes
 
 REPO = Path(__file__).resolve().parents[2]
 PROMPT = "alpha: paste the code here, or press Enter to skip"
@@ -439,19 +443,9 @@ def test_a_failure_says_what_failed_whole_wherever_it_is(tmp_path):
     assert re.search(r"^\d+ tasks · nothing changed · 4 failed \(4 VMs\)", text, re.M), text
 
 
-# A module as a VM's root can make any module there answer: warnings and a failure's message carrying a clipboard
-# write (OSC 52), a title, a screen erase and an 8-bit CSI, which ansible-core prints as they are, on stderr - which
-# the region lets through to the screen - and in the log.
-VM_SAID = """#!/usr/bin/python
-from ansible.module_utils.basic import AnsibleModule
-
-ESCAPES = "\\x1b]52;c;b3duZWQ=\\x07\\x1b]0;retitled\\x07\\x1b[2J\\x9b31m"
-module = AnsibleModule(argument_spec={"fail": {"type": "bool", "default": False}})
-module.warn("warned " + ESCAPES)
-if module.params["fail"]:
-    module.fail_json(msg="failed " + ESCAPES)
-module.exit_json(changed=False)
-"""
+# A module as a VM's root can make any module there answer (test_attention_callback.VM_MODULE): warnings and a
+# failure's message carrying a clipboard write (OSC 52), a title, a screen erase and an 8-bit CSI, which ansible-core
+# prints as they are, on stderr - which the region lets through to the screen - and in the log.
 VM_SAYS = """
 - name: A VM's modules
   hosts: alpha
@@ -467,8 +461,7 @@ VM_SAYS = """
 
 def test_what_a_vm_s_module_says_is_drawn_plain_on_the_screen_and_in_the_log(stand_in):
     (stand_in / "vm_says.yml").write_text(VM_SAYS)
-    (stand_in / "library").mkdir()
-    (stand_in / "library" / "vm_said.py").write_text(VM_SAID)
+    _vm_module(stand_in)
     _fresh(stand_in)
     ran = kit.at_a_terminal(
         kit.playbook(stand_in / "hosts", stand_in / "vm_says.yml"),
@@ -614,14 +607,8 @@ def test_no_other_test_or_scenario_draws_a_run():
             recipe = line.split()[0].rstrip(":")
         if "CLAUDE_ON_PROXMOX_LIVE" in line:
             naming.add(recipe)
-    assert naming <= set(_recipes().RECIPES), naming
+    assert naming <= set(recipes.RECIPES), naming
     assert {"deploy", "login", "destroy", "code", "lint", "init", "test"} <= naming, naming
-
-
-def _recipes():
-    from claude_vm.run import recipes
-
-    return recipes
 
 
 RAISED = """
@@ -702,7 +689,6 @@ def test_a_failure_raised_again_is_drawn_under_its_cause_with_its_own_words(tmp_
 
 
 def test_the_vms_a_run_was_given_are_read_from_its_extra_vars():
-    engine = kit_engine()
     assert engine.vm_names(['{"vm_name": "alpha,beta"}', "x=1"]) == ["alpha", "beta"]
     assert engine.vm_names(["vm_name=gamma"]) == ["gamma"]
     assert engine.vm_names(['{"vm_name": "alpha\\nProxyCommand x,-bad"}']) == []
@@ -713,13 +699,7 @@ def test_a_name_the_run_s_facts_hold_is_a_vm_s_only_whole():
     # refs.NAME, matched in full: a name with a space, a ; or a line break is no VM's, and a line break would break
     # the region's count of the lines it drew.
     names = ["alpha", "alpha beta", "al;pha", "alpha\nx", {"name": "beta"}, {"name": "beta\n"}]
-    assert kit_engine().Engine._names(names) == ["alpha", "beta"]
-
-
-def kit_engine():
-    from claude_vm.ansible import engine
-
-    return engine
+    assert engine.Engine._names(names) == ["alpha", "beta"]
 
 
 def test_a_tasks_file_is_the_one_the_import_nearest_the_play_names(tmp_path):

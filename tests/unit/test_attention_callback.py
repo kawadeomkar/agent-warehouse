@@ -327,13 +327,20 @@ VM_PLAY = """
         fail: true
       ignore_errors: true
 """
+
+
+def _vm_module(root: Path) -> None:
+    """VM_MODULE as the module vm_said, in the library of a play run from root."""
+    (root / "library").mkdir()
+    (root / "library" / "vm_said.py").write_text(VM_MODULE)
+
+
 # Every byte a terminal acts on but the tab and the newline: ESC, BEL, the C1 controls.
 TERMINAL_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path):
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, err, log = _play(tmp_path, VM_PLAY, ANSIBLE_DIFF_ALWAYS="1")
     for name, text in (("stdout", out), ("stderr", err), ("log", log)):
         assert not TERMINAL_CONTROL.search(text), (name, text)
@@ -353,8 +360,7 @@ def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path
 def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path):
     # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
     # hand, and would still pass if ansible-core stopped setting it.
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, err, log = _play(tmp_path, VM_PLAY, "claude_on_proxmox_status")
     for name, text in (("stdout", out), ("stderr", err), ("log", log)):
         assert not TERMINAL_CONTROL.search(text), (name, text)
@@ -366,8 +372,7 @@ def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path
 def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
     # Why NEXT STEPS reads the set_stats tasks' own results: the default callback,
     # showing the run's custom stats, shows the module's line among them.
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "vm_said.py").write_text(VM_MODULE)
+    _vm_module(tmp_path)
     out, _, _ = _play(tmp_path, VM_PLAY, "default", ANSIBLE_SHOW_CUSTOM_STATS="1")
     assert "evil.example" in out[out.index("PLAY RECAP") :], out
 

@@ -13,54 +13,68 @@ KEY = "task.allowAutomaticTasks"
 
 
 class TestJsoncLoads:
-    def test_plain_json(self):
-        assert jsonc_loads('{"a": 1, "b": [1, 2]}') == {"a": 1, "b": [1, 2]}
-
-    def test_line_and_block_comments(self):
-        text = """{
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param('{"a": 1, "b": [1, 2]}', {"a": 1, "b": [1, 2]}, id="plain-json"),
+            pytest.param(
+                """{
           // a line comment
           "a": 1, /* a block
           comment */ "b": 2 // trailing
-        }"""
-        assert jsonc_loads(text) == {"a": 1, "b": 2}
-
-    def test_trailing_commas_in_objects_and_arrays(self):
-        assert jsonc_loads('{"a": [1, 2,], "b": {"c": 3,},}') == {"a": [1, 2], "b": {"c": 3}}
-
-    def test_trailing_comma_before_a_comment(self):
-        assert jsonc_loads('{"a": 1, // last\n}') == {"a": 1}
-        assert jsonc_loads('{"a": 1, /* last */ }') == {"a": 1}
-
-    def test_comment_markers_inside_strings_are_text(self):
-        text = '{"url": "https://example.com/a//b", "glob": "/*.js", "odd": ",}"}'
-        assert jsonc_loads(text) == {"url": "https://example.com/a//b", "glob": "/*.js", "odd": ",}"}
-
-    def test_quotes_inside_comments_do_not_start_strings(self):
-        text = '{\n  // set "x" to "y", or leave it\n  "a": 1 /* "b": 2 */\n}'
-        assert jsonc_loads(text) == {"a": 1}
-
-    def test_escaped_quotes_stay_inside_their_string(self):
-        # One escaped quote before the "//", so a scanner that took it for the
-        # end of the string would read a comment from there.
-        assert jsonc_loads(r'{"a": "say \"hi // not a comment\""}') == {"a": 'say "hi // not a comment"'}
-
-    def test_an_escaped_quote_does_not_end_the_string(self):
-        assert jsonc_loads(r'{"a": "x\"", "url": "http://x//y"}') == {"a": 'x"', "url": "http://x//y"}
-
-    def test_an_escaped_backslash_before_the_closing_quote(self):
-        assert jsonc_loads(r'{"a": "x\\", "url": "http://x//y"}') == {"a": "x\\", "url": "http://x//y"}
+        }""",
+                {"a": 1, "b": 2},
+                id="line-and-block-comments",
+            ),
+            pytest.param(
+                '{"a": [1, 2,], "b": {"c": 3,},}',
+                {"a": [1, 2], "b": {"c": 3}},
+                id="trailing-commas-in-objects-and-arrays",
+            ),
+            pytest.param('{"a": 1, // last\n}', {"a": 1}, id="trailing-comma-before-a-line-comment"),
+            pytest.param('{"a": 1, /* last */ }', {"a": 1}, id="trailing-comma-before-a-block-comment"),
+            pytest.param(
+                '{"url": "https://example.com/a//b", "glob": "/*.js", "odd": ",}"}',
+                {"url": "https://example.com/a//b", "glob": "/*.js", "odd": ",}"},
+                id="comment-markers-inside-strings-are-text",
+            ),
+            pytest.param(
+                '{\n  // set "x" to "y", or leave it\n  "a": 1 /* "b": 2 */\n}',
+                {"a": 1},
+                id="quotes-inside-comments-do-not-start-strings",
+            ),
+            # One escaped quote before the "//", so a scanner that took it for the end of the string would read a
+            # comment from there.
+            pytest.param(
+                r'{"a": "say \"hi // not a comment\""}',
+                {"a": 'say "hi // not a comment"'},
+                id="escaped-quotes-stay-inside-their-string",
+            ),
+            pytest.param(
+                r'{"a": "x\"", "url": "http://x//y"}',
+                {"a": 'x"', "url": "http://x//y"},
+                id="an-escaped-quote-does-not-end-the-string",
+            ),
+            pytest.param(
+                r'{"a": "x\\", "url": "http://x//y"}',
+                {"a": "x\\", "url": "http://x//y"},
+                id="an-escaped-backslash-before-the-closing-quote",
+            ),
+            pytest.param(
+                r'{"a": "x\"", "b": "y\\", "c": ["p", "q"], "url": "http://x//y",}',
+                {"a": 'x"', "b": "y\\", "c": ["p", "q"], "url": "http://x//y"},
+                id="escapes-and-string-arrays-in-one-file",
+            ),
+            pytest.param('\ufeff{"a": 1}', {"a": 1}, id="a-byte-order-mark-is-ignored"),
+        ],
+    )
+    def test_reads(self, text, expected):
+        assert jsonc_loads(text) == expected
 
     def test_a_comma_before_a_string_is_kept(self):
         assert jsonc_loads('["a", "b"]') == ["a", "b"]
         text = '{"cSpell.words": ["ansible", "proxmox"], "task.allowAutomaticTasks": "off"}'
         assert vscode_setting(text, KEY) == "off"
-
-    def test_escapes_and_string_arrays_in_one_file(self):
-        text = r'{"a": "x\"", "b": "y\\", "c": ["p", "q"], "url": "http://x//y",}'
-        assert jsonc_loads(text) == {"a": 'x"', "b": "y\\", "c": ["p", "q"], "url": "http://x//y"}
-
-    def test_a_byte_order_mark_is_ignored(self):
-        assert jsonc_loads('\ufeff{"a": 1}') == {"a": 1}
 
     def test_broken_text_raises(self):
         with pytest.raises(ValueError):

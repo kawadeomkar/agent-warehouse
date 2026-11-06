@@ -17,11 +17,9 @@ import signal
 import termios
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[2]
 from claude_vm.tui import live_region as live
 
 
