@@ -107,7 +107,7 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/ansible/engine.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/vpn/model.py": 1,
-    "lib/claude_vm/vpn/wireguard.py": 2,
+    "lib/claude_vm/vpn/wireguard.py": 1,
     "lib/claude_vm/run/model.py": 4,
     "lib/claude_vm/status/model.py": 18,
     "lib/claude_vm/tui/run.py": 3,

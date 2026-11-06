@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -17,7 +15,8 @@ import pytest
 import yaml
 from ansible.parsing.dataloader import DataLoader
 from ansible.template import Templar, trust_as_template
-from harness import ANSIBLE_PLAYBOOK, _every_task, _messages, _run, ansible_config
+from harness import _every_task, _messages, _pve, _run, fake_fleet
+from test_status import status_root
 
 from claude_vm.vpn import model
 
@@ -216,83 +215,44 @@ def test_the_plan_s_inputs_are_the_core_s_fields():
         assert set(hub) <= set(model.Hub.__dataclass_fields__), sorted(set(hub) - set(model.Hub.__dataclass_fields__))
 
 
-def test_the_plan_gives_no_vm_an_address_another_vm_holds(tmp_path):
-    # vpn_members.yml itself, with the inventory's defaults: gamma, not among the VMs planned, holds .129 in
-    # Proxmox's listing, so alpha - planned alone, as `just deploy alpha` plans it - is given .130.
-    key = base64.b64encode(bytes([2] * 32)).decode()
-    given = {
-        "vm_name": ["alpha"],
-        "vpn": "wireguard",
-        "wireguard_hub_network": "198.51.100.0/24",
-        "wireguard_vm_prefix": "198.51.100.128/25",
-        "wireguard_hub_public_key": base64.b64encode(bytes([1] * 32)).decode(),
-        "wireguard_hub_endpoint": "vpn.example.net:51820",
-        "claude_vm_all": {
-            "json": {
-                "data": [
-                    {
-                        "vmid": 102,
-                        "name": "gamma",
-                        "type": "qemu",
-                        "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.129",
-                    },
-                    {"vmid": 101, "name": "alpha", "type": "qemu", "tags": "claude-on-proxmox"},
-                ]
-            }
-        },
-    }
-    play = {
-        "hosts": "localhost",
-        "gather_facts": False,
-        "vars_files": [str(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")],
-        "tasks": [
-            {
-                "name": "Add alpha as discovery would",
-                "ansible.builtin.add_host": {
-                    "name": "alpha",
-                    "claude_vm_listed_id": 101,
-                    "claude_vm_marks": [],
-                    "wireguard_public_key": key,
-                },
-            },
-            {
-                "ansible.builtin.import_tasks": str(REPO / "playbooks" / "tasks" / "vpn_members.yml"),
-                "vars": {
-                    "claude_vpn_planned": "wireguard",
-                    "claude_vpn_hosts": ["alpha"],
-                    "claude_vpn_phase": "configure",
-                },
-            },
-            {
-                "name": "Say",
-                "ansible.builtin.debug": {"msg": "{{ claude_vpn_plan.tunnels | map(attribute='address') }}"},
-            },
-        ],
-    }
-    (tmp_path / "plan.yml").write_text(yaml.safe_dump([play]))
-    (tmp_path / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
-    env = {
-        "PATH": "/usr/bin:/bin",
-        "ANSIBLE_CONFIG": ansible_config(tmp_path),
-        "ANSIBLE_FILTER_PLUGINS": str(REPO / "filter_plugins"),
-        "ANSIBLE_LIBRARY": str(REPO / "playbooks" / "library"),
-        "ANSIBLE_STDOUT_CALLBACK": "ansible.builtin.json",
-    } | {name: os.environ[name] for name in ("ANSIBLE_COLLECTIONS_PATH",) if name in os.environ}
-    run = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-i", str(tmp_path / "hosts"), "-e", json.dumps(given), str(tmp_path / "plan.yml")],
-        env=env,
-        cwd=tmp_path,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    assert run.returncode == 0, run.stdout + run.stderr
-    tasks = json.loads(run.stdout)["plays"][0]["tasks"]
-    said = {task["task"]["name"]: task["hosts"].get("localhost", {}).get("msg") for task in tasks}
-    assert said["Say"] == ["198.51.100.130/24"]
+def test_a_single_name_deploy_gives_no_vm_an_address_another_vm_holds(tmp_path):
+    # configure.yml's plan play as `just deploy alpha` runs it: no listing before it (provision lists the cluster only
+    # for several new VMs, and deploy configures with discovery off). gamma, not among the VMs planned, holds .129 in
+    # Proxmox alone; the plan lists the cluster itself, so alpha is given .130, and Proxmox records it.
+    for base in fake_fleet(tmp_path):
+        _pve(base, "PUT", "nodes/pve/qemu/9012/config", tags="claude-on-proxmox;claude-on-proxmox-wg-198.51.100.129")
+        settings = {
+            "vpn": "wireguard",
+            "wireguard_hub_network": "198.51.100.0/24",
+            "wireguard_vm_prefix": "198.51.100.128/25",
+            "wireguard_hub_public_key": base64.b64encode(bytes([1] * 32)).decode(),
+            "wireguard_hub_endpoint": "vpn.example.net:51820",
+        }
+        root, _ = status_root(tmp_path, base, settings)
+        plays = yaml.safe_load((REPO / "playbooks" / "configure.yml").read_text())
+        (plan,) = [play for play in plays if play.get("name") == "Plan each VM's place on the WireGuard network"]
+        said = {
+            "name": "Say the plan",
+            "hosts": "localhost",
+            "gather_facts": False,
+            "tasks": [{"name": "Say", "ansible.builtin.debug": {"msg": "{{ claude_vpn_plans.wireguard.tunnels }}"}}],
+        }
+        playbook = root / "plan.yml"
+        playbook.write_text(yaml.safe_dump([plan, said]).replace("tasks/vpn_", f"{REPO / 'playbooks' / 'tasks'}/vpn_"))
+        key = base64.b64encode(bytes([2] * 32)).decode()
+        alpha = {
+            "ansible_connection": "local",
+            "ansible_python_interpreter": sys.executable,
+            "claude_vm_listed_id": 9010,
+            "claude_vm_marks": [],
+            "wireguard_public_key": key,
+        }
+        report = _run(root, playbook, {"alpha": alpha}, "-e", json.dumps({"vm_name": ["alpha"]}), timeout=180)
+        assert report["rc"] == 0, report["stderr"]
+        (tunnel,) = _messages(report, "Say")["localhost"]
+        assert tunnel["address"] == "198.51.100.130/24"
+        tags = _pve(base, "GET", "nodes/pve/qemu/9010/config")["data"]["tags"]
+        assert "claude-on-proxmox-wg-198.51.100.130" in tags.replace(",", ";").split(";")
 
 
 @pytest.mark.parametrize(

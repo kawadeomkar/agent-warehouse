@@ -179,7 +179,7 @@ hosts: localhost  (tagged tailscale)
   import tasks/vpn_members.yml  Tailscale's plan → tasks/vpn_apply.yml → tasks/vm_marks.yml
                                  → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
 hosts: localhost  (tagged wireguard; vpn: wireguard)
-  block: import tasks/vpn_members.yml  WireGuard's plan → tasks/vpn_apply.yml
+  block: import tasks/vpn_members.yml  the cluster listed again, WireGuard's plan → tasks/vpn_apply.yml
                                  → each VM's address as <ownership tag>-wg-<address>, the peer to add said
   rescue: no plan, so no link changed; the failure appended to each VM's claude_vm_configure_failures
 hosts: claude_vms  (tagged wireguard; vpn: wireguard)

@@ -107,13 +107,25 @@ def _in_range(inputs: MemberInputs, address: str) -> bool:
 
 def _tunnels(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
     held, taken = set(), set(inputs.taken)
+    # Every address a member holds once the plan is applied, by the members holding it: one with no tunnel this run
+    # keeps its own.
+    marked: dict[str, set[str]] = {}
+    for member in inputs.members:
+        for mark in _marks_after(inputs, plan, member.vm.name):
+            if common.mark_address(mark):
+                marked.setdefault(common.mark_address(mark), set()).add(member.vm.name)
     for tunnel in plan.tunnels:
         member_of(tunnel.vm)
         name = tunnel.vm.name
         if any(member.vm.name == name and member.leaving for member in inputs.members):
             raise ValueError(f"{vpn.key}'s plan sets {name} up on the tunnel as it leaves")
         address = tunnel.address.partition("/")[0]
-        if name in {vm for vm, _ in held} or not _in_range(inputs, address) or address in taken | {a for _, a in held}:
+        if (
+            name in {vm for vm, _ in held}
+            or not _in_range(inputs, address)
+            or address in taken | {a for _, a in held}
+            or marked.get(address, {name}) - {name}
+        ):
             raise ValueError(f"{vpn.key}'s plan gives {name} {tunnel.address}: not a free address of the VMs' range")
         held.add((name, address))
         if (tunnel.hub_public_key, tunnel.endpoint) != (inputs.hub.public_key, inputs.hub.endpoint):
@@ -144,10 +156,14 @@ def _peers(vpn: Vpn, inputs: MemberInputs, plan: MemberPlan, member_of) -> None:
         if common.owned(inputs.tag, inputs.vm_prefix, hub.instance, peer.name, peer.addresses, peer.instances)
     }
     alive = {vm.name for vm in inputs.fleet} | {member.vm.name for member in inputs.members}
-    named = set()
+    named, given = set(), set()
     for peer in plan.peers:
         if peer.name in named:
             raise ValueError(f"{vpn.key}'s plan changes {peer.name} twice")
+        if peer.kind != "delete":
+            if peer.public_key in given:
+                raise ValueError(f"{vpn.key}'s plan gives two peers {peer.public_key}, one key")
+            given.add(peer.public_key)
         if hub.kind == "opnsense" and not hub.listed:
             # A peer not read may be the very one: nothing is written on a hub read only in part.
             raise ValueError(f"{vpn.key}'s plan changes {peer.name} on a hub it could not read whole")

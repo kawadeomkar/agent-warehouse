@@ -602,7 +602,7 @@ def test_a_vm_cloned_with_another_s_key_is_not_joined_and_the_other_keeps_its_pe
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, clone, hub=OPN | {"peers": peers}, fleet=fleet))
     assert plan["peers"] == [] and [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
     said = {line["vm"]: line["text"] for line in plan["report"]}
-    assert "is as it should be" in said["alpha"] and "delete /etc/systemd/network/claude-wg.key on beta" in said["beta"]
+    assert "is as it should be" in said["alpha"] and "/etc/systemd/network/claude-wg.key on beta" in said["beta"]
 
 
 def test_nothing_is_written_on_a_hub_whose_peers_were_read_only_in_part():
@@ -621,6 +621,60 @@ def test_the_core_refuses_any_write_on_a_hub_read_only_in_part():
     tunnel = replace(TUNNEL, address="198.51.100.129/24", endpoint="192.0.2.1:51820")
     with pytest.raises(ValueError, match="could not read whole"):
         registry.checked(WVPN, partial, MemberPlan(vpn="wireguard", tunnels=(tunnel,), peers=(add,)))
+
+
+def test_no_vm_is_given_an_address_the_hub_holds_already():
+    # Someone else's peer inside the range, a peer of a VM gone that a run could not remove, and the router's own
+    # address: none is given to a VM. alpha's own peer is its own.
+    peers = [
+        opn_peer("u-laptop", "laptop", KEY_C, "198.51.100.129/32"),
+        opn_peer("u-old", "claude-on-proxmox-old", KEY_D, "198.51.100.130/32"),
+        opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.131/32"),
+    ]
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, WG_B, hub=OPN | {"peers": peers}))
+    assert {t["vm"]["name"]: t["address"] for t in plan["tunnels"]} == {
+        "alpha": "198.51.100.131/24",
+        "beta": "198.51.100.132/24",
+    }
+    whole = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": []}, vm_prefix="198.51.100.0/24"))
+    assert whole["tunnels"][0]["address"] == "198.51.100.2/24"  # .1 is the router's own
+
+
+def test_two_vms_with_one_key_are_one_peer_the_lower_vm_id_s():
+    # A clone made before either VM had a peer carries the other's key: the hub would get two peers with one key.
+    clone = WG_A | {"vm": BETA}
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, clone))
+    assert [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
+    assert [p["name"] for p in plan["peers"]] == ["claude-on-proxmox-alpha"]
+    said = {line["vm"]: line["text"] for line in plan["report"]}
+    assert "its WireGuard key is alpha's too" in said["beta"]
+
+
+def test_the_core_refuses_two_peers_with_one_key_and_a_tunnel_at_another_vm_s_address():
+    twice = PeerWrite(kind="add", name="claude-on-proxmox-beta", public_key=KEY_A, address="198.51.100.131/32", vm=B)
+    with pytest.raises(ValueError, match="one key"):
+        plan = MemberPlan(vpn="wireguard", tunnels=(TUNNEL,), peers=(PEER, twice))
+        registry.checked(WVPN, model.inputs_from(wg(WG_A, WG_B)), plan)
+    inputs = model.inputs_from(wg(WG_A, WG_B | {"marks": ["wg-198.51.100.130"]}))
+    with pytest.raises(ValueError, match="not a free address"):
+        # alpha at .130, which beta - no tunnel this run - still holds.
+        registry.checked(WVPN, inputs, MemberPlan(vpn="wireguard", tunnels=(TUNNEL,)))
+
+
+@pytest.mark.parametrize("tag", ["wg-999.0.0.1", "wg-010.0.0.1", "wg-198.51.100.130-other", "wg-198.51.100"])
+def test_a_tag_that_holds_no_address_is_no_mark(tag):
+    # Anyone who may tag a VM can add one: it is left out, never handed to the core, where it would fail the plan.
+    tags = f"claude-on-proxmox;claude-on-proxmox-{tag}"
+    assert proxmox.proxmox_marks(tags, "claude-on-proxmox") == []
+    assert proxmox.proxmox_wireguard_taken([{"vmid": 4020, "tags": tags}], "claude-on-proxmox") == []
+    assert proxmox.MARK_RE is model.MARK
+
+
+def test_a_wide_range_is_walked_never_listed():
+    # A /8 holds 16 million addresses: the plan takes the first free ones without listing them all.
+    hub = HUB | {"network": "10.0.0.0/8"}
+    plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=hub, vm_prefix="10.0.0.0/8", taken=["10.0.0.1"]))
+    assert plan["tunnels"][0]["address"] == "10.0.0.2/8"
 
 
 def test_at_destroy_an_opnsense_hub_has_the_leaving_vm_s_own_peer_removed_by_its_ref():

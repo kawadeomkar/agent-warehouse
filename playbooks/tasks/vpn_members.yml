@@ -66,6 +66,19 @@
       claude_vpn_phase != 'release'
       or claude_vpn_members | map(attribute='marks') | flatten | select('match', 'wg-') | list | length > 0
 
+# WireGuard's addresses from the cluster as it is now: a single-name deploy
+# lists nothing before (provision lists only for several new VMs, and deploy
+# configures with discovery off), and a listing taken at discovery is minutes
+# old by the plan - another run may have given an address, or made a VM whose
+# peer a prune would take for one whose VM is gone. Included, so that a plan
+# that needs none leaves the run's listing as it was.
+- name: vpn_members | List the cluster again, for the addresses every VM holds now
+  ansible.builtin.include_tasks: cluster_vms.yml
+  when:
+    - claude_vpn_planned == 'wireguard'
+    - claude_vpn_phase == 'configure'
+    - claude_vpn_members | length > 0
+
 - name: vpn_members | Plan each VM's place on the network
   ansible.builtin.set_fact:
     claude_vpn_plan: >-

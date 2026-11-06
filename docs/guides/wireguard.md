@@ -46,8 +46,9 @@ Then `just deploy <vm>` (or `just deploy --only configure` for VMs that exist). 
 
 1. installs `wireguard-tools` and makes the VM's key pair, on the VM: root and `systemd-network` may read the private
    key, nobody else, and it never leaves the VM;
-2. gives the VM an address in the range - the lowest one free, or the one it had, which Proxmox keeps for it as a
-   tag beside the ownership tag, `claude-on-proxmox-wg-198.51.100.129`, so it keeps it for its life;
+2. gives the VM an address in the range - the lowest one free of your other VMs' (and, on OPNsense, of every peer
+   your instance has), or the one it had, which Proxmox keeps for it as a tag beside the ownership tag,
+   `claude-on-proxmox-wg-198.51.100.129`, so it keeps it for its life;
 3. sets up the link `claude-wg` with systemd-networkd, your server its one peer;
 4. says the peer to add on your server, and keeps the line in NEXT STEPS until the VM has reached it.
 

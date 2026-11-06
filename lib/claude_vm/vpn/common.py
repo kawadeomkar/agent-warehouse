@@ -89,6 +89,18 @@ def hub_network(value: str) -> ipaddress.IPv4Network:
         raise ValueError(f"wireguard_hub_network is not an IPv4 network such as 198.51.100.0/24: {value!r}") from error
 
 
+def hub_address(value: str) -> ipaddress.IPv4Address | None:
+    """The hub's own address on its tunnel network, where the network is given by it (198.51.100.1/24, as OPNsense
+    keeps an instance's tunnel address): no VM is given it."""
+    try:
+        interface = ipaddress.IPv4Interface(value) if "/" in value else None
+    except ValueError:
+        return None
+    if interface is None or interface.ip == interface.network.network_address:
+        return None
+    return interface.ip
+
+
 def owned(
     tag: str, prefix: str, instance: str, name: str, addresses: tuple[str, ...], instances: tuple[str, ...]
 ) -> bool:

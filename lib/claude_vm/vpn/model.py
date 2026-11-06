@@ -7,7 +7,7 @@ from __future__ import annotations
 import ipaddress
 import re
 from dataclasses import dataclass
-from typing import Literal
+from typing import Final, Literal
 
 from ..catalogue import rows_from
 from ..records import Checked, plain
@@ -17,8 +17,10 @@ FamilyName = Literal["tailscale", "wireguard"]  # one value per family module
 Reach = Literal["lan", "tunnel"]  # the guest agent's address, or the VPN's
 HubKind = Literal["none", "manual", "opnsense"]  # who administers the members: no one the plan writes to, or a hub
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-# A mark: a fact about a VM that the VM cannot change, kept beside the ownership tag as <tag>-<mark>.
-MARK = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:-reached)?")
+# A mark: a fact about a VM that the VM cannot change, kept beside the ownership tag as <tag>-<mark>. Every octet
+# one an address can have: a tag like wg-999.0.0.1, which anyone who may tag the VM can add, is no mark at all.
+OCTET: Final = r"(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
+MARK = re.compile(rf"tailscale|wg-{OCTET}(?:\.{OCTET}){{3}}(?:-reached)?")
 
 
 def ipv4_network(value: str, what: str) -> ipaddress.IPv4Network:

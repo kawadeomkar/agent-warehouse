@@ -70,26 +70,61 @@ def _refusal(inputs: MemberInputs) -> str:
     return ""
 
 
+def _by_id(members) -> list[Member]:
+    """The members, the lowest VM ID first: the order in which they win an address, or a key."""
+    return sorted(members, key=lambda member: member.vm.vmid)
+
+
+def _held_on_hub(inputs: MemberInputs) -> list[ipaddress.IPv4Network]:
+    """What the hub holds already, which no VM may be given: every address of its peers but the members' own - one
+    of a VM gone, whose peer a run could not remove, or someone else's inside the range - and its own."""
+    own = {common.peer_name(inputs.tag, member.vm.name) for member in inputs.members if not member.leaving}
+    held = []
+    for peer in inputs.hub.peers:
+        if peer.name in own and _owned(inputs, peer):
+            continue
+        for address in peer.addresses:
+            try:
+                held.append(ipaddress.IPv4Network(address, strict=False))
+            except ValueError:
+                continue  # an IPv6 address: never one of the range's
+    hub = common.hub_address(inputs.hub.network)
+    return held + ([ipaddress.IPv4Network(hub)] if hub is not None else [])
+
+
 def _addresses(inputs: MemberInputs) -> dict[str, str]:
     """Each member's address: its mark's, while the mark is a host of the range and no VM of a lower VM ID holds it,
-    else the lowest one free - outside every address another VM of the project holds."""
+    else the lowest one free - outside every address another VM of the project holds, and every one the hub has."""
     prefix = ipv4_network(inputs.vm_prefix, "wireguard_vm_prefix")
-    hosts = list(prefix.hosts()) if prefix.prefixlen < 31 else list(prefix)
-    taken = {ipaddress.IPv4Address(address) for address in inputs.taken}
+    taken = set()
+    for address in inputs.taken:
+        try:
+            taken.add(ipaddress.IPv4Address(address))
+        except ValueError:
+            continue
+    held = _held_on_hub(inputs)
+
+    def free(address: ipaddress.IPv4Address) -> bool:
+        ends = () if prefix.prefixlen >= 31 else (prefix.network_address, prefix.broadcast_address)
+        return (
+            address in prefix and address not in ends and address not in taken and not any(address in n for n in held)
+        )
+
     kept: dict[str, str] = {}
     staying = [member for member in inputs.members if not member.leaving]
-    for member in sorted(staying, key=lambda member: member.vm.vmid):
+    for member in _by_id(staying):
         marked = [common.mark_address(mark) for mark in member.marks if common.mark_address(mark)]
         address = ipaddress.IPv4Address(marked[0]) if marked else None
-        if address is not None and address in hosts and address not in taken:
+        if address is not None and free(address):
             kept[member.vm.name] = str(address)
             taken.add(address)
-    for member in sorted(staying, key=lambda member: member.vm.vmid):
+    # The range walked, not listed: a wide one holds millions of addresses.
+    for member in _by_id(staying):
         if member.vm.name not in kept and member.public_key:
-            free = next((host for host in hosts if host not in taken), None)
-            if free is not None:
-                kept[member.vm.name] = str(free)
-                taken.add(free)
+            found = next((host for host in (prefix.hosts() if prefix.prefixlen < 31 else prefix) if free(host)), None)
+            if found is not None:
+                kept[member.vm.name] = str(found)
+                taken.add(found)
     return kept
 
 
@@ -152,11 +187,35 @@ def _configure(vpn: Vpn, inputs: MemberInputs) -> MemberPlan:
                     " own (an address in wireguard_vm_prefix, the instance), so it is left as it is.",
                 )
             )
+    # One key, one peer: a VM cloned with another's key, before either has a peer, is the lower VM ID's alone.
+    first: dict[str, str] = {}
+    for member in _by_id(inputs.members):
+        if member.public_key and not member.leaving:
+            first.setdefault(member.public_key, member.vm.name)
     for member in inputs.members:
         vm = member.vm.name
         if member.leaving:
             continue
         name = common.peer_name(inputs.tag, vm)
+        if member.public_key and first.get(member.public_key) != vm:
+            clone = first[member.public_key]
+            report.append(
+                Said(
+                    vm=vm,
+                    text=f"{vm}: its WireGuard key is {clone}'s too, so it is not joined: a clone of {clone} carries"
+                    f" its key. Delete /etc/systemd/network/claude-wg.key on {vm} and run again.",
+                )
+            )
+            steps.append(
+                NextStep(
+                    vm=member.vm,
+                    matter=PEER,
+                    action=None,
+                    text=f"{vm}: its WireGuard key is {clone}'s: delete /etc/systemd/network/claude-wg.key on {vm}"
+                    " and run again.",
+                )
+            )
+            continue
         if api and any(peer.name == name and not _owned(inputs, peer) for peer in inputs.hub.peers):
             report.append(
                 Said(

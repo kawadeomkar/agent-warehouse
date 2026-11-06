@@ -10,6 +10,7 @@ from collections import Counter
 from urllib.parse import unquote
 
 from .checks import _alias_refusal, _ipv4, guest_ipv4
+from .vpn.model import MARK
 
 MAC_RE = re.compile(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
 
@@ -68,7 +69,7 @@ def tailnet_ipv4(addresses):
 # A mark: a fact about a VM that the VM cannot change, kept as a tag beside the ownership tag, <tag>-<mark>
 # (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>, with -reached after it
 # once the VM has reached its hub there.
-MARK_RE = re.compile(r"tailscale|wg-(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?:-reached)?")
+MARK_RE = MARK  # the core's own pattern (lib/claude_vm/vpn/model.py), so the two never disagree
 
 
 def _tag_list(tags):

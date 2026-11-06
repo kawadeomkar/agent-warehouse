@@ -1004,11 +1004,14 @@ and `tests/unit/test_choices.py` holds the three equal.
   `registry.py` on every call: a refusal holds nothing else; marks only for the VMs it was given, only of the
   family's own (`common.marks_of`), never Tailscale's record taken off; NEXT STEPS only under the family's own
   matters, for the VMs it was given. For WireGuard, besides: one tunnel per VM that stays, at a host of the VMs'
-  range no other VM of the project holds (`taken`, from Proxmox's listing), to the hub the inputs name; a peer only
-  by the name `<tag>-<vm>` of a VM it was given, with that VM's own key, used by no other peer, and its own address
-  alone, as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
+  range no other VM of the project holds (`taken`, from a listing of the cluster the plan takes itself, and every
+  member's marks once the plan is applied), to the hub the inputs name; a peer only by the name `<tag>-<vm>` of a VM
+  it was given, with that VM's own key, used by no other peer, on the hub or in the plan, and its own address alone,
+  as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
   were read only in part. WireGuard's family gives each VM its marked
-  address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free, and
+  address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free - of the
+  project's VMs, and of every address the hub holds where it is read: its peers' but the members' own, and its own;
+  one key is one peer, the lower VM ID's, so a VM cloned with another's key is said and not joined; and it
   refuses, before anything is written, settings that cannot work: a range outside the hub's network, a network that
   overlaps a VM's own, a key that is not one, an endpoint that is not a name or an address and a port, a peer name a
   hub would refuse. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
