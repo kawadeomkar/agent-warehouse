@@ -26,8 +26,8 @@ _WORKTREE = re.compile(r"^(?P<checkout>/.+?)/\.claude/worktrees/[^/]+(?:/.*)?$")
 _VERSION = re.compile(r"^(\d+(?:\.\d+)*)")
 # What just destroy saves by: a folder as Claude Code names one, and a session's ID. Anything else
 # a VM reports is left out, since the names travel to tar and become paths on this machine.
-_SAVED_FOLDER = re.compile(r"^[A-Za-z0-9-]+$")
-_SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+_SAVED_FOLDER = re.compile(r"[A-Za-z0-9-]+")
+_SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 # GitHub as a clone's origin names it: https, ssh, scp-like, and ssh over port 443.
 _GITHUB = re.compile(
     r"^(?:(?:https|ssh)://(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
@@ -342,7 +342,9 @@ def claude_sessions_saved(sessions, memory, dest):
     for session in sorted(sessions or [], key=lambda item: (str(item.get("folder", "")), str(item.get("id", "")))):
         if not session.get("conversation") or session.get("copied"):
             continue
-        if not _SAVED_FOLDER.match(str(session.get("folder", ""))) or not _SESSION_ID.match(str(session.get("id", ""))):
+        if not _SAVED_FOLDER.fullmatch(str(session.get("folder", ""))) or not _SESSION_ID.fullmatch(
+            str(session.get("id", ""))
+        ):
             refused += 1
             continue
         kept.append(session)
@@ -368,8 +370,8 @@ def claude_sessions_saved(sessions, memory, dest):
             }
         )
     folders = sorted(str(folder) for folder in memory or [])
-    refused += sum(1 for folder in folders if not _SAVED_FOLDER.match(folder))
-    folders = [folder for folder in folders if _SAVED_FOLDER.match(folder)]
+    refused += sum(1 for folder in folders if not _SAVED_FOLDER.fullmatch(folder))
+    folders = [folder for folder in folders if _SAVED_FOLDER.fullmatch(folder)]
     files += [f"{folder}/memory" for folder in folders]
     started = sum(1 for item in listed if item["started_on_the_vm"])
     versions = [item["version"] for item in listed if item["version"]]

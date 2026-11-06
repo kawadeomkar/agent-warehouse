@@ -1119,6 +1119,22 @@ def test_no_play_sets_how_to_reach_a_host_in_its_vars():
             assert play_vars.get("ansible_connection", "local") == "local", (path.name, play.get("name"))
 
 
+def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
+    # The VM user's ssh sessions have ~/.local/bin first on PATH (common's 15- drop-in), where interpreter
+    # discovery would take a python3.13 uv put there and run modules with it, as root where the play becomes
+    # it. Every add_host that gives a VM an address to be reached at pins the VM's own Python instead.
+    publishing = {}
+    for path in [REPO / "deploy.yml", *sorted((REPO / "playbooks").glob("*.yml"))]:
+        for play in yaml.safe_load(path.read_text()) or []:
+            for task in _flat(play.get("tasks") or []):
+                added = task.get("ansible.builtin.add_host")
+                if isinstance(added, dict) and "ansible_host" in added:
+                    publishing.setdefault(path.stem, []).append(task["name"])
+                    assert "claude_vm_python" in str(added.get("ansible_python_interpreter", "")), (path.stem, task)
+    # By stem: test_status.py holds every test file that names the status playbook to status_root.
+    assert sorted(publishing) == ["code", "destroy", "discover", "provision", "status"], publishing
+
+
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])
 def test_with_no_terminal_destroy_takes_no_for_an_answer_whatever_names_it_is_given(tmp_path, extra):
     # The prompt is templated before any host is in scope, even when -e

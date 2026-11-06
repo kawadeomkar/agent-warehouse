@@ -592,8 +592,9 @@ dotted name given is the user's choice, as `docs/guides/vms.md` allows, and gets
 named run wrote is left as it was, and the message names the run that refreshes it.
 
 `ssh_config.yml` (`just deploy --only ssh-config`) is the fleet-wide resync: the cluster listing, the addresses
-(§4.3 steps 1 and 4), `present` for every tagged VM with an address, keeping a workspace an earlier
-configure recorded, then pruning through `ssh_config_prune`
+(§4.3 steps 1 and 4), `present` for every tagged VM with an address but one named after a host of the
+inventory, which is left out and said as discovery says it (`tasks/vms_misnamed.yml`), keeping a workspace an
+earlier configure recorded, then pruning through `ssh_config_prune`
 ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
 whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
 or one the inventory reaches a host by, which an earlier version wrote and which would otherwise take this

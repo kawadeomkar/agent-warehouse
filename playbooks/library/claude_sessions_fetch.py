@@ -111,7 +111,7 @@ from ansible.module_utils.basic import AnsibleModule
 
 SESSION_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 # What just destroy asks for: a transcript, the folder beside it, or a project's auto memory.
-NAME = re.compile(rf"^[A-Za-z0-9-]+/(?:{SESSION_ID}(?:\.jsonl)?|memory)$")
+NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID}(?:\.jsonl)?|memory)")
 # How many of the entries left out are named: a VM can send any number.
 LISTED = 50
 # A host or user that ssh could read as an option, or that is not one word.
@@ -256,7 +256,7 @@ def _said(errors):
 def fetch(dest, root, names, ssh=None):
     """Bring ``names`` of ``root`` into ``dest``: the result, or raise RuntimeError with what went wrong."""
     for name in names:
-        if not NAME.match(name):
+        if not NAME.fullmatch(name):
             raise RuntimeError(f"{name!r} is not a Claude Code transcript, a session's folder or a memory folder.")
     if not root.startswith("/"):
         raise RuntimeError(f"{root} is not an absolute path on the VM.")

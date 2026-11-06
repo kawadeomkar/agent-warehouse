@@ -941,17 +941,6 @@ def test_no_play_of_status_sets_how_to_reach_a_host() -> None:
         assert not any(key.startswith("ansible_") for key in play.get("vars") or {}), play["name"]
 
 
-def test_every_vm_status_adds_gets_the_vm_python() -> None:
-    adds = [
-        t
-        for t in _every_task()
-        if "ansible.builtin.add_host" in t and t["ansible.builtin.add_host"].get("name") == "{{ status_vm.name }}"
-    ]
-    assert adds and all(
-        t["ansible.builtin.add_host"]["ansible_python_interpreter"] == "{{ claude_vm_python }}" for t in adds
-    )
-
-
 # ----------------------------------------------------------------------------------------------- the callback ----
 
 

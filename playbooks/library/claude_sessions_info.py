@@ -143,7 +143,7 @@ import time
 from ansible.module_utils.basic import AnsibleModule
 
 # A session's ID: what just code accepts as --session, and what Claude Code names a transcript.
-SESSION_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 VERSION = re.compile(r"\d+(?:\.\d+)+")
 # claude_sessions_copy's manifest, read as it reads it.
 MANIFEST_FORMAT = 1
@@ -319,7 +319,7 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
         for item in files:
             session = item.name[: -len(".jsonl")] if item.name.endswith(".jsonl") else ""
             try:
-                if not SESSION_ID.match(session) or not item.is_file(follow_symlinks=False):
+                if not SESSION_ID.fullmatch(session) or not item.is_file(follow_symlinks=False):
                     continue
                 # A transcript Claude Code's sweep, or the user, removes as this lists them is not listed.
                 stat = item.stat(follow_symlinks=False)

@@ -69,6 +69,7 @@ playbooks/
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
+  tasks/vms_misnamed.yml          says which tagged VMs a fleet-wide run leaves out for their name (discover, ssh_config)
   tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
                                   key is never sent to it again (configure.yml, tailscale_login.yml)
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once

@@ -94,13 +94,17 @@ def _task(report: dict, name: str) -> dict:
     return {}
 
 
+# Discovery and the alias refresh say it alike, from one task file.
+LEFT_OUT = "vms_misnamed | Say which tagged VMs are left out for their name"
+
+
 def test_discovery_leaves_out_a_vm_named_after_a_host_of_the_inventory_and_says_so(tmp_path, fleet) -> None:
     report = _discover(tmp_path, fleet)
     assert report["rc"] == 0, report["stderr"][-2000:]
     added = _task(report, "Add the reachable ones to the inventory")
     names = [r["claude_vm_found"]["name"] for r in added["results"] if not r.get("skipped")]
     assert sorted(names) == ["alpha", "beta"]
-    said = _task(report, "Say which tagged VMs are left out for their name")["msg"]
+    said = _task(report, LEFT_OUT)["msg"]
     assert "localhost" in said and "pve" in said
 
 
@@ -153,6 +157,9 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     assert said.startswith("2 aliases refreshed in ")
     assert "which an earlier version wrote: pve, 3232235777" in said
     assert "just deploy alpha.lab --only ssh-config" in _task(report, "ssh_config | Say which VMs get no alias")["msg"]
+    # The tagged VMs named pve and localhost get no alias, and the run says so, as discovery does.
+    said = _task(report, LEFT_OUT)["msg"]
+    assert "localhost" in said and "pve" in said
 
 
 @pytest.mark.parametrize("playbook", ["deploy.yml", "provision.yml"])

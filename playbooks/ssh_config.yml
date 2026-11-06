@@ -50,6 +50,9 @@
         claude_ssh_requested: >-
           {{ claude_vm_requested | selectattr('name', 'defined') | vms_not_named(claude_vm_inventory_hosts) }}
 
+    - name: Say which tagged VMs are left out for their name
+      ansible.builtin.import_tasks: tasks/vms_misnamed.yml
+
     # Proxmox permits duplicate names, and an alias is a name: two tagged VMs
     # called twin would leave `ssh twin` pointing at whichever was written
     # last. Refused, as discovery refuses to configure them.

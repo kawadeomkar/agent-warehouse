@@ -416,6 +416,9 @@ def test_only_the_window_and_the_ids_asked_for_are_listed(tmp_path):
     assert [item["id"] for item in info.list_sessions(str(root), 30, [])] == [ID]
     assert [item["id"] for item in info.list_sessions(str(root), 0, [OTHER])] == [OTHER]
     assert info.list_sessions(str(root), 0, []) == []
+    # A name that is an ID and a newline is no session of Claude Code's: just destroy's save would refuse it.
+    root = _claude_dir(tmp_path / "newline", {("-Users-me-demo", ID + "\n"): transcript()})
+    assert info.list_sessions(str(root), 30, []) == []
     # A stub with no message is listed, and says so; the plan leaves it out.
     root = _claude_dir(tmp_path / "stub", {("-Users-me-demo", ID): transcript(conversation=False)})
     assert info.list_sessions(str(root), 30, [])[0]["conversation"] is False
@@ -649,6 +652,9 @@ def test_a_vm_with_nothing_of_its_own_saves_nothing():
     [
         ("../../..", ID),
         ("-home-dev-x\nevil", ID),
+        # A trailing newline too: `$` matches before one, so only a whole match keeps it out.
+        ("-home-dev-x\n", ID),
+        ("-home-dev-x", ID + "\n"),
         ("-home-dev x", ID),
         ("/etc", ID),
         ("-home-dev-x", "../../etc/passwd"),
@@ -660,6 +666,11 @@ def test_what_the_vm_names_otherwise_than_claude_code_is_left_out_and_counted(fo
     saved = filters.claude_sessions_saved([_found(sid, folder, dir=True)], ["-home-dev-y", "../y"], "/x")
     assert saved["files"] == ["-home-dev-y/memory"] and saved["sessions"] == []
     assert saved["refused"] == 2 and saved["memory"] == ["-home-dev-y"]
+
+
+def test_a_memory_folder_named_with_a_trailing_newline_is_left_out_and_counted():
+    saved = filters.claude_sessions_saved([], ["-home-dev-y\n"], "/x")
+    assert saved["files"] == [] and saved["memory"] == [] and saved["refused"] == 1
 
 
 def test_each_saved_session_names_the_claude_code_that_wrote_it_and_the_newest_of_them():
@@ -1313,7 +1324,18 @@ def test_a_name_that_did_not_arrive_or_a_folder_already_there_fails_the_fetch(tm
         fetch.fetch(str(tmp_path / "a" / "projects"), str(projects), ASKED)
 
 
-@pytest.mark.parametrize("name", ["../etc/passwd", f"{FOLDER}/{ID}/x", "-x/notes.txt", f"a b/{ID}.jsonl", "/etc/x"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../etc/passwd",
+        f"{FOLDER}/{ID}/x",
+        "-x/notes.txt",
+        f"a b/{ID}.jsonl",
+        "/etc/x",
+        f"{FOLDER}/{ID}\n",
+        f"{FOLDER}/memory\n",
+    ],
+)
 def test_only_a_transcript_a_session_s_folder_or_a_memory_folder_is_asked_for(tmp_path, name):
     with pytest.raises(RuntimeError, match="is not a Claude Code transcript"):
         fetch.fetch(str(tmp_path / "a" / "projects"), "/home/dev/.claude/projects", [name])

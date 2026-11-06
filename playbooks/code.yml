@@ -490,6 +490,9 @@
             groups: claude_vms
             ansible_host: "{{ code_reach }}"
             ansible_user: "{{ vm_user }}"
+            # The VM's own Python, as every add_host that publishes a VM gives it: the VM user's ssh sessions
+            # have ~/.local/bin first on PATH, where interpreter discovery would take a uv-installed one.
+            ansible_python_interpreter: "{{ claude_vm_python }}"
           changed_when: false
 
         # Where the code lives, read on the VM as configure reads it: the VM
