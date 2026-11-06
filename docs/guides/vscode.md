@@ -306,18 +306,11 @@ comes over as far as it was written - and its `tool-results/` folder, in the VM'
 under the folder name it has here, 0600 in 0700 folders. It keeps its file time here while that is
 within 14 days; an older one's copy gets the time it was copied, renewed every 14 days, since Claude Code
 deletes a transcript 30 days after its file time and would otherwise take a session you asked for by ID
-before you resumed it. Each copy gets four edits and nothing else, so that it resumes as the VM's own:
-
-- The memory folder its recorded system prompt names becomes the checkout's on the VM. Claude Code
-    records the prompt it started with and sends it again on every resume until the conversation is
-    compacted, so without this the session would keep using this machine's memory path.
-- The folder its tool results name for a large output Claude Code saved to a file becomes the copy's
-    `tool-results/` on the VM, so that the resumed session can read it. Only the tool results change:
-    what the assistant said, signed thinking included, stays as it was.
-- A session last bound to a Claude worktree is unbound, and goes on in the main checkout. Claude Code
-    unbinds one whose worktree is gone by itself, but refuses to resume one whose worktree's path is
-    there and is not that worktree.
-- A last entry names the checkout it continues in.
+before you resumed it. Each copy gets four edits and nothing else, so that it resumes as the VM's own: the
+memory folder its recorded system prompt names, and the folder of the tool results it saved, become the VM's;
+a session bound to a Claude worktree goes on in the main checkout; and a last entry names the checkout. What
+the assistant said, signed thinking included, stays as it was. [§4.9](../architecture/lifecycle.md#49-playbookscodeyml)
+says why each.
 
 Never copied: subagent transcripts (resume does not need them, and they are much of the bytes, but a
 subagent of the session cannot be looked into or resumed on the VM),

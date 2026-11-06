@@ -200,10 +200,8 @@ wait for its address, `just deploy` does not configure it, and the run says so:
 gamma is stopped and was left that way, so it is not configured. Start it, or re-run with: just deploy gamma --start
 ```
 
-That run exits 0: the job of `just deploy --only provision` and `just deploy` is that the VMs exist, and a stopped
-VM does, so leaving it alone is a success, reported. `just deploy gamma --only configure` for the same VM
-fails instead — its job is the software on the VM you named, and it cannot do that job on a VM that is
-off, so it stops rather than configure the rest and exit 0 with gamma silently skipped.
+That run exits 0, since the VM exists; `just deploy gamma --only configure` fails instead, since it cannot
+configure a VM that is off ([Re-running](../guides/vms.md#re-running)).
 
 `just status` answers the same question later, for everything this project created, and says what needs
 doing next. It is read-only, changes nothing anywhere, and unlike the discovery that `just deploy --only

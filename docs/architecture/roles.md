@@ -256,14 +256,10 @@ constraint rather than an omission. Anthropic supports exactly one credential fo
 | Interactive claude.ai `/login` (Pro, Max, Team, Enterprise) | yes | **yes** |
 
 It is on by default, and what happens is **derived from the credentials on the VM** rather than from
-a switch — because no switch can create the one credential that works. `just deploy --only configure` therefore
-does one of three things:
-
-| Credentials found | Outcome |
-|---|---|
-| `ANTHROPIC_API_KEY` configured | Off, with a message. A key outranks the login |
-| No key, no claude.ai login | Unit installed, service left stopped, a path unit waiting for the login (below), the sign-in command printed |
-| No key, claude.ai login present | Service enabled and started; the session appears in the app |
+a switch — because no switch can create the one credential that works. `just deploy --only configure`
+turns it off where an API key is configured, installs it stopped with a path unit waiting where there is
+no login yet, and starts it where a claude.ai login is: the steps are below, and what each outcome means
+for the user is the guide's [table](../guides/remote-control.md#what-a-run-does-on-each-vm).
 
 A login is what activates it: `just login --only claude` and `just deploy` start the server in the run that
 signs the VM in, and a login made any other way starts it through the path unit.
