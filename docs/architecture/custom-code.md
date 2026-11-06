@@ -174,10 +174,12 @@ controls and zero-width characters among them) replaced by a space, its lines, t
 line that reads in the order it was written. What every live run keeps of a report's lines
 (`lib/claude_vm/ansible/engine.py`, §7.5). Covered by `tests/unit/test_text_filter.py`.
 
-**`one_line(text, limit=120)`** — `visible_text`, then every newline and every other control character
-replaced by a space, runs of spaces collapsed, and the whole cut to `limit`, ending in "…". What
-`just status` keeps of every value a VM or Proxmox supplies, so none starts a line of its own in the
-report or in `--json` (§7.7). Covered by `tests/unit/test_status.py`, over a corpus of hostile values.
+**`one_line(text, limit=120)`** — `visible_text`, which removes every control character but tab and
+newline (a carriage return is removed, not made a space), then each newline and tab replaced by a space,
+runs of spaces collapsed, and the whole cut to `limit`, ending in "…"; what a VM printed is passed to it as
+it is. What `just status` keeps of every value a VM or Proxmox supplies, so none starts a line of its own
+in the report or in `--json` (§7.7), and what every live run keeps of a command's line or a test's name.
+Covered by `tests/unit/test_status.py`, over a corpus of hostile values.
 
 **`banner(body, title, host='', topic='')`** — the `#` block that sets a moment the run waits for the
 person apart from the task output around it: a rule 80 columns wide (the terminal's width when that is
@@ -215,8 +217,9 @@ A run waits for the person in three ways, and each is set apart:
 - **A page to approve**: a debug result tagged `attention_browser` is drawn as a block titled `ACTION
   REQUIRED IN YOUR BROWSER`, with the VM and the sign-in (from the task's role), instead of `ok: [host]
   =>` and a YAML dump. A retried task with the tag - Claude's and Tailscale's browser waits - says once
-  per VM that it is waiting, with the time left, instead of a `FAILED - RETRYING` line every few seconds
-  that pushed the page off the screen. Six tasks carry the tag, none looped; the device flow's
+  per VM that it is waiting, with the time left - every check still to come and the delay before each, one
+  more than Ansible's own `retries left` counts, as the live run counts it too - instead of a
+  `FAILED - RETRYING` line every few seconds that pushed the page off the screen. Six tasks carry the tag, none looped; the device flow's
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.

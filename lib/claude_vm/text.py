@@ -69,9 +69,11 @@ def visible_text(text):
 def one_line(text, limit=120):
     """Return ``text`` as one line of plain text, at most ``limit`` characters, ending in "…" when cut.
 
-    visible_text first, so whole escape sequences go and each Unicode format or
-    separator character is a space; then each newline, carriage return and tab
-    becomes one too, and runs of spaces one. None is "".
+    visible_text first, so whole escape sequences and every control character
+    but tab and newline go - a carriage return among them, removed, not made a
+    space - and each Unicode format or separator character is a space; then each
+    newline and tab becomes one too, and runs of spaces one. None is "". What a
+    VM printed is passed as it is: nothing needs cleaning first.
     """
     if text is None:
         return ""

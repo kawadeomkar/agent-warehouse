@@ -54,11 +54,6 @@ def _play_table(recipe):
     return {play: (stage.key, None) for stage in recipe.stages for play in stage.plays if ":" in play}
 
 
-# just deploy's, which is also what a run of no declaration of its own is drawn by.
-STAGE_FILES = stage_files(recipes.RECIPES["deploy"])
-
-PLAN_FILES = recipes.RECIPES["deploy"].plan
-
 RANK = {
     "skipped": 0,
     "included": 1,
@@ -103,11 +98,6 @@ def stages_for(plays, recipe=None):
             )
         out.append(entry)
     return out
-
-
-def stages_of(files, recipe=None):
-    """Each play's (stage, step), from the file of its playbook alone."""
-    return stages_for([(f, None) for f in files], recipe)
 
 
 def count_tasks(path, roles=(), depth=0):
@@ -867,13 +857,15 @@ class Run:
             planned = self._stage(stage).step(step)
             planned.planned = planned.planned or not planned.tasks
 
-    def part(self, stage, step):
-        """A part of a run whose reader makes its tasks - pytest's tests, Molecule's actions - in stage's step."""
-        key = f"part:{stage}:{step}:{len(self.order)}"
+    def part(self, stage, step, kind="part"):
+        """A part of a run whose reader makes its tasks - pytest's tests, Molecule's actions - in stage's step, begun
+        as a play is: its key, kind first."""
+        key = f"{kind}:{stage}:{step}:{len(self.order)}"
         self.play = key
         self.play_stage[key] = (stage, step)
         self.batch += 1
         self.started = {}
+        return key
 
     def expect(self, stage, step, count):
         """How many tasks a part's step will reach, once its reader knows - pytest's tests, once collected - each it
@@ -897,21 +889,17 @@ class Run:
     def command(self, stage, step, name, now):
         """A command a run runs as a part of its own - one of just lint's checks, just test's pytest - as one task in
         stage's step, on this machine."""
-        key = f"command:{stage}:{step}:{len(self.order)}"
-        self.play = key
-        self.play_stage[key] = (stage, step)
-        self.batch += 1
-        self.started = {}
+        key = self.part(stage, step, "command")
         task = self.task(key, name, None, now)
         self.host_start(key, "localhost", now)
         return task
 
     # --- a run in parts ---------------------------------------------------------------------------------------
-    def dump(self, now, next_records=None, failed_hosts=()):
+    def dump(self, now, next_records=None, failed_hosts=(), stopped=False):
         """What a later part of a run in parts, and its end, need of this part and the ones before it: every task,
         step, report and record, each time from the run's start, and what NEXT STEPS and the head will say -
-        next_records, the parts' NEXT STEPS records merged, {stat: {vm: {matter: line}}}. Every value in it was
-        cleaned when the run took it in."""
+        next_records, the parts' NEXT STEPS records merged, {stat: {vm: {matter: line}}}, and stopped, whether
+        Ctrl-C or a signal ended this part. Every value in it was cleaned when the run took it in."""
         index = {id(task): n for n, task in enumerate(self.order)}
 
         def at(value):
@@ -986,6 +974,7 @@ class Run:
             "next_records": next_records or {},
             "failed_hosts": sorted(set(failed_hosts)),
             "checklists": [[stage, [list(item) for item in items]] for stage, items in self.checklists.items()],
+            "stopped": bool(stopped),
         }
 
     def adopt(self, state, now):

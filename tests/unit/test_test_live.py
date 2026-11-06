@@ -304,7 +304,7 @@ def test_the_molecule_reader_knows_the_lines_molecule_s_own_logger_writes(monkey
 
 def _said(line):
     """A line as the readers take it: plain text, one line."""
-    return parts.view.one_line(parts.text.plain_text(line))
+    return parts.view.one_line(line)
 
 
 def test_a_test_whose_worker_crashed_ends_failed(tmp_path):

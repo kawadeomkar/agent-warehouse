@@ -135,31 +135,98 @@ def merged_records(*records):
     return out
 
 
-def say_end(out, display, run, now, failed_hosts, next_steps, width, color):
-    """The summary and NEXT STEPS, as every drawn run ends: above where the region was, NEXT STEPS in the callback's
-    colour, each line whole as the stream prints it - a command or a URL is copied from one line, and the terminal
-    wraps it, never the run."""
-    summary = run.summary(now, width, out.color, failed_hosts=failed_hosts, next_steps=next_steps)
-    plain = run.summary(now, width, False, failed_hosts=failed_hosts, next_steps=next_steps)
-    out.print([("", ""), *zip(summary, plain, strict=True)])
-    if next_steps:
-        with out.say():
-            display.display(text.banner(next_steps, "NEXT STEPS"), color=color)
+def taken_over(run, state, now):
+    """A run made a part of a run in parts: the parts before it adopted from the state they saved (None before the
+    first part), drawn done above its own; returns their NEXT STEPS records and failed hosts, for the run's end."""
+    run.parts = True
+    if state is None:
+        return {}, []
+    run.adopt(state, now)
+    return state.get("next_records") or {}, list(state.get("failed_hosts") or [])
 
 
-def _width():
+# --- a run, drawn --------------------------------------------------------------------------------------------------
+def terminal_width():
+    """This terminal's width, for what is printed above the region: 100 where stdout is none."""
     try:
         return os.get_terminal_size(sys.stdout.fileno()).columns
     except (OSError, ValueError, AttributeError):
         return 100
 
 
-def _log():
+def log_shown():
+    """The run's log as the footer and the summary name it: relative to here, unless that leads out of here."""
     path = os.environ.get("ANSIBLE_LOG_PATH", "")
     if not path:
         return ""
-    relative = os.path.relpath(path)
+    try:
+        relative = os.path.relpath(path)
+    except ValueError:
+        return path
     return relative if not relative.startswith("..") else path
+
+
+def say_end(out, run, now, failed_hosts, next_steps):
+    """The summary and NEXT STEPS, as every drawn run ends: above where the region was, at this terminal's width,
+    NEXT STEPS in the callback's colour, each line whole as the stream prints it - a command or a URL is copied from
+    one line, and the terminal wraps it, never the run."""
+    width = terminal_width()
+    summary = run.summary(now, width, out.color, failed_hosts=failed_hosts, next_steps=next_steps)
+    plain = run.summary(now, width, False, failed_hosts=failed_hosts, next_steps=next_steps)
+    out.print([("", ""), *zip(summary, plain, strict=True)])
+    if next_steps:
+        with out.say():
+            out.display.display(text.banner(next_steps, "NEXT STEPS"), color=steps.COLOR)
+
+
+class Drawn:
+    """What drives a drawn run around its model, whatever it runs - a playbook (engine.py's Engine) or a command
+    (Part): one Output for the region and the run's own words; live where stdout can take the region, else a line
+    as each step ends; and for a part of a run in parts, the parts before it, taken over from the state at
+    state_path ("" for a run of one playbook). Neither the frame nor the lines know what runs."""
+
+    def __init__(self, display, title, state_path, on_prompt=None):
+        self.display = display
+        self.title = title
+        self.state_path = state_path
+        self.run = None
+        self.records = {}  # the earlier parts' NEXT STEPS records
+        self.failed_hosts = []  # the earlier parts' failed hosts
+        self.out = live.Output(
+            display, frame=self._frame, color=not C.ANSIBLE_NOCOLOR, to_log=True, on_prompt=on_prompt
+        )
+        self.mode = "live" if self.out.live else "lines"
+        self.color = self.out.color
+
+    def _now(self):
+        return time.monotonic()
+
+    def _frame(self, cols, rows, glyph):
+        with self.display._lock:
+            if self.run is None:
+                return []
+            now = self._now()
+            self._settle(now)
+            self.out.title(self.run.title_text(now))
+            return self.run.frame(now, cols, rows, glyph, self.color)
+
+    def _settle(self, now):
+        """What a run looks at before each frame: nothing here."""
+
+    def _after(self, final=False):
+        """After each event: in lines mode, a line for each step that ended - at a part's end (final), its own too;
+        live, a redraw now."""
+        if self.mode == "lines":
+            with self.display._lock:
+                ended = self.run.ended_lines(self._now(), final=final)
+            if ended:
+                self.out.print([(line, line) for line in ended])
+        else:
+            self.out.redraw()
+
+    def _take_over(self, now):
+        """The parts of the run before this one, drawn done above its own, with their records and failed hosts."""
+        self.records, self.failed_hosts = taken_over(self.run, load_state(self.state_path, self.title), now)
 
 
 # --- a command, as a part ------------------------------------------------------------------------------------------
@@ -196,29 +263,41 @@ class Ended(BaseException):
 OUTSIDE = (signal.SIGTERM, signal.SIGHUP)
 
 
-class Plain:
-    """The plain reader: the part is one task of its step, the child's last line dim after it."""
+class Reader:
+    """What every reader does unless it says otherwise: its part's step begun as a part of the run, whose tasks the
+    reader makes from the child's lines; nothing added to the child's environment, and nothing to read but those
+    lines."""
 
     # A line that is a warning: any that says one.
     warning = WARNING
 
     def __init__(self, part):
         self.part = part
-        self.task = None
 
     def env(self):
         return {}
 
     def start(self, now):
+        self.part.run.part(self.part.stage, self.part.step)
+
+    def poll(self, now):
+        pass
+
+
+class Plain(Reader):
+    """The plain reader: the part is one task of its step, the child's last line dim after it."""
+
+    def __init__(self, part):
+        super().__init__(part)
+        self.task = None
+
+    def start(self, now):
         part = self.part
-        self.task = part.run.command(part.stage, part.step, command_name(part.argv) or part.step or part.stage, now)
+        self.task = part.run.command(part.stage, part.step, part.name, now)
 
     def line(self, line, said, now):
         if said.strip():
             self.task.detail = said[:200]
-
-    def poll(self, now):
-        pass
 
     def ended(self, rc, now):
         """The part's end, its one task with it; whether a failure was said already, which none of this reader's is."""
@@ -234,14 +313,12 @@ def test_name(nodeid):
     return os.path.basename(path) + separator + rest
 
 
-class Pytest:
+class Pytest(Reader):
     """The pytest reader: each test a task of the step as live_pytest.py reports it - several running at once under
     xdist - the count once collected, and each failure's words above the moment it fails."""
 
-    warning = WARNING
-
     def __init__(self, part):
-        self.part = part
+        super().__init__(part)
         self.events = ""
         self.read = 0
         self.failed = False
@@ -255,9 +332,6 @@ class Pytest:
         descriptor, self.events = tempfile.mkstemp(dir=state.parent, prefix=f"{state.stem}-pytest-", suffix=".jsonl")
         os.close(descriptor)
         return {"CLAUDE_ON_PROXMOX_LIVE_PYTEST": self.events}
-
-    def start(self, now):
-        self.part.run.part(self.part.stage, self.part.step)
 
     def line(self, line, said, now):
         self.poll(now)
@@ -285,11 +359,11 @@ class Pytest:
         if isinstance(event.get("count"), int):
             run.expect(self.part.stage, self.part.step, event["count"])
         elif isinstance(event.get("start"), str):
-            nodeid = view.one_line(text.plain_text(event["start"]))
+            nodeid = view.one_line(event["start"])
             run.parallel(f"test:{nodeid}", test_name(nodeid), now)
             self.made = True
         elif isinstance(event.get("end"), str):
-            nodeid = view.one_line(text.plain_text(event["end"]))
+            nodeid = view.one_line(event["end"])
             outcome = {"passed": "ok", "failed": "failed", "skipped": "skipped"}.get(event.get("outcome"), "ok")
             task = run.result(f"test:{nodeid}", "localhost", outcome, now)
             if outcome == "failed":
@@ -309,13 +383,12 @@ class Pytest:
         if not self.made or (rc not in (0, INTERRUPTED) and not self.failed):
             # pytest failed with no test failing - an error before any ran - or said no test at all (a plugin that
             # never loaded): the command is the part's one task, its outcome its exit code's, never a step not run.
-            name = command_name(self.part.argv) or self.part.step or self.part.stage
-            task = run.parallel(f"pytest:{len(run.order)}", name, now)
+            task = run.parallel(f"pytest:{len(run.order)}", self.part.name, now)
             run.result(task.key, "localhost", outcome_of(rc), now)
         return self.failed
 
 
-class Molecule:
+class Molecule(Reader):
     """The Molecule reader: the scenario a step, its actions its tasks from Molecule's own lines - its "scenario test
     matrix" the count, "[default > converge] Executing", then "Executed: Successful" - the Ansible task running said
     after the action. A failed action is said above as it fails, while Molecule goes on through its cleanup and
@@ -335,7 +408,7 @@ class Molecule:
     warning = re.compile(r"^(?:WARNING\s|\[(?:DEPRECATION )?WARNING\]:)")
 
     def __init__(self, part):
-        self.part = part
+        super().__init__(part)
         self.action = None
         self.lines = collections.deque(maxlen=FAILURE_LINES)
         self.matrix = None
@@ -344,13 +417,11 @@ class Molecule:
         # The Ansible task running, by its TASK line and its place in the action; the last that failed, from its
         # "fatal:" on, while those lines go on.
         self.task, self.tasks = "", 0
+        self._forget_failure()
+
+    def _forget_failure(self):
+        """No task's failure kept: an action's start, or a failure its task ignores, which is none."""
         self.failure, self.failure_task, self.failure_at, self.dropped, self.collecting = [], "", -1, 0, False
-
-    def env(self):
-        return {}
-
-    def start(self, now):
-        self.part.run.part(self.part.stage, self.part.step)
 
     def line(self, line, said, now):
         run = self.part.run
@@ -363,7 +434,7 @@ class Molecule:
         if found and found.group("what") == "Executing":
             self.lines.clear()
             self.task, self.tasks = "", 0
-            self.failure, self.failure_task, self.failure_at, self.dropped, self.collecting = [], "", -1, 0, False
+            self._forget_failure()
             key = f"action:{found.group('scenario')}:{found.group('action')}:{len(run.order)}"
             self.action = run.task(key, found.group("action"), None, now)
             run.host_start(key, "localhost", now)
@@ -391,8 +462,7 @@ class Molecule:
         if self.PLAY.match(said):
             self.collecting = False
         elif said == "...ignoring" and self.collecting:
-            # A failure the task ignores is none.
-            self.failure, self.failure_task, self.failure_at, self.collecting = [], "", -1, False
+            self._forget_failure()
         elif self.FAILED.match(said):
             if not (self.collecting and self.failure_at == self.tasks):
                 # The task's first failure: a later task's replaces an earlier one's, ignored or rescued.
@@ -413,16 +483,13 @@ class Molecule:
         """The failed action above, at once: the task that failed and what Ansible said of it, or its last lines."""
         name = self.action.name
         if self.failure:
-            name = f"{name} · {view.one_line(text.plain_text(self.failure_task))}" if self.failure_task else name
+            name = f"{name} · {view.one_line(self.failure_task)}" if self.failure_task else name
             said = [text.plain_text(item) for item in self.failure]
             if self.dropped:
                 said.append(f"… {self.dropped} more line{'' if self.dropped == 1 else 's'} in the run's log")
         else:
             said = [text.plain_text(item) for item in self.lines]
         self.part.said_failure(self.action, name, said)
-
-    def poll(self, now):
-        pass
 
     def ended(self, rc, now):
         """The scenario's end; never a failure said already, since Molecule says why one failed last."""
@@ -434,8 +501,7 @@ class Molecule:
         if not self.made or (rc not in (0, INTERRUPTED) and not self.failed):
             # Molecule failed with no action failing, or said no action this reader knows - a format it no longer
             # writes: the command is the part's one task, its outcome its exit code's, never a scenario not run.
-            name = command_name(self.part.argv) or self.part.step or self.part.stage
-            task = run.task(f"molecule:{len(run.order)}", name, None, now)
+            task = run.task(f"molecule:{len(run.order)}", self.part.name, None, now)
             run.host_start(task.key, "localhost", now)
             run.result(task.key, "localhost", outcome_of(rc), now)
         return False
@@ -444,51 +510,28 @@ class Molecule:
 READERS = {"plain": Plain, "pytest": Pytest, "molecule": Molecule}
 
 
-class Part:
+class Part(Drawn):
     """One command of a run, drawn: its step's tasks as its reader makes them, the child's lines to the log, and the
     state saved for the next part and the run's end, which says the summary."""
 
-    def __init__(self, title, stage, step, argv, state_path, plan=(), reader="plain", stages=(), interrupted=False):
-        self.title, self.stage, self.step, self.argv, self.state_path = title, stage, step, list(argv), state_path
+    def __init__(self, title, stage, step, argv, state_path, plan=(), reader="plain", stages=()):
+        super().__init__(Display(), title, state_path)
+        self.stage, self.step, self.argv = stage, step, list(argv)
         self.plan, self.stages = list(plan), list(stages)
         self.reader = READERS[reader](self)
-        self.display = Display()
-        self.mode = "live" if live.can_draw() else "lines"
-        self.out = live.Output(
-            self.display, frame=self._frame, live=self.mode == "live", color=not C.ANSIBLE_NOCOLOR, to_log=True
-        )
-        self.color = self.out.color
-        self.run = None
         self.last = collections.deque(maxlen=FAILURE_LINES)
         self.warnings = []
-        self.interrupted = int(bool(interrupted))
+        self.interrupted = 0  # how many Ctrl-Cs the part has taken
         self.child = None
         self.under = {}
         self.blind = []
         self.reading = False
-        self.records = {}
-        self.failed_hosts = []
         self.stop = threading.Event()
 
-    def _now(self):
-        return time.monotonic()
-
-    def _frame(self, cols, rows, glyph):
-        with self.display._lock:
-            if self.run is None:
-                return []
-            self.out.title(self.run.title_text(self._now()))
-            return self.run.frame(self._now(), cols, rows, glyph, self.color)
-
-    def _after(self, final=False):
-        """In lines mode, a line for each step that ended - at the part's end, its own too; live, a redraw."""
-        if self.mode == "lines":
-            with self.display._lock:
-                ended = self.run.ended_lines(self._now(), final=final)
-            if ended:
-                self.out.print([(line, line) for line in ended])
-        else:
-            self.out.redraw()
+    @property
+    def name(self):
+        """What the part is called on the screen: its command's program, else its step or its stage."""
+        return command_name(self.argv) or self.step or self.stage
 
     def _child_env(self):
         env = {name: value for name, value in os.environ.items() if name not in NOT_PASSED_ON}
@@ -534,9 +577,7 @@ class Part:
         self._said_blind()
         if self.run is not None:
             with contextlib.suppress(Exception):
-                state = self.run.dump(self._now(), self.records, self.failed_hosts)
-                state["stopped"] = True
-                save_state(self.state_path, state)
+                save_state(self.state_path, self.run.dump(self._now(), self.records, self.failed_hosts, stopped=True))
 
     def _said_blind(self):
         # A process table that could not be read, said in the log once the handler that found so has returned: the
@@ -548,13 +589,8 @@ class Part:
 
     def start(self):
         now = self._now()
-        self.run = drawn.Run(self.title, now, log=_log())
-        self.run.parts = True
-        state = load_state(self.state_path, self.title)
-        if state is not None:
-            self.run.adopt(state, now)
-            self.records = state.get("next_records") or {}
-            self.failed_hosts = list(state.get("failed_hosts") or [])
+        self.run = drawn.Run(self.title, now, log=log_shown())
+        self._take_over(now)
         self.out.start()
         with self.display._lock:
             self.run.planned_stages(self.stages)
@@ -567,7 +603,7 @@ class Part:
         line = raw.decode(errors="replace").rstrip("\r\n")
         self.display.display(line, log_only=True)
         self.last.append(line)
-        said = view.one_line(text.plain_text(line))
+        said = view.one_line(line)
         if self.reader.warning.search(said) and not ROUTINE.search(said) and len(self.warnings) < FAILURE_LINES:
             self.warnings.append(text.plain_text(line).rstrip())
         with self.display._lock:
@@ -622,9 +658,16 @@ class Part:
     def said_failure(self, task, name, said):
         """A task of the part that failed, above at once: where, which, and the end of what it said."""
         where = (task.step or task.stage) if task is not None else (self.step or self.stage)
-        head = f"✗ {where}: {name}"
-        lines = [("", ""), (screen.render([(head, "r")], self.color), head)]
-        lines += [(f"    {line}", f"    {line}") for line in said[-FAILURE_LINES:]]
+        self._above(f"✗ {where}: {name}", "r", said[-FAILURE_LINES:])
+
+    def _above(self, head, style, said, log=False):
+        """A block above the region, whole and for good: its head in style, each line said under it, and with log,
+        where the run's log has the rest."""
+        lines = [("", ""), (screen.render([(head, style)], self.color), head)]
+        lines += [(f"    {line}", f"    {line}") for line in said]
+        if log and self.run.log:
+            whole = f"    the whole output: {self.run.log}"
+            lines.append((screen.render([(whole, "d")], self.color), whole))
         self.out.print([*lines, ("", "")])
 
     def _ended(self, rc):
@@ -639,9 +682,7 @@ class Part:
         self.out.finish()
         # The run's end says the summary, from the state: a part never says one of its own.
         failed = self.failed_hosts + (["localhost"] if rc not in (0, INTERRUPTED) else [])
-        state = self.run.dump(now, self.records, failed)
-        state["stopped"] = rc == INTERRUPTED
-        save_state(self.state_path, state)
+        save_state(self.state_path, self.run.dump(now, self.records, failed, stopped=rc == INTERRUPTED))
         # A Ctrl-C that came while the part was ending ends the run all the same.
         return INTERRUPTED if self.interrupted else rc
 
@@ -651,26 +692,13 @@ class Part:
         where = (task.step or task.stage) if task is not None else (self.step or self.stage)
         name = task.name if task is not None else os.path.basename(self.argv[0])
         took = f" ({screen.duration(task.seconds(now))})" if task is not None else ""
-        head = f"✗ {where}: {name}{took} · exit {rc}"
-        lines = [("", ""), (screen.render([(head, "r")], self.color), head)]
-        lines += [(f"    {line}", f"    {line}") for line in (text.plain_text(line) for line in self.last)]
-        if self.run.log:
-            said = f"    the whole output: {self.run.log}"
-            lines.append((screen.render([(said, "d")], self.color), said))
-        self.out.print([*lines, ("", "")])
+        said = [text.plain_text(line) for line in self.last]
+        self._above(f"✗ {where}: {name}{took} · exit {rc}", "r", said, log=True)
 
     def _warned(self):
         """A part that passed with warnings says them above, whole: once the region is gone they would be in the log
         alone."""
-        where = self.step or self.stage
-        name = command_name(self.argv) or where
-        head = f"! {where}: {name} passed with warnings"
-        lines = [("", ""), (screen.render([(head, "y")], self.color), head)]
-        lines += [(f"    {line}", f"    {line}") for line in self.warnings]
-        if self.run.log:
-            said = f"    the whole output: {self.run.log}"
-            lines.append((screen.render([(said, "d")], self.color), said))
-        self.out.print([*lines, ("", "")])
+        self._above(f"! {self.step or self.stage}: {self.name} passed with warnings", "y", self.warnings, log=True)
 
 
 def run(title, stage, step, argv, state_path, plan=(), reader="plain", stages=(), interrupted=False):
@@ -707,10 +735,8 @@ def end(title, state_path, rc):
         return
     display = Display()
     now = time.monotonic()
-    run = drawn.Run(title, now, log=_log())
-    run.parts = True
-    run.adopt(state, now)
-    failed_hosts = list(state.get("failed_hosts") or [])
+    run = drawn.Run(title, now, log=log_shown())
+    records, failed_hosts = taken_over(run, state, now)
     # Stopped: Ctrl-C at the recipe (130), at a playbook (ansible-playbook's 99), a part that says it stopped, or a
     # run that ended well with steps it listed never reached - a Ctrl-C between its parts, which bash may say as 0.
     stopped = rc in (INTERRUPTED, ANSIBLE_INTERRUPTED) or bool(state.get("stopped")) or (rc == 0 and bool(run.unrun()))
@@ -720,8 +746,8 @@ def end(title, state_path, rc):
         # The tab says how the run ended: drawn here as the region would, the region itself long gone.
         sys.stdout.write(f"\x1b]0;{run.title_text(now)}\x07")
         sys.stdout.flush()
-    next_steps = steps.next_steps(merged_records(state.get("next_records")))
-    say_end(out, display, run, now, failed_hosts, next_steps, _width(), steps.COLOR)
+    next_steps = steps.next_steps(merged_records(records))
+    say_end(out, run, now, failed_hosts, next_steps)
     if out.live:
         sys.stdout.write("\a")
         sys.stdout.flush()

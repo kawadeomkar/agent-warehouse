@@ -25,8 +25,6 @@ import ipaddress
 import json
 import os
 import re
-import sys
-import time
 from pathlib import Path
 
 from ansible import constants as C
@@ -36,7 +34,7 @@ from ansible.utils import display as ansible_display
 from .. import text
 from ..refs import NAME
 from ..run import model as view
-from ..tui import live_region as live
+from ..run import next_steps as steps
 from ..tui import run as drawn
 from . import parts as commands
 
@@ -45,14 +43,21 @@ plain_text = text.plain_text
 LIVE_ENV = commands.LIVE_ENV
 STATE_ENV = commands.STATE_ENV
 WAITING_TAG = "attention_browser"
-DEBUG_ACTIONS = frozenset({"debug", "ansible.builtin.debug", "ansible.legacy.debug"})
-STATS_ACTIONS = frozenset({"set_stats", "ansible.builtin.set_stats", "ansible.legacy.set_stats"})
-INCLUDE_TASKS = frozenset({"include_tasks", "ansible.builtin.include_tasks", "ansible.legacy.include_tasks"})
-IMPORT_TASKS = frozenset({"import_tasks", "ansible.builtin.import_tasks", "ansible.legacy.import_tasks"})
-INCLUDE_ROLE = frozenset({"include_role", "ansible.builtin.include_role", "ansible.legacy.include_role"})
-ARGUMENT_CHECKS = frozenset({"validate_argument_spec", "ansible.builtin.validate_argument_spec"})
-ADD_HOST = frozenset({"add_host", "ansible.builtin.add_host", "ansible.legacy.add_host"})
-META = frozenset({"meta", "ansible.builtin.meta", "ansible.legacy.meta"})
+
+
+def _actions(name):
+    """An action as a task may name it: short, or under ansible.builtin or ansible.legacy."""
+    return frozenset({name, f"ansible.builtin.{name}", f"ansible.legacy.{name}"})
+
+
+DEBUG_ACTIONS = _actions("debug")
+STATS_ACTIONS = _actions("set_stats")
+INCLUDE_TASKS = _actions("include_tasks")
+IMPORT_TASKS = _actions("import_tasks")
+INCLUDE_ROLE = _actions("include_role")
+ARGUMENT_CHECKS = _actions("validate_argument_spec")
+ADD_HOST = _actions("add_host")
+META = _actions("meta")
 # The facts the provision stage says a VM by.
 VM_FACTS = ("proxmox_vm_resolved_id", "proxmox_vm_address", "proxmox_vm_exists")
 # A prompt rings the bell when the person has had nothing to answer for this long: they may have looked away.
@@ -75,6 +80,22 @@ def from_environment(callback, playbook):
     return engine
 
 
+def _vm_name(value):
+    """value as a VM's name: plain text, stripped, and whole by a VM name's pattern; else ""."""
+    name = plain_text(str(value)).strip()
+    return name if NAME.fullmatch(name) else ""
+
+
+def _file_of(item):
+    """The file a task or a play comes from, without its line."""
+    return str(item.get_path() or "").split(":", 1)[0]
+
+
+def _role_search():
+    """Where an included role's tasks are looked for: the checkout's roles, then Ansible's roles path."""
+    return [os.path.join(os.getcwd(), "roles"), *C.DEFAULT_ROLES_PATH]
+
+
 def vm_names(extra_vars):
     """The VMs a run was given (vm_name, comma-separated), from the command line's extra vars: each a plain name."""
     names = ""
@@ -89,8 +110,8 @@ def vm_names(extra_vars):
             names = given.split("=", 1)[1]
     out = []
     for name in names.split(","):
-        name = plain_text(name).strip()
-        if NAME.fullmatch(name) and name not in out:
+        name = _vm_name(name)
+        if name and name not in out:
             out.append(name)
     return out
 
@@ -119,7 +140,7 @@ def _include_meta(task, search):
             target = args.get("file") or args.get("_raw_params")
             if not isinstance(target, str) or "{{" in target:
                 return {}
-            base = os.path.dirname(str(task.get_path()).split(":", 1)[0])
+            base = os.path.dirname(_file_of(task))
             path = target if os.path.isabs(target) else os.path.join(base, target)
             if not os.path.isfile(path):
                 return {}
@@ -160,7 +181,7 @@ def drawn_name(task):
 def task_file(task):
     """The task file a task comes from as its play reaches it, without a line: the file the import or include nearest
     the play names - a file another file includes stays its includer's - else the task's own file."""
-    own = str(task.get_path() or "").split(":", 1)[0]
+    own = _file_of(task)
     outer, node = None, getattr(task, "_parent", None)
     while node is not None:
         if getattr(node, "action", None) in INCLUDE_TASKS | IMPORT_TASKS:
@@ -172,14 +193,14 @@ def task_file(task):
     target = args.get("file") or args.get("_raw_params")
     if not isinstance(target, str) or "{{" in target:
         return own
-    base = os.path.dirname(str(outer.get_path() or "").split(":", 1)[0])
+    base = os.path.dirname(_file_of(outer))
     return os.path.normpath(os.path.join(base, target))
 
 
 def _included_file(task, target):
     """The task file an include's tasks come from, as task_file says it of each: the import the include is in, else
     its target."""
-    own = str(task.get_path() or "").split(":", 1)[0]
+    own = _file_of(task)
     outer = task_file(task)
     return outer if outer != own else os.path.normpath(target)
 
@@ -229,6 +250,17 @@ def _keeps(items, play):
     return False
 
 
+def retry_left(result):
+    """A retried task's runs still to come, and the seconds of delay before each. Ansible says the next attempt
+    (attempts) and how many runs there are in all, the first among them (retries), and sleeps the delay before each
+    run left: one more than its own "N retries left" counts, which would make a wait end a delay early."""
+    try:
+        delay = int(result.task.delay)
+    except (TypeError, ValueError):
+        delay = 0
+    return result.result.get("retries", 0) - result.result.get("attempts", 0) + 1, delay
+
+
 def play_batches(play):
     """How many batches a play runs in: one, unless it is serial."""
     try:
@@ -240,30 +272,14 @@ def play_batches(play):
         return 1
 
 
-class Engine:
+class Engine(commands.Drawn):
     """One live run: the callback's events in; the region, the run's own words and the summary out."""
 
-    def __init__(self, callback, title, state=""):
+    def __init__(self, callback, title, state_path=""):
+        super().__init__(callback._display, title, state_path, on_prompt=self.prompt)
         self.cb = callback
-        self.state = state  # where a run in parts keeps its model between parts; "" for a run of one playbook
-        self.records = {}  # the earlier parts' NEXT STEPS records
-        self.failed_hosts = []  # the earlier parts' failed hosts
         self.saved = False  # a part's state saved, at its end
-        self.display = callback._display
-        self.mode = "live" if live.can_draw() else "lines"
-        self.run = None
-        self.out = live.Output(
-            self.display,
-            frame=self._frame,
-            live=self.mode == "live",
-            color=not C.ANSIBLE_NOCOLOR,
-            to_log=True,
-            on_prompt=self.prompt,
-        )
-        self.color = self.out.color
-        self.region = self.out.region
         self.plan_play = None
-        self.title = title
         self._failed_items = {}  # (task ID, host): the results of a loop's items that failed, said with the task
         self._attended = self._now()  # when the person last had something to answer: the start, a bell, a prompt
         self._facts = set()  # the facts the declaration reads each VM's outcome from
@@ -280,52 +296,14 @@ class Engine:
         """Lines of the run's own, (coloured, plain) each: the colour to the screen, the plain text to the log."""
         self.out.print(lines)
 
-    def _width(self):
-        try:
-            return os.get_terminal_size(sys.stdout.fileno()).columns
-        except (OSError, ValueError, AttributeError):
-            return 100
-
-    def _now(self):
-        return time.monotonic()
-
-    def _wrapped(self, head, lines, style="", styles=None):
-        """head, then lines wrapped under it, at this terminal's width (tui/run.py's wrapped)."""
-        return drawn.wrapped(head, lines, self._width(), self.color, style, styles)
-
-    def _frame(self, cols, rows, glyph):
-        with self.display._lock:
-            if self.run is None:
-                return []
-            now = self._now()
-            # A tagged wait that never retries, GitHub's device flow, is known by how long it runs.
-            if self.run.settle(now):
-                self._bell(now)
-            self.out.title(self.run.title_text(now))
-            return self.run.frame(now, cols, rows, glyph, self.color)
+    def _settle(self, now):
+        # A tagged wait that never retries, GitHub's device flow, is known by how long it runs.
+        if self.run.settle(now):
+            self._bell(now)
 
     def _bell(self, now):
         self._attended = now
-        if self.mode == "live":
-            self.out.bell()
-
-    def _after(self):
-        """After each event: in lines mode, a line for each step that ended; live, a redraw now."""
-        if self.mode == "lines":
-            ended = self.run.ended_lines(self._now())
-            if ended:
-                self.print([(line, line) for line in ended])
-        else:
-            self.out.redraw()
-
-    def _log_path(self):
-        path = os.environ.get("ANSIBLE_LOG_PATH", "")
-        if not path:
-            return ""
-        try:
-            return os.path.relpath(path) if not os.path.relpath(path).startswith("..") else path
-        except ValueError:
-            return path
+        self.out.bell()
 
     def diffed(self, said):
         """A dry run's diff, as the callback prints it."""
@@ -346,10 +324,6 @@ class Engine:
             return host
         return self.run.names[0] if len(self.run.names) == 1 else "this machine"
 
-    @staticmethod
-    def _name(task):
-        return drawn_name(task)
-
     # --- the playbook ------------------------------------------------------------------------------------------
     def start(self, playbook):
         cli = context.CLIARGS or {}
@@ -357,17 +331,13 @@ class Engine:
             self.title,
             self._now(),
             check=bool(cli.get("check")),
-            log=self._log_path(),
+            log=commands.log_shown(),
             vms=vm_names(cli.get("extra_vars")),
         )
-        # A part of a run in parts: the parts before it, done, drawn above its own stages.
-        self.run.parts = bool(self.state)
-        earlier = commands.load_state(self.state, self.title) if self.state else None
-        if earlier is not None:
-            self.run.adopt(earlier, self._now())
-            self.records = earlier.get("next_records") or {}
-            self.failed_hosts = list(earlier.get("failed_hosts") or [])
-        search = [os.path.join(os.getcwd(), "roles"), *C.DEFAULT_ROLES_PATH]
+        if self.state_path:
+            # A part of a run in parts: the parts before it, done, drawn above its own stages.
+            self._take_over(self._now())
+        search = _role_search()
         plays = []
         for play in playbook.get_plays():
             try:
@@ -381,7 +351,7 @@ class Engine:
         self._infos = {stage.key: stage.info.fact for stage in stages if isinstance(stage.info, view.recipes.Info)}
         self._checklists = {stage.key: stage.checklist for stage in stages if stage.checklist}
         first = playbook.get_plays()[:1]
-        if first and Path(str(first[0].get_path()).split(":", 1)[0]).name in self.run.recipe.plan:
+        if first and Path(_file_of(first[0])).name in self.run.recipe.plan:
             self.plan_play = first[0]._uuid
         self.out.start()
         self.out.redraw()
@@ -390,7 +360,7 @@ class Engine:
             # Registered after the region's own, so it runs first: a run that ends without its stats, at Ctrl-C,
             # does not leave the tab saying it is still at work.
             atexit.register(self._stopped_title)
-        if self.state:
+        if self.state_path:
             # A part that ends without its stats - Ctrl-C, after which ansible-playbook exits 99 - still saves what it
             # did, said stopped, for the run's end.
             atexit.register(self._save_stopped)
@@ -404,10 +374,9 @@ class Engine:
                 for host, entry in self.run.current.hosts.items():
                     if entry[1] is None:
                         self.run.current.host_end(host, "stopped", now)
-            state = self.run.dump(now, self.records, self.failed_hosts)
-        state["stopped"] = True
+            state = self.run.dump(now, self.records, self.failed_hosts, stopped=True)
         with contextlib.suppress(OSError):
-            commands.save_state(self.state, state)
+            commands.save_state(self.state_path, state)
         self.saved = True
 
     def _stopped_title(self):
@@ -428,7 +397,7 @@ class Engine:
             ends = task.action in META and str((task.args or {}).get("_raw_params", "")).strip() == "end_host"
             self.run.task(
                 task._uuid,
-                self._name(task),
+                drawn_name(task),
                 role_of(task),
                 self._now(),
                 waits=waits,
@@ -444,7 +413,7 @@ class Engine:
             task = included_file._task
             if getattr(included_file, "_is_role", False):
                 role = getattr(task, "_role_name", None) or str(included_file._filename)
-                search = [os.path.join(os.getcwd(), "roles"), *C.DEFAULT_ROLES_PATH]
+                search = _role_search()
                 tasks_from = (getattr(task, "_from_files", None) or {}).get("tasks", "main")
                 path = view.role_tasks_file(role, tasks_from, search)
                 file = ""
@@ -481,23 +450,24 @@ class Engine:
         """A task that ended well. False when the callback should render nothing more of it: a browser block."""
         self._result(result, "changed" if result.result.get("changed") else "ok")
         host = result.host.get_name()
+        facts = result.result.get("ansible_facts") or {}
         # The VM's ID and address as proxmox_vm sets them, and only then: a task on the VM could set any fact.
-        facts = (result.result.get("ansible_facts") or {}) if role_of(result.task) == "proxmox_vm" else {}
+        vm_facts = facts if role_of(result.task) == "proxmox_vm" else {}
         with self.display._lock:
             for name in VM_FACTS:
-                if name in facts:
-                    value = facts[name]
+                if name in vm_facts:
+                    value = vm_facts[name]
                     self.run.fact(host, name, plain_text(str(value)) if name == "proxmox_vm_address" else value)
             # The declared outcomes' facts: only whether each holds is kept.
-            for name in self._facts & set(result.result.get("ansible_facts") or {}):
-                self.run.outcome(host, name, result.result["ansible_facts"][name])
+            for name in self._facts & set(facts):
+                self.run.outcome(host, name, facts[name])
             # A stage's info: the VMs a fact names, each held to a VM name's pattern.
             for stage, fact in self._infos.items():
-                if fact in (result.result.get("ansible_facts") or {}):
-                    self.run.info(stage, self._names(result.result["ansible_facts"][fact]))
+                if fact in facts:
+                    self.run.info(stage, self._names(facts[fact]))
             # A stage's checks, as its playbook records each: only whether it passed, and its text as plain text.
             for stage, fact in self._checklists.items():
-                checks = (result.result.get("ansible_facts") or {}).get(fact)
+                checks = facts.get(fact)
                 if isinstance(checks, list):
                     items = [
                         (bool(check.get("ok")), "skipped" in check, plain_text(str(check.get("text", ""))))
@@ -508,11 +478,10 @@ class Engine:
             self._discovered(result)
         if result.task.action in STATS_ACTIONS:
             self._records(result)
-        msg = result.result.get("msg")
-        if WAITING_TAG in result.task.tags and result.task.action in DEBUG_ACTIONS and isinstance(msg, str):
-            with self.say():
-                self.cb._banner_or_default(result)
-            return False
+        # A browser block, drawn by the callback, to the screen: where the route would send it to the log alone.
+        with self.say():
+            if self.cb._banner_or_default(result):
+                return False
         # A looped report's words are its items'; its own msg is the loop's "All items completed".
         if result.task.action in DEBUG_ACTIONS and "results" not in result.result:
             self._report(result)
@@ -527,8 +496,8 @@ class Engine:
         """The VM names a fact holds: a list of names, or of mappings with one; each a plain name, or left out."""
         names = []
         for item in value if isinstance(value, list) else []:
-            name = plain_text(str(item.get("name", "") if isinstance(item, dict) else item)).strip()
-            if NAME.fullmatch(name) and name not in names:
+            name = _vm_name(item.get("name", "") if isinstance(item, dict) else item)
+            if name and name not in names:
                 names.append(name)
         return names
 
@@ -536,7 +505,7 @@ class Engine:
         """A VM's address and ID as Proxmox and its guest agent gave them, from a file the declaration trusts - the
         add_host of discovery, the claude_vm_addressed of vm_addresses.yml - and only these two: an address that
         parses as one, an ID that is a number."""
-        if os.path.basename(str(result.task.get_path()).split(":", 1)[0]) not in self.run.recipe.addresses_from:
+        if os.path.basename(_file_of(result.task)) not in self.run.recipe.addresses_from:
             return
         found = []
         if result.task.action in ADD_HOST:
@@ -550,8 +519,8 @@ class Engine:
             if isinstance(entry, dict):
                 found.append((entry.get("name"), entry.get("address"), entry.get("vmid")))
         for name, address, vmid in found:
-            name = plain_text(str(name or "")).strip()
-            if not NAME.fullmatch(name):
+            name = _vm_name(name or "")
+            if not name:
                 continue
             try:
                 address = str(ipaddress.IPv4Address(str(address or "").strip()))
@@ -567,7 +536,7 @@ class Engine:
         data = (result.result.get("ansible_stats") or {}).get("data") or {}
         with self.display._lock:
             task = self.run.find(result.task._uuid)
-            for stat in self.cb.NEXT_STATS:
+            for stat in steps.NEXT_STATS:
                 for vm, matters in (data.get(stat) or {}).items() if isinstance(data.get(stat), dict) else ():
                     for matter, line in matters.items() if isinstance(matters, dict) else ():
                         if isinstance(line, str):
@@ -601,14 +570,14 @@ class Engine:
             if not listed:
                 self.run.note(host, note, plan=plan, task=task, lines=len(kept))
             said = self.run.report(host, lines, styles, plan)
-        self.print(drawn.report_lines(said, self._width(), self.color))
+        self.print(drawn.report_lines(said, commands.terminal_width(), self.color))
 
     def skipped(self, result):
         self._result(result, "skipped")
 
     def failed(self, result, ignore_errors=False):
         outcome = "ignored" if ignore_errors else "rescued" if rescued(result.task, self.cb._play) else "failed"
-        declined = self.run.recipe.declines.get(self._name(result.task)) if outcome == "failed" else None
+        declined = self.run.recipe.declines.get(drawn_name(result.task)) if outcome == "failed" else None
         if declined is not None:
             # A person's answer, not a failure: said as itself, once.
             self._result(result, "declined")
@@ -637,7 +606,7 @@ class Engine:
             self.run.rescue(
                 result.host.get_name(),
                 {
-                    "name": self._name(result.task),
+                    "name": drawn_name(result.task),
                     "where": where,
                     "stage": task.stage if task is not None else None,
                     "step": task.step if task is not None else None,
@@ -651,7 +620,7 @@ class Engine:
     def _causes(self, result):
         """The failures a declared raise repeats: those rescued on its host inside the blocks it names, and the
         unreachable results its tasks ignored, where it says so."""
-        declared = self.run.recipe.raises.get(self._name(result.task))
+        declared = self.run.recipe.raises.get(drawn_name(result.task))
         if declared is None:
             return []
         if declared.checklist:
@@ -694,7 +663,7 @@ class Engine:
             task = self.run.find(result.task._uuid)
             where = (task.step or task.stage) if task is not None else ""
             seconds = task.seconds(self._now()) if task is not None else None
-            name = task.name if task is not None else self._name(result.task)
+            name = task.name if task is not None else drawn_name(result.task)
         said = self._said(result.result)
         # A loop's own msg is "One or more items failed": what each failed item said is the failure.
         for item in self._failed_items.pop((result.task._uuid, result.host.get_name()), []):
@@ -703,7 +672,7 @@ class Engine:
         host = result.host.get_name()
         with self.display._lock:
             failure = self.run.failure(where, host, self._who(host), name, seconds, how, said, self.run.log)
-        self.print(drawn.failure_lines(failure, self._width(), self.color))
+        self.print(drawn.failure_lines(failure, commands.terminal_width(), self.color))
 
     def _raised(self, result, causes, first):
         """A failure that raises again what rescues took earlier: drawn under each cause, then its own words, but
@@ -721,7 +690,7 @@ class Engine:
             if first:
                 self.run.first_failure = causes[0]["where"]
             failure = self.run.raised_again(said, own, self.run.log)
-        self.print(drawn.failure_lines(failure, self._width(), self.color))
+        self.print(drawn.failure_lines(failure, commands.terminal_width(), self.color))
 
     @staticmethod
     def _said(res):
@@ -743,10 +712,7 @@ class Engine:
         """A retried task. False when the callback should render nothing more of it: a wait for the person, said
         once; a wait for a machine is said on its line instead, its retries in the log alone."""
         now = self._now()
-        try:
-            delay = int(result.task.delay)
-        except (TypeError, ValueError):
-            delay = 0
+        left, delay = retry_left(result)
         if WAITING_TAG not in result.task.tags:
             with self.display._lock:
                 # Ansible says the next attempt and how many there are, the first run among them.
@@ -754,7 +720,6 @@ class Engine:
                 self.run.tried(result.task._uuid, now, attempt, total, delay)
             self._after()
             return True
-        left = result.result.get("retries", 0) - result.result.get("attempts", 0) + 1
         with self.display._lock:
             first = self.run.retry(result.task._uuid, result.host.get_name(), now, left * delay)
         if first:
@@ -773,26 +738,21 @@ class Engine:
         or, for a part of a run in parts, its state saved for the next part, whose end says them."""
         now = self._now()
         failed = sorted(set(stats.failures) | set(stats.dark))
-        if self.state:
+        if self.state_path:
             if self.mode == "lines":
-                with self.display._lock:
-                    ended = self.run.ended_lines(now, final=True)
-                self.print([(line, line) for line in ended])
+                self._after(final=True)
             self.out.finish()
             recap(stats)
             records = commands.merged_records(self.records, self.cb.next_records())
-            commands.save_state(self.state, self.run.dump(now, records, [*self.failed_hosts, *failed]))
+            commands.save_state(self.state_path, self.run.dump(now, records, [*self.failed_hosts, *failed]))
             self.saved = True
             return
         with self.display._lock:
             self.run.end(now, failed=bool(failed))
-            if self.mode == "live":
-                self.out.title(self.run.title_text(now))
+            self.out.title(self.run.title_text(now))
         if self.mode == "lines":
             self._after()
         self.out.finish()
         recap(stats)
-        lines = self.cb.next_steps_of()
-        commands.say_end(self.out, self.display, self.run, now, failed, lines, self._width(), self.cb.COLOR)
-        if self.mode == "live":
-            self.out.bell()
+        commands.say_end(self.out, self.run, now, failed, self.cb.next_steps_of())
+        self.out.bell()

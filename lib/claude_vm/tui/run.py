@@ -27,7 +27,8 @@ SLOW = 1.0
 # How many failures a summary that lists them names before it counts the rest.
 FAILURES_LISTED = 10
 
-# How a VM is marked in a step's row and in the summary.
+# How a state is marked - a VM's in a step's row and in the summary, a stage's or a step's, a check's, a run's end -
+# and in what style; running's mark is the spinner's glyph.
 MARKS = {
     "running": ("", "c"),
     "waiting": ("⏸", "y"),
@@ -37,6 +38,7 @@ MARKS = {
     "unreachable": ("✗", "r"),
     "left": ("–", "d"),
     "to come": ("○", "d"),
+    "stopped": ("■", "y"),
 }
 
 
@@ -44,6 +46,15 @@ def first_sentence(text):
     """text up to the end of its first sentence, or whole when it has one."""
     found = re.match(r"(.+?[.!?])(\s+\S)", text)
     return found.group(1) if found else text
+
+
+def _end_mark(part):
+    """How a step or a stage ended, as its mark and style: failed, stopped by Ctrl-C, skipped, or done."""
+    if part.failed():
+        return MARKS["failed"]
+    if any(task.outcome == "stopped" for task in part.tasks):
+        return MARKS["stopped"]
+    return MARKS["skipped" if part.skipped() else "done"]
 
 
 class Run(model.Run):
@@ -220,15 +231,15 @@ class Run(model.Run):
 
     def _row(self, indent, glyph, label, label_width, step, state, now, tiers, info=(), limit=99, total=None):
         """One stage's or step's line. info: segments said after the counts."""
-        style = {"done": "g", "running": "c", "waiting": "y", "to come": "d", "skipped": "d"}[state]
-        if step.failed() and state != "to come":
-            glyph, style = "✗", "r"
+        mark, style = MARKS[state]
         if state == "to come":
             known = step.expected and not getattr(step, "planned", False)
             count = screen.plural(step.expected, "task") if known else ""
             said = label.ljust(label_width) + count if count else label
-            return screen.cut([(" " * indent, ""), ("○ ", "d"), (said, "d")], limit)
-        glyph = {"done": "✓", "waiting": "⏸", "skipped": "–"}.get(state, glyph) if style != "r" else glyph
+            return screen.cut([(" " * indent, ""), (f"{mark} ", style), (said, style)], limit)
+        if step.failed():
+            mark, style = MARKS["failed"]
+        glyph = mark or glyph
         bold = "" if state in ("done", "skipped") else "b"
         weight = "d" if state == "skipped" else bold
         left = [(" " * indent, ""), (glyph + " ", style), (label.ljust(label_width), weight)]
@@ -304,12 +315,8 @@ class Run(model.Run):
             if end is None:
                 parts += [(f"{host} ", ""), (glyph, "c"), (f" {screen.clock(now - start)}", "c")]
             else:
-                mark = "✗" if outcome in ("failed", "unreachable") else "✓"
-                parts += [
-                    (f"{host} ", ""),
-                    (mark, "r" if mark == "✗" else "g"),
-                    (f" {screen.duration(end - start)}", "d"),
-                ]
+                mark, style = MARKS["failed" if outcome in ("failed", "unreachable") else "done"]
+                parts += [(f"{host} ", ""), (mark, style), (f" {screen.duration(end - start)}", "d")]
             parts.append((" · ", "d"))
         parts = parts[:-1]
         if screen.width(parts) <= room:
@@ -375,7 +382,7 @@ class Run(model.Run):
             items = [item for item in items[:-last] if item[0] == "failed"] + items[-last:]
         lines = []
         for state, text in items:
-            mark, style = {"done": ("✓", "g"), "failed": ("✗", "r"), "skipped": ("–", "d")}[state]
+            mark, style = MARKS[state]
             lines.append(
                 screen.cut([(" " * indent, ""), (f"{mark} ", style), (text, "d" if state == "skipped" else "")], limit)
             )
@@ -485,8 +492,7 @@ class Run(model.Run):
         return out
 
     def _ended(self, label, step, now):
-        stopped = any(task.outcome == "stopped" for task in step.tasks)
-        mark = "✗" if step.failed() else "■" if stopped else "–" if step.skipped() else "✓"
+        mark, _ = _end_mark(step)
         said = [screen.plural(step.reached, "task")]
         if step.changed():
             said.append(self._changed_said(step.changed()))
@@ -513,27 +519,26 @@ class Run(model.Run):
         total = now - self.begun
         minutes, seconds = divmod(round(total), 60)
         took = f"{minutes} min {seconds} s" if minutes else f"{seconds} s"
-        ended = time.strftime("%H:%M", time.localtime(self.started_at + total))
+        # The clock it ended at, last: what a head too long for the width loses first (_cut_head).
+        tail = (f" · {time.strftime('%H:%M', time.localtime(self.started_at + total))}", "")
         failed = self.failed_vms(failed_hosts)
         everyone = self._vms()
         if self.declined:
-            return [("claude-on-proxmox", "b"), (f"  {self.title} · declined · {took}", "y"), (f" · {ended}", "")]
-        if self.stopped:
+            said, style = f"declined · {took}", "y"
+        elif self.stopped:
             # Where the run was: the step, or the stage, of the last task it started.
             last = self.order[-1] if self.order else None
             where = f" at {last.step or last.stage}" if last is not None else ""
-            return [
-                ("claude-on-proxmox", "b"),
-                (f"  {self.title} · stopped after {took}{where}", "y"),
-                (f" · {ended}", ""),
-            ]
-        if not failed_hosts and not self.failed:
-            return [("claude-on-proxmox", "b"), (f"  {self.title} · done in {took}", ""), (f" · {ended}", "")]
-        if self.reached_last and len(everyone) >= 2 and len([vm for vm in failed if vm in everyone]) < len(everyone):
-            said = f"{screen.plural(len(failed), 'VM')} failed: {', '.join(failed)}"
-            return [("claude-on-proxmox", "b"), (f"  {self.title} · done in {took}", ""), (f" · {said}", "r")]
-        where = f" at {self.first_failure}" if self.first_failure else ""
-        return [("claude-on-proxmox", "b"), (f"  {self.title} · failed after {took}{where}", "r"), (f" · {ended}", "")]
+            said, style = f"stopped after {took}{where}", "y"
+        elif not failed_hosts and not self.failed:
+            said, style = f"done in {took}", ""
+        elif self.reached_last and len(everyone) >= 2 and len([vm for vm in failed if vm in everyone]) < len(everyone):
+            said, style = f"done in {took}", ""
+            tail = (f" · {screen.plural(len(failed), 'VM')} failed: {', '.join(failed)}", "r")
+        else:
+            where = f" at {self.first_failure}" if self.first_failure else ""
+            said, style = f"failed after {took}{where}", "r"
+        return [("claude-on-proxmox", "b"), (f"  {self.title} · {said}", style), tail]
 
     def summary(self, now, cols, color=True, failed_hosts=(), next_steps=()):
         limit = cols - 1
@@ -566,10 +571,7 @@ class Run(model.Run):
             said_head += "    VMS"
         lines.append([(said_head, "h")])
         for key, part in rows:
-            stopped = any(task.outcome == "stopped" for task in part.tasks)
-            mark, style = (
-                ("✗", "r") if part.failed() else ("■", "y") if stopped else ("–", "d") if part.skipped() else ("✓", "g")
-            )
+            mark, style = _end_mark(part)
             head = [(" ", ""), (mark + " ", style), (str(key)[:label].ljust(label), "b")]
             counts = f"{screen.duration(part.seconds(now)):>6}" if "time" in columns else ""
             counts += f"{part.reached:>9}" if "tasks" in columns else ""

@@ -225,7 +225,8 @@ def test_a_browser_wait_says_once_that_it_waits_and_an_untagged_one_retries_alou
       changed_when: false
 """,
     )
-    assert out.count("Waiting for you in the browser for localhost (about 4 seconds left; Ctrl-C ends the run)") == 1
+    # Five runs to come after the first, a second's delay before each: Ansible's "4 retries left" is one short.
+    assert out.count("Waiting for you in the browser for localhost (about 5 seconds left; Ctrl-C ends the run)") == 1
     assert "FAILED - RETRYING: [localhost]: Wait for the page to be approved" not in out
     assert "FAILED - RETRYING: [localhost]: Untagged (2 retries left)." in out
 

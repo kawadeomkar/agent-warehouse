@@ -108,6 +108,18 @@ def _drawn(args):
     return all(importlib.util.find_spec(name) is not None for name in ("yaml", "ansible"))
 
 
+def _logging(args):
+    """The run's logging settings, as tools/run-logged reads them from its environment."""
+    return {"LOG_DIR": args.log_dir, "LOG_RETENTION_DAYS": args.retention, "CLAUDE_ON_PROXMOX_LOG_STAMP": args.stamp}
+
+
+def _exec_failed(program, error):
+    """An exec that failed, said and exited as a shell says it: 127 for a command it cannot find, 126 for one it found
+    and cannot run."""
+    print(f"{program}: {error.strerror}", file=sys.stderr)
+    return 127 if isinstance(error, FileNotFoundError) else 126
+
+
 def _passed_through(args):
     """The command as it ran before: the run's switch, state and stages out of its environment, nothing else changed
     - through tools/run-logged, with the run's logging settings, where it was logged so before (--log)."""
@@ -115,20 +127,17 @@ def _passed_through(args):
     signal.signal(signal.SIGINT, signal.SIG_IGN if IGNORED else signal.SIG_DFL)
     argv = args.argv
     if args.log:
-        env.update(LOG_DIR=args.log_dir, LOG_RETENTION_DAYS=args.retention, CLAUDE_ON_PROXMOX_LOG_STAMP=args.stamp)
+        env.update(_logging(args))
         argv = [str(REPO / "tools" / "run-logged"), args.log, *argv]
     try:
         os.execvpe(argv[0], argv, env)
     except OSError as error:
-        print(f"{argv[0]}: {error.strerror}", file=sys.stderr)
-        # As a shell says it: 127 for a command it cannot find, 126 for one it found and cannot run.
-        return 127 if isinstance(error, FileNotFoundError) else 126
+        return _exec_failed(argv[0], error)
 
 
 def _logged(args, argv):
     """This again, through tools/run-logged under the title's recipe: the run's log, as every recipe's."""
-    env = dict(os.environ)
-    env.update(LOG_DIR=args.log_dir, LOG_RETENTION_DAYS=args.retention, CLAUDE_ON_PROXMOX_LOG_STAMP=args.stamp)
+    env = {**os.environ, **_logging(args)}
     run_logged = str(REPO / "tools" / "run-logged")
     name = args.log or _title().split()[0]
     # Blocked across the exec, as the top of this file says: a Ctrl-C now is the run's, not lost.
@@ -137,8 +146,7 @@ def _logged(args, argv):
         os.execve(run_logged, [run_logged, name, sys.executable, str(Path(__file__).resolve()), LOGGED, *argv], env)
     except OSError as error:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGINT})
-        print(f"{run_logged}: {error.strerror}", file=sys.stderr)
-        return 127 if isinstance(error, FileNotFoundError) else 126
+        return _exec_failed(run_logged, error)
 
 
 def _engine():
