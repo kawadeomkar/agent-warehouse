@@ -101,7 +101,7 @@ Also takes, as described under `main`: `claude_code_user`, `claude_code_install_
 
 ## Internal values
 
-Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 48 of the 55 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 49 of the 56 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -121,7 +121,8 @@ Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks 
 | `claude_code_remote_control_target_dir` | The directory Remote Control sessions actually open in, resolved from the (possibly empty) option once claude_code_home is known. | <code>{{ claude_code_remote_control_dir &#124; projects_dir(claude_code_home) }}</code> |
 | `claude_code_remote_control_dialogs_seeded` | Whether the prompts that would stall a headless Remote Control server are already answered in ~/.claude.json - first-run onboarding, Remote Control's one-time confirmation, and workspace trust for the directory sessions open in. | <code>{{ (claude_code_remote_control_cfg.hasCompletedOnboarding &#124; default(false)) &#124; bool and (claude_code_remote_control_cfg.remoteDialogSeen &#124; default(false)) &#124; bool and ((claude_code_remote_control_cfg.projects &#124; default({}, true)) .get(claude_code_remote_control_target_dir, {}) .get('hasTrustDialogAccepted', false)) &#124; bool }}</code> |
 | `claude_code_remote_control_bridge_wanted` | Whether the path unit that starts the service when a login lands (templates/claude-remote-control.path.j2) belongs on the VM: only while the login is the one thing missing. | <code>{{ not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool and claude_code_remote_control_settings_blockers &#124; length == 0 }}</code> |
-| `claude_code_login_dir` | Where tasks/browser_login.yml keeps its files on the VM, beside the GitHub device flow's: claude's output, the named pipe its input comes through, the pid that ends an attempt nobody completes, and the run that waits for it (the controller_run filter's record). | `{{ claude_code_home }}/.config/claude-on-proxmox` |
+| `claude_code_login_dir` | Where tasks/browser_login.yml keeps its files on the VM, beside the GitHub device flow's: claude's output, the named pipe its input comes through, the pid that ends an attempt nobody completes, and the run that waits for it (the controller_run filter's record). | `{{ claude_code_home }}/.config/agent-warehouse` |
+| `claude_code_login_dir_1x` | The same by its 1.x name, which names.yml moves it from (2.x): the directory github_projects keeps its markers in too. | `{{ claude_code_home }}/.config/claude-on-proxmox` |
 | `claude_code_login_output` |  | `{{ claude_code_login_dir }}/claude-login.out` |
 | `claude_code_login_pipe` |  | `{{ claude_code_login_dir }}/claude-login.in` |
 | `claude_code_login_pidfile` |  | `{{ claude_code_login_dir }}/claude-login.pid` |
@@ -427,6 +428,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Task | Module | When |
 |---|---|---|
 | Find the user's home | `ansible.builtin.include_tasks` |  |
+| Move the sign-in's files on the VM from their 1.x names | `ansible.builtin.include_tasks` |  |
 | Check whether this VM is logged in | `ansible.builtin.command` |  |
 | Read the settings Claude Code will start with | `ansible.builtin.slurp` |  |
 | Sign Claude Code in by the browser | `ansible.builtin.include_tasks` | <code>claude_code_login_interactive &#124; bool and claude_code_login_installed &#124; bool and claude_code_anthropic_api_key &#124; length == 0 and not (claude_code_remote_control_status.loggedIn &#124; default(false)) &#124; bool</code> |
@@ -446,12 +448,35 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Include task| login___Find_the_user_s_home_home_yml_0[login   find the user s home<br>include_task: home yml]:::includeTasks
-  login___Find_the_user_s_home_home_yml_0-->|Task| login___Check_whether_this_VM_is_logged_in1[login   check whether this vm is logged in]:::task
-  login___Check_whether_this_VM_is_logged_in1-->|Task| login___Read_the_settings_Claude_Code_will_start_with2[login   read the settings claude code will start<br>with]:::task
-  login___Read_the_settings_Claude_Code_will_start_with2-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_3[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code login installed   bool and claude code<br>anthropic api key   length    0 and not  claude<br>code remote control status loggedin   default<br>false     bool**<br>include_task: browser login yml]:::includeTasks
-  login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_3-->|Task| login___Report_the_login_state_and_what_to_do_about_it4[login   report the login state and what to do<br>about it]:::task
-  login___Report_the_login_state_and_what_to_do_about_it4-->|Task| login___Keep_what_is_left_to_do_for_the_end_of_the_run5[login   keep what is left to do for the end of the<br>run]:::task
-  login___Keep_what_is_left_to_do_for_the_end_of_the_run5-->End
+  login___Find_the_user_s_home_home_yml_0-->|Include task| login___Move_the_sign_in_s_files_on_the_VM_from_their_1_x_names_names_yml_1[login   move the sign in s files on the vm from<br>their 1 x names<br>include_task: names yml]:::includeTasks
+  login___Move_the_sign_in_s_files_on_the_VM_from_their_1_x_names_names_yml_1-->|Task| login___Check_whether_this_VM_is_logged_in2[login   check whether this vm is logged in]:::task
+  login___Check_whether_this_VM_is_logged_in2-->|Task| login___Read_the_settings_Claude_Code_will_start_with3[login   read the settings claude code will start<br>with]:::task
+  login___Read_the_settings_Claude_Code_will_start_with3-->|Include task| login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4[login   sign claude code in by the browser<br>When: **claude code login interactive   bool and claude<br>code login installed   bool and claude code<br>anthropic api key   length    0 and not  claude<br>code remote control status loggedin   default<br>false     bool**<br>include_task: browser login yml]:::includeTasks
+  login___Sign_Claude_Code_in_by_the_browser_browser_login_yml_4-->|Task| login___Report_the_login_state_and_what_to_do_about_it5[login   report the login state and what to do<br>about it]:::task
+  login___Report_the_login_state_and_what_to_do_about_it5-->|Task| login___Keep_what_is_left_to_do_for_the_end_of_the_run6[login   keep what is left to do for the end of the<br>run]:::task
+  login___Keep_what_is_left_to_do_for_the_end_of_the_run6-->End
+```
+
+### `names.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Move the sign-in's directory on the VM to its name from 2.0 | `ansible.builtin.command` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| names___Move_the_sign_in_s_directory_on_the_VM_to_its_name_from_2_00[names   move the sign in s directory on the vm to<br>its name from 2 0]:::task
+  names___Move_the_sign_in_s_directory_on_the_VM_to_its_name_from_2_00-->End
 ```
 
 ### `release.yml` - entry point `release`

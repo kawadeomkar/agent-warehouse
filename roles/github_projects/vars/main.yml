@@ -115,8 +115,8 @@ github_projects_login_args: >-
 # Where gh's output lands while it runs - a code that is public by design and
 # expires, never a token - and gh's pid, which ends a gh nobody waits for any
 # more. Both removed when the flow ends.
-github_projects_login_output: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.out"
-github_projects_login_pidfile: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.pid"
+github_projects_login_output: "{{ github_projects_state_dir }}/gh-login.out"
+github_projects_login_pidfile: "{{ github_projects_state_dir }}/gh-login.pid"
 # Internal: both, unlinked before the flow starts and again once it ends - one
 # list, so the two cannot drift.
 github_projects_login_files:
@@ -204,17 +204,24 @@ github_projects_home_dir: >-
 # digest of the token, beside the user's own config - and only a stored token
 # with that digest is ever signed out. No marker, no logout: a login the user
 # made, a token of their own included, stays.
-github_projects_marker_file: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login"
+github_projects_marker_file: "{{ github_projects_state_dir }}/gh-login"
 # The same, for a login this role's device flow made: the digest of the token
 # it left gh, apart from the marker above, whose logout rules are the vault
 # token's. just destroy's report tells a token with this digest - GitHub CLI's,
 # from this role's sign-in - from one pasted by hand, and from the vault's,
 # which every VM shares. None is revoked (release.yml).
-github_projects_device_marker_file: "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-device-login"
-# The digest the first marker holds, or ''.
+github_projects_device_marker_file: "{{ github_projects_state_dir }}/gh-device-login"
+# The directory the role keeps these in, which claude_code shares: agent-warehouse
+# from 2.0, claude-on-proxmox through 1.x, which names.yml moves it from before
+# anything reads or writes it (2.x); just status and the release read the 1.x one
+# while it is the one there, never moving it.
+github_projects_state_dir: "{{ github_projects_home_dir }}/.config/agent-warehouse"
+github_projects_state_dir_1x: "{{ github_projects_home_dir }}/.config/claude-on-proxmox"
+# The digest the first marker holds, by its name from 2.0 or through 1.x, or ''.
 github_projects_marker_digest: >-
-  {{ (github_projects_marker_raw.content | b64decode | trim)
-     if github_projects_marker_raw.content is defined else '' }}
+  {{ (github_projects_marker_raw.content | b64decode | trim) if github_projects_marker_raw.content is defined
+     else (github_projects_marker_raw_1x.content | b64decode | trim) if github_projects_marker_raw_1x.content is defined
+     else '' }}
 # What the marker holds for the vault token: its digest, never the token.
 github_projects_token_digest: "{{ github_projects_token | hash('sha256') }}"
 # Whether the login gh holds is one this role made: the stored token's digest is
@@ -337,7 +344,9 @@ github_projects_configure_command: just deploy {{ inventory_hostname }} --tags g
 # The digest the device flow's marker holds, or ''.
 github_projects_device_marker_digest: >-
   {{ (github_projects_device_marker_raw.content | b64decode | trim)
-     if github_projects_device_marker_raw.content is defined else '' }}
+     if github_projects_device_marker_raw.content is defined
+     else (github_projects_device_marker_raw_1x.content | b64decode | trim)
+     if github_projects_device_marker_raw_1x.content is defined else '' }}
 # Whether that token is the one this role's device flow made for the VM. The
 # VM writes the marker, so the vault token, every VM's, is never taken for it
 # whatever the marker says.

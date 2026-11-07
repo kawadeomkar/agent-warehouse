@@ -233,8 +233,8 @@ def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
         if case.get("two_accounts"):
             (home / ".config" / "gh" / "fake-two-accounts").write_text("")
         if case.get("device_marker"):
-            (home / ".config" / "claude-on-proxmox").mkdir(parents=True)
-            (home / ".config" / "claude-on-proxmox" / "gh-device-login").write_text(
+            (home / ".config" / "agent-warehouse").mkdir(parents=True)
+            (home / ".config" / "agent-warehouse" / "gh-device-login").write_text(
                 hashlib.sha256(case["gh"].encode()).hexdigest() + "\n"
             )
         state = home / ".tailscale-fake"

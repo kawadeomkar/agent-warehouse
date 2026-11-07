@@ -154,7 +154,7 @@ Notable choices:
   is not there costs nothing. `dev_tools` does the same for `~/.cargo/bin` ([§5.4](#54-dev_tools--developer-tooling)),
   and ssh commands get both from the drop-in below.
 - **`ssh vm <command>` gets the same directories from sshd** (`common_ssh_path_dirs`,
-  `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf`). A command given to ssh runs in a shell that is
+  `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf`). A command given to ssh runs in a shell that is
   neither login nor interactive: Debian's bash reads `/etc/bash.bashrc` and `~/.bashrc` for it, both return at
   once, so `/etc/profile.d` never runs and PATH is `/etc/environment`'s. sshd applies `SetEnv` after PAM's
   environment, so `SetEnv PATH=` under `Match User <vm_user>` wins for that user's sessions alone - root's, and
@@ -385,7 +385,7 @@ printed URL and concluded no tunnel could complete the login; the second URL is 
 The line is `<code>#<state>`, split on `#`. A wrong code prints `Login failed: ...` and exits 1; a right
 one writes `~/.claude/.credentials.json`, prints `Login successful.` and exits 0; a line without `#`
 prints `Invalid code. Please make sure the full code was copied.` and waits for another. So the flow:
-mkfifo a pipe under `~/.config/claude-on-proxmox/`; start `exec 0<>pipe && echo $$ >pid && exec claude
+mkfifo a pipe under `~/.config/agent-warehouse/`; start `exec 0<>pipe && echo $$ >pid && exec claude
 auth login` with `async`, so claude holds its own input open and never sees an early end of it, and the
 recorded pid is claude's because the shell exec's into it (in a `( ... )` subshell `$$` is the parent's);
 `wait_for` the URL. With `claude_code_login_redirect` (which follows `login_desktop`), claude's
@@ -570,7 +570,7 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
 3. **Sign out the login the role made when the vault token is cleared**, the other direction of
    the same rule, as `settings.yml` removes the API key it wrote. gh cannot tell the role's token
    from one the user pasted by hand, so the role leaves a marker whenever the login is the vault
-   token's - the token's SHA-256 digest in `~/.config/claude-on-proxmox/gh-login`, 0600, rewritten
+   token's - the token's SHA-256 digest in `~/.config/agent-warehouse/gh-login`, 0600, rewritten
    if it goes missing - and signs out, by account (`--user`), only a stored token whose digest the
    marker holds, removing the marker with it. No marker, a stale one, a device-flow login, a
    `GH_TOKEN`: each stays whatever the vault says. A device-flow login the role made leaves a marker

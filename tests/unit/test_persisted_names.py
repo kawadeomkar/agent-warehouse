@@ -56,25 +56,44 @@ VALUES = [
         "tailscale_dropin_path",
         "/etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf",
     ),
-    (
-        "roles/github_projects/vars/main.yml",
-        "github_projects_marker_file",
-        "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login",
-    ),
+    # The sign-in state's directory, github_projects' and claude_code's, by its name from 2.0 and through 1.x, which
+    # each role's names.yml moves it from and just status and the release read until then (2.x).
+    ("roles/github_projects/vars/main.yml", "github_projects_marker_file", "{{ github_projects_state_dir }}/gh-login"),
     (
         "roles/github_projects/vars/main.yml",
         "github_projects_device_marker_file",
-        "{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-device-login",
+        "{{ github_projects_state_dir }}/gh-device-login",
     ),
-    ("roles/claude_code/vars/main.yml", "claude_code_login_dir", "{{ claude_code_home }}/.config/claude-on-proxmox"),
-    ("roles/common/vars/main.yml", "common_ssh_path_dropin", "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf"),
-    # Written with passwordless sudo off and removed when it is turned on: under a new name the old one would stay,
-    # and take the sudo rule away again at the VM's next cloud-init instance.
+    (
+        "roles/github_projects/vars/main.yml",
+        "github_projects_state_dir",
+        "{{ github_projects_home_dir }}/.config/agent-warehouse",
+    ),
+    (
+        "roles/github_projects/vars/main.yml",
+        "github_projects_state_dir_1x",
+        "{{ github_projects_home_dir }}/.config/claude-on-proxmox",
+    ),
+    ("roles/claude_code/vars/main.yml", "claude_code_login_dir", "{{ claude_code_home }}/.config/agent-warehouse"),
+    ("roles/claude_code/vars/main.yml", "claude_code_login_dir_1x", "{{ claude_code_home }}/.config/claude-on-proxmox"),
+    # common's drop-ins and files, by their names from 2.0, and each by its 1.x name, which names.yml moves it from:
+    # the cloud-init file among them, written with passwordless sudo off and removed when it is turned on - under a new
+    # name the old one would stay, and take the sudo rule away again at the VM's next cloud-init instance.
+    ("roles/common/vars/main.yml", "common_ssh_path_dropin", "/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf"),
+    ("roles/common/vars/main.yml", "common_cloud_init_user_cfg", "/etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg"),
+    ("roles/common/vars/main.yml", "common_sshd_hardening", "/etc/ssh/sshd_config.d/10-agent-warehouse.conf"),
+    ("roles/common/vars/main.yml", "common_apt_downloads", "/etc/apt/apt.conf.d/90agent-warehouse-downloads"),
     (
         "roles/common/vars/main.yml",
-        "common_cloud_init_user_cfg",
-        "/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg",
+        "common_names_1x",
+        [
+            {"old": "/etc/ssh/sshd_config.d/10-claude-on-proxmox.conf", "new": "{{ common_sshd_hardening }}"},
+            {"old": "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf", "new": "{{ common_ssh_path_dropin }}"},
+            {"old": "/etc/apt/apt.conf.d/90claude-on-proxmox-downloads", "new": "{{ common_apt_downloads }}"},
+            {"old": "/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg", "new": "{{ common_cloud_init_user_cfg }}"},
+        ],
     ),
+    ("roles/common/vars/main.yml", "common_tmux_marker_1x", "# {mark} claude-on-proxmox: common_tmux_settings"),
     # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path (their directory,
     # code_helpers_dir, is code.yml's, below).
     ("playbooks/vars/vscode.yml", "code_helpers", ["claude-terminal.sh", "session-notes.sh", "session_notes.py"]),
@@ -96,13 +115,14 @@ VALUES = [
 # (file, the line as it is there, stripped): where the name is a task's argument, a play's variable, code or text.
 LINES = [
     # On a VM: common's and vscode_server's files, the latter VS Code's name on any editor's VM through 1.x.
-    ("roles/common/tasks/main.yml", "dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf"),
-    ("roles/common/tasks/main.yml", "dest: /etc/apt/apt.conf.d/90claude-on-proxmox-downloads"),
+    ("roles/common/tasks/main.yml", 'dest: "{{ common_sshd_hardening }}"'),
+    ("roles/common/tasks/main.yml", 'dest: "{{ common_apt_downloads }}"'),
     ("roles/vscode_server/tasks/main.yml", "dest: /etc/ssh/sshd_config.d/20-vscode-server.conf"),
     ("roles/vscode_server/tasks/main.yml", "sysctl_file: /etc/sysctl.d/60-vscode-server.conf"),
     # The settings' block in /etc/tmux.conf, written and taken out by its marker: under a new one, blockinfile would
     # add a second block and never take the first out.
-    ("roles/common/tasks/tmux.yml", 'marker: "# {mark} claude-on-proxmox: common_tmux_settings"'),
+    ("roles/common/tasks/tmux.yml", 'marker: "# {mark} agent-warehouse: common_tmux_settings"'),
+    ("roles/common/tasks/tmux.yml", 'marker: "{{ common_tmux_marker_1x }}"'),
     # just code's own directory on a VM, and what is in it: the sessions' mirror and manifest, written by just code and
     # read by destroy's save; the notes; the workspace files.
     ("lib/claude_vm/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.agent-warehouse"'),

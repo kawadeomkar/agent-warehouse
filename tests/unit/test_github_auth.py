@@ -141,6 +141,13 @@ CASES = {
     "token-cleared-pat": {"token": "", "stored": TOKENS["old"]},
     # The login the role made, its vault token since cleared.
     "token-cleared-ours": {"token": "", "stored": TOKENS["old"], "marker": TOKENS["old"]},
+    # The same, its marker where 1.x kept it: moved first, so the login is still the role's.
+    "token-cleared-ours-1x": {
+        "token": "",
+        "stored": TOKENS["old"],
+        "marker": TOKENS["old"],
+        "marker_dir": "claude-on-proxmox",
+    },
     # The role's login replaced by the user's device-flow one: a stale marker.
     "token-cleared-stale-marker": {"token": "", "stored": TOKENS["oauth"], "marker": TOKENS["old"]},
     "token-cleared-oauth": {"token": "", "stored": TOKENS["oauth"]},
@@ -195,6 +202,7 @@ EXPECTED_CLONES = {
     "token-changed": ALL,
     "token-cleared-pat": ALL,
     "token-cleared-ours": PUBLIC,
+    "token-cleared-ours-1x": PUBLIC,
     "token-cleared-stale-marker": ALL,
     "token-cleared-oauth": ALL,
     "env-login": ALL,
@@ -242,7 +250,7 @@ def _digest(token: str) -> str:
 
 
 def _marker(root: Path, host: str) -> Path:
-    return root / host / ".config" / "claude-on-proxmox" / "gh-login"
+    return root / host / ".config" / "agent-warehouse" / "gh-login"
 
 
 # The fake GitHub API over bare repositories of its own, which no test here reads anything back from: started again on
@@ -311,14 +319,14 @@ def _hosts(root: Path, cases: dict, api_url: str, *, home_given: bool = True) ->
         if case.get("stale"):
             # What a run that failed after starting gh leaves behind: gh's
             # output up to the old code (the gh still polling is STALE_GH).
-            out = home / ".config" / "claude-on-proxmox" / "gh-login.out"
+            out = home / ".config" / "agent-warehouse" / "gh-login.out"
             out.parent.mkdir(parents=True)
             out.write_text(
                 "! First copy your one-time code: 0LDC-0DE1\n"
                 "Open this URL to continue in your web browser: https://github.com/login/device\n"
             )
         if case.get("marker"):
-            marker = home / ".config" / "claude-on-proxmox" / "gh-login"
+            marker = home / ".config" / case.get("marker_dir", "agent-warehouse") / "gh-login"
             marker.parent.mkdir(parents=True)
             marker.write_text(_digest(case["marker"]) + "\n")
         hosts[name] = {
@@ -495,6 +503,15 @@ def test_a_cleared_token_signs_out_only_the_login_the_role_made(configured):
     assert _marker(root, "token-cleared-stale-marker").read_text().strip() == _digest(TOKENS["old"])
 
 
+def test_a_login_the_role_made_marked_where_1x_kept_it_is_moved_and_still_the_role_s(configured):
+    # The directory moves before anything reads it: the cleared token signs that login out as the role's own.
+    root, _, _ = configured
+    assert _calls(root, "token-cleared-ours-1x").count(LOGOUT) == 1
+    assert not (root / "token-cleared-ours-1x" / ".config" / "claude-on-proxmox").exists()
+    assert (root / "token-cleared-ours-1x" / ".config" / "agent-warehouse").is_dir()
+    assert not _marker(root, "token-cleared-ours-1x").exists()
+
+
 def test_the_role_marks_the_login_it_made_with_the_token_s_digest(configured):
     root, _, _ = configured
     for host in TOKEN_SIGNED_IN:
@@ -664,6 +681,7 @@ def test_a_signed_out_vm_is_told_the_one_command(configured):
     assert set(messages) == {
         "signed-out-no-token",
         "token-cleared-ours",
+        "token-cleared-ours-1x",
         "email-by-hand",
         "org-no-token",
         "deploy-signed-out",
@@ -931,7 +949,7 @@ def _device_flow(
     if desktop:
         hosts[name]["github_projects_login_desktop"] = True
     if case.get("stale"):
-        out = root / name / ".config" / "claude-on-proxmox" / "gh-login.out"
+        out = root / name / ".config" / "agent-warehouse" / "gh-login.out"
         subprocess.Popen([sys.executable, "-c", STALE_GH, str(out)], stdin=subprocess.DEVNULL)
     report = _run(
         root,
@@ -1085,7 +1103,7 @@ def _flow_files_are_gone(root: Path, host: str) -> None:
     leftovers = list(async_dir.glob("*")) if async_dir.exists() else []
     assert not leftovers, leftovers
     for name in ("gh-login.out", "gh-login.pid"):
-        assert not (root / host / ".config" / "claude-on-proxmox" / name).exists(), name
+        assert not (root / host / ".config" / "agent-warehouse" / name).exists(), name
 
 
 def _gh_still_runs(root: Path, host: str) -> bool:

@@ -319,7 +319,7 @@ point of `claude_code` (stop Remote Control's path unit and service, `claude aut
 (`gh auth logout`, and no token revoked: revoking the one this project's device flow made, through
 GitHub's `POST /credentials/revoke`, ended every GitHub CLI sign-in of the account, the controller's own
 included - seen live - so the report says where to revoke it and what that does; the digest that flow
-writes, `~/.config/claude-on-proxmox/gh-device-login`, tells its token from the vault token, whatever the
+writes, `~/.config/agent-warehouse/gh-device-login`, tells its token from the vault token, whatever the
 marker says, and from one pasted by hand) and
 `tailscale` (start a stopped `tailscaled`, read `Self.ID`, `tailscale logout`, then with the API
 credential the vault holds look the device up and delete it from the controller, only when its name is

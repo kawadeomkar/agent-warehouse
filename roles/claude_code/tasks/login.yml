@@ -18,6 +18,9 @@
 - name: login | Find the user's home
   ansible.builtin.include_tasks: home.yml
 
+- name: login | Move the sign-in's files on the VM from their 1.x names
+  ansible.builtin.include_tasks: names.yml
+
 # As claude_code_user, through a login shell - the one that puts the native
 # install on PATH - so the login read is the one Remote Control would use,
 # whoever Ansible connects as.

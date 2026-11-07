@@ -1,0 +1,16 @@
+---
+# The files this role keeps on a VM were named after the project's 1.x name,
+# claude-on-proxmox: each is moved to its name from 2.0 once, before the task
+# that writes it, which then finds it there - an sshd drop-in, whose content is
+# the same, unchanged, so sshd is not restarted for the move. A file whose new
+# name is there already is left as it is: that one is the one written. The
+# settings' block in /etc/tmux.conf is moved by tmux.yml, by its two markers.
+- name: names | Move each file to its name from 2.0
+  ansible.builtin.command:
+    argv: [mv, -n, "{{ common_names_item.old }}", "{{ common_names_item.new }}"]
+    creates: "{{ common_names_item.new }}"
+    removes: "{{ common_names_item.old }}"
+  loop: "{{ common_names_1x }}"
+  loop_control:
+    loop_var: common_names_item
+    label: "{{ common_names_item.new }}"

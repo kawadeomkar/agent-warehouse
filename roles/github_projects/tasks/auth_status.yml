@@ -35,3 +35,14 @@
   become_user: "{{ github_projects_user }}"
   register: github_projects_marker_raw
   failed_when: false
+
+# A VM no run of 2.0 has signed in yet keeps it by its 1.x name: read there too,
+# never moved here, so just status's read changes nothing.
+- name: auth_status | Read the marker of a login this role made, by its 1.x name
+  ansible.builtin.slurp:
+    src: "{{ github_projects_state_dir_1x }}/{{ github_projects_marker_file | basename }}"
+  become: true
+  become_user: "{{ github_projects_user }}"
+  register: github_projects_marker_raw_1x
+  failed_when: false
+  when: github_projects_marker_raw.content is not defined

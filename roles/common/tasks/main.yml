@@ -1,4 +1,8 @@
 ---
+# Before anything writes them, the files this role keeps by their 1.x names.
+- name: Move this role's files from their 1.x names
+  ansible.builtin.include_tasks: names.yml
+
 # First, so that every apt-get after it - this role's and the later roles' -
 # deletes what it downloads once it is installed. Kept, a VM just deployed held
 # 414 MB of packages, cached in its memory too. The daily clean is for
@@ -7,10 +11,10 @@
 - name: Delete each package apt downloads once it is installed
   ansible.builtin.copy:
     content: |
-      // claude-on-proxmox (common_apt_keep_downloads: false)
+      // agent-warehouse (common_apt_keep_downloads: false)
       APT::Keep-Downloaded-Packages "false";
       APT::Periodic::CleanInterval "1";
-    dest: /etc/apt/apt.conf.d/90claude-on-proxmox-downloads
+    dest: "{{ common_apt_downloads }}"
     owner: root
     group: root
     mode: "0644"
@@ -18,7 +22,7 @@
 
 - name: Let apt keep the packages it downloads
   ansible.builtin.file:
-    path: /etc/apt/apt.conf.d/90claude-on-proxmox-downloads
+    path: "{{ common_apt_downloads }}"
     state: absent
   when: common_apt_keep_downloads
 
@@ -126,7 +130,7 @@
 - name: Harden sshd
   ansible.builtin.template:
     src: sshd_hardening.conf.j2
-    dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf
+    dest: "{{ common_sshd_hardening }}"
     owner: root
     group: root
     mode: "0644"
@@ -136,7 +140,7 @@
 
 - name: Remove sshd hardening
   ansible.builtin.file:
-    path: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf
+    path: "{{ common_sshd_hardening }}"
     state: absent
   when: not common_harden_ssh
   notify: Restart ssh

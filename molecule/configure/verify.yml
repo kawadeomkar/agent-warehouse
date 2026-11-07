@@ -52,10 +52,10 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - /home/dev/.config/claude-on-proxmox/gh-login.out
-        - /home/dev/.config/claude-on-proxmox/gh-login
+        - /home/dev/.config/agent-warehouse/gh-login.out
+        - /home/dev/.config/agent-warehouse/gh-login
         - /home/dev/.ansible_async
-        - /home/dev/.config/claude-on-proxmox/gh-login.pid
+        - /home/dev/.config/agent-warehouse/gh-login.pid
       register: verify_gh_leftovers
 
     - name: Read settings.json
@@ -103,10 +103,10 @@
       loop:
         - /home/dev/.claude/.credentials.json
         - /etc/systemd/system/claude-remote-control.path
-        - /home/dev/.config/claude-on-proxmox/claude-login.out
-        - /home/dev/.config/claude-on-proxmox/claude-login.in
-        - /home/dev/.config/claude-on-proxmox/claude-login.pid
-        - /home/dev/.config/claude-on-proxmox/claude-login.run
+        - /home/dev/.config/agent-warehouse/claude-login.out
+        - /home/dev/.config/agent-warehouse/claude-login.in
+        - /home/dev/.config/agent-warehouse/claude-login.pid
+        - /home/dev/.config/agent-warehouse/claude-login.run
       register: verify_sign_in
 
     # Gone means unloaded, not only a missing file: a unit deleted without

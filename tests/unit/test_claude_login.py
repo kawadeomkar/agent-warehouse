@@ -191,7 +191,7 @@ def _calls(root: Path, host: str) -> list[str]:
 
 
 def _login_dir(root: Path, host: str) -> Path:
-    return root / host / ".config" / "claude-on-proxmox"
+    return root / host / ".config" / "agent-warehouse"
 
 
 def _leftovers(root: Path, host: str) -> list[str]:

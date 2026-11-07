@@ -48,8 +48,13 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   built, "Built by claude-on-proxmox:", is still read as its record, so no template is rebuilt for that alone. The
   next build moves `/var/lib/vz/claude-on-proxmox`, where the image is kept, to `/var/lib/vz/agent-warehouse`; a
   directory you set with `proxmox_template_image_dir` stays where it is.
-- **The names a run left on your VMs and in Proxmox keep their 1.x spelling** - the ownership tag, the markers and
-  drop-ins on each VM - so that nothing deployed is stranded.
+- **On each VM**, the next `just deploy` or `just login` moves what 1.x named claude-on-proxmox: the sshd drop-ins
+  (`10-agent-warehouse.conf`, `15-agent-warehouse-path.conf`), apt's (`90agent-warehouse-downloads`), the cloud-init
+  file a VM with passwordless sudo off keeps (`99-agent-warehouse-user.cfg`), the tmux settings' block, and
+  `~/.config/agent-warehouse`, where the GitHub and Claude sign-ins keep their state - a login the project made is
+  still known as its own. sshd is not restarted for the move. `just status` reads the 1.x names until then.
+- **The names a run left in Proxmox and the Tailscale markers keep their 1.x spelling** - the ownership tag and the
+  tags made from it, `/var/lib/claude-on-proxmox` - so that nothing deployed is stranded.
 
 ## An environment and collections of the checkout's own
 

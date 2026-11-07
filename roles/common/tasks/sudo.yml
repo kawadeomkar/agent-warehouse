@@ -107,7 +107,7 @@
     - name: sudo | Keep a new cloud-init instance from giving the rule back
       ansible.builtin.copy:
         content: |
-          # claude-on-proxmox (common_user_passwordless_sudo: false): no sudo rule
+          # agent-warehouse (common_user_passwordless_sudo: false): no sudo rule
           # for the default user, its password never locked, and only the groups
           # the common role gives it.
           system_info:

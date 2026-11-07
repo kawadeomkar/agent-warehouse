@@ -148,7 +148,7 @@
 
     - name: Look for the role's drop-in
       ansible.builtin.stat:
-        path: /etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf
+        path: /etc/ssh/sshd_config.d/15-agent-warehouse-path.conf
       register: common_side_effect_path_dropin
       failed_when: common_side_effect_path_dropin.stat.exists
 

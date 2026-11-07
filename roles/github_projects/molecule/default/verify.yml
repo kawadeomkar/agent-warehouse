@@ -36,7 +36,7 @@
         - [git, config, --global, --get-all, credential.https://github.com.helper]
         - [git, config, --global, user.name]
         - [git, config, --global, user.email]
-        - [cat, /home/dev/.config/claude-on-proxmox/gh-login]
+        - [cat, /home/dev/.config/agent-warehouse/gh-login]
       become: true
       become_user: dev
       register: github_projects_verify_gh

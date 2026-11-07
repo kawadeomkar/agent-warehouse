@@ -123,6 +123,32 @@
         path: /etc/apt/apt.conf.d/docker-clean
         state: absent
 
+    # What 1.x left, by its names: converge moves each file to its name from 2.0
+    # (names.yml) and takes the tmux settings' block out by its 1.x marker.
+    - name: Make the sshd drop-in directory 1.x wrote into
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d
+        state: directory
+        mode: "0755"
+
+    - name: Leave the files 1.x left, by their 1.x names
+      ansible.builtin.copy:
+        content: "{{ common_prepare_1x.content }}"
+        dest: "{{ common_prepare_1x.dest }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - dest: /etc/apt/apt.conf.d/90claude-on-proxmox-downloads
+          content: "// claude-on-proxmox (common_apt_keep_downloads: false)\nAPT::Keep-Downloaded-Packages \"false\";\n"
+        - dest: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf
+          content: "# The sshd hardening, as 1.x named it\n"
+        - dest: /etc/tmux.conf
+          content: "# BEGIN claude-on-proxmox: common_tmux_settings\nset -g mouse off\n# END claude-on-proxmox: common_tmux_settings\n"
+      loop_control:
+        loop_var: common_prepare_1x
+        label: "{{ common_prepare_1x.dest }}"
+
     - name: Leave a package in apt's download cache
       ansible.builtin.copy:
         content: "a package a first boot downloaded\n"

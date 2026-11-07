@@ -8,10 +8,19 @@
     path: /etc/tmux.conf
   register: common_tmux_conf
 
+# The block by its 1.x marker, taken out before the block is written by its
+# marker from 2.0: left, blockinfile would write a second one beside it.
+- name: tmux | Take the settings' block by its 1.x marker out of /etc/tmux.conf
+  ansible.builtin.blockinfile:
+    path: /etc/tmux.conf
+    marker: "{{ common_tmux_marker_1x }}"
+    state: absent
+  when: common_tmux_conf.stat.exists
+
 - name: tmux | Write the settings into /etc/tmux.conf
   ansible.builtin.blockinfile:
     path: /etc/tmux.conf
-    marker: "# {mark} claude-on-proxmox: common_tmux_settings"
+    marker: "# {mark} agent-warehouse: common_tmux_settings"
     block: "{{ common_tmux_settings | join('\n') }}"
     create: true
     mode: "{{ omit if common_tmux_conf.stat.exists else '0644' }}"
@@ -21,6 +30,6 @@
 - name: tmux | Take the settings out of /etc/tmux.conf
   ansible.builtin.blockinfile:
     path: /etc/tmux.conf
-    marker: "# {mark} claude-on-proxmox: common_tmux_settings"
+    marker: "# {mark} agent-warehouse: common_tmux_settings"
     state: absent
   when: common_tmux_settings | length == 0 and common_tmux_conf.stat.exists

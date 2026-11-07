@@ -1,0 +1,12 @@
+---
+# The sign-in's directory on the VM, which github_projects shares, was
+# ~/.config/claude-on-proxmox through 1.x: moved once to its name from 2.0
+# before the sign-in reads it, so an attempt a stopped run left there is still
+# found and ended. Whichever of the two roles runs first moves it.
+- name: names | Move the sign-in's directory on the VM to its name from 2.0
+  ansible.builtin.command:
+    argv: [mv, -n, "{{ claude_code_login_dir_1x }}", "{{ claude_code_login_dir }}"]
+    creates: "{{ claude_code_login_dir }}"
+    removes: "{{ claude_code_login_dir_1x }}"
+  become: true
+  become_user: "{{ claude_code_user }}"

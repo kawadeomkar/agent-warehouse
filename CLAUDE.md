@@ -153,7 +153,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       made by hand stays, and the token only lists there. A git identity set by hand is never replaced:
       `user.name` and `user.email` are each derived only where unset.
     - A cleared vault token signs out only the login the role itself made, told by the marker
-      `~/.config/claude-on-proxmox/gh-login` on the VM (the token's digest), by account. Never decide a logout
+      `~/.config/agent-warehouse/gh-login` on the VM (the token's digest), by account. Never decide a logout
       from the token's prefix alone: a token the user pasted into gh by hand looks the same.
     - Under `auto`, a vault token gh refuses for a missing scope keeps listing and gh stays signed out, the
       scopes to add said (`github_projects_token_short`): failing it would fail every VM on upgrade, since they

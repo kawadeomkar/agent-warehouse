@@ -183,6 +183,25 @@
     # common_tmux_settings, after side_effect.yml took the block out around a
     # line of the user's own and put it back: tmux loads the file without an
     # error and has each setting, and the user's line is still there.
+    - name: Look for the files 1.x left, by their names through 1.x and from 2.0
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/apt.conf.d/90claude-on-proxmox-downloads
+        - /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf
+        - /etc/apt/apt.conf.d/90agent-warehouse-downloads
+        - /etc/ssh/sshd_config.d/10-agent-warehouse.conf
+      register: common_verify_names
+
+    - name: Assert each moved to its name from 2.0
+      ansible.builtin.assert:
+        that:
+          - not common_verify_names.results[0].stat.exists
+          - not common_verify_names.results[1].stat.exists
+          - common_verify_names.results[2].stat.exists
+          - common_verify_names.results[3].stat.exists
+        quiet: true
+
     - name: Read /etc/tmux.conf
       ansible.builtin.slurp:
         src: /etc/tmux.conf
@@ -216,9 +235,9 @@
       vars:
         common_verify_tmux_expected: |
           set -g mouse on
-          # BEGIN claude-on-proxmox: common_tmux_settings
+          # BEGIN agent-warehouse: common_tmux_settings
           set -g allow-passthrough on
           set -g focus-events on
           set -s extended-keys on
           set -as terminal-features 'xterm*:extkeys'
-          # END claude-on-proxmox: common_tmux_settings
+          # END agent-warehouse: common_tmux_settings

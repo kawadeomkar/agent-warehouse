@@ -70,7 +70,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 59 of the 66 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 61 of the 68 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -90,8 +90,8 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_token_sign_in` | Whether auth.yml signs gh in with the vault token - when the token gh holds differs from it, so a second run changes nothing, and only over a login that is not the user's own: gh signed out, signed in by this role (the marker below), or github_auth_method: token, which asks for the token whatever gh holds. | <code>{{ github_projects_auth_wanted &#124; bool and github_projects_token_wanted &#124; bool and github_projects_stored_token != github_projects_token and (not github_projects_signed_in &#124; bool or github_projects_login_is_ours &#124; bool or github_projects_auth_method == 'token') }}</code> |
 | `github_projects_token_beside` |  | <code>{{ github_projects_auth_wanted &#124; bool and github_projects_token_wanted &#124; bool and github_projects_signed_in &#124; bool and github_projects_stored_token != github_projects_token and not github_projects_login_is_ours &#124; bool and github_projects_auth_method != 'token' }}</code> |
 | `github_projects_login_args` | The device flow as gh runs it with no terminal: it prints the code and the page at once and polls until the code is approved or expires. | <code>{{ ['gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', github_projects_clone_protocol, '--web', '--skip-ssh-key'] + (['--scopes', github_projects_login_scopes &#124; join(',')] if github_projects_login_scopes &#124; length > 0 else []) }}</code> |
-| `github_projects_login_output` | Where gh's output lands while it runs - a code that is public by design and expires, never a token - and gh's pid, which ends a gh nobody waits for any more. | `{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.out` |
-| `github_projects_login_pidfile` |  | `{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login.pid` |
+| `github_projects_login_output` | Where gh's output lands while it runs - a code that is public by design and expires, never a token - and gh's pid, which ends a gh nobody waits for any more. | `{{ github_projects_state_dir }}/gh-login.out` |
+| `github_projects_login_pidfile` |  | `{{ github_projects_state_dir }}/gh-login.pid` |
 | `github_projects_login_files` | Both, unlinked before the flow starts and again once it ends - one list, so the two cannot drift. | `["{{ github_projects_login_output }}", "{{ github_projects_login_pidfile }}"]` |
 | `github_projects_login_start_seconds` | How long gh may take to show the code; how long the approval is waited for, a little longer than the fifteen minutes GitHub's code lives and gh polls, so that gh's own word on an expired code is what ends the wait; and Ansible's async limit, longer again, so that its watchdog never kills gh before gh has said why it stopped. | `30` |
 | `github_projects_login_wait_seconds` |  | `930` |
@@ -109,9 +109,11 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_login_go` | Whether login.yml runs the device flow. | <code>{{ github_projects_login_answer in (['', 'y', 'yes'] if github_projects_login_interactive &#124; bool else ['y', 'yes']) if github_projects_login_ask &#124; bool else github_projects_login_interactive &#124; bool }}</code> |
 | `github_projects_stored_token` | The token gh stored, read with `gh auth token` under no_log; '' when signed out. | <code>{{ github_projects_stored_token_raw.stdout &#124; default('') &#124; trim if github_projects_stored_token_raw.rc &#124; default(1) == 0 else '' }}</code> |
 | `github_projects_home_dir` | The user's home, absolute, from the one main.yml resolved: a "~" in a copy task's dest is expanded through the connection's shell, not the module's environment. | <code>{{ github_projects_home if github_projects_home &#124; length > 0 else ansible_facts.getent_passwd[github_projects_user][4] }}</code> |
-| `github_projects_marker_file` | The marker that tells a login this role made. | `{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-login` |
-| `github_projects_device_marker_file` | The same, for a login this role's device flow made: the digest of the token it left gh, apart from the marker above, whose logout rules are the vault token's. | `{{ github_projects_home_dir }}/.config/claude-on-proxmox/gh-device-login` |
-| `github_projects_marker_digest` | The digest the first marker holds, or ''. | <code>{{ (github_projects_marker_raw.content &#124; b64decode &#124; trim) if github_projects_marker_raw.content is defined else '' }}</code> |
+| `github_projects_marker_file` | The marker that tells a login this role made. | `{{ github_projects_state_dir }}/gh-login` |
+| `github_projects_device_marker_file` | The same, for a login this role's device flow made: the digest of the token it left gh, apart from the marker above, whose logout rules are the vault token's. | `{{ github_projects_state_dir }}/gh-device-login` |
+| `github_projects_state_dir` | The directory the role keeps these in, which claude_code shares: agent-warehouse from 2.0, claude-on-proxmox through 1.x, which names.yml moves it from before anything reads or writes it (2.x); just status and the release read the 1.x one while it is the one there, never moving it. | `{{ github_projects_home_dir }}/.config/agent-warehouse` |
+| `github_projects_state_dir_1x` |  | `{{ github_projects_home_dir }}/.config/claude-on-proxmox` |
+| `github_projects_marker_digest` | The digest the first marker holds, by its name from 2.0 or through 1.x, or ''. | <code>{{ (github_projects_marker_raw.content &#124; b64decode &#124; trim) if github_projects_marker_raw.content is defined else (github_projects_marker_raw_1x.content &#124; b64decode &#124; trim) if github_projects_marker_raw_1x.content is defined else '' }}</code> |
 | `github_projects_token_digest` | What the marker holds for the vault token: its digest, never the token. | <code>{{ github_projects_token &#124; hash('sha256') }}</code> |
 | `github_projects_login_is_ours` | Whether the login gh holds is one this role made: the stored token's digest is the marker's. | <code>{{ github_projects_signed_in &#124; bool and github_projects_stored_token &#124; length > 0 and github_projects_marker_digest &#124; length > 0 and github_projects_marker_digest == github_projects_stored_token &#124; hash('sha256') }}</code> |
 | `github_projects_marker_due` | Whether the marker is due: the login is the vault token's, so auth.yml writes it (and its directory) whenever it is, not only straight after a sign-in, and a marker that went missing comes back. | <code>{{ github_projects_auth_wanted &#124; bool and github_projects_token_wanted &#124; bool and github_projects_signed_in &#124; bool and github_projects_stored_token == github_projects_token }}</code> |
@@ -133,7 +135,7 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_git_identity_wanted` |  | <code>{{ {'user.name': github_projects_git_user_name if github_projects_git_user_name &#124; length > 0 else '' if 'user.name' in github_projects_git_identity_set else github_projects_git_name, 'user.email': github_projects_git_user_email if github_projects_git_user_email &#124; length > 0 else '' if 'user.email' in github_projects_git_identity_set else github_projects_git_email} &#124; dict2items &#124; selectattr('value') &#124; items2dict }}</code> |
 | `github_projects_login_command` | The command that signs gh in by the device flow, run on the controller: it opens the page there, copies the code, waits for the approval, and then runs this role so the private repositories arrive in the same run. | `just login {{ inventory_hostname }} --only github` |
 | `github_projects_configure_command` | The command that runs this role alone: the token sign-in, the listing and the clones, with nothing else of just deploy --only configure. | `just deploy {{ inventory_hostname }} --tags github_projects` |
-| `github_projects_device_marker_digest` | The digest the device flow's marker holds, or ''. | <code>{{ (github_projects_device_marker_raw.content &#124; b64decode &#124; trim) if github_projects_device_marker_raw.content is defined else '' }}</code> |
+| `github_projects_device_marker_digest` | The digest the device flow's marker holds, or ''. | <code>{{ (github_projects_device_marker_raw.content &#124; b64decode &#124; trim) if github_projects_device_marker_raw.content is defined else (github_projects_device_marker_raw_1x.content &#124; b64decode &#124; trim) if github_projects_device_marker_raw_1x.content is defined else '' }}</code> |
 | `github_projects_release_ours` | Whether that token is the one this role's device flow made for the VM. | <code>{{ github_projects_stored_token &#124; length > 0 and github_projects_device_marker_digest &#124; length > 0 and github_projects_device_marker_digest == github_projects_stored_token &#124; hash('sha256') and github_projects_stored_token != github_projects_token }}</code> |
 | `github_projects_release_signed_out` | Whether `gh auth logout` ended the login, said as the summary below says it: a logout gh refused - two accounts, say, where it asks which - is named. | <code>{{ 'gh signed out' if (github_projects_release_logout.rc &#124; default(1)) == 0 else ('gh could not sign out (' ~ (github_projects_release_logout.stderr &#124; default('') &#124; one_line(none) or 'no reason given') ~ ')') }}</code> |
 | `github_projects_release_unrevoked` | Whether the summary says the token stays valid until the user revokes it - any but the vault's, which is every VM's: something left to do, for destroy's NEXT STEPS. | <code>{{ github_projects_stored_token &#124; length > 0 and (github_projects_release_ours &#124; bool or not (github_projects_token &#124; length > 0 and github_projects_stored_token == github_projects_token)) }}</code> |
@@ -180,6 +182,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
+| Move this role's files on the VM from their 1.x names | `ansible.builtin.include_tasks` |  |
 | Read gh and its login state | `ansible.builtin.include_tasks` |  |
 | Fail when gh could not report its login state | `ansible.builtin.fail` | <code>github_projects_auth &#124; bool and github_projects_gh_found &#124; bool and github_projects_auth_status.rc &#124; default(0) != 0</code> |
 | Fail when the token method has no token | `ansible.builtin.fail` | <code>github_projects_auth &#124; bool and github_projects_auth_method == 'token' and github_projects_token &#124; length == 0</code> |
@@ -212,26 +215,27 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Include task| auth___Read_gh_and_its_login_state_login_read_yml_0[auth   read gh and its login state<br>include_task: login read yml]:::includeTasks
-  auth___Read_gh_and_its_login_state_login_read_yml_0-->|Task| auth___Fail_when_gh_could_not_report_its_login_state1[auth   fail when gh could not report its login<br>state<br>When: **github projects auth   bool and github projects gh<br>found   bool and github projects auth status rc  <br>default 0     0**]:::task
-  auth___Fail_when_gh_could_not_report_its_login_state1-->|Task| auth___Fail_when_the_token_method_has_no_token2[auth   fail when the token method has no token<br>When: **github projects auth   bool and github projects<br>auth method     token  and github projects token  <br>length    0**]:::task
-  auth___Fail_when_the_token_method_has_no_token2-->|Task| auth___Say_that_gh_is_missing3[auth   say that gh is missing<br>When: **github projects auth   bool and not github<br>projects gh found   bool**]:::task
-  auth___Say_that_gh_is_missing3-->|Task| auth___Sign_gh_in_with_the_token4[auth   sign gh in with the token<br>When: **github projects token sign in   bool**]:::task
-  auth___Sign_gh_in_with_the_token4-->|Task| auth___Fail_when_GitHub_refused_the_token5[auth   fail when github refused the token<br>When: **github projects login is not skipped and github<br>projects login rc   default 0     0 and not github<br>projects token short   bool**]:::task
-  auth___Fail_when_GitHub_refused_the_token5-->|Task| auth___Say_that_the_token_only_lists6[auth   say that the token only lists<br>When: **github projects token short   bool**]:::task
-  auth___Say_that_the_token_only_lists6-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run7[auth   keep what is left to do for the end of the<br>run<br>When: **github projects token short   bool**]:::task
-  auth___Keep_what_is_left_to_do_for_the_end_of_the_run7-->|Task| auth___Say_that_the_token_only_lists_beside_a_login_of_your_own8[auth   say that the token only lists beside a<br>login of your own<br>When: **github projects token beside   bool**]:::task
-  auth___Say_that_the_token_only_lists_beside_a_login_of_your_own8-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run9[auth   keep what is left to do for the end of the<br>run<br>When: **github projects token beside   bool**]:::task
-  auth___Keep_what_is_left_to_do_for_the_end_of_the_run9-->|Task| auth___Sign_gh_out_of_the_login_this_role_made__now_that_no_token_is_configured10[auth   sign gh out of the login this role made <br>now that no token is configured<br>When: **github projects auth wanted   bool and not github<br>projects token wanted   bool and github projects<br>login is ours   bool**]:::task
-  auth___Sign_gh_out_of_the_login_this_role_made__now_that_no_token_is_configured10-->|Include task| auth___Read_gh_s_login_state_again_auth_status_yml_11[auth   read gh s login state again<br>When: **github projects login is changed or github<br>projects logout is changed**<br>include_task: auth status yml]:::includeTasks
-  auth___Read_gh_s_login_state_again_auth_status_yml_11-->|Task| auth___Forget_the_login_this_role_made12[auth   forget the login this role made<br>When: **github projects auth wanted   bool and not github<br>projects token wanted   bool and not github<br>projects signed in   bool and github projects<br>marker digest   length   0**]:::task
-  auth___Forget_the_login_this_role_made12-->|Task| auth___Make_the_directory_for_the_marker_of_this_role_s_login13[auth   make the directory for the marker of this<br>role s login<br>When: **github projects marker due   bool**]:::task
-  auth___Make_the_directory_for_the_marker_of_this_role_s_login13-->|Task| auth___Remember_that_the_login_is_this_role_s14[auth   remember that the login is this role s<br>When: **github projects marker due   bool**]:::task
-  auth___Remember_that_the_login_is_this_role_s14-->|Task| auth___Read_git_s_credential_helpers_for_github_com15[auth   read git s credential helpers for github<br>com<br>When: **github projects signed in   bool**]:::task
-  auth___Read_git_s_credential_helpers_for_github_com15-->|Task| auth___Make_gh_git_s_credential_helper_for_github_com16[auth   make gh git s credential helper for github<br>com<br>When: **github projects auth wanted   bool and github<br>projects signed in   bool and not github projects<br>gh helper   bool**]:::task
-  auth___Make_gh_git_s_credential_helper_for_github_com16-->|Task| auth___Say_how_to_sign_gh_in17[auth   say how to sign gh in<br>When: **github projects auth wanted   bool and not github<br>projects signed in   bool and not github projects<br>token short   bool**]:::task
-  auth___Say_how_to_sign_gh_in17-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run18[auth   keep what is left to do for the end of the<br>run<br>When: **github projects auth wanted   bool and not github<br>projects signed in   bool and not github projects<br>token short   bool**]:::task
-  auth___Keep_what_is_left_to_do_for_the_end_of_the_run18-->End
+  Start-->|Include task| auth___Move_this_role_s_files_on_the_VM_from_their_1_x_names_names_yml_0[auth   move this role s files on the vm from their<br>1 x names<br>include_task: names yml]:::includeTasks
+  auth___Move_this_role_s_files_on_the_VM_from_their_1_x_names_names_yml_0-->|Include task| auth___Read_gh_and_its_login_state_login_read_yml_1[auth   read gh and its login state<br>include_task: login read yml]:::includeTasks
+  auth___Read_gh_and_its_login_state_login_read_yml_1-->|Task| auth___Fail_when_gh_could_not_report_its_login_state2[auth   fail when gh could not report its login<br>state<br>When: **github projects auth   bool and github projects gh<br>found   bool and github projects auth status rc  <br>default 0     0**]:::task
+  auth___Fail_when_gh_could_not_report_its_login_state2-->|Task| auth___Fail_when_the_token_method_has_no_token3[auth   fail when the token method has no token<br>When: **github projects auth   bool and github projects<br>auth method     token  and github projects token  <br>length    0**]:::task
+  auth___Fail_when_the_token_method_has_no_token3-->|Task| auth___Say_that_gh_is_missing4[auth   say that gh is missing<br>When: **github projects auth   bool and not github<br>projects gh found   bool**]:::task
+  auth___Say_that_gh_is_missing4-->|Task| auth___Sign_gh_in_with_the_token5[auth   sign gh in with the token<br>When: **github projects token sign in   bool**]:::task
+  auth___Sign_gh_in_with_the_token5-->|Task| auth___Fail_when_GitHub_refused_the_token6[auth   fail when github refused the token<br>When: **github projects login is not skipped and github<br>projects login rc   default 0     0 and not github<br>projects token short   bool**]:::task
+  auth___Fail_when_GitHub_refused_the_token6-->|Task| auth___Say_that_the_token_only_lists7[auth   say that the token only lists<br>When: **github projects token short   bool**]:::task
+  auth___Say_that_the_token_only_lists7-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run8[auth   keep what is left to do for the end of the<br>run<br>When: **github projects token short   bool**]:::task
+  auth___Keep_what_is_left_to_do_for_the_end_of_the_run8-->|Task| auth___Say_that_the_token_only_lists_beside_a_login_of_your_own9[auth   say that the token only lists beside a<br>login of your own<br>When: **github projects token beside   bool**]:::task
+  auth___Say_that_the_token_only_lists_beside_a_login_of_your_own9-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run10[auth   keep what is left to do for the end of the<br>run<br>When: **github projects token beside   bool**]:::task
+  auth___Keep_what_is_left_to_do_for_the_end_of_the_run10-->|Task| auth___Sign_gh_out_of_the_login_this_role_made__now_that_no_token_is_configured11[auth   sign gh out of the login this role made <br>now that no token is configured<br>When: **github projects auth wanted   bool and not github<br>projects token wanted   bool and github projects<br>login is ours   bool**]:::task
+  auth___Sign_gh_out_of_the_login_this_role_made__now_that_no_token_is_configured11-->|Include task| auth___Read_gh_s_login_state_again_auth_status_yml_12[auth   read gh s login state again<br>When: **github projects login is changed or github<br>projects logout is changed**<br>include_task: auth status yml]:::includeTasks
+  auth___Read_gh_s_login_state_again_auth_status_yml_12-->|Task| auth___Forget_the_login_this_role_made13[auth   forget the login this role made<br>When: **github projects auth wanted   bool and not github<br>projects token wanted   bool and not github<br>projects signed in   bool and github projects<br>marker digest   length   0**]:::task
+  auth___Forget_the_login_this_role_made13-->|Task| auth___Make_the_directory_for_the_marker_of_this_role_s_login14[auth   make the directory for the marker of this<br>role s login<br>When: **github projects marker due   bool**]:::task
+  auth___Make_the_directory_for_the_marker_of_this_role_s_login14-->|Task| auth___Remember_that_the_login_is_this_role_s15[auth   remember that the login is this role s<br>When: **github projects marker due   bool**]:::task
+  auth___Remember_that_the_login_is_this_role_s15-->|Task| auth___Read_git_s_credential_helpers_for_github_com16[auth   read git s credential helpers for github<br>com<br>When: **github projects signed in   bool**]:::task
+  auth___Read_git_s_credential_helpers_for_github_com16-->|Task| auth___Make_gh_git_s_credential_helper_for_github_com17[auth   make gh git s credential helper for github<br>com<br>When: **github projects auth wanted   bool and github<br>projects signed in   bool and not github projects<br>gh helper   bool**]:::task
+  auth___Make_gh_git_s_credential_helper_for_github_com17-->|Task| auth___Say_how_to_sign_gh_in18[auth   say how to sign gh in<br>When: **github projects auth wanted   bool and not github<br>projects signed in   bool and not github projects<br>token short   bool**]:::task
+  auth___Say_how_to_sign_gh_in18-->|Task| auth___Keep_what_is_left_to_do_for_the_end_of_the_run19[auth   keep what is left to do for the end of the<br>run<br>When: **github projects auth wanted   bool and not github<br>projects signed in   bool and not github projects<br>token short   bool**]:::task
+  auth___Keep_what_is_left_to_do_for_the_end_of_the_run19-->End
 ```
 
 ### `auth_status.yml`
@@ -241,6 +245,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Read gh's login state | `ansible.builtin.command` |  |
 | Read the token gh stored | `ansible.builtin.command` | <code>github_projects_signed_in &#124; bool</code> |
 | Read the marker of a login this role made | `ansible.builtin.slurp` |  |
+| Read the marker of a login this role made, by its 1.x name | `ansible.builtin.slurp` | <code>github_projects_marker_raw.content is not defined</code> |
 
 ```mermaid
 flowchart TD
@@ -257,7 +262,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| auth_status___Read_gh_s_login_state0[auth status   read gh s login state]:::task
   auth_status___Read_gh_s_login_state0-->|Task| auth_status___Read_the_token_gh_stored1[auth status   read the token gh stored<br>When: **github projects signed in   bool**]:::task
   auth_status___Read_the_token_gh_stored1-->|Task| auth_status___Read_the_marker_of_a_login_this_role_made2[auth status   read the marker of a login this role<br>made]:::task
-  auth_status___Read_the_marker_of_a_login_this_role_made2-->End
+  auth_status___Read_the_marker_of_a_login_this_role_made2-->|Task| auth_status___Read_the_marker_of_a_login_this_role_made__by_its_1_x_name3[auth status   read the marker of a login this role<br>made  by its 1 x name<br>When: **github projects marker raw content is not defined**]:::task
+  auth_status___Read_the_marker_of_a_login_this_role_made__by_its_1_x_name3-->End
 ```
 
 ### `clone.yml`
@@ -366,6 +372,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
+| Move this role's files on the VM from their 1.x names | `ansible.builtin.include_tasks` |  |
 | Read gh and its login state | `ansible.builtin.include_tasks` |  |
 | Record whether the device flow would sign gh in | `ansible.builtin.set_fact` |  |
 | Ask whether to sign gh in to GitHub now for {{ inventory_hostname }} | `ansible.builtin.pause` | <code>github_projects_login_ask &#124; bool and github_projects_login_due &#124; bool</code> |
@@ -384,12 +391,13 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Include task| login___Read_gh_and_its_login_state_login_read_yml_0[login   read gh and its login state<br>include_task: login read yml]:::includeTasks
-  login___Read_gh_and_its_login_state_login_read_yml_0-->|Task| login___Record_whether_the_device_flow_would_sign_gh_in1[login   record whether the device flow would sign<br>gh in]:::task
-  login___Record_whether_the_device_flow_would_sign_gh_in1-->|Task| login___Ask_whether_to_sign_gh_in_to_GitHub_now_for_inventory_hostname2[login   ask whether to sign gh in to github now<br>for inventory hostname<br>When: **github projects login ask   bool and github<br>projects login due   bool**]:::task
-  login___Ask_whether_to_sign_gh_in_to_GitHub_now_for_inventory_hostname2-->|Include task| login___Sign_gh_in_by_the_device_flow_device_flow_yml_3[login   sign gh in by the device flow<br>When: **github projects login go   bool and github<br>projects login due   bool**<br>include_task: device flow yml]:::includeTasks
-  login___Sign_gh_in_by_the_device_flow_device_flow_yml_3-->|Include task| login___Report_the_login_state_and_what_to_do_about_it_login_report_yml_4[login   report the login state and what to do<br>about it<br>include_task: login report yml]:::includeTasks
-  login___Report_the_login_state_and_what_to_do_about_it_login_report_yml_4-->End
+  Start-->|Include task| login___Move_this_role_s_files_on_the_VM_from_their_1_x_names_names_yml_0[login   move this role s files on the vm from<br>their 1 x names<br>include_task: names yml]:::includeTasks
+  login___Move_this_role_s_files_on_the_VM_from_their_1_x_names_names_yml_0-->|Include task| login___Read_gh_and_its_login_state_login_read_yml_1[login   read gh and its login state<br>include_task: login read yml]:::includeTasks
+  login___Read_gh_and_its_login_state_login_read_yml_1-->|Task| login___Record_whether_the_device_flow_would_sign_gh_in2[login   record whether the device flow would sign<br>gh in]:::task
+  login___Record_whether_the_device_flow_would_sign_gh_in2-->|Task| login___Ask_whether_to_sign_gh_in_to_GitHub_now_for_inventory_hostname3[login   ask whether to sign gh in to github now<br>for inventory hostname<br>When: **github projects login ask   bool and github<br>projects login due   bool**]:::task
+  login___Ask_whether_to_sign_gh_in_to_GitHub_now_for_inventory_hostname3-->|Include task| login___Sign_gh_in_by_the_device_flow_device_flow_yml_4[login   sign gh in by the device flow<br>When: **github projects login go   bool and github<br>projects login due   bool**<br>include_task: device flow yml]:::includeTasks
+  login___Sign_gh_in_by_the_device_flow_device_flow_yml_4-->|Include task| login___Report_the_login_state_and_what_to_do_about_it_login_report_yml_5[login   report the login state and what to do<br>about it<br>include_task: login report yml]:::includeTasks
+  login___Report_the_login_state_and_what_to_do_about_it_login_report_yml_5-->End
 ```
 
 ### `login_read.yml`
@@ -442,6 +450,30 @@ classDef rescue stroke:#665352,stroke-width:2px;
   login_report___Keep_what_is_left_to_do_for_the_end_of_the_run1-->End
 ```
 
+### `names.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Look up home directory of {{ github_projects_user }} | `ansible.builtin.getent` |  |
+| Move this role's directory on the VM to its name from 2.0 | `ansible.builtin.command` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| names___Look_up_home_directory_of_github_projects_user0[names   look up home directory of github projects<br>user]:::task
+  names___Look_up_home_directory_of_github_projects_user0-->|Task| names___Move_this_role_s_directory_on_the_VM_to_its_name_from_2_01[names   move this role s directory on the vm to<br>its name from 2 0]:::task
+  names___Move_this_role_s_directory_on_the_VM_to_its_name_from_2_01-->End
+```
+
 ### `release.yml` - entry point `release`
 
 | Task | Module | When |
@@ -449,6 +481,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Look up home directory of {{ github_projects_user }} | `ansible.builtin.getent` | <code>github_projects_home &#124; length == 0</code> |
 | Read the token gh stored | `ansible.builtin.command` |  |
 | Read the marker of the login this role's device flow made | `ansible.builtin.slurp` |  |
+| Read the marker of the login this role's device flow made, by its 1.x name | `ansible.builtin.slurp` | <code>github_projects_device_marker_raw.content is not defined</code> |
 | Sign gh out | `ansible.builtin.command` | <code>github_projects_stored_token &#124; length > 0</code> |
 | Record what became of the login | `ansible.builtin.set_fact` |  |
 
@@ -467,9 +500,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| release___Look_up_home_directory_of_github_projects_user0[release   look up home directory of github<br>projects user<br>When: **github projects home   length    0**]:::task
   release___Look_up_home_directory_of_github_projects_user0-->|Task| release___Read_the_token_gh_stored1[release   read the token gh stored]:::task
   release___Read_the_token_gh_stored1-->|Task| release___Read_the_marker_of_the_login_this_role_s_device_flow_made2[release   read the marker of the login this role s<br>device flow made]:::task
-  release___Read_the_marker_of_the_login_this_role_s_device_flow_made2-->|Task| release___Sign_gh_out3[release   sign gh out<br>When: **github projects stored token   length   0**]:::task
-  release___Sign_gh_out3-->|Task| release___Record_what_became_of_the_login4[release   record what became of the login]:::task
-  release___Record_what_became_of_the_login4-->End
+  release___Read_the_marker_of_the_login_this_role_s_device_flow_made2-->|Task| release___Read_the_marker_of_the_login_this_role_s_device_flow_made__by_its_1_x_name3[release   read the marker of the login this role s<br>device flow made  by its 1 x name<br>When: **github projects device marker raw content is not<br>defined**]:::task
+  release___Read_the_marker_of_the_login_this_role_s_device_flow_made__by_its_1_x_name3-->|Task| release___Sign_gh_out4[release   sign gh out<br>When: **github projects stored token   length   0**]:::task
+  release___Sign_gh_out4-->|Task| release___Record_what_became_of_the_login5[release   record what became of the login]:::task
+  release___Record_what_became_of_the_login5-->End
 ```
 
 ### `status.yml` - entry point `status`
