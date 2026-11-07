@@ -200,8 +200,11 @@ user's choice. What was decided, and why:
 - **One hypervisor per checkout.** A second one is a provider of its own, its VMs found and listed through entry
   points of its role, read by static imports as the editors' files are; the `just status --json` keys 1.0 promises,
   some of them Proxmox's (`vmid`, `node`, `proxmox`), stay for every provider.
-- **The names runs left behind stay**, whatever the project is called: the tag, the markers and drop-ins on each VM,
-  just code's helpers there - the shared one's path is in a task of the user's own - and its ownership marker, the
-  managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
+- **The names runs left behind move only with a migration** (decided November 2026, for 2.0, when the project
+  became agent-warehouse): the tag, the markers and drop-ins on each VM, just code's helpers there - the shared one's
+  path is in a task of the user's own - and its ownership marker, the managed SSH config's file and blocks, the
+  checkout's folder. Each is read under its old name and written under its new one, the old one still read through
+  2.x, so no deployed VM or machine is stranded. `tests/unit/test_persisted_names.py` lists them: a change to one
+  fails it, and is the place to write that name's migration.
 - **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
   and how many read Proxmox's API outside its own roles, file by file, to what they are, and fails when one grows.

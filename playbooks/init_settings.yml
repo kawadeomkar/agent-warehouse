@@ -184,15 +184,21 @@
 
     # The token's secret, given: from --token-secret-file's file (a path relative
     # to the checkout, or ~; just init makes a relative one absolute, from where
-    # it was started), or from AGENT_WAREHOUSE_TOKEN_SECRET.
-    init_secret_env: "{{ lookup('ansible.builtin.env', 'AGENT_WAREHOUSE_TOKEN_SECRET') }}"
+    # it was started), or from AGENT_WAREHOUSE_TOKEN_SECRET - or, while that is
+    # not set, from CLAUDE_ON_PROXMOX_TOKEN_SECRET, its name through 1.x.
+    init_secret_env_new: "{{ lookup('ansible.builtin.env', 'AGENT_WAREHOUSE_TOKEN_SECRET') }}"
+    init_secret_env_old: "{{ lookup('ansible.builtin.env', 'CLAUDE_ON_PROXMOX_TOKEN_SECRET') }}"
+    init_secret_env: "{{ init_secret_env_new if init_secret_env_new | length > 0 else init_secret_env_old }}"
+    init_secret_env_name: >-
+      {{ 'CLAUDE_ON_PROXMOX_TOKEN_SECRET' if init_secret_env_new | length == 0 and init_secret_env_old | length > 0
+         else 'AGENT_WAREHOUSE_TOKEN_SECRET' }}
     init_secret_given: "{{ init_given.token_secret_file is defined or init_secret_env | length > 0 }}"
     init_secret_path: >-
       {{ (init_given.token_secret_file | expanduser) if (init_given.token_secret_file | expanduser).startswith('/')
          else init_root ~ '/' ~ init_given.token_secret_file }}
     init_secret_flag: >-
       {{ 'the secret in --token-secret-file (' ~ init_given.token_secret_file ~ ')'
-         if init_given.token_secret_file is defined else 'AGENT_WAREHOUSE_TOKEN_SECRET' }}
+         if init_given.token_secret_file is defined else init_secret_env_name }}
     init_any_given: "{{ init_given | length > 0 or init_secret_given }}"
     # This run writes tailscale_enabled: answered or given, and not set.
     init_tailscale_writes: "{{ init_answers.tailscale is defined and init_local_settings.tailscale_enabled is not defined }}"
@@ -357,9 +363,27 @@
     - name: Refuse the token secret given two ways
       ansible.builtin.fail:
         msg: >-
-          The token secret was given both by --token-secret-file and by AGENT_WAREHOUSE_TOKEN_SECRET:
+          The token secret was given both by --token-secret-file and by {{ init_secret_env_name }}:
           give it one way.
       when: init_given.token_secret_file is defined and init_secret_env | length > 0
+
+    # Neither value is said: only which variables hold them.
+    - name: Refuse the token secret given under both of its names, as two secrets
+      ansible.builtin.fail:
+        msg: >-
+          AGENT_WAREHOUSE_TOKEN_SECRET and CLAUDE_ON_PROXMOX_TOKEN_SECRET, its name through 1.x, are both set,
+          and to different secrets: unset CLAUDE_ON_PROXMOX_TOKEN_SECRET.
+      when: >-
+        init_secret_env_new | length > 0 and init_secret_env_old | length > 0
+        and init_secret_env_new != init_secret_env_old
+
+    - name: Say that the token secret came by its name through 1.x
+      ansible.builtin.debug:
+        msg: >-
+          NOTICE  CLAUDE_ON_PROXMOX_TOKEN_SECRET is this project's name through 1.x for
+          AGENT_WAREHOUSE_TOKEN_SECRET: it is read while the new name is not set, so export the new name where you
+          set it (docs/guides/upgrading.md).
+      when: init_secret_env_new | length == 0 and init_secret_env_old | length > 0
 
     - name: Look at the file --token-secret-file names
       ansible.builtin.stat:

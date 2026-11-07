@@ -448,7 +448,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The vault is re-encrypted by piping its text into `ansible-vault encrypt`'s stdin under `no_log`, never
       through `copy`, which decrypts. `.vault_pass` is created `O_EXCL`, 0600, and never rewritten.
     - The token secret is never taken from the command line - only from `--token-secret-file`'s file or
-      `AGENT_WAREHOUSE_TOKEN_SECRET`, read in the playbook - and `just init` refuses any word after its options
+      `AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its 1.x name, while that is unset; two
+      different secrets under the two names are refused unsaid), read in the playbook - and `just init` refuses any
+      word after its options
       without printing it. Tailscale's auth key is asked only after a `y`, hidden, and never taken from the
       command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under

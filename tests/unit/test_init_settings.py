@@ -587,6 +587,39 @@ def test_the_secret_given_in_the_environment_is_written_and_never_said(tmp_path:
     assert SECRET not in seen and SECRET.upper() not in seen
 
 
+def test_the_secret_given_by_its_name_through_1x_is_written_and_said_to_move(tmp_path: Path) -> None:
+    # CLAUDE_ON_PROXMOX_TOKEN_SECRET, the variable's name through 1.x: read while AGENT_WAREHOUSE_TOKEN_SECRET is
+    # not set, with a notice naming the new name, and the secret said nowhere.
+    files = _files(tmp_path)
+    given = {"host": "pve.lan", "github_user": "octocat"}
+    report = _init(tmp_path, files, {"init_given": given}, env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    assert report["rc"] == 0, _failures(report)
+    assert SECRET_LINE in _decrypt(files)
+    assert "CLAUDE_ON_PROXMOX_TOKEN_SECRET is this project's name through 1.x" in json.dumps(report)
+    assert SECRET not in json.dumps(report)
+
+
+def test_the_secret_given_by_both_names_is_taken_once_or_refused_unsaid(tmp_path: Path) -> None:
+    # The same secret under both names is one secret, with no notice; two different ones are refused, naming the
+    # variables and neither value.
+    files = _files(tmp_path)
+    given = {"host": "pve.lan", "github_user": "octocat"}
+    both = {"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET, "CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET}
+    report = _init(tmp_path, files, {"init_given": given}, env=both)
+    assert report["rc"] == 0, _failures(report)
+    assert SECRET_LINE in _decrypt(files) and "name through 1.x" not in json.dumps(report)
+    other = "99999999-8888-7777-6666-555555555555"
+    (tmp_path / "other").mkdir()
+    files = _files(tmp_path / "other")
+    report = _init(
+        tmp_path / "other", files, {"init_given": given}, env=both | {"CLAUDE_ON_PROXMOX_TOKEN_SECRET": other}
+    )
+    assert report["rc"] != 0
+    failure = "\n".join(_failures(report).values())
+    assert "unset CLAUDE_ON_PROXMOX_TOKEN_SECRET" in failure
+    assert SECRET not in json.dumps(report) and other not in json.dumps(report)
+
+
 def test_the_secret_given_two_ways_is_refused(tmp_path: Path) -> None:
     files = _files(tmp_path)
     given = {"token_secret_file": str(_secret_file(tmp_path))}
@@ -1259,6 +1292,8 @@ SECRET_NAMES = (
     "init_vault_with_github",
     "init_secret_given_value",
     "init_secret_env",
+    "init_secret_env_new",
+    "init_secret_env_old",
     "init_secret_held",
     "init_vault_read",
     "init_vault_decrypted.stdout",

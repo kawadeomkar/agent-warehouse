@@ -1043,7 +1043,8 @@ host's own.
 every write is under it, or under a value given on the command line: `init_given`, the JSON
 `just init` built from its options, each held to its characters first, and the secret from
 `--token-secret-file`'s file or
-`AGENT_WAREHOUSE_TOKEN_SECRET`, read under `no_log`. Every given value is held to its rule before
+`AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name through 1.x, while that is unset),
+read under `no_log`. Every given value is held to its rule before
 anything is written, so a run failed by its last one leaves the files as they were; it fills only what is
 still the example's, and fails the run, naming both, when it differs from what is set (compared in its
 normal form, a name or a GitHub login case-insensitively); equal, it is nothing to do, so the same command

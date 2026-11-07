@@ -10,6 +10,20 @@ Every target that runs Ansible compares the installed collections with those pin
 naming `just install`, while one differs. They live in the checkout's own folder
 (`tools/env-run --collections`), so another clone or worktree keeps its own, on its own versions.
 
+## The project is called agent-warehouse
+
+From 2.0 the project is called agent-warehouse, since it is to run more models than Claude Code and more
+hypervisors than Proxmox VE. For an install made by 1.x:
+
+- **The token secret's variable is `AGENT_WAREHOUSE_TOKEN_SECRET`.** `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name
+  through 1.x, is still read while the new one is not set, and `just init` says so; set beside the new one to a
+  different secret, it is refused, and neither is said. Rename it wherever you export it.
+- **What the runs print says agent-warehouse:** the first line of every live run and of `just status`. Wording,
+  which the promise leaves free, but a script that read those lines by the old name must follow.
+- **The names a run left on your VMs, in Proxmox and on this machine keep their 1.x spelling** - the ownership tag,
+  the markers and drop-ins on each VM, just code's directory there, the template's record, the managed SSH config,
+  the checkout's folder - so that nothing deployed is stranded.
+
 ## An environment and collections of the checkout's own
 
 From 1.0, `just install` makes the project's Python environment itself, with uv, when you bring none: a
