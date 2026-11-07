@@ -11,6 +11,7 @@ just test                     # just lint, then everything below but the last tw
 just test unit                # pytest over tests/unit/, a worker per CPU (plain pytest: one test at a time), no network
 just test unit --shard 2/4    # one of four shards of those, as CI splits them: the tests that share a run together
 just test molecule            # every Molecule (Docker) scenario: the three below
+just test molecule --jobs 4   # the same, four at a time: each in a log of its own (needs the disk and memory for four)
 just test role                # each role's scenario, incl. idempotence; --role common,dev_tools for some of them
 just test integration         # playbooks/configure.yml end to end in a container
 just test provision           # provision.yml + discover.yml against a fake Proxmox API

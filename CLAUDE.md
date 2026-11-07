@@ -40,6 +40,7 @@ just test                            # lint, then every test: unit and every Mol
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/4           # one of the four shards CI runs (tests/unit/durations.json balances them)
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
+just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
 just deploy                          # template (if missing) + provision + configure + the three sign-ins + the editor (VS Code by default), all idempotent (just deploy alpha: that VM)
 just deploy alpha --only configure   # one stage of it: template, provision, configure or ssh-config (fleet-wide also prunes); --check is the dry run
@@ -112,7 +113,7 @@ or attached to a pull request. The file name is built from the date, the recipe 
 checked only, never from a VM name.
 
 Scenarios are slow and disk-hungry. Run the ones your change touches, one at a time, rather than
-`just test`, until you are ready to finish.
+`just test`, until you are ready to finish; `--jobs N` runs them N at a time on a machine with the room.
 
 `common`, `vscode_server`, `dev_tools`, `claude_code`, `github_projects`, `tailscale` and the `configure`
 scenario install packages inside the container and need working Docker DNS. `proxmox_vm`, `proxmox_template` and

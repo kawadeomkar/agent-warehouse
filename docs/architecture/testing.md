@@ -523,12 +523,15 @@ pytest over `tests/unit/`, file by file:
 ## 11.2 Role scenarios — `just test role`
 
 One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting the driver from
-`.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task
-put its module into the container, ran and removed it one `docker exec` at a time, and the ten scenarios
-took 16% longer. Each names its own platform, a container named after the role, since Molecule replaces a
-list rather than merging it. The shared file turns Molecule's dependency step off: `just install` puts the
-collections in and `just test` checks them first (`tools/check collections`). Each runs create → prepare →
-converge → **idempotence** → side_effect → verify → destroy.
+`.config/molecule/config.yml`, which turns pipelining on as `ansible.cfg` does: without it each task put its
+module into the container, ran and removed it one `docker exec` at a time, and the ten scenarios took 16%
+longer. Each names its own platform, a container named after the role, since Molecule replaces a list rather
+than merging it - and the fake APIs a port of their own - so that `just test --jobs 4` can run them, and the
+playbook scenarios, that many at a time (`tools/molecule-lanes`, the longest first): every scenario took 28
+minutes one after another on an 8-core runner, and 7.5 four at a time, provision alone the floor. The
+shared file turns Molecule's dependency step off: `just install` puts the collections in and `just test` checks
+them first (`tools/check collections`). Each runs create → prepare → converge → **idempotence** → side_effect →
+verify → destroy.
 
 A role scenario's side effect runs the role where it must refuse through one task file,
 `tests/molecule/refused.yml`: the role inside a `block`/`rescue`, then an assert that the failure was
