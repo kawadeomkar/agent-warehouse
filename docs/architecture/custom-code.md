@@ -525,7 +525,7 @@ claims nothing. **`projects_dir(given, home)`** is the projects directory on a V
 `projects` in the VM user's home, without a trailing `/` - as configure's alias, just code, just status,
 destroy's save and the roles that clone into it and start Remote Control there all name it.
 **`just_code_dir(projects, given)`** is just code's own directory on a VM -
-`editor_files_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
+`editor_files_dir`, else `.agent-warehouse` in the projects directory - for code.yml and for
 destroy's save, which reads the manifest there. **`claude_project_folder(path)`** is Claude Code's folder name for a path - every character
 but an ASCII letter or digit as `-` - refusing one over 200 characters, which Claude Code shortens with
 a hash of its own. **`claude_session_dirs(sessions)`** is the directories to ask git about for them:

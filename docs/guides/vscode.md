@@ -198,13 +198,13 @@ or write the setting.
 ### What it writes
 
 The workspace files live on the VM beside the repositories, never in one, so
-`git status` stays clean: `~/projects/.claude-on-proxmox/<directory's name>.code-workspace` for the
+`git status` stays clean: `~/projects/.agent-warehouse/<directory's name>.code-workspace` for the
 whole directory (`projects.code-workspace` with the default `vm_projects_dir`) and
-`~/projects/.claude-on-proxmox/project/<repo>.code-workspace` for one project, hidden from the
+`~/projects/.agent-warehouse/project/<repo>.code-workspace` for one project, hidden from the
 explorer. They, the session notes beside them (below) and the copies of this machine's Claude sessions
 ([This machine's Claude sessions on the VM](#this-machines-claude-sessions-on-the-vm)) are all `just
 code` writes on the VM, and only when they would change. A
-repository named `.claude-on-proxmox` would land on the same path; `just code` refuses to open that
+repository named `.agent-warehouse` would land on the same path; `just code` refuses to open that
 name, and `github_projects` would clone it there, so leave it out of `github_projects`.
 
 ### After the first sign-in
@@ -258,7 +258,7 @@ on the VM; for one run, `ANSIBLE_ARGS='-e editor_claude_terminal=false' just cod
 `editor_files_dir` moves the workspace files to an absolute path of its own on the VM (outside
 the projects directory, each window is trusted on its own; a directory that exists keeps its
 mode). Switching off, or moving them, leaves the files written before where they were: harmless,
-and `rm -r ~/projects/.claude-on-proxmox` on the VM removes them. `vscode_user_settings_file`
+and `rm -r ~/projects/.agent-warehouse` on the VM removes them. `vscode_user_settings_file`
 points the check at another settings file: VS Code Insiders'
 `~/Library/Application Support/Code - Insiders/User/settings.json`, VSCodium's
 `~/.config/VSCodium/User/settings.json`, or, for a VS Code on Windows driven from WSL,
@@ -321,7 +321,7 @@ own, `just destroy` saves here before it deletes the VM
 ([Its Claude Code sessions](destroy.md#its-claude-code-sessions)).
 
 A copy continued on the VM is never overwritten. `just code` records the digest of each copy it writes
-(`~/projects/.claude-on-proxmox/claude-sessions/manifest.json`) and replaces a copy only while it is
+(`~/projects/.agent-warehouse/claude-sessions/manifest.json`) and replaces a copy only while it is
 still exactly that; the run names the sessions it left as they are, and those that changed both there
 and here since. So is a copy a `claude` on the VM has open, which would take that `claude`'s next lines
 onto what replaced it, and a session in two folders here, which `claude --resume <id>` could resume from
@@ -389,7 +389,7 @@ it, or a reload - a page about the VM opens beside the Claude terminal, as a ren
   and `--editor` on the `just code` lines after a run whose `--editor` was not the `editor` setting's, so they
   reopen the window of the editor that run used), and **When something is off**.
 
-`just code` writes it as `alpha-session.md` in `~/projects/.claude-on-proxmox/session/` (0600, in a
+`just code` writes it as `alpha-session.md` in `~/projects/.agent-warehouse/session/` (0600, in a
 0700 directory: it names the accounts signed in there), never in a repository. The window's
 **Session notes** task runs beside the Claude terminal, never holding it up: it rewrites only the notes'
 **Signed in** section each time, in a second or two, and opens them, which usually moves the keyboard

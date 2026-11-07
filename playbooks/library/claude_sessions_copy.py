@@ -92,9 +92,9 @@ author:
 EXAMPLES = r"""
 - name: Write the copies
   claude_sessions_copy:
-    mirror: /home/dev/projects/.claude-on-proxmox/claude-sessions/mirror
+    mirror: /home/dev/projects/.agent-warehouse/claude-sessions/mirror
     dest: /home/dev/.claude
-    manifest: /home/dev/projects/.claude-on-proxmox/claude-sessions/manifest.json
+    manifest: /home/dev/projects/.agent-warehouse/claude-sessions/manifest.json
     sessions:
       - id: 0a608ad8-0c5e-4d8e-9a7e-2f6d1f0b9c11
         folder: -Users-me-homeserver
@@ -272,7 +272,7 @@ def _directory(path, created):
 
 def _write(path, data, mtime):
     """Write ``data`` to ``path`` through a file beside it, 0600, with ``mtime``."""
-    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".claude-on-proxmox-")
+    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".agent-warehouse-")
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(data)

@@ -143,7 +143,7 @@ def test_with_nothing_written_the_window_opens_whatever_files_dir_names():
 
 def test_the_paths_are_written_and_launched_as_code_yml_built_them():
     # A "//" or a "." in a setting reaches the window as it did before the plan: compared normalised, never rewritten.
-    root, fd = "/home/dev//projects", "/home/dev//projects/./.claude-on-proxmox"
+    root, fd = "/home/dev//projects", "/home/dev//projects/./.agent-warehouse"
     notes = {"notes_file": f"{fd}/session/alpha-session.md", "notes_dir": f"{fd}/session"}
     plan = registry.editor_open_plan("vscode", ROWS, given(target=root, root=root, files_dir=fd, **notes))
     assert plan["launch"][-1] == f"{fd}/projects.code-workspace"
@@ -204,7 +204,7 @@ def test_no_write_leaves_just_code_s_directory(name):
     ("path", "top", "inside"),
     [
         (f"{FD}/session", ROOT, True),
-        ("/home/dev//projects/./.claude-on-proxmox", "/home/dev/projects/", True),  # as a setting may spell them
+        ("/home/dev//projects/./.agent-warehouse", "/home/dev/projects/", True),  # as a setting may spell them
         (ROOT, ROOT, False),  # a folder is not inside itself
         (f"{ROOT}/.", ROOT, False),
         (f"{ROOT}-old/x", ROOT, False),  # a sibling whose name starts the same

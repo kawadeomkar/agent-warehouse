@@ -26,7 +26,7 @@ VM {{ vm.vmid }} on Proxmox node **{{ vm.node }}** · written by `just code` on 
 {% if code_notes_live %}
 {{ code_notes_live }}
 {% else %}
-<!-- claude-on-proxmox:live -->
+<!-- agent-warehouse:live -->
 ## Signed in
 
 {% if window_tasks %}
@@ -34,7 +34,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 {% else %}
 {{ editor_name }} does not fill this in: `just status {{ name }}` on your machine says what is signed in.
 {% endif %}
-<!-- /claude-on-proxmox:live -->
+<!-- /agent-warehouse:live -->
 {% endif %}
 
 ## At a glance

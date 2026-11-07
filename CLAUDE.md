@@ -341,9 +341,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
   [§7.6](docs/architecture/custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)
   and [In the editor](docs/architecture/security-model.md#in-the-editor) first.
-    - It writes in `<projects>/.claude-on-proxmox/`, beside the repositories and never in one: a directory inside
+    - It writes in `<projects>/.agent-warehouse/`, beside the repositories and never in one: a directory inside
       a checkout (a `.git` in any folder from the first below the projects directory down to it) is refused,
-      for every editor, before anything is written on the VM.
+      for every editor, before anything is written on the VM. Through 1.x it was `<projects>/.claude-on-proxmox/`:
+      the first run of 2.0 moves it (`mv -n`, the one command of the allowlist's that is not a read, under
+      `code_ws_dir_moves`, read from the stats before the move) and keeps only the shared helper's 1.x path, as a
+      link to the new one - never a link of the whole directory, which Zed would read its tasks file through twice.
+      Zed's 1.x marker and the notes' 1.x markers are just code's too, and written again.
     - In VS Code, never make the "Session notes" task the Claude task's `dependsOn`: VS Code then asks every
       task provider, which held Claude back 7.5 s live, and `test_code_session.py` fails on any `dependsOn`.
       The notes' bash runs its Python in the background, waits 5 s at most and ends `exit 0`; never `exec`

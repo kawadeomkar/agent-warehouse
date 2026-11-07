@@ -185,8 +185,11 @@ def test_a_vm_checkout_names_its_repository_only_by_a_github_origin():
 
 
 def test_just_code_s_own_directory_on_the_vm_is_one_definition_for_code_and_destroy():
-    assert filters.just_code_dir("/home/dev/projects/") == "/home/dev/projects/.claude-on-proxmox"
+    assert filters.just_code_dir("/home/dev/projects/") == "/home/dev/projects/.agent-warehouse"
     assert filters.just_code_dir("/home/dev/projects", "/home/dev/workspaces/") == "/home/dev/workspaces"
+    # By its 1.x name, which code.yml moves it from: the default's only, never a directory editor_files_dir names.
+    assert filters.just_code_dir_1x("/home/dev/projects/") == "/home/dev/projects/.claude-on-proxmox"
+    assert filters.just_code_dir_1x("/home/dev/projects", "/home/dev/workspaces/") == ""
     # code.yml and session_save.yml both read it through the filter, from the same setting: its name from 1.1, else
     # its name in 1.0.
     shared = "| just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true)))"
@@ -754,7 +757,7 @@ def test_the_projects_on_the_vm_are_its_checkouts_with_their_origins(tmp_path, p
     projects = tmp_path / "projects"
     _repository(projects / "demo", "https://github.com/octo/demo.git")
     _repository(projects / "local", "")
-    (projects / ".claude-on-proxmox").mkdir()
+    (projects / ".agent-warehouse").mkdir()
     (projects / "plain").mkdir()
     result = run_main(checkouts.main, {"under": str(projects)})
     assert [(item["name"], item["origin"]) for item in result["checkouts"]] == [

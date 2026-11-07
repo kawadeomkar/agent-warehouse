@@ -524,7 +524,7 @@ FILES_CASES = {
     "both": ({"editor_files_dir": "/srv/new", "vscode_workspaces_dir": "/srv/old"}, "/srv/new"),
     "the new one empty": (
         {"editor_files_dir": "", "vscode_workspaces_dir": "/srv/old"},
-        "/home/dev/projects/.claude-on-proxmox",
+        "/home/dev/projects/.agent-warehouse",
     ),
 }
 # The window step runs on a PATH of its own: stand-ins for `which` and `code`
@@ -572,6 +572,13 @@ CHECKOUT = [
     "Refuse just code's own directory inside a checkout",
 ]
 OWN_DIR = ["Look for just code's own directory on the VM", "Make just code's own directory on the VM"]
+# The move of just code's directory from its 1.x name, which only a case that gives that name runs.
+MOVE_1X = [
+    "Look for just code's directory by its 1.x name on the VM",
+    "Move just code's directory to its name from 2.0 on the VM",
+    "Make the shared helper's 1.x directory on the VM",
+    "Keep the shared helper's 1.x path as a link to its new one on the VM",
+]
 NOTES_WRITTEN = [
     "Read the session notes already on the VM",
     "Make the directory for the session notes on the VM",
@@ -619,17 +626,17 @@ REFUSED = {
 OPENED = {
     "code_target": "/home/dev/projects",
     "code_root": "/home/dev/projects",
-    "code_ws_dir": "/home/dev/projects/.claude-on-proxmox",
+    "code_ws_dir": "/home/dev/projects/.agent-warehouse",
     "code_project": "",
     "code_reach": "192.0.2.51",
-    "code_notes_dir": "/home/dev/projects/.claude-on-proxmox/session",
-    "code_notes_file": "/home/dev/projects/.claude-on-proxmox/session/alpha-session.md",
+    "code_notes_dir": "/home/dev/projects/.agent-warehouse/session",
+    "code_notes_file": "/home/dev/projects/.agent-warehouse/session/alpha-session.md",
     "claude_vm_addressed": ADDRESSED,
 }
 # The Claude task's arguments after the helper, the session notes' four and --session aside: the workspace's last task.
 ARGS = f"({WORKSPACE}).tasks.tasks[-1].args[2:10]"
 NOTES = {**OPENED, "show": WORKSPACE, "code_here": True}
-SESSION = "/home/dev/projects/.claude-on-proxmox/session"
+SESSION = "/home/dev/projects/.agent-warehouse/session"
 LATER = " VS Code was not opened; to open it later: just code alpha"
 # The check of just code's own directory: absolute, not the projects directory, not the folder opened.
 WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
@@ -1314,9 +1321,7 @@ def test_zed_opens_the_folder_through_the_alias_and_claude_is_a_task_of_it(windo
     assert 'Claude is a task there: "task: spawn" in the command palette lists Claude (just code), which runs' in said
     assert "so a second one never ends or shares the first;" in said
     assert "docs/guides/zed.md: one key, or Claude with no key." in said
-    assert (
-        "The session notes about the VM are at /home/dev/projects/.claude-on-proxmox/session/alpha-session.md." in said
-    )
+    assert "The session notes about the VM are at /home/dev/projects/.agent-warehouse/session/alpha-session.md." in said
     # The panel's agent runs on the VM too (seen on Zed 1.26.2), and Zed asks nothing about trust; trusting the
     # projects window is said by what it trusts, and a Zed that holds the task back is said by behaviour.
     assert "Claude Agent in Zed's Agent Panel runs on the VM as well" in said
@@ -1413,12 +1418,13 @@ def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
 FOREIGN_TASKS = '[{"label": "build", "command": "make"}]\n'
 
 
-def _vm_vars(vm: Path, *, files_dir=None, project="") -> dict:
-    """A window run's extra vars for the VM at vm: its projects directory, and just code's in it unless files_dir."""
+def _vm_vars(vm: Path, *, files_dir=None, project="", moves_1x=False) -> dict:
+    """A window run's extra vars for the VM at vm: its projects directory, and just code's in it unless files_dir;
+    with moves_1x, just code's directory by its 1.x name too, as code.yml's settling names it for the default."""
     projects = vm / "projects"
     (projects / project).mkdir(parents=True, exist_ok=True)
-    ws = files_dir or projects / ".claude-on-proxmox"
-    return {
+    ws = files_dir or projects / ".agent-warehouse"
+    return ({"code_ws_dir_1x": str(projects / ".claude-on-proxmox")} if moves_1x else {}) | {
         "ansible_connection": "local",
         "code_root": str(projects),
         "code_target": str(projects / project) if project else str(projects),
@@ -1448,22 +1454,37 @@ def _zed_twice(root: Path) -> dict:
 
 def _zed_foreign(root: Path) -> dict:
     vm = root / "vm"
-    (vm / "projects" / ".claude-on-proxmox" / ".zed").mkdir(parents=True)
-    (vm / "projects" / ".claude-on-proxmox" / ".zed" / "tasks.json").write_text(FOREIGN_TASKS)
+    (vm / "projects" / ".agent-warehouse" / ".zed").mkdir(parents=True)
+    (vm / "projects" / ".agent-warehouse" / ".zed" / "tasks.json").write_text(FOREIGN_TASKS)
     return _zed_written(root, "run", vm)
 
 
 def _zed_earlier(root: Path) -> dict:
     vm = root / "vm"
-    (vm / "projects" / ".claude-on-proxmox" / ".zed").mkdir(parents=True)
-    (vm / "projects" / ".claude-on-proxmox" / ".zed" / "tasks.json").write_text(MARKER_LINE + "\n[]\n")
+    (vm / "projects" / ".agent-warehouse" / ".zed").mkdir(parents=True)
+    (vm / "projects" / ".agent-warehouse" / ".zed" / "tasks.json").write_text(MARKER_LINE + "\n[]\n")
     return _zed_written(root, "run", vm)
+
+
+def _zed_on_a_1x_vm(root: Path) -> dict:
+    # just code's directory as 1.x left it: its 1.x name, a tasks file with 1.x's marker, the session copies' manifest.
+    vm = root / "vm"
+    old = vm / "projects" / ".claude-on-proxmox"
+    (old / ".zed").mkdir(parents=True)
+    (old / ".zed" / "tasks.json").write_text(editors_common.MARKER_1X + "\n[]\n")
+    (old / "claude-sessions").mkdir()
+    (old / "claude-sessions" / "manifest.json").write_text("{}\n")
+    keep = [*ZED_WRITTEN, *MOVE_1X]
+    return {
+        "first": _zed_written(root, "first", vm, keep, moves_1x=True),
+        "second": _zed_written(root, "second", vm, keep, moves_1x=True),
+    }
 
 
 def _in_a_checkout(root: Path, editor: str) -> dict:
     vm = root / "vm"
     (vm / "projects" / "repo" / ".git").mkdir(parents=True)
-    files_dir = vm / "projects" / "repo" / ".claude-on-proxmox"
+    files_dir = vm / "projects" / "repo" / ".agent-warehouse"
     if editor == "zed":
         return _zed_written(root, "run", vm, files_dir=files_dir)
     case = {"in_deploy": False, "vm_name": "alpha"}
@@ -1487,6 +1508,7 @@ ZED_WRITES = {
     ),
     "someone else's tasks file": _zed_foreign,
     "just code's earlier tasks file": _zed_earlier,
+    "a VM as 1.x left it": _zed_on_a_1x_vm,
     "zed, in a checkout": lambda root: _in_a_checkout(root, "zed"),
     "vscode, in a checkout": lambda root: _in_a_checkout(root, "vscode"),
     "a home kept in git": _home_in_git,
@@ -1503,7 +1525,7 @@ def zed_writes(tmp_path_factory):
 
 
 def _ws(run: dict) -> Path:
-    return run["vm"] / "projects" / ".claude-on-proxmox"
+    return run["vm"] / "projects" / ".agent-warehouse"
 
 
 def test_zed_s_window_writes_the_marked_task_file_and_the_shared_helper_and_a_second_run_rewrites_nothing(
@@ -1525,6 +1547,23 @@ def test_zed_s_window_writes_the_marked_task_file_and_the_shared_helper_and_a_se
     assert "lists Claude (just code), which runs claude in a terminal of its own" in said, said
     # Opening the window again changes nothing on the VM: the window's command is the one change.
     assert second["reached"] and _changed(second) == 1, second["output"]
+
+
+def test_a_vm_as_1x_left_it_has_just_code_s_directory_moved_once_and_the_shared_helper_s_1x_path_kept(zed_writes):
+    # Everything in it moves with it, the tasks file 1.x marked is just code's and written again, and the 1.x path of
+    # the shared helper, which a task of the user's own may run, is a link to the new one: the only thing left there.
+    first, second = zed_writes["a VM as 1.x left it"]["first"], zed_writes["a VM as 1.x left it"]["second"]
+    assert first["reached"] and first["rc"] == 0, first["output"]
+    old, new = first["vm"] / "projects" / ".claude-on-proxmox", _ws(first)
+    assert (new / "claude-sessions" / "manifest.json").read_text() == "{}\n"
+    assert (new / ".zed" / "tasks.json").read_text().split("\n", 1)[0] == MARKER_LINE
+    link = old / "helpers" / "claude-start.sh"
+    assert link.is_symlink() and link.resolve() == (new / "helpers" / "claude-start.sh").resolve()
+    assert [path.name for path in old.iterdir()] == ["helpers"]
+    assert [path.name for path in (old / "helpers").iterdir()] == ["claude-start.sh"]
+    # And the next run moves nothing: the window's command is its one change.
+    assert second["reached"] and _changed(second) == 1, _what_changed(second)
+    assert link.is_symlink() and (new / "claude-sessions" / "manifest.json").exists()
 
 
 def test_a_one_project_window_has_the_task_written_and_says_the_projects_window_lists_it(zed_writes):
@@ -1646,7 +1685,7 @@ def test_just_code_s_directory_inside_a_checkout_is_refused_before_any_write(zed
     assert run["rc"] != 0 and not run["reached"], run["output"]
     checkout = run["vm"] / "projects" / "repo"
     said = (
-        f"{checkout}/.claude-on-proxmox, just code's own directory on alpha (editor_files_dir), is inside the checkout"
+        f"{checkout}/.agent-warehouse, just code's own directory on alpha (editor_files_dir), is inside the checkout"
         f" {checkout}: just code writes beside the repositories, never in one."
     )
     assert any(failure.startswith(said) for failure in _failures(run["output"])), _failures(run["output"])
@@ -1892,8 +1931,9 @@ COMMANDS_HERE = {
 READS_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "ansible.builtin.find", "ansible.builtin.slurp"}
 # The session handoff's readers (playbooks/library/), run here and on the VM alike: they change nothing.
 READS_EITHER = {"claude_sessions_info", "git_checkouts_info"}
-# On the VM: whether Remote Control runs, and with --session, git in the one checkout it moves.
-COMMANDS_ON_VM = {("systemctl", "is-active"), ("git", "--no-optional-locks")}
+# On the VM: whether Remote Control runs, with --session git in the one checkout it moves, and once, the move of just
+# code's directory from its 1.x name, which never replaces anything (-n).
+COMMANDS_ON_VM = {("systemctl", "is-active"), ("git", "--no-optional-locks"), ("mv", "-n")}
 WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy"}
 # What each writer runs under: VS Code's workspace and helpers with the terminal; just code's own directory
 # when anything goes into it; the notes with their own switch; the sessions' directory when there is a session to
@@ -1907,6 +1947,8 @@ WRITERS_WHEN = (
     # The editor's plan: what it writes and which of the helpers it names.
     "code_plan.vm_writes | length > 0",
     "code_helper in code_plan.helpers",
+    # The run that moves just code's directory from its 1.x name: the shared helper's 1.x path, as a link.
+    "code_ws_dir_moves | bool",
 )
 # The one command whose argv is no literal list: the window's, which the core built over the editor's command as its
 # check found it, run here.
@@ -2123,6 +2165,8 @@ def test_every_file_of_playbooks_files_is_shared_or_in_exactly_one_editor_s_list
 def test_just_code_writes_exactly_the_directory_and_the_file():
     # The allowlist must not pass by finding no writer.
     assert [t["name"] for t in _every_task() if _action(t) in WRITES_ON_VM] == [
+        "Make the shared helper's 1.x directory on the VM",
+        "Keep the shared helper's 1.x path as a link to its new one on the VM",
         "Make just code's own directory on the VM",
         "session_write | Make the directory for the sessions on the VM",
         "session_write | Write the copies the VM resumes",
@@ -2314,10 +2358,8 @@ def test_the_whole_directory_s_window_shows_the_notes_folder_and_opens_them_as_a
         {"path": SESSION, "name": "alpha · session"},
     ]
     assert workspace["settings"] == {
-        "files.exclude": {".claude-on-proxmox": True},
-        "workbench.editorAssociations": {
-            "**/.claude-on-proxmox/session/*-session.md": "vscode.markdown.preview.editor"
-        },
+        "files.exclude": {".agent-warehouse": True},
+        "workbench.editorAssociations": {"**/.agent-warehouse/session/*-session.md": "vscode.markdown.preview.editor"},
     }
     # Side by side when the window opens: the notes never hold Claude up. A
     # dependsOn made VS Code ask every task provider first, 7.5 s live.
@@ -2326,13 +2368,13 @@ def test_the_whole_directory_s_window_shows_the_notes_folder_and_opens_them_as_a
     # The helpers by path, in just code's own directory on the VM: no script text in the workspace.
     assert notes["args"] == [
         "-l",
-        "/home/dev/projects/.claude-on-proxmox/helpers/session-notes.sh",
+        "/home/dev/projects/.agent-warehouse/helpers/session-notes.sh",
         f"{SESSION}/alpha-session.md",
         "alpha",
         "claude-remote-control",
         "UTC",
     ]
-    assert claude["args"][:2] == ["-l", "/home/dev/projects/.claude-on-proxmox/helpers/claude-terminal.sh"]
+    assert claude["args"][:2] == ["-l", "/home/dev/projects/.agent-warehouse/helpers/claude-terminal.sh"]
     assert notes["presentation"] == {
         "reveal": "never",
         "focus": False,
@@ -2419,7 +2461,7 @@ def test_with_the_notes_off_the_workspace_is_as_it_was(windows, name):
     run = windows[name]
     workspace = run["shown"]
     assert workspace["folders"] == [{"path": "/home/dev/projects"}]
-    assert workspace["settings"] == {"files.exclude": {".claude-on-proxmox": True}}
+    assert workspace["settings"] == {"files.exclude": {".agent-warehouse": True}}
     shell, claude = workspace["tasks"]["tasks"]
     assert (shell["label"], claude["label"]) == ("Shell", "Claude")
     assert "dependsOn" not in claude
@@ -2430,7 +2472,7 @@ def test_with_the_notes_off_the_workspace_is_as_it_was(windows, name):
 # ---------------------------------------------------------------- the session notes' helper ---
 # Run as the "Session notes" task runs it, with stand-ins for what it reads, and
 # nothing else on PATH: never this machine's own claude, gh, tailscale or code.
-LIVE_START, LIVE_END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"
+LIVE_START, LIVE_END = "<!-- agent-warehouse:live -->", "<!-- /agent-warehouse:live -->"
 NOTES_TEXT = (
     f"# alpha\n\nVM 101\n\n{LIVE_START}\n## Signed in\n\nOpening the window fills this in.\n{LIVE_END}\n"
     "\n## At a glance\n"
@@ -2525,6 +2567,17 @@ def test_the_helper_rewrites_the_live_section_only_and_opens_the_notes(tmp_path)
     assert stat.S_IMODE(notes.stat().st_mode) == 0o600
     assert asked == [f"code -r {notes}"]
     assert took < 4, took
+
+
+def test_the_helper_finds_the_live_section_as_1x_marked_it_and_writes_it_with_2_0_s_markers(tmp_path):
+    # Notes 1.x wrote, read before just code writes them again: the section is still found, and written back marked
+    # as from 2.0, so the next run finds it by either.
+    old = NOTES_TEXT.replace("agent-warehouse:live", "claude-on-proxmox:live")
+    result, _, after, _, _ = _helper(tmp_path, text=old)
+    assert result.returncode == 0, result
+    text = after.decode()
+    assert text.count(LIVE_START) == 1 and text.count(LIVE_END) == 1 and "claude-on-proxmox:live" not in text
+    assert "| Claude Code | `dev@example.com` · claude.ai, max plan |" in _live(after)
 
 
 # The time is said in the zone of the machine just code ran on, which the VM's clock (UTC) is not; for a zone the VM's
@@ -2954,6 +3007,13 @@ def _changed(run: dict) -> int:
     return int(re.search(r"^localhost\s*:\s*ok=\d+\s+changed=(\d+)", run["output"], re.MULTILINE).group(1))
 
 
+def _what_changed(run: dict) -> str:
+    """A run's exit status, the tasks it changed and the end of its output: what an assertion on _changed says, since
+    pytest cuts a long message short."""
+    changed = re.findall(r"^TASK \[(.+?)\] \**\n(?:(?!TASK \[).*\n)*?changed: ", run["output"], re.MULTILINE)
+    return f"rc {run.get('rc')}, reached {run.get('reached')}, changed: {changed}\n...{run['output'][-1500:]}"
+
+
 def _sync_twice(root: Path) -> dict:
     world = _world(root)
     return {"world": world, "first": _handoff(world, "first"), "second": _handoff(world, "second")}
@@ -3003,7 +3063,7 @@ def _untracked(path: Path) -> None:
 
 def _no_mirror(world: dict) -> None:
     # Where rsync sends the sessions, a file: it fails, as one missing on either machine does.
-    sessions = world["vm"] / "projects" / ".claude-on-proxmox" / "claude-sessions"
+    sessions = world["vm"] / "projects" / ".agent-warehouse" / "claude-sessions"
     sessions.mkdir(parents=True)
     (sessions / "mirror").write_text("in the way\n")
 
@@ -3163,7 +3223,7 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     world, run = handoffs["sync"]["world"], handoffs["sync"]["first"]
     assert run["reached"] and run["rc"] == 0, run["output"]
     # just code's own directory, made before the sessions' 0700 one inside it, is 0755, not that one's mode.
-    assert stat.S_IMODE((world["vm"] / "projects" / ".claude-on-proxmox").stat().st_mode) == 0o755
+    assert stat.S_IMODE((world["vm"] / "projects" / ".agent-warehouse").stat().st_mode) == 0o755
     folder = world["folder"].name
     copies = world["vm"] / ".claude" / "projects"
     # The session of the VM's repository, under the folder it has here; not the other repository's, nor the stub.
@@ -3180,7 +3240,7 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     assert sorted(path.name for path in (copies / folder / SESSION_ID).iterdir()) == ["tool-results"]
     assert int(copied.stat().st_mtime) == int((world["folder"] / f"{SESSION_ID}.jsonl").stat().st_mtime)
     assert stat.S_IMODE(copied.stat().st_mode) == 0o600
-    assert stat.S_IMODE((world["vm"] / "projects" / ".claude-on-proxmox" / "claude-sessions").stat().st_mode) == 0o700
+    assert stat.S_IMODE((world["vm"] / "projects" / ".agent-warehouse" / "claude-sessions").stat().st_mode) == 0o700
     assert run["opened"].endswith(
         "1 of this machine's Claude Code sessions of the last 30 days, of octo/demo, is on alpha (1 copied now): in"
         " claude there, /resume and then Ctrl+A lists them. claude_sessions_sync: false turns the copying off."
@@ -3200,7 +3260,7 @@ def test_with_the_sync_off_nothing_is_read_or_copied(handoffs):
     world, run = handoffs["off"]["world"], handoffs["off"]["off"]
     assert run["reached"] and run["rc"] == 0, run["output"]
     assert not (world["vm"] / ".claude").exists()
-    assert not (world["vm"] / "projects" / ".claude-on-proxmox" / "claude-sessions").exists()
+    assert not (world["vm"] / "projects" / ".agent-warehouse" / "claude-sessions").exists()
     assert "copied" not in run["opened"] and "vscode_claude_sessions" not in run["opened"]
 
 

@@ -151,7 +151,7 @@ def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed
     zed_opened.assert_drawn_and_gone()
     projects = zed_opened.world["vm"] / "projects"
     assert zed_opened.code == [f"zed ssh://alpha{projects}"], zed_opened.code
-    tasks = projects / ".claude-on-proxmox" / ".zed" / "tasks.json"
+    tasks = projects / ".agent-warehouse" / ".zed" / "tasks.json"
     assert tasks.read_text().startswith(tcs.MARKER_LINE + "\n"), tasks.read_text()
 
 

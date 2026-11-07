@@ -184,7 +184,7 @@ user's choice. What was decided, and why:
   `vscode_windows` 1.0 promised; and the shared helper (`claude-start.sh`) and the ownership marker - the first
   line of every file in JSON with comments that `just code` writes for an editor to read from 1.1 on, a tasks or
   settings file (`.zed/tasks.json` today, any other editor's later),
-  `// Written by just code (claude-on-proxmox); edits here are overwritten.`, without which such a file there is
+  `// Written by just code (agent-warehouse); edits here are overwritten.`, without which such a file there is
   someone else's and left as it is - are any editor's, never one editor's names. The helpers and the notes, a
   script and a page, carry no marker: they are `just code`'s by where they live, its helpers' and its notes'
   directories.

@@ -14,7 +14,9 @@ from .model import Editor, OpenInputs, Probe, vm_path
 HELPERS: Final = "helpers"
 # The first line of every file in JSON with comments just code writes for an editor to read: one there without it is
 # someone else's, and left as it is. Written on VMs, so it stays (tests/unit/test_persisted_names.py).
-MARKER: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."
+MARKER: Final = "// Written by just code (agent-warehouse); edits here are overwritten."
+# The same, as 1.x wrote it: a file that starts with it is just code's too, and is written again with MARKER.
+MARKER_1X: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."
 # The folders of just code's directory that YAML writes itself, the session copies and the notes: never a plan's.
 KEPT: Final = ("claude-sessions", "session")
 # What a helper's path may hold to be handed to an editor's task as it is, an argument no editor quotes for a shell.

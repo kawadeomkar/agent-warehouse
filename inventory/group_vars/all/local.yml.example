@@ -159,7 +159,7 @@
 # editor_claude_terminal: true
 # Where those files go on the VM, as an absolute path of its own, never inside
 # a repository: just code refuses one in a checkout of vm_projects_dir. Empty:
-# .claude-on-proxmox in vm_projects_dir. A directory that already exists keeps
+# .agent-warehouse in vm_projects_dir. A directory that already exists keeps
 # its mode; files written before a move stay where they were.
 # editor_files_dir: ""
 # A page about the VM - addresses, what is signed in, the just commands - that

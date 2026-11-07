@@ -28,10 +28,10 @@ from Zed's command palette (**cli: install** in earlier versions); on Linux, Zed
 there, or `zeditor` on some distributions, which `just code` takes too.
 
 Nothing of VS Code's is written for Zed - no workspace file, none of its helpers. For Zed, `just code` writes
-two files, in its own directory on the VM: `.claude-on-proxmox/.zed/tasks.json`, the **Claude (just code)** task
-(below), and `.claude-on-proxmox/helpers/claude-start.sh`, the helper that task runs. Never a repository's
+two files, in its own directory on the VM: `.agent-warehouse/.zed/tasks.json`, the **Claude (just code)** task
+(below), and `.agent-warehouse/helpers/claude-start.sh`, the helper that task runs. Never a repository's
 `.zed/`, and never your own Zed settings, keymap, tasks or trust. The tasks file starts with the line
-`// Written by just code (claude-on-proxmox); edits here are overwritten.`, which Zed reads as a comment: a
+`// Written by just code (agent-warehouse); edits here are overwritten.`, which Zed reads as a comment: a
 `tasks.json` there without it is not `just code`'s, and is left as it is, which `just code` says. And `just code`
 refuses to write at all when its directory (`editor_files_dir`) is inside a checkout - a folder below the
 projects directory with a `.git` - for Zed and VS Code alike: it writes beside the repositories, never in one.
@@ -49,12 +49,12 @@ VM.
 | `editor_files_dir` | Where just code keeps its own files on the VM - the notes, the copied sessions - as for VS Code. The task and its helper are written only where it is inside the projects directory, the folder of the window that lists the task. |
 | `claude_sessions_sync` | As for VS Code: this machine's recent sessions copied to the VM, for `/resume` there. |
 
-Zed shows just code's own directory - `.claude-on-proxmox/` in the projects directory, the copied sessions' mirror
+Zed shows just code's own directory - `.agent-warehouse/` in the projects directory, the copied sessions' mirror
 in it - in its project panel and search, which VS Code's window hides. Its transcripts hold whatever their tools
 printed. To keep them out of Zed's file finder, search and its own AI features, add
-`"file_scan_exclusions": ["**/.claude-on-proxmox/claude-sessions"]` (beside Zed's own defaults) to your Zed
+`"file_scan_exclusions": ["**/.agent-warehouse/claude-sessions"]` (beside Zed's own defaults) to your Zed
 settings; this project writes none of them for you. Exclude `claude-sessions/` alone: excluding the whole of
-`.claude-on-proxmox` would hide the Claude task and its helper from Zed too.
+`.agent-warehouse` would hide the Claude task and its helper from Zed too.
 
 ## The Claude task
 
@@ -67,7 +67,7 @@ running. In it, the helper runs `claude --continue`, picking the folder's last c
 the folder open, so two never share one conversation. The tab's Rerun button restarts that tab's Claude: that is
 Zed's, whatever a task says (all seen on Zed 1.26.2).
 
-Zed lists the task from `.claude-on-proxmox/.zed/tasks.json`, inside the projects directory's window, so a
+Zed lists the task from `.agent-warehouse/.zed/tasks.json`, inside the projects directory's window, so a
 one-project window (`--project`) does not list it: there, open a terminal - the terminal panel - and run
 `claude`, or use a task of your own (below). In the projects directory's window, **task: spawn** lists your
 repositories' own `.zed/` tasks beside it, but not their `.vscode/tasks.json`: Zed leaves those out of a window
@@ -94,7 +94,7 @@ own `~/.config/zed/tasks.json`, merged into its list:
 ```json
 {
   "label": "Claude on the VM",
-  "command": "[ -f \"$HOME/projects/.claude-on-proxmox/helpers/claude-start.sh\" ] && bash \"$HOME/projects/.claude-on-proxmox/helpers/claude-start.sh\"",
+  "command": "[ -f \"$HOME/projects/.agent-warehouse/helpers/claude-start.sh\" ] && bash \"$HOME/projects/.agent-warehouse/helpers/claude-start.sh\"",
   "tags": ["your-own-tag"],
   "allow_concurrent_runs": true,
   "use_new_terminal": true
@@ -126,7 +126,7 @@ guarded command to your Zed settings, merged into an `"agent"` object you may ha
 
 ```json
 "agent": {
-  "terminal_init_command": "[ -f \"$HOME/projects/.claude-on-proxmox/helpers/claude-start.sh\" ] && bash \"$HOME/projects/.claude-on-proxmox/helpers/claude-start.sh\""
+  "terminal_init_command": "[ -f \"$HOME/projects/.agent-warehouse/helpers/claude-start.sh\" ] && bash \"$HOME/projects/.agent-warehouse/helpers/claude-start.sh\""
 }
 ```
 
@@ -191,13 +191,13 @@ the browser - and the higher inotify limit Zed's file watcher wants. It keeps VS
 
 ## Session notes
 
-The notes are written as for VS Code, at `<projects>/.claude-on-proxmox/session/<vm>-session.md`, and
+The notes are written as for VS Code, at `<projects>/.agent-warehouse/session/<vm>-session.md`, and
 `just code` says where, worded for Zed. After `just code alpha --editor zed` with the `editor` setting at VS Code,
 their `just code` lines say `just code alpha --editor zed`, which opens this window again; the bare line opens
 VS Code's. Zed does not open them with the window the first time: its command takes
 one `ssh://` path (Zed 1.26.2 refuses a second), and a second command would race the window the first is still
 connecting. Open them once, in the window of the whole projects directory, from the project panel under
-`.claude-on-proxmox/session/`: Zed reopens the tab with that window from then on, as it does any tab left open
+`.agent-warehouse/session/`: Zed reopens the tab with that window from then on, as it does any tab left open
 (seen on Zed 1.26.2). Nor can Zed refresh their **Signed in** section from the VM as the window opens, so that
 section says to run `just status <vm>` on your machine instead.
 

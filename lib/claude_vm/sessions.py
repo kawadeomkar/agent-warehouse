@@ -101,13 +101,22 @@ def projects_dir(given, home):
 
 
 def just_code_dir(projects, given=""):
-    """just code's own directory on a VM: ``given`` (editor_files_dir), else .claude-on-proxmox in ``projects``.
+    """just code's own directory on a VM: ``given`` (editor_files_dir), else .agent-warehouse in ``projects``.
 
     code.yml keeps the workspace files and the session copies' manifest there, and just destroy's
     save reads the manifest from it: one definition, so the two cannot disagree. No trailing "/".
     """
-    path = str(given or "") or f"{str(projects).rstrip('/')}/.claude-on-proxmox"
+    path = str(given or "") or f"{str(projects).rstrip('/')}/.agent-warehouse"
     return path.rstrip("/") or "/"
+
+
+def just_code_dir_1x(projects, given=""):
+    """The same directory by its 1.x name, .claude-on-proxmox in ``projects``, or "" when ``given`` names one.
+
+    code.yml moves it to just_code_dir's, once, and just destroy's save reads the manifest from it while it is the one
+    there. A directory of the user's own (editor_files_dir) has no other name.
+    """
+    return "" if str(given or "") else f"{str(projects).rstrip('/')}/.claude-on-proxmox"
 
 
 def _worktree_checkout(path):

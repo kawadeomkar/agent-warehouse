@@ -979,7 +979,7 @@ def _bare_repos(git_root: Path, specs: Iterable[str]) -> None:
 # themselves: alpha's window of its projects directory, every switch on, both editors' CLIs found - ZFS's event
 # daemon, zed, first on PATH, as on Ubuntu, which a plan never runs.
 EDITOR_ROOT = "/home/dev/projects"
-EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.claude-on-proxmox"
+EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.agent-warehouse"
 ZEDITOR, VSCODE_CLI = "/usr/local/bin/zeditor", "/usr/local/bin/code"
 EDITOR_PROBE = {"which": ["/usr/sbin/zed", ZEDITOR, VSCODE_CLI], "versions": [[ZEDITOR, "Zed 0.210.4"]]}
 

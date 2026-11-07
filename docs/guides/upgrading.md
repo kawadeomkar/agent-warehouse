@@ -32,8 +32,15 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   `just clean env` deletes a folder left under the old name too.
 - **`just init`'s git hook says agent-warehouse**; the one an earlier version installed is still known as the
   project's and replaced.
+- **just code's own directory on a VM is `<projects>/.agent-warehouse/`.** The first `just code` or `just deploy`
+  of a VM moves `<projects>/.claude-on-proxmox/` there, the session copies' manifest, the notes and the helpers with
+  it, and keeps the shared helper's 1.x path, `.claude-on-proxmox/helpers/claude-start.sh`, as a link to the new one
+  through 2.x, for a Zed task of your own; point that task at the new path when you like. A window VS Code reopens
+  from its recent list by the old workspace file's path finds nothing there: open it with `just code` again. A
+  directory you chose with `editor_files_dir` stays where it is. Zed's tasks file and the notes written by 1.x are
+  known as just code's and written again.
 - **The names a run left on your VMs and in Proxmox keep their 1.x spelling** - the ownership tag, the markers and
-  drop-ins on each VM, just code's directory there, the template's record - so that nothing deployed is stranded.
+  drop-ins on each VM, the template's record - so that nothing deployed is stranded.
 
 ## An environment and collections of the checkout's own
 
@@ -93,7 +100,8 @@ says so while one is set (`tools/check settings`), naming the new name. Rename i
   nothing: give `-e editor_claude_terminal=false` instead). The warning says so while both are set.
 - **`just settings` moves it for you.** `--value` on either name writes the new name and takes the old name's line
   out; `--reset` on either takes both out.
-- **An empty `editor_files_dir` is the default** (`.claude-on-proxmox` in the projects directory), never the old
+- **An empty `editor_files_dir` is the default** (`.agent-warehouse` in the projects directory from 2.0,
+  `.claude-on-proxmox` before), never the old
   name's value: the old name is read only while the new one is not set at all.
 
 `vscode_remote` and `vscode_user_settings_file` keep their names: the first still sets up the VM for any editor, the

@@ -674,7 +674,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   mistyped project (the projects are listed, the file among them is not), `parkbnb` for `ParkBnb`
   (suggested; only where the filesystem is case-sensitive, as on CI, since macOS's is not), a file,
   `../etc` and `..` (the playbook's own check), a VM with no projects directory,
-  an empty one, `.claude-on-proxmox` (the workspace files' own directory), a relative
+  an empty one, `.agent-warehouse` (the workspace files' own directory), a relative
   `vscode_workspaces_dir`, and one case over real SSH to an address nothing answers on. The twelve
   that `code.yml` refuses before it refreshes the alias run at once; the five it refuses after (the
   project's, the missing and the empty directory) write the shared SSH config, and run one by one beside
@@ -683,7 +683,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   config in the ephemeral directory never exists. The workspace files are read back and parsed: one
   folder, the project's path; one task, `folderOpen`, `bash -l` and a helper's path in that folder,
   the helpers written beside the files byte for byte as `playbooks/files/` has them; the whole
-  directory's hides `.claude-on-proxmox`. With VS Code settings in the ephemeral directory (never the
+  directory's hides `.agent-warehouse`. With VS Code settings in the ephemeral directory (never the
   developer's) saying nothing, `"on"` behind a commented-out `"off"`, and `"off"`, the message asks
   for trust and *Allow*, trust only, and says the terminal will not start; reopening leaves the file's
   mtime and checksum alone; `editor_claude_terminal: false` opens the bare folder and writes no file,

@@ -98,14 +98,28 @@ LINES = [
     ("roles/common/tasks/tmux.yml", 'marker: "# {mark} claude-on-proxmox: common_tmux_settings"'),
     # just code's own directory on a VM, and what is in it: the sessions' mirror and manifest, written by just code and
     # read by destroy's save; the notes; the workspace files.
-    ("lib/claude_vm/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"'),
+    ("lib/claude_vm/sessions.py", 'path = str(given or "") or f"{str(projects).rstrip(\'/\')}/.agent-warehouse"'),
+    # By its 1.x name, which code.yml moves it from and destroy's save reads the manifest from until then (2.x).
+    (
+        "lib/claude_vm/sessions.py",
+        'return "" if str(given or "") else f"{str(projects).rstrip(\'/\')}/.claude-on-proxmox"',
+    ),
+    (
+        "playbooks/code.yml",
+        "{{ code_root_given | just_code_dir_1x(editor_files_dir | default(vscode_workspaces_dir"
+        " | default('', true))) }}",
+    ),
+    ("playbooks/code.yml", 'argv: [mv, -n, "{{ code_ws_dir_1x }}", "{{ code_ws_dir }}"]'),
     ("playbooks/code.yml", 'code_session_dir: "{{ code_ws_dir }}/claude-sessions"'),
     ("playbooks/tasks/session_write.yml", 'mirror: "{{ code_session_dir }}/mirror"'),
     ("playbooks/tasks/session_write.yml", 'manifest: "{{ code_session_dir }}/manifest.json"'),
     (
         "playbooks/tasks/session_save.yml",
-        "{{ claude_vm_save_projects | just_code_dir(editor_files_dir | default(vscode_workspaces_dir"
-        " | default('', true))) }}/claude-sessions/manifest.json",
+        "else claude_vm_save_projects | just_code_dir(claude_vm_save_code_given)) }}/claude-sessions/manifest.json",
+    ),
+    (
+        "playbooks/tasks/session_save.yml",
+        'claude_vm_save_code_1x: "{{ claude_vm_save_projects | just_code_dir_1x(claude_vm_save_code_given) }}"',
     ),
     ("playbooks/code.yml", "code_notes_dir: \"{{ code_ws_dir_given ~ '/session' }}\""),
     (
@@ -124,8 +138,8 @@ LINES = [
     # Zed's tasks file in just code's directory, which Zed reads from the window's tree.
     ("lib/claude_vm/editors/zed.py", 'TASKS: Final = ".zed/tasks.json"'),
     # The helpers' directory, which every editor's helpers are in, and the shared helper, whose path is in the
-    # tasks file just code writes and in a task of the user's own (docs/guides/zed.md): <projects>/.claude-on-proxmox/
-    # helpers/claude-start.sh by default.
+    # tasks file just code writes and in a task of the user's own (docs/guides/zed.md): <projects>/.agent-warehouse/
+    # helpers/claude-start.sh by default, and through 2.x the link at its 1.x path, written where the directory moves.
     ("playbooks/code.yml", 'code_helpers_dir: "{{ code_ws_dir }}/helpers"'),
     ("playbooks/code.yml", "code_shared_helpers: [claude-start.sh]"),
     ("playbooks/code.yml", 'code_start_helper: "{{ code_helpers_dir }}/claude-start.sh"'),
@@ -136,14 +150,24 @@ LINES = [
     # (.zed/tasks.json today), by which a later run tells its own from a file that is someone else's.
     (
         "lib/claude_vm/editors/common.py",
-        'MARKER: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."',
+        'MARKER: Final = "// Written by just code (agent-warehouse); edits here are overwritten."',
     ),
-    # The notes' live section, as the template writes it and the helper finds it.
-    ("playbooks/templates/vm_session.md.j2", "<!-- claude-on-proxmox:live -->"),
-    ("playbooks/templates/vm_session.md.j2", "<!-- /claude-on-proxmox:live -->"),
+    (
+        "lib/claude_vm/editors/common.py",
+        'MARKER_1X: Final = "// Written by just code (claude-on-proxmox); edits here are overwritten."',
+    ),
+    ("lib/claude_vm/editors/zed.py", "foreign = head is not None and head not in (common.MARKER, common.MARKER_1X)"),
+    # The notes' live section, as the template writes it and the helper finds it, and as 1.x wrote it, which the helper
+    # and code.yml's carry-over read and write again with 2.0's.
+    ("playbooks/templates/vm_session.md.j2", "<!-- agent-warehouse:live -->"),
+    ("playbooks/templates/vm_session.md.j2", "<!-- /agent-warehouse:live -->"),
     (
         "playbooks/files/session_notes.py",
-        'START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
+        'START, END = "<!-- agent-warehouse:live -->", "<!-- /agent-warehouse:live -->"',
+    ),
+    (
+        "playbooks/files/session_notes.py",
+        'START_1X, END_1X = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"',
     ),
     # In Proxmox, beside the ownership tag: the mark of a VM whose Tailscale has held a login, <tag>-tailscale, and
     # of the address a VM keeps on its WireGuard network, <tag>-wg-<address>.

@@ -192,7 +192,7 @@ def _vm_sessions(home: Path, manifest_dir: Path | None = None) -> None:
     (projects / MAC_FOLDER / f"{CONTINUED}.jsonl").write_bytes(
         written + _transcript(CONTINUED, "/home/dev/projects/demo")
     )
-    manifest = (manifest_dir or home / "projects" / ".claude-on-proxmox") / "claude-sessions" / "manifest.json"
+    manifest = (manifest_dir or home / "projects" / ".agent-warehouse") / "claude-sessions" / "manifest.json"
     manifest.parent.mkdir(parents=True)
     manifest.write_text(
         json.dumps(
@@ -990,7 +990,7 @@ def test_the_save_comes_before_every_release_and_a_failed_one_keeps_the_vm():
 
 
 # Every task session_save.yml may hold, by action: where it runs, and how.
-SAVE_ON_VM = {"ansible.builtin.getent", "claude_sessions_info"}
+SAVE_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "claude_sessions_info"}
 SAVE_HERE = {"claude_sessions_fetch", "ansible.builtin.copy"}
 SAVE_ANYWHERE = {"ansible.builtin.set_fact", "ansible.builtin.assert"}
 

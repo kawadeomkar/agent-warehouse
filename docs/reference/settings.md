@@ -253,7 +253,7 @@ In VS Code, `just code` opens a workspace file that starts claude in a terminal 
 |---|---|---|
 | `editor_claude_terminal` | same as `vscode_claude_terminal` | For example `true`. |
 
-Where those files go on the VM, as an absolute path of its own, never inside a repository: just code refuses one in a checkout of vm_projects_dir. Empty: .claude-on-proxmox in vm_projects_dir. A directory that already exists keeps its mode; files written before a move stay where they were.
+Where those files go on the VM, as an absolute path of its own, never inside a repository: just code refuses one in a checkout of vm_projects_dir. Empty: .agent-warehouse in vm_projects_dir. A directory that already exists keeps its mode; files written before a move stay where they were.
 
 | Setting | Default | Notes |
 |---|---|---|

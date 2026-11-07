@@ -93,7 +93,7 @@ def plan_open(editor: Editor, inputs: OpenInputs) -> OpenPlan:
     written = inputs.task_written and bool(common.HELPER_PATH.fullmatch(helper))
     # A tasks file there is just code's only where its first line is the marker: one without it is someone else's.
     head = inputs.probe.tasks_head
-    foreign = head is not None and head != common.MARKER
+    foreign = head is not None and head not in (common.MARKER, common.MARKER_1X)
     there = written and not foreign
     listed = there and common.below(inputs.files_dir, inputs.target)
     writes: tuple[VmWrite, ...] = ()

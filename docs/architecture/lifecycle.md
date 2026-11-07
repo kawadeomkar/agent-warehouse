@@ -670,7 +670,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
    copies on, an `editor_files_dir` that is not absolute, is `/` (the whole of the VM) or is the projects
    directory (its files would sit among the repositories), and with the terminal, one that is the folder being opened
-   (`--project .claude-on-proxmox`). Each names the variable it is about.
+   (`--project .agent-warehouse`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
    with `stat` on the VM. Read-only. Unreachable, missing and not-a-folder are each their own
    message: a missing project lists what the workspace holds and, for a name that differs only in
@@ -721,7 +721,10 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace` (the `code` that `which`
    found, by its path), or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
-   `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
+   `editor_files_dir` or `<workspace>/.agent-warehouse` (`<workspace>/.claude-on-proxmox` through 1.x: the first
+   run of 2.0 moves it there before any write, the session copies' manifest, the notes and the helpers with it,
+   and keeps the shared helper's 1.x path as a link to the new one, for a task of the user's own; never a link of
+   the whole directory, whose tasks file Zed would read twice). One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,
    it opens the folder itself and writes nothing.
 9. Say what VS Code will do, from the user's VS Code settings, read and never written: looked for
@@ -806,7 +809,7 @@ file of `playbooks/files/` once, and only a helper the editor's plan names, so n
 ever sent. The one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal
 comes before the first write; and a `shell`, a writer in a `block` or a `connection` fails the test by name.
 The helpers are run against stand-ins with nothing else on PATH, never in a login shell there, which would put
-this machine's own `code` and `tailscale` back. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
+this machine's own `code` and `tailscale` back. `--project .agent-warehouse`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
 **The session notes.** In VS Code, with `editor_session_notes` (the default, with the terminal), a page about the
@@ -825,7 +828,7 @@ focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its 
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
 open and VS Code never prints the command line; it never `exec`s into Python, which would leave the notes to
 Python's fate. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
---json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
+--json` at once, 2 s each, and rewrites only the section between `<!-- agent-warehouse:live -->` and
 its closing marker, atomically, 0600, in a regular file that has them; every value is cleaned as
 `plain_text` cleans, no command it runs prints a token, and the Tailscale row carries the `ssh` command
 over the MagicDNS name, which only the VM knows. Its time is in this machine's zone, which is the user's

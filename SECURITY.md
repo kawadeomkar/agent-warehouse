@@ -142,7 +142,7 @@ restate them are not treated as vulnerabilities:
   out, matched by git origin. A transcript holds whatever its tools printed - command output, the
   contents of files, tokens - so every VM you open gets those of its repositories' sessions, in the VM
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
-  them in `just code`'s own directory there (`<projects>/.claude-on-proxmox/claude-sessions/`, 0700);
+  them in `just code`'s own directory there (`<projects>/.agent-warehouse/claude-sessions/`, 0700);
   `false` keeps them here from then on, and leaves what is on the VM already - mirror and copies - for you
   to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
   it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
