@@ -43,7 +43,7 @@ def everything() -> list[str]:
     return _collected()
 
 
-@pytest.mark.parametrize("count", [2, 3, 4])
+@pytest.mark.parametrize("count", [2, 3, 6])
 def test_the_shards_run_every_test_exactly_once(everything, count) -> None:
     shards = [_collected("--shard", f"{index}/{count}") for index in range(1, count + 1)]
     assert all(shards), [len(shard) for shard in shards]

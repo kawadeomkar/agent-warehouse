@@ -17,8 +17,9 @@ no test reads back from, inventories nothing writes - which join nothing. And `t
 and, run first, would see none and rebuild the fixtures test by test. Grouped by module until 2026-11, a shard's
 last minutes were one worker's: `test_claude_login.py` alone held one for 500 s. Plain `pytest` runs one test at a
 time, for one test or one file. `just test unit --shard <i>/<n>` runs one of n shards, each group whole in one,
-balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs four, `CI result` fails unless all
-four passed, and `test_shards.py` holds that the shards together collect every test exactly once.
+balanced by `tests/unit/durations.json` (`tools/unit_durations.py`, from each shard's report as CI runs them); CI
+runs six, `CI result` fails unless all six passed, and `test_shards.py` holds that the shards together collect
+every test exactly once.
 Every child a test signals or types Ctrl-C at starts with SIGINT,
 SIGQUIT and SIGHUP at their defaults (`harness._default_signals`), since a suite started with `&` or under
 nohup has them ignored; and a pseudo-terminal's reader reads to its end after the run exits
@@ -229,7 +230,7 @@ pytest over `tests/unit/`, file by file:
   always()`, and no job of the gate may `continue-on-error`; its script, run as GitHub runs it, passes a
   success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
   digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
-- **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and four
+- **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and six
   shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
   name an `EACH_WORKER` lists a module-scoped fixture of its own module.
 - **Remote Control** (`test_remote_control_playbooks.py`): `claude_login.yml` and `remote_control.yml`
