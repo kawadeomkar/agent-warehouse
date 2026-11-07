@@ -708,7 +708,9 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   VM absorbed every refusal and the second's first poll succeeded, so a fleet never exercised the
   wait loop more than once. A test that is not about the wait turns it off
   (`PUT /api2/json/fake/agent-ready-after?polls=0`): `test_destroy_live.py`, whose two whole runs it
-  saved ten seconds each.
+  saved ten seconds each. The `provision` scenario keeps the refusals and polls every 0.2 s instead
+  (`verify_agent_delay`, and `claude_vm_release_agent_delay` passed to each `destroy.yml` run, whose
+  play sets it to 5): 34 s of its time had been the clock's.
 - `agent_interfaces()` always reports `lo`, a `docker0` bridge the role must ignore, and the VM's own
   `eth0` — which is what makes the "address came from the right NIC" assertion meaningful.
 - 401 replies have an empty body, as the real API does.

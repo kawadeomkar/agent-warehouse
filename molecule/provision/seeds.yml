@@ -131,8 +131,8 @@
         status_code: [200, 500]
       register: verify_seed_agent
       until: verify_seed_agent.status == 200
-      retries: 5
-      delay: 1
+      retries: 25
+      delay: "{{ verify_agent_delay }}"
       loop: "{{ verify_seeds | selectattr('start', 'defined') | list }}"
       loop_control:
         loop_var: verify_seed

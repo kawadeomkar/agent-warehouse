@@ -566,8 +566,8 @@
         status_code: [200, 500]
       register: verify_solo_agent
       until: verify_solo_agent.status == 200
-      retries: 5
-      delay: 1
+      retries: 25
+      delay: "{{ verify_agent_delay }}"
 
     - name: Assert a deploy for two VMs opened neither, and one without the alias said why
       vars:
@@ -648,7 +648,8 @@
 
     - name: Run destroy.yml where it must refuse
       ansible.builtin.command:
-        argv: "{{ verify_playbook_cmd + ['--extra-vars', verify_case.vars | to_json, playbook_dir ~ '/../../playbooks/destroy.yml'] }}"
+        argv: "{{ verify_playbook_cmd + ['--extra-vars', verify_case.vars | combine(verify_destroy_vars) | to_json,
+                          playbook_dir ~ '/../../playbooks/destroy.yml'] }}"
       environment: "{{ verify_playbook_env }}"
       register: verify_refused_destroys
       changed_when: false
@@ -720,7 +721,8 @@
     # again.
     - name: Run destroy.yml where it must delete
       ansible.builtin.command:
-        argv: "{{ verify_playbook_cmd + ['--extra-vars', verify_case | to_json, playbook_dir ~ '/../../playbooks/destroy.yml'] }}"
+        argv: "{{ verify_playbook_cmd + ['--extra-vars', verify_case | combine(verify_destroy_vars) | to_json,
+                          playbook_dir ~ '/../../playbooks/destroy.yml'] }}"
       environment: "{{ verify_playbook_env }}"
       register: verify_destroys
       changed_when: false
