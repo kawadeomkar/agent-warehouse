@@ -35,7 +35,10 @@ VALUES = [
     ("roles/proxmox_vm/vars/main.yml", "proxmox_vm_tailscale_tag", "{{ proxmox_vm_sent_tags[0] }}-tailscale"),
     ("roles/tailscale/defaults/main.yml", "tailscale_joined_tag", "claude-on-proxmox-tailscale"),
     # On the Proxmox host: where the template's image is built.
-    ("roles/proxmox_template/defaults/main.yml", "proxmox_template_image_dir", "/var/lib/vz/claude-on-proxmox"),
+    ("roles/proxmox_template/defaults/main.yml", "proxmox_template_image_dir", "/var/lib/vz/agent-warehouse"),
+    # And by its 1.x name, which the build moves it from (2.x), beside the default it moves to.
+    ("roles/proxmox_template/vars/main.yml", "proxmox_template_image_dir_1x", "/var/lib/vz/claude-on-proxmox"),
+    ("roles/proxmox_template/vars/main.yml", "proxmox_template_image_dir_default", "/var/lib/vz/agent-warehouse"),
     # On a VM: the roles' markers and drop-ins.
     ("roles/tailscale/defaults/main.yml", "tailscale_marker_dir", "/var/lib/claude-on-proxmox"),
     (
@@ -185,7 +188,8 @@ LINES = [
     ("roles/wireguard/vars/main.yml", "wireguard_network_path: /etc/systemd/network/50-claude-wg.network"),
     ("roles/wireguard/vars/main.yml", "wireguard_marker_installed: installed wireguard-tools"),
     # On the Proxmox host: the record of the template's build in its notes.
-    ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
+    ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by agent-warehouse:"'),
+    ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD_1X = "Built by claude-on-proxmox:"'),
     # On this machine: the managed SSH config's blocks, written with 2.0's markers, read with either, and the 1.x
     # markers of a moved file rewritten; the checkout's own folder by both names; the git hook's text, both known.
     ("playbooks/tasks/ssh_config.yml", 'marker: "# {mark} agent-warehouse: {{ claude_ssh_vm.name }}"'),

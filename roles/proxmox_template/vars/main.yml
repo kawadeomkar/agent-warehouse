@@ -8,6 +8,12 @@
 # virt-customize step, a package the role adds - and every template built before is rebuilt by the next just deploy.
 proxmox_template_build: 1
 
+# The image directory's default, and its name through 1.x, which the build
+# moves it from, so the pristine download is not fetched again. A directory the
+# user set has no other name.
+proxmox_template_image_dir_default: /var/lib/vz/agent-warehouse
+proxmox_template_image_dir_1x: /var/lib/vz/claude-on-proxmox
+
 # The qm settings the role gives every template, which no setting changes.
 proxmox_template_scsihw: virtio-scsi-pci
 proxmox_template_serial0: socket

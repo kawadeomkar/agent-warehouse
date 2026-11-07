@@ -14,7 +14,8 @@ ran to `qm create` - after the download and `virt-customize` - and died there wi
 `VM 9000 already exists on node 'pve2'`.
 
 1. Download Ubuntu Noble's minimal cloud image, checksummed against Ubuntu's published `SHA256SUMS`, into
-   `proxmox_template_image_dir` (`/var/lib/vz/claude-on-proxmox`, created `0755`). Not a content
+   `proxmox_template_image_dir` (`/var/lib/vz/agent-warehouse`, created `0755`; the build first moves
+   `/var/lib/vz/claude-on-proxmox`, its 1.x name, there, so the download is not fetched again). Not a content
    directory of the `local` storage: under `template/iso` Proxmox listed the image as an ISO. The
    minimal image has 288 packages to the server image's 426: no multipathd, fwupd, ModemManager,
    udisks2, polkit or rsyslog, which a headless VM has no use for, and the same kernel package. What a

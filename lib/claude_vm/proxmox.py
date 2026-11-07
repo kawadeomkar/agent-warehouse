@@ -346,8 +346,13 @@ def proxmox_vm_drift(config, wanted):
 # what went into the disk, none of which the template's config shows. One line, so that `qm config` prints it as one,
 # found by this marker wherever it is among the notes a person may have added. A full clone copies its template's
 # notes, so each VM keeps the line too, which reads true of it as well: what it was built from.
-TEMPLATE_RECORD = "Built by claude-on-proxmox:"
-_TEMPLATE_RECORD_RE = re.compile(re.escape(TEMPLATE_RECORD) + r"\s*(.*)$")
+TEMPLATE_RECORD = "Built by agent-warehouse:"
+# The same, as 1.x's builds wrote it in the notes of every template they made: read as the record too, so that 2.0
+# rebuilds none for the record's name alone, and written as TEMPLATE_RECORD by the next build.
+TEMPLATE_RECORD_1X = "Built by claude-on-proxmox:"
+_TEMPLATE_RECORD_RE = re.compile(
+    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)$"
+)
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
 TEMPLATE_RECORD_KEYS = ("build", "image", "packages", "sha256")
@@ -372,7 +377,7 @@ def qm_config(text):
     """`qm config`'s output as the dict /nodes/<node>/qemu/<vmid>/config gives: each "key: value" line, and a line
     that is none added to the key before it. qm prints the description encoded, on one line, as the VM's config file
     keeps it - a colon, a newline and any byte outside printable ASCII as %XX (PVE::Tools::encode_text; "Built by
-    claude-on-proxmox%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
+    agent-warehouse%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
     config, key = {}, None
     for line in str(text or "").splitlines():
         match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)$", line)

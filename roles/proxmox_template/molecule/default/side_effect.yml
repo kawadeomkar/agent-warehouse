@@ -105,7 +105,7 @@
       # As Proxmox keeps a description, and the fake qm too: a colon as %3A.
       failed_when: >-
         (proxmox_template_rebuilt_conf.content | b64decode) is not search(
-          '(?m)^description: Built by claude-on-proxmox%3A build=1; image=http%3A//127.0.0.1%3A8080/noble-server-cloudimg-amd64.img;'
+          '(?m)^description: Built by agent-warehouse%3A build=1; image=http%3A//127.0.0.1%3A8080/noble-server-cloudimg-amd64.img;'
           ~ ' packages=qemu-guest-agent; sha256=[0-9a-f]{64}$')
 
 # Proxmox keeps a template a linked clone still uses. A rebuild it refuses fails with the setting that keeps the
@@ -137,7 +137,7 @@
 
     - name: Stat the customised copy the refused rebuild made
       ansible.builtin.stat:
-        path: /var/lib/vz/claude-on-proxmox/claude-on-proxmox-9000.img
+        path: /var/lib/vz/agent-warehouse/agent-warehouse-9000.img
       register: proxmox_template_refused_copy
       failed_when: proxmox_template_refused_copy.stat.exists
 

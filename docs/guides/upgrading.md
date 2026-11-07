@@ -39,8 +39,12 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   from its recent list by the old workspace file's path finds nothing there: open it with `just code` again. A
   directory you chose with `editor_files_dir` stays where it is. Zed's tasks file and the notes written by 1.x are
   known as just code's and written again.
+- **On the Proxmox host**, a template's notes say "Built by agent-warehouse:" from its next build, and one 1.x
+  built, "Built by claude-on-proxmox:", is still read as its record, so no template is rebuilt for that alone. The
+  next build moves `/var/lib/vz/claude-on-proxmox`, where the image is kept, to `/var/lib/vz/agent-warehouse`; a
+  directory you set with `proxmox_template_image_dir` stays where it is.
 - **The names a run left on your VMs and in Proxmox keep their 1.x spelling** - the ownership tag, the markers and
-  drop-ins on each VM, the template's record - so that nothing deployed is stranded.
+  drop-ins on each VM - so that nothing deployed is stranded.
 
 ## An environment and collections of the checkout's own
 
@@ -153,7 +157,8 @@ the time each poll takes, and on a running VM with no agent Proxmox spends a few
 seconds pinging the agent before it answers each one, so expect closer to nine
 minutes before the failure.
 
-The build keeps the pristine download under `/var/lib/vz/claude-on-proxmox` on the node
+The build keeps the pristine download under `/var/lib/vz/agent-warehouse` on the node (`/var/lib/vz/claude-on-proxmox`
+through 1.x, which the next build moves there)
 (`proxmox_template_image_dir`) and removes the customised copy it imports once the template is
 finished. Earlier versions kept both under `local`'s `template/iso`, where the UI lists them as
 ISO images; they are safe to delete from there once the template is built.

@@ -714,8 +714,14 @@ BUILT = {
 
 
 def test_a_template_its_settings_would_build_differs_in_nothing():
-    assert RECORD.startswith("Built by claude-on-proxmox: build=1; image=https://")
+    assert RECORD.startswith("Built by agent-warehouse: build=1; image=https://")
     assert proxmox_template_drift(BUILT, WANTED) == []
+
+
+def test_a_template_whose_record_1x_wrote_differs_in_nothing_for_that():
+    # Every template 1.x built keeps its record under 1.x's name: read as the record, so none is rebuilt for it.
+    old = RECORD.replace("Built by agent-warehouse:", "Built by claude-on-proxmox:")
+    assert old != RECORD and proxmox_template_drift({**BUILT, "description": old}, WANTED) == []
 
 
 def _qm(value) -> str:
@@ -730,7 +736,7 @@ def test_qm_config_reads_as_the_api_gives_it():
 
 
 def test_qm_config_decodes_the_description_proxmox_ve_9_2_printed():
-    # As qm config 9000 printed a template this role built, on Proxmox VE 9.2.24; the API gave it decoded.
+    # As qm config 9000 printed a template this role built through 1.x, on Proxmox VE 9.2.24; the API gave it decoded.
     line = (
         "description: Built by claude-on-proxmox%3A build=1; image=https%3A//cloud-images.ubuntu.com/minimal/releases/"
         "noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img; packages=qemu-guest-agent; sha256=3839f148c5a3"
