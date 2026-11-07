@@ -124,7 +124,7 @@
         - multipathd.socket
         - snapd.service
         - snapd.socket
-        - claude-on-proxmox-stand-in.service
+        - agent-warehouse-stand-in.service
         - qemu-guest-agent.service
       register: common_verify_units
       changed_when: false
@@ -151,8 +151,8 @@
           - common_verify_state['multipathd.socket'] is search('ActiveState=inactive')
           - common_verify_state['snapd.service'] is search('UnitFileState=enabled')
           - common_verify_state['snapd.service'] is search('ActiveState=active')
-          - common_verify_state['claude-on-proxmox-stand-in.service'] is search('UnitFileState=enabled')
-          - common_verify_state['claude-on-proxmox-stand-in.service'] is search('ActiveState=active')
+          - common_verify_state['agent-warehouse-stand-in.service'] is search('UnitFileState=enabled')
+          - common_verify_state['agent-warehouse-stand-in.service'] is search('ActiveState=active')
           - common_verify_state['qemu-guest-agent.service'] is search('ActiveState=active')
           - common_verify_absent_units.results | map(attribute='stat.exists') | select | list == []
         quiet: true

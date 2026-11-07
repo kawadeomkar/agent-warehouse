@@ -1,7 +1,7 @@
 """just deploy's live output, run: the stdout callback at a pseudo-terminal of the test's own, read back by vt.py.
 
 A stand-in deploy - deploy.yml importing playbooks named as the real ones are, so the stages are the real ones -
-runs on this machine's localhost with callback_plugins/claude_on_proxmox.py and CLAUDE_ON_PROXMOX_LIVE as the
+runs on this machine's localhost with callback_plugins/agent_warehouse.py and AGENT_WAREHOUSE_LIVE as the
 justfile sets it. What a person sees: the region drawn and never wrapped, gone at the end, the reports, the browser
 block, a prompt and a diff above it for good, the summary and NEXT STEPS after; the title and the bells. What the
 log keeps: everything the stream would have had, in order, and no colour. Without a terminal, a line per step; with
@@ -108,7 +108,7 @@ PLAYBOOKS = {
   gather_facts: false
   tasks:
     - name: Ask what this run's commands see of the live switch
-      ansible.builtin.shell: echo "[${CLAUDE_ON_PROXMOX_LIVE-}]"
+      ansible.builtin.shell: echo "[${AGENT_WAREHOUSE_LIVE-}]"
       register: inherited
       changed_when: false
       check_mode: false
@@ -299,7 +299,7 @@ def test_a_deploy_at_a_terminal_is_drawn_in_place_and_leaves_its_words_and_the_s
     # What the stream would have shown is not on the screen: the log has it.
     assert "TASK [" not in screen and "PLAY RECAP" not in screen and "ok: [" not in screen
     # The summary, then NEXT STEPS.
-    assert re.search(r"^claude-on-proxmox  deploy alpha · done in \d+ s · \d\d:\d\d$", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  deploy alpha · done in \d+ s · \d\d:\d\d$", screen, re.M), screen
     stages = re.findall(r"^ ✓ (\S+(?: \S+)?) {2,}", screen[screen.index("STAGES") :], re.M)
     assert stages == ["template", "provision", "configure", "sign in", "editor"], screen
     assert screen.index("STAGES") < screen.index("##  NEXT STEPS") and "alpha: just login alpha --only github" in screen
@@ -357,7 +357,7 @@ def test_a_resize_mid_run_leaves_no_region_on_the_screen(stand_in):
     ran = _deploy(stand_in, at=("configure", (60, 16)))
     assert ran.rc == 0, ran.text
     ran.assert_drawn_and_gone(visible_only=True)
-    assert any(line.startswith("claude-on-proxmox  deploy alpha · done") for line in ran.screen.transcript())
+    assert any(line.startswith("agent-warehouse  deploy alpha · done") for line in ran.screen.transcript())
 
 
 def test_ctrl_c_ends_the_run_with_the_region_gone_and_the_tab_saying_so(stand_in):
@@ -561,7 +561,7 @@ def test_a_rescue_the_tags_leave_out_takes_nothing(tmp_path):
 
 @pytest.mark.parametrize(
     ("args", "env"),
-    [(["-v"], {}), ([], {"CLAUDE_ON_PROXMOX_LIVE": ""}), ([], {"ANSIBLE_LOG_PATH": ""})],
+    [(["-v"], {}), ([], {"AGENT_WAREHOUSE_LIVE": ""}), ([], {"ANSIBLE_LOG_PATH": ""})],
     ids=["verbose", "no-variable", "no-log"],
 )
 def test_verbose_without_the_variable_or_without_a_log_the_run_is_streamed(stand_in, args, env):
@@ -576,7 +576,7 @@ def test_no_other_test_or_scenario_draws_a_run():
     mentions = sorted(
         str(path.relative_to(REPO))
         for path in repo_files()
-        if path.suffix != ".md" and "CLAUDE_ON_PROXMOX_LIVE" in path.read_text(errors="replace")
+        if path.suffix != ".md" and "AGENT_WAREHOUSE_LIVE" in path.read_text(errors="replace")
     )
     # The callback that hands the run to the engine, the engines that read it - a playbook's, a command's and the
     # tool that decides whether a command is drawn, and pytest's plugin, whose file it names - and the declarations
@@ -585,7 +585,7 @@ def test_no_other_test_or_scenario_draws_a_run():
     # test_justfile.py reads the title the recipe exports, from an ansible-playbook stand-in that runs nothing. No
     # scenario or config, and no other test - test_status_live.py's run is drawn by a callback of its own.
     assert mentions == [
-        "callback_plugins/claude_on_proxmox.py",
+        "callback_plugins/agent_warehouse.py",
         "justfile",
         "lib/claude_vm/ansible/engine.py",
         "lib/claude_vm/ansible/parts.py",
@@ -605,7 +605,7 @@ def test_no_other_test_or_scenario_draws_a_run():
     for line in lines:
         if line and not line.startswith((" ", "#", "[")) and ":" in line and not line.startswith(("set ", "alias ")):
             recipe = line.split()[0].rstrip(":")
-        if "CLAUDE_ON_PROXMOX_LIVE" in line:
+        if "AGENT_WAREHOUSE_LIVE" in line:
             naming.add(recipe)
     assert naming <= set(recipes.RECIPES), naming
     assert {"deploy", "login", "destroy", "code", "lint", "init", "test"} <= naming, naming
@@ -672,7 +672,7 @@ def test_a_failure_raised_again_is_drawn_under_its_cause_with_its_own_words(tmp_
     assert "✗ tailscale · alpha: Join the tailnet" in text and "tailscale up timed out" in text, text
     assert "alpha: Tailscale failed. Retry it with: just deploy alpha --tags tailscale" in text
     assert "Fail where Tailscale failed" not in ran.above_summary("deploy")
-    assert re.search(r"^claude-on-proxmox  deploy --only configure alpha · failed after \d+ s at tailscale", text, re.M)
+    assert re.search(r"^agent-warehouse  deploy --only configure alpha · failed after \d+ s at tailscale", text, re.M)
     # A report of several lines keeps them, and their indent.
     wrote = text.split("alpha  Wrote:\n", 1)[1].splitlines()[:2]
     assert wrote == [

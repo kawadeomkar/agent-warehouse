@@ -20,7 +20,7 @@ without DOCUMENTATION has no options, every hook then fails on its first
 get_option, and Ansible only warns while each task's result disappears. Only
 ansible.cfg wires this in; the tests and Molecule run their own callbacks.
 
-A recipe drawn live sets CLAUDE_ON_PROXMOX_LIVE to what it runs (deploy alpha, say), and with it, at verbosity
+A recipe drawn live sets AGENT_WAREHOUSE_LIVE to what it runs (deploy alpha, say), and with it, at verbosity
 0 and with a run log, every event goes to lib/claude_vm/ansible/engine.py, which draws the run rather than
 streaming it (docs/guides/runs.md); this module then keeps only its classic output, the blocks and NEXT STEPS, which
 the engine prints through it too. Any -v, or ANSIBLE_STDOUT_CALLBACK=default, is the stream as before.
@@ -29,14 +29,14 @@ the engine prints through it too. Any -v, or ANSIBLE_STDOUT_CALLBACK=default, is
 from __future__ import annotations
 
 DOCUMENTATION = """
-    name: claude_on_proxmox
+    name: agent_warehouse
     type: stdout
     short_description: the default output, with banners for the waits and NEXT STEPS at the end
     description:
       - The default callback, drawing debug results tagged attention_browser as a block, saying once that a
         retried task with that tag is waiting, and printing what set_stats recorded as left to do after the
         play recap.
-      - With CLAUDE_ON_PROXMOX_LIVE set, as just deploy sets it, and at verbosity 0, the run drawn live at a
+      - With AGENT_WAREHOUSE_LIVE set, as just deploy sets it, and at verbosity 0, the run drawn live at a
         terminal, or a line per step otherwise, every task's output in the log alone.
     extends_documentation_fragment:
       - default_callback
@@ -82,7 +82,7 @@ from claude_vm.run.next_steps import COLOR, NEXT_STATS, next_steps  # noqa: E402
 class CallbackModule(DefaultCallback):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = "stdout"
-    CALLBACK_NAME = "claude_on_proxmox"
+    CALLBACK_NAME = "agent_warehouse"
 
     def __init__(self):
         super().__init__()

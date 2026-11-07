@@ -47,7 +47,7 @@ in a checkout of its repository:
 
 ```bash
 cd ~/demo
-claude --resume /Users/you/claude-on-proxmox/.sessions/alpha-20261023-153000/projects/-home-dev-projects-demo/0a608ad8-1b2c-4d3e-8f90-123456789abc.jsonl
+claude --resume /Users/you/agent-warehouse/.sessions/alpha-20261023-153000/projects/-home-dev-projects-demo/0a608ad8-1b2c-4d3e-8f90-123456789abc.jsonl
 ```
 
 Given a transcript's path, Claude Code resumes it where it lies and goes on writing to that file. The

@@ -1,6 +1,6 @@
 ---
 - name: Prepare
-  hosts: claude-on-proxmox-provision
+  hosts: agent-warehouse-provision
   become: true
   tasks:
     - name: Set up the fake Proxmox API

@@ -5,7 +5,7 @@
 # The VM where Tailscale was installed by hand is switched off too, and must
 # come through untouched. verify.yml then checks the state the last step left.
 - name: Side effect on the VM the role installed
-  hosts: claude-on-proxmox-tailscale
+  hosts: agent-warehouse-tailscale
   become: true
   vars:
     tailscale_auth_key: tskey-auth-kGood0CNTRL-TestOnly000000000000000000000
@@ -40,7 +40,7 @@
           {{ (tailscale_side_effect_calls.content | b64decode).splitlines() | select('match', '^set ') | list }}
       ansible.builtin.assert:
         that:
-          - tailscale_side_effect_sets == ['set --hostname=claude-on-proxmox-tailscale']
+          - tailscale_side_effect_sets == ['set --hostname=agent-warehouse-tailscale']
           - (tailscale_side_effect_calls.content | b64decode).count('--auth-key') == 1
         fail_msg: "{{ tailscale_side_effect_calls.content | b64decode }}"
         quiet: true
@@ -210,7 +210,7 @@
         name: tailscale
 
 - name: Side effect on the VM where Tailscale was installed by hand
-  hosts: claude-on-proxmox-tailscale-byhand
+  hosts: agent-warehouse-tailscale-byhand
   become: true
   tasks:
     - name: Turn Tailscale off there

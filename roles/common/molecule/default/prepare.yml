@@ -67,7 +67,7 @@
         ListenStream=/run/snapd-stand-in.socket
         [Install]
         WantedBy=sockets.target
-      claude-on-proxmox-stand-in.service: |
+      agent-warehouse-stand-in.service: |
         [Unit]
         Description=Stand-in for a service a user adds (common scenario)
         [Service]
@@ -126,7 +126,7 @@
     - name: Leave a package in apt's download cache
       ansible.builtin.copy:
         content: "a package a first boot downloaded\n"
-        dest: /var/cache/apt/archives/claude-on-proxmox-leftover_1.0_all.deb
+        dest: /var/cache/apt/archives/agent-warehouse-leftover_1.0_all.deb
         owner: root
         group: root
         mode: "0644"

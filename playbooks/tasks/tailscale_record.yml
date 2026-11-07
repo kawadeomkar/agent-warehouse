@@ -95,7 +95,7 @@
   loop_control:
     loop_var: claude_vm_tailscale_vm_name
 
-# NEXT STEPS (callback_plugins/claude_on_proxmox.py), under a matter of its own
+# NEXT STEPS (callback_plugins/agent_warehouse.py), under a matter of its own
 # beside the role's report of the VM's Tailscale, which it neither replaces nor
 # clears.
 - name: tailscale_record | Keep what is left to do for the end of the run

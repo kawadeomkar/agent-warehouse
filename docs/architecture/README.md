@@ -1,6 +1,6 @@
 # Architecture
 
-How `claude-on-proxmox` is built and why. The rest of this wiki is the user manual, `CONTRIBUTING.md`
+How `agent-warehouse` is built and why. The rest of this wiki is the user manual, `CONTRIBUTING.md`
 the workflow, `SECURITY.md` the threat model; these pages are the technical reference behind all
 three, and the source of truth when they disagree. They keep the numbering of the single
 `ARCHITECTURE.md` they began as, which code comments cite ("`docs/architecture/roles.md`

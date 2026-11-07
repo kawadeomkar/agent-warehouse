@@ -1,6 +1,6 @@
 ---
 - name: Verify the VM the role installed and joined
-  hosts: claude-on-proxmox-tailscale
+  hosts: agent-warehouse-tailscale
   become: true
   vars:
     tailscale_verify_key: tskey-auth-kGood0CNTRL-TestOnly000000000000000000000
@@ -98,7 +98,7 @@
         quiet: true
 
 - name: Verify the VM where Tailscale was installed by hand is as it was
-  hosts: claude-on-proxmox-tailscale-byhand
+  hosts: agent-warehouse-tailscale-byhand
   become: true
   tasks:
     - name: Read what the role would have made, and the stand-in's calls and settings

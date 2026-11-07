@@ -185,7 +185,7 @@ through - and in the run log. `plain_summary` rebuilds such a summary (a frozen 
 every string through `visible_text`, so no bidi override reorders a `[WARNING]` line either; inside
 `plain_events`, a stdout callback's `_handle_warnings` and `_handle_exception` read the current result's
 summaries that way. Both stdout callbacks wrap the two methods in it, so every hook prints them plain;
-`claude_on_proxmox` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
+`agent_warehouse` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
 keeps the file's own characters. Covered by `test_attention_callback.py`, which runs a stand-in module returning escape sequences through both
 stdout callbacks, by `test_deploy_live.py`, which runs it in a live deploy, and by `test_status.py`'s
 test of the status callback's hooks.
@@ -227,7 +227,7 @@ Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_l
 callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
 `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 
-## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
+## 7.5 `callback_plugins/agent_warehouse.py` — the waits, and NEXT STEPS
 
 The stdout callback `ansible.cfg` names (`stdout_callback`, `callback_plugins`), and nothing else does: the
 unit harness runs the JSON callback with an `ansible.cfg` that holds only `inject_facts_as_vars = false`
@@ -301,7 +301,7 @@ JSON report (`_left_to_do`), in every state they already run.
 
 ### `just deploy`, drawn live
 
-`CLAUDE_ON_PROXMOX_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
+`AGENT_WAREHOUSE_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
 set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run
 to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
@@ -441,7 +441,7 @@ The filters'
 code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
 files; the filters decide from what they read, and touch no file. What the modules have in common is
-`playbooks/module_utils/claude_on_proxmox.py`'s, sent with each (§7.10): a session's ID, matched whole;
+`playbooks/module_utils/agent_warehouse.py`'s, sent with each (§7.10): a session's ID, matched whole;
 the manifest's format and its reading, and a file's digest as the manifest records it; a transcript's line
 as the object it holds; the folders directly in a folder, never through a link; a version's order; the
 user's own processes, from `/proc`; and the one rule of what is a `claude`, which `claude_sessions_info`'s
@@ -547,7 +547,7 @@ Covered by `tests/unit/test_session_handoff.py`, with real git checkouts and can
 the window step's runs in `tests/unit/test_code_session.py`, and by destroy's release play, run in
 `tests/unit/test_release.py`.
 
-## 7.7 `filter_plugins/status.py` and `callback_plugins/claude_on_proxmox_status.py` — just status
+## 7.7 `filter_plugins/status.py` and `callback_plugins/agent_warehouse_status.py` — just status
 
 **`status_fleet(listing, tagged, requested, ...)`** — the fleet `playbooks/status.yml`'s first play
 found, as data: this project's VMs with what the listing, their config and their agent said, each marked
@@ -677,7 +677,7 @@ what the callbacks, the engines, `tools/` and the filters share is `lib/claude_v
 its checkout's `lib/` first on `sys.path`, one module object however it is reached.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
-`just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s
+`just login`, `just destroy` and `just code` have: its recipe exports `AGENT_WAREHOUSE_LIVE` with its title, as `deploy`'s
 does, and its declaration in `lib/claude_vm/run/recipes.py`, named by the title's first word, says what its run is
 made of - its stages, by playbook or by play, a quiet one counted but never drawn (discovery, a last play that only
 raises), one whose hosts are not VMs (`vms=False`: the template's, on the Proxmox host), and the VMs a fact names on a
@@ -710,7 +710,7 @@ is drawn as one run, its parts in turn:
 - **A command, drawn.** Its child gets `/dev/null` for stdin, one pipe for stdout and stderr, a session of its own
   with no terminal - what would ask at `/dev/tty`, git or ssh as pre-commit fetches its hooks, fails at once and
   says so, where a process group of its own was stopped by the terminal and hung the run - and this environment
-  without `CLAUDE_ON_PROXMOX_LIVE`, the state's path or `ANSIBLE_LOG_PATH`, with `NO_COLOR`, `PYTHONUNBUFFERED` and
+  without `AGENT_WAREHOUSE_LIVE`, the state's path or `ANSIBLE_LOG_PATH`, with `NO_COLOR`, `PYTHONUNBUFFERED` and
   `PRE_COMMIT_COLOR=never`. It is one task of its stage's step (`Run.command`), on this machine, named by its
   program past `env` and its settings - a shell running a script by its step; every line it prints goes to the run's
   log through Ansible's `Display`, in the log's format and order, and the last one is drawn dim after the task. A
@@ -735,7 +735,7 @@ is drawn as one run, its parts in turn:
   task, step, report and NEXT STEPS record, each time from the run's start, so one clock runs through the parts),
   draws them done above its own, works and saves it again. It is a file in `LIVE_DIR` (`.cache/live/`: git-ignored,
   refused by `tests/check_no_local_files.sh`) named for the run's stamp and its top recipe, which the recipe exports
-  as `CLAUDE_ON_PROXMOX_LIVE_STATE`: made by the run's first part, written whole, 0600 in a 0700 directory, and
+  as `AGENT_WAREHOUSE_LIVE_STATE`: made by the run's first part, written whole, 0600 in a 0700 directory, and
   taken over only when it is of this version and this run's title; one a run that never said its end left behind is
   removed a day later - a state by its name, the pytest reader's events beside it, or a temporary of one, and
   nothing else: `LIVE_DIR` is whatever the environment names. A playbook that is a part does the same in the engine:
@@ -766,9 +766,9 @@ is drawn as one run, its parts in turn:
   syntax check is one command over every playbook, each said as it starts.
 - **`just test`** is lint, nested (`{{ self }} live_run=test lint`), then pytest and each Molecule scenario, each a
   command through `tools/live --log <name>`, which passes it through `tools/run-logged` as it was logged before. The
-  recipe exports the stages it will run (`CLAUDE_ON_PROXMOX_LIVE_STAGES`), so each is listed to come from the first
+  recipe exports the stages it will run (`AGENT_WAREHOUSE_LIVE_STAGES`), so each is listed to come from the first
   part, lint's. Two readers make the parts' tasks: **pytest**, from the events `tests/unit/live_pytest.py` writes
-  (`-p live_pytest`, which pytest finds on its `pythonpath`) to the file `CLAUDE_ON_PROXMOX_LIVE_PYTEST` names,
+  (`-p live_pytest`, which pytest finds on its `pythonpath`) to the file `AGENT_WAREHOUSE_LIVE_PYTEST` names,
   beside the run's state, 0600 in its 0700 directory and never the system's temporary one, which the end removes -
   the count once collected, from the first xdist worker's collection when there are workers, each test's start and
   end, several running at once under xdist, a test whose worker crashed ended as failed, each named by its file and
@@ -907,8 +907,8 @@ The Python that runs on this machine is moving into one package, `claude_vm`, in
 module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
 The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
 ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
-arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/claude_on_proxmox.py`,
-standard library only and no `AnsibleModule`, imported as `ansible.module_utils.claude_on_proxmox`: Ansible puts
+arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/agent_warehouse.py`,
+standard library only and no `AnsibleModule`, imported as `ansible.module_utils.agent_warehouse`: Ansible puts
 each playbook's `module_utils` folder on the path it builds that playbook's modules from, as it does its `library`
 folder, and `ansible.cfg`, the unit tests' environment (`tests/unit/harness.py`, and `conftest.py` for a module
 loaded in pytest's own process) and the `configure` scenario name it for what runs from elsewhere. ansible-lint's

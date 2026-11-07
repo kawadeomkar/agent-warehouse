@@ -163,7 +163,7 @@ def test_the_gate_is_one_run_lint_its_first_stage_and_every_stage_to_come_listed
     assert "the stand-in's deprecation" in warned and "Warn when" not in warned, warned
     assert "Missing roles requirements file" not in warned, warned
     screen = passed.transcript
-    assert re.search(r"^claude-on-proxmox  test · done in .*$", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  test · done in .*$", screen, re.M), screen
     table = passed.table("STAGES")
     assert [line.split()[1] for line in table.splitlines() if line.startswith((" ✓ ", " ✗ "))] == [
         "lint",
@@ -199,7 +199,7 @@ def test_a_test_that_fails_is_said_as_it_fails_listed_and_what_it_left_unrun_nam
     assert re.search(r"^✗ unit: test_tiny\.py::test_three\[Mars/Olympus\]$", screen, re.M), screen
     assert "the stand-in suite was asked to fail" in screen
     assert "test_tiny.py::test_three[Mars/Olympus]" in failed.table("\nFAILED\n")
-    assert re.search(r"^claude-on-proxmox  test unit provision · failed after .* at unit", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  test unit provision · failed after .* at unit", screen, re.M), screen
     # bash -e ends the run at the failed part: the stage it never reached is named.
     assert re.search(r"^ not run  provision$", screen, re.M), screen
 
@@ -274,7 +274,7 @@ def test_the_molecule_reader_knows_the_lines_molecule_s_own_logger_writes(monkey
     monkeypatch.setenv("NO_COLOR", "1")
     written = io.StringIO()
     monkeypatch.setattr(molecule_logger, "original_stderr", written)
-    log = logging.getLogger("claude_on_proxmox.test_test_live.molecule")
+    log = logging.getLogger("agent_warehouse.test_test_live.molecule")
     handler = molecule_logger.MoleculeConsoleHandler()
     handler.setFormatter(logging.Formatter("%(message)s"))
     monkeypatch.setattr(log, "handlers", [handler])
@@ -320,7 +320,7 @@ def test_a_test_whose_worker_crashed_ends_failed(tmp_path):
         " longrepr=\"worker 'gw0' crashed while running 'tests/unit/test_x.py::test_crash'\", when='???'))\n"
     )
     environment = {name: value for name, value in os.environ.items() if not name.startswith("CLAUDE_ON_")}
-    environment.update(CLAUDE_ON_PROXMOX_LIVE_PYTEST=str(events), PYTHONPATH=str(REPO / "tests" / "unit"))
+    environment.update(AGENT_WAREHOUSE_LIVE_PYTEST=str(events), PYTHONPATH=str(REPO / "tests" / "unit"))
     subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=environment, check=True, timeout=60)
     said = [json.loads(line) for line in events.read_text().splitlines()]
     assert said[-1]["end"] == "tests/unit/test_x.py::test_crash" and said[-1]["outcome"] == "failed", said
@@ -339,7 +339,7 @@ def test_the_plugin_writes_nothing_without_its_file_and_each_event_with_it(tmp_p
         return subprocess.run(argv, cwd=REPO, env={**environment, **env}, capture_output=True, text=True, check=False)
 
     assert pytest_run().returncode == 1 and not events.exists()
-    assert pytest_run(CLAUDE_ON_PROXMOX_LIVE_PYTEST=str(events)).returncode == 1
+    assert pytest_run(AGENT_WAREHOUSE_LIVE_PYTEST=str(events)).returncode == 1
     said = [json.loads(line) for line in events.read_text().splitlines()]
     assert said[0] == {"count": 3}
     assert len([event for event in said if "start" in event]) == 3

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """Read what a VM is running and what waits on it - its OS, kernel, load, memory, upgrades - changing nothing."""
 
@@ -63,7 +63,7 @@ options:
         elements: str
         default: []
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""
@@ -142,8 +142,8 @@ import re
 import subprocess
 import threading
 
+from ansible.module_utils.agent_warehouse import is_claude, own_processes, version_key
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.claude_on_proxmox import is_claude, own_processes, version_key
 
 APT_GET = "/usr/bin/apt-get"
 INST = re.compile(r"^Inst (\S+) .*\(([^)]*)\)")

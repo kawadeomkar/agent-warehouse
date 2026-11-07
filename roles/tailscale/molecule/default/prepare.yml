@@ -19,7 +19,7 @@
         mode: "0755"
 
 - name: Install and sign in Tailscale by hand on one VM, as its user might
-  hosts: claude-on-proxmox-tailscale-byhand
+  hosts: agent-warehouse-tailscale-byhand
   become: true
   tasks:
     - name: Add Tailscale's repository the way its instructions do

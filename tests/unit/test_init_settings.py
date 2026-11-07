@@ -579,7 +579,7 @@ def test_the_secret_given_in_the_environment_is_written_and_never_said(tmp_path:
     files = _files(tmp_path)
     given = {"host": "pve.lan", "github_user": "octocat"}
     log = tmp_path / "run.log"
-    env = {"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET.upper(), "ANSIBLE_LOG_PATH": str(log), "ANSIBLE_LOG_VERBOSITY": "3"}
+    env = {"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET.upper(), "ANSIBLE_LOG_PATH": str(log), "ANSIBLE_LOG_VERBOSITY": "3"}
     report = _init(tmp_path, files, {"init_given": given}, "-e", '{"ansible_inject_invocation": true}', env=env)
     assert report["rc"] == 0, _failures(report)
     assert SECRET_LINE in _decrypt(files)
@@ -590,7 +590,7 @@ def test_the_secret_given_in_the_environment_is_written_and_never_said(tmp_path:
 def test_the_secret_given_two_ways_is_refused(tmp_path: Path) -> None:
     files = _files(tmp_path)
     given = {"token_secret_file": str(_secret_file(tmp_path))}
-    report = _init(tmp_path, files, {"init_given": given}, env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    report = _init(tmp_path, files, {"init_given": given}, env={"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET})
     assert report["rc"] != 0
     assert "give it one way" in "\n".join(_failures(report).values())
 
@@ -689,7 +689,7 @@ def test_prompt_no_with_values_given_and_one_missing_fails(tmp_path: Path) -> No
     files = _files(tmp_path)
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [], {"init_given": {"host": "pve.lan"}}, ask=False)
     assert rc != 0
-    assert "the API token secret (--token-secret-file or CLAUDE_ON_PROXMOX_TOKEN_SECRET)" in output
+    assert "the API token secret (--token-secret-file or AGENT_WAREHOUSE_TOKEN_SECRET)" in output
 
 
 def test_a_broken_value_given_last_leaves_every_file_as_it_was(tmp_path: Path) -> None:
@@ -771,7 +771,7 @@ def test_y_sets_up_the_access_and_the_vault_takes_the_tokens_secret(tmp_path: Pa
     rc, output, log = _init_at_a_terminal(tmp_path, files, steps, {"ansible_inject_invocation": True}, env=env)
     assert rc == 0, output
     # The question showed what the script would run, and it ran that.
-    assert "pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox" in output
+    assert "pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse" in output
     state = _pve_cli_state(host)
     assert state["roles"]["AnsibleVM"] == ROLE and state["tokens"]["ansible@pve!ansible"]["privsep"] == 0
     assert len(_pve_cli_writes(host)) == 6

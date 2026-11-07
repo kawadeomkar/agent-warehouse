@@ -424,7 +424,7 @@ def test_a_copy_with_no_git_of_its_own_inside_another_work_tree_runs(tmp_path: P
     # A release archive unpacked in a home directory that is a git repository: git takes the copy for that
     # tree's, from where just was started and from the justfile's directory alike.
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=_env())
-    copy = tmp_path / "claude-on-proxmox"
+    copy = tmp_path / "agent-warehouse"
     copy.mkdir()
     result = subprocess.run(
         [str(REPO / "tools" / "check"), "checkout", str(copy)],
@@ -731,9 +731,9 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
     ],
 )
 def test_each_recipe_drawn_live_is_drawn_under_what_was_run(tmp_path: Path, args: list[str], title: str) -> None:
-    # The live output's switch and its title (callback_plugins/claude_on_proxmox.py), as the playbook sees it.
+    # The live output's switch and its title (callback_plugins/agent_warehouse.py), as the playbook sees it.
     seen = tmp_path / "live"
-    body = f'printf "%s\\n" "${{CLAUDE_ON_PROXMOX_LIVE-unset}}" > "{seen}"'
+    body = f'printf "%s\\n" "${{AGENT_WAREHOUSE_LIVE-unset}}" > "{seen}"'
     result = _just(*args, settings=_recording(tmp_path, body))
     assert result.returncode == 0, _output(result)
     assert seen.read_text() == f"{title}\n"
@@ -1882,7 +1882,7 @@ def test_tailscale_is_on_or_off(tmp_path: Path) -> None:
     "args",
     [
         pytest.param([f"TOKEN_SECRET={SECRET}"], id="make-s-spelling"),
-        pytest.param([f"CLAUDE_ON_PROXMOX_TOKEN_SECRET={SECRET}"], id="the-variable"),
+        pytest.param([f"AGENT_WAREHOUSE_TOKEN_SECRET={SECRET}"], id="the-variable"),
         pytest.param(["--host", "pve.lan", SECRET], id="a-bare-word"),
         pytest.param(["--token-secret", SECRET], id="an-option"),
         pytest.param([f"--token-secret={SECRET}"], id="an-option-with-its-value"),
@@ -1896,18 +1896,18 @@ def test_the_token_secret_is_refused_on_the_command_line_and_never_said(tmp_path
 
 
 def test_the_token_secret_as_a_setting_is_refused_and_never_said(tmp_path: Path) -> None:
-    result = _just(f"CLAUDE_ON_PROXMOX_TOKEN_SECRET={SECRET}", "init", settings=_safe(tmp_path))
+    result = _just(f"AGENT_WAREHOUSE_TOKEN_SECRET={SECRET}", "init", settings=_safe(tmp_path))
     assert result.returncode != 0 and "11111111-2222" not in _output(result)
 
 
 def test_a_word_after_init_s_options_is_refused_naming_the_two_ways_in(tmp_path: Path) -> None:
     result, _ = _init(tmp_path, f"TOKEN_SECRET={SECRET}")
     assert "just init takes only its options" in result.stderr
-    assert "--token-secret-file" in result.stderr and "CLAUDE_ON_PROXMOX_TOKEN_SECRET" in result.stderr
+    assert "--token-secret-file" in result.stderr and "AGENT_WAREHOUSE_TOKEN_SECRET" in result.stderr
 
 
 def test_the_secret_in_the_environment_reaches_no_argument(tmp_path: Path) -> None:
-    result, runs = _init(tmp_path, "--host", "pve.lan", env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    result, runs = _init(tmp_path, "--host", "pve.lan", env={"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET})
     assert result.returncode == 0, _output(result)
     assert SECRET not in "\n".join(arg for run in runs for arg in run) + _output(result)
 
@@ -2507,7 +2507,7 @@ def test_status_runs_as_a_dry_run_with_its_own_callback_alone(tmp_path: Path) ->
     assert result.returncode == 0, _output(result)
     callback, enabled, quiet, report, mismatch = seen.read_text().splitlines()
     # profile_tasks, which ansible.cfg enables, would print on stdout: naming the stdout callback loads nothing more.
-    assert callback == enabled == "claude_on_proxmox_status"
+    assert callback == enabled == "agent_warehouse_status"
     assert quiet == "true"
     # A fleet with no VM to read leaves play 2's group empty: the report says so, never Ansible's warning above it.
     assert mismatch == "ignore"
@@ -2717,7 +2717,7 @@ def _live_recorded(tmp_path: Path, *args: str) -> tuple[list[list[str]], list[st
     settings = _linters(tmp_path)
     (tmp_path / "bin" / "python").unlink()
     seen = tmp_path / "live-env"
-    said = "${CLAUDE_ON_PROXMOX_LIVE-unset}|${CLAUDE_ON_PROXMOX_LIVE_STATE-unset}"
+    said = "${AGENT_WAREHOUSE_LIVE-unset}|${AGENT_WAREHOUSE_LIVE_STATE-unset}"
     _stand_in(tmp_path / "bin", "python", f'echo "{said}" >> "{seen}"')
     result = _just(*args, settings=settings)
     assert result.returncode == 0, _output(result)
@@ -2745,7 +2745,7 @@ def test_lint_as_a_stage_of_another_run_draws_into_it_and_says_no_end_of_its_own
 
 def test_init_draws_its_two_playbooks_as_one_run_whose_trap_says_its_end(tmp_path: Path) -> None:
     seen = tmp_path / "live-env"
-    said = "${CLAUDE_ON_PROXMOX_LIVE-unset}|${CLAUDE_ON_PROXMOX_LIVE_STATE-unset}"
+    said = "${AGENT_WAREHOUSE_LIVE-unset}|${AGENT_WAREHOUSE_LIVE_STATE-unset}"
     settings = _init_settings(tmp_path, f'echo "{said}" >> "{seen}"')
     result = _just("init", settings=settings)
     assert result.returncode == 0, _output(result)

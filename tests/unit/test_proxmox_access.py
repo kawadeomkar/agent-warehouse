@@ -24,11 +24,11 @@ CHECKED = yaml.safe_load((REPO / "playbooks" / "init_check.yml").read_text())[0]
 ROLE = [*CHECKED["vms"], "VM.GuestAgent.Audit", *CHECKED["storage"], *CHECKED["bridge"]]
 PLAN = [
     f"pveum role add AnsibleVM --privs {','.join(ROLE)}",
-    "pveum user add ansible@pve --comment claude-on-proxmox",
+    "pveum user add ansible@pve --comment agent-warehouse",
     "pveum acl modify /vms --users ansible@pve --roles AnsibleVM",
     "pveum acl modify /storage/local-lvm --users ansible@pve --roles AnsibleVM",
     "pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM",
-    "pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox",
+    "pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse",
 ]
 
 
@@ -64,7 +64,7 @@ def test_a_fresh_host_gets_the_role_user_grants_and_token_and_the_secret_alone_o
     assert SECRET not in result.stderr
     state = _pve_cli_state(tmp_path / "pve")
     assert state["roles"]["AnsibleVM"] == ROLE
-    assert state["users"]["ansible@pve"] == {"comment": "claude-on-proxmox"}
+    assert state["users"]["ansible@pve"] == {"comment": "agent-warehouse"}
     assert _acls(tmp_path) == [
         ("/sdn/zones/localnetwork/vmbr0", "ansible@pve", "AnsibleVM", 1),
         ("/storage/local-lvm", "ansible@pve", "AnsibleVM", 1),

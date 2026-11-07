@@ -17,7 +17,7 @@
 #   tools/run-logged <name> <command> [<argument>...]
 #
 # The justfile passes LOG_DIR, LOG_RETENTION_DAYS and the run's stamp
-# (CLAUDE_ON_PROXMOX_LOG_STAMP) in the environment, and builds <name> from the
+# (AGENT_WAREHOUSE_LOG_STAMP) in the environment, and builds <name> from the
 # recipe's name and a part its pattern has checked - never from a VM name, so
 # nothing a person typed becomes a file's name. Every command of one run
 # shares the stamp and the name, so one run is one file.
@@ -26,7 +26,7 @@ name=$1
 shift
 log_dir=${LOG_DIR:-}
 if [ -z "${ANSIBLE_LOG_PATH:-}" ] && [ -n "$log_dir" ]; then
-  ANSIBLE_LOG_PATH="$log_dir/$CLAUDE_ON_PROXMOX_LOG_STAMP-$name.log"
+  ANSIBLE_LOG_PATH="$log_dir/$AGENT_WAREHOUSE_LOG_STAMP-$name.log"
   export ANSIBLE_LOG_PATH
 fi
 if [ -n "${ANSIBLE_LOG_PATH:-}" ]; then

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """Read git checkouts - their origin, and on request their state - without taking git's locks."""
 
@@ -58,7 +58,7 @@ options:
     type: bool
     default: false
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""
@@ -141,8 +141,8 @@ checkouts:
 import os
 import re
 
+from ansible.module_utils.agent_warehouse import folders, is_claude, own_processes
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.claude_on_proxmox import folders, is_claude, own_processes
 
 GIT_ENV = {"GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
 # What precedes the host in a URL with a scheme: https://<token>@github.com/... names a credential.

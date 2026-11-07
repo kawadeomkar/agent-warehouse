@@ -1,5 +1,5 @@
 """The pieces of just code's session handoff: lib/claude_vm/sessions.py, the modules in playbooks/library/ and
-what they share, playbooks/module_utils/claude_on_proxmox.py.
+what they share, playbooks/module_utils/agent_warehouse.py.
 
 Which session goes to which checkout on the VM, what a copy is made of, and
 when an existing copy is left alone. Every transcript, ~/.claude and checkout
@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 import pytest
-from ansible.module_utils import claude_on_proxmox as shared
+from ansible.module_utils import agent_warehouse as shared
 from conftest import run_main
 from harness import load_module
 
@@ -639,7 +639,7 @@ def _found(sid, folder, **fields):
     }
 
 
-SAVED = "/Users/me/claude-on-proxmox/.sessions/alpha-20261023-153000"
+SAVED = "/Users/me/agent-warehouse/.sessions/alpha-20261023-153000"
 
 
 def test_only_what_the_vm_alone_has_is_saved_with_the_command_that_continues_it():

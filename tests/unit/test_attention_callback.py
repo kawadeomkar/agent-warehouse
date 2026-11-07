@@ -1,6 +1,6 @@
 """The stdout callback just runs use: the default's output, with the waits set apart and NEXT STEPS at the end.
 
-callback_plugins/claude_on_proxmox.py subclasses the default callback. Run for
+callback_plugins/agent_warehouse.py subclasses the default callback. Run for
 real here, against small playbooks on this machine's localhost, with the
 result settings the repository's ansible.cfg gives: untagged output must stay
 the default's byte for byte, and no hook may fail - a subclass that lost its
@@ -28,7 +28,7 @@ REPO = Path(__file__).resolve().parents[2]
 ANSIBLE_PLAYBOOK = Path(sys.executable).with_name("ansible-playbook")
 PLUGINS = REPO / "callback_plugins"
 
-_callback = load_module(PLUGINS / "claude_on_proxmox.py", "claude_on_proxmox_callback", register=False)
+_callback = load_module(PLUGINS / "agent_warehouse.py", "agent_warehouse_callback", register=False)
 
 RULE = "#" * 80
 
@@ -121,7 +121,7 @@ def _config(callback: str, extra_roles: Path | None = None) -> str:
     )
 
 
-def _play(root: Path, playbook: str, callback: str = "claude_on_proxmox", roles: Path | None = None, **env) -> tuple:
+def _play(root: Path, playbook: str, callback: str = "agent_warehouse", roles: Path | None = None, **env) -> tuple:
     """Run playbook text with callback; stdout, stderr and the run log."""
     (root / "hosts").write_text(f"localhost ansible_connection=local ansible_python_interpreter={sys.executable}\n")
     path = root / "play.yml"
@@ -344,7 +344,7 @@ def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path
     # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
     # hand, and would still pass if ansible-core stopped setting it.
     _vm_module(tmp_path)
-    out, err, log = _play(tmp_path, VM_PLAY, "claude_on_proxmox_status")
+    out, err, log = _play(tmp_path, VM_PLAY, "agent_warehouse_status")
     for name, text in (("stdout", out), ("stderr", err), ("log", log)):
         assert not TERMINAL_CONTROL.search(text), (name, text)
         assert "retitled" not in text and "b3duZWQ=" not in text, (name, text)
@@ -379,7 +379,7 @@ PROBE_PLAY = """
 )
 
 
-@pytest.mark.parametrize("callback", ["claude_on_proxmox", "claude_on_proxmox_status"])
+@pytest.mark.parametrize("callback", ["agent_warehouse", "agent_warehouse_status"])
 def test_the_callback_looks_up_a_filter_before_the_first_worker_so_filter_files_run_once(tmp_path, callback):
     # Each worker would otherwise execute every file in filter_plugins/ at its first lookup, task by task: a few
     # milliseconds each time. A probe file beside them says each process that executed it.
@@ -438,9 +438,9 @@ def test_next_steps_reads_the_five_records(records, lines):
 def test_ansible_cfg_wires_the_callback_and_nothing_else_does():
     config = configparser.ConfigParser()
     config.read(REPO / "ansible.cfg")
-    assert config["defaults"]["stdout_callback"] == "claude_on_proxmox"
-    assert (REPO / config["defaults"]["callback_plugins"] / "claude_on_proxmox.py").is_file()
-    assert _callback.CallbackModule.CALLBACK_NAME == "claude_on_proxmox"
+    assert config["defaults"]["stdout_callback"] == "agent_warehouse"
+    assert (REPO / config["defaults"]["callback_plugins"] / "agent_warehouse.py").is_file()
+    assert _callback.CallbackModule.CALLBACK_NAME == "agent_warehouse"
 
 
 def _task_lists(node):

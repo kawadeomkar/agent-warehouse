@@ -352,7 +352,7 @@
                  | list }}
           register: code_fleet_reported
 
-        # NEXT STEPS (callback_plugins/claude_on_proxmox.py): the lines above,
+        # NEXT STEPS (callback_plugins/agent_warehouse.py): the lines above,
         # once for the fleet.
         - name: Keep what is left to do for the end of the run
           ansible.builtin.set_stats:

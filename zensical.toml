@@ -9,7 +9,7 @@
 # docs/development/docs.md says how the wiki is organised and generated.
 
 [project]
-site_name = "claude-on-proxmox"
+site_name = "agent-warehouse"
 # Where .github/workflows/docs.yml publishes it, from main.
 site_url = "https://kawadeomkar.github.io/claude-on-proxmox/"
 site_description = "Ansible that turns a Proxmox VE host into Claude Code development VMs"

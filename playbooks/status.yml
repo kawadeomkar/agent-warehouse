@@ -7,7 +7,7 @@
 #
 # Read-only information, and it must never change anything: GETs to the Proxmox API, and over SSH only reads
 # (tests/unit/test_status.py holds every task here, and in every file and role entry point it reaches, to a fixed
-# set). The recipe runs it as a dry run with its own stdout callback, callback_plugins/claude_on_proxmox_status.py,
+# set). The recipe runs it as a dry run with its own stdout callback, callback_plugins/agent_warehouse_status.py,
 # which draws the report live at a terminal and prints the finished one when the run ends, and exits with the
 # report's own code: 0 nothing is wrong, 1 a problem, 2 something could not be read, 3 the run itself failed.
 #

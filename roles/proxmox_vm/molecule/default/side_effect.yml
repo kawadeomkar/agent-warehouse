@@ -834,7 +834,7 @@
 # VM reporting the memory it uses; one above the memory Proxmox refuses. Both
 # are refused before anything is asked of the API.
 - name: Refuse a minimum memory outside 1 to the memory
-  hosts: claude-on-proxmox-proxmox_vm
+  hosts: agent-warehouse-proxmox_vm
   gather_facts: false
   tasks:
     - name: Count the requests the fake has logged so far

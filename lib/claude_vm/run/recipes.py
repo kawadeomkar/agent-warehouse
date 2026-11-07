@@ -1,6 +1,6 @@
 """Every `just` command drawn live, declared: what each recipe's run is made of, and nothing about how it is drawn.
 
-A recipe that is drawn live exports CLAUDE_ON_PROXMOX_LIVE, its title, whose first word names its declaration here
+A recipe that is drawn live exports AGENT_WAREHOUSE_LIVE, its title, whose first word names its declaration here
 (RECIPES). A declaration says what the run is made of - its stages, each stage's steps and how a play or a task is
 matched to them - and run/model.py, tui/run.py and ansible/engine.py draw any run from it alone. A
 command extends the shared engine only through a declaration: anything a declaration cannot say becomes a new field

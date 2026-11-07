@@ -61,7 +61,7 @@ def test_lint_is_drawn_as_its_checks_each_to_come_until_it_runs(passed):
     assert any("yamllint: checked file-" in frame for frame in passed.frames), "the running check's last line"
     assert not any(re.search(r"\d+/\d+", frame) for frame in passed.frames), "a check is one command: no counts"
     screen = passed.transcript
-    assert re.search(r"^claude-on-proxmox  lint yaml ansible python · done in \d+ s · ", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  lint yaml ansible python · done in \d+ s · ", screen, re.M), screen
     table = passed.table("CHECKS")
     assert [line.split()[1] for line in table.splitlines()[1:]] == ["yaml", "ansible", "python"], table
 
@@ -69,7 +69,7 @@ def test_lint_is_drawn_as_its_checks_each_to_come_until_it_runs(passed):
 def test_every_line_a_check_said_is_in_the_run_s_one_log(passed):
     for tool in ("yamllint", "ansible-lint", "ruff"):
         assert f"| {tool}: checked file-3\n" in passed.log, passed.log
-    assert "claude-on-proxmox  lint yaml ansible python · done in" in passed.log
+    assert "agent-warehouse  lint yaml ansible python · done in" in passed.log
 
 
 def test_a_check_that_fails_is_said_whole_and_what_it_left_unrun_named(failed):
@@ -79,7 +79,7 @@ def test_a_check_that_fails_is_said_whole_and_what_it_left_unrun_named(failed):
     screen = failed.transcript
     assert re.search(r"^✗ ansible: ansible-lint \(.*\) · exit 2$", screen, re.M), screen
     assert "    ansible-lint: something is wrong" in screen
-    head = r"^claude-on-proxmox  lint yaml ansible python syntax · failed after \d+ s at ansible"
+    head = r"^agent-warehouse  lint yaml ansible python syntax · failed after \d+ s at ansible"
     assert re.search(head, screen, re.M), screen
     assert re.search(r"^ not run  python · syntax$", screen, re.M), screen
     assert failed.screen.titles[-1] == "lint yaml ansible python syntax · failed"
@@ -91,7 +91,7 @@ def test_a_just_that_is_not_the_pinned_one_leaves_its_check_out_and_the_run_done
     ran = _lint(tmp_path, "just", "yaml", settings_too=["just_pin=0.0.1"])
     assert ran.rc == 0, ran.text
     screen = ran.transcript
-    assert re.search(r"^claude-on-proxmox  lint just yaml · done in \d+ s · ", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  lint just yaml · done in \d+ s · ", screen, re.M), screen
     assert "not run" not in screen and "just: not checked" in screen, screen
 
 

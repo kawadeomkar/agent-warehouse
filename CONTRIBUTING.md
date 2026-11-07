@@ -76,7 +76,7 @@ secret gets a canned value and a place in those searches.
   `claude_vm/ansible/` imports `ansible`, and no module imports `yaml`, `asyncio` or `subprocess` when it is
   imported; a record is a frozen `Checked` dataclass and leaves the core only through `to_wire`. What runs on a VM
   (`playbooks/library/`, `playbooks/module_utils/`, `playbooks/files/`) never imports it and is handed data
-  instead; what the modules in `playbooks/library/` share goes in `playbooks/module_utils/claude_on_proxmox.py`,
+  instead; what the modules in `playbooks/library/` share goes in `playbooks/module_utils/agent_warehouse.py`,
   standard library only, which Ansible sends with each
   ([docs/architecture/custom-code.md](docs/architecture/custom-code.md) §7.10). `tests/unit/test_claude_vm.py`
   holds these.

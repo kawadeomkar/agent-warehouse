@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: proxmox_template
   description: Build a cloud-init enabled Ubuntu VM template on a Proxmox VE host
   license: MIT

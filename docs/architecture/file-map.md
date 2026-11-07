@@ -2,9 +2,9 @@
 
 ```
 ansible.cfg                       inventory dir, accept-new host keys, forks, the stdout callback, YAML results
-callback_plugins/claude_on_proxmox.py   the default output, the waits set apart, NEXT STEPS after the recap, just deploy
+callback_plugins/agent_warehouse.py   the default output, the waits set apart, NEXT STEPS after the recap, just deploy
                                   drawn live (§7.5)
-callback_plugins/claude_on_proxmox_status.py   just status's own: the report drawn live at a terminal (§7.7)
+callback_plugins/agent_warehouse_status.py   just status's own: the report drawn live at a terminal (§7.7)
 .logs/                            one log per just run that used Ansible (git-ignored, 0700, pruned after 14 days)
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
@@ -68,7 +68,7 @@ playbooks/
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
-  module_utils/                   claude_on_proxmox.py, what those modules share, sent with each: the session ID,
+  module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
@@ -211,7 +211,7 @@ molecule/
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
-.config/ansible-lint-rules/       claude_on_proxmox_module_utils.py, no rule: puts playbooks/module_utils/ on the
+.config/ansible-lint-rules/       agent_warehouse_module_utils.py, no rule: puts playbooks/module_utils/ on the
                                   path in ansible-lint's own process, where its args rule imports the modules in
                                   playbooks/library/
 .github/                          CI, releases and the sections of their notes (release.yml), the labels

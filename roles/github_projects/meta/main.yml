@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: github_projects
   description: Clone every GitHub repository of a user into a projects directory
   license: MIT

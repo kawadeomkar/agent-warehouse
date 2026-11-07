@@ -119,7 +119,7 @@ pytest over `tests/unit/`, file by file:
   `local.yml`, and no host-pattern warning.
   The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
   taking the old one's line out, `--reset` on either taking both.
-- **The stdout callback** (`test_attention_callback.py`): `callback_plugins/claude_on_proxmox.py` run
+- **The stdout callback** (`test_attention_callback.py`): `callback_plugins/agent_warehouse.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
   the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many

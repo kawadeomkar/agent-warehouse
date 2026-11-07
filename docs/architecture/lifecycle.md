@@ -233,7 +233,7 @@ against 41 s.
 1. `vars_prompt` confirmation with `default: "no"` — a run with no terminal (CI, cron, a nested
    playbook) takes the default rather than hanging, so the default must be the safe answer. The
    question, under a `CONFIRM DELETION` block
-   ([§7.5](custom-code.md#75-callback_pluginsclaude_on_proxmoxpy--the-waits-and-next-steps)), names the
+   ([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)), names the
    VMs from `vm_name` alone, through the play var `claude_vm_confirm_names`: a `vars_prompt` is
    templated before any inventory variable is in scope, `-e` answer or not, so naming
    `claude_vm_names` failed every run.
@@ -445,8 +445,8 @@ size, the template's age, Remote Control off on purpose, a gh left alone and wor
 committed are shown and not counted: a branch kept local is often on purpose, and WORK never says "clean". A run that failed or wrote no report exits 3.
 
 **Live at a terminal.** The recipe chooses its own stdout callback,
-`callback_plugins/claude_on_proxmox_status.py`
-([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsclaude_on_proxmox_statuspy--just-status)),
+`callback_plugins/agent_warehouse_status.py`
+([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)),
 the only callback of the run. At a terminal it draws the whole report at the bottom of the screen
 within a second, a spinner wherever a value is still being read, and redraws it as each piece lands;
 when the run ends the live region is erased and the finished report printed once. Piped, in the log,
@@ -1043,7 +1043,7 @@ host's own.
 every write is under it, or under a value given on the command line: `init_given`, the JSON
 `just init` built from its options, each held to its characters first, and the secret from
 `--token-secret-file`'s file or
-`CLAUDE_ON_PROXMOX_TOKEN_SECRET`, read under `no_log`. Every given value is held to its rule before
+`AGENT_WAREHOUSE_TOKEN_SECRET`, read under `no_log`. Every given value is held to its rule before
 anything is written, so a run failed by its last one leaves the files as they were; it fills only what is
 still the example's, and fails the run, naming both, when it differs from what is set (compared in its
 normal form, a name or a GitHub login case-insensitively); equal, it is nothing to do, so the same command

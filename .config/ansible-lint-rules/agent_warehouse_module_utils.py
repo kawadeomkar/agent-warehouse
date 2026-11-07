@@ -1,10 +1,10 @@
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """No rule: what ansible-lint's args rule needs to import the modules in playbooks/library/.
 
 ansible-lint imports each Python file of a rules folder (rulesdir in .ansible-lint) before it lints anything. Its args
 rule imports each module a task names, in ansible-lint's own process, to check the task's arguments against the
-module's argument spec, and these modules import what they share from ansible.module_utils.claude_on_proxmox, which
+module's argument spec, and these modules import what they share from ansible.module_utils.agent_warehouse, which
 Ansible finds in a playbook's module_utils folder only when it builds a module to send. Without this, the import fails,
 ansible-lint passes the error over as a warning, and no task of a file that names one of these modules is checked.
 """

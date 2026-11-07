@@ -70,8 +70,8 @@ def test_init_is_one_run_its_questions_steps_and_its_checks_drawn_as_they_are_ma
     assert re.search(r"^ ✓ settings ", frames, re.M), "the checks drew the settings, done"
     assert re.search(r"^     ✓ Proxmox VE \S+ at ", frames, re.M), "a check, as it was recorded"
     screen = passed.transcript
-    assert screen.count("claude-on-proxmox  init · done in") == 1 and screen.count("##  NEXT STEPS") == 1, screen
-    assert screen.index("claude-on-proxmox  init · done in") < screen.index("##  NEXT STEPS")
+    assert screen.count("agent-warehouse  init · done in") == 1 and screen.count("##  NEXT STEPS") == 1, screen
+    assert screen.index("agent-warehouse  init · done in") < screen.index("##  NEXT STEPS")
     assert "just deploy alpha" in screen.split("##  NEXT STEPS", 1)[1]
     checks = passed.table("\nCHECKS\n").splitlines()
     assert checks and all(line.startswith(" ✓ ") for line in checks), checks
@@ -85,7 +85,7 @@ def test_a_check_that_fails_is_the_failure_and_the_last_task_names_nothing_of_it
     screen = refused.transcript
     assert re.search(r"^✗ checks · this machine: \S", screen, re.M), screen
     assert "Fail when a check found a problem" not in refused.above_summary("init")
-    assert re.search(r"^claude-on-proxmox  init · failed after .* at checks", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  init · failed after .* at checks", screen, re.M), screen
     checks = refused.table("\nCHECKS\n")
     assert re.search(r"^ ✗ ", checks, re.M), checks
     # NEXT STEPS keeps the record's lines: each problem under the line that counts them, with its indent.

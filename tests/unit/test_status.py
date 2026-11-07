@@ -7,7 +7,7 @@
   when Proxmox does not answer, refuses the token, or a name matches no VM.
 - Every task status runs, and every task file and role entry point it reaches, held to a fixed set of reads: GETs
   through uri pinned to the API's URL, the readers, add_host, set_fact, and the report's one write.
-- The callback (callback_plugins/claude_on_proxmox_status.py), driven in this process with canned results and a
+- The callback (callback_plugins/agent_warehouse_status.py), driven in this process with canned results and a
   stand-in terminal: what it writes, and what it never does. test_status_live.py runs it at a pseudo-terminal.
 """
 
@@ -967,8 +967,8 @@ def callback(monkeypatch):
             monkeypatch.delenv("STATUS_QUIET", raising=False)
         terminal = _Terminal()
         monkeypatch.setattr(sys, "stdout", terminal)
-        path = REPO / "callback_plugins" / "claude_on_proxmox_status.py"
-        module = load_module(path, "claude_on_proxmox_status_under_test", register=False)
+        path = REPO / "callback_plugins" / "agent_warehouse_status.py"
+        module = load_module(path, "agent_warehouse_status_under_test", register=False)
         cb = module.CallbackModule()
         if cb._live:
             cb._out.region._terminal_size = lambda: (100, 60)
@@ -1018,7 +1018,7 @@ def test_the_live_region_is_redrawn_in_place_and_erased_for_the_finished_report(
     # The tab says the report is done, then the region is erased for the report.
     assert terminal.getvalue().startswith("\x1b]0;status · done\x07")
     out = re.sub(r"\x1b\]0;[^\x07]*\x07", "", terminal.getvalue())
-    assert out.startswith("\x1b[") and "\r\x1b[J" in out.split("claude-on-proxmox")[0]
+    assert out.startswith("\x1b[") and "\r\x1b[J" in out.split("agent-warehouse")[0]
     assert out.rstrip().split("\n")[-1].startswith("exit 2")
     assert "⠋" not in out.split("\x1b[J", 1)[1]
 
@@ -1098,7 +1098,7 @@ def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callba
     cb.v2_playbook_on_stats(None)
     assert terminal.getvalue() == ""
     assert len(shown) == 1 and shown[0][1] == {"log_only": True}, shown
-    assert shown[0][0].startswith("claude-on-proxmox") and "VMS" in shown[0][0], shown[0][0]
+    assert shown[0][0].startswith("agent-warehouse") and "VMS" in shown[0][0], shown[0][0]
 
 
 # ------------------------------------------------------------------------------------- every state at once ----

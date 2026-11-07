@@ -337,7 +337,7 @@
         msg: >-
           {{ inventory_hostname }}: sign Claude Code in at {{ claude_code_login_shown | plain_text }}
           {{ claude_code_login_opens }}{{ claude_code_login_next }}
-      # Drawn as a block by the stdout callback (callback_plugins/claude_on_proxmox.py).
+      # Drawn as a block by the stdout callback (callback_plugins/agent_warehouse.py).
       tags: [attention_browser]
 
     # Best effort, and never in a test (claude_code_login_desktop). The opener

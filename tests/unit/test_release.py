@@ -665,7 +665,7 @@ def test_every_vm_asked_for_gets_exactly_one_line(released):
 
 
 def test_next_steps_keep_each_vm_with_something_left_to_do_and_nothing_for_one_released_clean(released):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py):
+    # What the run's last lines list (callback_plugins/agent_warehouse.py):
     # the report's own line where a GitHub token stays valid, a Tailscale
     # device stays in the tailnet, or nothing was released at all.
     _, report, _, _ = released

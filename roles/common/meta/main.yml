@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: common
   description: OS baseline for a development VM - packages, user, sudo, SSH keys, timezone
   license: MIT

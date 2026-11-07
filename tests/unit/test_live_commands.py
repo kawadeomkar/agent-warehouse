@@ -27,7 +27,7 @@ import pytest
 # lib/claude_vm/ansible/parts.py, as tools/live imports it.
 from claude_vm.ansible import parts
 
-SAYS = "import os, sys; print('one'); print('two', os.environ.get('CLAUDE_ON_PROXMOX_LIVE', 'unset'))"
+SAYS = "import os, sys; print('one'); print('two', os.environ.get('AGENT_WAREHOUSE_LIVE', 'unset'))"
 FAILS = "import sys; [print(f'line-{n}') for n in range(1, 51)]; sys.exit(3)"
 
 
@@ -63,11 +63,11 @@ def test_a_command_passed_through_is_exactly_what_it_printed_and_never_sees_the_
 @pytest.mark.parametrize(
     ("why", "env", "python_flags"),
     [
-        pytest.param("no title", {"CLAUDE_ON_PROXMOX_LIVE": ""}, "", id="no-title"),
+        pytest.param("no title", {"AGENT_WAREHOUSE_LIVE": ""}, "", id="no-title"),
         pytest.param("a -v", {"ARGS": "-f 30 -vv"}, "", id="a-v"),
         pytest.param("a bare -vvv", {"ARGS": "-vvv"}, "", id="a-bare-vvv"),
         # LIVE_DIR=: no state to carry the run between its parts, which would each say a run of their own.
-        pytest.param("no state", {"CLAUDE_ON_PROXMOX_LIVE_STATE": ""}, "", id="no-state"),
+        pytest.param("no state", {"AGENT_WAREHOUSE_LIVE_STATE": ""}, "", id="no-state"),
         # A Python with no site-packages, as a fresh virtualenv before just install: neither PyYAML nor ansible-core.
         pytest.param("no packages", {}, "-S", id="no-packages"),
     ],
@@ -111,7 +111,7 @@ def test_parts_are_drawn_as_one_run_and_its_end_says_it_whatever_ended_it(two_pa
     # The failed part's end above, whole: its last 40 lines.
     assert re.search(r"^✗ fails: python\S* \(.*\) · exit 3$", screen, re.M), screen
     assert "line-11\n" in screen + "\n" and "line-10\n" not in screen + "\n", screen
-    assert re.search(r"^claude-on-proxmox  lint · failed after \d+ s at fails · \d\d:\d\d$", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  lint · failed after \d+ s at fails · \d\d:\d\d$", screen, re.M), screen
     table = ran.table("CHECKS")
     assert re.search(r"^ ✓ says ", table, re.M) and re.search(r"^ ✗ fails ", table, re.M), table
     assert ran.screen.titles[-1] == "lint · failed"
@@ -123,11 +123,11 @@ def test_every_line_a_part_printed_is_in_the_run_log_and_the_child_saw_no_switch
     assert re.search(r"n=ansible INFO\| one$", log, re.M), log
     assert re.search(r"n=ansible INFO\| two unset$", log, re.M), log
     assert all(f"| line-{n}\n" in log for n in range(1, 51)), log
-    assert "claude-on-proxmox  lint · failed after" in log
+    assert "agent-warehouse  lint · failed after" in log
 
 
 def test_the_state_is_the_run_s_alone(tmp_path):
-    state_path = '"$CLAUDE_ON_PROXMOX_LIVE_STATE"'
+    state_path = '"$AGENT_WAREHOUSE_LIVE_STATE"'
     modes = f'ls -ld "$(dirname {state_path})" {state_path} > {tmp_path / "modes"}'
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), modes])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
@@ -171,7 +171,7 @@ def test_the_pytest_reader_keeps_its_events_beside_the_run_s_state(tmp_path):
     state = tmp_path / "live" / "20261027-090000-test-77.json"
     part = type("Part", (), {"state_path": str(state)})()
     reader = parts.Pytest(part)
-    events = Path(reader.env()["CLAUDE_ON_PROXMOX_LIVE_PYTEST"])
+    events = Path(reader.env()["AGENT_WAREHOUSE_LIVE_PYTEST"])
     assert events.parent == state.parent and parts.OWN.fullmatch(events.name), events
     assert stat.S_IMODE(events.stat().st_mode) == 0o600 and stat.S_IMODE(state.parent.stat().st_mode) == 0o700
 
@@ -193,7 +193,7 @@ def test_ctrl_c_ends_the_part_with_the_child_s_last_words_logged_and_the_run_sai
     assert ran.rc == 130, ran.text
     ran.assert_drawn_and_gone()
     assert "child got INT" in ran.log
-    head = r"^claude-on-proxmox  lint · stopped after \d+ s at waits · "
+    head = r"^agent-warehouse  lint · stopped after \d+ s at waits · "
     assert re.search(head, ran.transcript, re.M), ran.transcript
     assert ran.screen.titles[-1] == "lint · stopped"
 
@@ -249,7 +249,7 @@ def test_a_ctrl_c_before_the_part_s_handler_is_taken_once_it_is_in_and_the_part_
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), logged])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
     assert ran.rc == 130, ran.text
-    assert "| ran" not in ran.log and re.search(r"^claude-on-proxmox  lint · stopped after", ran.transcript, re.M)
+    assert "| ran" not in ran.log and re.search(r"^agent-warehouse  lint · stopped after", ran.transcript, re.M)
 
 
 def test_a_part_whose_command_a_signal_ended_or_that_cannot_run_exits_as_a_shell_says_it(tmp_path):
@@ -267,7 +267,7 @@ def test_a_run_whose_end_fails_exits_with_its_part_s_status_all_the_same(tmp_pat
     # The justfile's trap: an end that cannot say the run - here a state it cannot read - changes nothing of how
     # the recipe ends.
     unreadable = json.dumps({"version": parts.view.STATE_VERSION, "title": "lint", "tasks": 1})
-    broken = f"printf %s '{unreadable}' > \"$CLAUDE_ON_PROXMOX_LIVE_STATE\""
+    broken = f"printf %s '{unreadable}' > \"$AGENT_WAREHOUSE_LIVE_STATE\""
     argv, environment, state = kit.recipe_in_parts(tmp_path, [_part("says", SAYS), broken, "exit 3"])
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
     assert ran.rc == 3, ran.text
@@ -310,15 +310,15 @@ def test_a_playbook_part_ctrl_c_ended_before_its_stats_saves_what_it_did_said_st
     ran = kit.at_a_terminal(argv, tmp_path, environment, act=interrupt, timeout=90)
     assert len(seen) == 2 and ran.rc != 0, ran.text
     screen = ran.transcript
-    assert re.search(r"^claude-on-proxmox  lint · stopped after", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  lint · stopped after", screen, re.M), screen
     # What it did is said: the first part done, and the playbook's stage, which Ctrl-C stopped.
     assert re.search(r"^ ✓ lint .* says ", screen, re.M) and re.search(r"^ ■ run ", screen, re.M), screen
     assert "Wait on something held" in screen and not state.exists(), screen
 
 
 def test_without_a_state_the_end_says_nothing(tmp_path):
-    env = {name: value for name, value in os.environ.items() if name != "CLAUDE_ON_PROXMOX_LIVE_STATE"}
-    env["CLAUDE_ON_PROXMOX_LIVE_STATE"] = str(tmp_path / "none.json")
+    env = {name: value for name, value in os.environ.items() if name != "AGENT_WAREHOUSE_LIVE_STATE"}
+    env["AGENT_WAREHOUSE_LIVE_STATE"] = str(tmp_path / "none.json")
     ran = subprocess.run(
         [sys.executable, str(kit.LIVE), "end", "0"], capture_output=True, text=True, env=env, check=False
     )
@@ -350,9 +350,9 @@ def test_a_playbook_is_a_part_too_and_its_next_steps_wait_for_the_end(tmp_path):
     ran.assert_drawn_and_gone()
     screen = ran.transcript
     # The playbook's NEXT STEPS once, after the run's one summary, which has both parts.
-    assert screen.count("##  NEXT STEPS") == 1 and screen.count("claude-on-proxmox  lint · done in") == 1, screen
-    assert screen.index("claude-on-proxmox  lint · done in") < screen.index("##  NEXT STEPS")
-    assert "says" in screen.split("claude-on-proxmox  lint · done in", 1)[1]
+    assert screen.count("##  NEXT STEPS") == 1 and screen.count("agent-warehouse  lint · done in") == 1, screen
+    assert screen.index("agent-warehouse  lint · done in") < screen.index("##  NEXT STEPS")
+    assert "says" in screen.split("agent-warehouse  lint · done in", 1)[1]
     assert stat.S_IMODE(os.stat(tmp_path).st_mode) and not state.exists()
 
 
@@ -451,7 +451,7 @@ def test_a_run_ended_short_is_said_stopped(tmp_path, lines, rc):
     argv, environment, state = kit.recipe_in_parts(tmp_path, lines)
     ran = kit.at_a_terminal(argv, tmp_path, environment, timeout=60)
     assert ran.rc == rc, ran.text
-    assert re.search(r"^claude-on-proxmox  lint · stopped after \d+ s at says", ran.transcript, re.M), ran.transcript
+    assert re.search(r"^agent-warehouse  lint · stopped after \d+ s at says", ran.transcript, re.M), ran.transcript
 
 
 RECORDED = """

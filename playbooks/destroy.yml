@@ -612,7 +612,7 @@
         loop_var: claude_release_name
       register: claude_release_reported
 
-    # NEXT STEPS (callback_plugins/claude_on_proxmox.py): each VM's line above
+    # NEXT STEPS (callback_plugins/agent_warehouse.py): each VM's line above
     # unless it was deleted and released with nothing left - no Tailscale
     # device and no GitHub token for the user to deal with. Claude Code's login
     # has no remedy to name, so it leaves nothing to do. A VM still there has

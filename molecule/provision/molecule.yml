@@ -3,7 +3,7 @@
 # against a fake Proxmox API, followed by tag-based discovery. The container
 # only hosts the API; the playbooks run on the controller.
 platforms:
-  - name: claude-on-proxmox-provision
+  - name: agent-warehouse-provision
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
     pre_build_image: true
     command: ""

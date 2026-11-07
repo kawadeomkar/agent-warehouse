@@ -388,7 +388,7 @@ def test_no_code_ends_the_attempt_without_failing(signed):
 
 
 def test_next_steps_keep_a_sign_in_left_to_do_and_nothing_once_signed_in(signed):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py).
+    # What the run's last lines list (callback_plugins/agent_warehouse.py).
     _, report = signed
     left = _left_to_do(report)
     assert left["accepted"]["claude"] == ""

@@ -1,7 +1,7 @@
 """A live region at the bottom of a terminal, for a stdout callback: drawn in place, with Display's output above it.
 
 Every live output draws with it (docs/architecture/custom-code.md §7.8): `just status`'s report
-(callback_plugins/claude_on_proxmox_status.py) and every live run (callback_plugins/claude_on_proxmox.py, `just
+(callback_plugins/agent_warehouse_status.py) and every live run (callback_plugins/agent_warehouse.py, `just
 deploy` first). Imported as claude_vm.tui.live_region (docs/architecture/custom-code.md §7.10).
 
 What it does, once started:

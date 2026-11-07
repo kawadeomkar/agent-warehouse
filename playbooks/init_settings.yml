@@ -34,7 +34,7 @@
 # vault a given value went into is encrypted whatever the run. Nothing set is
 # ever written over: a given value that differs from it fails the run, naming
 # both. The token's secret is never on the command line: this reads it from
-# --token-secret-file's file or CLAUDE_ON_PROXMOX_TOKEN_SECRET under no_log, and
+# --token-secret-file's file or AGENT_WAREHOUSE_TOKEN_SECRET under no_log, and
 # it reaches the vault through ansible-vault's stdin alone.
 #
 # It runs with an inventory of its own, playbooks/inventory/init.yml, so no
@@ -184,15 +184,15 @@
 
     # The token's secret, given: from --token-secret-file's file (a path relative
     # to the checkout, or ~; just init makes a relative one absolute, from where
-    # it was started), or from CLAUDE_ON_PROXMOX_TOKEN_SECRET.
-    init_secret_env: "{{ lookup('ansible.builtin.env', 'CLAUDE_ON_PROXMOX_TOKEN_SECRET') }}"
+    # it was started), or from AGENT_WAREHOUSE_TOKEN_SECRET.
+    init_secret_env: "{{ lookup('ansible.builtin.env', 'AGENT_WAREHOUSE_TOKEN_SECRET') }}"
     init_secret_given: "{{ init_given.token_secret_file is defined or init_secret_env | length > 0 }}"
     init_secret_path: >-
       {{ (init_given.token_secret_file | expanduser) if (init_given.token_secret_file | expanduser).startswith('/')
          else init_root ~ '/' ~ init_given.token_secret_file }}
     init_secret_flag: >-
       {{ 'the secret in --token-secret-file (' ~ init_given.token_secret_file ~ ')'
-         if init_given.token_secret_file is defined else 'CLAUDE_ON_PROXMOX_TOKEN_SECRET' }}
+         if init_given.token_secret_file is defined else 'AGENT_WAREHOUSE_TOKEN_SECRET' }}
     init_any_given: "{{ init_given | length > 0 or init_secret_given }}"
     # This run writes tailscale_enabled: answered or given, and not set.
     init_tailscale_writes: "{{ init_answers.tailscale is defined and init_local_settings.tailscale_enabled is not defined }}"
@@ -221,7 +221,7 @@
             'how': 'just init asks again, or edit inventory/hosts.yml' if init_hosts_writable
                    else 'inventory/hosts.yml has no "ansible_host: 192.0.2.10" line left to fill in: edit it'}]
           if init_host_missing and init_answers.host is not defined else [])
-         + ([{'what': 'the API token secret', 'flag': '--token-secret-file or CLAUDE_ON_PROXMOX_TOKEN_SECRET',
+         + ([{'what': 'the API token secret', 'flag': '--token-secret-file or AGENT_WAREHOUSE_TOKEN_SECRET',
               'how': 'just init asks again, or just vault'}]
             if init_vault_readable and not init_secret_set and not init_secret_answered else [])
          + ([{'what': 'the GitHub username', 'flag': '--github-user', 'how': 'just init asks again, or just vault'}]
@@ -357,7 +357,7 @@
     - name: Refuse the token secret given two ways
       ansible.builtin.fail:
         msg: >-
-          The token secret was given both by --token-secret-file and by CLAUDE_ON_PROXMOX_TOKEN_SECRET:
+          The token secret was given both by --token-secret-file and by AGENT_WAREHOUSE_TOKEN_SECRET:
           give it one way.
       when: init_given.token_secret_file is defined and init_secret_env | length > 0
 
@@ -797,7 +797,7 @@
           {% endif %}
           Optional, with just vault: {{ init_vault_optional | join(', ') }}.
 
-    # NEXT STEPS (callback_plugins/claude_on_proxmox.py): what the report says
+    # NEXT STEPS (callback_plugins/agent_warehouse.py): what the report says
     # is left while a value is missing or the vault cannot be opened - the
     # checks then stop at once or do not run. Nothing once every value is set:
     # init_check.yml, which runs next, decides what comes next and says it.

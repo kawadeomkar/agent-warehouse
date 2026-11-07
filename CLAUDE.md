@@ -418,7 +418,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
 - **`just deploy` is drawn live, and nothing a person must read is drawn only there.** Read
   [`just deploy`, drawn live](docs/architecture/custom-code.md#just-deploy-drawn-live) first.
-    - Only the recipes drawn live export `CLAUDE_ON_PROXMOX_LIVE` (the run's title) - `deploy`, `login`,
+    - Only the recipes drawn live export `AGENT_WAREHOUSE_LIVE` (the run's title) - `deploy`, `login`,
       `destroy`, `code`, and `lint`, `init` and `test` for their parts - and the engine takes it out of its
       environment at once, so nothing the run starts inherits it. Any `-v` or another stdout callback is the
       stream.
@@ -448,7 +448,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The vault is re-encrypted by piping its text into `ansible-vault encrypt`'s stdin under `no_log`, never
       through `copy`, which decrypts. `.vault_pass` is created `O_EXCL`, 0600, and never rewritten.
     - The token secret is never taken from the command line - only from `--token-secret-file`'s file or
-      `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, read in the playbook - and `just init` refuses any word after its options
+      `AGENT_WAREHOUSE_TOKEN_SECRET`, read in the playbook - and `just init` refuses any word after its options
       without printing it. Tailscale's auth key is asked only after a `y`, hidden, and never taken from the
       command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
@@ -472,7 +472,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       both).
 - **`just status` is read-only information, and must never change anything.** Read
   [§4.6](docs/architecture/lifecycle.md#46-playbooksstatusyml--read-only-drawn-live) and
-  [§7.7](docs/architecture/custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsclaude_on_proxmox_statuspy--just-status)
+  [§7.7](docs/architecture/custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)
   first.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
       real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only), not GitHub or Tailscale,
@@ -488,7 +488,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       that a run against the fake sent nothing but GETs.
     - Every value a VM or Proxmox supplies is made one line of plain text (`one_line`, `status_clean`) before the
       model keeps it; every line of the report fits 100 columns. Its stdout callback
-      (`callback_plugins/claude_on_proxmox_status.py`) takes the finished report only from the report play's own
+      (`callback_plugins/agent_warehouse_status.py`) takes the finished report only from the report play's own
       `set_fact` on localhost.
     - Every status run in a test pins `status_report_file` and `claude_ssh_config_file` into its own directory
       and gets a refusing stand-in `ssh` (`status_root`); the reads inside a VM run against stand-in VMs
@@ -596,13 +596,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   user's real home ([§4.4](docs/architecture/lifecycle.md#44-playbooksconfigureyml)).
 - **NEXT STEPS is recorded by each report, never read off the output.** Each report is followed straight away by
   a `set_stats` record under its owner's `*_next` stat, `{vm: {matter: line}}`, made from the facts its message
-  is built from: the line while something is left, `''` once nothing is. `callback_plugins/claude_on_proxmox.py`
+  is built from: the line while something is left, `''` once nothing is. `callback_plugins/agent_warehouse.py`
   reads only those tasks' own results, never the run's custom stats, to which any module's `ansible_stats` adds.
   Never decide from a message's text. `tests/unit/test_attention_callback.py` fails on a report without its
   record, or with one under `no_log`, its own or one from above it, which censors the result the record is read
   from. The harness's runs never load the callback - their `ansible.cfg` holds only
   `inject_facts_as_vars = false`, and the JSON callback shows custom stats, which `_left_to_do` reads
-  ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsclaude_on_proxmoxpy--the-waits-and-next-steps)).
+  ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)).
 - **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open
   ([§15.1](docs/architecture/decisions.md#151-discovery-stays-a-playbook-not-the-inventory-plugin)).
 - **Fleet listings read `/cluster/resources`, never an unfiltered `proxmox_vm_info`**, which fails for every VM
@@ -732,7 +732,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `--only`; `--start` only where something is started - are the first lines of each script, said before any
       check or tool. `just deploy configure`, a stage where the names go, asks at a
       terminal whether the stage or a VM so named was meant, and is refused without one.
-    - `just init` takes `--token-secret-file` and the exported `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, never the secret
+    - `just init` takes `--token-secret-file` and the exported `AGENT_WAREHOUSE_TOKEN_SECRET`, never the secret
       itself: `--token-secret` is no option, and a word after its options - make's `TOKEN_SECRET=...` - is caught
       by `EXTRA` and refused without being said.
     - `--project` is a GitHub repository name, so `/`, `.` and `..` are refused, and `code.yml` repeats the check

@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """Bring a VM's Claude Code sessions here as plain files and folders, whatever the VM sends."""
 
@@ -64,13 +64,13 @@ options:
         type: str
         default: ""
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""
 - name: Bring the VM's own sessions here
   claude_sessions_fetch:
-    dest: /Users/me/claude-on-proxmox/.sessions/alpha-20261023-153000/projects
+    dest: /Users/me/agent-warehouse/.sessions/alpha-20261023-153000/projects
     root: /home/dev/.claude/projects
     names:
       - -home-dev-projects-demo/0a608ad8-1b2c-4d3e-8f90-123456789abc.jsonl
@@ -107,8 +107,8 @@ import tarfile
 import tempfile
 import threading
 
+from ansible.module_utils.agent_warehouse import SESSION_ID
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.claude_on_proxmox import SESSION_ID
 
 # What just destroy asks for: a transcript, the folder beside it, or a project's auto memory.
 NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID.pattern}(?:\.jsonl)?|memory)")

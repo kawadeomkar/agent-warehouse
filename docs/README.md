@@ -1,4 +1,4 @@
-# claude-on-proxmox
+# agent-warehouse
 
 Ansible that creates Ubuntu VMs on a Proxmox VE host and configures each as a
 [Claude Code](https://code.claude.com/docs) development machine: one `just deploy` builds the template,

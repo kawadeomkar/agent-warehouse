@@ -685,7 +685,7 @@ def test_under_deploy_a_signed_out_vm_is_told_the_sign_in_comes_next(configured)
 
 
 def test_next_steps_keep_each_sign_in_left_to_do_and_nothing_where_none_is(configured):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py):
+    # What the run's last lines list (callback_plugins/agent_warehouse.py):
     # recorded beside each message, the message itself, or nothing.
     _, first, _ = configured
     left = _left_to_do(first)

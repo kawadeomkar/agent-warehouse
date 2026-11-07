@@ -317,7 +317,7 @@ def test_configure_names_the_sign_in_that_comes_next(check_mode):
 
 
 def test_next_steps_name_the_sign_in_unless_one_follows_and_a_blocker_where_signed_in(check_mode):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py).
+    # What the run's last lines list (callback_plugins/agent_warehouse.py).
     _, _, report = check_mode
     said = _messages(report, "Say exactly what to run")
     left = _left_to_do(report)

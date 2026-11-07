@@ -2,7 +2,7 @@
 
 playbooks/status.yml reads, and these turn what it read into one model: what `just status --json` prints and what
 the report file holds. claude_vm.tui.status draws the report from it twice: once finished, when the run ends, and over
-and over while it runs, when callback_plugins/claude_on_proxmox_status.py draws it live with a spinner wherever a
+and over while it runs, when callback_plugins/agent_warehouse_status.py draws it live with a spinner wherever a
 value is still being read (docs/architecture/lifecycle.md §4.6).
 
 Nothing here reads or writes anything. Every value a VM supplies is cleaned by status_clean before anything keeps
@@ -986,9 +986,9 @@ def status_report(found, read_at="", now=None, live=False):
     exit_code = 2 if counts["unread"] else 1 if counts["problem"] else 0
     nodes = proxmox.get("nodes") or []
     if proxmox.get("off"):
-        title = f"claude-on-proxmox  {read_at} · the inventory's VMs: claude_vm_discovery is off"
+        title = f"agent-warehouse  {read_at} · the inventory's VMs: claude_vm_discovery is off"
     elif proxmox.get("unread"):
-        title = f"claude-on-proxmox  {read_at}"
+        title = f"agent-warehouse  {read_at}"
     else:
         what = (
             ", ".join(settings.get("names"))
@@ -998,7 +998,7 @@ def status_report(found, read_at="", now=None, live=False):
             else plural(len(vms), "VM")
         )
         version = f", Proxmox VE {proxmox['version']}" if proxmox.get("version") else ""
-        title = f"claude-on-proxmox  {read_at} · {', '.join(nodes)}{version} · {what}"
+        title = f"agent-warehouse  {read_at} · {', '.join(nodes)}{version} · {what}"
     return {
         "exit": exit_code,
         "read_at": read_at,

@@ -92,7 +92,7 @@
     msg: "{{ inventory_hostname }}: {{ claude_code_login_report }}"
   register: claude_code_login_reported
 
-# NEXT STEPS (callback_plugins/claude_on_proxmox.py): the line above while
+# NEXT STEPS (callback_plugins/agent_warehouse.py): the line above while
 # there is something left to do, and nothing once signed in, or with Remote
 # Control off on purpose. A later record of the same VM replaces this one.
 - name: login | Keep what is left to do for the end of the run

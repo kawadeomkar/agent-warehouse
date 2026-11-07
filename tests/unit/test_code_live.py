@@ -160,4 +160,4 @@ def test_a_vm_that_is_not_there_is_said_under_the_step_it_failed_in(missing):
     assert missing.rc == 2, text
     assert re.search(r"^✗ find the VM · gamma: Find the VM", text, re.M), text
     assert "Fail as just code does, outside just deploy" not in missing.above_summary("code")
-    assert re.search(r"^claude-on-proxmox  code gamma · failed after .* at find the VM", text, re.M), text
+    assert re.search(r"^agent-warehouse  code gamma · failed after .* at find the VM", text, re.M), text

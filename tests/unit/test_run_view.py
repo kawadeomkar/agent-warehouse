@@ -201,7 +201,7 @@ def test_a_running_frame_shows_the_stages_the_running_steps_tasks_and_where_the_
     script = Script().to_configure()
     lines = script.run.frame(script.now + 2.5, 100, 40, "⠋", color=False)
     started = time.strftime("%H:%M", time.localtime(STARTED))
-    assert lines[0] == f"claude-on-proxmox  deploy alpha · started {started}"
+    assert lines[0] == f"agent-warehouse  deploy alpha · started {started}"
     # The plan is printed whole above the region, and not cut into it.
     assert lines[1] == "" and "Template is already built" not in "\n".join(lines)
     text = "\n".join(lines)
@@ -293,7 +293,7 @@ def test_a_failed_task_marks_its_step_and_stage_and_the_summary_says_where_the_r
     script.run.end(script.now)
     summary = script.run.summary(script.now, 100, color=False, failed_hosts=["alpha"])
     # It ended before its last play, on its one VM: failed, and where.
-    assert summary[0].startswith("claude-on-proxmox  deploy alpha · failed after 1 min 57 s at common · ")
+    assert summary[0].startswith("agent-warehouse  deploy alpha · failed after 1 min 57 s at common · ")
     assert any(line.startswith(" ✗ configure") for line in summary)
     assert summary[-1].startswith("16 tasks · 5 changed · 1 failed · log ")
 
@@ -360,7 +360,7 @@ def test_the_summary_has_the_stages_each_vms_words_the_slowest_tasks_and_the_tot
     script.run.end(script.now)
     summary = script.run.summary(script.now, 100, color=False)
     text = "\n".join(summary)
-    assert summary[0].startswith("claude-on-proxmox  deploy alpha · done in 1 min 57 s · ")
+    assert summary[0].startswith("agent-warehouse  deploy alpha · done in 1 min 57 s · ")
     assert summary[2:5] == [
         "STAGES          TIME    TASKS  CHANGED",
         " ✓ template    0.7 s        3        —   proxmox_template 0.5 s",
@@ -446,7 +446,7 @@ def test_the_summary_drops_a_report_a_later_one_replaced_and_keeps_every_other()
         " 25 of 25 repositories selected",
     ], alpha
     assert "\nTHIS MACHINE\n Every alias is up to date.\n" in text
-    assert text.startswith("claude-on-proxmox  deploy alpha · done") and "\nSTAGES " in text and "\nSLOWEST " in text
+    assert text.startswith("agent-warehouse  deploy alpha · done") and "\nSTAGES " in text and "\nSLOWEST " in text
 
 
 def _report(script, play, key, role, vm, text, records):
@@ -698,7 +698,7 @@ def test_the_head_says_done_failed_on_some_vms_or_failed_and_where():
     script.run.result("c6", "alpha", "ok", script.now)
     script.run.end(script.now)
     assert re.match(
-        r"claude-on-proxmox  deploy alpha · done in 1 min 57 s · \d\d:\d\d$",
+        r"agent-warehouse  deploy alpha · done in 1 min 57 s · \d\d:\d\d$",
         script.run.summary(script.now, 100, color=False)[0],
     )
     fleet = Script(plays=_finish_plays()).to_configure()
@@ -950,7 +950,7 @@ def test_an_answer_that_ends_the_run_is_said_as_itself_never_as_a_failure():
     script.run.decline("Nothing was deleted: the deletion was not confirmed.")
     script.run.end(script.now, failed=True)
     summary = script.run.summary(script.now, 100, color=False, failed_hosts=["localhost"])
-    assert len(summary) == 1 and re.match(r"claude-on-proxmox  destroy alpha beta · declined · 1 s · ", summary[0])
+    assert len(summary) == 1 and re.match(r"agent-warehouse  destroy alpha beta · declined · 1 s · ", summary[0])
     assert script.run.title_text(script.now) == "destroy alpha beta · declined"
 
 
@@ -1018,7 +1018,7 @@ def test_a_run_drawn_as_its_steps_says_its_vm_in_the_header_and_each_steps_whole
     _ran(script, "o1", "Refuse anything but one VM")
     _ran(script, "s1", "Read the sessions", "/r/playbooks/tasks/session_read.yml", outcome=None)
     head = script.run.frame(script.now, 100, 30, "⠋", color=False)[0]
-    assert head.startswith("claude-on-proxmox  code alpha · started ") and head.endswith(" VM 101 · 192.0.2.151")
+    assert head.startswith("agent-warehouse  code alpha · started ") and head.endswith(" VM 101 · 192.0.2.151")
     assert len(head) == 99
     script.run.result("s1", "localhost", "ok", script.now)
     script.run.end(script.now)

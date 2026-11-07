@@ -77,11 +77,11 @@ On a fresh Proxmox VE 9 host with the defaults, it runs:
 
 ```text
 pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.PowerMgmt,VM.Audit,VM.GuestAgent.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use
-pveum user add ansible@pve --comment claude-on-proxmox
+pveum user add ansible@pve --comment agent-warehouse
 pveum acl modify /vms --users ansible@pve --roles AnsibleVM
 pveum acl modify /storage/local-lvm --users ansible@pve --roles AnsibleVM
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM
-pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox
+pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse
 ```
 
 It prints the token's secret last, once: give it to `just init`, which asks for it (or to

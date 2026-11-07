@@ -621,7 +621,7 @@ def test_tailscale_auth_method_decides_whether_the_key_is_used(configured):
 
 # ------------------------------------------------------- what reaches text ---
 def test_next_steps_keep_what_is_left_to_do_and_nothing_where_it_runs_as_it_should(configured):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py):
+    # What the run's last lines list (callback_plugins/agent_warehouse.py):
     # the report itself while something is left, whether or not it names a just
     # command - a stopped node, missing tags, an admin's approval.
     root, first, first_calls, second = configured

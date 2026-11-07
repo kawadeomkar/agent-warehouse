@@ -1,4 +1,4 @@
-# claude-on-proxmox
+# agent-warehouse
 
 [![CI](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/ci.yml)
 [![Docs](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/docs.yml/badge.svg?branch=main)](https://kawadeomkar.github.io/claude-on-proxmox/)

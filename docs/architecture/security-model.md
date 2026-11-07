@@ -45,10 +45,10 @@ only `just init` refuses. Its password goes in `.vault_pass`, made only when the
 anywhere (`.vault_pass` or `ANSIBLE_VAULT_PASSWORD_FILE`): `O_EXCL`, `0600`, and never read, rewritten or
 re-moded once it exists. The secret is never taken from the command line, which the shell's history, the
 process list and a CI log keep: `just init` has no option for it, refuses `--token-secret` as one it does
-not have and `CLAUDE_ON_PROXMOX_TOKEN_SECRET=` before the recipe as a setting it does not have, and catches
+not have and `AGENT_WAREHOUSE_TOKEN_SECRET=` before the recipe as a setting it does not have, and catches
 any word after its options - make's spelling, `TOKEN_SECRET=...`, or the bare value - and refuses it with
 a fixed message that never says it (an unknown recipe or a pattern refusal would print the word). A
-scripted `just init` reads it from `--token-secret-file`'s file or from `CLAUDE_ON_PROXMOX_TOKEN_SECRET`
+scripted `just init` reads it from `--token-secret-file`'s file or from `AGENT_WAREHOUSE_TOKEN_SECRET`
 in the environment, inside the playbook, so it is on no command line at all.
 
 ### The credentials a run handles

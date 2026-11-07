@@ -445,7 +445,7 @@ def _run(
         [str(ANSIBLE_PLAYBOOK), "-i", str(inventory), *args, str(playbook)],
         cwd=root,
         # Custom stats shown: the report then carries what the run recorded
-        # for NEXT STEPS (callback_plugins/claude_on_proxmox.py), _left_to_do.
+        # for NEXT STEPS (callback_plugins/agent_warehouse.py), _left_to_do.
         env=_env(root, ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json", ANSIBLE_SHOW_CUSTOM_STATS="1", **(env or {})),
         # Never the developer's terminal: a pause would wait on it. With no
         # terminal the sign-in's prompt returns at once, as in an unattended run.

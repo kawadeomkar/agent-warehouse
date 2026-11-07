@@ -2,7 +2,7 @@
 
 The VMs are test_sign_in_plays.py's stand-ins, run as its own tests run them (its _hosts and _extra: no discovery,
 no sudo, never this machine's browser or clipboard, a refusing ssh for the VM that cannot be reached), with the
-live kit's environment (tests/unit/live_kit.py): a HOME of the run's own and CLAUDE_ON_PROXMOX_LIVE as the recipe
+live kit's environment (tests/unit/live_kit.py): a HOME of the run's own and AGENT_WAREHOUSE_LIVE as the recipe
 sets it. alpha signs in, beta cannot be reached and gamma's code is refused: what a person sees of each, in the
 region and at the end (docs/architecture/custom-code.md §7.5, docs/guides/runs.md). One run at a terminal serves every
 test: a whole login.yml takes half a minute, and what it prints above the region - each failure, the summary - is
@@ -55,7 +55,7 @@ def test_each_failure_is_drawn_under_the_sign_in_it_happened_in_and_the_raise_na
 
 def test_the_summary_says_which_vms_failed_and_each_vms_outcome_in_each_sign_in(drawn):
     text = drawn.transcript
-    head = re.search(rf"^claude-on-proxmox  {TITLE} · done in .* · 2 VMs failed: beta, gamma$", text, re.M)
+    head = re.search(rf"^agent-warehouse  {TITLE} · done in .* · 2 VMs failed: beta, gamma$", text, re.M)
     assert head, text
     table = drawn.table("SIGN-INS")
     claude = next(line for line in table.splitlines() if " Claude " in line)

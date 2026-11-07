@@ -118,7 +118,7 @@
         quiet: true
 
 - name: Verify the API requests
-  hosts: claude-on-proxmox-provision
+  hosts: agent-warehouse-provision
   become: true
   tasks:
     - name: Read the fake API request log
@@ -432,7 +432,7 @@
       ansible.builtin.shell: >-
         printf '%s\n' '{"method": "MARKER", "path": "/solo-start", "params": {}, "token": null, "agent": ""}'
         >> /var/lib/fake-pve/calls.log
-      delegate_to: claude-on-proxmox-provision
+      delegate_to: agent-warehouse-provision
       become: true
       changed_when: false
 
@@ -450,7 +450,7 @@
       ansible.builtin.shell: >-
         printf '%s\n' '{"method": "MARKER", "path": "/solo-end", "params": {}, "token": null, "agent": ""}'
         >> /var/lib/fake-pve/calls.log
-      delegate_to: claude-on-proxmox-provision
+      delegate_to: agent-warehouse-provision
       become: true
       changed_when: false
 
@@ -806,7 +806,7 @@
 # can be counted on their own, and which HTTP agent, so a request a playbook
 # made itself through `uri` can be told from one a module made.
 - name: Verify what the refused runs sent to the API
-  hosts: claude-on-proxmox-provision
+  hosts: agent-warehouse-provision
   become: true
   tasks:
     - name: Read the fake API request log

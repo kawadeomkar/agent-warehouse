@@ -19,7 +19,7 @@
 # repository's root, whose json.py, subprocess.py or re.py would then run in place of the standard library's -
 # before Claude Code asks whether the folder is trusted, and able to have the check ask for a --continue. -I also
 # leaves out the PYTHON* variables and the user's site-packages. A pid counts as a running claude as the modules
-# count it, playbooks/module_utils/claude_on_proxmox.py's four functions below copied unchanged (a test holds them
+# count it, playbooks/module_utils/agent_warehouse.py's four functions below copied unchanged (a test holds them
 # equal): the native binary, or Claude Code's npm package under node, by the process's argv, from /proc or ps; one
 # whose argv cannot be read counts as running.
 #

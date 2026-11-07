@@ -50,9 +50,9 @@ from ..tui import live_region as live
 from ..tui import run as drawn
 from ..tui import screen
 
-LIVE_ENV = "CLAUDE_ON_PROXMOX_LIVE"
-STATE_ENV = "CLAUDE_ON_PROXMOX_LIVE_STATE"
-STAGES_ENV = "CLAUDE_ON_PROXMOX_LIVE_STAGES"
+LIVE_ENV = "AGENT_WAREHOUSE_LIVE"
+STATE_ENV = "AGENT_WAREHOUSE_LIVE_STATE"
+STAGES_ENV = "AGENT_WAREHOUSE_LIVE_STAGES"
 # What a part's child never inherits: the switch, the state and the stages are the run's, the log is written here.
 NOT_PASSED_ON = (LIVE_ENV, STATE_ENV, STAGES_ENV, "ANSIBLE_LOG_PATH")
 CHILD_ENV = {"NO_COLOR": "1", "PYTHONUNBUFFERED": "1", "PRE_COMMIT_COLOR": "never"}
@@ -331,7 +331,7 @@ class Pytest(Reader):
         state.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         descriptor, self.events = tempfile.mkstemp(dir=state.parent, prefix=f"{state.stem}-pytest-", suffix=".jsonl")
         os.close(descriptor)
-        return {"CLAUDE_ON_PROXMOX_LIVE_PYTEST": self.events}
+        return {"AGENT_WAREHOUSE_LIVE_PYTEST": self.events}
 
     def line(self, line, said, now):
         self.poll(now)

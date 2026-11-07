@@ -685,7 +685,7 @@ def _opened(output: str):
 
 
 def _recorded(output: str) -> dict:
-    """What a run recorded for NEXT STEPS (callback_plugins/claude_on_proxmox.py), from its custom stats."""
+    """What a run recorded for NEXT STEPS (callback_plugins/agent_warehouse.py), from its custom stats."""
     found = re.search(r"^\tRUN: (\{.*\})$", output, re.MULTILINE)
     return json.loads(found.group(1)).get("code_next", {}) if found else {}
 
@@ -1780,7 +1780,7 @@ def test_the_shared_helper_counts_a_running_claude_as_the_modules_do():
         return {node.name: ast.dump(node) for node in ast.parse(source).body if isinstance(node, ast.FunctionDef)}
 
     helper = functions(_start_python())
-    shared = functions((REPO / "playbooks" / "module_utils" / "claude_on_proxmox.py").read_text())
+    shared = functions((REPO / "playbooks" / "module_utils" / "agent_warehouse.py").read_text())
     for name in ("alive", "is_claude", "process_argv", "running_claude"):
         assert helper[name] == shared[name], name
 
