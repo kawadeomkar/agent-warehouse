@@ -596,7 +596,15 @@ Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scena
 actual variable wiring is exercised rather than a copy. Test overrides live in `host_vars/`. The
 symlink must survive checkout — clone the repo, do not download a zip.
 
-The `provision` scenario is deliberately adversarial. Before discovery runs, `verify.yml` seeds VMs
+The `provision` scenario's checks are three files `verify.yml` imports in turn: `seeds.yml`, the fixtures
+below; `fleet.yml`, discovery, `just status`, the playbooks where they must refuse or report, `destroy.yml` and
+the SSH aliases; and `just_code.yml`, `just code`'s runs on the fleet as `fleet.yml` leaves it. CI runs the two
+halves as jobs of their own, side by side: `verify_fleet.yml`, and `verify_code.yml`, which makes that fleet from
+the seeds first - `molecule.yml` takes the one to run from `MOLECULE_PROVISION_VERIFY`, so
+`MOLECULE_PROVISION_VERIFY=verify_code.yml just test provision` runs one half here, and `just test provision`
+both. Whole, the scenario was CI's longest job, about eight minutes; its halves end in about five.
+
+The `provision` scenario is deliberately adversarial. Before discovery runs, `seeds.yml` seeds VMs
 that must not be claimed, or that are this project's but once broke a fleet-wide command:
 
 | Fixture | Why |

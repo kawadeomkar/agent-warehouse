@@ -14,6 +14,7 @@ just test molecule            # every Molecule (Docker) scenario: the three belo
 just test role                # each role's scenario, incl. idempotence; --role common,dev_tools for some of them
 just test integration         # playbooks/configure.yml end to end in a container
 just test provision           # provision.yml + discover.yml against a fake Proxmox API
+MOLECULE_PROVISION_VERIFY=verify_code.yml just test provision   # one half of it, as one of CI's two jobs
 just deploy --check           # dry run of configure.yml against your real VM (--check --diff)
 just vagrant                  # configure.yml on a real VirtualBox VM (just vagrant destroy removes it)
 ```

@@ -202,24 +202,32 @@ jobs:
         run: just test integration
 
   playbooks:
-    name: Molecule (${{ matrix.scenario }} playbook)
+    name: Molecule (${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      # The job keeps the scenario's name; just test calls the configure
-      # scenario's part integration.
+      # Each job says its scenario; just test calls the configure scenario's
+      # part integration. The provision scenario's checks run as two jobs side
+      # by side, each half with a converge of its own: whole, at about eight
+      # minutes, it was the run's longest job (molecule/provision/verify.yml).
       matrix:
         include:
-          - scenario: configure
+          - name: configure playbook
             type: integration
-          - scenario: provision
+          - name: provision playbook, the fleet
             type: provision
+            verify: verify_fleet.yml
+          - name: provision playbook, just code
+            type: provision
+            verify: verify_code.yml
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - name: Molecule test
         run: just test ${{ matrix.type }}
+        env:
+          MOLECULE_PROVISION_VERIFY: ${{ matrix.verify }}
 
   # The one check branch protection is to require: every job of the gate passed
   # or was skipped (dependency review is, on a push). Required alone, in place of
