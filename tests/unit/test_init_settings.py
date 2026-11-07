@@ -607,7 +607,9 @@ def test_the_secret_given_by_both_names_is_taken_once_or_refused_unsaid(tmp_path
     both = {"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET, "CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET}
     report = _init(tmp_path, files, {"init_given": given}, env=both)
     assert report["rc"] == 0, _failures(report)
-    assert SECRET_LINE in _decrypt(files) and "name through 1.x" not in json.dumps(report)
+    assert SECRET_LINE in _decrypt(files)
+    # Said by the notice's text alone: the report lists the skipped notice task by its name too.
+    assert "CLAUDE_ON_PROXMOX_TOKEN_SECRET is this project's name through 1.x" not in json.dumps(report)
     other = "99999999-8888-7777-6666-555555555555"
     (tmp_path / "other").mkdir()
     files = _files(tmp_path / "other")
