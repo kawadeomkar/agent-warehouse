@@ -90,6 +90,7 @@ playbooks/
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
+  tasks/default_name_1x.yml       refuses a bare deploy or destroy while the default VM has its 1.x name alone (provision, destroy)
   tasks/vms_requested.yml         the tagged VMs asked for and their addresses, those named after a host of the
                                   inventory left out and said, two of one name refused (discover, ssh_config)
   tasks/vpn_members.yml           a VPN's plan of who is on its network (lib/claude_vm/vpn/), its refusals first

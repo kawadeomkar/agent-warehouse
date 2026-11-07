@@ -171,7 +171,7 @@ help *RECIPE:
     if [ "$#" -eq 1 ]; then exec {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --usage "$1"; fi
     {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --list --unsorted
     echo
-    echo "Without names, deploy and destroy act on claude-on-proxmox-default; status, login and deploy"
+    echo "Without names, deploy and destroy act on agent-warehouse-default; status, login and deploy"
     echo "--only configure, --check or --only ssh-config act on every VM this project created."
     echo "Options go after the recipe's name, settings before it or exported: ANSIBLE_ARGS='...' passes"
     echo "anything else to ansible-playbook in init, deploy, code, login, status and destroy, and"
@@ -399,7 +399,7 @@ vault:
 # mean either. just deploy test is the VM test.
 [arg('START', long='start', value='true', help='Start a VM this run would leave stopped (proxmox_vm_start_existing)')]
 [arg('CHECK', long='check', value='check', help='Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)')]
-[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means claude-on-proxmox-default, or every VM this project created for --only configure, --check and --only ssh-config')]
+[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config')]
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [continue]
@@ -674,7 +674,7 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
     [ -z "$reset" ] || set -- "$@" --reset=true
     exec "$bin/python" tools/settings "$@" --all="$all" --changed="$changed" --json="$json" -- ${name:+"$name"}
 
-[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means claude-on-proxmox-default')]
+[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default')]
 [continue]
 [doc("Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them")]
 [group('use')]

@@ -4,7 +4,7 @@
 # Code - so one command ends at a window on the VM with a Claude session
 # running and gh signed in.
 #
-#   just deploy                       -> claude-on-proxmox-default, and only it
+#   just deploy                       -> agent-warehouse-default, and only it
 #   just deploy alpha,beta    -> alpha and beta, and only them
 #
 # Each stage is a playbook of its own, imported as is, so deploy is the sum of

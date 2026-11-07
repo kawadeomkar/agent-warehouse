@@ -1,7 +1,7 @@
 # Tearing down
 
 ```bash
-just destroy                      # claude-on-proxmox-default
+just destroy                      # agent-warehouse-default
 just destroy alpha beta           # several at once; they are deleted in parallel
 ```
 

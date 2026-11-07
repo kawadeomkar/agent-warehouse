@@ -235,3 +235,64 @@ def test_deploy_refuses_a_name_in_its_first_play() -> None:
     first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
     assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == ["playbooks/tasks/vm_names.yml"]
     assert first["tasks"][0]["vars"] == {"claude_vm_names_alias": True}
+
+
+# ------------------------------------------------------------------- the default VM's name through 1.x ----
+
+DEFAULT_1X = "claude-on-proxmox-default"
+DEFAULT_REFUSAL = "default_name_1x | Refuse a bare run that would miss the default VM by its 1.x name"
+
+
+def _default_check(tmp_path: Path, base: str, **given) -> dict:
+    """The cluster's listing, then tasks/default_name_1x.yml, on localhost against the fake, with given as -e."""
+    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
+    tasks = PLAYBOOKS / "tasks"
+    play = {
+        "name": "Check the default VM's name",
+        "hosts": "localhost",
+        "gather_facts": False,
+        "tasks": [
+            {"name": "List the cluster", "ansible.builtin.import_tasks": str(tasks / "cluster_vms.yml")},
+            {
+                "name": "Check it",
+                "ansible.builtin.import_tasks": str(tasks / "default_name_1x.yml"),
+                "vars": {"claude_vm_default_doing": "it would do something else"},
+            },
+        ],
+    }
+    (root / "check.yml").write_text(yaml.safe_dump([play]))
+    extra = ["-e", json.dumps(given)] if given else []
+    return _run(root, root / "check.yml", {}, *_proxmox_inventory(root), *extra, timeout=120)
+
+
+@pytest.mark.parametrize(
+    ("vms", "given", "refused"),
+    [
+        # A VM of the project's by the 1.x default's name alone: refused, naming the setting that keeps it.
+        ([DEFAULT_1X], {}, True),
+        # The setting kept at the 1.x name, names given, or the new default there too: each passes.
+        ([DEFAULT_1X], {"vm_default_name": DEFAULT_1X}, False),
+        ([DEFAULT_1X], {"vm_name": "alpha"}, False),
+        ([DEFAULT_1X, "agent-warehouse-default"], {}, False),
+        ([], {}, False),
+    ],
+    ids=["1x-only", "kept-by-setting", "names-given", "both", "neither"],
+)
+def test_a_bare_run_is_refused_only_while_the_default_vm_has_its_1x_name_alone(tmp_path, fleet, vms, given, refused):
+    for vmid, name in enumerate(vms, start=9021):
+        _pve_vm(fleet, vmid, name, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+    report = _default_check(tmp_path, fleet, **given)
+    result = _task(report, DEFAULT_REFUSAL)
+    assert bool(result.get("failed")) is refused, report["stderr"][-2000:]
+    if refused:
+        assert f"just settings vm_default_name --value {DEFAULT_1X}" in result["msg"], result["msg"]
+
+
+def test_a_bare_provision_with_the_default_vm_by_its_1x_name_creates_nothing(tmp_path, fleet) -> None:
+    _pve_vm(fleet, 9021, DEFAULT_1X, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+    calls = tmp_path / "pve" / "calls.log"
+    before = len(calls.read_text().splitlines()) if calls.exists() else 0
+    report = _playbook(tmp_path, fleet, PLAYBOOKS / "provision.yml", "-e", json.dumps({"deploy_sign_in": False}))
+    assert report["rc"] != 0 and _task(report, DEFAULT_REFUSAL).get("failed"), report["stderr"][-2000:]
+    sent = [json.loads(line)["method"] for line in calls.read_text().splitlines()[before:]]
+    assert set(sent) <= {"GET"}, sent

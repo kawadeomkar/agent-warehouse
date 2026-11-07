@@ -863,7 +863,7 @@ def test_just_lists_every_recipe_and_help_names_each_option(tmp_path: Path) -> N
     assert listed.returncode == 0, _output(listed)
     for name in _public():
         assert re.search(rf"(?m)^\s+{re.escape(name)}\b", listed.stdout), name
-    assert "Without names, deploy and destroy act on claude-on-proxmox-default" in listed.stdout
+    assert "Without names, deploy and destroy act on agent-warehouse-default" in listed.stdout
     for name, recipe in _public().items():
         usage = _just("help", name)
         assert usage.returncode == 0, _output(usage)

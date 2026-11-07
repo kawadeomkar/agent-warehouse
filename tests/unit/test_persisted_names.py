@@ -26,7 +26,11 @@ REPO = Path(__file__).resolve().parents[2]
 VALUES = [
     # On every VM, in Proxmox: the ownership tag, the mark of a VM whose provisioning did not finish, the default name.
     ("inventory/group_vars/all/defaults.yml", "claude_vm_tag", "claude-on-proxmox"),
-    ("inventory/group_vars/all/defaults.yml", "vm_default_name", "claude-on-proxmox-default"),
+    ("inventory/group_vars/all/defaults.yml", "vm_default_name", "agent-warehouse-default"),
+    # Its 1.x name, which a bare deploy or destroy refuses to miss (tasks/default_name_1x.yml, 2.x), and the default it
+    # is refused beside.
+    ("inventory/group_vars/all/defaults.yml", "claude_vm_default_name_1x", "claude-on-proxmox-default"),
+    ("inventory/group_vars/all/defaults.yml", "claude_vm_default_name_2_0", "agent-warehouse-default"),
     ("roles/proxmox_vm/vars/main.yml", "proxmox_vm_unfinished_tag", "{{ proxmox_vm_sent_tags[0] }}-unfinished"),
     # The same tag as the role spells it when no inventory gives it one, and the record of a VM's Tailscale join made
     # from it, as the inventory and each role spell it: the record that keeps the vault's auth key from a VM again.

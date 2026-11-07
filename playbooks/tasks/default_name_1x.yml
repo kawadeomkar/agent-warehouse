@@ -1,0 +1,26 @@
+---
+# A bare just deploy or just destroy acts on vm_default_name: claude-on-proxmox-default
+# through 1.x (claude_vm_default_name_1x), agent-warehouse-default from 2.0. On a
+# cluster where a VM of this project's has the 1.x name and none the new one, a bare
+# deploy would make a second VM beside it, and a bare destroy would find nothing:
+# refused, naming the setting that keeps the 1.x one as the default. Only with no
+# names given and vm_default_name the default (claude_vm_default_name_2_0): a name
+# of the user's own is theirs to keep.
+#
+# Inputs, as vars on the import:
+#   claude_vm_default_doing   what the run would do instead, said in the refusal
+# Needs the cluster's listing first (tasks/cluster_vms.yml).
+- name: default_name_1x | Refuse a bare run that would miss the default VM by its 1.x name
+  vars:
+    claude_vm_default_names: "{{ claude_vm_tagged | map(attribute='name', default='') | select | list }}"
+  ansible.builtin.assert:
+    that: >-
+      claude_vm_default_name_1x not in claude_vm_default_names or vm_default_name in claude_vm_default_names
+    fail_msg: >-
+      {{ claude_vm_default_name_1x }} is a VM of this project's, named as the default VM was through 1.x, and the
+      default from 2.0, {{ vm_default_name }}, is no VM's: {{ claude_vm_default_doing }}. To keep the 1.x one as the
+      default: just settings vm_default_name --value {{ claude_vm_default_name_1x }}. Or name the VMs.
+    quiet: true
+  when:
+    - vm_name is not defined
+    - vm_default_name == claude_vm_default_name_2_0

@@ -449,7 +449,7 @@ class TestDuplicateNames:
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
-    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x", "1a", "0xg", "9-1"])
+    @pytest.mark.parametrize("name", ["alpha", "dev-01", "agent-warehouse-default", "b2", "x", "1a", "0xg", "9-1"])
     def test_a_name_that_can_be_nothing_else(self, name):
         assert checks.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
 

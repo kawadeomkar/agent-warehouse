@@ -97,7 +97,12 @@ proxmox_template_rebuild: true
 # tagged VM - so just status, just login and just deploy --only configure,
 # --check and --only ssh-config are fleet-wide. No VM is declared anywhere:
 # Proxmox gives each its ID, and DHCP its address.
-vm_default_name: claude-on-proxmox-default
+vm_default_name: agent-warehouse-default
+# The default's name through 1.x and from 2.0: a bare deploy or destroy is
+# refused while a VM of this project's has the first and none the second
+# (tasks/default_name_1x.yml). Not settings.
+claude_vm_default_name_1x: claude-on-proxmox-default
+claude_vm_default_name_2_0: agent-warehouse-default
 # Applied to every VM this project creates, and how they are found again.
 claude_vm_tag: claude-on-proxmox
 # Matches claude_vm_tag as a whole tag in Proxmox's ";"-joined tag string (or

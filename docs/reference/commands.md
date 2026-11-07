@@ -18,7 +18,7 @@ The words a recipe takes, and how they are checked:
 
 - **VM names**, after `deploy`, `login`, `list` and `destroy`, and one after `code`. Each starts with a letter
   or a digit and holds only letters, digits and `. _ - ,`. Without names, `deploy`, `deploy --only
-  provision` and `destroy` act on `claude-on-proxmox-default`, `code` refuses to run, and the commands that
+  provision` and `destroy` act on `agent-warehouse-default`, `code` refuses to run, and the commands that
   read VMs or configure them again act on every VM this project created; see
   [Naming and multiple VMs](../guides/vms.md#naming-and-multiple-vms). `just deploy configure` asks whether
   the stage or a VM so named was meant, and without a terminal runs nothing: a stage is given with `--only`.
@@ -67,7 +67,7 @@ environment where `python3` is not it.
 | &emsp;`--check` | Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named) |
 | &emsp;`-t, --tags ROLES` | Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code) |
 | &emsp;`--start` | Start a VM this run would leave stopped (proxmox_vm_start_existing) |
-| &emsp;`<name>` | The VMs; none means claude-on-proxmox-default, or every VM this project created for --only configure, --check and --only ssh-config |
+| &emsp;`<name>` | The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config |
 | `just code <name>` | Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
 | &emsp;`--editor IDE` | Open it in this editor for this run, rather than the one the editor setting names: vscode or zed |
@@ -88,7 +88,7 @@ environment where `python3` is not it.
 | &emsp;`--value VALUE` | Set the one setting named to this value, in local.yml (never a secret: just vault; an empty value is none: --reset) |
 | &emsp;`<name>` | A role (tailscale) or one variable or setting (tailscale_ssh); none shows how to use this |
 | `just destroy [<name>...]` | Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them |
-| &emsp;`<name>` | The VMs; none means claude-on-proxmox-default |
+| &emsp;`<name>` | The VMs; none means agent-warehouse-default |
 | `just logs` | List the run logs in .logs/, newest first |
 
 ### Develop

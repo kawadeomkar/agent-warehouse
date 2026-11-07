@@ -967,13 +967,13 @@ WINDOWS = {
     "deploy, no name, beside others": {
         "keep": ["Find the VM"],
         "in_deploy": True,
-        "claude_vm_all": _listing("claude-on-proxmox-default", "alpha"),
+        "claude_vm_all": _listing("agent-warehouse-default", "alpha"),
     },
     "deploy, named": {
         "keep": ["Find the VM"],
         "in_deploy": True,
         "vm_name": "alpha",
-        "claude_vm_all": _listing("claude-on-proxmox-default", "alpha"),
+        "claude_vm_all": _listing("agent-warehouse-default", "alpha"),
     },
     "deploy, twice": {
         "keep": ["Find the VM"],

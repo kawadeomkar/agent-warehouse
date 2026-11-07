@@ -39,6 +39,11 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   from its recent list by the old workspace file's path finds nothing there: open it with `just code` again. A
   directory you chose with `editor_files_dir` stays where it is. Zed's tasks file and the notes written by 1.x are
   known as just code's and written again.
+- **The default VM is `agent-warehouse-default`.** A bare `just deploy` or `just destroy`, which acts on it, is refused
+  while a VM of this project's is named `claude-on-proxmox-default`, 1.x's default, and none has the new name: the
+  deploy would make a second VM beside it. Keep yours as the default with
+  `just settings vm_default_name --value claude-on-proxmox-default`, or name the VMs. Renaming the VM in Proxmox is
+  yours to do: renamed, it is a new cloud-init instance, with new SSH host keys at its next start.
 - **On the Proxmox host**, a template's notes say "Built by agent-warehouse:" from its next build, and one 1.x
   built, "Built by claude-on-proxmox:", is still read as its record, so no template is rebuilt for that alone. The
   next build moves `/var/lib/vz/claude-on-proxmox`, where the image is kept, to `/var/lib/vz/agent-warehouse`; a

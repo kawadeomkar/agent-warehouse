@@ -4,7 +4,7 @@
 #   just destroy alpha
 #   just destroy alpha,beta
 #
-# Without vm_name this targets claude-on-proxmox-default, the same name
+# Without vm_name this targets agent-warehouse-default, the same name
 # `just deploy --only provision` uses when none is given. The confirmation prompt runs first,
 # since it is a play-level vars_prompt; the task right after it then checks that
 # every VM asked for actually exists, so a wrong name fails loudly rather than
@@ -83,6 +83,11 @@
 
     - name: List every VM in the cluster
       ansible.builtin.import_tasks: tasks/cluster_vms.yml
+
+    - name: Refuse a bare destroy that would miss the default VM by its 1.x name
+      ansible.builtin.import_tasks: tasks/default_name_1x.yml
+      vars:
+        claude_vm_default_doing: a bare just destroy has no VM to delete
 
     # The role refuses a VM it does not own as well; checking here first names
     # the VMs that do exist, once, instead of one refusal per host.
