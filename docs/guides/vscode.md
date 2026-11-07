@@ -101,7 +101,7 @@ fails keeps its alias, since it is still there), and `just deploy --only ssh-con
 brings the whole fleet back in step at any time: a lease that moved, a VM deleted in the Proxmox UI,
 a second machine. Fleet-wide it also prunes the aliases of VMs that no longer exist. Pruning only
 ever removes blocks from the managed file, never VMs, and a block is only ever written for a VM
-tagged `claude-on-proxmox`, so a VM you run outside this project cannot be affected. Two cases are
+tagged `agent-warehouse`, so a VM you run outside this project cannot be affected. Two cases are
 left alone and reported instead: a name that an *untagged* VM still carries (not this project's to
 reason about, exactly as `just destroy` refuses it), and anything at all while a tagged VM is listed
 without a name, which is what a node that is down looks like. `just deploy alpha --only ssh-config`

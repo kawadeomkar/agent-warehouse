@@ -24,6 +24,7 @@ PROXMOX = (
     "guest_addresses",
     "proxmox_access_denied",
     "proxmox_marks",
+    "proxmox_tags_moved",
     "proxmox_wireguard_taken",
 )
 CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "ssh_hostname", "guest_ipv4", "sshd_match_spec")

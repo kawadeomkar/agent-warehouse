@@ -39,8 +39,10 @@
     label: "{{ claude_vm_mark.vm.name }}"
 
 # The tags compared in lowercase, as the ownership tag is matched, and written
-# back as Proxmox gave them. An update that went through is always changed, so
-# one that is not failed: said below.
+# back as Proxmox gave them. A mark is added under claude_vm_tag and taken off
+# under every owned tag, its 1.x name too (claude_vm_tags_owned), on a VM that
+# carries either. An update that went through is always changed, so one that is
+# not failed: said below.
 - name: vm_marks | Write each VM's marks in Proxmox, keeping its other tags
   vars:
     claude_vm_marks_vm: >-
@@ -51,7 +53,7 @@
     claude_vm_marks_add: >-
       {{ claude_vm_marks_read.claude_vm_mark.add | map('regex_replace', '^', claude_vm_tag | lower ~ '-') | list }}
     claude_vm_marks_off: >-
-      {{ claude_vm_marks_read.claude_vm_mark.remove | map('regex_replace', '^', claude_vm_tag | lower ~ '-') | list }}
+      {{ claude_vm_tags_owned | product(claude_vm_marks_read.claude_vm_mark.remove) | map('join', '-') | list }}
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ claude_vm_marks_vm.node }}"
     vmid: "{{ claude_vm_marks_vm.vmid }}"
@@ -67,7 +69,7 @@
     - claude_vm_marks_read is not skipped
     - claude_vm_marks_read.proxmox_vms is defined
     - claude_vm_marks_vm.name | default('') == claude_vm_marks_read.claude_vm_mark.vm.name
-    - claude_vm_tag | lower in claude_vm_marks_now_lower
+    - claude_vm_tags_owned | intersect(claude_vm_marks_now_lower) | length > 0
     - >-
       claude_vm_marks_add | reject('in', claude_vm_marks_now_lower) | list | length > 0
       or claude_vm_marks_off | select('in', claude_vm_marks_now_lower) | list | length > 0

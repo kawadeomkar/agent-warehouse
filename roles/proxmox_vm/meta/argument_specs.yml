@@ -148,6 +148,14 @@ argument_specs:
           - Tags stamped on every VM this role creates. The first one is the
             ownership marker - discovery finds VMs by it, and both deleting and
             provisioning refuse to touch an existing VM that does not carry it.
+      proxmox_vm_tags_1x:
+        type: list
+        elements: str
+        description:
+          - The ownership tag through 1.x. A VM that carries it, or a mark or the
+            unfinished tag under it, is the role's as if it carried the first of
+            proxmox_vm_tags, and the role writes each under that tag instead.
+            Empty for a tag of one's own.
       proxmox_vm_user:
         type: str
         description: Cloud-init user created on the VM. The playbooks also log in as it.

@@ -615,7 +615,7 @@
               - name: "{{ claude_vm_addressed[0].name }}"
                 address: >-
                   {{ claude_vm_addressed[0].address
-                     | vpn_alias_address(claude_vm_addressed[0].tags | default('') | proxmox_marks(claude_vm_tag),
+                     | vpn_alias_address(claude_vm_addressed[0].tags | default('') | proxmox_marks(claude_vm_tags_owned),
                                          claude_vpn_key | default('none'), vpn_reach | default('lan'),
                                          wireguard_vm_prefix | default('')) }}
                 user: "{{ vm_user }}"

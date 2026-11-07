@@ -264,7 +264,7 @@ def test_a_single_name_deploy_gives_no_vm_an_address_another_vm_holds(tmp_path):
     # for several new VMs, and deploy configures with discovery off). gamma, not among the VMs planned, holds .129 in
     # Proxmox alone; the plan lists the cluster itself, so alpha is given .130, and Proxmox records it.
     for base in fake_fleet(tmp_path):
-        _pve(base, "PUT", "nodes/pve/qemu/9012/config", tags="claude-on-proxmox;claude-on-proxmox-wg-198.51.100.129")
+        _pve(base, "PUT", "nodes/pve/qemu/9012/config", tags="agent-warehouse;agent-warehouse-wg-198.51.100.129")
         settings = {
             "vpn": "wireguard",
             "wireguard_hub_network": "198.51.100.0/24",
@@ -296,18 +296,18 @@ def test_a_single_name_deploy_gives_no_vm_an_address_another_vm_holds(tmp_path):
         (tunnel,) = _messages(report, "Say")["localhost"]
         assert tunnel["address"] == "198.51.100.130/24"
         tags = _pve(base, "GET", "nodes/pve/qemu/9010/config")["data"]["tags"]
-        assert "claude-on-proxmox-wg-198.51.100.130" in tags.replace(",", ";").split(";")
+        assert "agent-warehouse-wg-198.51.100.130" in tags.replace(",", ";").split(";")
 
 
 @pytest.mark.parametrize(
     ("found", "kept"),
     [
-        (["claude-on-proxmox", "claude-on-proxmox-wg-198.51.100.129"], ["claude-on-proxmox-wg-198.51.100.129"]),
+        (["agent-warehouse", "agent-warehouse-wg-198.51.100.129"], ["agent-warehouse-wg-198.51.100.129"]),
         (
-            ["claude-on-proxmox", "claude-on-proxmox-tailscale", "claude-on-proxmox-wg-198.51.100.130", "mine"],
-            ["claude-on-proxmox-tailscale", "claude-on-proxmox-wg-198.51.100.130"],
+            ["agent-warehouse", "agent-warehouse-tailscale", "agent-warehouse-wg-198.51.100.130", "mine"],
+            ["agent-warehouse-tailscale", "agent-warehouse-wg-198.51.100.130"],
         ),
-        (["claude-on-proxmox", "other-wg-198.51.100.129", "claude-on-proxmoxxwg-1.2.3.4"], []),
+        (["agent-warehouse", "other-wg-198.51.100.129", "agent-warehousexwg-1.2.3.4"], []),
     ],
 )
 def test_proxmox_vm_keeps_the_wireguard_address_whenever_it_replaces_a_vm_s_tags(found, kept):
@@ -315,7 +315,7 @@ def test_proxmox_vm_keeps_the_wireguard_address_whenever_it_replaces_a_vm_s_tags
     # the VM another, and its old one to whichever VM asks next (test_tailscale.py holds every write to the kept tags).
     role_vars = yaml.safe_load((REPO / "roles" / "proxmox_vm" / "vars" / "main.yml").read_text())
     variables = {
-        "proxmox_vm_sent_tags": ["claude-on-proxmox"],
+        "proxmox_vm_sent_tags": ["agent-warehouse"],
         "proxmox_vm_found_tags": found,
         **{name: trust_as_template(role_vars[name]) for name in ("proxmox_vm_tailscale_tag", "proxmox_vm_kept_tags")},
     }

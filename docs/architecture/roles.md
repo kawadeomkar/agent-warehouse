@@ -61,7 +61,7 @@ check and `absent.yml`, both only for a VM that exists.
 | Apply hardware + cloud-init | cores, memory and its minimum (`balloon`, from `proxmox_vm_memory_min_mb`, equal to the memory unless set: Proxmox reads 0 as no balloon device, which would also stop the VM reporting its memory use); `when: proxmox_vm_needs_configuration`; to `proxmox_vm_found_node`, the node the lookup found the VM on, as is every call after the clone — a migrated VM is no longer on `proxmox_vm_node` |
 | Resize root disk | same condition; `proxmox_disk` no-ops when already the right size |
 | Start | `when: needs_configuration or proxmox_vm_start_existing` |
-| Mark finished | removes `claude-on-proxmox-unfinished`, which the settings call added — see [§8](convergence.md) |
+| Mark finished | removes `agent-warehouse-unfinished`, which the settings call added — see [§8](convergence.md) |
 | Read NIC config | only for a VM this run cloned: `until` non-empty, `retries`/`delay`, `failed_when: false`; an existing VM's config is the one the lookup fetched (`proxmox_vm_found_config`); then a dedicated assert |
 | Wait for guest agent | polls until an IPv4 appears, breaking early on 401/403 |
 | Record address | `set_fact proxmox_vm_address`, then assert non-empty |

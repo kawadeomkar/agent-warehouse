@@ -78,10 +78,40 @@ def _tag_list(tags):
     return [tag.lower() for tag in proxmox_tags(tags if isinstance(tags, str) else ";".join(map(str, tags or ())))]
 
 
+def _owned(tag):
+    """The ownership tags, lowercased: one, or every tag a VM of the project may carry as its own (claude_vm_tags_owned:
+    the tag, and its name through 1.x while the tag is the default)."""
+    return [str(each).lower() for each in ([tag] if isinstance(tag, str) else tag or ())]
+
+
 def proxmox_marks(tags, tag):
-    """The marks a VM's tags hold, the ownership tag's prefix taken off, in the order Proxmox gave them."""
-    prefix = f"{str(tag).lower()}-"
-    return [t[len(prefix) :] for t in _tag_list(tags) if t.startswith(prefix) and MARK_RE.fullmatch(t[len(prefix) :])]
+    """The marks a VM's tags hold, the ownership tag's prefix taken off, in the order Proxmox gave them, once each: a
+    mark under any of the ownership tags is the VM's."""
+    marks = []
+    for each in _tag_list(tags):
+        for owned in _owned(tag):
+            mark = each[len(owned) + 1 :] if each.startswith(f"{owned}-") else ""
+            if MARK_RE.fullmatch(mark) and mark not in marks:
+                marks.append(mark)
+    return marks
+
+
+def proxmox_tags_moved(tags, tag, old):
+    """A VM's tags, each one the project gave it under ``old`` - its ownership tag through 1.x, a mark under it and its
+    unfinished tag - under ``tag`` in its place, and every other tag as Proxmox gave it, none twice. ``old`` is a list,
+    empty when the tag is not the default: a tag set in local.yml has no other name."""
+    moved = []
+    for each in proxmox_tags(tags if isinstance(tags, str) else ";".join(map(str, tags or ()))):
+        for was in _owned(old):
+            rest = each.lower()[len(was) :]
+            if each.lower().startswith(was) and (
+                rest in ("", "-unfinished") or (rest.startswith("-") and MARK_RE.fullmatch(rest[1:]))
+            ):
+                each = f"{str(tag).lower()}{rest}"
+                break
+        if each.lower() not in [m.lower() for m in moved]:
+            moved.append(each)
+    return moved
 
 
 def proxmox_wireguard_taken(resources, tag, but=()):
@@ -91,7 +121,7 @@ def proxmox_wireguard_taken(resources, tag, but=()):
     for vm in resources or ():
         if not isinstance(vm, dict) or vm.get("vmid") in but:
             continue
-        if str(tag).lower() in _tag_list(vm.get("tags", "")):
+        if set(_owned(tag)) & set(_tag_list(vm.get("tags", ""))):
             taken += [
                 mark[3:].removesuffix("-reached")
                 for mark in proxmox_marks(vm.get("tags", ""), tag)
@@ -250,8 +280,8 @@ def proxmox_tags(tags):
     """A VM's tags, as a list: split on ";" or ",", each trimmed, an empty one left out, the case as given.
 
     Proxmox joins tags with ";" on the wire, lowercased; proxmox_kvm sends them joined with ",", and some versions
-    echo that back. Whole tags, so that a caller compares a tag whole: claude-on-proxmox is never
-    claude-on-proxmox-staging.
+    echo that back. Whole tags, so that a caller compares a tag whole: agent-warehouse is never
+    agent-warehouse-staging.
     """
     return [tag.strip() for tag in re.split(r"[;,]", str(tags or "")) if tag.strip()]
 

@@ -170,7 +170,8 @@ def status_fleet(
     named = {e.get("name") for e in ours}
     unmatched = [n for n in given if n not in named]
     nameless = [{"vmid": e.get("vmid"), "node": e.get("node")} for e in ours if "name" not in e] if unmatched else []
-    tag = str(settings.get("tag", "claude-on-proxmox")).lower()
+    tag = str(settings.get("tag", "agent-warehouse")).lower()
+    owned = [str(t).lower() for t in settings.get("tags_owned") or [tag]]
     # Each config by the VM its result names, never by position: a read that was skipped would shift the rest.
     read_configs = {}
     for result in (configs or {}).get("results", []) if isinstance(configs, dict) else configs or []:
@@ -231,7 +232,9 @@ def status_fleet(
                 "uptime": entry.get("uptime"),
                 "maxdisk": entry.get("maxdisk"),
                 "address": found.get("address", ""),
-                "unfinished": f"{tag}-unfinished" in [t.lower() for t in proxmox_tags(entry.get("tags"))],
+                "unfinished": bool(
+                    {f"{t}-unfinished" for t in owned} & {t.lower() for t in proxmox_tags(entry.get("tags"))}
+                ),
                 "config": config,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
                 # Read in play 2, by name: a VM that is not can only be shown from the listing.
@@ -523,7 +526,7 @@ def _vm_items(vm, settings, live):
     if skipped == "duplicate":
         add(
             "problem",
-            f"more than one VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}: deploy and"
+            f"more than one VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}: deploy and"
             " destroy refuse both, and status reads neither past the listing",
             "rename or remove the duplicates in Proxmox",
         )
@@ -970,7 +973,7 @@ def status_report(found, read_at="", now=None, live=False):
         _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
-        text = f"no VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}"
+        text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"
         if nameless:
             vmids = ", ".join(str(n.get("vmid")) for n in nameless)
             text += f"; Proxmox lists {plural(len(nameless), 'VM')} without a name, on a node that is down: {vmids}"

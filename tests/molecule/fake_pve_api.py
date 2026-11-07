@@ -154,7 +154,7 @@ VMS = {
         "node": DOWN_NODE,
         "status": "unknown",
         "template": 0,
-        "config": {"name": "ours-on-a-node-that-is-down", "tags": "claude-on-proxmox"},
+        "config": {"name": "ours-on-a-node-that-is-down", "tags": "agent-warehouse"},
     },
     # A container carrying this project's tag, inside the fleet's numbering:
     # the provision scenario numbers alpha and beta from NEXTID_LOWER and must
@@ -167,7 +167,7 @@ VMS = {
         "type": "lxc",
         "status": "running",
         "template": 0,
-        "config": {"hostname": "ours-container", "tags": "claude-on-proxmox"},
+        "config": {"hostname": "ours-container", "tags": "agent-warehouse"},
     },
 }
 # /cluster/nextid answers with the lowest free VMID, as Proxmox does - not the

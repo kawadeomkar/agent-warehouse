@@ -613,10 +613,10 @@ that must not be claimed, or that are this project's but once broke a fleet-wide
 
 | Fixture | Why |
 |---|---|
-| `stranger`, tagged `claude-on-proxmox-staging` | a substring match would configure someone else's staging box |
-| `bystander`, tagged `not-claude-on-proxmox` | the same trap from the other side |
+| `stranger`, tagged `agent-warehouse-staging` | a substring match would configure someone else's staging box |
+| `bystander`, tagged `not-agent-warehouse` | the same trap from the other side |
 | `nonic`, correctly tagged but with its `net0` removed (`delete=net0`) | `net_mac` used to raise and take discovery down for the fleet |
-| `commas`, tagged `ansible,claude-on-proxmox` and kept comma-joined | exercises the `,` separator of `claude_vm_tag_pattern`; every other VM has the `;` form |
+| `commas`, tagged `ansible,claude-on-proxmox` and kept comma-joined | exercises the `,` separator of `claude_vm_tag_pattern`, every other VM having the `;` form, and the ownership tag through 1.x, which discovery, `just status` and destroy take as the new one's |
 | `netone`, tagged, LAN NIC on `net1` and no `net0` | skipped with `proxmox_nic: net0`, found at `192.0.2.59` with `net1` — discovery and the listing used to hard-code `net0` |
 | `parked`, tagged, **stopped**, VMID **4013** | its agent answers `VM 4013 is not running`, which the unanchored `40[13]` took for a 401 and failed discovery and the fleet listing |
 | `legacy`, tagged `claude;ansible` as `main` tagged VMs, stopped | `destroy.yml` must refuse it, and delete it with `proxmox_vm_allow_untagged_delete` |

@@ -119,7 +119,7 @@ def client(name: str, pubkey: str, address: str, keepalive: str = "", privkey: s
     }
 
 
-# The instance the tests change, homeserver, with a device of the user's and two peers of claude-on-proxmox's;
+# The instance the tests change, homeserver, with a device of the user's and two peers of agent-warehouse's;
 # another instance with a device of its own.
 SERVERS = {
     HOME: server("homeserver", "0", "198.51.100.1/24", "51820", key(0x51), [LAPTOP, ALPHA, OLD]),
@@ -128,8 +128,8 @@ SERVERS = {
 CLIENTS = {
     LAPTOP: client("laptop", key(0x21), "198.51.100.2/32", privkey=PEER_PRIVATE, psk=PEER_PSK),
     PHONE: client("phone", key(0x22), "203.0.113.2/32"),
-    ALPHA: client("claude-on-proxmox-alpha", key(0x23), "198.51.100.130/32", keepalive="25"),
-    OLD: client("claude-on-proxmox-old", key(0x24), "198.51.100.140/32"),
+    ALPHA: client("agent-warehouse-alpha", key(0x23), "198.51.100.130/32", keepalive="25"),
+    OLD: client("agent-warehouse-old", key(0x24), "198.51.100.140/32"),
 }
 HANDSHAKES = {key(0x21): 1793140625}
 VERSION = {"version": "26.7.7"}

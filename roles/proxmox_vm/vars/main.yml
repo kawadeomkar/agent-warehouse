@@ -44,13 +44,25 @@ proxmox_vm_reported_address: >-
 
 # Internal: the tags of the VM the name lookup found, as a list, split on ";"
 # or "," as proxmox_tags splits every VM's. Matching whole elements, not a
-# substring, is what keeps "claude-on-proxmox" from matching
-# "claude-on-proxmox-staging". Lowercased, because Proxmox stores tags
-# lowercased by default: a tag configured as "Claude-On-Proxmox" comes back as
-# "claude-on-proxmox", and main.yml lowercases its side of the comparison to
-# match.
-proxmox_vm_found_tags: >-
-  {{ proxmox_vm_lookup.proxmox_vms[0].tags | default('', true) | proxmox_tags | map('lower') | list }}
+# substring, is what keeps "agent-warehouse" from matching
+# "agent-warehouse-staging". Lowercased, because Proxmox stores tags
+# lowercased by default: a tag configured as "Agent-Warehouse" comes back as
+# "agent-warehouse", and main.yml lowercases its side of the comparison to
+# match. Each tag 1.x gave the VM (proxmox_vm_tags_1x) is read under its name
+# from 2.0, so that a VM 1.x made is owned, finished and keeps its marks as
+# before; present.yml writes them so (proxmox_vm_tags_moving).
+proxmox_vm_found_tags: "{{ proxmox_vm_tags_now | map('lower') | list }}"
+
+# Internal: the VM's tags as Proxmox gave them, which a refusal names.
+proxmox_vm_tags_given: "{{ proxmox_vm_lookup.proxmox_vms[0].tags | default('', true) | proxmox_tags }}"
+
+# Internal: those tags, each the project gave the VM through 1.x under its name
+# from 2.0, in its place, every other as given: what present.yml writes.
+proxmox_vm_tags_now: "{{ proxmox_vm_tags_given | proxmox_tags_moved(proxmox_vm_sent_tags[0], proxmox_vm_tags_1x) }}"
+
+# Internal: whether the VM carries a tag under its 1.x name, which present.yml
+# writes anew once.
+proxmox_vm_tags_moving: "{{ proxmox_vm_tags_now != proxmox_vm_tags_given }}"
 
 # Internal: the tags this role writes - proxmox_vm_tags, lowercased the way
 # Proxmox stores them, so that what is sent is what the lookup finds again

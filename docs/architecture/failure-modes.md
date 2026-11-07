@@ -96,8 +96,8 @@ continue with one, because the second `add_host` would silently overwrite the fi
 
 ## Tag substring matching
 
-An unanchored search for `claude-on-proxmox` also claims
-`claude-on-proxmox-staging`. See [§3](README.md#3-the-identity-model).
+An unanchored search for `agent-warehouse` also claims
+`agent-warehouse-staging`. See [§3](README.md#3-the-identity-model).
 
 ## Stale host keys
 

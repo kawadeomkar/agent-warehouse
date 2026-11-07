@@ -23,7 +23,7 @@ to a browser), and `web` is the web login only, with a key in the vault left unu
   join - a VM that has joined keeps working after the key expires - and it reaches the VM on standard
   input, never on a command line or in a file. Once a VM's Tailscale has had a login - by the key, the web
   login or by hand - or a sign-in of the project's has started on it, its tag in Proxmox
-  (`claude-on-proxmox-tailscale`) records it, written by the first `just deploy` or `just login` to see it,
+  (`agent-warehouse-tailscale`) records it, written by the first `just deploy` or `just login` to see it,
   and the key is never sent to that VM again, even if it is logged out: only something on the VM logs it
   out, and the key would then let it join devices of its own. Sign such a VM in by the web login, or remove
   the tag in Proxmox to let the key join it once more. A login no run has seen - made by hand on the VM and
@@ -140,7 +140,7 @@ alone. The device stays in your tailnet, expired, until you delete it in the adm
 unless the project can delete it for you (below). A logout that fails - Tailscale's servers out of the VM's
 reach - is said and the rest removed anyway; its login then stays valid until you delete the device.
 
-The VM's `claude-on-proxmox-tailscale` tag in Proxmox stays: the project never takes it off, since only
+The VM's `agent-warehouse-tailscale` tag in Proxmox stays: the project never takes it off, since only
 you can say the logout was yours. Turned back on, the VM is signed in by the web login under `auto`, and
 under `key` the run stops and names the tag. For one more join with the key, remove that tag from the VM in
 Proxmox - its tags, in the VM's summary in the web UI - and keep the ownership tag beside it.

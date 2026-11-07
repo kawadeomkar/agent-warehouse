@@ -1139,7 +1139,7 @@ def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_pol
     when running, started, its agent asked agent_polls times: the fake refuses the first two polls, as an agent still
     starting does, and answers from the third."""
     _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "claude-on-proxmox"}))
+    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "agent-warehouse"}))
     if running:
         _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
         for _ in range(agent_polls):
@@ -1178,7 +1178,7 @@ def fake_fleet(directory: Path, version: str = "9.2.21"):
     for base in _fake_pve(directory):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
-            _pve_vm(base, vmid, name, running=running, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+            _pve_vm(base, vmid, name, running=running, tags="agent-warehouse", ciuser="dev", onboot="1")
             if name == "alpha":
                 # Made two days ago, so its day of history is its own; beta and gamma were made just now.
                 _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)

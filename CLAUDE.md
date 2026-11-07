@@ -131,9 +131,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `.vault_pass`, `host_vars/` and friends. `tests/unit/test_tracked_files.py` tests that guard both
   ways — extend it when you change the patterns.
 - **The ownership tag is the safety interlock.** Every VM this project creates carries
-  `claude-on-proxmox` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
+  `agent-warehouse` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
   provisioning *refuse* an existing VM without it — provisioning also refuses a template. It is
-  matched as a whole tag via `claude_vm_tag_pattern`, never as a substring.
+  matched as a whole tag via `claude_vm_tag_pattern`, never as a substring. While `claude_vm_tag` is
+  the default, 1.x's `claude-on-proxmox` is owned too (`claude_vm_tags_owned`), and every tag made
+  from the ownership tag - `-tailscale` above all, which keeps the vault's key from a VM - is read
+  under either; only provisioning writes them under the new tag (`proxmox_vm_tags_1x`), so a reader
+  that takes one prefix alone hands the key to a VM 1.x recorded.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -603,7 +607,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   ([§6.3](docs/architecture/variables.md#63-computed-internals)).
 - **Existence is not convergence.** `present.yml` tags a new VM in a call of its own straight after the clone,
   and `proxmox_vm_needs_configuration` keys off the cloud-init user, which only the settings call writes, and the
-  `claude-on-proxmox-unfinished` tag (`proxmox_vm_unfinished_tag`), which only the call after a successful start
+  `agent-warehouse-unfinished` tag (`proxmox_vm_unfinished_tag`), which only the call after a successful start
   removes. Never key it off the ownership tag again: "untagged" must mean "not ours". Do not decide the start
   from `status` alone, and do not run the resize on every run
   ([Existence is not convergence](docs/architecture/convergence.md#existence-is-not-convergence)).

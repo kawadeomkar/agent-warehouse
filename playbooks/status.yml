@@ -26,6 +26,8 @@
       names: "{{ claude_vm_names if vm_name is defined else [] }}"
       sections: "{{ status_only | default('') | status_sections }}"
       tag: "{{ claude_vm_tag }}"
+      # Every tag a VM of the project's carries as its own, its 1.x name too: what the unfinished tag is read under.
+      tags_owned: "{{ claude_vm_tags_owned }}"
       template_name: "{{ proxmox_template_name }}"
       template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"

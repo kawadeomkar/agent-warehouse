@@ -11,7 +11,7 @@ It prompts for confirmation, then saves here the Claude Code sessions that exist
 each VM from what it signed in to, then stops it and deletes it with its disks, a disk that still carries
 its VMID but that its configuration no longer lists included.
 Without a terminal to prompt on the answer is "no", so nothing is deleted. Every name must be a VM this
-project created: a name that does not exist, or a VM without the `claude-on-proxmox` tag, is refused
+project created: a name that does not exist, or a VM without the `agent-warehouse` tag, is refused
 before anything is deleted, and the error lists the VMs it did create. So is a name two VMs share, which
 Proxmox allows: rename or remove one first. A template is never deleted. For a VM created before this
 project tagged its VMs, see

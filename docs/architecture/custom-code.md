@@ -1034,8 +1034,10 @@ and `tests/unit/test_choices.py` holds the three equal.
   for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone), and
   `wg-<address>-reached` once it has shaken hands with its hub at that address (this run, read by the role's key
   step, or a run before). Discovery,
-  provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, and
-  `proxmox_vm` keeps them whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`).
-  `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and written back as read with the marks
-  added or taken off, only on the VM of that name and VM ID that carries the ownership tag, never in check mode, a
+  provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, under every
+  owned tag (`claude_vm_tags_owned`: the tag, and its 1.x name while it is the default), and `proxmox_vm` keeps them
+  whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`), a 1.x VM's under
+  the new tag (`proxmox_tags_moved`). `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and
+  written back as read with the marks added under the tag or taken off under either, only on the VM of that name and
+  VM ID that carries an owned tag, never in check mode, a
   VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).

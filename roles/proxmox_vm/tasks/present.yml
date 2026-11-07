@@ -65,6 +65,22 @@
     tags: "{{ proxmox_vm_sent_tags }}"
   when: not proxmox_vm_exists
 
+# A VM 1.x made carries the project's tags under their 1.x names, which the
+# role reads as their names from 2.0 (proxmox_vm_found_tags). Written so once,
+# in their places, every other tag as it is, so that a later run reads the VM
+# as it is. The settings call below writes them itself, when it runs.
+- name: present | Move the VM's tags to their names from 2.0
+  community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+    node: "{{ proxmox_vm_found_node }}"
+    vmid: "{{ proxmox_vm_resolved_id }}"
+    name: "{{ proxmox_vm_name }}"
+    update: true
+    tags: "{{ proxmox_vm_tags_now }}"
+  when:
+    - proxmox_vm_exists
+    - proxmox_vm_tags_moving | bool
+    - not (proxmox_vm_needs_configuration | bool)
+
 - name: present | Apply hardware and cloud-init settings
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ proxmox_vm_found_node }}"

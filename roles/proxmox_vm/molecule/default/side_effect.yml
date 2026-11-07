@@ -21,7 +21,7 @@
         refused_because: [did not create it, someones-nas]
         refused_unless: >-
           proxmox_vm deleted "someones-nas", which carries no
-          claude-on-proxmox tag. The ownership guard is not working.
+          agent-warehouse tag. The ownership guard is not working.
 
     - name: Assert the VM is still there
       ansible.builtin.uri:
@@ -37,7 +37,7 @@
 
 # Tags that only resemble this project's. The role matches the ownership tag
 # as a whole element of the VM's tag list; a substring test would also claim
-# "claude-on-proxmox-staging" and "not-claude-on-proxmox", and nothing else in
+# "agent-warehouse-staging" and "not-agent-warehouse", and nothing else in
 # this scenario would notice - the untagged VM above is refused either way.
 # The third VM carries the tag after another one, which a whole-element match
 # admits and a prefix match would not, so it must be deleted.
@@ -46,13 +46,13 @@
   gather_facts: false
   vars:
     side_effect_lookalikes:
-      - {vmid: 9301, name: lookalike-suffix, config: {tags: claude-on-proxmox-staging}}
-      - {vmid: 9302, name: lookalike-prefix, config: {tags: not-claude-on-proxmox}}
+      - {vmid: 9301, name: lookalike-suffix, config: {tags: agent-warehouse-staging}}
+      - {vmid: 9302, name: lookalike-prefix, config: {tags: not-agent-warehouse}}
   tasks:
     - name: Make the lookalikes and the VM tagged second
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
       vars:
-        pve_vm_fixtures: "{{ side_effect_lookalikes + [{'vmid': 9303, 'name': 'tagged-second', 'config': {'tags': 'ansible;claude-on-proxmox'}}] }}"
+        pve_vm_fixtures: "{{ side_effect_lookalikes + [{'vmid': 9303, 'name': 'tagged-second', 'config': {'tags': 'ansible;agent-warehouse'}}] }}"
 
     # The role must refuse each, for the ownership reason, whichever way it is asked.
     - name: Try to provision and to delete each lookalike
@@ -189,7 +189,7 @@
         refused_because: [did not create it, someones-nas]
         refused_unless: >-
           proxmox_vm configured "someones-nas", which carries no
-          claude-on-proxmox tag. It would now pass the delete guard.
+          agent-warehouse tag. It would now pass the delete guard.
 
     - name: Try to provision over the template
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
@@ -221,7 +221,7 @@
     - name: Clone a VM the way the role does, tag it, then stop as if the run had died
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
       vars:
-        pve_vm_fixtures: [{vmid: 9010, name: half-built, config: {tags: claude-on-proxmox}}]
+        pve_vm_fixtures: [{vmid: 9010, name: half-built, config: {tags: agent-warehouse}}]
 
     - name: Run the role against the half-built VM
       ansible.builtin.include_role:
@@ -242,7 +242,7 @@
         that:
           - proxmox_vm_repaired_cfg.json.data.ciuser == 'dev'
           - proxmox_vm_repaired_cfg.json.data.agent == 'enabled=1'
-          - proxmox_vm_repaired_cfg.json.data.tags == 'claude-on-proxmox'
+          - proxmox_vm_repaired_cfg.json.data.tags == 'agent-warehouse'
           - proxmox_vm_address == '192.0.2.60'
         fail_msg: >-
           The half-built VM was not repaired: {{ proxmox_vm_repaired_cfg.json.data }},
@@ -256,8 +256,8 @@
         proxmox_vm_name: half-built
         proxmox_vm_state: absent
 
-# Proxmox stores tags lowercased, so a VM stamped "Claude-On-Proxmox" carries
-# "claude-on-proxmox". Matched as typed, the role would refuse the VM it had
+# Proxmox stores tags lowercased, so a VM stamped "Agent-Warehouse" carries
+# "agent-warehouse". Matched as typed, the role would refuse the VM it had
 # itself created as not its own - and, matching the unfinished marker the
 # same way, could never tell a finished VM from one still carrying it.
 - name: Accept a VM whose ownership tag is configured in mixed case
@@ -274,7 +274,7 @@
       ansible.builtin.include_role:
         name: proxmox_vm
       vars:
-        proxmox_vm_tags: [Claude-On-Proxmox]
+        proxmox_vm_tags: [Agent-Warehouse]
 
     - name: Read the requests that run made
       ansible.builtin.slurp:
@@ -283,7 +283,7 @@
       become: true
 
     # Owned, finished and running: found by its lowercased tag, not treated
-    # as unfinished for lack of "Claude-On-Proxmox-unfinished", so nothing
+    # as unfinished for lack of "Agent-Warehouse-unfinished", so nothing
     # was written to it.
     - name: Assert the VM was recognised as finished and left alone
       vars:
@@ -428,8 +428,8 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
       vars:
         pve_vm_fixtures:
-          - {vmid: 9101, name: twin, config: {tags: claude-on-proxmox}}
-          - {vmid: 9102, name: twin, config: {tags: claude-on-proxmox}}
+          - {vmid: 9101, name: twin, config: {tags: agent-warehouse}}
+          - {vmid: 9102, name: twin, config: {tags: agent-warehouse}}
 
     - name: Try to provision the duplicated name
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
@@ -471,7 +471,7 @@
     - name: Clone a VM, tag it as this project's and convert it to a template
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
       vars:
-        pve_vm_fixtures: [{vmid: 9103, name: tagged-template, config: {tags: claude-on-proxmox}, template: true}]
+        pve_vm_fixtures: [{vmid: 9103, name: tagged-template, config: {tags: agent-warehouse}, template: true}]
 
     - name: Try to delete the tagged template
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
@@ -521,7 +521,7 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/pve_vm.yml"
       vars:
         pve_vm_fixtures:
-          - {vmid: 9104, name: stopped-vm, config: {tags: claude-on-proxmox, ciuser: dev, agent: enabled=1}}
+          - {vmid: 9104, name: stopped-vm, config: {tags: agent-warehouse, ciuser: dev, agent: enabled=1}}
 
     - name: Run the role against the stopped VM
       ansible.builtin.include_role:
@@ -600,7 +600,7 @@
         pve_vm_fixtures:
           - vmid: 9011
             name: died-after-settings
-            config: {tags: "claude-on-proxmox,claude-on-proxmox-unfinished", ciuser: dev, agent: enabled=1}
+            config: {tags: "agent-warehouse,agent-warehouse-unfinished", ciuser: dev, agent: enabled=1}
 
     - name: Run the role against the unfinished VM
       ansible.builtin.include_role:
@@ -629,7 +629,7 @@
         that:
           - proxmox_vm_unfinished_cfg.json.data.scsi0 is search('size=64G')
           - proxmox_vm_unfinished_status.json.data.status == 'running'
-          - proxmox_vm_unfinished_cfg.json.data.tags == 'claude-on-proxmox'
+          - proxmox_vm_unfinished_cfg.json.data.tags == 'agent-warehouse'
           - not (proxmox_vm_stopped | bool)
           - proxmox_vm_address == '192.0.2.61'
         fail_msg: >-
@@ -694,7 +694,7 @@
         pve_vm_fixtures:
           - vmid: 9105
             name: died-before-untag
-            config: {tags: "claude-on-proxmox,claude-on-proxmox-unfinished", ciuser: dev, agent: enabled=1}
+            config: {tags: "agent-warehouse,agent-warehouse-unfinished", ciuser: dev, agent: enabled=1}
             start: true
 
     - name: Run the role against the running unfinished VM
@@ -738,12 +738,12 @@
         that:
           - not (proxmox_vm_stopped | bool)
           - proxmox_vm_address == '192.0.2.155'
-          - proxmox_vm_untag_cfg.json.data.tags == 'claude-on-proxmox'
+          - proxmox_vm_untag_cfg.json.data.tags == 'agent-warehouse'
           - proxmox_vm_untag_cfg.json.data.scsi0 is search('size=64G')
           - proxmox_vm_untag_writes | length == 2
-          - proxmox_vm_untag_writes[0].tags == 'claude-on-proxmox,claude-on-proxmox-unfinished'
+          - proxmox_vm_untag_writes[0].tags == 'agent-warehouse,agent-warehouse-unfinished'
           - proxmox_vm_untag_writes[1].keys() | sort == ['name', 'tags']
-          - proxmox_vm_untag_writes[1].tags == 'claude-on-proxmox'
+          - proxmox_vm_untag_writes[1].tags == 'agent-warehouse'
           - proxmox_vm_untag_writes | map('list') | map('sort') | list
             == proxmox_vm_stopped_variant_writes | map('list') | map('sort') | list
           - proxmox_vm_untag_calls | selectattr('path', 'search', '/qemu/9105/resize$') | list | length == 1

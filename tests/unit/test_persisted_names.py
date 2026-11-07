@@ -25,7 +25,35 @@ REPO = Path(__file__).resolve().parents[2]
 # (file, variable, its value): a variable of a vars, defaults or inventory file, compared as YAML reads it.
 VALUES = [
     # On every VM, in Proxmox: the ownership tag, the mark of a VM whose provisioning did not finish, the default name.
-    ("inventory/group_vars/all/defaults.yml", "claude_vm_tag", "claude-on-proxmox"),
+    ("inventory/group_vars/all/defaults.yml", "claude_vm_tag", "agent-warehouse"),
+    # Its 1.x name, owned beside it while it is the default, and every tag made from either: what each reader takes as
+    # the project's, the Tailscale record above all, and what provisioning writes under the new one (2.x).
+    (
+        "inventory/group_vars/all/defaults.yml",
+        "claude_vm_tag_1x",
+        "{{ 'claude-on-proxmox' if claude_vm_tag | lower == 'agent-warehouse' else '' }}",
+    ),
+    (
+        "inventory/group_vars/all/defaults.yml",
+        "claude_vm_tags_owned",
+        "{{ [claude_vm_tag | lower] + ([claude_vm_tag_1x] if claude_vm_tag_1x | length > 0 else []) }}",
+    ),
+    ("inventory/group_vars/all/defaults.yml", "proxmox_vm_tags_1x", "{{ claude_vm_tags_owned[1:] }}"),
+    (
+        "inventory/group_vars/all/defaults.yml",
+        "claude_vm_tag_pattern",
+        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|$)",
+    ),
+    (
+        "inventory/group_vars/all/defaults.yml",
+        "claude_vm_tailscale_tag_pattern",
+        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)",
+    ),
+    (
+        "roles/proxmox_vm/vars/main.yml",
+        "proxmox_vm_tags_now",
+        "{{ proxmox_vm_tags_given | proxmox_tags_moved(proxmox_vm_sent_tags[0], proxmox_vm_tags_1x) }}",
+    ),
     ("inventory/group_vars/all/defaults.yml", "vm_default_name", "agent-warehouse-default"),
     # Its 1.x name, which a bare deploy or destroy refuses to miss (tasks/default_name_1x.yml, 2.x), and the default it
     # is refused beside.
@@ -34,10 +62,11 @@ VALUES = [
     ("roles/proxmox_vm/vars/main.yml", "proxmox_vm_unfinished_tag", "{{ proxmox_vm_sent_tags[0] }}-unfinished"),
     # The same tag as the role spells it when no inventory gives it one, and the record of a VM's Tailscale join made
     # from it, as the inventory and each role spell it: the record that keeps the vault's auth key from a VM again.
-    ("roles/proxmox_vm/defaults/main.yml", "proxmox_vm_tags", ["claude-on-proxmox"]),
+    ("roles/proxmox_vm/defaults/main.yml", "proxmox_vm_tags", ["agent-warehouse"]),
+    ("roles/proxmox_vm/defaults/main.yml", "proxmox_vm_tags_1x", ["claude-on-proxmox"]),
     ("inventory/group_vars/all/defaults.yml", "claude_vm_tailscale_tag", "{{ claude_vm_tag | lower }}-tailscale"),
     ("roles/proxmox_vm/vars/main.yml", "proxmox_vm_tailscale_tag", "{{ proxmox_vm_sent_tags[0] }}-tailscale"),
-    ("roles/tailscale/defaults/main.yml", "tailscale_joined_tag", "claude-on-proxmox-tailscale"),
+    ("roles/tailscale/defaults/main.yml", "tailscale_joined_tag", "agent-warehouse-tailscale"),
     # On the Proxmox host: where the template's image is built.
     ("roles/proxmox_template/defaults/main.yml", "proxmox_template_image_dir", "/var/lib/vz/agent-warehouse"),
     # And by its 1.x name, which the build moves it from (2.x), beside the default it moves to.

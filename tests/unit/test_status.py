@@ -296,7 +296,7 @@ LISTING = [
         "node": "pve",
         "type": "qemu",
         "status": "running",
-        "tags": "claude-on-proxmox",
+        "tags": "agent-warehouse",
         "maxcpu": 2,
         "maxmem": 4 * 1024**3,
         "mem": 1024**3,
@@ -310,13 +310,13 @@ LISTING = [
         "node": "pve",
         "type": "qemu",
         "status": "stopped",
-        "tags": "claude-on-proxmox;claude-on-proxmox-unfinished",
+        "tags": "agent-warehouse;agent-warehouse-unfinished",
         "maxcpu": 2,
         "maxmem": 4 * 1024**3,
     },
-    {"vmid": 102, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "claude-on-proxmox"},
-    {"vmid": 103, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "claude-on-proxmox"},
-    {"vmid": 104, "node": "pve2", "type": "qemu", "status": "unknown", "tags": "claude-on-proxmox"},
+    {"vmid": 102, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "agent-warehouse"},
+    {"vmid": 103, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "agent-warehouse"},
+    {"vmid": 104, "node": "pve2", "type": "qemu", "status": "unknown", "tags": "agent-warehouse"},
     {
         "vmid": 200,
         "name": "stranger",
@@ -333,11 +333,11 @@ LISTING = [
         "node": "pve",
         "type": "lxc",
         "status": "running",
-        "tags": "claude-on-proxmox",
+        "tags": "agent-warehouse",
     },
 ]
 SETTINGS = {
-    "tag": "claude-on-proxmox",
+    "tag": "agent-warehouse",
     "template_name": "ubuntu-24.04-cloudinit",
     "storage": "local-lvm",
     "sections": "",
@@ -353,7 +353,7 @@ def _tagged(listing=LISTING):
     return [
         e
         for e in listing
-        if e.get("type") == "qemu" and re.search(r"(^|[;,])claude-on-proxmox([;,]|$)", e.get("tags", ""))
+        if e.get("type") == "qemu" and re.search(r"(^|[;,])agent-warehouse([;,]|$)", e.get("tags", ""))
     ]
 
 
@@ -375,6 +375,17 @@ def test_the_fleet_is_this_projects_vms_and_the_rest_as_totals() -> None:
     assert by[102]["skipped"] == by[103]["skipped"] == "duplicate"
     assert by[104]["skipped"] == "node"
     assert by[101]["unfinished"]
+
+
+def test_a_vm_1x_left_unfinished_is_shown_so_while_its_tag_is_owned() -> None:
+    # The listing's tagged VMs come from claude_vm_tag_pattern, which owns the 1.x tag too (test_tailscale.py).
+    vm = {"vmid": 105, "name": "half-by-1x", "node": "pve", "type": "qemu", "status": "stopped"}
+    vm["tags"] = "claude-on-proxmox;claude-on-proxmox-unfinished"
+    owned = {**SETTINGS, "names": [], "tags_owned": ["agent-warehouse", "claude-on-proxmox"]}
+    assert S.status_fleet([vm], tagged=[vm], requested=[vm], settings=owned)["vms"][0]["unfinished"]
+    # Read under the one tag given, as a tag of one's own is: not this tag's unfinished VM.
+    alone = {**SETTINGS, "names": []}
+    assert not S.status_fleet([vm], tagged=[vm], requested=[vm], settings=alone)["vms"][0]["unfinished"]
 
 
 def test_a_name_given_that_matches_nothing_is_said_with_the_nameless_vms_it_may_be() -> None:
@@ -1268,7 +1279,7 @@ def _every_state():
                 "node": "pve",
                 "type": "qemu",
                 "status": "running",
-                "tags": "claude-on-proxmox",
+                "tags": "agent-warehouse",
                 "maxcpu": 128,
                 "maxmem": 1024 * G,
                 "mem": 999 * G,

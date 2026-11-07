@@ -189,7 +189,7 @@
         # Every mark Proxmox keeps for it, its WireGuard address among them (tasks/vm_marks.yml).
         claude_vm_marks: >-
           {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
-             | default('', true) | proxmox_marks(claude_vm_tag) }}
+             | default('', true) | proxmox_marks(claude_vm_tags_owned) }}
       changed_when: false
       when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
       loop: "{{ claude_vm_names }}"

@@ -100,7 +100,7 @@
       keepalive: "{{ wireguard_keepalive | int }}"
       taken: >-
         {{ claude_vm_all.json.data | default([], true)
-           | proxmox_wireguard_taken(claude_vm_tag, claude_vpn_members | map(attribute='vm.vmid') | list) }}
+           | proxmox_wireguard_taken(claude_vm_tags_owned, claude_vpn_members | map(attribute='vm.vmid') | list) }}
       # Every tagged VM of a complete listing, so that a hub's peer whose VM is gone is pruned: only fleet-wide, and
       # only while every VM the listing holds has its name (a node down leaves one without), never by a named run.
       fleet: >-

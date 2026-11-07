@@ -278,7 +278,7 @@
             claude_vm_release_address: "{{ claude_vm_release_here }}"
             # From Proxmox's listing, never the VM: what a VPN's release plan reads (tasks/vpn_members.yml).
             claude_vm_listed_id: "{{ claude_vm_release_listed.vmid | default(0) }}"
-            claude_vm_marks: "{{ claude_vm_release_listed.tags | default('') | proxmox_marks(claude_vm_tag) }}"
+            claude_vm_marks: "{{ claude_vm_release_listed.tags | default('') | proxmox_marks(claude_vm_tags_owned) }}"
           changed_when: false
           loop: "{{ claude_vm_names }}"
           loop_control:

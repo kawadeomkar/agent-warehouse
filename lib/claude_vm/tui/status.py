@@ -485,7 +485,7 @@ def status_lines(model, reading=""):
     settings = model.get("settings") or {}
     if not model["vms"] and not proxmox.get("unread") and not proxmox.get("off") and not settings.get("names"):
         nodes = ", ".join(proxmox.get("nodes") or []) or "the cluster"
-        tag = settings.get("tag") or "claude-on-proxmox"
+        tag = settings.get("tag") or "agent-warehouse"
         out += [[seg(f"No VM on {nodes} carries the {tag} tag. Create one with: just deploy alpha")], []]
     # Without the API there is nothing to show but why.
     for section in [] if proxmox.get("unread") else model["sections"]:

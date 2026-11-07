@@ -36,7 +36,7 @@ configuration again reaches them all:
 | Recipe | Without names |
 |--------|-------------------|
 | `just deploy`, `just deploy --only provision`, `just destroy` | `agent-warehouse-default` |
-| `just deploy --only configure`, `--check` and `--only ssh-config` (and `--tags` with them), `just login`, `just status` | every VM this project created (tagged `claude-on-proxmox`) |
+| `just deploy --only configure`, `--check` and `--only ssh-config` (and `--tags` with them), `just login`, `just status` | every VM this project created (tagged `agent-warehouse`) |
 | `just deploy --only template` | no VM: it builds the template, and refuses names |
 | `just code` | refused: it opens one VM, so it needs one name; `--project` optionally narrows it to one project |
 

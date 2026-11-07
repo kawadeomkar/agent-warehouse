@@ -73,8 +73,8 @@ flowchart TB
         API["REST API :8006<br/>token auth"]
         QM["qm / virt-customize<br/>(SSH, template build only)"]
         TPL["template 9000<br/>ubuntu-24.04-cloudinit"]
-        VM1["VM: alpha<br/>tag claude-on-proxmox"]
-        VM2["VM: beta<br/>tag claude-on-proxmox"]
+        VM1["VM: alpha<br/>tag agent-warehouse"]
+        VM2["VM: beta<br/>tag agent-warehouse"]
     end
     DHCP["Your LAN's DHCP server"]
 
@@ -113,7 +113,7 @@ most of the design.
 | **Name** (`alpha`) | the user, after the recipe (`just deploy alpha`) | the key for every lookup | in Proxmox, as the VM name |
 | **VMID** (`9001`) | Proxmox (`/cluster/nextid`; a fleet's are numbered from it once, in `provision.yml`) | API calls after the clone | in Proxmox |
 | **Address** (`192.0.2.51`) | the LAN's DHCP server | SSH | nowhere — re-read every run |
-| **Tag** (`claude-on-proxmox`) | this project | ownership and discovery | in Proxmox, on the VM |
+| **Tag** (`agent-warehouse`) | this project | ownership and discovery | in Proxmox, on the VM |
 
 **The name is the primary key.** The role looks a VM up by name and clones only when no VM of that
 name exists, which is what makes re-running a no-op. `proxmox_vm_id` exists but is rarely needed.
@@ -123,20 +123,25 @@ appearing; there is no local state file to reconcile, and no drift to repair.
 
 **The tag is the ownership interlock.** Proxmox permits any VM to carry any name, so a name alone
 cannot prove this project created something. Every VM the `proxmox_vm` role creates is tagged
-`claude-on-proxmox` (`claude_vm_tag`). Discovery selects on it, and both deletion and provisioning
+`agent-warehouse` (`claude_vm_tag`). Discovery selects on it, and both deletion and provisioning
 *refuse* an existing VM without it — configuring someone else's VM would rewrite it and stamp the tag,
 after which deletion would accept it too. It guards the project's own runs against mistakes, not against
 another user of the host: anyone who can create a VM can tag it, and the token can list every VM, so on a
 shared host every tagged VM a token lists is treated as its holder's
 ([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)). Matching is anchored via
-`claude_vm_tag_pattern` so `claude-on-proxmox-staging` and `not-claude-on-proxmox` are never claimed:
+`claude_vm_tag_pattern` so `agent-warehouse-staging` and `not-agent-warehouse` are never claimed:
 
 ```
-(?i)(^|[;,])claude\-on\-proxmox([;,]|$)
+(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|$)
 ```
+
+The second is the tag through 1.x (`claude_vm_tag_1x`), owned beside the first while `claude_vm_tag` is the
+default, so that a VM 1.x made is still this project's; the tags made from it, `-tailscale` and `-unfinished` and
+the marks, are read under either (`claude_vm_tags_owned`). Only provisioning writes them under the new tag
+(`proxmox_vm_tags_1x`), in their places, every other tag kept; discovery and `just status` only read.
 
 Both separators are handled because Proxmox stores tags `;`-joined, lowercased, deduplicated and
 sorted, while `proxmox_kvm` *sends* them comma-joined and some versions echo that form back. The
 lowercasing is why the match is case-insensitive and the role lowercases both what it sends and what
-it compares: a `claude_vm_tag` of `Claude-On-Proxmox` is stamped on a VM as `claude-on-proxmox`, and
+it compares: a `claude_vm_tag` of `Agent-Warehouse` is stamped on a VM as `agent-warehouse`, and
 matched as typed it would never find the VMs it had created.

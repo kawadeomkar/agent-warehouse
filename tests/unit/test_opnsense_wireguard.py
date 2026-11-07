@@ -83,21 +83,21 @@ def _peer(ref: str, name: str, key: str, address: str, instance: str = "homeserv
 PEERS = [
     _peer(LAPTOP, "laptop", _key(0x21), "198.51.100.2/32"),
     _peer(PHONE, "phone", _key(0x22), "203.0.113.2/32", instance="other"),
-    _peer(ALPHA, "claude-on-proxmox-alpha", _key(0x23), "198.51.100.130/32", keepalive=25),
-    _peer(OLD, "claude-on-proxmox-old", _key(0x24), "198.51.100.140/32"),
+    _peer(ALPHA, "agent-warehouse-alpha", _key(0x23), "198.51.100.130/32", keepalive=25),
+    _peer(OLD, "agent-warehouse-old", _key(0x24), "198.51.100.140/32"),
 ]
 # What runs on the instance: the laptop's handshake, and none yet from either VM. The phone is the other instance's.
 HANDSHAKES = {_key(0x21): 1793140625, _key(0x23): 0, _key(0x24): 0}
 
 ADD_BETA = {
     "kind": "add",
-    "name": "claude-on-proxmox-beta",
+    "name": "agent-warehouse-beta",
     "public_key": _key(0x61),
     "address": "198.51.100.131/32",
     "keepalive": 25,
 }
 MOVE_ALPHA = {"kind": "update", "ref": ALPHA, "address": "198.51.100.132/32"}
-DROP_OLD = {"kind": "delete", "ref": OLD, "name": "claude-on-proxmox-old"}
+DROP_OLD = {"kind": "delete", "ref": OLD, "name": "agent-warehouse-old"}
 
 
 @dataclass
@@ -353,9 +353,9 @@ def test_changes_are_made_deletes_first_with_one_reconfigure(router, patch_modul
     assert result["reconfigured"] is True
     beta = result["results"][0]["ref"]
     assert result["results"] == [
-        {"kind": "add", "name": "claude-on-proxmox-beta", "ref": beta, "result": "added"},
+        {"kind": "add", "name": "agent-warehouse-beta", "ref": beta, "result": "added"},
         {"kind": "update", "name": "", "ref": ALPHA, "result": "updated"},
-        {"kind": "delete", "name": "claude-on-proxmox-old", "ref": OLD, "result": "deleted"},
+        {"kind": "delete", "name": "agent-warehouse-old", "ref": OLD, "result": "deleted"},
     ]
     assert _writes(router) == [
         f"/api/wireguard/client/del_client/{OLD}",
@@ -368,7 +368,7 @@ def test_changes_are_made_deletes_first_with_one_reconfigure(router, patch_modul
     assert added == {
         "client": {
             "enabled": "1",
-            "name": "claude-on-proxmox-beta",
+            "name": "agent-warehouse-beta",
             "pubkey": _key(0x61),
             "tunneladdress": "198.51.100.131/32",
             "servers": HOME,
@@ -384,11 +384,11 @@ def test_changes_are_made_deletes_first_with_one_reconfigure(router, patch_modul
     assert state["clients"][ALPHA]["keepalive"] == "25"
     # What it returns is what the router holds after them, and what runs after the reconfigure.
     peers = {peer["name"]: peer for peer in result["peers"]}
-    assert "claude-on-proxmox-old" not in peers
-    assert peers["claude-on-proxmox-beta"] == _peer(
-        beta, "claude-on-proxmox-beta", _key(0x61), "198.51.100.131/32", keepalive=25
+    assert "agent-warehouse-old" not in peers
+    assert peers["agent-warehouse-beta"] == _peer(
+        beta, "agent-warehouse-beta", _key(0x61), "198.51.100.131/32", keepalive=25
     )
-    assert peers["claude-on-proxmox-alpha"]["addresses"] == ["198.51.100.132/32"]
+    assert peers["agent-warehouse-alpha"]["addresses"] == ["198.51.100.132/32"]
     assert result["handshakes"] == {_key(0x21): 1793140625, _key(0x23): 0, _key(0x61): 0}
 
 
@@ -475,8 +475,8 @@ def test_an_update_or_a_delete_of_a_peer_not_on_the_instance_is_refused(router, 
 
 
 def test_a_delete_of_a_peer_named_otherwise_now_is_refused(router, patch_module):
-    failure = fail_main(wireguard.main, _apply(router, [{"kind": "delete", "ref": OLD, "name": "claude-on-proxmox-x"}]))
-    assert failure["msg"].endswith(f"the peer {OLD} is named claude-on-proxmox-old now: nothing was changed.")
+    failure = fail_main(wireguard.main, _apply(router, [{"kind": "delete", "ref": OLD, "name": "agent-warehouse-x"}]))
+    assert failure["msg"].endswith(f"the peer {OLD} is named agent-warehouse-old now: nothing was changed.")
     assert _writes(router) == []
 
 
@@ -492,7 +492,7 @@ def test_a_delete_of_a_peer_named_otherwise_now_is_refused(router, patch_module)
 )
 def test_an_address_the_instance_cannot_give_a_vm_is_refused(router, patch_module, address, said):
     failure = fail_main(wireguard.main, _apply(router, [{**ADD_BETA, "address": address}]))
-    assert failure["msg"] == f"Change 1 (add claude-on-proxmox-beta): {said}"
+    assert failure["msg"] == f"Change 1 (add agent-warehouse-beta): {said}"
     assert _writes(router) == []
 
 
@@ -501,7 +501,7 @@ def test_a_public_key_that_is_not_one_is_refused_and_never_said(router, patch_mo
     short = base64.b64encode(bytes([0x0A]) * 31).decode()
     failure = fail_main(wireguard.main, _apply(router, [{**ADD_BETA, "public_key": short}]))
     assert failure["msg"] == (
-        "Change 1 (add claude-on-proxmox-beta): public_key is not a WireGuard public key, 32 bytes in base64."
+        "Change 1 (add agent-warehouse-beta): public_key is not a WireGuard public key, 32 bytes in base64."
     )
     assert _writes(router) == []
 
@@ -530,7 +530,7 @@ def test_a_write_the_router_refuses_is_said_with_its_reasons(router, patch_modul
 
 def test_a_refusal_after_a_write_still_reconfigures_what_was_written(router, patch_module):
     refused = {**ADD_BETA, "public_key": _key(0x21)}
-    late = {**ADD_BETA, "name": "claude-on-proxmox-gamma", "public_key": _key(0x62), "address": "198.51.100.133/32"}
+    late = {**ADD_BETA, "name": "agent-warehouse-gamma", "public_key": _key(0x62), "address": "198.51.100.133/32"}
     failure = fail_main(wireguard.main, _apply(router, [refused, DROP_OLD, late]))
     assert failure["msg"].endswith("was refused by the router: client.pubkey: Public keys should be unique.")
     assert failure["changed"] is True

@@ -906,7 +906,7 @@ def test_a_hub_that_cannot_be_read_at_destroy_leaves_each_marked_vm_s_peer_said_
     line = said["marked"]
     assert line.startswith('marked: WireGuard failed at "vpn_members | Read the hub\'s instance and its peers":')
     assert line.endswith(
-        "Its peer, claude-on-proxmox-marked (AllowedIPs 198.51.100.129/32), stays on your WireGuard server until you"
+        "Its peer, agent-warehouse-marked (AllowedIPs 198.51.100.129/32), stays on your WireGuard server until you"
         " remove it."
     )
     assert _left_to_do(report)["marked"]["wireguard_peer"] == line

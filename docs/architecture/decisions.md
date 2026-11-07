@@ -12,7 +12,7 @@ ansible-core 2.21: both read in their source and run against a fake Proxmox API.
 `community.proxmox` ships an inventory plugin, `community.proxmox.proxmox`, that can do the job of
 `playbooks/discover.yml`. It lists the cluster and reads each VM's guest agent; its `compose` can take the
 address on `net0`'s MAC, as `tasks/vm_addresses.yml` does, and a filter can keep the VMs tagged
-`claude-on-proxmox` as a whole tag. It never sees `group_vars`, but its URL and token take lookups, so it
+`agent-warehouse` as a whole tag. It never sees `group_vars`, but its URL and token take lookups, so it
 could read the address from `inventory/hosts.yml` and the token from the vault rather than have them
 declared a second time. It is not used, because:
 

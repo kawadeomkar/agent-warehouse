@@ -31,7 +31,7 @@ ALPHA, BETA = {"name": "alpha", "vmid": 4013}, {"name": "beta", "vmid": 4014}
 
 
 def given(*members, **over):
-    return {"phase": "configure", "tag": "claude-on-proxmox", "members": list(members)} | over
+    return {"phase": "configure", "tag": "agent-warehouse", "members": list(members)} | over
 
 
 SEEN = {"vm": ALPHA, "login_seen": True}
@@ -103,7 +103,7 @@ SLIPS = {
     "a mark not its own": MemberPlan(vpn="tailscale", marks=(replace(OK, add=("wg-198.51.100.130",)),)),
     "the record taken off": MemberPlan(vpn="tailscale", marks=(replace(OK, vm=B, add=(), remove=("tailscale",)),)),
     "a matter not its own": MemberPlan(vpn="tailscale", marks=(replace(OK, matter="editor"),)),
-    "a peer": MemberPlan(vpn="tailscale", peers=(PeerWrite(kind="add", name="claude-on-proxmox-alpha", vm=A),)),
+    "a peer": MemberPlan(vpn="tailscale", peers=(PeerWrite(kind="add", name="agent-warehouse-alpha", vm=A),)),
     "a tunnel": MemberPlan(
         vpn="tailscale",
         tunnels=(
@@ -135,7 +135,7 @@ def test_a_refusal_leaves_nothing_but_itself():
 @pytest.mark.parametrize(
     "bad",
     [
-        {"tag": "Claude-On-Proxmox"},  # as Proxmox stores it: lowercased
+        {"tag": "Agent-Warehouse"},  # as Proxmox stores it: lowercased
         {"members": [SEEN, SEEN]},  # a VM twice
         {"members": [SEEN | {"marks": ["tailscale;keepme"]}]},  # not a mark
         {"vm_prefix": "198.51.100.129/25"},  # host bits set
@@ -224,8 +224,8 @@ def test_wireguard_gives_each_vm_the_lowest_free_address_of_the_range_and_marks_
         "reach": "lan",
     }
     assert [(p["kind"], p["name"], p["public_key"], p["address"]) for p in plan["peers"]] == [
-        ("add", "claude-on-proxmox-alpha", KEY_A, "198.51.100.130/32"),
-        ("add", "claude-on-proxmox-beta", KEY_B, "198.51.100.131/32"),
+        ("add", "agent-warehouse-alpha", KEY_A, "198.51.100.130/32"),
+        ("add", "agent-warehouse-beta", KEY_B, "198.51.100.131/32"),
     ]
     # The peer to add, said and kept for NEXT STEPS until the VM reaches its hub.
     assert "PublicKey = " + KEY_A in plan["report"][0]["text"]
@@ -294,7 +294,7 @@ def test_one_vm_that_cannot_join_is_said_and_costs_no_other_vm_its_place(odd, sa
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, WG_B | odd))
     assert not plan["refusals"]
     assert [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
-    assert [p["name"] for p in plan["peers"]] == ["claude-on-proxmox-alpha"]
+    assert [p["name"] for p in plan["peers"]] == ["agent-warehouse-alpha"]
     odd_vm = (WG_B | odd)["vm"]["name"]
     lines = {line["vm"]: line["text"] for line in plan["report"]}
     steps = {step["vm"]["name"]: step["text"] for step in plan["next_steps"]}
@@ -324,7 +324,7 @@ def test_at_destroy_each_leaving_vm_with_an_address_has_its_peer_to_remove_said_
     leaving = {"vm": ALPHA, "leaving": True, "marks": ["wg-198.51.100.140"]}
     plan = registry.vpn_member_plan("wireguard", ROWS, given(leaving, {"vm": BETA, "leaving": True}, phase="release"))
     assert [(p["kind"], p["name"], p["address"]) for p in plan["peers"]] == [
-        ("delete", "claude-on-proxmox-alpha", "198.51.100.140/32")
+        ("delete", "agent-warehouse-alpha", "198.51.100.140/32")
     ]
     assert "remove its peer" in plan["report"][0]["text"]
     assert plan["next_steps"][0]["vm"] == ALPHA and "198.51.100.140/32" in plan["next_steps"][0]["text"]
@@ -340,7 +340,7 @@ TUNNEL = Tunnel(
     allowed_ips=("198.51.100.0/24",),
     keepalive=25,
 )
-PEER = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A)
+PEER = PeerWrite(kind="add", name="agent-warehouse-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A)
 WSLIPS = {
     "a tunnel outside the range": MemberPlan(
         vpn="wireguard", hub="manual", tunnels=(replace(TUNNEL, address="203.0.113.5/24"),)
@@ -361,7 +361,7 @@ WSLIPS = {
     ),
     "a peer of no VM": MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, vm=None),)),
     "a peer by another name": MemberPlan(
-        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, name="claude-on-proxmox-beta"),)
+        vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, name="agent-warehouse-beta"),)
     ),
     "a peer with another VM's key": MemberPlan(
         vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(replace(PEER, public_key=KEY_B),)
@@ -375,7 +375,7 @@ WSLIPS = {
     "a peer twice": MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(PEER, PEER)),
     "a peer removed whose VM stays": MemberPlan(vpn="wireguard", hub="manual", peers=(replace(PEER, kind="delete"),)),
     "a peer added for a VM that is leaving": MemberPlan(
-        vpn="wireguard", hub="manual", peers=(replace(PEER, vm=B, name="claude-on-proxmox-beta", public_key=KEY_B),)
+        vpn="wireguard", hub="manual", peers=(replace(PEER, vm=B, name="agent-warehouse-beta", public_key=KEY_B),)
     ),
     "a mark outside the range": MemberPlan(
         vpn="wireguard",
@@ -411,30 +411,28 @@ def test_the_core_takes_wireguard_s_own_plan_whole():
         hub="manual",
         marks=(MarkChange(vm=A, add=("wg-198.51.100.130",), unwritten="({reason})", matter="wireguard_address"),),
         tunnels=(TUNNEL,),
-        peers=(PEER, PeerWrite(kind="delete", name="claude-on-proxmox-beta", address="198.51.100.140/32", vm=B)),
+        peers=(PEER, PeerWrite(kind="delete", name="agent-warehouse-beta", address="198.51.100.140/32", vm=B)),
     )
     assert registry.checked(WVPN, WINPUTS, plan) is plan
 
 
 def test_proxmox_s_tags_give_each_vm_its_marks_and_the_addresses_taken():
-    tags = (
-        "claude-on-proxmox;claude-on-proxmox-tailscale;Claude-On-Proxmox-WG-198.51.100.130;keepme;claude-on-proxmox-x"
-    )
-    assert proxmox.proxmox_marks(tags, "claude-on-proxmox") == ["tailscale", "wg-198.51.100.130"]
-    assert proxmox.proxmox_marks(["claude-on-proxmox-wg-198.51.100.131"], "claude-on-proxmox") == ["wg-198.51.100.131"]
-    assert proxmox.proxmox_marks("claude-on-proxmox-wg-198.51.100.131-reached", "claude-on-proxmox") == [
+    tags = "agent-warehouse;agent-warehouse-tailscale;Agent-Warehouse-WG-198.51.100.130;keepme;agent-warehouse-x"
+    assert proxmox.proxmox_marks(tags, "agent-warehouse") == ["tailscale", "wg-198.51.100.130"]
+    assert proxmox.proxmox_marks(["agent-warehouse-wg-198.51.100.131"], "agent-warehouse") == ["wg-198.51.100.131"]
+    assert proxmox.proxmox_marks("agent-warehouse-wg-198.51.100.131-reached", "agent-warehouse") == [
         "wg-198.51.100.131-reached"
     ]
-    assert proxmox.proxmox_marks("claude-on-proxmox-wg-198.51.100.131-other", "claude-on-proxmox") == []
+    assert proxmox.proxmox_marks("agent-warehouse-wg-198.51.100.131-other", "agent-warehouse") == []
     listing = [
-        {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130-reached"},
-        {"vmid": 4014, "tags": "claude-on-proxmox,claude-on-proxmox-wg-198.51.100.131"},
+        {"vmid": 4013, "tags": "agent-warehouse;agent-warehouse-wg-198.51.100.130-reached"},
+        {"vmid": 4014, "tags": "agent-warehouse,agent-warehouse-wg-198.51.100.131"},
         # Not the project's: its mark is no mark.
-        {"vmid": 4015, "tags": "claude-on-proxmox-wg-198.51.100.132"},
+        {"vmid": 4015, "tags": "agent-warehouse-wg-198.51.100.132"},
         {"type": "storage", "storage": "local"},
     ]
-    assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox") == ["198.51.100.130", "198.51.100.131"]
-    assert proxmox.proxmox_wireguard_taken(listing, "claude-on-proxmox", [4013]) == ["198.51.100.131"]
+    assert proxmox.proxmox_wireguard_taken(listing, "agent-warehouse") == ["198.51.100.130", "198.51.100.131"]
+    assert proxmox.proxmox_wireguard_taken(listing, "agent-warehouse", [4013]) == ["198.51.100.131"]
 
 
 # ------------------------------------------------------- one address at home and away ---
@@ -602,8 +600,8 @@ def opn_peer(ref, name, key, address, instances=("home",)):
 
 def test_an_opnsense_hub_gets_a_peer_added_one_as_it_should_be_left_and_one_changed_updated():
     peers = [
-        opn_peer("u-beta", "claude-on-proxmox-beta", KEY_B, "198.51.100.130/32"),
-        opn_peer("u-gamma", "claude-on-proxmox-gamma", KEY_C, "198.51.100.140/32"),
+        opn_peer("u-beta", "agent-warehouse-beta", KEY_B, "198.51.100.130/32"),
+        opn_peer("u-gamma", "agent-warehouse-gamma", KEY_C, "198.51.100.140/32"),
     ]
     gamma = {"vm": {"name": "gamma", "vmid": 4016}, "public_key": KEY_D, "marks": ["wg-198.51.100.140"]}
     plan = registry.vpn_member_plan(
@@ -614,8 +612,8 @@ def test_an_opnsense_hub_gets_a_peer_added_one_as_it_should_be_left_and_one_chan
     assert not plan["refusals"]
     changes = [(p["kind"], p["name"], p["ref"], p["public_key"], p["address"]) for p in plan["peers"]]
     assert changes == [
-        ("add", "claude-on-proxmox-alpha", "", KEY_A, "198.51.100.129/32"),
-        ("update", "claude-on-proxmox-gamma", "u-gamma", KEY_D, "198.51.100.140/32"),
+        ("add", "agent-warehouse-alpha", "", KEY_A, "198.51.100.129/32"),
+        ("update", "agent-warehouse-gamma", "u-gamma", KEY_D, "198.51.100.140/32"),
     ]
     # Routed into the network the router keeps, from its own address on it; nothing left for the person to add.
     assert {t["allowed_ips"][0] for t in plan["tunnels"]} == {"198.51.100.0/24"}
@@ -623,8 +621,8 @@ def test_an_opnsense_hub_gets_a_peer_added_one_as_it_should_be_left_and_one_chan
 
 
 def test_a_peer_of_a_vm_gone_is_pruned_only_from_a_complete_listing():
-    peers = [opn_peer("u-old", "claude-on-proxmox-old", KEY_C, "198.51.100.150/32")]
-    fleet = [{"name": "alpha", "vmid": 4013, "tags": "claude-on-proxmox"}]
+    peers = [opn_peer("u-old", "agent-warehouse-old", KEY_C, "198.51.100.150/32")]
+    fleet = [{"name": "alpha", "vmid": 4013, "tags": "agent-warehouse"}]
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": peers}, fleet=fleet))
     assert [(p["kind"], p["ref"], p["vm"]) for p in plan["peers"] if p["kind"] == "delete"] == [
         ("delete", "u-old", None)
@@ -637,16 +635,16 @@ def test_a_peer_of_a_vm_gone_is_pruned_only_from_a_complete_listing():
 def test_a_peer_with_some_marks_but_not_all_is_said_and_never_touched():
     peers = [
         # The project's name, but an address outside the VMs' range: someone else's.
-        opn_peer("u-x", "claude-on-proxmox-alpha", KEY_C, "198.51.100.10/32"),
+        opn_peer("u-x", "agent-warehouse-alpha", KEY_C, "198.51.100.10/32"),
         # The project's name and range, but another instance.
-        opn_peer("u-y", "claude-on-proxmox-beta", KEY_D, "198.51.100.131/32", instances=("work",)),
+        opn_peer("u-y", "agent-warehouse-beta", KEY_D, "198.51.100.131/32", instances=("work",)),
     ]
     fleet = [{"name": "alpha", "vmid": 4013}]
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, hub=OPN | {"peers": peers}, fleet=fleet))
     assert plan["peers"] == [] and plan["tunnels"] == []
     said = " ".join(line["text"] for line in plan["report"])
-    assert "claude-on-proxmox-alpha on home carries the project's name but not every mark" in said
-    assert "alpha: a peer named claude-on-proxmox-alpha on home is not the project's" in said
+    assert "agent-warehouse-alpha on home carries the project's name but not every mark" in said
+    assert "alpha: a peer named agent-warehouse-alpha on home is not the project's" in said
 
 
 def test_a_key_someone_else_s_peer_holds_is_not_joined():
@@ -657,11 +655,11 @@ def test_a_key_someone_else_s_peer_holds_is_not_joined():
 
 def test_a_renamed_vm_is_not_joined_beside_its_old_peer_which_a_fleet_wide_run_removes():
     # alpha renamed alpha2 in Proxmox: its key, on the VM's disk, is the old peer's, which the hub would refuse twice.
-    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    peers = [opn_peer("u-alpha", "agent-warehouse-alpha", KEY_A, "198.51.100.129/32")]
     renamed = WG_A | {"vm": {"name": "alpha2", "vmid": 4013}, "marks": ["wg-198.51.100.129"]}
     named = registry.vpn_member_plan("wireguard", ROWS, wg(renamed, hub=OPN | {"peers": peers}))
     assert named["peers"] == [] and named["tunnels"] == []
-    assert "its WireGuard key is claude-on-proxmox-alpha's on home already" in named["report"][0]["text"]
+    assert "its WireGuard key is agent-warehouse-alpha's on home already" in named["report"][0]["text"]
     assert "a fleet-wide just deploy --only configure removes the old peer" in named["next_steps"][0]["text"]
     fleet = [{"name": "alpha2", "vmid": 4013}]
     whole = registry.vpn_member_plan("wireguard", ROWS, wg(renamed, hub=OPN | {"peers": peers}, fleet=fleet))
@@ -669,7 +667,7 @@ def test_a_renamed_vm_is_not_joined_beside_its_old_peer_which_a_fleet_wide_run_r
 
 
 def test_a_vm_cloned_with_another_s_key_is_not_joined_and_the_other_keeps_its_peer():
-    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    peers = [opn_peer("u-alpha", "agent-warehouse-alpha", KEY_A, "198.51.100.129/32")]
     alpha = WG_A | {"marks": ["wg-198.51.100.129"]}
     clone = WG_A | {"vm": BETA}
     fleet = [{"name": "alpha", "vmid": 4013}, {"name": "beta", "vmid": 4014}]
@@ -681,7 +679,7 @@ def test_a_vm_cloned_with_another_s_key_is_not_joined_and_the_other_keeps_its_pe
 
 def test_nothing_is_written_on_a_hub_whose_peers_were_read_only_in_part():
     # A peer not read may be the VM's own: an add would make a second, an update would touch one the core never saw.
-    peers = [opn_peer("u-beta", "claude-on-proxmox-beta", KEY_C, "198.51.100.130/32")]
+    peers = [opn_peer("u-beta", "agent-warehouse-beta", KEY_C, "198.51.100.130/32")]
     beta = WG_B | {"marks": ["wg-198.51.100.130"]}
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, beta, hub=OPN | {"peers": peers, "listed": False}))
     assert plan["peers"] == [] and len(plan["tunnels"]) == 2
@@ -691,7 +689,7 @@ def test_nothing_is_written_on_a_hub_whose_peers_were_read_only_in_part():
 
 def test_the_core_refuses_any_write_on_a_hub_read_only_in_part():
     partial = model.inputs_from(wg(WG_A, hub=OPN | {"listed": False}))
-    add = PeerWrite(kind="add", name="claude-on-proxmox-alpha", public_key=KEY_A, address="198.51.100.129/32", vm=A)
+    add = PeerWrite(kind="add", name="agent-warehouse-alpha", public_key=KEY_A, address="198.51.100.129/32", vm=A)
     tunnel = replace(TUNNEL, address="198.51.100.129/24", endpoint="192.0.2.1:51820")
     with pytest.raises(ValueError, match="could not read whole"):
         registry.checked(WVPN, partial, MemberPlan(vpn="wireguard", hub="opnsense", tunnels=(tunnel,), peers=(add,)))
@@ -702,8 +700,8 @@ def test_no_vm_is_given_an_address_the_hub_holds_already():
     # address: none is given to a VM. alpha's own peer is its own.
     peers = [
         opn_peer("u-laptop", "laptop", KEY_C, "198.51.100.129/32"),
-        opn_peer("u-old", "claude-on-proxmox-old", KEY_D, "198.51.100.130/32"),
-        opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.131/32"),
+        opn_peer("u-old", "agent-warehouse-old", KEY_D, "198.51.100.130/32"),
+        opn_peer("u-alpha", "agent-warehouse-alpha", KEY_A, "198.51.100.131/32"),
     ]
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, WG_B, hub=OPN | {"peers": peers}))
     assert {t["vm"]["name"]: t["address"] for t in plan["tunnels"]} == {
@@ -719,13 +717,13 @@ def test_two_vms_with_one_key_are_one_peer_the_lower_vm_id_s():
     clone = WG_A | {"vm": BETA}
     plan = registry.vpn_member_plan("wireguard", ROWS, wg(WG_A, clone))
     assert [t["vm"]["name"] for t in plan["tunnels"]] == ["alpha"]
-    assert [p["name"] for p in plan["peers"]] == ["claude-on-proxmox-alpha"]
+    assert [p["name"] for p in plan["peers"]] == ["agent-warehouse-alpha"]
     said = {line["vm"]: line["text"] for line in plan["report"]}
     assert "its WireGuard key is alpha's too" in said["beta"]
 
 
 def test_the_core_refuses_two_peers_with_one_key_and_a_tunnel_at_another_vm_s_address():
-    twice = PeerWrite(kind="add", name="claude-on-proxmox-beta", public_key=KEY_A, address="198.51.100.131/32", vm=B)
+    twice = PeerWrite(kind="add", name="agent-warehouse-beta", public_key=KEY_A, address="198.51.100.131/32", vm=B)
     with pytest.raises(ValueError, match="one key"):
         plan = MemberPlan(vpn="wireguard", hub="manual", tunnels=(TUNNEL,), peers=(PEER, twice))
         registry.checked(WVPN, model.inputs_from(wg(WG_A, WG_B)), plan)
@@ -738,9 +736,9 @@ def test_the_core_refuses_two_peers_with_one_key_and_a_tunnel_at_another_vm_s_ad
 @pytest.mark.parametrize("tag", ["wg-999.0.0.1", "wg-010.0.0.1", "wg-198.51.100.130-other", "wg-198.51.100"])
 def test_a_tag_that_holds_no_address_is_no_mark(tag):
     # Anyone who may tag a VM can add one: it is left out, never handed to the core, where it would fail the plan.
-    tags = f"claude-on-proxmox;claude-on-proxmox-{tag}"
-    assert proxmox.proxmox_marks(tags, "claude-on-proxmox") == []
-    assert proxmox.proxmox_wireguard_taken([{"vmid": 4020, "tags": tags}], "claude-on-proxmox") == []
+    tags = f"agent-warehouse;agent-warehouse-{tag}"
+    assert proxmox.proxmox_marks(tags, "agent-warehouse") == []
+    assert proxmox.proxmox_wireguard_taken([{"vmid": 4020, "tags": tags}], "agent-warehouse") == []
     assert proxmox.MARK_RE is model.MARK
 
 
@@ -754,7 +752,7 @@ def test_a_wide_range_is_walked_never_listed():
 def test_a_peer_saved_but_not_running_has_the_hub_applied_again():
     # A reconfigure that failed, or a write the router saved after its answer was lost: the next run finds the peer
     # as it should be, and WireGuard there without it.
-    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    peers = [opn_peer("u-alpha", "agent-warehouse-alpha", KEY_A, "198.51.100.129/32")]
     alpha = WG_A | {"marks": ["wg-198.51.100.129"]}
     hub = OPN | {"peers": peers, "enabled": True}
     stale = registry.vpn_member_plan("wireguard", ROWS, wg(alpha, hub=hub | {"running": []}))
@@ -778,7 +776,7 @@ def test_the_plan_names_its_hub_s_kind_which_the_core_holds_to_the_inputs():
 
 
 def test_at_destroy_an_opnsense_hub_has_the_leaving_vm_s_own_peer_removed_by_its_ref():
-    peers = [opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_A, "198.51.100.129/32")]
+    peers = [opn_peer("u-alpha", "agent-warehouse-alpha", KEY_A, "198.51.100.129/32")]
     leaving = {"vm": ALPHA, "leaving": True, "marks": ["wg-198.51.100.129"]}
     plan = registry.vpn_member_plan(
         "wireguard", ROWS, given(leaving, phase="release", vm_prefix="198.51.100.128/25", hub=OPN | {"peers": peers})
@@ -793,9 +791,9 @@ OINPUTS = model.inputs_from(
         hub=OPN
         | {
             "peers": [
-                opn_peer("u-alpha", "claude-on-proxmox-alpha", KEY_C, "198.51.100.130/32"),
+                opn_peer("u-alpha", "agent-warehouse-alpha", KEY_C, "198.51.100.130/32"),
                 opn_peer("u-laptop", "laptop", KEY_D, "198.51.100.5/32"),
-                opn_peer("u-old", "claude-on-proxmox-old", KEY_B, "198.51.100.150/32"),
+                opn_peer("u-old", "agent-warehouse-old", KEY_B, "198.51.100.150/32"),
             ]
         },
         fleet=[{"name": "alpha", "vmid": 4013}, {"name": "old", "vmid": 4030}],
@@ -803,14 +801,14 @@ OINPUTS = model.inputs_from(
 )
 OTUNNEL = replace(TUNNEL, endpoint="192.0.2.1:51820")
 OUPDATE = PeerWrite(
-    kind="update", name="claude-on-proxmox-alpha", ref="u-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A
+    kind="update", name="agent-warehouse-alpha", ref="u-alpha", public_key=KEY_A, address="198.51.100.130/32", vm=A
 )
 OSLIPS = {
     "an update of a peer that is not the project's": replace(OUPDATE, ref="u-laptop"),
-    "an update by another peer's name": replace(OUPDATE, name="claude-on-proxmox-old"),
+    "an update by another peer's name": replace(OUPDATE, name="agent-warehouse-old"),
     "an add beside a peer of the same name": replace(OUPDATE, kind="add", ref=""),
     "an update to a key another peer holds": replace(OUPDATE, public_key=KEY_D),
-    "a prune of a VM that is there": PeerWrite(kind="delete", name="claude-on-proxmox-old", ref="u-old", address=""),
+    "a prune of a VM that is there": PeerWrite(kind="delete", name="agent-warehouse-old", ref="u-old", address=""),
     "a prune of someone else's peer": PeerWrite(kind="delete", name="laptop", ref="u-laptop", address=""),
 }
 

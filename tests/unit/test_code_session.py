@@ -652,7 +652,7 @@ NOTES_ONLY = {
 
 
 def _tagged(name, vmid):
-    return {"type": "qemu", "vmid": vmid, "name": name, "node": "pve", "status": "running", "tags": "claude-on-proxmox"}
+    return {"type": "qemu", "vmid": vmid, "name": name, "node": "pve", "status": "running", "tags": "agent-warehouse"}
 
 
 def _listing(*names):
@@ -1234,7 +1234,7 @@ def test_just_code_refuses_a_stopped_vm(windows):
             "getaddrinfo ENOTFOUND marketplace.visualstudio.com "
             "Failed Installing Extensions: ms-vscode-remote.remote-ssh.",
         ),
-        ("deploy, twice", 'More than one VM tagged "claude-on-proxmox" is named alpha'),
+        ("deploy, twice", 'More than one VM tagged "agent-warehouse" is named alpha'),
     ],
 )
 def test_just_deploy_says_any_failure_of_the_window_step_with_the_just_code_line_and_goes_on(windows, name, said):

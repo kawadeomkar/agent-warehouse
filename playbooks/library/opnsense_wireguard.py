@@ -124,13 +124,13 @@ EXAMPLES = r"""
     state: apply
     changes:
       - kind: add
-        name: claude-on-proxmox-alpha
+        name: agent-warehouse-alpha
         public_key: "{{ alpha_public_key }}"
         address: 198.51.100.130/32
         keepalive: 25
       - kind: delete
         ref: 0f3c2a1e-5b6d-4c7e-8f90-123456789abc
-        name: claude-on-proxmox-gone
+        name: agent-warehouse-gone
   delegate_to: localhost
 """
 

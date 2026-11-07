@@ -30,7 +30,7 @@ FORGET = "absent | Forget the VM's SSH host key"
 
 def _forget(tmp_path: Path, **extra) -> set[str]:
     """Run absent.yml's forget task with the role's vars and `extra`; return the hosts left in known_hosts."""
-    extra = {"proxmox_vm_found_tags": ["claude-on-proxmox"], **extra}
+    extra = {"proxmox_vm_found_tags": ["agent-warehouse"], **extra}
     home = tmp_path / "home"
     (home / ".ssh").mkdir(parents=True)
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(tmp_path / "key")], check=True)
@@ -108,15 +108,15 @@ def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
     assert "claude_vm_inventory_addresses" in defaults["claude_vm_inventory_names"]
 
 
-@pytest.mark.parametrize("mark", ["claude-on-proxmox-wg-198.51.100.129", "claude-on-proxmox-wg-198.51.100.129-reached"])
+@pytest.mark.parametrize("mark", ["agent-warehouse-wg-198.51.100.129", "agent-warehouse-wg-198.51.100.129-reached"])
 def test_the_tunnel_address_its_mark_holds_is_forgotten_too(tmp_path, mark):
     # Under vpn_reach: tunnel the alias connects to the WireGuard address, so known_hosts holds the key there, and
     # the next VM is soon given the address: the lowest free one.
-    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=["claude-on-proxmox", mark], proxmox_vm_known_hosts_domain="")
+    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=["agent-warehouse", mark], proxmox_vm_known_hosts_domain="")
     assert left == {"alpha.lan", "beta.lan"}
 
 
 def test_another_tag_s_wireguard_address_is_not_the_vm_s(tmp_path):
-    found = ["claude-on-proxmox", "someone-wg-198.51.100.129"]
+    found = ["agent-warehouse", "someone-wg-198.51.100.129"]
     left = _forget(tmp_path, **VM, proxmox_vm_found_tags=found, proxmox_vm_known_hosts_domain="")
     assert left == {"alpha.lan", "beta.lan", "198.51.100.129"}

@@ -129,7 +129,7 @@
         fail_msg: >-
           A VM named "{{ proxmox_vm_name }}" already exists (VMID {{ proxmox_vm_resolved_id }})
           and is not tagged "{{ proxmox_vm_tags[0] }}", so this project did not create it.
-          Its tags are: {{ proxmox_vm_found_tags | join(', ') | default('(none)', true) }}.
+          Its tags are: {{ proxmox_vm_tags_given | join(', ') | default('(none)', true) }}.
           Refusing to change it. Pick a different name - or, if this project should
           manage it (a VM created before tagging, or one a run left behind mid-clone),
           add the "{{ proxmox_vm_tags[0] }}" tag to it in the Proxmox UI and run this again.
@@ -168,7 +168,7 @@
         fail_msg: >-
           "{{ proxmox_vm_name }}" (VMID {{ proxmox_vm_resolved_id }}) is not tagged
           "{{ proxmox_vm_tags[0] }}", so this project did not create it.
-          Refusing to delete. Its tags are: {{ proxmox_vm_found_tags | join(', ') | default('(none)', true) }}.
+          Refusing to delete. Its tags are: {{ proxmox_vm_tags_given | join(', ') | default('(none)', true) }}.
           Set proxmox_vm_allow_untagged_delete=true to delete it anyway.
         quiet: true
       when:

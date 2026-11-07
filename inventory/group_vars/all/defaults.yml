@@ -104,22 +104,34 @@ vm_default_name: agent-warehouse-default
 claude_vm_default_name_1x: claude-on-proxmox-default
 claude_vm_default_name_2_0: agent-warehouse-default
 # Applied to every VM this project creates, and how they are found again.
-claude_vm_tag: claude-on-proxmox
-# Matches claude_vm_tag as a whole tag in Proxmox's ";"-joined tag string (or
+claude_vm_tag: agent-warehouse
+# The ownership tag through 1.x, while claude_vm_tag is the default: a VM 1.x
+# made carries it, and its marks and unfinished tag under it, and is this
+# project's through 2.x as if it carried the new one. Provisioning writes them
+# under the new tag (proxmox_vm_tags_1x); everything else only reads. A tag
+# set in local.yml has no 1.x name. Not a setting.
+claude_vm_tag_1x: "{{ 'claude-on-proxmox' if claude_vm_tag | lower == 'agent-warehouse' else '' }}"
+# Every tag a VM of this project's carries as its ownership tag, lowercased:
+# claude_vm_tag first. What a mark or the unfinished tag is read under.
+claude_vm_tags_owned: "{{ [claude_vm_tag | lower] + ([claude_vm_tag_1x] if claude_vm_tag_1x | length > 0 else []) }}"
+# Matches an owned tag as a whole tag in Proxmox's ";"-joined tag string (or
 # the ","-joined form proxmox_kvm sends), never as a substring of a longer one.
 # Case-insensitive, because Proxmox stores tags lowercased by default: a
-# claude_vm_tag of "Claude-On-Proxmox" is stamped on a VM as
-# "claude-on-proxmox", and matched as typed it would never be found again.
+# claude_vm_tag of "Agent-Warehouse" is stamped on a VM as
+# "agent-warehouse", and matched as typed it would never be found again.
 # The proxmox_vm role lowercases both sides of its own comparison the same way.
-claude_vm_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tag | lower | regex_escape }}([;,]|$)"
+claude_vm_tag_pattern: "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|$)"
 # The tag a VM carries once it has held a Tailscale login of the tailscale
 # role's own, written by configure.yml after the role and read back by
 # discovery, provisioning and just status as tailscale_joined_before: kept in
 # Proxmox, where the VM cannot change it, so that a VM logged out from inside is
 # never handed vault_tailscale_auth_key again. Remove it in Proxmox to let the
 # key join that VM once more. Like the ownership tag, matched whole.
+# Written under claude_vm_tag, and read under either owned tag: a VM whose
+# record 1.x wrote is never handed the key either.
 claude_vm_tailscale_tag: "{{ claude_vm_tag | lower }}-tailscale"
-claude_vm_tailscale_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tailscale_tag | regex_escape }}([;,]|$)"
+claude_vm_tailscale_tag_pattern: >-
+  (?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)
 # The VMs this project owns, filtered out of the cluster's VM list. Defined
 # here, not in each playbook, so discover.yml, status.yml and destroy.yml cannot
 # drift on what "ours" means. Evaluated lazily: any play that uses it must have
@@ -424,6 +436,7 @@ proxmox_vm_nic: "{{ proxmox_nic }}"
 proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
+proxmox_vm_tags_1x: "{{ claude_vm_tags_owned[1:] }}"
 proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
 proxmox_vm_known_hosts_kept: "{{ claude_vm_inventory_addresses }}"
 

@@ -48,7 +48,7 @@ Then `just deploy <vm>` (or `just deploy --only configure` for VMs that exist). 
    key, nobody else, and it never leaves the VM;
 2. gives the VM an address in the range - the lowest one free of your other VMs' (and, on OPNsense, of every peer
    your instance has), or the one it had, which Proxmox keeps for it as a tag beside the ownership tag,
-   `claude-on-proxmox-wg-198.51.100.129`, so it keeps it for its life;
+   `agent-warehouse-wg-198.51.100.129`, so it keeps it for its life;
 3. sets up the link `claude-wg` with systemd-networkd, your server its one peer;
 4. says the peer to add on your server, and keeps the line in NEXT STEPS until the VM has reached it.
 
@@ -56,7 +56,7 @@ The peer, for a VM named `alpha`:
 
 ```
 [Peer]
-# claude-on-proxmox-alpha
+# agent-warehouse-alpha
 PublicKey = <the VM's public key>
 AllowedIPs = 198.51.100.129/32
 ```
@@ -82,7 +82,7 @@ its LAN address, and its replies to whatever reached it there, still leave on it
 
 A VM's alias moves to its tunnel address only once the VM has reached your server there: until then the address
 leads nowhere, and `ssh alpha` and your editor would fail. Proxmox records it beside the address
-(`claude-on-proxmox-wg-198.51.100.129-reached`), so `just deploy`, `just deploy --only ssh-config` and `just code`
+(`agent-warehouse-wg-198.51.100.129-reached`), so `just deploy`, `just deploy --only ssh-config` and `just code`
 agree. The run that first sees the handshake records it: after you add a VM's peer, `just deploy <vm> --only
 configure` moves its alias, as its NEXT STEPS line says.
 
@@ -94,7 +94,7 @@ dropping what the VMs' range opens itself. Tailscale offers no `tunnel` reach ye
 
 With `wireguard_hub: opnsense`, on OPNsense 26.7.2 or later, the run writes each VM's peer on your instance through
 the router's API instead of saying it, and `just destroy` removes it there. It writes only peers with every mark of
-the project's - named `claude-on-proxmox-<vm>`, an address in `wireguard_vm_prefix`, on your instance - and never
+the project's - named `agent-warehouse-<vm>`, an address in `wireguard_vm_prefix`, on your instance - and never
 the instance, your devices, a rule, NAT or DNS. A peer with the project's name but not every mark is said and left
 alone. On a run without names and a complete listing of the VMs, a peer whose VM is gone is removed. A router that
 lists its peers only in part gets no write that run: a peer it did not list may be the VM's own; `just destroy` then

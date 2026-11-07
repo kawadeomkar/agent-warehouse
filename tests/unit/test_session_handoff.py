@@ -94,7 +94,7 @@ def lines(data):
     [
         ("/home/dev/projects/homeserver", "-home-dev-projects-homeserver"),
         ("/home/dev/projects/my_app.v2", "-home-dev-projects-my-app-v2"),
-        ("/Users/Omkar/claude-on-proxmox", "-Users-Omkar-claude-on-proxmox"),
+        ("/Users/Omkar/agent-warehouse", "-Users-Omkar-agent-warehouse"),
     ],
 )
 def test_the_folder_name_is_claude_code_s(path, folder):

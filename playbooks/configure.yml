@@ -3,7 +3,7 @@
 # of every GitHub project and, last, Tailscale. Finds them by tag, so it works
 # on its own and not only straight after provisioning.
 #
-#   just deploy --only configure                    -> every VM tagged claude-on-proxmox
+#   just deploy --only configure                    -> every VM tagged agent-warehouse
 #   just deploy alpha,beta --only configure
 #
 # deploy.yml imports this with claude_vm_discovery: false, because provisioning

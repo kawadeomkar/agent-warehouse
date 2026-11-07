@@ -23,7 +23,7 @@
   ansible.builtin.import_tasks: cluster_vms.yml
 
 # claude_vm_requested keeps the VMs carrying this project's tag, matched as a
-# whole tag rather than a substring so "claude-on-proxmox-staging" is left
+# whole tag rather than a substring so "agent-warehouse-staging" is left
 # alone - and with vm_name given, only those; without it, the whole fleet.
 # Never one named after a host of the inventory, which add_host would merge
 # into that host and an alias would take this machine's connections to it

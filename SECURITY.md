@@ -90,7 +90,7 @@ restate them are not treated as vulnerabilities:
   other VMs; it does not limit the token. A later release will scope the grant to a Proxmox pool. Until
   then, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a root
   password for those VMs.
-- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `claude-on-proxmox` by default) is a
+- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `agent-warehouse` by default) is a
   convention, not a permission: any user of the host who can create VMs can set it, and your token can list
   every VM on the host (above). Every tagged VM your token lists is treated as yours:
 

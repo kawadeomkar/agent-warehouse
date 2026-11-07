@@ -43,7 +43,7 @@ argument_specs:
             it is left for the web login, under key it fails.
       tailscale_joined_tag:
         type: str
-        default: claude-on-proxmox-tailscale
+        default: agent-warehouse-tailscale
         description:
           - The tag in Proxmox that records a VM's join, named as the one to remove for one more join with the key;
             wired from claude_vm_tailscale_tag (<ownership tag>-tailscale).
@@ -173,7 +173,7 @@ argument_specs:
         description: Whether the VM joined before, so that the report never says the key will join it again.
       tailscale_joined_tag:
         type: str
-        default: claude-on-proxmox-tailscale
+        default: agent-warehouse-tailscale
         description: The tag in Proxmox that records a VM's join, which the report names.
       tailscale_login_timeout:
         type: int
@@ -221,7 +221,7 @@ argument_specs:
         description: Whether the VM joined before, so that the line never says the key will join it again.
       tailscale_joined_tag:
         type: str
-        default: claude-on-proxmox-tailscale
+        default: agent-warehouse-tailscale
         description: The tag in Proxmox that records a VM's join, which the line names.
       tailscale_auth_key:
         type: str

@@ -57,8 +57,17 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   next `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
   `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale or WireGuard the project set up stays the
   project's, and one turned off since is still found and removed. `just status` reads the 1.x names until then.
-- **The tags in Proxmox keep their 1.x spelling** - the ownership tag and the tags made from it - so that nothing
-  deployed is stranded.
+- **The ownership tag is `agent-warehouse`.** A VM 1.x made, tagged `claude-on-proxmox`, is this project's through
+  2.x as before, and so are the tags 1.x made from it: `claude-on-proxmox-tailscale` keeps the vault's auth key from
+  that VM as `agent-warehouse-tailscale` does, and `claude-on-proxmox-unfinished` still gets it finished. The next
+  `just deploy` that names the VM writes them under the new tag, in their places, and keeps every other tag; until
+  then, a message may name the new spelling of a tag the VM carries under the old. While the ownership tag is one you
+  set in `local.yml`, nothing changes.
+- **Before you upgrade, if Datacenter, Options, User Tag Access is `list` or `existing`,** add `agent-warehouse`,
+  `agent-warehouse-unfinished` and `agent-warehouse-tailscale` to its allowed list
+  ([Proxmox access](../getting-started/proxmox-access.md)), or a token that is not root's cannot write them.
+- **Upgrade every checkout that shares the Proxmox host at once.** A 1.x checkout does not know the new tag, so it
+  no longer sees a VM 2.0 has written it on, and refuses to change or delete it.
 
 ## An environment and collections of the checkout's own
 
@@ -270,7 +279,7 @@ does not set `tailscale_enabled`: `y` keeps your VMs as they are, `n` takes Tail
 
 ## Adopting VMs created before tagging
 
-From PR #6 as well, which recognises this project's VMs by their tag. This project now recognises its VMs by one Proxmox tag, `claude-on-proxmox`, and
+From PR #6 as well, which recognises this project's VMs by their tag. This project now recognises its VMs by one Proxmox tag, `agent-warehouse`, and
 nothing else. VMs created by an earlier version carry `claude;ansible` instead,
 so `just status`, `just deploy --only configure` and `just destroy` do not see them, and
 `just deploy --only provision` refuses to touch a VM of that name rather than take it over.
@@ -280,7 +289,7 @@ VM's title bar), or on the Proxmox host:
 
 ```bash
 qm config 105 | grep ^tags          # the VM's current tags, if any
-qm set 105 --tags "claude;ansible;claude-on-proxmox"
+qm set 105 --tags "claude;ansible;agent-warehouse"
 ```
 
 `--tags` **replaces** the whole list rather than adding to it, so include every
