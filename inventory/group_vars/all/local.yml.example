@@ -123,7 +123,7 @@
 # keepalives, checked against what sshd runs with, and a higher inotify limit.
 # Set false to remove both files.
 # vscode_remote: true
-# On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf,
+# On this machine: an SSH alias per VM in ~/.ssh/agent-warehouse.conf,
 # included from the top of ~/.ssh/config, so `ssh alpha` and your editor
 # follow the VM's address; just destroy removes a VM's. Set false to keep out of
 # ~/.ssh entirely, or claude_ssh_config_include false to write the file but not

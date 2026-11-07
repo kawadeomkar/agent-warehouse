@@ -385,7 +385,13 @@ vscode_user_settings_file: ""
 # Include line at the top of ~/.ssh/config, added once and never removed
 # (docs/architecture/lifecycle.md §4.8).
 claude_ssh_config: true
-claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/claude-on-proxmox.conf"
+claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/agent-warehouse.conf"
+# The managed file's name through 1.x, beside it: the first alias write of 2.0
+# moves it to claude_ssh_config_file (tasks/ssh_config.yml), and until then
+# just status and the prune read it. Only the default name had one.
+claude_ssh_config_legacy_file: >-
+  {{ (claude_ssh_config_file | dirname) ~ '/claude-on-proxmox.conf'
+     if claude_ssh_config_file | basename == 'agent-warehouse.conf' else '' }}
 claude_ssh_user_config: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/config"
 claude_ssh_config_include: true
 claude_ssh_host_domain: ""

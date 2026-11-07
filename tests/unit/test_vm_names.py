@@ -79,7 +79,7 @@ def _creating(tmp_path: Path, base: str, playbook: str, names: str, *inventory: 
 
 
 def _block(name: str) -> str:
-    return f"# BEGIN claude-on-proxmox: {name}\nHost {name}\n    HostName 192.0.2.99\n# END claude-on-proxmox: {name}\n"
+    return f"# BEGIN agent-warehouse: {name}\nHost {name}\n    HostName 192.0.2.99\n# END agent-warehouse: {name}\n"
 
 
 def _task(report: dict, name: str) -> dict:
@@ -143,7 +143,7 @@ def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotte
     report = _refresh(tmp_path, fleet)
     assert report["rc"] == 0, report["stderr"][-2000:]
     text = managed.read_text()
-    assert re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
+    assert re.findall(r"^# BEGIN agent-warehouse: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
     # Left as it was: neither refreshed nor removed by a run that did not name it.
     assert _block("alpha.lab") in text
     said = _messages(report, "Report what was kept, pruned and left alone")["localhost"]

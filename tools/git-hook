@@ -1,5 +1,5 @@
 #!/bin/sh
-# claude-on-proxmox's pre-commit hook, which just init copies into git's hooks
+# agent-warehouse's pre-commit hook, which just init copies into git's hooks
 # folder. Every worktree of a clone shares that folder, so the hook names no
 # Python: pre-commit's own names the one that installed it, which the last
 # just init in any worktree would choose for all of them, and which a removed

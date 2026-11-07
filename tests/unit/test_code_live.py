@@ -70,7 +70,7 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
     ssh = root / "ssh"
     ssh.mkdir(mode=0o700)
     # As after a just deploy: the user's config reaches the managed file already.
-    (ssh / "config").write_text(f"Include {ssh / 'claude-on-proxmox.conf'}\n")
+    (ssh / "config").write_text(f"Include {ssh / 'agent-warehouse.conf'}\n")
     (ssh / "config").chmod(0o600)
     cert, key = harness._certificate(root)
     pve, port = harness._start(
@@ -94,7 +94,7 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
             "code_session_source_dir": str(world["here"] / ".claude"),
             "code_session_dest_dir": str(world["vm"] / ".claude"),
             "vscode_claude_sessions": True,
-            "claude_ssh_config_file": str(ssh / "claude-on-proxmox.conf"),
+            "claude_ssh_config_file": str(ssh / "agent-warehouse.conf"),
             "claude_ssh_user_config": str(ssh / "config"),
             "vm_editor": editor,
         }

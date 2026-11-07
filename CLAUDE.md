@@ -308,12 +308,17 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
-    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include`
+    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
       line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
-      `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+      `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
       (`tools/env-run --data`: the Galaxy collections, and the Python environment when the user brings no
       virtualenv), which `just clean env` deletes, and nothing beside it. Nothing else in `~/.ssh` is ever
-      edited. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
+      edited. Through 1.x they were `~/.ssh/claude-on-proxmox.conf` and `.../claude-on-proxmox/checkouts/...`:
+      the first alias write moves the managed file, its block markers rewritten, before anything is read or
+      written (`claude_ssh_config_legacy_file`, the default's directory only, so a test's stays in its own), and
+      `just install` moves the checkout's folder (`tools/env-run --legacy-data`), making the environment in it
+      again; `just status` and the prune read the 1.x file while it is the one there, and `just clean env`
+      deletes a 1.x folder left behind. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
       unless the user points `destroy_sessions_dir` elsewhere.
     - The fourth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
       window step run `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/tasks/vscode_check.yml`):

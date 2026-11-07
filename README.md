@@ -81,7 +81,7 @@ just init            # installs the tools, asks for your GitHub username, Tailsc
 ```
 
 `just init` first makes the project's Python environment with uv - a Python uv downloads, and the locked
-tools - in a folder of this checkout's own outside it (`~/.local/share/claude-on-proxmox/`), with the
+tools - in a folder of this checkout's own outside it (`~/.local/share/agent-warehouse/`), with the
 Galaxy collections beside it. To use a virtualenv of your own instead (Python 3.12 or later), activate it,
 or name its Python with `PYTHON=`, before `just init`.
 
@@ -140,7 +140,7 @@ of roles, `tailscale_ssh` is a setting's, and `repo` a repository's on the VM.
 | `just settings tailscale` | A role's settings, each value and where it was set, as above; `just settings tailscale_ssh --value true` sets one, `--reset` puts it back |
 | `just destroy alpha` | Save the Claude sessions only the VM has, sign it out of Claude, GitHub and Tailscale, then delete it |
 | `just logs` | The log of every run, newest first |
-| `ssh alpha` | The alias `just deploy` and `just code` keep pointed at the VM's address, in `~/.ssh/claude-on-proxmox.conf` (one `Include` line added to `~/.ssh/config`) |
+| `ssh alpha` | The alias `just deploy` and `just code` keep pointed at the VM's address, in `~/.ssh/agent-warehouse.conf` (one `Include` line added to `~/.ssh/config`) |
 
 `just deploy` does each of its parts on its own too: `just deploy alpha --tags claude_code` re-applies one
 role to one VM, and `just deploy --only configure` re-applies the whole configuration to every VM,

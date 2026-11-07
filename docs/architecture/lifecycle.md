@@ -574,17 +574,25 @@ The aliases are the one thing this project writes on the controller besides `kno
 every writer goes through one task file so the block format cannot drift. Inputs: a list of
 `{name, address, user, workspace?}` and a state; `workspace` only feeds the connect line, and only
 `configure`, which has read it on the VM, passes it. The managed file,
-`~/.ssh/claude-on-proxmox.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
+`~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
 with what ssh reads and nothing else - no state of this project's is kept in a user's ssh config:
 
 ```
-# BEGIN claude-on-proxmox: alpha
+# BEGIN agent-warehouse: alpha
 Host alpha
     HostName 192.0.2.51          ← or alpha.<claude_ssh_host_domain>
     User dev
     ServerAliveInterval 30       ← claude_ssh_options, verbatim
-# END claude-on-proxmox: alpha
+# END agent-warehouse: alpha
 ```
+
+Through 1.x the managed file was `~/.ssh/claude-on-proxmox.conf`, its markers `claude-on-proxmox`
+(`claude_ssh_config_legacy_file`, beside the default only). The first run of this task file in 2.0, writing
+or removing, moves it to the new name and rewrites its markers before anything else, so the aliases of the
+VMs that run did not name move with it; left, its blocks would answer for aliases the new file no longer
+has, and its `Include`, first in the user's config, would answer the probe below with the old file's
+`HostName`, so the new file would never be included. Both files there is said, and the old one left to the
+user. Until the move, `ssh_config.yml`'s prune and `just status` read the old file, never moving it.
 
 The user's own `~/.ssh/config` gets exactly one line, `Include <managed file>`, inserted at the top
 (`lineinfile`, `insertbefore: BOF`): an `Include` below a `Host` block is scoped to that block. It is

@@ -13,7 +13,7 @@ just init            # installs the tools, asks for your GitHub username, Tailsc
 
 You need no Python of your own. `just install`, which `just init` runs first, makes the project's
 environment with uv: a Python uv downloads (3.13), and the versions `uv.lock` pins, in a folder of this
-checkout's own outside it - `~/.local/share/claude-on-proxmox/checkouts/<folder>-<number>/`, which
+checkout's own outside it - `~/.local/share/agent-warehouse/checkouts/<folder>-<number>/`, which
 `tools/env-run --data` names - with the Galaxy collections beside it, so no other checkout's tools or
 collections can change this one's. Every recipe runs its tools from there. To use a virtualenv of your own
 instead, of Python 3.12 or later and made with any tool (`python3 -m venv ~/.virtualenvs/agent-warehouse`),

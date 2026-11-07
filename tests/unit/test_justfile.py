@@ -1036,9 +1036,10 @@ def test_clean_never_touches_the_python_environment() -> None:
     # Never one of yours; this checkout's own only as just clean env, the folder tools/env-run names.
     body = json.dumps(_json()["recipes"]["clean"]["body"])
     assert ".venv" not in body and "PYTHON" not in body and "bin" not in body
-    assert (
-        'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/claude-on-proxmox/checkouts/?*" in body
-    )
+    assert 'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/agent-warehouse/checkouts/?*" in body
+    # And the same folder by its name through 1.x, which a checkout not installed again since may still have.
+    assert 'rm -rf \\"$legacy\\"' in body and "tools/env-run --legacy-data" in body
+    assert "*/claude-on-proxmox/checkouts/?*" in body
 
 
 # ---------------------------------------------------------------- --project ----
@@ -1675,9 +1676,10 @@ PRE_COMMIT_S_HOOK = (
     [
         (PRE_COMMIT_S_HOOK, False),
         ("#!/bin/sh\n# claude-on-proxmox's pre-commit hook, as an earlier version wrote it\n", False),
+        ("#!/bin/sh\n# agent-warehouse's pre-commit hook, as another worktree's version wrote it\n", False),
         ("#!/bin/sh\necho a hook of another tool's\n", True),
     ],
-    ids=["pre-commit-s", "an-earlier-one", "another-tool-s"],
+    ids=["pre-commit-s", "an-earlier-one", "this-one-s-older", "another-tool-s"],
 )
 def test_init_replaces_pre_commit_s_hook_and_moves_another_tool_s_aside(
     tmp_path: Path, before: str, aside: bool
@@ -1989,9 +1991,12 @@ def test_env_run_keeps_one_folder_per_checkout_outside_it(tmp_path: Path) -> Non
     # Named for the checkout and told apart by its path: a worktree or a second clone shares nothing with another.
     env = _no_virtualenv(tmp_path)
     data = _env_run_in(env, "--data").stdout.strip()
-    assert data == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", data
+    assert data == f"{tmp_path}/data/agent-warehouse/checkouts/{REPO.name}-{_checksum(REPO)}", data
     assert not data.startswith(str(REPO))
     assert _env_run_in(env, "--collections").stdout.strip() == f"{data}/collections"
+    # Its name through 1.x, which just install moves it from.
+    legacy = _env_run_in(env, "--legacy-data").stdout.strip()
+    assert legacy == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", legacy
     other = tmp_path / "other" / REPO.name
     (other / "tools").mkdir(parents=True)
     shutil.copy(ENV_RUN, other / "tools" / "env-run")
@@ -2077,6 +2082,32 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
     ]
 
 
+def test_install_moves_this_checkout_s_folder_from_its_1x_name_and_makes_its_environment_again(tmp_path: Path) -> None:
+    # The collections are kept; the environment is made again, since uv wrote the old path into each of its commands.
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    legacy = Path(_env_run_in(env, "--legacy-data").stdout.strip())
+    (legacy / "collections" / "ansible_collections").mkdir(parents=True)
+    (legacy / "collections" / "kept").write_text("kept")
+    (legacy / "venv" / "bin").mkdir(parents=True)
+    (legacy / "venv" / "bin" / "old-command").write_text(f"#!{legacy}/venv/bin/python\n")
+    galaxy = tmp_path / "galaxy"
+    galaxy.write_text(f"#!/bin/sh\n{NOT_THE_PINS}\n")
+    galaxy.chmod(0o755)
+    _stand_in(
+        tmp_path / "uv-bin",
+        "uv",
+        'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
+        f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
+        f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
+    )
+    result = _just("install", settings=[f"UV={tmp_path / 'uv-bin' / 'uv'}"], env=env)
+    assert result.returncode == 0, _output(result)
+    assert f"Moved this checkout's own folder from {legacy} to {data}" in result.stdout
+    assert not legacy.exists() and (data / "collections" / "kept").read_text() == "kept"
+    assert not (data / "venv" / "bin" / "old-command").exists() and (data / "venv" / "bin" / "python").exists()
+
+
 def test_every_recipe_points_ansible_at_this_checkout_s_collections(tmp_path: Path) -> None:
     seen = tmp_path / "collections"
     result = _just("status", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
@@ -2097,6 +2128,11 @@ def test_clean_env_deletes_this_checkout_s_own_folder_and_nothing_else(tmp_path:
     assert not data.exists() and neighbour.exists()
     again = _just("clean", "env", env=env)
     assert again.returncode == 0 and f"This checkout has no environment of its own, in {data}" in again.stdout
+    # And its folder by its name through 1.x, if a checkout not installed again since left one.
+    legacy = Path(_env_run_in(env, "--legacy-data").stdout.strip())
+    (legacy / "collections").mkdir(parents=True)
+    cleaned = _just("clean", "env", env=env)
+    assert cleaned.returncode == 0 and f"by its name through 1.x, {legacy}" in cleaned.stdout and not legacy.exists()
 
 
 def test_every_local_hook_runs_through_env_run() -> None:

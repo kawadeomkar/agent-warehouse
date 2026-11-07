@@ -15,6 +15,7 @@
 #   tools/env-run --bin           that environment's scripts directory, for the justfile's recipes
 #   tools/env-run --which         own <python> or managed <python>, for just install
 #   tools/env-run --data          this checkout's folder outside it
+#   tools/env-run --legacy-data   that folder's name through 1.x, which just install moves it from
 #   tools/env-run --collections   the Galaxy collections' folder in it
 set -eu
 # Never by CDPATH: just and the hooks run this as tools/env-run, a relative
@@ -24,11 +25,16 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 # One folder per checkout, named for it and told apart by a checksum of its
 # path, so a worktree or a second clone never shares another's environment or
 # collections: a sync from one would change the tools every other one runs.
-data=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/$(basename "$here")-$(printf %s "$here" | cksum | cut -d ' ' -f 1)
+# Under agent-warehouse/ from 2.0; under claude-on-proxmox/ through 1.x, from
+# where just install moves it.
+checkout=$(basename "$here")-$(printf %s "$here" | cksum | cut -d ' ' -f 1)
+data=${XDG_DATA_HOME:-$HOME/.local/share}/agent-warehouse/checkouts/$checkout
+legacy=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/$checkout
 managed=$data/venv
 collections=$data/collections
 case "${1:-}" in
 --data) printf '%s\n' "$data"; exit 0 ;;
+--legacy-data) printf '%s\n' "$legacy"; exit 0 ;;
 --collections) printf '%s\n' "$collections"; exit 0 ;;
 esac
 
@@ -74,7 +80,7 @@ if [ "${1:-}" = --bin ]; then
   exit 0
 fi
 if [ "$#" -eq 0 ]; then
-  echo "usage: tools/env-run <tool> [argument...] | --bin | --which | --data | --collections" >&2
+  echo "usage: tools/env-run <tool> [argument...] | --bin | --which | --data | --legacy-data | --collections" >&2
   exit 2
 fi
 tool=$1

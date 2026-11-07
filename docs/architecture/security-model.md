@@ -204,7 +204,7 @@ there: `tools/molecule-lanes` writes each one's whole output, without colour, to
 The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
-checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum>`
+checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum>`
 (`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you bring no
 virtualenv, the Python environment ([§13](toolchain.md)), and which `just clean env` deletes - and,
 only where you point `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves

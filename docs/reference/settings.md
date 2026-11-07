@@ -210,7 +210,7 @@ An editor over SSH. On the VM, whichever editor is chosen: an sshd drop-in with 
 |---|---|---|
 | `vscode_remote` | `true` | Sets `vscode_server_enabled` ([`vscode_server`](roles/vscode_server.md)): Write the sshd drop-in and the inotify limit, and check what sshd applies. |
 
-On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf, included from the top of ~/.ssh/config, so `ssh alpha` and your editor follow the VM's address; just destroy removes a VM's. Set false to keep out of ~/.ssh entirely, or claude_ssh_config_include false to write the file but not the Include line, which the run then prints for you to add.
+On this machine: an SSH alias per VM in ~/.ssh/agent-warehouse.conf, included from the top of ~/.ssh/config, so `ssh alpha` and your editor follow the VM's address; just destroy removes a VM's. Set false to keep out of ~/.ssh entirely, or claude_ssh_config_include false to write the file but not the Include line, which the run then prints for you to add.
 
 | Setting | Default | Notes |
 |---|---|---|

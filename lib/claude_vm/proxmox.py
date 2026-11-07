@@ -150,9 +150,10 @@ def proxmox_access_denied(msg):
 
 
 # The managed SSH config on the controller (playbooks/tasks/ssh_config.yml):
-# one blockinfile block per VM, keyed by the VM's name.
+# one blockinfile block per VM, keyed by the VM's name, marked agent-warehouse
+# from 2.0 and claude-on-proxmox through 1.x, which a file not moved yet has.
 BLOCK_RE = re.compile(
-    r"^# BEGIN claude-on-proxmox: (?P<name>\S+)$\n(?P<body>.*?)^# END claude-on-proxmox: (?P=name)$",
+    r"^# BEGIN (?P<by>agent-warehouse|claude-on-proxmox): (?P<name>\S+)$\n(?P<body>.*?)^# END (?P=by): (?P=name)$",
     re.M | re.S,
 )
 

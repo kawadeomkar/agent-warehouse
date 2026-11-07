@@ -152,13 +152,26 @@
       register: status_ssh_config_file
       when: claude_ssh_config | bool
 
+    # Its name through 1.x, until the first alias write of 2.0 moves it: read,
+    # never moved, here.
+    - name: Look for it by its 1.x name
+      ansible.builtin.stat:
+        path: "{{ claude_ssh_config_legacy_file }}"
+      register: status_ssh_config_legacy
+      when:
+        - claude_ssh_config | bool
+        - not (status_ssh_config_file.stat.exists | default(false))
+        - claude_ssh_config_legacy_file | length > 0
+
     - name: Read the aliases it holds
       ansible.builtin.slurp:
-        src: "{{ claude_ssh_config_file }}"
+        src: >-
+          {{ claude_ssh_config_file if status_ssh_config_file.stat.exists | default(false)
+             else claude_ssh_config_legacy_file }}
       register: status_ssh_config_text
       when:
         - claude_ssh_config | bool
-        - status_ssh_config_file.stat.exists | default(false)
+        - status_ssh_config_file.stat.exists | default(false) or status_ssh_config_legacy.stat.exists | default(false)
 
     - name: Work out the fleet
       ansible.builtin.set_fact:

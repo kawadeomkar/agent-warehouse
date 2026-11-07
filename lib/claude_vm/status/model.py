@@ -300,7 +300,7 @@ def status_aliases(text, enabled=True):
     """The VM names the managed SSH config has an alias for, or None with the aliases off."""
     if not enabled:
         return None
-    return re.findall(r"(?m)^# BEGIN claude-on-proxmox: (\S+)$", text or "")
+    return re.findall(r"(?m)^# BEGIN (?:agent-warehouse|claude-on-proxmox): (\S+)$", text or "")
 
 
 # ------------------------------------------------------------------------------------------- one VM's API ----

@@ -684,7 +684,7 @@
     - name: Read the aliases after the refusals
       ansible.builtin.set_fact:
         verify_aliases_after_refusals: >-
-          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/claude-on-proxmox.conf')
+          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/agent-warehouse.conf')
              | ssh_config_blocks | map(attribute='name') | list }}
 
     - name: Assert destroy.yml refused each for the right reason, and deleted nothing
@@ -750,7 +750,7 @@
     - name: Read the aliases after the deletions
       ansible.builtin.set_fact:
         verify_aliases_after_destroys: >-
-          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/claude-on-proxmox.conf')
+          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/agent-warehouse.conf')
              | ssh_config_blocks | map(attribute='name') | list }}
 
     - name: Stat the user ssh config that must not have been written
@@ -876,7 +876,7 @@
   gather_facts: false
   vars:
     verify_ssh_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
-    verify_ssh_file: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/claude-on-proxmox.conf"
+    verify_ssh_file: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/agent-warehouse.conf"
     verify_ssh_playbook: "{{ playbook_dir }}/../../playbooks/ssh_config.yml"
   tasks:
     - name: Remove the twins

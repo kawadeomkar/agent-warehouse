@@ -659,9 +659,23 @@ def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180):
     return report, model
 
 
+def test_status_reads_the_aliases_of_the_managed_file_by_its_1x_name_and_moves_nothing(tmp_path, fake_pve) -> None:
+    # Before the first alias write of 2.0 moves it, the aliases are in the 1.x file, beside the new name.
+    legacy = tmp_path / "claude-on-proxmox.conf"
+    legacy.write_text(
+        "# BEGIN claude-on-proxmox: alpha\nHost alpha\n  HostName 192.0.2.60\n# END claude-on-proxmox: alpha\n"
+    )
+    before = legacy.read_bytes()
+    settings = {"claude_ssh_config_file": str(tmp_path / "agent-warehouse.conf")}
+    report, model = _status_run(tmp_path, fake_pve, settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert model["vms"][0]["name"] == "alpha" and model["vms"][0]["alias"] is True
+    assert legacy.read_bytes() == before and not (tmp_path / "agent-warehouse.conf").exists()
+
+
 def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_pve) -> None:
     (tmp_path / "ssh.conf").write_text(
-        "# BEGIN claude-on-proxmox: alpha\nHost alpha\n  HostName 192.0.2.60\n# END claude-on-proxmox: alpha\n"
+        "# BEGIN agent-warehouse: alpha\nHost alpha\n  HostName 192.0.2.60\n# END agent-warehouse: alpha\n"
     )
     report, model = _status_run(tmp_path, fake_pve)
     assert report["rc"] == 0, report["stderr"][-2000:]

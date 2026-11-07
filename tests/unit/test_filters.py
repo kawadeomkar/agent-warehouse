@@ -317,21 +317,21 @@ class TestGuestAddresses:
 ssh_config_blocks = proxmox_filters.ssh_config_blocks
 ssh_config_prune = proxmox_filters.ssh_config_prune
 
-MANAGED = """# BEGIN claude-on-proxmox: alpha
+MANAGED = """# BEGIN agent-warehouse: alpha
 Host alpha
     HostName 192.0.2.51
     User dev
-# END claude-on-proxmox: alpha
-# BEGIN claude-on-proxmox: beta
+# END agent-warehouse: alpha
+# BEGIN agent-warehouse: beta
 Host beta
     HostName 192.0.2.52
     User dev
-# END claude-on-proxmox: beta
-# BEGIN claude-on-proxmox: old
+# END agent-warehouse: beta
+# BEGIN agent-warehouse: old
 Host old
     HostName 192.0.2.9
     User dev
-# END claude-on-proxmox: old
+# END agent-warehouse: old
 """
 
 TAG = r"(?i)(^|[;,])claude\-on\-proxmox([;,]|$)"
@@ -586,7 +586,15 @@ class TestSshConfigBlocks:
         assert ssh_config_blocks("Host *\n    ServerAliveInterval 30\n") == []
 
     def test_a_block_whose_end_marker_names_another_vm_is_not_a_block(self):
-        text = "# BEGIN claude-on-proxmox: alpha\nHost alpha\n# END claude-on-proxmox: beta\n"
+        text = "# BEGIN agent-warehouse: alpha\nHost alpha\n# END agent-warehouse: beta\n"
+        assert ssh_config_blocks(text) == []
+
+    def test_reads_the_blocks_of_a_file_as_1x_marked_them(self):
+        # The managed file under its 1.x name, which the prune and just status read until a write moves it.
+        assert ssh_config_blocks(MANAGED.replace("agent-warehouse", "claude-on-proxmox")) == ssh_config_blocks(MANAGED)
+
+    def test_a_block_whose_markers_name_two_spellings_is_not_a_block(self):
+        text = "# BEGIN claude-on-proxmox: alpha\nHost alpha\n# END agent-warehouse: alpha\n"
         assert ssh_config_blocks(text) == []
 
     def test_rejects_non_text(self):

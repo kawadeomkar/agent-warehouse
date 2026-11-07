@@ -14,7 +14,7 @@ One editor at a time: the `editor` setting picks it, VS Code by default (see [VS
 ## What `just code` does
 
 Everything up to the window is as it is for VS Code - the VM found and reached, its alias refreshed in
-`~/.ssh/claude-on-proxmox.conf`, this machine's recent Claude sessions copied there, the session notes
+`~/.ssh/agent-warehouse.conf`, this machine's recent Claude sessions copied there, the session notes
 written - and then it runs:
 
 ```bash

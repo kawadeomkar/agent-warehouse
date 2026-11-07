@@ -20,9 +20,20 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   different secret, it is refused, and neither is said. Rename it wherever you export it.
 - **What the runs print says agent-warehouse:** the first line of every live run and of `just status`. Wording,
   which the promise leaves free, but a script that read those lines by the old name must follow.
-- **The names a run left on your VMs, in Proxmox and on this machine keep their 1.x spelling** - the ownership tag,
-  the markers and drop-ins on each VM, just code's directory there, the template's record, the managed SSH config,
-  the checkout's folder - so that nothing deployed is stranded.
+- **The managed SSH config is `~/.ssh/agent-warehouse.conf`.** The first run that writes or removes an alias
+  (`just deploy`, `just code`, `just destroy`, `just deploy --only ssh-config`) moves `~/.ssh/claude-on-proxmox.conf`
+  there, every VM's alias with it, and adds one `Include` of the new file at the top of `~/.ssh/config`. The old
+  `Include` line stays, since the project never rewrites that file, and does nothing once its file is gone: delete
+  it when you like. `just status` reads the old file until then. Both files there is said, and the old one left to
+  you.
+- **The checkout's own folder is under `agent-warehouse/`** (`tools/env-run --data`), not `claude-on-proxmox/`. The
+  first recipe after the pull stops, naming `just install`, which moves the folder, keeps its Galaxy collections, and
+  makes its Python environment again when the checkout has one of its own (a virtualenv of yours is left as it is).
+  `just clean env` deletes a folder left under the old name too.
+- **`just init`'s git hook says agent-warehouse**; the one an earlier version installed is still known as the
+  project's and replaced.
+- **The names a run left on your VMs and in Proxmox keep their 1.x spelling** - the ownership tag, the markers and
+  drop-ins on each VM, just code's directory there, the template's record - so that nothing deployed is stranded.
 
 ## An environment and collections of the checkout's own
 

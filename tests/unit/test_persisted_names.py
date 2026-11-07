@@ -1,11 +1,12 @@
-"""The names runs have left on VMs, on the Proxmox host and on this machine, which no release may change.
+"""The names runs have left on VMs, on the Proxmox host and on this machine, which change only with a migration.
 
 Each is data the project finds again on a later run: a tag on a VM, a marker file, a drop-in it owns, a block in the
 managed SSH config, a path inside a workspace file VS Code reopens. Renamed in the code, every VM and machine already
 deployed would be stranded - a VM no longer found as this project's, a drop-in written twice under two names, a marker
-read where none was ever written - whatever the project is called. So each is listed here as the code spells it, and a
-change to one fails this test, which is the place to stop and write the migration instead (docs/architecture/
-decisions.md §15.4; docs/guides/upgrading.md).
+read where none was ever written. So each is listed here as the code spells it, and a change to one fails this test,
+which is the place to stop and write its migration (docs/architecture/decisions.md §15.4; docs/guides/upgrading.md).
+2.0, which named the project agent-warehouse, moved them so: each by its new name, and the 1.x name its migration still
+reads through 2.x beside it, so that neither half can go unseen.
 
 A name is held whole: a variable's value as YAML reads it, or the exact line that spells it. A substring would pass a
 new name that contains the old one (gh-login-v2 for gh-login), which strands as surely as any other rename.
@@ -70,11 +71,18 @@ VALUES = [
     # Inside every workspace file VS Code reopens from its recent list: VS Code's helpers, by path (their directory,
     # code_helpers_dir, is code.yml's, below).
     ("playbooks/vars/vscode.yml", "code_helpers", ["claude-terminal.sh", "session-notes.sh", "session_notes.py"]),
-    # On this machine: the managed SSH config.
+    # On this machine: the managed SSH config, by its name from 2.0, and by its 1.x name beside it, which the first
+    # alias write moves it from and the prune and just status read until then (through 2.x).
     (
         "inventory/group_vars/all/defaults.yml",
         "claude_ssh_config_file",
-        "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/claude-on-proxmox.conf",
+        "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/agent-warehouse.conf",
+    ),
+    (
+        "inventory/group_vars/all/defaults.yml",
+        "claude_ssh_config_legacy_file",
+        "{{ (claude_ssh_config_file | dirname) ~ '/claude-on-proxmox.conf'\n"
+        "   if claude_ssh_config_file | basename == 'agent-warehouse.conf' else '' }}",
     ),
 ]
 
@@ -154,25 +162,30 @@ LINES = [
     ("roles/wireguard/vars/main.yml", "wireguard_marker_installed: installed wireguard-tools"),
     # On the Proxmox host: the record of the template's build in its notes.
     ("lib/claude_vm/proxmox.py", 'TEMPLATE_RECORD = "Built by claude-on-proxmox:"'),
-    # On this machine: the managed SSH config's blocks, written and read, and the checkout's own folder.
-    ("playbooks/tasks/ssh_config.yml", 'marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"'),
+    # On this machine: the managed SSH config's blocks, written with 2.0's markers, read with either, and the 1.x
+    # markers of a moved file rewritten; the checkout's own folder by both names; the git hook's text, both known.
+    ("playbooks/tasks/ssh_config.yml", 'marker: "# {mark} agent-warehouse: {{ claude_ssh_vm.name }}"'),
+    ("playbooks/tasks/ssh_config.yml", "regexp: '^# (BEGIN|END) claude-on-proxmox: (\\S+)$'"),
     (
         "lib/claude_vm/proxmox.py",
-        'r"^# BEGIN claude-on-proxmox: (?P<name>\\S+)$\\n(?P<body>.*?)^# END claude-on-proxmox: (?P=name)$",',
+        'r"^# BEGIN (?P<by>agent-warehouse|claude-on-proxmox): (?P<name>\\S+)$\\n(?P<body>.*?)'
+        '^# END (?P=by): (?P=name)$",',
     ),
     (
-        "tools/env-run",
-        "data=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/"
-        '$(basename "$here")-$(printf %s "$here" | cksum | cut -d \' \' -f 1)',
+        "lib/claude_vm/status/model.py",
+        'return re.findall(r"(?m)^# BEGIN (?:agent-warehouse|claude-on-proxmox): (\\S+)$", text or "")',
     ),
-    # The git hook just init copies into a clone's hooks folder, which a later just init knows as its own by this text:
-    # under new text it would take an installed hook for someone else's, keep it as pre-commit.legacy, and pre-commit
-    # would run that one too.
-    ("tools/git-hook", "# claude-on-proxmox's pre-commit hook, which just init copies into git's hooks"),
+    ("tools/env-run", 'checkout=$(basename "$here")-$(printf %s "$here" | cksum | cut -d \' \' -f 1)'),
+    ("tools/env-run", "data=${XDG_DATA_HOME:-$HOME/.local/share}/agent-warehouse/checkouts/$checkout"),
+    ("tools/env-run", "legacy=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/$checkout"),
+    # The git hook just init copies into a clone's hooks folder, which a later just init knows as its own by its text,
+    # 2.0's or 1.x's: by neither, it would take an installed hook for someone else's, keep it as pre-commit.legacy, and
+    # pre-commit would run that one too.
+    ("tools/git-hook", "# agent-warehouse's pre-commit hook, which just init copies into git's hooks"),
     (
         "justfile",
-        'if grep -q -e \'File generated by pre-commit\' -e "claude-on-proxmox\'s pre-commit hook" "$hook" 2>/dev/null;'
-        " then",
+        "if grep -q -e 'File generated by pre-commit' -e \"agent-warehouse's pre-commit hook\""
+        ' -e "claude-on-proxmox\'s pre-commit hook" "$hook" 2>/dev/null; then',
     ),
 ]
 

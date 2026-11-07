@@ -61,11 +61,11 @@ says to run `just deploy --only configure` first.
 
 ## Where the alias lives
 
-In `~/.ssh/claude-on-proxmox.conf`, one block per VM, included from the
+In `~/.ssh/agent-warehouse.conf`, one block per VM, included from the
 top of `~/.ssh/config` with a single `Include` line. That file and that line are the only things this
 project writes in `~/.ssh` besides `known_hosts`; the body of `~/.ssh/config` is never touched, its
 permissions are left as they are, and the `Include` stays once added (an `Include` of a missing file
-is harmless). An `Include` of the same file that you already have, as `~/.ssh/claude-on-proxmox.conf`,
+is harmless). An `Include` of the same file that you already have, as `~/.ssh/agent-warehouse.conf`,
 `${HOME}/...` or the bare name, counts if your ssh reads it - the question is put to `ssh -G` rather
 than guessed from the spelling, since `${HOME}/...` is expanded only from OpenSSH 9.9 on (Ubuntu
 24.04 ships 9.6) and an `Include` below a `Host` block is scoped to that block - and your line is
@@ -84,13 +84,13 @@ it left the VM out and leaves an alias it has as it was: on a shared host a tagg
 be anyone's, and would get this machine's `git push`.
 
 ```
-# ~/.ssh/claude-on-proxmox.conf
-# BEGIN claude-on-proxmox: alpha
+# ~/.ssh/agent-warehouse.conf
+# BEGIN agent-warehouse: alpha
 Host alpha
     HostName 192.0.2.51
     User dev
     ServerAliveInterval 30
-# END claude-on-proxmox: alpha
+# END agent-warehouse: alpha
 ```
 
 ## Keeping it current
@@ -144,7 +144,7 @@ VERIFICATION FAILED` after a rebuild means a lease was reused by a VM that `just
 delete, and `ssh-keygen -R <address>` clears it. If Ansible runs somewhere other than the machine
 VS Code is on, copy the managed file and the key there; a VS Code on Windows reads
 `%USERPROFILE%\.ssh\config`, not WSL's, so point `remote.SSH.configFile` at the managed file
-(`\\wsl.localhost\<distro>\home\<you>\.ssh\claude-on-proxmox.conf`) and keep the key readable from
+(`\\wsl.localhost\<distro>\home\<you>\.ssh\agent-warehouse.conf`) and keep the key readable from
 Windows.
 
 ## A Claude session in the window

@@ -48,7 +48,7 @@ def _inventory(root, base, hostvars):
         "vm_ssh_public_keys": [
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILiveKitKeyDoNotUse0000000000000000000000000 live@test"
         ],
-        "claude_ssh_config_file": str(root / "ssh" / "claude-on-proxmox.conf"),
+        "claude_ssh_config_file": str(root / "ssh" / "agent-warehouse.conf"),
         "claude_ssh_user_config": str(root / "ssh" / "config"),
         "claude_ssh_config_include": False,
         "destroy_sessions_dir": str(root / "saved"),

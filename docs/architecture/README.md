@@ -59,14 +59,14 @@ Four actors:
 | **Controller** | Ansible, all Proxmox API calls | local |
 | **Proxmox host** | `qm`, `virt-customize`, the template build | SSH (`playbooks/template.yml` only) |
 | **VMs** | everything `configure.yml` installs | SSH, at a DHCP address discovered at runtime |
-| **The editor** (VS Code or Zed), on the controller | the window; its server and terminal run on the VM, VS Code's extensions too | SSH, through an alias this project keeps in `~/.ssh/claude-on-proxmox.conf` |
+| **The editor** (VS Code or Zed), on the controller | the window; its server and terminal run on the VM, VS Code's extensions too | SSH, through an alias this project keeps in `~/.ssh/agent-warehouse.conf` |
 
 ```mermaid
 flowchart TB
     subgraph C["Controller (your machine)"]
         A["ansible-playbook<br/>the project's environment"]
         INV["inventory/<br/>hosts.yml + group_vars"]
-        SSHC["~/.ssh/claude-on-proxmox.conf<br/>Host alpha → address"]
+        SSHC["~/.ssh/agent-warehouse.conf<br/>Host alpha → address"]
         VSC["Editor<br/>VS Code Remote - SSH, or Zed"]
     end
     subgraph P["Proxmox VE host"]

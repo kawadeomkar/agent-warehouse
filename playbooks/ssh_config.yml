@@ -44,7 +44,10 @@
     - name: Read the aliases already kept
       ansible.builtin.set_fact:
         claude_ssh_existing: >-
-          {{ (lookup('ansible.builtin.file', claude_ssh_config_file, errors='ignore') or '') | ssh_config_blocks }}
+          {{ (lookup('ansible.builtin.file', claude_ssh_config_file, errors='ignore')
+              or (lookup('ansible.builtin.file', claude_ssh_config_legacy_file, errors='ignore')
+                  if claude_ssh_config_legacy_file | length > 0 else '')
+              or '') | ssh_config_blocks }}
 
     # The workspace is only shown in the connect line, and this play never
     # connects to a VM to read its home: vm_projects_dir when it is set, and

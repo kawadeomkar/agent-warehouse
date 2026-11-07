@@ -53,7 +53,7 @@ what it stores. How each part below is enforced is the
   without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: the four things
   [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
-  the managed SSH config `~/.ssh/claude-on-proxmox.conf` with one `Include` line at the top of `~/.ssh/config`,
+  the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
   the checkout's own folder outside it (`tools/env-run --data`), and VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
   extension or VS Code setting. A bug in the SSH config reaches every `ssh` on the user's machine, and the VM
