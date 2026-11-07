@@ -123,7 +123,7 @@ argument_specs:
         description: Seconds the web login waits for the approval.
       tailscale_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse
         description: Where the markers saying what this role installed and which login it made are kept.
       tailscale_login_desktop:
         type: bool
@@ -190,7 +190,7 @@ argument_specs:
         default: []
       tailscale_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse
 
   # tasks_from: status, which playbooks/status.yml (just status) runs on each VM.
   status:
@@ -240,7 +240,7 @@ argument_specs:
         default: []
       tailscale_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse
 
   # tasks_from: release, which playbooks/destroy.yml runs on each VM before it
   # is deleted.

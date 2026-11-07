@@ -747,7 +747,8 @@ The design rests on facts established against Tailscale 1.104.1 - its source, a 
 logged in, and a Headscale run on an internal Docker network - and recorded with their sources in the
 plan's research record.
 
-- **Ownership.** `/var/lib/claude-on-proxmox/tailscale-installed` is written before the repository: a
+- **Ownership.** `/var/lib/agent-warehouse/tailscale-installed` (`/var/lib/claude-on-proxmox` through 1.x, moved by
+  `names.yml` before anything reads it, and read by `ownership.yml` there until then) is written before the repository: a
   Tailscale with it, or none at all, is the role's to install, maintain and remove; a package dpkg has
   without it, or a Tailscale dpkg does not know (a `tailscaled` of Tailscale's static binaries in
   `/usr/sbin` or under `/usr/local`, the snap's `/snap/bin/tailscale`), was installed some other way and
@@ -884,7 +885,8 @@ VM a peer of a WireGuard server the user already runs, its hub, which the projec
 half; who is on the network - each VM's address, the peer its server is to have - is the members' plan, made on the
 controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`).
 
-- **Ownership.** `/var/lib/claude-on-proxmox/wireguard-installed` is written before the role's first change on a VM,
+- **Ownership.** `/var/lib/agent-warehouse/wireguard-installed` (in the directory's 1.x name until a run of 2.0 moves it)
+  is written before the role's first change on a VM,
   saying whether the role installed `wireguard-tools` there; everything else the role makes has a name of its own -
   the key `/etc/systemd/network/claude-wg.key`, the files `50-claude-wg.netdev` and `50-claude-wg.network`, the link
   `claude-wg` - so a WireGuard of the user's (`wg0`, `/etc/wireguard`) is never touched.

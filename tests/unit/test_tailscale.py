@@ -1631,11 +1631,19 @@ def test_configure_runs_the_role_last_in_a_rescued_block_and_deploy_defers_its_f
     assert block["tags"] == ["tailscale"]
     # Off, one read decides whether the role runs at all: only where it installed Tailscale. On the task, not the
     # block, whose condition its rescue would share.
-    marker, role = block["block"]
+    # And by its directory's 1.x name, which the role moves first (2.x): a Tailscale 1.x installed is still found.
+    marker, marker_1x, role = block["block"]
     assert marker["ansible.builtin.stat"] == {"path": "{{ tailscale_installed_marker_path }}"}
     assert marker["when"] == "not (tailscale_wanted | bool)"
+    assert marker_1x["ansible.builtin.stat"] == {
+        "path": "{{ tailscale_marker_dir_1x }}/{{ tailscale_installed_marker_path | basename }}"
+    }
+    assert marker_1x["when"] == "not (tailscale_wanted | bool) and tailscale_marker_dir_1x | length > 0"
     assert role["ansible.builtin.import_role"] == {"name": "tailscale"}
-    assert role["when"] == "tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
+    assert role["when"] == (
+        "tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
+        " or claude_vm_tailscale_marker_1x.stat.exists | default(false)"
+    )
     assert "when" not in block
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in block["rescue"])
     assert "tailscale" not in [role["role"] for role in play["roles"]]

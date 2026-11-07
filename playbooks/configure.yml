@@ -124,10 +124,19 @@
           register: claude_vm_tailscale_marker
           when: not (tailscale_wanted | bool)
 
+        # Its marker by the directory's 1.x name, which the role moves first.
+        - name: Look for one by its marker's 1.x directory
+          ansible.builtin.stat:
+            path: "{{ tailscale_marker_dir_1x }}/{{ tailscale_installed_marker_path | basename }}"
+          register: claude_vm_tailscale_marker_1x
+          when: not (tailscale_wanted | bool) and tailscale_marker_dir_1x | length > 0
+
         - name: Run the tailscale role
           ansible.builtin.import_role:
             name: tailscale
-          when: tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)
+          when: >-
+            tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)
+            or claude_vm_tailscale_marker_1x.stat.exists | default(false)
       rescue:
         - name: Remember that Tailscale failed, for the end of the run
           vars:
@@ -159,6 +168,12 @@
           register: claude_vm_wireguard_marker
           when: not (wireguard_wanted | default(false) | bool)
 
+        - name: Look for one by its marker's 1.x directory
+          ansible.builtin.stat:
+            path: "{{ wireguard_marker_dir_1x }}/{{ wireguard_installed_marker_path | basename }}"
+          register: claude_vm_wireguard_marker_1x
+          when: not (wireguard_wanted | default(false) | bool) and wireguard_marker_dir_1x | length > 0
+
         - name: Make the VM's WireGuard key
           ansible.builtin.import_role:
             name: wireguard
@@ -168,7 +183,10 @@
         - name: Take WireGuard off
           ansible.builtin.import_role:
             name: wireguard
-          when: not (wireguard_wanted | default(false) | bool) and claude_vm_wireguard_marker.stat.exists | default(false)
+          when: >-
+            not (wireguard_wanted | default(false) | bool)
+            and (claude_vm_wireguard_marker.stat.exists | default(false)
+                 or claude_vm_wireguard_marker_1x.stat.exists | default(false))
       rescue:
         - name: Remember that WireGuard failed, for the end of the run
           vars:

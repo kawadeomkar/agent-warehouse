@@ -43,8 +43,20 @@ VALUES = [
     # And by its 1.x name, which the build moves it from (2.x), beside the default it moves to.
     ("roles/proxmox_template/vars/main.yml", "proxmox_template_image_dir_1x", "/var/lib/vz/claude-on-proxmox"),
     ("roles/proxmox_template/vars/main.yml", "proxmox_template_image_dir_default", "/var/lib/vz/agent-warehouse"),
-    # On a VM: the roles' markers and drop-ins.
-    ("roles/tailscale/defaults/main.yml", "tailscale_marker_dir", "/var/lib/claude-on-proxmox"),
+    # On a VM: the roles' markers and drop-ins, by their names from 2.0 and through 1.x, which each role's names.yml
+    # moves them from (the directory while it is the default) and ownership.yml reads until then (2.x).
+    ("roles/tailscale/defaults/main.yml", "tailscale_marker_dir", "/var/lib/agent-warehouse"),
+    ("roles/tailscale/vars/main.yml", "tailscale_marker_dir_default", "/var/lib/agent-warehouse"),
+    (
+        "roles/tailscale/vars/main.yml",
+        "tailscale_marker_dir_1x",
+        "{{ '/var/lib/claude-on-proxmox' if tailscale_marker_dir == tailscale_marker_dir_default else '' }}",
+    ),
+    (
+        "roles/tailscale/vars/main.yml",
+        "tailscale_dropin_path_1x",
+        "/etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf",
+    ),
     (
         "roles/tailscale/vars/main.yml",
         "tailscale_installed_marker_path",
@@ -54,7 +66,7 @@ VALUES = [
     (
         "roles/tailscale/vars/main.yml",
         "tailscale_dropin_path",
-        "/etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf",
+        "/etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf",
     ),
     # The sign-in state's directory, github_projects' and claude_code's, by its name from 2.0 and through 1.x, which
     # each role's names.yml moves it from and just status and the release read until then (2.x).
@@ -201,7 +213,12 @@ LINES = [
     ("lib/claude_vm/vpn/common.py", 'TAILSCALE: Final = "tailscale"'),
     ("lib/claude_vm/vpn/common.py", 'WIREGUARD: Final = "wg-"'),
     # On a VM: WireGuard's marker, key, link and its files, which a later run finds by these names.
-    ("roles/wireguard/defaults/main.yml", "wireguard_marker_dir: /var/lib/claude-on-proxmox"),
+    ("roles/wireguard/defaults/main.yml", "wireguard_marker_dir: /var/lib/agent-warehouse"),
+    ("roles/wireguard/vars/main.yml", "wireguard_marker_dir_default: /var/lib/agent-warehouse"),
+    (
+        "roles/wireguard/vars/main.yml",
+        "{{ '/var/lib/claude-on-proxmox' if wireguard_marker_dir == wireguard_marker_dir_default else '' }}",
+    ),
     (
         "roles/wireguard/vars/main.yml",
         'wireguard_installed_marker_path: "{{ wireguard_marker_dir }}/wireguard-installed"',

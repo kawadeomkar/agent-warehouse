@@ -24,7 +24,7 @@ argument_specs:
         description: The setting that turned WireGuard off, as the messages name it.
       wireguard_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse
         description: Where the role's marker lives on the VM.
   # tasks_from: key, which playbooks/configure.yml runs before the members' plan.
   key:
@@ -36,7 +36,7 @@ argument_specs:
     options:
       wireguard_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse
   # tasks_from: status, which playbooks/status.yml (just status) runs on each VM.
   status:
     short_description: Say how the VM is on its WireGuard network, changing nothing
@@ -49,4 +49,4 @@ argument_specs:
         default: false
       wireguard_marker_dir:
         type: path
-        default: /var/lib/claude-on-proxmox
+        default: /var/lib/agent-warehouse

@@ -53,8 +53,12 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   file a VM with passwordless sudo off keeps (`99-agent-warehouse-user.cfg`), the tmux settings' block, and
   `~/.config/agent-warehouse`, where the GitHub and Claude sign-ins keep their state - a login the project made is
   still known as its own. sshd is not restarted for the move. `just status` reads the 1.x names until then.
-- **The names a run left in Proxmox and the Tailscale markers keep their 1.x spelling** - the ownership tag and the
-  tags made from it, `/var/lib/claude-on-proxmox` - so that nothing deployed is stranded.
+- **The Tailscale and WireGuard markers** move from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the
+  next `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
+  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale or WireGuard the project set up stays the
+  project's, and one turned off since is still found and removed. `just status` reads the 1.x names until then.
+- **The tags in Proxmox keep their 1.x spelling** - the ownership tag and the tags made from it - so that nothing
+  deployed is stranded.
 
 ## An environment and collections of the checkout's own
 

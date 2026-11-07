@@ -77,9 +77,9 @@
         path: "{{ item }}"
       loop:
         - /etc/apt/sources.list.d/tailscale.sources
-        - /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
-        - /var/lib/claude-on-proxmox/tailscale-installed
-        - /var/lib/claude-on-proxmox/tailscale-joined
+        - /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
+        - /var/lib/agent-warehouse/tailscale-installed
+        - /var/lib/agent-warehouse/tailscale-joined
         - /lib/systemd/system/tailscaled.service
         # The stand-in's login, which only a logout that reached it removes.
         - "{{ tailscale_side_effect_state }}/nodekey"
@@ -160,7 +160,7 @@
         path: "{{ item }}"
       loop:
         - /etc/apt/sources.list.d/tailscale.sources
-        - /var/lib/claude-on-proxmox/tailscale-installed
+        - /var/lib/agent-warehouse/tailscale-installed
       register: tailscale_side_effect_failed
 
     - name: Refresh apt, as common does at the start of every configure
@@ -189,8 +189,8 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - /var/lib/claude-on-proxmox/tailscale-installed
-        - /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
+        - /var/lib/agent-warehouse/tailscale-installed
+        - /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
       register: tailscale_side_effect_left
 
     - name: Assert the marker and the drop-in are gone
@@ -208,6 +208,62 @@
     - name: Install and join once more, for verify.yml
       ansible.builtin.include_role:
         name: tailscale
+
+    # The markers and tailscaled's drop-in as 1.x named them: the next run moves
+    # each to its name from 2.0, the drop-in's comment rewritten as it goes, so
+    # tailscaled keeps running as it was - the same process - and verify.yml finds
+    # the VM as the run above left it.
+    - name: Name the markers' directory and the drop-in as 1.x did
+      ansible.builtin.shell: |
+        set -eu
+        mv /var/lib/agent-warehouse /var/lib/claude-on-proxmox
+        d=/etc/systemd/system/tailscaled.service.d
+        mv "$d/10-agent-warehouse.conf" "$d/10-claude-on-proxmox.conf"
+        sed -i 's/^# agent-warehouse, /# claude-on-proxmox, /' "$d/10-claude-on-proxmox.conf"
+        systemctl daemon-reload
+      changed_when: true
+
+    - name: Read tailscaled's process before the run that moves them
+      ansible.builtin.command:
+        argv: [systemctl, show, --property=MainPID, --value, tailscaled]
+      register: tailscale_side_effect_pid_before
+      changed_when: false
+
+    - name: Run the role on the VM as 1.x left it
+      ansible.builtin.include_role:
+        name: tailscale
+
+    - name: Read tailscaled's process after it, and where the files are
+      ansible.builtin.command:
+        argv: [systemctl, show, --property=MainPID, --value, tailscaled]
+      register: tailscale_side_effect_pid_after
+      changed_when: false
+
+    - name: Look for the markers and the drop-in by both names
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/lib/claude-on-proxmox
+        - /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
+        - /var/lib/agent-warehouse/tailscale-installed
+        - /var/lib/agent-warehouse/tailscale-joined
+        - /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
+      register: tailscale_side_effect_names
+
+    - name: Read the drop-in by its name from 2.0
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
+      register: tailscale_side_effect_dropin
+
+    - name: Assert each moved, and tailscaled was not restarted for it
+      ansible.builtin.assert:
+        that:
+          - not tailscale_side_effect_names.results[0].stat.exists
+          - not tailscale_side_effect_names.results[1].stat.exists
+          - tailscale_side_effect_names.results[2:] | map(attribute='stat.exists') | list == [true, true, true]
+          - (tailscale_side_effect_dropin.content | b64decode) is search('^# agent-warehouse, ', multiline=True)
+          - tailscale_side_effect_pid_after.stdout == tailscale_side_effect_pid_before.stdout
+        quiet: true
 
 - name: Side effect on the VM where Tailscale was installed by hand
   hosts: agent-warehouse-tailscale-byhand

@@ -19,4 +19,4 @@ wireguard_tunnel: {}
 wireguard_off_why: wireguard_wanted is false
 
 # Where the role keeps its marker on the VM, beside the Tailscale role's.
-wireguard_marker_dir: /var/lib/claude-on-proxmox
+wireguard_marker_dir: /var/lib/agent-warehouse

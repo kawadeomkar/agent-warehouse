@@ -12,7 +12,7 @@
         - /etc/systemd/network/50-claude-wg.netdev
         - /etc/systemd/network/50-claude-wg.network
         - /etc/systemd/network/claude-wg.key
-        - /var/lib/claude-on-proxmox/wireguard-installed
+        - /var/lib/agent-warehouse/wireguard-installed
       register: wireguard_molecule_left
 
     - name: Check none of it is left

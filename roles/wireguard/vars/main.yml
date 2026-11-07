@@ -3,6 +3,11 @@
 # the user's (wg0, /etc/wireguard) is never touched. Persisted: a later run
 # finds them by these names (tests/unit/test_persisted_names.py).
 wireguard_installed_marker_path: "{{ wireguard_marker_dir }}/wireguard-installed"
+# The markers' directory by its name through 1.x, which names.yml moves it from
+# while wireguard_marker_dir is the default, and ownership.yml reads (2.x).
+wireguard_marker_dir_default: /var/lib/agent-warehouse
+wireguard_marker_dir_1x: >-
+  {{ '/var/lib/claude-on-proxmox' if wireguard_marker_dir == wireguard_marker_dir_default else '' }}
 wireguard_link: claude-wg
 wireguard_key_path: /etc/systemd/network/claude-wg.key
 wireguard_netdev_path: /etc/systemd/network/50-claude-wg.netdev
@@ -22,7 +27,9 @@ wireguard_marker_found: found wireguard-tools
 
 # Internal: whether wireguard-tools is installed, and the role's marker is there.
 wireguard_package_present: "{{ (wireguard_dpkg.stdout | default('')) == 'installed' }}"
-wireguard_ours: "{{ wireguard_installed_marker.stat.exists | default(false) }}"
+wireguard_ours: >-
+  {{ wireguard_installed_marker.stat.exists | default(false)
+     or wireguard_installed_marker_1x.stat.exists | default(false) }}
 
 # Internal: the link's last handshake with the hub, read on the VM
 # (state.yml): its age in seconds, or -1 for none since the link was made. A

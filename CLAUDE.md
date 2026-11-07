@@ -275,7 +275,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The web login runs one `up` per attempt and reads the page once - each keyless `up` mints a new one -
       opens it here only when it is Tailscale's own page (or one under `tailscale_login_server`), and never runs
       over an expired login made by hand (`tailscale_login_expired_elsewhere`).
-    - Only a Tailscale the marker `/var/lib/claude-on-proxmox/tailscale-installed` marks is the role's business;
+    - Only a Tailscale the marker `/var/lib/agent-warehouse/tailscale-installed` marks is the role's business (through
+      1.x under `/var/lib/claude-on-proxmox`, which the role moves first, its drop-in renamed with its comment so
+      tailscaled is not restarted; configure's stat and `ownership.yml` read the 1.x one until then);
       one installed any other way is left alone, off too, and reported while on. Only the role's own login (the
       node key in `tailscale-joined`) has its settings changed, by one `tailscale set`. Tags are compared only
       when configured and never "fixed" by a web login. The log switch is a systemd drop-in written before the

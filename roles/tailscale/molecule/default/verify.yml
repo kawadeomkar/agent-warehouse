@@ -10,9 +10,9 @@
         src: "{{ item }}"
       loop:
         - /etc/apt/sources.list.d/tailscale.sources
-        - /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
+        - /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
         - /etc/default/tailscaled
-        - /var/lib/claude-on-proxmox/tailscale-joined
+        - /var/lib/agent-warehouse/tailscale-joined
         - /root/.tailscale-fake/nodekey
       register: tailscale_verify_files
 
@@ -108,7 +108,7 @@
           - -c
           - >-
             dpkg-query --show --showformat='${db:Status-Status}\n' tailscale;
-            ls /var/lib/claude-on-proxmox/ /etc/apt/sources.list.d/tailscale.sources 2>/dev/null | wc -l;
+            ls /var/lib/agent-warehouse/ /etc/apt/sources.list.d/tailscale.sources 2>/dev/null | wc -l;
             cat /root/.tailscale-fake/prefs-ssh; echo;
             cat /root/.tailscale-fake/calls.log
       register: tailscale_verify_byhand

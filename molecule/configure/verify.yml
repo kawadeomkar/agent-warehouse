@@ -233,7 +233,7 @@
           - sh
           - -c
           - >-
-            cat /var/lib/claude-on-proxmox/tailscale-joined;
+            cat /var/lib/agent-warehouse/tailscale-joined;
             systemctl is-active tailscaled; systemctl show tailscaled -p Environment
       register: verify_tailscale
       changed_when: false

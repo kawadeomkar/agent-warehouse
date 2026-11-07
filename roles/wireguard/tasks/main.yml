@@ -6,6 +6,9 @@
 # a WireGuard problem never costs a VM its SSH alias, its sign-ins or its
 # editor. Nothing here may rely on a handler: one would run after that block,
 # out of its rescue's reach.
+- name: Move the markers from their 1.x directory
+  ansible.builtin.include_tasks: names.yml
+
 - name: Read what is installed, and who installed it
   ansible.builtin.include_tasks: ownership.yml
 

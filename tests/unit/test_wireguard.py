@@ -140,14 +140,19 @@ def test_configure_makes_the_key_before_the_plan_and_the_link_after_it():
         if task.get("name") == "Make the VM's WireGuard key, or take WireGuard off"
     ]
     assert block["tags"] == ["wireguard"] and "when" not in block
-    marker, key, off = block["block"]
+    # And by its directory's 1.x name, which the role moves first (2.x).
+    marker, marker_1x, key, off = block["block"]
     assert marker["when"] == "not (wireguard_wanted | default(false) | bool)"
+    assert (
+        marker_1x["when"] == "not (wireguard_wanted | default(false) | bool) and wireguard_marker_dir_1x | length > 0"
+    )
     assert key["ansible.builtin.import_role"] == {"name": "wireguard", "tasks_from": "key"}
     assert key["when"] == "wireguard_wanted | default(false) | bool"
     assert off["ansible.builtin.import_role"] == {"name": "wireguard"}
     assert (
-        off["when"]
-        == "not (wireguard_wanted | default(false) | bool) and claude_vm_wireguard_marker.stat.exists | default(false)"
+        off["when"] == "not (wireguard_wanted | default(false) | bool) and"
+        " (claude_vm_wireguard_marker.stat.exists | default(false)\n"
+        "     or claude_vm_wireguard_marker_1x.stat.exists | default(false))"
     )
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in block["rescue"])
     # The plan in a block whose rescue drops it and records the failure on every VM: a refusal or a hub that cannot

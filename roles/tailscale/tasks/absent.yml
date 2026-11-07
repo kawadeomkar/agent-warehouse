@@ -12,10 +12,10 @@
       {{ tailscale_off_setting.name }} is {{ tailscale_off_setting.value }}.
   when:
     - tailscale_installed | bool
-    - not tailscale_installed_marker.stat.exists
+    - not (tailscale_installed_marker_found | bool)
 
 - name: absent | Remove what this role installed
-  when: tailscale_installed_marker.stat.exists
+  when: tailscale_installed_marker_found | bool
   block:
     # Before anything goes, so the run says why Tailscale is leaving a VM that
     # had it: the last task says what became of it.

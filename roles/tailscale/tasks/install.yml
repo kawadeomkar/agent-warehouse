@@ -16,7 +16,7 @@
 
 - name: install | Mark Tailscale on this VM as this project's
   ansible.builtin.copy:
-    content: "Installed by claude-on-proxmox's tailscale role, which maintains it and removes it when switched off.\n"
+    content: "Installed by agent-warehouse's tailscale role, which maintains it and removes it when switched off.\n"
     dest: "{{ tailscale_installed_marker_path }}"
     owner: root
     group: root
@@ -39,7 +39,7 @@
 - name: install | Keep tailscaled from uploading its logs, from its first start
   ansible.builtin.copy:
     content: |
-      # claude-on-proxmox, tailscale_upload_logs: false. Also ends Tailscale's
+      # agent-warehouse, tailscale_upload_logs: false. Also ends Tailscale's
       # technical support for this node.
       [Service]
       Environment=TS_NO_LOGS_NO_SUPPORT=true

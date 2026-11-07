@@ -140,7 +140,7 @@ a server of your own.
 
 ## What the role touches
 
-Only what it made, by names of its own: the marker `/var/lib/claude-on-proxmox/wireguard-installed`, written before
+Only what it made, by names of its own: the marker `/var/lib/agent-warehouse/wireguard-installed`, written before
 its first change; the key `/etc/systemd/network/claude-wg.key`; the files `50-claude-wg.netdev` and
 `50-claude-wg.network` beside it; the link `claude-wg`; and `wireguard-tools`, when it installed it. A WireGuard of
 your own on the VM - `wg0`, `/etc/wireguard` - is never touched.

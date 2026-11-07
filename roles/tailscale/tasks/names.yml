@@ -1,0 +1,53 @@
+---
+# Through 1.x this role's markers - and wireguard's, in the same directory - were
+# in /var/lib/claude-on-proxmox, and tailscaled's drop-in was named after it too:
+# each moved once to its name from 2.0, before anything reads them. The drop-in's
+# comment is rewritten as it moves, so that install.yml finds it as it writes it
+# and tailscaled is not restarted for the move; systemd is reloaded to know it by
+# its new name. Each move under one condition, read before it; never in check
+# mode, which runs no command, nor from just status, which reads either name.
+- name: names | Move the markers' directory to its name from 2.0
+  ansible.builtin.command:
+    argv: [mv, -n, "{{ tailscale_marker_dir_1x }}", "{{ tailscale_marker_dir }}"]
+    creates: "{{ tailscale_marker_dir }}"
+    removes: "{{ tailscale_marker_dir_1x }}"
+  when: tailscale_marker_dir_1x | length > 0
+
+- name: names | Look for tailscaled's drop-in by its 1.x name
+  ansible.builtin.stat:
+    path: "{{ tailscale_dropin_path_1x }}"
+  register: tailscale_names_dropin_1x
+
+- name: names | Look for tailscaled's drop-in by its name from 2.0
+  ansible.builtin.stat:
+    path: "{{ tailscale_dropin_path }}"
+  register: tailscale_names_dropin
+  when: tailscale_names_dropin_1x.stat.exists
+
+- name: names | Move tailscaled's drop-in to its name from 2.0
+  ansible.builtin.command:
+    argv: [mv, -n, "{{ tailscale_dropin_path_1x }}", "{{ tailscale_dropin_path }}"]
+    creates: "{{ tailscale_dropin_path }}"
+    removes: "{{ tailscale_dropin_path_1x }}"
+  when:
+    - tailscale_names_dropin_1x.stat.exists
+    - not tailscale_names_dropin.stat.exists
+    - not ansible_check_mode
+
+- name: names | Give the moved drop-in its comment from 2.0
+  ansible.builtin.replace:
+    path: "{{ tailscale_dropin_path }}"
+    regexp: '^# claude-on-proxmox, '
+    replace: '# agent-warehouse, '
+  when:
+    - tailscale_names_dropin_1x.stat.exists
+    - not tailscale_names_dropin.stat.exists
+    - not ansible_check_mode
+
+- name: names | Reload systemd for the drop-in's new name
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - tailscale_names_dropin_1x.stat.exists
+    - not tailscale_names_dropin.stat.exists
+    - not ansible_check_mode

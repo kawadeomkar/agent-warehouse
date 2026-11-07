@@ -105,7 +105,7 @@ tailscale_daemon_flags: []
 tailscale_login_timeout: 300
 
 # Where this role keeps the two markers that say what it made.
-tailscale_marker_dir: /var/lib/claude-on-proxmox
+tailscale_marker_dir: /var/lib/agent-warehouse
 
 # The sign-in's browser step runs on this machine, never in a test (wired from
 # login_desktop).
