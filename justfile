@@ -844,7 +844,7 @@ test ROLES='' SHARD='' *PARTS:
     fi
     part() { {{ live }} --log="$name" run "$@"; }
     [ -z "$lint" ] || {{ self }} live_run=test lint
-    # A worker per CPU, each module whose tests share a fixture kept on one (tests/unit/conftest.py); tests/unit
+    # A worker per CPU, the tests that share a fixture's run kept on one (tests/unit/conftest.py); tests/unit
     # named, so that conftest.py, which adds --shard, is read before the options are.
     if runs unit; then
       part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup ${shard:+--shard "$shard"}

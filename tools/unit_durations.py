@@ -6,9 +6,9 @@ A run with a report, then this, from the checkout:
     python3 tools/unit_durations.py report.xml
 
 A parallel run's times are inflated by its workers' contention, but in proportion, which is all a split needs; a
-module-scoped fixture's playbook run is counted in the first test that uses it, which its whole module goes with. A
-test the file lacks counts as the mean (tests/unit/conftest.py), so a new one never breaks a shard; write it again when
-the shards drift apart, as each CI shard's time shows.
+module-scoped fixture's playbook run is counted in the first test that uses it, which every test sharing it goes
+with. A test the file lacks counts as the mean (tests/unit/conftest.py), so a new one never breaks a shard; write it
+again when the shards drift apart, as each CI shard's time shows.
 """
 
 from __future__ import annotations

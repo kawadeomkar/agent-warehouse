@@ -7,14 +7,18 @@ with ones that fail the test if they are called.
 ## 11.1 Unit — `just test unit`
 
 `just test unit` runs it on pytest-xdist, a worker per CPU (`-n auto`; CI says 4, its vCPUs), with `--dist
-loadgroup`. `tests/unit/conftest.py` marks every test of a module that has a module-scoped fixture of this
-project's with that module's group, so the fixture - a whole playbook run - is made once, on one worker, and the
-other modules go test by test to whichever worker is free. Whole modules, since a test can reach a fixture
-through `request.getfixturevalue`, which no static look finds; and `tryfirst`, since xdist's own hook turns the
-marks into groups and, run first, would see none and rebuild the fixtures test by test. Plain `pytest` runs one
-test at a time, for one test or one file. `just test unit --shard <i>/<n>` runs one of n shards, each such module
-whole in one, balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs four, `CI result` fails
-unless all four passed, and `test_shards.py` holds that the shards together collect every test exactly once.
+loadgroup`. `tests/unit/conftest.py` marks the tests that reach a module-scoped fixture of this project's - a
+whole playbook run - directly or through the fixtures they ask for, with that fixture's group, so it is made once,
+on one worker; two such fixtures one test reaches are one group, and every other test goes to whichever worker is
+free. A test that asks for a fixture by name does so through a `fixture` parameter naming it, which the hook reads;
+a module with any other `request.getfixturevalue` stays one group, since no static look finds what it asks for. A
+module's `EACH_WORKER` names the fixtures cheap enough to make again on each worker that needs one - a fake server
+no test reads back from, inventories nothing writes - which join nothing. And `tryfirst`, since xdist's own hook turns the marks into groups
+and, run first, would see none and rebuild the fixtures test by test. Grouped by module until 2026-11, a shard's
+last minutes were one worker's: `test_claude_login.py` alone held one for 500 s. Plain `pytest` runs one test at a
+time, for one test or one file. `just test unit --shard <i>/<n>` runs one of n shards, each group whole in one,
+balanced by `tests/unit/durations.json` (`tools/unit_durations.py`); CI runs four, `CI result` fails unless all
+four passed, and `test_shards.py` holds that the shards together collect every test exactly once.
 Every child a test signals or types Ctrl-C at starts with SIGINT,
 SIGQUIT and SIGHUP at their defaults (`harness._default_signals`), since a suite started with `&` or under
 nohup has them ignored; and a pseudo-terminal's reader reads to its end after the run exits
@@ -226,7 +230,8 @@ pytest over `tests/unit/`, file by file:
   success or a skip and fails a failure or a cancel. Every Molecule scenario names the one image pinned by
   digest, the shared configuration none, and the canary runs that image's repository at `:latest`.
 - **The shards** (`test_shards.py`): `--shard` collected as each CI shard collects it - two, three and four
-  shards that between them run every test exactly once, and a module whose tests share a fixture whole in one.
+  shards that between them run every test exactly once, and the tests that share a fixture's run in one; every
+  name an `EACH_WORKER` lists a module-scoped fixture of its own module.
 - **Remote Control** (`test_remote_control_playbooks.py`): `claude_login.yml` and `remote_control.yml`
   against canned logins and stand-ins, and the harness they share (`tests/unit/harness.py`: an
   allowlisted environment, desktop stand-ins - and this machine's tailscale, gh and claude - that fail a run

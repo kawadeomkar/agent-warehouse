@@ -682,9 +682,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   Ctrl-C test once sat in a browser wait for two minutes after one), so that test runs a hung run once more,
   until the pinned ansible-core has the fix.
 - **pytest-xdist's groups are made in xdist's own `pytest_collection_modifyitems`.** The hook in
-  `tests/unit/conftest.py` that marks them must stay `tryfirst`, and mark whole modules: run after xdist's, it
-  marked nothing, and loadgroup quietly became plain load, rebuilding every module-scoped fixture test by test
-  (37.5 minutes against 9.8). A test that sends Ctrl-C starts its child through `harness._default_signals`, since
+  `tests/unit/conftest.py` that marks them must stay `tryfirst`: run after xdist's, it marked nothing, and loadgroup
+  quietly became plain load, rebuilding every module-scoped fixture test by test (37.5 minutes against 9.8). It
+  groups the tests that reach one fixture's run, not whole modules, and keeps a module whole only where a test asks
+  for a fixture by name other than through a `fixture` parameter; `EACH_WORKER` names a module's cheap fixtures,
+  made on each worker, and `test_shards.py` holds it to real ones. A test that sends Ctrl-C starts its child through `harness._default_signals`, since
   a suite started with `&` or under nohup has SIGINT, SIGQUIT and SIGHUP ignored in every child
   ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)).
 - **ansible-core's task worker detaches: a SIGKILL or SIGHUP to a playbook's group leaves the task in flight.**
