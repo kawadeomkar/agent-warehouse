@@ -6,9 +6,9 @@ creates the VM, installs the tools and Claude Code, signs it in to Claude, GitHu
 opens it in your editor: VS Code with a Claude terminal by default, or Zed.
 
 This wiki is the project's documentation, and the source of truth for it. The
-[README](https://github.com/kawadeomkar/claude-on-proxmox#readme) gets you to a first deploy; everything
+[README](https://github.com/kawadeomkar/agent-warehouse#readme) gets you to a first deploy; everything
 else is here. It reads the same in the repository and as a site with search, at
-<https://kawadeomkar.github.io/claude-on-proxmox/>.
+<https://kawadeomkar.github.io/agent-warehouse/>.
 
 ## Getting started
 
@@ -56,7 +56,7 @@ changing behaviour.
 
 - [Testing](development/testing.md) - the test suite, the fakes it runs against, and CI.
 - [This wiki](development/docs.md) - how these pages are organised, generated and checked.
-- [CONTRIBUTING.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/CONTRIBUTING.md) - setup,
+- [CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md) - setup,
   conventions and pull requests.
-- [SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md) - reporting a
+- [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) - reporting a
   vulnerability, and the known trade-offs.

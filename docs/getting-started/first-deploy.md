@@ -7,7 +7,7 @@ the host.
 ## Set up the project
 
 ```bash
-git clone https://github.com/kawadeomkar/claude-on-proxmox.git && cd claude-on-proxmox
+git clone https://github.com/kawadeomkar/agent-warehouse.git && cd agent-warehouse
 just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
 ```
 

@@ -1,10 +1,10 @@
 # agent-warehouse
 
-[![CI](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/ci.yml)
-[![Docs](https://github.com/kawadeomkar/claude-on-proxmox/actions/workflows/docs.yml/badge.svg?branch=main)](https://kawadeomkar.github.io/claude-on-proxmox/)
-[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fkawadeomkar%2Fclaude-on-proxmox%2Fmain%2Fpyproject.toml)](pyproject.toml)
+[![CI](https://github.com/kawadeomkar/agent-warehouse/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kawadeomkar/agent-warehouse/actions/workflows/ci.yml)
+[![Docs](https://github.com/kawadeomkar/agent-warehouse/actions/workflows/docs.yml/badge.svg?branch=main)](https://kawadeomkar.github.io/agent-warehouse/)
+[![Python](https://img.shields.io/python/required-version-toml?tomlFilePath=https%3A%2F%2Fraw.githubusercontent.com%2Fkawadeomkar%2Fagent-warehouse%2Fmain%2Fpyproject.toml)](pyproject.toml)
 [![Proxmox VE 9.x](https://img.shields.io/badge/Proxmox%20VE-9.x-E57000?logo=proxmox&logoColor=white)](docs/getting-started/requirements.md)
-[![License: MIT](https://img.shields.io/github/license/kawadeomkar/claude-on-proxmox)](LICENSE)
+[![License: MIT](https://img.shields.io/github/license/kawadeomkar/agent-warehouse)](LICENSE)
 
 Ansible that turns a Proxmox VE host into [Claude Code](https://code.claude.com/docs) development VMs.
 One command, `just deploy alpha`, where `alpha` is the name you give the VM - any name you like, as a host
@@ -40,7 +40,7 @@ be set or not, and changes with `just vault`.
 ![just settings claude_code: each variable of the role, its value and where it was set](.github/assets/just-settings.svg)
 
 **Documentation:** [`docs/`](docs/README.md) covers every feature, setting and design decision, and
-reads as a site with search at <https://kawadeomkar.github.io/claude-on-proxmox/>. This page gets you to
+reads as a site with search at <https://kawadeomkar.github.io/agent-warehouse/>. This page gets you to
 a first deploy.
 
 ## What you need
@@ -76,7 +76,7 @@ certificate.
 **2. Get the project, and answer `just init`.**
 
 ```bash
-git clone https://github.com/kawadeomkar/claude-on-proxmox.git && cd claude-on-proxmox
+git clone https://github.com/kawadeomkar/agent-warehouse.git && cd agent-warehouse
 just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
 ```
 
@@ -149,7 +149,7 @@ creating none. `just` lists every recipe and `just help deploy` one's options;
 
 ## Help and contributing
 
-Questions and bugs go to [Issues](https://github.com/kawadeomkar/claude-on-proxmox/issues); security
+Questions and bugs go to [Issues](https://github.com/kawadeomkar/agent-warehouse/issues); security
 issues through [SECURITY.md](SECURITY.md) instead. Pull requests are welcome - see
 [CONTRIBUTING.md](CONTRIBUTING.md) for the setup and the conventions, and [Testing](docs/development/testing.md)
 for the test suite.

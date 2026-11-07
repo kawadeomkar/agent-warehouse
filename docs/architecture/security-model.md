@@ -1,6 +1,6 @@
 # 10. Security model
 
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md) is the policy and
+[SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) is the policy and
 its known trade-offs, and [What the VM trusts](../guides/what-the-vm-trusts.md) the defaults a user lives
 with; this is the mechanism.
 
@@ -10,7 +10,7 @@ Authentication is API tokens only, never a password: a dedicated `ansible@pve` t
 holding only the VM privileges the `proxmox_vm` role uses ([Proxmox access](../getting-started/proxmox-access.md)).
 What the token reaches, what a shared host means and what to do about it, and the certificate it is sent to
 unchecked by default are trade-offs
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 with what to do in [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) and
 [Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate).
 `tools/proxmox-access.sh` makes the token: `just init` runs it on the Proxmox host over root SSH only after
@@ -22,7 +22,7 @@ a command line. A vault it cannot write deletes the token again, since its secre
 
 What a tailnet's default policy allows, the policy edit that bounds a tagged VM, and what sudo on the VM can still
 do are trade-offs
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the edit
 itself. How the auth key joins a VM once, and never a VM Proxmox records as having had a login, is
 [§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet); how it travels is under [Secrets](#secrets) below.
@@ -163,7 +163,7 @@ is never scanned.
 
 Key-only SSH via a validated sshd drop-in, root password login disabled, passwordless
 sudo for the dev user (a deliberate trade-off, recorded in
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
+[SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
 off, sudo takes `vault_vm_password` and cloud-init's own rule and root-equivalent groups go too,
 [§5.3](roles.md#53-common--os-baseline)),
 and GitHub's host keys pre-seeded from the API rather than trusted on first use. The GitHub token
@@ -249,7 +249,7 @@ no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the comman
 `AddressFamily` in the user's ssh config from failing one of them every time. What the forward still
 exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
 every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
 
 ## In the editor
 

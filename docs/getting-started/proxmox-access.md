@@ -106,7 +106,7 @@ Until tokens can be scoped to a Proxmox pool of each person's own, which a later
 
 That keeps each person's runs off the others' VMs by accident, but it does not stop someone who copies your tag
 on purpose: share a host only with people you would trust with your VMs
-([SECURITY.md's known trade-offs](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)).
+([SECURITY.md's known trade-offs](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)).
 
 ### The guest agent's privilege
 

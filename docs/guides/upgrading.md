@@ -15,6 +15,10 @@ naming `just install`, while one differs. They live in the checkout's own folder
 From 2.0 the project is called agent-warehouse, since it is to run more models than Claude Code and more
 hypervisors than Proxmox VE. For an install made by 1.x:
 
+- **The repository is `kawadeomkar/agent-warehouse`**, and the wiki is at
+  <https://kawadeomkar.github.io/agent-warehouse/>. GitHub sends the old repository's web and git addresses on to
+  the new one, but not the old wiki's. Point your clone at the new address:
+  `git remote set-url origin https://github.com/kawadeomkar/agent-warehouse.git` (or `git@github.com:kawadeomkar/agent-warehouse.git`).
 - **The token secret's variable is `AGENT_WAREHOUSE_TOKEN_SECRET`.** `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name
   through 1.x, is still read while the new one is not set, and `just init` says so; set beside the new one to a
   different secret, it is refused, and neither is said. Rename it wherever you export it.

@@ -1,7 +1,7 @@
 # What the VM trusts
 
 This is a development box, and the defaults reflect that. This page is what they mean for you;
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md) is the policy -
+[SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) is the policy -
 how to report a vulnerability, what is in scope, and the known trade-offs it does not treat as one -
 and the [security model](../architecture/security-model.md) is how each is enforced.
 
@@ -70,4 +70,4 @@ and the [security model](../architecture/security-model.md) is how each is enfor
 - Roles: [`common`](../reference/roles/common.md) for `common_user_passwordless_sudo` and
   `common_harden_ssh`, [`dev_tools`](../reference/roles/dev_tools.md) for the downloads it verifies
 - How it works: [§10](../architecture/security-model.md); the policy and known trade-offs:
-  [SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md)
+  [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md)
