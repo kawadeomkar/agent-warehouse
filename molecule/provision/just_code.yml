@@ -22,7 +22,7 @@
       # itself is tested in tests/unit/test_code_session.py, between real checkouts.
       code_session_source_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/here/.claude"
       code_session_dest_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/vm-home/.claude"
-    verify_code_ws_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/projects/.claude-on-proxmox"
+    verify_code_ws_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/projects/.agent-warehouse"
     verify_code_env: >-
       {{ verify_playbook_env | combine({'PATH': verify_ssh_dir ~ '/bin:' ~ lookup('ansible.builtin.env', 'PATH')}) }}
   tasks:
@@ -173,7 +173,7 @@
         verify_task: "{{ verify_ws_project.tasks.tasks[2] }}"
         verify_helpers: "{{ verify_code_ws_dir }}/helpers"
         verify_notes: "{{ verify_code_ws_dir }}/session/alpha-session.md"
-        verify_preview: "{{ {'**/.claude-on-proxmox/session/*-session.md': 'vscode.markdown.preview.editor'} }}"
+        verify_preview: "{{ {'**/.agent-warehouse/session/*-session.md': 'vscode.markdown.preview.editor'} }}"
       ansible.builtin.assert:
         that:
           - verify_ws_whole | dict2items | map(attribute='key') | sort == ['folders', 'settings', 'tasks']
@@ -183,7 +183,7 @@
           - "verify_ws_whole.folders == [{'path': verify_ws}, {'path': verify_code_ws_dir ~ '/session', 'name': 'alpha · session'}]"
           - "verify_ws_project.folders == [{'path': verify_ws ~ '/discord-music-bot'}]"
           # The workspace files stay out of the explorer of the window that shows them; the notes open as a preview.
-          - "verify_ws_whole.settings == {'files.exclude': {'.claude-on-proxmox': true}, 'workbench.editorAssociations': verify_preview}"
+          - "verify_ws_whole.settings == {'files.exclude': {'.agent-warehouse': true}, 'workbench.editorAssociations': verify_preview}"
           - "verify_ws_project.settings == {'workbench.editorAssociations': verify_preview}"
           - verify_ws_whole.tasks.version == '2.0.0'
           - verify_ws_project.tasks.version == '2.0.0'
@@ -266,7 +266,7 @@
           - verify_notes_before.results[0].stat.mode == '0600'
           - verify_notes_before.results[1].stat.mode == '0700'
           - verify_notes_text is match('# alpha\n')
-          - verify_notes_text is search('<!-- claude-on-proxmox:live -->\n## Signed in\n\nOpening the window fills this in;')
+          - verify_notes_text is search('<!-- agent-warehouse:live -->\n## Signed in\n\nOpening the window fills this in;')
           - verify_notes_text is search('\| LAN address \| `192.0.2.51`')
           - verify_notes_text is search('`just login alpha --only claude`')
         fail_msg: "just code wrote {{ verify_notes_before.results | map(attribute='stat.mode') | list }}: {{ verify_notes_text }}"
@@ -457,8 +457,8 @@
           - expect: '--project names one project folder on the VM.*"\.\." is not one'
             vars: {vm_project: ".."}
           # The workspace files' own directory, though a valid name.
-          - expect: '/projects/\.claude-on-proxmox on alpha is where just code keeps its own files, not a project\.'
-            vars: {vm_project: .claude-on-proxmox}
+          - expect: '/projects/\.agent-warehouse on alpha is where just code keeps its own files, not a project\.'
+            vars: {vm_project: .agent-warehouse}
           - expect: 'editor_files_dir is a path on the VM, and must be an absolute one, not \W+relative/files'
             vars: {vscode_workspaces_dir: relative/files}
           # Not the projects directory: its files would sit among the repositories.
@@ -660,7 +660,7 @@
       loop:
         - {}
         # Only with the terminal on is that directory special.
-        - {vm_project: .claude-on-proxmox, vscode_claude_terminal: "false"}
+        - {vm_project: .agent-warehouse, vscode_claude_terminal: "false"}
 
     - name: Stat the broken VS Code settings after just code read them
       ansible.builtin.stat:
@@ -680,7 +680,7 @@
           - verify_settings_broken_after.stat.mtime == verify_settings_broken.stat.mtime
           - verify_settings_broken_after.stat.checksum == verify_settings_broken.stat.checksum
           - verify_code_log_last | length == 19
-          - verify_code_log_last[-1] == '--remote ssh-remote+alpha ' ~ verify_ws ~ '/.claude-on-proxmox'
+          - verify_code_log_last[-1] == '--remote ssh-remote+alpha ' ~ verify_ws ~ '/.agent-warehouse'
         fail_msg: >-
           just code exited {{ verify_code_last.results | map(attribute='rc') | list }} and asked for
           {{ verify_code_log_last[-4:] }}:

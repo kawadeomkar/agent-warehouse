@@ -61,6 +61,58 @@
       {{ claude_ssh_vms if claude_ssh_strict | bool
          else claude_ssh_vms | rejectattr('name', 'in', claude_ssh_refusals | map(attribute='name') | list) | list }}
 
+# The managed file's name through 1.x (claude_ssh_config_legacy_file) is moved
+# to its name from 2.0 once, with its blocks' markers, before anything is read
+# or written. Left in place, its blocks would go on answering for aliases the new
+# file no longer has, and its Include, first in the user's config, would answer
+# the probe below with the old file's HostName, so the new file would never be
+# included. The old Include line stays, as every Include this project added does:
+# OpenSSH skips the Include of a file that is not there.
+- name: ssh_config | Look for the managed file by its 1.x name
+  ansible.builtin.stat:
+    path: "{{ claude_ssh_config_legacy_file }}"
+  register: claude_ssh_legacy
+  when: claude_ssh_config_legacy_file | default('') | length > 0
+
+- name: ssh_config | Look for it by its name from 2.0
+  ansible.builtin.stat:
+    path: "{{ claude_ssh_config_file }}"
+  register: claude_ssh_new
+  when: claude_ssh_legacy.stat.exists | default(false)
+
+# The move and the markers under one condition, read before either: check mode
+# runs neither, since it would rewrite a file the skipped move never made.
+- name: ssh_config | Move the managed file to its name from 2.0
+  ansible.builtin.command:
+    argv: [mv, -n, "{{ claude_ssh_config_legacy_file }}", "{{ claude_ssh_config_file }}"]
+    creates: "{{ claude_ssh_config_file }}"
+  when:
+    - claude_ssh_legacy.stat.exists | default(false)
+    - not claude_ssh_new.stat.exists
+    - not ansible_check_mode
+
+- name: ssh_config | Give the moved blocks their markers from 2.0
+  ansible.builtin.replace:
+    path: "{{ claude_ssh_config_file }}"
+    regexp: '^# (BEGIN|END) claude-on-proxmox: (\S+)$'
+    replace: '# \1 agent-warehouse: \2'
+    validate: ssh -G -F %s localhost
+  when:
+    - claude_ssh_legacy.stat.exists | default(false)
+    - not claude_ssh_new.stat.exists
+    - not ansible_check_mode
+
+# Both there: the new file was made by hand or by a run of 2.0 that the old one
+# predates. Said, and left: which aliases the old one still answers for is the
+# user's to look at.
+- name: ssh_config | Say that the managed file is there by both names
+  ansible.builtin.debug:
+    msg: >-
+      Both {{ claude_ssh_config_legacy_file }} (the managed SSH config's name through 1.x) and
+      {{ claude_ssh_config_file }} are there: the aliases are kept in the second. Delete the first once nothing you
+      use needs it, and its Include line in {{ claude_ssh_user_config }} with it.
+  when: claude_ssh_legacy.stat.exists | default(false) and claude_ssh_new.stat.exists
+
 - name: ssh_config | Stat the managed file
   ansible.builtin.stat:
     path: "{{ claude_ssh_config_file }}"
@@ -173,7 +225,7 @@
         path: "{{ claude_ssh_config_file }}"
         create: true
         mode: "0600"
-        marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"
+        marker: "# {mark} agent-warehouse: {{ claude_ssh_vm.name }}"
         block: "{{ claude_ssh_block }}"
         validate: "ssh -G -F %s {{ claude_ssh_vm.name }}"
       loop: "{{ claude_ssh_written }}"
@@ -265,7 +317,7 @@
 - name: ssh_config | Remove the alias for each VM
   ansible.builtin.blockinfile:
     path: "{{ claude_ssh_config_file }}"
-    marker: "# {mark} claude-on-proxmox: {{ claude_ssh_vm.name }}"
+    marker: "# {mark} agent-warehouse: {{ claude_ssh_vm.name }}"
     state: absent
   loop: "{{ claude_ssh_vms }}"
   loop_control:

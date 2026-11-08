@@ -48,7 +48,7 @@ def _inventory(root, base, hostvars):
         "vm_ssh_public_keys": [
             "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILiveKitKeyDoNotUse0000000000000000000000000 live@test"
         ],
-        "claude_ssh_config_file": str(root / "ssh" / "claude-on-proxmox.conf"),
+        "claude_ssh_config_file": str(root / "ssh" / "agent-warehouse.conf"),
         "claude_ssh_user_config": str(root / "ssh" / "config"),
         "claude_ssh_config_include": False,
         "destroy_sessions_dir": str(root / "saved"),
@@ -139,7 +139,7 @@ def test_a_destroy_is_drawn_by_its_four_stages_and_each_vms_release_by_its_block
 
 def test_the_summary_says_each_vms_outcome_and_the_run_done(confirmed):
     screen = confirmed.transcript
-    assert re.search(r"^claude-on-proxmox  destroy alpha beta · done in .*$", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  destroy alpha beta · done in .*$", screen, re.M), screen
     for stage in ("release", "delete"):
         row = next(line for line in screen.splitlines() if line.startswith(f" ✓ {stage}"))
         assert "alpha ✓ · beta ✓" in row, row
@@ -154,7 +154,7 @@ def test_a_vm_proxmox_would_not_delete_is_the_failure_the_last_play_raises_and_t
     # Its stage failed as the rescue recorded why, before the raise: so said as the stage ended.
     assert re.search(r"^✗ delete +\d+ tasks", text, re.M), text
     assert "Fail for each VM that was not deleted" not in refused.above_summary("destroy")
-    head = re.search(r"^claude-on-proxmox  destroy alpha beta · done in .* · 1 VM failed: beta$", text, re.M)
+    head = re.search(r"^agent-warehouse  destroy alpha beta · done in .* · 1 VM failed: beta$", text, re.M)
     assert head, text
     delete = next(line for line in text.splitlines() if line.startswith(" ✗ delete"))
     assert "alpha ✓ · beta ✗" in delete, delete
@@ -164,6 +164,6 @@ def test_a_deletion_not_confirmed_is_said_as_an_answer_not_a_failure(declined):
     screen = declined.transcript
     assert declined.rc == 2, declined.text
     assert "Nothing was deleted: the deletion was not confirmed." in screen
-    assert re.search(r"^claude-on-proxmox  destroy alpha beta · declined · \d+ s", screen, re.M), screen
+    assert re.search(r"^agent-warehouse  destroy alpha beta · declined · \d+ s", screen, re.M), screen
     assert "✗" not in screen and "STAGES" not in screen
     assert declined.screen.titles[-1] == "destroy alpha beta · declined"

@@ -4,7 +4,7 @@
 
 # First, so that no run - one that fails at the package included - can leave a
 # repository or a drop-in this role does not know to be its own: with the
-# marker in place, the next run finishes the install, or tailscale_enabled:
+# marker in place, the next run finishes the install, or tailscale_wanted:
 # false removes whatever is there.
 - name: install | Make the directory for this project's markers
   ansible.builtin.file:
@@ -16,7 +16,7 @@
 
 - name: install | Mark Tailscale on this VM as this project's
   ansible.builtin.copy:
-    content: "Installed by claude-on-proxmox's tailscale role, which maintains it and removes it when switched off.\n"
+    content: "Installed by agent-warehouse's tailscale role, which maintains it and removes it when switched off.\n"
     dest: "{{ tailscale_installed_marker_path }}"
     owner: root
     group: root
@@ -39,7 +39,7 @@
 - name: install | Keep tailscaled from uploading its logs, from its first start
   ansible.builtin.copy:
     content: |
-      # claude-on-proxmox, tailscale_upload_logs: false. Also ends Tailscale's
+      # agent-warehouse, tailscale_upload_logs: false. Also ends Tailscale's
       # technical support for this node.
       [Service]
       Environment=TS_NO_LOGS_NO_SUPPORT=true

@@ -48,7 +48,7 @@
         group: root
         mode: "0755"
 
-    # A drop-in of its own, after the common role's 10-claude-on-proxmox.conf: one
+    # A drop-in of its own, after the common role's 10-agent-warehouse.conf: one
     # file per owner, and sshd reads sshd_config.d in lexical order.
     - name: Allow port forwarding over the editor's SSH connection
       ansible.builtin.template:

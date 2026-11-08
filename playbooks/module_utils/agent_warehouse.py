@@ -1,9 +1,9 @@
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """What the modules in playbooks/library/ share: a session's ID, just code's manifest, a transcript's lines, the
 folders in a folder, a version's order, the user's own processes, and which of them is claude.
 
-Each module imports it as ansible.module_utils.claude_on_proxmox, and Ansible sends it along with the module, to the
+Each module imports it as ansible.module_utils.agent_warehouse, and Ansible sends it along with the module, to the
 VM or to this machine: a playbook's module_utils folder is on the path its modules are built from, as its library
 folder is (docs/architecture/custom-code.md §7.10). Standard library only, and no AnsibleModule: each function reads
 and hands back data, and the module decides what to do with it.

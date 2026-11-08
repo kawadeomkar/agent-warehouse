@@ -38,15 +38,19 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 
 ## Internal values
 
-Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 5 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 9 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
 | `common_guest_agent_port` | Where a VM's guest-agent port appears. | `/dev/virtio-ports/org.qemu.guest_agent.0` |
 | `common_ssh_path_system` | The rest of the PATH sshd gives common_user's sessions, after common_ssh_path_dirs: the one /etc/environment sets, as it is now, which PAM gives every other session. | <code>{{ common_environment.content &#124; default('') &#124; b64decode &#124; regex_findall('^PATH="?([^"\n]*)"?[ \t]*$', multiline=True) &#124; first &#124; default('', true) or '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin' }}</code> |
 | `common_ssh_path` | The PATH the drop-in gives common_user's ssh sessions, and the drop-in: whole, since SetEnv takes no variables. | <code>{{ (common_ssh_path_dirs &#124; map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/') &#124; list + [common_ssh_path_system]) &#124; join(':') }}</code> |
-| `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf` |
-| `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg` |
+| `common_ssh_path_dropin` |  | `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf` |
+| `common_cloud_init_user_cfg` | With common_user_passwordless_sudo off: cloud-init's settings for the user it creates, read after cloud.cfg and every drop-in sorted before it. | `/etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg` |
+| `common_sshd_hardening` | The sshd hardening and apt's setting, by path. | `/etc/ssh/sshd_config.d/10-agent-warehouse.conf` |
+| `common_apt_downloads` |  | `/etc/apt/apt.conf.d/90agent-warehouse-downloads` |
+| `common_names_1x` | Each file by its name through 1.x and its name from 2.0, which names.yml moves it to (2.x), and the tmux block's 1.x marker, which tmux.yml takes out. | `[{"old": "/etc/ssh/sshd_config.d/10-claude-on-proxmox.conf", "new": "{{ common_sshd_hardening }}"}, {"old": "/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf", "new": "{{ common_ssh_path_dropin }}"}, {"old": "/etc/apt/apt.conf.d/90claude-on-proxmox-downloads", "new": "{{ common_apt_downloads }}"}, {"old": "/etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg", "new": "{{ common_cloud_init_user_cfg }}"}]` |
+| `common_tmux_marker_1x` |  | `# {mark} claude-on-proxmox: common_tmux_settings` |
 
 ## Tasks
 
@@ -57,6 +61,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 
 | Task | Module | When |
 |---|---|---|
+| Move this role's files from their 1.x names | `ansible.builtin.include_tasks` |  |
 | Delete each package apt downloads once it is installed | `ansible.builtin.copy` | <code>not common_apt_keep_downloads</code> |
 | Let apt keep the packages it downloads | `ansible.builtin.file` | <code>common_apt_keep_downloads</code> |
 | Refresh apt cache | `ansible.builtin.apt` |  |
@@ -91,28 +96,29 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| Delete_each_package_apt_downloads_once_it_is_installed0[delete each package apt downloads once it is<br>installed<br>When: **not common apt keep downloads**]:::task
-  Delete_each_package_apt_downloads_once_it_is_installed0-->|Task| Let_apt_keep_the_packages_it_downloads1[let apt keep the packages it downloads<br>When: **common apt keep downloads**]:::task
-  Let_apt_keep_the_packages_it_downloads1-->|Task| Refresh_apt_cache2[refresh apt cache]:::task
-  Refresh_apt_cache2-->|Task| Upgrade_installed_packages3[upgrade installed packages<br>When: **common apt upgrade**]:::task
-  Upgrade_installed_packages3-->|Task| Install_baseline_packages4[install baseline packages]:::task
-  Install_baseline_packages4-->|Task| Look_for_packages_left_in_apt_s_download_cache5[look for packages left in apt s download cache]:::task
-  Look_for_packages_left_in_apt_s_download_cache5-->|Task| Empty_apt_s_download_cache6[empty apt s download cache<br>When: **not common apt keep downloads and common apt<br>downloads matched   0**]:::task
-  Empty_apt_s_download_cache6-->|Task| Set_timezone7[set timezone]:::task
-  Set_timezone7-->|Task| Record_timezone_name8[record timezone name]:::task
-  Record_timezone_name8-->|Task| Set_hostname9[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
-  Set_hostname9-->|Task| Create_user_common_user10[create user common user]:::task
-  Create_user_common_user10-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_11[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
-  Grant_or_take_away_passwordless_sudo_sudo_yml_11-->|Task| Authorise_SSH_keys12[authorise ssh keys]:::task
-  Authorise_SSH_keys12-->|Task| Ensure_sshd_privilege_separation_directory_exists13[ensure sshd privilege separation directory exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
-  Ensure_sshd_privilege_separation_directory_exists13-->|Task| Harden_sshd14[harden sshd<br>When: **common harden ssh**]:::task
-  Harden_sshd14-->|Task| Remove_sshd_hardening15[remove sshd hardening<br>When: **not common harden ssh**]:::task
-  Remove_sshd_hardening15-->|Task| Put____local_bin_on_PATH_for_all_users16[put    local bin on path for all users]:::task
-  Put____local_bin_on_PATH_for_all_users16-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_17[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
-  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_17-->|Include task| Write_the_tmux_settings_tmux_yml_18[write the tmux settings<br>include_task: tmux yml]:::includeTasks
-  Write_the_tmux_settings_tmux_yml_18-->|Include task| Enable_and_start_services_services_yml_19[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
-  Enable_and_start_services_services_yml_19-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
-  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_20-->End
+  Start-->|Include task| Move_this_role_s_files_from_their_1_x_names_names_yml_0[move this role s files from their 1 x names<br>include_task: names yml]:::includeTasks
+  Move_this_role_s_files_from_their_1_x_names_names_yml_0-->|Task| Delete_each_package_apt_downloads_once_it_is_installed1[delete each package apt downloads once it is<br>installed<br>When: **not common apt keep downloads**]:::task
+  Delete_each_package_apt_downloads_once_it_is_installed1-->|Task| Let_apt_keep_the_packages_it_downloads2[let apt keep the packages it downloads<br>When: **common apt keep downloads**]:::task
+  Let_apt_keep_the_packages_it_downloads2-->|Task| Refresh_apt_cache3[refresh apt cache]:::task
+  Refresh_apt_cache3-->|Task| Upgrade_installed_packages4[upgrade installed packages<br>When: **common apt upgrade**]:::task
+  Upgrade_installed_packages4-->|Task| Install_baseline_packages5[install baseline packages]:::task
+  Install_baseline_packages5-->|Task| Look_for_packages_left_in_apt_s_download_cache6[look for packages left in apt s download cache]:::task
+  Look_for_packages_left_in_apt_s_download_cache6-->|Task| Empty_apt_s_download_cache7[empty apt s download cache<br>When: **not common apt keep downloads and common apt<br>downloads matched   0**]:::task
+  Empty_apt_s_download_cache7-->|Task| Set_timezone8[set timezone]:::task
+  Set_timezone8-->|Task| Record_timezone_name9[record timezone name]:::task
+  Record_timezone_name9-->|Task| Set_hostname10[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
+  Set_hostname10-->|Task| Create_user_common_user11[create user common user]:::task
+  Create_user_common_user11-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_12[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
+  Grant_or_take_away_passwordless_sudo_sudo_yml_12-->|Task| Authorise_SSH_keys13[authorise ssh keys]:::task
+  Authorise_SSH_keys13-->|Task| Ensure_sshd_privilege_separation_directory_exists14[ensure sshd privilege separation directory exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
+  Ensure_sshd_privilege_separation_directory_exists14-->|Task| Harden_sshd15[harden sshd<br>When: **common harden ssh**]:::task
+  Harden_sshd15-->|Task| Remove_sshd_hardening16[remove sshd hardening<br>When: **not common harden ssh**]:::task
+  Remove_sshd_hardening16-->|Task| Put____local_bin_on_PATH_for_all_users17[put    local bin on path for all users]:::task
+  Put____local_bin_on_PATH_for_all_users17-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
+  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18-->|Include task| Write_the_tmux_settings_tmux_yml_19[write the tmux settings<br>include_task: tmux yml]:::includeTasks
+  Write_the_tmux_settings_tmux_yml_19-->|Include task| Enable_and_start_services_services_yml_20[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
+  Enable_and_start_services_services_yml_20-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
+  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21-->End
 ```
 
 ### `masked_units.yml`
@@ -148,6 +154,28 @@ classDef rescue stroke:#665352,stroke-width:2px;
   masked_units___Read_which_of_the_units_failed2-->|Task| masked_units___Clear_the_failed_state_a_unit_was_left_in3[masked units   clear the failed state a unit was<br>left in<br>When: **common masked units failed   length   0**]:::task
   masked_units___Clear_the_failed_state_a_unit_was_left_in3-.->|End of Block| masked_units___Stop_and_mask_the_units2_block_start_0
   masked_units___Clear_the_failed_state_a_unit_was_left_in3-->End
+```
+
+### `names.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Move each file to its name from 2.0 | `ansible.builtin.command` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| names___Move_each_file_to_its_name_from_2_00[names   move each file to its name from 2 0]:::task
+  names___Move_each_file_to_its_name_from_2_00-->End
 ```
 
 ### `services.yml`
@@ -273,6 +301,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Task | Module | When |
 |---|---|---|
 | Look for /etc/tmux.conf | `ansible.builtin.stat` |  |
+| Take the settings' block by its 1.x marker out of /etc/tmux.conf | `ansible.builtin.blockinfile` | <code>common_tmux_conf.stat.exists</code> |
 | Write the settings into /etc/tmux.conf | `ansible.builtin.blockinfile` | <code>common_tmux_settings &#124; length > 0</code> |
 | Take the settings out of /etc/tmux.conf | `ansible.builtin.blockinfile` | <code>common_tmux_settings &#124; length == 0 and common_tmux_conf.stat.exists</code> |
 
@@ -289,9 +318,10 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| tmux___Look_for__etc_tmux_conf0[tmux   look for  etc tmux conf]:::task
-  tmux___Look_for__etc_tmux_conf0-->|Task| tmux___Write_the_settings_into__etc_tmux_conf1[tmux   write the settings into  etc tmux conf<br>When: **common tmux settings   length   0**]:::task
-  tmux___Write_the_settings_into__etc_tmux_conf1-->|Task| tmux___Take_the_settings_out_of__etc_tmux_conf2[tmux   take the settings out of  etc tmux conf<br>When: **common tmux settings   length    0 and common tmux<br>conf stat exists**]:::task
-  tmux___Take_the_settings_out_of__etc_tmux_conf2-->End
+  tmux___Look_for__etc_tmux_conf0-->|Task| tmux___Take_the_settings__block_by_its_1_x_marker_out_of__etc_tmux_conf1[tmux   take the settings  block by its 1 x marker<br>out of  etc tmux conf<br>When: **common tmux conf stat exists**]:::task
+  tmux___Take_the_settings__block_by_its_1_x_marker_out_of__etc_tmux_conf1-->|Task| tmux___Write_the_settings_into__etc_tmux_conf2[tmux   write the settings into  etc tmux conf<br>When: **common tmux settings   length   0**]:::task
+  tmux___Write_the_settings_into__etc_tmux_conf2-->|Task| tmux___Take_the_settings_out_of__etc_tmux_conf3[tmux   take the settings out of  etc tmux conf<br>When: **common tmux settings   length    0 and common tmux<br>conf stat exists**]:::task
+  tmux___Take_the_settings_out_of__etc_tmux_conf3-->End
 ```
 
 <!-- END_GENERATED: role -->

@@ -1,0 +1,22 @@
+---
+# The VM as a peer of a WireGuard server the user already runs, its hub: a key
+# made on the VM, which never leaves it, and a link of systemd-networkd's,
+# claude-wg, with the hub its one peer - or, with wireguard_wanted false,
+# taken off again where this role set it up. Only what this role made is ever
+# touched: a WireGuard of the user's own, its wg0, is left as it is
+# (docs/architecture/roles.md §5.9).
+
+# The feature, as the project decides it from the vpn setting (the inventory
+# defaults set it). false takes off what this role set up.
+wireguard_wanted: false
+
+# What the VM's link is, from the members' plan (lib/claude_vm/vpn/wireguard.py):
+# its address on the tunnel, the hub's public key and endpoint, the networks
+# routed into the tunnel and the keepalive. Empty, main changes nothing.
+wireguard_tunnel: {}
+
+# Why WireGuard is off, as the messages name it: the setting that turned it off.
+wireguard_off_why: wireguard_wanted is false
+
+# Where the role keeps its marker on the VM, beside the Tailscale role's.
+wireguard_marker_dir: /var/lib/agent-warehouse

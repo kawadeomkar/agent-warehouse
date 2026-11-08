@@ -10,6 +10,7 @@ from collections import Counter
 from urllib.parse import unquote
 
 from .checks import _alias_refusal, _ipv4, guest_ipv4
+from .vpn.model import MARK
 
 MAC_RE = re.compile(r"([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}")
 
@@ -65,6 +66,70 @@ def tailnet_ipv4(addresses):
     return ""
 
 
+# A mark: a fact about a VM that the VM cannot change, kept as a tag beside the ownership tag, <tag>-<mark>
+# (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>, with -reached after it
+# once the VM has reached its hub there.
+MARK_RE = MARK  # the core's own pattern (lib/claude_vm/vpn/model.py), so the two never disagree
+
+
+def _tag_list(tags):
+    """A VM's tags as proxmox_tags reads them, from its string or a list of them, each lowercased, as the ownership
+    tag is matched."""
+    return [tag.lower() for tag in proxmox_tags(tags if isinstance(tags, str) else ";".join(map(str, tags or ())))]
+
+
+def _owned(tag):
+    """The ownership tags, lowercased: one, or every tag a VM of the project may carry as its own (claude_vm_tags_owned:
+    the tag, and its name through 1.x while the tag is the default)."""
+    return [str(each).lower() for each in ([tag] if isinstance(tag, str) else tag or ())]
+
+
+def proxmox_marks(tags, tag):
+    """The marks a VM's tags hold, the ownership tag's prefix taken off, in the order Proxmox gave them, once each: a
+    mark under any of the ownership tags is the VM's."""
+    marks = []
+    for each in _tag_list(tags):
+        for owned in _owned(tag):
+            mark = each[len(owned) + 1 :] if each.startswith(f"{owned}-") else ""
+            if MARK_RE.fullmatch(mark) and mark not in marks:
+                marks.append(mark)
+    return marks
+
+
+def proxmox_tags_moved(tags, tag, old):
+    """A VM's tags, each one the project gave it under ``old`` - its ownership tag through 1.x, a mark under it and its
+    unfinished tag - under ``tag`` in its place, and every other tag as Proxmox gave it, none twice. ``old`` is a list,
+    empty when the tag is not the default: a tag set in local.yml has no other name."""
+    moved = []
+    for each in proxmox_tags(tags if isinstance(tags, str) else ";".join(map(str, tags or ()))):
+        for was in _owned(old):
+            rest = each.lower()[len(was) :]
+            if each.lower().startswith(was) and (
+                rest in ("", "-unfinished") or (rest.startswith("-") and MARK_RE.fullmatch(rest[1:]))
+            ):
+                each = f"{str(tag).lower()}{rest}"
+                break
+        if each.lower() not in [m.lower() for m in moved]:
+            moved.append(each)
+    return moved
+
+
+def proxmox_wireguard_taken(resources, tag, but=()):
+    """Every WireGuard address a VM of the project holds in Proxmox, from the cluster's listing, but the VMs whose VM
+    IDs are given: the addresses no other VM may be given."""
+    taken, but = [], {int(vmid) for vmid in but}
+    for vm in resources or ():
+        if not isinstance(vm, dict) or vm.get("vmid") in but:
+            continue
+        if set(_owned(tag)) & set(_tag_list(vm.get("tags", ""))):
+            taken += [
+                mark[3:].removesuffix("-reached")
+                for mark in proxmox_marks(vm.get("tags", ""), tag)
+                if mark.startswith("wg-")
+            ]
+    return taken
+
+
 def guest_addresses(vms, configs, networks, nic="net0"):
     """Pair each VM of a cluster listing with the address its agent reports.
 
@@ -115,9 +180,10 @@ def proxmox_access_denied(msg):
 
 
 # The managed SSH config on the controller (playbooks/tasks/ssh_config.yml):
-# one blockinfile block per VM, keyed by the VM's name.
+# one blockinfile block per VM, keyed by the VM's name, marked agent-warehouse
+# from 2.0 and claude-on-proxmox through 1.x, which a file not moved yet has.
 BLOCK_RE = re.compile(
-    r"^# BEGIN claude-on-proxmox: (?P<name>\S+)$\n(?P<body>.*?)^# END claude-on-proxmox: (?P=name)$",
+    r"^# BEGIN (?P<by>agent-warehouse|claude-on-proxmox): (?P<name>\S+)$\n(?P<body>.*?)^# END (?P=by): (?P=name)$",
     re.M | re.S,
 )
 
@@ -214,8 +280,8 @@ def proxmox_tags(tags):
     """A VM's tags, as a list: split on ";" or ",", each trimmed, an empty one left out, the case as given.
 
     Proxmox joins tags with ";" on the wire, lowercased; proxmox_kvm sends them joined with ",", and some versions
-    echo that back. Whole tags, so that a caller compares a tag whole: claude-on-proxmox is never
-    claude-on-proxmox-staging.
+    echo that back. Whole tags, so that a caller compares a tag whole: agent-warehouse is never
+    agent-warehouse-staging.
     """
     return [tag.strip() for tag in re.split(r"[;,]", str(tags or "")) if tag.strip()]
 
@@ -310,8 +376,13 @@ def proxmox_vm_drift(config, wanted):
 # what went into the disk, none of which the template's config shows. One line, so that `qm config` prints it as one,
 # found by this marker wherever it is among the notes a person may have added. A full clone copies its template's
 # notes, so each VM keeps the line too, which reads true of it as well: what it was built from.
-TEMPLATE_RECORD = "Built by claude-on-proxmox:"
-_TEMPLATE_RECORD_RE = re.compile(re.escape(TEMPLATE_RECORD) + r"\s*(.*)$")
+TEMPLATE_RECORD = "Built by agent-warehouse:"
+# The same, as 1.x's builds wrote it in the notes of every template they made: read as the record too, so that 2.0
+# rebuilds none for the record's name alone, and written as TEMPLATE_RECORD by the next build.
+TEMPLATE_RECORD_1X = "Built by claude-on-proxmox:"
+_TEMPLATE_RECORD_RE = re.compile(
+    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)$"
+)
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
 TEMPLATE_RECORD_KEYS = ("build", "image", "packages", "sha256")
@@ -336,7 +407,7 @@ def qm_config(text):
     """`qm config`'s output as the dict /nodes/<node>/qemu/<vmid>/config gives: each "key: value" line, and a line
     that is none added to the key before it. qm prints the description encoded, on one line, as the VM's config file
     keeps it - a colon, a newline and any byte outside printable ASCII as %XX (PVE::Tools::encode_text; "Built by
-    claude-on-proxmox%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
+    agent-warehouse%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
     config, key = {}, None
     for line in str(text or "").splitlines():
         match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)$", line)

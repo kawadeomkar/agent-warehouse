@@ -84,13 +84,13 @@
           # Tagged in a call of its own first, so a run that dies while
           # configuring still leaves a VM this project recognises as its own.
           - proxmox_vm_verify_configs | length == 3
-          - proxmox_vm_verify_claim.tags == 'claude-on-proxmox'
+          - proxmox_vm_verify_claim.tags == 'agent-warehouse'
           - "'ciuser' not in proxmox_vm_verify_claim"
           # Marked unfinished with the cloud-init user, and marked finished only
           # once it had started, so a run that dies in between is repeated.
-          - proxmox_vm_verify_cfg.tags == 'claude-on-proxmox,claude-on-proxmox-unfinished'
+          - proxmox_vm_verify_cfg.tags == 'agent-warehouse,agent-warehouse-unfinished'
           - proxmox_vm_verify_after_start | length == 1
-          - proxmox_vm_verify_after_start[0].params.tags == 'claude-on-proxmox'
+          - proxmox_vm_verify_after_start[0].params.tags == 'agent-warehouse'
           - proxmox_vm_verify_after_start[0].params.keys() | sort == ['name', 'tags']
           - proxmox_vm_verify_cfg.cores == '4'
           - proxmox_vm_verify_cfg.memory == '8192'
@@ -208,7 +208,7 @@
           - "'9103' in proxmox_vm_verify_state"
           - "'9301' in proxmox_vm_verify_state"
           - "'9302' in proxmox_vm_verify_state"
-          # The VM tagged "ansible;claude-on-proxmox" is this project's: a
+          # The VM tagged "ansible;agent-warehouse" is this project's: a
           # whole-element match admits it, a prefix match would have refused it.
           - "'9303' not in proxmox_vm_verify_state"
           - proxmox_vm_verify_calls | selectattr('method', 'equalto', 'DELETE')

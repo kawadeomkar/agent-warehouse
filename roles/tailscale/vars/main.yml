@@ -8,7 +8,18 @@ tailscale_deb_arch: "{{ 'arm64' if ansible_facts.architecture == 'aarch64' else 
 tailscale_installed_marker_path: "{{ tailscale_marker_dir }}/tailscale-installed"
 tailscale_joined_marker_path: "{{ tailscale_marker_dir }}/tailscale-joined"
 # Written before the package, so the daemon's first start already has it.
-tailscale_dropin_path: /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
+tailscale_dropin_path: /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
+# The markers' directory and the drop-in by their names through 1.x, which
+# names.yml moves them from (the directory only while tailscale_marker_dir is
+# the default) and ownership.yml reads while they are the ones there (2.x).
+tailscale_marker_dir_default: /var/lib/agent-warehouse
+tailscale_marker_dir_1x: >-
+  {{ '/var/lib/claude-on-proxmox' if tailscale_marker_dir == tailscale_marker_dir_default else '' }}
+tailscale_dropin_path_1x: /etc/systemd/system/tailscaled.service.d/10-claude-on-proxmox.conf
+# Whether the marker install.yml writes is there, by its name from 2.0 or 1.x.
+tailscale_installed_marker_found: >-
+  {{ tailscale_installed_marker.stat.exists | default(false)
+     or tailscale_installed_marker_1x.stat.exists | default(false) }}
 tailscale_unit_path: /lib/systemd/system/tailscaled.service
 # How long a join with the key may take: Tailscale took up to 14 s to refuse
 # a key while probing, and artis3n's collection settled on 120.
@@ -32,12 +43,14 @@ tailscale_installed: "{{ tailscale_package_present | bool or tailscale_foreign_p
 # A VM with no Tailscale (the role is about to install it), or the one this
 # role installed. A package with no marker, or a Tailscale dpkg does not know,
 # was installed some other way.
-tailscale_ours: "{{ (tailscale_installed_marker.stat.exists | default(false)) or not (tailscale_installed | bool) }}"
+tailscale_ours: "{{ tailscale_installed_marker_found | bool or not (tailscale_installed | bool) }}"
 # Check mode on a VM without the package: nothing to install from (no
 # repository is written in check mode) and no daemon to read.
 tailscale_check_without_package: "{{ ansible_check_mode and not (tailscale_package_present | bool) }}"
 tailscale_joined_marker_text: >-
-  {{ (tailscale_joined_marker.content | b64decode | trim) if tailscale_joined_marker.content is defined else '' }}
+  {{ (tailscale_joined_marker.content | b64decode | trim) if tailscale_joined_marker.content is defined
+     else (tailscale_joined_marker_1x.content | b64decode | trim) if tailscale_joined_marker_1x.content is defined
+     else '' }}
 
 # --- The state (state.yml) ---
 tailscale_daemon_up: "{{ (tailscale_status_raw.rc | default(1)) == 0 }}"
@@ -90,13 +103,13 @@ tailscale_login_ours: >-
 # Whether the Tailscale this role installed has had a login - any: the role's,
 # one made by hand, one expired (each leaves a node key) - or has a sign-in under
 # way (the role's pending marker, or a page tailscaled holds): what Proxmox
-# records (tasks/tailscale_record.yml), so that the vault's key is never sent to
+# records (tasks/vpn_members.yml), so that the vault's key is never sent to
 # the VM again. A node logged out reads like one that never joined, so a login is
 # recorded wherever it is seen, and a sign-in before it ends, since its page may
 # be approved after the run. Nothing the VM can make this say gets it the key:
 # at most it keeps the key from itself.
 tailscale_login_seen: >-
-  {{ (tailscale_installed_marker.stat.exists | default(false))
+  {{ tailscale_installed_marker_found | bool
      and (tailscale_joined | bool or tailscale_login_pending | bool or tailscale_auth_url | length > 0) }}
 tailscale_prefs: >-
   {{ (tailscale_prefs_raw.stdout | from_json) if (tailscale_prefs_raw.rc | default(1)) == 0 else {} }}
@@ -194,7 +207,7 @@ tailscale_login_go: >-
 tailscale_login_expired_elsewhere: >-
   {{ tailscale_joined | bool and not (tailscale_login_ours | bool) and not (tailscale_login_pending | bool) }}
 tailscale_login_possible: >-
-  {{ tailscale_enabled | bool and tailscale_package_present | bool and tailscale_ours | bool
+  {{ tailscale_wanted | bool and tailscale_package_present | bool and tailscale_ours | bool
      and tailscale_backend == 'NeedsLogin' and tailscale_auth_method != 'key'
      and not (tailscale_login_expired_elsewhere | bool) }}
 tailscale_login_wait_said: >-

@@ -1,5 +1,5 @@
 """The pieces of just code's session handoff: lib/claude_vm/sessions.py, the modules in playbooks/library/ and
-what they share, playbooks/module_utils/claude_on_proxmox.py.
+what they share, playbooks/module_utils/agent_warehouse.py.
 
 Which session goes to which checkout on the VM, what a copy is made of, and
 when an existing copy is left alone. Every transcript, ~/.claude and checkout
@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 
 import pytest
-from ansible.module_utils import claude_on_proxmox as shared
+from ansible.module_utils import agent_warehouse as shared
 from conftest import run_main
 from harness import load_module
 
@@ -94,7 +94,7 @@ def lines(data):
     [
         ("/home/dev/projects/homeserver", "-home-dev-projects-homeserver"),
         ("/home/dev/projects/my_app.v2", "-home-dev-projects-my-app-v2"),
-        ("/Users/Omkar/claude-on-proxmox", "-Users-Omkar-claude-on-proxmox"),
+        ("/Users/Omkar/agent-warehouse", "-Users-Omkar-agent-warehouse"),
     ],
 )
 def test_the_folder_name_is_claude_code_s(path, folder):
@@ -185,8 +185,11 @@ def test_a_vm_checkout_names_its_repository_only_by_a_github_origin():
 
 
 def test_just_code_s_own_directory_on_the_vm_is_one_definition_for_code_and_destroy():
-    assert filters.just_code_dir("/home/dev/projects/") == "/home/dev/projects/.claude-on-proxmox"
+    assert filters.just_code_dir("/home/dev/projects/") == "/home/dev/projects/.agent-warehouse"
     assert filters.just_code_dir("/home/dev/projects", "/home/dev/workspaces/") == "/home/dev/workspaces"
+    # By its 1.x name, which code.yml moves it from: the default's only, never a directory editor_files_dir names.
+    assert filters.just_code_dir_1x("/home/dev/projects/") == "/home/dev/projects/.claude-on-proxmox"
+    assert filters.just_code_dir_1x("/home/dev/projects", "/home/dev/workspaces/") == ""
     # code.yml and session_save.yml both read it through the filter, from the same setting: its name from 1.1, else
     # its name in 1.0.
     shared = "| just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true)))"
@@ -639,7 +642,7 @@ def _found(sid, folder, **fields):
     }
 
 
-SAVED = "/Users/me/claude-on-proxmox/.sessions/alpha-20261023-153000"
+SAVED = "/Users/me/agent-warehouse/.sessions/alpha-20261023-153000"
 
 
 def test_only_what_the_vm_alone_has_is_saved_with_the_command_that_continues_it():
@@ -754,7 +757,7 @@ def test_the_projects_on_the_vm_are_its_checkouts_with_their_origins(tmp_path, p
     projects = tmp_path / "projects"
     _repository(projects / "demo", "https://github.com/octo/demo.git")
     _repository(projects / "local", "")
-    (projects / ".claude-on-proxmox").mkdir()
+    (projects / ".agent-warehouse").mkdir()
     (projects / "plain").mkdir()
     result = run_main(checkouts.main, {"under": str(projects)})
     assert [(item["name"], item["origin"]) for item in result["checkouts"]] == [

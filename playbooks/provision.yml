@@ -1,7 +1,7 @@
 ---
 # Create one or more VMs on Proxmox and report the address each one was given.
 #
-#   just deploy --only provision                          -> claude-on-proxmox-default
+#   just deploy --only provision                          -> agent-warehouse-default
 #   just deploy alpha --only provision
 #   just deploy alpha,beta,gamma --only provision
 #
@@ -76,11 +76,19 @@
     # its clone runs still fails that clone rather than being cloned over:
     # proxmox_kvm checks, and the role asserts the clone changed something.
     #
+    # A bare deploy reads it too, for the default VM's 1.x name (below).
+    #
     # A single new VM needs none of this: nothing else in the run can collide
     # with it, so Proxmox picks its VMID as it always did.
     - name: Read the VMs and VMIDs that already exist
       ansible.builtin.import_tasks: tasks/cluster_vms.yml
-      when: claude_vm_names | length > 1
+      when: claude_vm_names | length > 1 or vm_name is not defined
+
+    # And a bare deploy: whether the default VM has its 1.x name.
+    - name: Refuse a bare deploy that would make a second default VM
+      ansible.builtin.import_tasks: tasks/default_name_1x.yml
+      vars:
+        claude_vm_default_doing: a bare just deploy would create {{ vm_default_name }} beside it
 
     # One pinned VMID cannot be every new VM's: all clones but the first would
     # find it taken. Refused before anything is created, rather than part-way.
@@ -178,6 +186,10 @@
         tailscale_joined_before: >-
           {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
              | default('', true) is regex(claude_vm_tailscale_tag_pattern) }}
+        # Every mark Proxmox keeps for it, its WireGuard address among them (tasks/vm_marks.yml).
+        claude_vm_marks: >-
+          {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
+             | default('', true) | proxmox_marks(claude_vm_tags_owned) }}
       changed_when: false
       when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
       loop: "{{ claude_vm_names }}"
@@ -201,7 +213,7 @@
         label: "{{ claude_vm_name_item }}"
       register: claude_vm_shown
 
-    # NEXT STEPS (callback_plugins/claude_on_proxmox.py): each VM's line above
+    # NEXT STEPS (callback_plugins/agent_warehouse.py): each VM's line above
     # while it is stopped or failed, nothing once it is up.
     - name: Keep what is left to do for the end of the run
       ansible.builtin.set_stats:

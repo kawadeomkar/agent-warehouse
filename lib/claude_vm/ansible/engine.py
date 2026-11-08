@@ -1,7 +1,7 @@
 """A playbook run drawn live: Ansible's events turned into the region, the words above it, and the summary.
 
-The stdout callback (callback_plugins/claude_on_proxmox.py) hands every event to an Engine when a recipe has exported
-CLAUDE_ON_PROXMOX_LIVE, its title, and keeps only its classic output for itself. Everything a live run does is here:
+The stdout callback (callback_plugins/agent_warehouse.py) hands every event to an Engine when a recipe has exported
+AGENT_WAREHOUSE_LIVE, its title, and keeps only its classic output for itself. Everything a live run does is here:
 
 - live, at a terminal that can draw (lib/claude_vm/tui/live_region.py): the run's model (lib/claude_vm/run/model.py)
   drawn (lib/claude_vm/tui/run.py) in place at the bottom of the screen, with the reports, the blocks, the diffs,
@@ -67,9 +67,9 @@ FILE_PREFIX = re.compile(r"^[a-z0-9_]+ \| ")
 
 
 def from_environment(callback, playbook):
-    """The engine for this run, or None for the stream: CLAUDE_ON_PROXMOX_LIVE set, verbosity 0, and a log to send
+    """The engine for this run, or None for the stream: AGENT_WAREHOUSE_LIVE set, verbosity 0, and a log to send
     the stream to (LOG_DIR= turns it off). The variable, and the state's path of a run in parts
-    (CLAUDE_ON_PROXMOX_LIVE_STATE), are taken out of the environment either way, so nothing the run starts - the editor,
+    (AGENT_WAREHOUSE_LIVE_STATE), are taken out of the environment either way, so nothing the run starts - the editor,
     whose terminals a later just destroy may run in - inherits them."""
     title = os.environ.pop(LIVE_ENV, "").strip()
     state = os.environ.pop(STATE_ENV, "").strip()

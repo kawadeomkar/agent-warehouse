@@ -1,5 +1,5 @@
 ---
-# tailscale_enabled false: Tailscale removed again, where this role installed it
+# tailscale_wanted false: Tailscale removed again, where this role installed it
 # or began to (the installed marker). Each step only where its object exists: a
 # run that failed halfway leaves the marker, and perhaps the repository and the
 # drop-in, and nothing else. A Tailscale installed any other way is left as it
@@ -9,20 +9,21 @@
   ansible.builtin.debug:
     msg: >-
       {{ inventory_hostname }}: Tailscale was installed outside this project, so it is left as it is, though
-      tailscale_enabled is false.
+      {{ tailscale_off_setting.name }} is {{ tailscale_off_setting.value }}.
   when:
     - tailscale_installed | bool
-    - not tailscale_installed_marker.stat.exists
+    - not (tailscale_installed_marker_found | bool)
 
 - name: absent | Remove what this role installed
-  when: tailscale_installed_marker.stat.exists
+  when: tailscale_installed_marker_found | bool
   block:
     # Before anything goes, so the run says why Tailscale is leaving a VM that
     # had it: the last task says what became of it.
     - name: absent | Say that Tailscale is being removed
       ansible.builtin.debug:
         msg: >-
-          {{ inventory_hostname }}: tailscale_enabled is false, so the Tailscale this project installed here
+          {{ inventory_hostname }}: {{ tailscale_off_setting.name }} is {{ tailscale_off_setting.value }}, so the
+          Tailscale this project installed here
           {{ 'would be logged out and removed; check mode changes nothing.' if ansible_check_mode
              else 'is being logged out and removed.' }}
 

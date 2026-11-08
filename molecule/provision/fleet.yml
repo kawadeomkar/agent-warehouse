@@ -32,8 +32,8 @@
         fail_msg: >-
           Discovery considered {{ claude_vm_discovered | map(attribute='name', default='(no name)') | sort | list }}.
           It must match "{{ claude_vm_tag }}" as a whole tag: "stranger" is tagged
-          claude-on-proxmox-staging and "bystander" not-claude-on-proxmox, and a
-          substring match would wrongly claim both. "commas" carries it after a ","
+          agent-warehouse-staging and "bystander" not-agent-warehouse, and a
+          substring match would wrongly claim both. "commas" carries its 1.x name after a ","
           and "legacy" does not carry it at all.
         quiet: true
 
@@ -118,7 +118,7 @@
         quiet: true
 
 - name: Verify the API requests
-  hosts: claude-on-proxmox-provision
+  hosts: agent-warehouse-provision
   become: true
   tasks:
     - name: Read the fake API request log
@@ -272,8 +272,8 @@
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../tests/molecule/pve_vm.yml"
       vars:
         pve_vm_fixtures:
-          - {vmid: 9006, name: twin, config: {tags: claude-on-proxmox}}
-          - {vmid: 9007, name: twin, config: {tags: claude-on-proxmox}}
+          - {vmid: 9006, name: twin, config: {tags: agent-warehouse}}
+          - {vmid: 9007, name: twin, config: {tags: agent-warehouse}}
 
     # The child runs that end in a refusal, or in a read of one VM: each a
     # fresh process, so groups['claude_vms'] starts empty, and none changes
@@ -300,7 +300,7 @@
         # Fleet-wide, with the twins there.
         - playbook: discover.yml
           fails: true
-          said: ['More than one VM is tagged\s+claude-on-proxmox\s+and\s+named\s+twin']
+          said: ['More than one VM is tagged\s+agent-warehouse\s+and\s+named\s+twin']
         # A VM named in vm_name that has no address - parked is tagged but
         # stopped - must fail discovery, not be dropped while the rest are
         # configured and the run exits 0.
@@ -320,7 +320,7 @@
         # nothing: every VM the project created would be unreachable to it from
         # then on.
         - playbook: discover.yml
-          vars: {claude_vm_tag: Claude-On-Proxmox, vm_name: alpha}
+          vars: {claude_vm_tag: Agent-Warehouse, vm_name: alpha}
           fails: false
           unsaid: [No VMs to configure, The names given were]
         # A token without the guest-agent privilege: the fake's "noagent" token
@@ -432,7 +432,7 @@
       ansible.builtin.shell: >-
         printf '%s\n' '{"method": "MARKER", "path": "/solo-start", "params": {}, "token": null, "agent": ""}'
         >> /var/lib/fake-pve/calls.log
-      delegate_to: claude-on-proxmox-provision
+      delegate_to: agent-warehouse-provision
       become: true
       changed_when: false
 
@@ -450,7 +450,7 @@
       ansible.builtin.shell: >-
         printf '%s\n' '{"method": "MARKER", "path": "/solo-end", "params": {}, "token": null, "agent": ""}'
         >> /var/lib/fake-pve/calls.log
-      delegate_to: claude-on-proxmox-provision
+      delegate_to: agent-warehouse-provision
       become: true
       changed_when: false
 
@@ -629,7 +629,7 @@
     - name: Clone a VM that will refuse to be deleted, tagged and with protection on
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../tests/molecule/pve_vm.yml"
       vars:
-        pve_vm_fixtures: [{vmid: 9030, name: guarded, config: {tags: claude-on-proxmox, protection: 1}}]
+        pve_vm_fixtures: [{vmid: 9030, name: guarded, config: {tags: agent-warehouse, protection: 1}}]
 
     # Aliases for the VMs about to be refused and deleted, written the way
     # configure.yml writes them, into the ephemeral directory group_vars
@@ -684,7 +684,7 @@
     - name: Read the aliases after the refusals
       ansible.builtin.set_fact:
         verify_aliases_after_refusals: >-
-          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/claude-on-proxmox.conf')
+          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/agent-warehouse.conf')
              | ssh_config_blocks | map(attribute='name') | list }}
 
     - name: Assert destroy.yml refused each for the right reason, and deleted nothing
@@ -750,7 +750,7 @@
     - name: Read the aliases after the deletions
       ansible.builtin.set_fact:
         verify_aliases_after_destroys: >-
-          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/claude-on-proxmox.conf')
+          {{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') ~ '/agent-warehouse.conf')
              | ssh_config_blocks | map(attribute='name') | list }}
 
     - name: Stat the user ssh config that must not have been written
@@ -806,7 +806,7 @@
 # can be counted on their own, and which HTTP agent, so a request a playbook
 # made itself through `uri` can be told from one a module made.
 - name: Verify what the refused runs sent to the API
-  hosts: claude-on-proxmox-provision
+  hosts: agent-warehouse-provision
   become: true
   tasks:
     - name: Read the fake API request log
@@ -876,7 +876,7 @@
   gather_facts: false
   vars:
     verify_ssh_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}"
-    verify_ssh_file: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/claude-on-proxmox.conf"
+    verify_ssh_file: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/agent-warehouse.conf"
     verify_ssh_playbook: "{{ playbook_dir }}/../../playbooks/ssh_config.yml"
   tasks:
     - name: Remove the twins

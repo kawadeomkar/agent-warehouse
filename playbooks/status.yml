@@ -7,7 +7,7 @@
 #
 # Read-only information, and it must never change anything: GETs to the Proxmox API, and over SSH only reads
 # (tests/unit/test_status.py holds every task here, and in every file and role entry point it reaches, to a fixed
-# set). The recipe runs it as a dry run with its own stdout callback, callback_plugins/claude_on_proxmox_status.py,
+# set). The recipe runs it as a dry run with its own stdout callback, callback_plugins/agent_warehouse_status.py,
 # which draws the report live at a terminal and prints the finished one when the run ends, and exits with the
 # report's own code: 0 nothing is wrong, 1 a problem, 2 something could not be read, 3 the run itself failed.
 #
@@ -26,11 +26,19 @@
       names: "{{ claude_vm_names if vm_name is defined else [] }}"
       sections: "{{ status_only | default('') | status_sections }}"
       tag: "{{ claude_vm_tag }}"
+      # Every tag a VM of the project's carries as its own, its 1.x name too: what the unfinished tag is read under.
+      tags_owned: "{{ claude_vm_tags_owned }}"
       template_name: "{{ proxmox_template_name }}"
       template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
-      tailscale_enabled: "{{ tailscale_enabled | bool }}"
+      # Whether Tailscale is the VPN (a promised key, from before the vpn setting), and the setting itself.
+      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(true)) | bool }}"
+      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(true) | bool else 'none') }}"
+      # The setting that turned Tailscale off, as the role's messages name it: tailscale_enabled, or vpn.
+      tailscale_off: >-
+        {{ (tailscale_off_setting.name ~ ' is ' ~ tailscale_off_setting.value) if tailscale_off_setting is defined
+           else 'vpn is none' }}
       vm_user: "{{ vm_user }}"
       discovery: "{{ claude_vm_discovery | bool }}"
       # The editor just code opens, by its key and its name, for the line under ACCESS.
@@ -146,13 +154,26 @@
       register: status_ssh_config_file
       when: claude_ssh_config | bool
 
+    # Its name through 1.x, until the first alias write of 2.0 moves it: read,
+    # never moved, here.
+    - name: Look for it by its 1.x name
+      ansible.builtin.stat:
+        path: "{{ claude_ssh_config_legacy_file }}"
+      register: status_ssh_config_legacy
+      when:
+        - claude_ssh_config | bool
+        - not (status_ssh_config_file.stat.exists | default(false))
+        - claude_ssh_config_legacy_file | length > 0
+
     - name: Read the aliases it holds
       ansible.builtin.slurp:
-        src: "{{ claude_ssh_config_file }}"
+        src: >-
+          {{ claude_ssh_config_file if status_ssh_config_file.stat.exists | default(false)
+             else claude_ssh_config_legacy_file }}
       register: status_ssh_config_text
       when:
         - claude_ssh_config | bool
-        - status_ssh_config_file.stat.exists | default(false)
+        - status_ssh_config_file.stat.exists | default(false) or status_ssh_config_legacy.stat.exists | default(false)
 
     - name: Work out the fleet
       ansible.builtin.set_fact:
@@ -371,6 +392,23 @@
           ansible.builtin.set_fact:
             status_unread_tailscale: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('it failed') }}"
 
+    # As root, as configure reads it: the link's handshakes are root's to read.
+    - name: Read WireGuard's state
+      ignore_unreachable: true
+      become: true
+      block:
+        - name: Read how the VM is on its WireGuard network
+          ansible.builtin.include_role:
+            name: wireguard
+            tasks_from: status
+          when:
+            - status_reachable | bool
+            - "'sign-ins' in status_sections_read or 'access' in status_sections_read"
+      rescue:
+        - name: Record that WireGuard was not read
+          ansible.builtin.set_fact:
+            status_unread_wireguard: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('it failed') }}"
+
     - name: Keep what was read inside the VM
       ansible.builtin.set_fact:
         status_found: >-
@@ -382,12 +420,24 @@
                'claude': claude_code_status_found | default(none),
                'github': github_projects_status_found | default(none),
                'tailscale': tailscale_status_found | default(none),
+               'vpn': status_vpn,
                'work': status_work | status_work_read(vm_projects_dir | default('', true) or '~/projects')
                  if status_work is defined and status_work is not skipped else none,
                'unread': {'system': status_unread_system | default(''), 'claude': status_unread_claude | default(''),
                           'github': status_unread_github | default(''),
                           'tailscale': status_unread_tailscale | default(''),
+                          'wireguard': status_unread_wireguard | default(''),
                           'work': status_unread_work | default('')}}}) | status_clean }}
+      vars:
+        # The VPN the VM is on, one record whichever it is (never a key per VPN): its kind, the address it has
+        # there, its state, and the line its role says while something is left.
+        status_vpn: >-
+          {{ wireguard_status_found | default(none) if claude_vpn_key | default('none') == 'wireguard'
+             else {'kind': 'tailscale', 'address': tailscale_status_found.ipv4 | default(''),
+                   'case': tailscale_status_found.case | default(''), 'line': tailscale_status_found.line | default(''),
+                   'left': tailscale_status_found.left | default(false)}
+                  if claude_vpn_key | default('none') == 'tailscale' and tailscale_status_found is defined
+             else none }}
       when: status_over_ssh | bool
 
 - name: Report

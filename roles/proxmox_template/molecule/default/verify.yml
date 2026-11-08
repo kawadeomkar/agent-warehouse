@@ -15,14 +15,30 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - /var/lib/vz/claude-on-proxmox/noble-server-cloudimg-amd64.img
-        - /var/lib/vz/claude-on-proxmox/claude-on-proxmox-9000.img
+        - /var/lib/vz/agent-warehouse/noble-server-cloudimg-amd64.img
+        - /var/lib/vz/agent-warehouse/agent-warehouse-9000.img
       register: proxmox_template_verify_images
 
     - name: Stat the image directory
       ansible.builtin.stat:
-        path: /var/lib/vz/claude-on-proxmox
+        path: /var/lib/vz/agent-warehouse
       register: proxmox_template_verify_image_dir
+
+    # Moved by the first build from its 1.x name, with what was in it.
+    - name: Stat the image directory by its 1.x name, and what 1.x left in it
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /var/lib/vz/claude-on-proxmox
+        - /var/lib/vz/agent-warehouse/kept-by-1x
+      register: proxmox_template_verify_moved
+
+    - name: Assert the image directory moved from its 1.x name
+      ansible.builtin.assert:
+        that:
+          - not proxmox_template_verify_moved.results[0].stat.exists
+          - proxmox_template_verify_moved.results[1].stat.exists
+        quiet: true
 
     - name: Assert template was built exactly once with the expected settings
       vars:
@@ -38,14 +54,14 @@
           - proxmox_template_verify_image_dir.stat.mode == '0755'
           - "'ubuntu-24.04-cloudinit' in proxmox_template_verify_conf"
           - "'virtio,bridge=vmbr1' in proxmox_template_verify_conf"
-          - "'local-zfs:0,import-from=/var/lib/vz/claude-on-proxmox/claude-on-proxmox-9000.img,discard=on' in proxmox_template_verify_conf"
+          - "'local-zfs:0,import-from=/var/lib/vz/agent-warehouse/agent-warehouse-9000.img,discard=on' in proxmox_template_verify_conf"
           - "'local-zfs:cloudinit' in proxmox_template_verify_conf"
           - "'order=scsi0' in proxmox_template_verify_conf"
           - "'template: 1' in proxmox_template_verify_conf"
           # the record of the build, in its notes, which a template is compared on with its settings - kept
           # encoded, as Proxmox keeps a description and qm config prints it: a colon as %3A
           - >-
-            proxmox_template_verify_conf is search('(?m)^description: Built by claude-on-proxmox%3A build=1;'
+            proxmox_template_verify_conf is search('(?m)^description: Built by agent-warehouse%3A build=1;'
             ~ ' image=http%3A//127.0.0.1%3A8080/noble-server-cloudimg-amd64.img; packages=qemu-guest-agent;'
             ~ ' sha256=[0-9a-f]{64}$')
           # converge, then side_effect's rebuild of the template that kept no record: two builds. Idempotence and
@@ -82,7 +98,7 @@
           # unique machine-ids, so clones do not collide on one DHCP lease
           - "'--truncate /etc/machine-id' in proxmox_template_verify_customize"
           # the pristine download is left alone so get_url stays idempotent
-          - "'--add /var/lib/vz/claude-on-proxmox/claude-on-proxmox-9000.img' in proxmox_template_verify_customize"
+          - "'--add /var/lib/vz/agent-warehouse/agent-warehouse-9000.img' in proxmox_template_verify_customize"
           # converge, the rebuild, and the rebuild Proxmox refused, which customises before it removes the old
           # template; the other refusals in side_effect never got this far
           - proxmox_template_verify_customize.splitlines() | length == 3

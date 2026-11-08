@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """List the repositories of a GitHub user, following API pagination."""
 
@@ -54,7 +54,7 @@ options:
     type: bool
     default: false
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""

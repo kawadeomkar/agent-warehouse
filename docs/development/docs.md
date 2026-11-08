@@ -3,7 +3,7 @@
 The documentation lives in `docs/`, as Markdown, beside the code it describes, and changes in the
 same pull request as that code. It reads the same on GitHub, where every page is a file, and as a
 site that Zensical builds from the same files, with navigation and search, published at
-<https://kawadeomkar.github.io/claude-on-proxmox/> from `main` (see [Publishing](#publishing)).
+<https://kawadeomkar.github.io/agent-warehouse/> from `main` (see [Publishing](#publishing)).
 
 ## How it is organised
 

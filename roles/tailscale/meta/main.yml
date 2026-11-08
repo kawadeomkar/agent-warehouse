@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: tailscale
   description: Join the VM to a tailnet - by an auth key or Tailscale's web login - and keep it as configured
   license: MIT

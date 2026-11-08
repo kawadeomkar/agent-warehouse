@@ -18,7 +18,7 @@ import pytest
 from harness import REPO, _failures, _run
 
 TEMPLATE = REPO / "playbooks" / "templates" / "vm_session.md.j2"
-START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"
+START, END = "<!-- agent-warehouse:live -->", "<!-- /agent-warehouse:live -->"
 LIVE = f"{START}\n## Signed in\n\n| | as of 14:02 on 12 Oct |\n|---|---|\n| Claude Code | `dev@example.com` |\n{END}"
 VM = {
     "name": "alpha",
@@ -36,7 +36,7 @@ FACTS = {
     "vm_user": "dev",
     "code_root": "/home/dev/projects",
     "code_target": "/home/dev/projects",
-    "code_notes_dir": "/home/dev/projects/.claude-on-proxmox/session",
+    "code_notes_dir": "/home/dev/projects/.agent-warehouse/session",
     "code_remote_control_unit": "claude-remote-control",
     "code_notes_live": "",
 }

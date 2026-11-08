@@ -83,7 +83,7 @@ destroy one it was given ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-r
 **`proxmox_tags(tags)`** — a VM's tags as a list of whole tags, each trimmed, an empty one left out, their
 case as given: split on `;`, as Proxmox joins them on the wire, or `,`, as `proxmox_kvm` sends them and
 some versions echo them back ([§3](README.md#3-the-identity-model)). The one parser of them:
-`proxmox_vm`'s lookup, the Tailscale record (`tasks/tailscale_record.yml`), which writes them back as
+`proxmox_vm`'s lookup, the VMs' marks (`tasks/vm_marks.yml`, Tailscale's record among them), which write them back as
 Proxmox gave them, and `just status`'s model; the whole-tag patterns in
 `inventory/group_vars/all/defaults.yml` match the joined form.
 
@@ -185,7 +185,7 @@ through - and in the run log. `plain_summary` rebuilds such a summary (a frozen 
 every string through `visible_text`, so no bidi override reorders a `[WARNING]` line either; inside
 `plain_events`, a stdout callback's `_handle_warnings` and `_handle_exception` read the current result's
 summaries that way. Both stdout callbacks wrap the two methods in it, so every hook prints them plain;
-`claude_on_proxmox` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
+`agent_warehouse` also passes a diff's text - a file as the VM holds it - through `plain_text`, which
 keeps the file's own characters. Covered by `test_attention_callback.py`, which runs a stand-in module returning escape sequences through both
 stdout callbacks, by `test_deploy_live.py`, which runs it in a live deploy, and by `test_status.py`'s
 test of the status callback's hooks.
@@ -227,7 +227,7 @@ Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_l
 callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
 `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 
-## 7.5 `callback_plugins/claude_on_proxmox.py` — the waits, and NEXT STEPS
+## 7.5 `callback_plugins/agent_warehouse.py` — the waits, and NEXT STEPS
 
 The stdout callback `ansible.cfg` names (`stdout_callback`, `callback_plugins`), and nothing else does: the
 unit harness runs the JSON callback with an `ansible.cfg` that holds only `inject_facts_as_vars = false`
@@ -256,10 +256,10 @@ A run waits for the person in three ways, and each is set apart:
   `wait_for` has no retries to fold, and carries it for `just deploy`'s live output (below), which tells a
   wait that never retries by how long it runs.
 - **What is left after the run**: NEXT STEPS, after PLAY RECAP, from what the report tasks recorded.
-  Each of the 24 reports that can say what to do later registers its message and records it straight
+  Each of the 26 reports that can say what to do later registers its message and records it straight
   after with `ansible.builtin.set_stats` under its owner's stat - `claude_code_next`,
-  `github_projects_next`, `tailscale_next`, `claude_vm_next` (provision, destroy and `just init`) and
-  `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
+  `github_projects_next`, `tailscale_next`, `vpn_next` (a VPN's marks, `tasks/vm_marks.yml`), `claude_vm_next`
+  (provision, destroy and `just init`) and `code_next` - as `{vm: {matter: line}}`: the message itself while something is left, `''` once nothing is.
   A record about no VM is keyed by words no VM is named, a VM's name being one plain word: destroy's `kept
   SSH aliases`, and `just init`. Its two playbooks each record under a matter of their own: `init_settings`,
   the values still to set or a vault that cannot be opened, and nothing once every value is set, the checks
@@ -301,7 +301,7 @@ JSON report (`_left_to_do`), in every state they already run.
 
 ### `just deploy`, drawn live
 
-`CLAUDE_ON_PROXMOX_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
+`AGENT_WAREHOUSE_LIVE`, which the justfile's recipes drawn live export - `deploy`, `login`, `destroy`, `code` -
 set to what was run (`deploy --check alpha`, `login alpha beta`, the run's title), hands every event of the run
 to an engine, `lib/claude_vm/ansible/engine.py`, at
 verbosity 0 and with a run log to send the stream to; any `-v`, or no log (`LOG_DIR=`), leaves it the stream above.
@@ -441,7 +441,7 @@ The filters'
 code is `lib/claude_vm/sessions.py`'s (§7.10), and a refusal is a `ValueError`.
 Four modules, each in `playbooks/library/` beside the playbook that runs them, read and write the
 files; the filters decide from what they read, and touch no file. What the modules have in common is
-`playbooks/module_utils/claude_on_proxmox.py`'s, sent with each (§7.10): a session's ID, matched whole;
+`playbooks/module_utils/agent_warehouse.py`'s, sent with each (§7.10): a session's ID, matched whole;
 the manifest's format and its reading, and a file's digest as the manifest records it; a transcript's line
 as the object it holds; the folders directly in a folder, never through a link; a version's order; the
 user's own processes, from `/proc`; and the one rule of what is a `claude`, which `claude_sessions_info`'s
@@ -525,7 +525,7 @@ claims nothing. **`projects_dir(given, home)`** is the projects directory on a V
 `projects` in the VM user's home, without a trailing `/` - as configure's alias, just code, just status,
 destroy's save and the roles that clone into it and start Remote Control there all name it.
 **`just_code_dir(projects, given)`** is just code's own directory on a VM -
-`editor_files_dir`, else `.claude-on-proxmox` in the projects directory - for code.yml and for
+`editor_files_dir`, else `.agent-warehouse` in the projects directory - for code.yml and for
 destroy's save, which reads the manifest there. **`claude_project_folder(path)`** is Claude Code's folder name for a path - every character
 but an ASCII letter or digit as `-` - refusing one over 200 characters, which Claude Code shortens with
 a hash of its own. **`claude_session_dirs(sessions)`** is the directories to ask git about for them:
@@ -547,7 +547,7 @@ Covered by `tests/unit/test_session_handoff.py`, with real git checkouts and can
 the window step's runs in `tests/unit/test_code_session.py`, and by destroy's release play, run in
 `tests/unit/test_release.py`.
 
-## 7.7 `filter_plugins/status.py` and `callback_plugins/claude_on_proxmox_status.py` — just status
+## 7.7 `filter_plugins/status.py` and `callback_plugins/agent_warehouse_status.py` — just status
 
 **`status_fleet(listing, tagged, requested, ...)`** — the fleet `playbooks/status.yml`'s first play
 found, as data: this project's VMs with what the listing, their config and their agent said, each marked
@@ -677,7 +677,7 @@ what the callbacks, the engines, `tools/` and the filters share is `lib/claude_v
 its checkout's `lib/` first on `sys.path`, one module object however it is reached.
 
 **Another recipe, drawn live.** A recipe whose playbook is a run joins `just deploy` without code of its own, as
-`just login`, `just destroy` and `just code` have: its recipe exports `CLAUDE_ON_PROXMOX_LIVE` with its title, as `deploy`'s
+`just login`, `just destroy` and `just code` have: its recipe exports `AGENT_WAREHOUSE_LIVE` with its title, as `deploy`'s
 does, and its declaration in `lib/claude_vm/run/recipes.py`, named by the title's first word, says what its run is
 made of - its stages, by playbook or by play, a quiet one counted but never drawn (discovery, a last play that only
 raises), one whose hosts are not VMs (`vms=False`: the template's, on the Proxmox host), and the VMs a fact names on a
@@ -710,7 +710,7 @@ is drawn as one run, its parts in turn:
 - **A command, drawn.** Its child gets `/dev/null` for stdin, one pipe for stdout and stderr, a session of its own
   with no terminal - what would ask at `/dev/tty`, git or ssh as pre-commit fetches its hooks, fails at once and
   says so, where a process group of its own was stopped by the terminal and hung the run - and this environment
-  without `CLAUDE_ON_PROXMOX_LIVE`, the state's path or `ANSIBLE_LOG_PATH`, with `NO_COLOR`, `PYTHONUNBUFFERED` and
+  without `AGENT_WAREHOUSE_LIVE`, the state's path or `ANSIBLE_LOG_PATH`, with `NO_COLOR`, `PYTHONUNBUFFERED` and
   `PRE_COMMIT_COLOR=never`. It is one task of its stage's step (`Run.command`), on this machine, named by its
   program past `env` and its settings - a shell running a script by its step; every line it prints goes to the run's
   log through Ansible's `Display`, in the log's format and order, and the last one is drawn dim after the task. A
@@ -735,7 +735,7 @@ is drawn as one run, its parts in turn:
   task, step, report and NEXT STEPS record, each time from the run's start, so one clock runs through the parts),
   draws them done above its own, works and saves it again. It is a file in `LIVE_DIR` (`.cache/live/`: git-ignored,
   refused by `tests/check_no_local_files.sh`) named for the run's stamp and its top recipe, which the recipe exports
-  as `CLAUDE_ON_PROXMOX_LIVE_STATE`: made by the run's first part, written whole, 0600 in a 0700 directory, and
+  as `AGENT_WAREHOUSE_LIVE_STATE`: made by the run's first part, written whole, 0600 in a 0700 directory, and
   taken over only when it is of this version and this run's title; one a run that never said its end left behind is
   removed a day later - a state by its name, the pytest reader's events beside it, or a temporary of one, and
   nothing else: `LIVE_DIR` is whatever the environment names. A playbook that is a part does the same in the engine:
@@ -766,9 +766,9 @@ is drawn as one run, its parts in turn:
   syntax check is one command over every playbook, each said as it starts.
 - **`just test`** is lint, nested (`{{ self }} live_run=test lint`), then pytest and each Molecule scenario, each a
   command through `tools/live --log <name>`, which passes it through `tools/run-logged` as it was logged before. The
-  recipe exports the stages it will run (`CLAUDE_ON_PROXMOX_LIVE_STAGES`), so each is listed to come from the first
+  recipe exports the stages it will run (`AGENT_WAREHOUSE_LIVE_STAGES`), so each is listed to come from the first
   part, lint's. Two readers make the parts' tasks: **pytest**, from the events `tests/unit/live_pytest.py` writes
-  (`-p live_pytest`, which pytest finds on its `pythonpath`) to the file `CLAUDE_ON_PROXMOX_LIVE_PYTEST` names,
+  (`-p live_pytest`, which pytest finds on its `pythonpath`) to the file `AGENT_WAREHOUSE_LIVE_PYTEST` names,
   beside the run's state, 0600 in its 0700 directory and never the system's temporary one, which the end removes -
   the count once collected, from the first xdist worker's collection when there are workers, each test's start and
   end, several running at once under xdist, a test whose worker crashed ended as failed, each named by its file and
@@ -907,8 +907,8 @@ The Python that runs on this machine is moving into one package, `claude_vm`, in
 module is one module object however it is reached, and the parts a future client needs import nothing of Ansible.
 The modules a VM runs stay where they are (`playbooks/library/`, `roles/*/library/`, `playbooks/files/`): Ansible
 ships a module only with what it imports from `module_utils`, so they never import `lib/` and get what they need as
-arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/claude_on_proxmox.py`,
-standard library only and no `AnsibleModule`, imported as `ansible.module_utils.claude_on_proxmox`: Ansible puts
+arguments. What the modules in `playbooks/library/` have in common is in `playbooks/module_utils/agent_warehouse.py`,
+standard library only and no `AnsibleModule`, imported as `ansible.module_utils.agent_warehouse`: Ansible puts
 each playbook's `module_utils` folder on the path it builds that playbook's modules from, as it does its `library`
 folder, and `ansible.cfg`, the unit tests' environment (`tests/unit/harness.py`, and `conftest.py` for a module
 loaded in pytest's own process) and the `configure` scenario name it for what runs from elsewhere. ansible-lint's
@@ -968,3 +968,76 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
 Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
 `python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's
 filter imports its module only when called and refuses another checkout's `claude_vm`.
+
+## 7.11 The choices: the editor, the VPN, and later the host's OS
+
+A checkout makes a few choices once, each a setting naming one row of a list in the inventory defaults: `editor`
+(`claude_editors`), `vpn` (`claude_vpns`), and, with Unraid, the host's OS. Each is read by every playbook through
+one internal key (`claude_editor_key`, `claude_vpn_key`), never the setting itself, so an empty value is the
+default's. `lib/claude_vm/catalogue.py` holds what they share and nothing more: `CHOICES`, each setting with its list
+and the values it takes that are no row (`vpn: none`); `rows_from`, the one way a list's rows are parsed into their
+records; and `pick`, the one refusal of a value that is none of them, naming them. `tools/settings` (`CHOICES_FROM`,
+`CHOICES_ALSO`) and `tools/check settings` (`CHOICES`), which cannot import the package before a run, say the same,
+and `tests/unit/test_choices.py` holds the three equal.
+
+- **A choice splits in two, each half with its pattern.** What is decided on this machine is data: a family module
+  turns a row and the run's inputs into a plan, a registry holds every plan to the choice's rules, and YAML applies
+  it - the editors' windows ([§7.10](#710-libclaude_vm--the-controllers-python-as-one-package)). What converges on a
+  host stays a role with named entry points, imported statically with a literal name and a `when`, so a role's tag
+  reaches every task of it. The editor uses the first half; the VPN uses the second, its role per member, and gains
+  the first as its members' plan.
+- **No choice imports another's code.** What one gives another travels through the playbook as data.
+- **The rows are literal data**, read as they are by `tools/settings` and the tests: a row names its role, its
+  family and what it offers, and no behaviour is decided from such a field alone.
+- **The VPN.** `vpn: tailscale | none`. Unset, it follows `tailscale_enabled`, the setting it replaces, still read:
+  `tailscale` while that is true. The Tailscale role reads `tailscale_wanted`, which the inventory sets from the key
+  (`claude_vpn_key == 'tailscale'`): the role cannot be handed `tailscale_enabled` from the key, since the key's
+  default reads it, and alone it follows `tailscale_enabled`, as do the playbooks run without the inventory's
+  defaults. `tailscale_off_setting` names, in its messages, the setting that turned Tailscale off. Each member's role
+  runs where it is chosen, or where its installed marker says it put something there to take off again; its release
+  runs at `just destroy` whatever is chosen.
+- **The VPN's members** (`vpn/`). Who is on a VPN's network is a plan, data: the marks to keep on each VM in
+  Proxmox, and what is said. Each VPN family is a module of free functions with one, `plan_members(vpn, inputs)`
+  (`tailscale.py`, `wireguard.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
+  `claude_vpns`, each VM a run plans (`Member`: its name and VM ID from Proxmox, its marks, what its roles saw), the
+  inputs (`MemberInputs`, which grow by fields with defaults) and the plan (`MemberPlan`). Every plan passes
+  `registry.py` on every call: a refusal holds nothing else; marks only for the VMs it was given, only of the
+  family's own (`common.marks_of`), never Tailscale's record taken off; NEXT STEPS only under the family's own
+  matters, for the VMs it was given. For WireGuard, besides: one tunnel per VM that stays, at a host of the VMs'
+  range no other VM of the project holds (`taken`, from a listing of the cluster the plan takes itself, and every
+  member's marks once the plan is applied), to the hub the inputs name; a peer only by the name `<tag>-<vm>` of a VM
+  it was given, with that VM's own key, used by no other peer, on the hub or in the plan, and its own address alone,
+  as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
+  were read only in part; the plan's `hub` the inputs' kind, which `tasks/vpn_apply.yml` writes by (never a variable
+  of the import beside it, which an import's `vars:` do not reach), and `reapply` - a peer saved as planned that the
+  hub does not run - only on such a hub read whole whose instance is on. WireGuard's family gives each VM its marked
+  address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free - of the
+  project's VMs, and of every address the hub holds where it is read: its peers' but the members' own, and its own;
+  one key is one peer, the lower VM ID's, so a VM cloned with another's key is said and not joined; and it
+  refuses, before anything is written, settings that cannot work: a range outside the hub's network, a key that is
+  not one, an endpoint that is not a name or an address and a port. What one VM brings (a key that is none, or the
+  hub's; a network it reports that cannot be read or overlaps the tunnel's; a name whose peer name a hub would
+  refuse) leaves that VM out, said and kept for NEXT STEPS, and costs no other VM its place: a VM's root, or whoever
+  named a tagged VM on a shared Proxmox, chooses it. Tailscale's record plays run in a block whose rescue says a failure and
+  goes on, as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
+  the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through `tasks/vm_marks.yml`, what it says, and
+  its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`). Under `vpn_reach:
+  tunnel`, which only a row whose `reach` lists it may have (the registry refuses it before any family plans), each
+  tunnel routes every address to the hub and the VM answers from its tunnel address through it, and each VM's alias
+  is its tunnel address once the VM has reached its hub there - before, the address leads nowhere: the plan's, this
+  run, which the registry holds to a VM whose marks say so once applied (a VM the plan gave a tunnel and no alias
+  keeps its LAN address, never what its marks held before the plan), and `vpn_alias_address` over its marks in every
+  other alias writer (`playbooks/ssh_config.yml`, `just code`'s refresh), held to the VMs' range and to the addresses
+  `guest_ipv4` refuses, since whoever made a tagged VM writes its tags.
+- **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
+  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login, `wg-<address>`
+  for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone), and
+  `wg-<address>-reached` once it has shaken hands with its hub at that address (this run, read by the role's key
+  step, or a run before). Discovery,
+  provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, under every
+  owned tag (`claude_vm_tags_owned`: the tag, and its 1.x name while it is the default), and `proxmox_vm` keeps them
+  whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`), a 1.x VM's under
+  the new tag (`proxmox_tags_moved`). `tasks/vm_marks.yml` is the one writer of a mark: VM by VM, its tags read and
+  written back as read with the marks added under the tag or taken off under either, only on the VM of that name and
+  VM ID that carries an owned tag, never in check mode, a
+  VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).

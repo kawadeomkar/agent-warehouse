@@ -77,11 +77,11 @@ On a fresh Proxmox VE 9 host with the defaults, it runs:
 
 ```text
 pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.PowerMgmt,VM.Audit,VM.GuestAgent.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use
-pveum user add ansible@pve --comment claude-on-proxmox
+pveum user add ansible@pve --comment agent-warehouse
 pveum acl modify /vms --users ansible@pve --roles AnsibleVM
 pveum acl modify /storage/local-lvm --users ansible@pve --roles AnsibleVM
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM
-pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox
+pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse
 ```
 
 It prints the token's secret last, once: give it to `just init`, which asks for it (or to
@@ -91,7 +91,7 @@ It prints the token's secret last, once: give it to `just init`, which asks for 
 
 A second person who deploys onto the same host gets a user of their own with `--user`, and a token of their own.
 Their token holds the same role on `/vms`, so it can list, reconfigure and delete your VMs as yours can theirs.
-The ownership tag does not separate you either. Anyone who can create a VM can tag it `claude-on-proxmox`, and
+The ownership tag does not separate you either. Anyone who can create a VM can tag it `agent-warehouse`, and
 every tagged VM a token lists is treated as that person's own:
 
 - a fleet-wide `just deploy --only configure` sends your secrets to every one of them that takes your SSH key;
@@ -106,7 +106,7 @@ Until tokens can be scoped to a Proxmox pool of each person's own, which a later
 
 That keeps each person's runs off the others' VMs by accident, but it does not stop someone who copies your tag
 on purpose: share a host only with people you would trust with your VMs
-([SECURITY.md's known trade-offs](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)).
+([SECURITY.md's known trade-offs](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities)).
 
 ### The guest agent's privilege
 
@@ -125,10 +125,10 @@ pveum role modify AnsibleVM --append 1 --privs VM.GuestAgent.Audit
 
 One datacenter setting can also block provisioning: if **Datacenter → Options → User Tag Access**
 (a separate option from Tag Style) is set to `list` or `existing` rather than the default `free`, a
-non-root token cannot apply the `claude-on-proxmox` tag. Since that tag is how this project recognises its own
+non-root token cannot apply the `agent-warehouse` tag. Since that tag is how this project recognises its own
 VMs, provisioning fails or the VMs are created untagged and `just deploy --only configure` then finds nothing.
-Either leave the setting at `free`, or add `claude-on-proxmox`, `claude-on-proxmox-unfinished` and
-`claude-on-proxmox-tailscale` to the allowed list. The second marks a VM whose first run has not
+Either leave the setting at `free`, or add `agent-warehouse`, `agent-warehouse-unfinished` and
+`agent-warehouse-tailscale` to the allowed list. The second marks a VM whose first run has not
 finished yet, and is removed once it has started. The third records that a VM has joined Tailscale, so
 the vault's auth key is never sent to it again; without it, configure says it could not write the record.
 

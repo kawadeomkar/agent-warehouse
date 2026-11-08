@@ -7,7 +7,7 @@ engine at the end of a run in parts, the same way. Pure: nothing read or written
 
 # The set_stats names the report tasks record under, each owner's own prefix,
 # and the order a VM's matters are listed in: just init's two first, as it comes first.
-NEXT_STATS = ("claude_vm_next", "claude_code_next", "github_projects_next", "tailscale_next", "code_next")
+NEXT_STATS = ("claude_vm_next", "claude_code_next", "github_projects_next", "tailscale_next", "vpn_next", "code_next")
 MATTERS = (
     "init_settings",
     "init_check",

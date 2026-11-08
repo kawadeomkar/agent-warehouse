@@ -9,7 +9,7 @@ sequences' payload behind as text: a base64 clipboard write, a window title.
 banner draws the block that sets a moment the run waits for the person apart
 from the task output around it: in a pause or vars_prompt prompt, which
 ansible-core prints as written, and in the stdout callback
-(callback_plugins/claude_on_proxmox.py), so both look the same.
+(callback_plugins/agent_warehouse.py), so both look the same.
 
 one_line keeps a value a VM chose to one line of a report: `just status`
 (claude_vm.status.model) draws its report from them, and every live run

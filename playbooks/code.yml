@@ -32,7 +32,7 @@
 # VM then (docs/guides/vscode.md). The workspace file, those notes and the
 # helpers the two tasks run (playbooks/files/, copied unchanged) are written
 # on the VM in a directory of its own beside the projects
-# (<projects>/.claude-on-proxmox/), never in a repository; cloud-init placed
+# (<projects>/.agent-warehouse/), never in a repository; cloud-init placed
 # the key at provisioning, so nothing else needs changing. VS Code runs the
 # tasks only in a window the user has trusted, and only once they have
 # allowed automatic tasks; this playbook reads their VS Code settings to say
@@ -111,6 +111,14 @@
     code_writes_its_directory: >-
       {{ (code_terminal and code_editor_claude == 'started') or code_claude_task_written | bool
          or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 }}
+    # Whether this run moves just code's directory from its 1.x name: a real
+    # directory there, and nothing yet at the new one, as both were before the
+    # move - so every task of the move reads the same answer. Never in check
+    # mode, which runs no command.
+    code_ws_dir_moves: >-
+      {{ code_writes_its_directory | bool and code_ws_dir_1x | default('') | length > 0
+         and code_ws_dir_1x_found.stat.isdir | default(false) and not (code_ws_dir_1x_found.stat.islnk | default(false))
+         and not (code_ws_dir_found.stat.exists | default(true)) and not ansible_check_mode }}
     # Whether an editor that lists its Claude task gets one, on this VM and
     # so in every window of it: only where just code's directory is inside
     # the projects directory (code_ws_below, below), the folder of the window
@@ -352,7 +360,7 @@
                  | list }}
           register: code_fleet_reported
 
-        # NEXT STEPS (callback_plugins/claude_on_proxmox.py): the lines above,
+        # NEXT STEPS (callback_plugins/agent_warehouse.py): the lines above,
         # once for the fleet.
         - name: Keep what is left to do for the end of the run
           ansible.builtin.set_stats:
@@ -550,6 +558,10 @@
             code_root: "{{ code_root_given }}"
             code_target: "{{ code_root_given ~ ('/' ~ code_project_given if code_project_given | length > 0 else '') }}"
             code_ws_dir: "{{ code_ws_dir_given }}"
+            # Its name through 1.x, which the first run of 2.0 moves it from
+            # (empty for a directory editor_files_dir names).
+            code_ws_dir_1x: >-
+              {{ code_root_given | just_code_dir_1x(editor_files_dir | default(vscode_workspaces_dir | default('', true))) }}
             # The session notes, one file per VM, in a directory of their own.
             code_notes_dir: "{{ code_ws_dir_given ~ '/session' }}"
             code_notes_file: "{{ code_ws_dir_given ~ '/session/' ~ claude_vm_names[0] ~ '-session.md' }}"
@@ -601,7 +613,11 @@
             claude_ssh_state: present
             claude_ssh_vms:
               - name: "{{ claude_vm_addressed[0].name }}"
-                address: "{{ claude_vm_addressed[0].address }}"
+                address: >-
+                  {{ claude_vm_addressed[0].address
+                     | vpn_alias_address(claude_vm_addressed[0].tags | default('') | proxmox_marks(claude_vm_tags_owned),
+                                         claude_vpn_key | default('none'), vpn_reach | default('lan'),
+                                         wireguard_vm_prefix | default('')) }}
                 user: "{{ vm_user }}"
                 workspace: "{{ code_root }}"
                 editor_flag: "{{ code_editor_flag }}"
@@ -735,6 +751,44 @@
           register: code_ws_dir_found
           when: code_writes_its_directory | bool
 
+        # Through 1.x it was .claude-on-proxmox in the projects directory: moved
+        # once, with the session copies' manifest, the notes and the helpers,
+        # and the shared helper's 1.x path kept as a link to the new one, since
+        # a task of the user's own may run it (CONTRIBUTING.md's promise). Never a link
+        # of the whole directory: an editor reading the window's tree for tasks
+        # files would read its own twice.
+        - name: Look for just code's directory by its 1.x name on the VM
+          ansible.builtin.stat:
+            path: "{{ code_ws_dir_1x }}"
+            get_checksum: false
+          delegate_to: "{{ claude_vm_names[0] }}"
+          register: code_ws_dir_1x_found
+          when: code_writes_its_directory | bool and code_ws_dir_1x | default('') | length > 0
+
+        - name: Move just code's directory to its name from 2.0 on the VM
+          ansible.builtin.command:
+            argv: [mv, -n, "{{ code_ws_dir_1x }}", "{{ code_ws_dir }}"]
+            creates: "{{ code_ws_dir }}"
+          delegate_to: "{{ claude_vm_names[0] }}"
+          when: code_ws_dir_moves | bool
+
+        - name: Make the shared helper's 1.x directory on the VM
+          ansible.builtin.file:
+            path: "{{ code_ws_dir_1x }}/{{ code_helpers_dir | basename }}"
+            state: directory
+            mode: "0755"
+          delegate_to: "{{ claude_vm_names[0] }}"
+          when: code_ws_dir_moves | bool
+
+        - name: Keep the shared helper's 1.x path as a link to its new one on the VM
+          ansible.builtin.file:
+            path: "{{ code_ws_dir_1x }}/{{ code_helpers_dir | basename }}/{{ code_start_helper | basename }}"
+            src: "{{ code_start_helper }}"
+            state: link
+            force: true
+          delegate_to: "{{ claude_vm_names[0] }}"
+          when: code_ws_dir_moves | bool
+
         - name: Make just code's own directory on the VM
           ansible.builtin.file:
             path: "{{ code_ws_dir }}"
@@ -776,10 +830,13 @@
 
         - name: Write the session notes on the VM
           vars:
+            # The live section as the window last wrote it, with 1.x's markers
+            # too, which a moved notes file still has: carried with 2.0's.
             code_notes_live: >-
-              {{ (code_notes_found.content | default('') | b64decode)
-                 | regex_search('(?s)<!-- claude-on-proxmox:live -->.*?<!-- /claude-on-proxmox:live -->')
-                 or '' }}
+              {{ ((code_notes_found.content | default('') | b64decode)
+                  | regex_search('(?s)<!-- (agent-warehouse|claude-on-proxmox):live -->.*?'
+                                 ~ '<!-- /(agent-warehouse|claude-on-proxmox):live -->')
+                  or '') | regex_replace('<!-- (/?)claude-on-proxmox:live -->', '<!-- \\1agent-warehouse:live -->') }}
           ansible.builtin.copy:
             dest: "{{ code_notes_file }}"
             content: "{{ lookup('ansible.builtin.template', 'vm_session.md.j2') }}"

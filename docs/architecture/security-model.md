@@ -1,6 +1,6 @@
 # 10. Security model
 
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md) is the policy and
+[SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) is the policy and
 its known trade-offs, and [What the VM trusts](../guides/what-the-vm-trusts.md) the defaults a user lives
 with; this is the mechanism.
 
@@ -10,7 +10,7 @@ Authentication is API tokens only, never a password: a dedicated `ansible@pve` t
 holding only the VM privileges the `proxmox_vm` role uses ([Proxmox access](../getting-started/proxmox-access.md)).
 What the token reaches, what a shared host means and what to do about it, and the certificate it is sent to
 unchecked by default are trade-offs
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 with what to do in [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) and
 [Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate).
 `tools/proxmox-access.sh` makes the token: `just init` runs it on the Proxmox host over root SSH only after
@@ -22,10 +22,27 @@ a command line. A vault it cannot write deletes the token again, since its secre
 
 What a tailnet's default policy allows, the policy edit that bounds a tagged VM, and what sudo on the VM can still
 do are trade-offs
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-your-other-devices) is the edit
 itself. How the auth key joins a VM once, and never a VM Proxmox records as having had a login, is
 [§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet); how it travels is under [Secrets](#secrets) below.
+
+## WireGuard
+
+WireGuard ([§5.9](roles.md#59-wireguard--each-vm-a-peer-of-your-wireguard-server)) makes each VM a peer of the
+user's own server, which the project never writes. A VM's private key is made on the VM and never leaves it: root
+and `systemd-network` read it, Ansible never does, and only the public key is printed. The peer the run says to add
+allows the VM its own address alone (`AllowedIPs` a /32), so cryptokey routing on the server stops a VM from claiming
+another's address, or a device's. Every value written into the VM's networkd files is the members' plan's, held by
+the core to its rules: the server's key base64, its endpoint a name or an address and a port, every address one
+Python parsed - nothing the VM reports reaches them but its public key, held to its form. The address a VM keeps is
+recorded in Proxmox, where the VM cannot change it. What the server lets a VM reach is the server's firewall's to
+decide; the guide's rules let devices reach the VMs and keep the VMs from opening connections to devices. With
+`wireguard_hub: opnsense` the project writes its VMs' peers through the router's API, as a user whose one privilege,
+"VPN: WireGuard", covers the whole of WireGuard: its module (`playbooks/library/opnsense_wireguard.py`) pins the
+router's certificate by SHA-256 before the key is sent, refuses a router below OPNsense 26.7.2, drops every private
+key the API answers with before anything is kept, and the core refuses any change to a peer without every mark of the
+project's.
 
 ## Secrets
 
@@ -45,10 +62,10 @@ only `just init` refuses. Its password goes in `.vault_pass`, made only when the
 anywhere (`.vault_pass` or `ANSIBLE_VAULT_PASSWORD_FILE`): `O_EXCL`, `0600`, and never read, rewritten or
 re-moded once it exists. The secret is never taken from the command line, which the shell's history, the
 process list and a CI log keep: `just init` has no option for it, refuses `--token-secret` as one it does
-not have and `CLAUDE_ON_PROXMOX_TOKEN_SECRET=` before the recipe as a setting it does not have, and catches
+not have and `AGENT_WAREHOUSE_TOKEN_SECRET=` before the recipe as a setting it does not have, and catches
 any word after its options - make's spelling, `TOKEN_SECRET=...`, or the bare value - and refuses it with
 a fixed message that never says it (an unknown recipe or a pattern refusal would print the word). A
-scripted `just init` reads it from `--token-secret-file`'s file or from `CLAUDE_ON_PROXMOX_TOKEN_SECRET`
+scripted `just init` reads it from `--token-secret-file`'s file or from `AGENT_WAREHOUSE_TOKEN_SECRET`
 in the environment, inside the playbook, so it is on no command line at all.
 
 ### The credentials a run handles
@@ -146,7 +163,7 @@ is never scanned.
 
 Key-only SSH via a validated sshd drop-in, root password login disabled, passwordless
 sudo for the dev user (a deliberate trade-off, recorded in
-[SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
+[SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities);
 off, sudo takes `vault_vm_password` and cloud-init's own rule and root-equivalent groups go too,
 [§5.3](roles.md#53-common--os-baseline)),
 and GitHub's host keys pre-seeded from the API rather than trusted on first use. The GitHub token
@@ -187,7 +204,7 @@ there: `tools/molecule-lanes` writes each one's whole output, without colour, to
 The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
-checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum>`
+checkout's own folder, `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum>`
 (`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you bring no
 virtualenv, the Python environment ([§13](toolchain.md)), and which `just clean env` deletes - and,
 only where you point `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves
@@ -232,7 +249,7 @@ no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the comman
 `AddressFamily` in the user's ssh config from failing one of them every time. What the forward still
 exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
 every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
-[SECURITY.md lists](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
+[SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
 
 ## In the editor
 

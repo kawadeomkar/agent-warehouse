@@ -53,7 +53,7 @@ what it stores. How each part below is enforced is the
   without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: the four things
   [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
-  the managed SSH config `~/.ssh/claude-on-proxmox.conf` with one `Include` line at the top of `~/.ssh/config`,
+  the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
   the checkout's own folder outside it (`tools/env-run --data`), and VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
   extension or VS Code setting. A bug in the SSH config reaches every `ssh` on the user's machine, and the VM
@@ -90,7 +90,7 @@ restate them are not treated as vulnerabilities:
   other VMs; it does not limit the token. A later release will scope the grant to a Proxmox pool. Until
   then, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a root
   password for those VMs.
-- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `claude-on-proxmox` by default) is a
+- **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `agent-warehouse` by default) is a
   convention, not a permission: any user of the host who can create VMs can set it, and your token can list
   every VM on the host (above). Every tagged VM your token lists is treated as yours:
 
@@ -142,7 +142,7 @@ restate them are not treated as vulnerabilities:
   out, matched by git origin. A transcript holds whatever its tools printed - command output, the
   contents of files, tokens - so every VM you open gets those of its repositories' sessions, in the VM
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
-  them in `just code`'s own directory there (`<projects>/.claude-on-proxmox/claude-sessions/`, 0700);
+  them in `just code`'s own directory there (`<projects>/.agent-warehouse/claude-sessions/`, 0700);
   `false` keeps them here from then on, and leaves what is on the VM already - mirror and copies - for you
   to delete, or for `just destroy` to take with the VM. VS Code's window hides that directory; Zed's shows
   it, in its project panel, search and the context of Zed's own AI features, unless you exclude it there
@@ -210,6 +210,12 @@ restate them are not treated as vulnerabilities:
   default the VM keeps its own resolver (`tailscale_accept_dns: false`): a tailnet's DNS settings that
   override local DNS would otherwise answer every lookup on the VM. Tailscale's log upload is on, as
   Tailscale ships it; `tailscale_upload_logs: false` turns it off.
+- **WireGuard reach.** With `vpn: wireguard`, each VM is a peer of your own WireGuard server, which the project
+  never writes, and what a VM can reach through it is your server's firewall's to decide. Forwarding between peers
+  lets a VM, which runs an agent with passwordless sudo, open connections to your devices unless the server drops
+  them: [the guide's rules](docs/guides/wireguard.md#what-your-server-must-already-do) pass devices to the VMs'
+  range and drop new connections from it. The VM's private key never leaves it, and the peer allows it its own
+  address alone.
 - **What a destroyed VM tells the controller.** `just destroy` releases a VM before deleting it, from
   what the VM reports - and the VM runs an agent with sudo. The Tailscale node ID the device is deleted by
   is the VM's to report, and the API credential can delete any device in the tailnet, so the device is

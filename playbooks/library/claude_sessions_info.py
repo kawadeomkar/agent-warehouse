@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """Read the Claude Code sessions in a Claude Code configuration directory, never their content."""
 
@@ -60,7 +60,7 @@ options:
     elements: path
     default: []
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""
@@ -139,8 +139,7 @@ import re
 import subprocess
 import time
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.claude_on_proxmox import (
+from ansible.module_utils.agent_warehouse import (
     SESSION_ID,
     file_digest,
     folders,
@@ -150,6 +149,7 @@ from ansible.module_utils.claude_on_proxmox import (
     transcript_entry,
     version_key,
 )
+from ansible.module_utils.basic import AnsibleModule
 
 VERSION = re.compile(r"\d+(?:\.\d+)+")
 

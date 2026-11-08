@@ -57,7 +57,12 @@ proxmox_vm_disk: scsi0
 proxmox_vm_nic: net0
 proxmox_vm_disk_size: "{{ vm_disk_size | default('32G') }}"
 proxmox_vm_onboot: true
-proxmox_vm_tags: [claude-on-proxmox]
+proxmox_vm_tags: [agent-warehouse]
+# The ownership tag through 1.x: a VM that carries it, or a mark or the
+# unfinished tag under it, is this role's as if it carried the first of
+# proxmox_vm_tags, and is written so the next time the role changes it. Empty
+# for a tag of one's own, which has no other name.
+proxmox_vm_tags_1x: [claude-on-proxmox]
 
 # Cloud-init: login user and credentials. At least one SSH key or a password
 # is required, otherwise the VM would be unreachable.

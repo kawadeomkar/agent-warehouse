@@ -10,6 +10,7 @@ import posixpath
 from collections.abc import Mapping
 from typing import Any, Final, assert_never
 
+from ..catalogue import pick
 from ..wire import to_wire
 from . import common, vscode, zed
 from .family import Family
@@ -23,9 +24,7 @@ _zed: Family = zed
 def editor_open_plan(key: object, rows: object, inputs: object) -> dict[str, Any]:
     """The plan of the window of editor key, from claude_editors and code.yml's inputs, as the wire carries it."""
     editors, given = editors_from(rows), inputs_from(inputs)
-    editor = editors.get(str(key))
-    if editor is None:
-        raise ValueError(f"{key} is not an editor just code opens: {', '.join(sorted(editors))}")
+    editor = pick(key, editors, "an editor just code opens")
     return to_wire(checked(editor, given, FAMILIES[editor.family].plan_open(editor, given)))
 
 

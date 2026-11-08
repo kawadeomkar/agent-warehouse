@@ -2,7 +2,7 @@
 
 playbooks/status.yml reads, and these turn what it read into one model: what `just status --json` prints and what
 the report file holds. claude_vm.tui.status draws the report from it twice: once finished, when the run ends, and over
-and over while it runs, when callback_plugins/claude_on_proxmox_status.py draws it live with a spinner wherever a
+and over while it runs, when callback_plugins/agent_warehouse_status.py draws it live with a spinner wherever a
 value is still being read (docs/architecture/lifecycle.md §4.6).
 
 Nothing here reads or writes anything. Every value a VM supplies is cleaned by status_clean before anything keeps
@@ -170,7 +170,8 @@ def status_fleet(
     named = {e.get("name") for e in ours}
     unmatched = [n for n in given if n not in named]
     nameless = [{"vmid": e.get("vmid"), "node": e.get("node")} for e in ours if "name" not in e] if unmatched else []
-    tag = str(settings.get("tag", "claude-on-proxmox")).lower()
+    tag = str(settings.get("tag", "agent-warehouse")).lower()
+    owned = [str(t).lower() for t in settings.get("tags_owned") or [tag]]
     # Each config by the VM its result names, never by position: a read that was skipped would shift the rest.
     read_configs = {}
     for result in (configs or {}).get("results", []) if isinstance(configs, dict) else configs or []:
@@ -231,7 +232,9 @@ def status_fleet(
                 "uptime": entry.get("uptime"),
                 "maxdisk": entry.get("maxdisk"),
                 "address": found.get("address", ""),
-                "unfinished": f"{tag}-unfinished" in [t.lower() for t in proxmox_tags(entry.get("tags"))],
+                "unfinished": bool(
+                    {f"{t}-unfinished" for t in owned} & {t.lower() for t in proxmox_tags(entry.get("tags"))}
+                ),
                 "config": config,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
                 # Read in play 2, by name: a VM that is not can only be shown from the listing.
@@ -300,7 +303,7 @@ def status_aliases(text, enabled=True):
     """The VM names the managed SSH config has an alias for, or None with the aliases off."""
     if not enabled:
         return None
-    return re.findall(r"(?m)^# BEGIN claude-on-proxmox: (\S+)$", text or "")
+    return re.findall(r"(?m)^# BEGIN (?:agent-warehouse|claude-on-proxmox): (\S+)$", text or "")
 
 
 # ------------------------------------------------------------------------------------------- one VM's API ----
@@ -523,7 +526,7 @@ def _vm_items(vm, settings, live):
     if skipped == "duplicate":
         add(
             "problem",
-            f"more than one VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}: deploy and"
+            f"more than one VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}: deploy and"
             " destroy refuse both, and status reads neither past the listing",
             "rename or remove the duplicates in Proxmox",
         )
@@ -836,6 +839,10 @@ def _ssh_items(vm, settings, live, now):
             )
         elif tailscale.get("left") and tailscale.get("line"):
             add("todo", tailscale["line"], source="tailscale")
+    vpn = ssh.get("vpn")
+    if vpn and vpn.get("kind") == "wireguard" and vpn.get("left") and vpn.get("line"):
+        # A hub out of reach is a problem; a peer the user has yet to add, or a link not set up, is to do.
+        add("problem" if vpn.get("case") == "stale" else "todo", vpn["line"], source="wireguard")
     return items
 
 
@@ -966,7 +973,7 @@ def status_report(found, read_at="", now=None, live=False):
         _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
-        text = f"no VM tagged {settings.get('tag', 'claude-on-proxmox')} is named {name}"
+        text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"
         if nameless:
             vmids = ", ".join(str(n.get("vmid")) for n in nameless)
             text += f"; Proxmox lists {plural(len(nameless), 'VM')} without a name, on a node that is down: {vmids}"
@@ -986,9 +993,9 @@ def status_report(found, read_at="", now=None, live=False):
     exit_code = 2 if counts["unread"] else 1 if counts["problem"] else 0
     nodes = proxmox.get("nodes") or []
     if proxmox.get("off"):
-        title = f"claude-on-proxmox  {read_at} · the inventory's VMs: claude_vm_discovery is off"
+        title = f"agent-warehouse  {read_at} · the inventory's VMs: claude_vm_discovery is off"
     elif proxmox.get("unread"):
-        title = f"claude-on-proxmox  {read_at}"
+        title = f"agent-warehouse  {read_at}"
     else:
         what = (
             ", ".join(settings.get("names"))
@@ -998,7 +1005,7 @@ def status_report(found, read_at="", now=None, live=False):
             else plural(len(vms), "VM")
         )
         version = f", Proxmox VE {proxmox['version']}" if proxmox.get("version") else ""
-        title = f"claude-on-proxmox  {read_at} · {', '.join(nodes)}{version} · {what}"
+        title = f"agent-warehouse  {read_at} · {', '.join(nodes)}{version} · {what}"
     return {
         "exit": exit_code,
         "read_at": read_at,
@@ -1014,7 +1021,18 @@ def status_report(found, read_at="", now=None, live=False):
         "counts": counts,
         "settings": {
             k: settings.get(k)
-            for k in ("names", "tag", "tailscale_enabled", "nic", "aliases_enabled", "vm_user", "editor", "editor_name")
+            for k in (
+                "names",
+                "tag",
+                "tailscale_enabled",
+                "vpn",
+                "tailscale_off",
+                "nic",
+                "aliases_enabled",
+                "vm_user",
+                "editor",
+                "editor_name",
+            )
         },
         "now": now,
     }

@@ -31,11 +31,11 @@ from vt import VT
 
 SYNC_ON = b"\x1b[?2026h"
 # A region's header and footer, which a run must leave nowhere once it ends.
-HEADER = re.compile(r"^claude-on-proxmox  \S+.* · started \d\d:\d\d")
+HEADER = re.compile(r"^agent-warehouse  \S+.* · started \d\d:\d\d")
 FOOTER = re.compile(r"^. \d+:\d\d · (stage|step|\w+) \d+ of \d+")
 # The callback ansible.cfg names, and the timings it is used beside.
 CONFIG = f"""callback_result_format = yaml
-stdout_callback = claude_on_proxmox
+stdout_callback = agent_warehouse
 callback_plugins = {REPO / "callback_plugins"}
 callbacks_enabled = ansible.posix.profile_tasks
 """
@@ -73,11 +73,11 @@ def recipe_in_parts(
     )
     script.chmod(0o755)
     state = root / "live" / f"{STAMP}-{recipe}.json"
-    return [str(script)], environment(root, title, CLAUDE_ON_PROXMOX_LIVE_STATE=str(state), **settings), state
+    return [str(script)], environment(root, title, AGENT_WAREHOUSE_LIVE_STATE=str(state), **settings), state
 
 
 def environment(root: Path, title: str = "", config: str = CONFIG, **settings: str) -> dict:
-    """A live run's environment: the harness's, CLAUDE_ON_PROXMOX_LIVE set to title (none for the stream), a log of
+    """A live run's environment: the harness's, AGENT_WAREHOUSE_LIVE set to title (none for the stream), a log of
     its own, colour on, a terminal type, UTF-8, and a HOME under root. The Galaxy collections are still found where
     they are: conftest.py sets ANSIBLE_COLLECTIONS_PATH, which the harness passes on (PASSED_ON)."""
     home = root / "home"
@@ -88,7 +88,7 @@ def environment(root: Path, title: str = "", config: str = CONFIG, **settings: s
         "TERM": "xterm-256color",
         "PYTHONUTF8": "1",
         "HOME": str(home),
-        **({"CLAUDE_ON_PROXMOX_LIVE": title} if title else {}),
+        **({"AGENT_WAREHOUSE_LIVE": title} if title else {}),
     }
     return _env(root, config=config, **{**live, **settings})
 
@@ -125,8 +125,8 @@ class Ran:
         return self.said.split(heading, 1)[1].split("\n\n", 1)[0]
 
     def above_summary(self, recipe: str) -> str:
-        """What was said before the summary's head, `claude-on-proxmox  <recipe>`: the run's own words."""
-        return self.said.split(f"claude-on-proxmox  {recipe}", 1)[0]
+        """What was said before the summary's head, `agent-warehouse  <recipe>`: the run's own words."""
+        return self.said.split(f"agent-warehouse  {recipe}", 1)[0]
 
     @property
     def frames(self):

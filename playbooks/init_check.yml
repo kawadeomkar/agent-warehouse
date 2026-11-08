@@ -699,7 +699,7 @@
           {{ init_deploy_next }}
           {% endif %}
 
-    # NEXT STEPS (callback_plugins/claude_on_proxmox.py): each problem with its
+    # NEXT STEPS (callback_plugins/agent_warehouse.py): each problem with its
     # fix, what could not be checked, or just deploy; nothing while only the
     # GitHub username is missing, which init_settings.yml's records. A run that
     # stopped at once, a value still the example's, records nothing.

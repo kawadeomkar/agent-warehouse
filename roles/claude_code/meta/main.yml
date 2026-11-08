@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: claude_code
   description: Install and configure Claude Code for a user
   license: MIT

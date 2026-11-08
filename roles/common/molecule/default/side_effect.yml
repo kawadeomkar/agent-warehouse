@@ -94,7 +94,7 @@
     - name: Give the VM a stand-in for the port
       ansible.builtin.copy:
         content: ""
-        dest: /run/claude-on-proxmox-guest-agent-port
+        dest: /run/agent-warehouse-guest-agent-port
         owner: root
         group: root
         mode: "0600"
@@ -104,7 +104,7 @@
         name: common
         tasks_from: services
       vars:
-        common_guest_agent_port: /run/claude-on-proxmox-guest-agent-port
+        common_guest_agent_port: /run/agent-warehouse-guest-agent-port
 
 # common_ssh_path_dirs: sshd keeps the first SetEnv that applies, so a drop-in
 # sorted before the role's that gives dev a PATH of its own wins. The role
@@ -148,7 +148,7 @@
 
     - name: Look for the role's drop-in
       ansible.builtin.stat:
-        path: /etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf
+        path: /etc/ssh/sshd_config.d/15-agent-warehouse-path.conf
       register: common_side_effect_path_dropin
       failed_when: common_side_effect_path_dropin.stat.exists
 

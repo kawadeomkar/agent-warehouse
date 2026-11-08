@@ -1,6 +1,6 @@
 ---
 # Tailscale on the VM: installed from Tailscale's apt repository, joined to the
-# tailnet, and kept as configured - or, with tailscale_enabled false, removed
+# tailnet, and kept as configured - or, with tailscale_wanted false, removed
 # again. Only what this role made is ever touched: a Tailscale installed or
 # signed in by hand is reported and left as it is (docs/architecture/roles.md
 # §5.8).
@@ -8,6 +8,14 @@
 # The feature. false turns it off again on a VM where this role installed it:
 # logged out, stopped, and the package and repository removed.
 tailscale_enabled: true
+# What the role reads: the feature as the project decides it, from the vpn
+# setting (tailscale_wanted in the inventory defaults), and the setting that
+# turned it off, as the messages name it. Alone, the role follows
+# tailscale_enabled.
+tailscale_wanted: "{{ tailscale_enabled }}"
+tailscale_off_setting:
+  name: tailscale_enabled
+  value: "false"
 
 # A key for the VM's first join (tskey-auth-..., or an OAuth client secret,
 # tskey-client-..., which needs tailscale_advertise_tags). Empty means the web
@@ -31,7 +39,7 @@ tailscale_joined_before: false
 # The tag in Proxmox that records it, which the messages name as the one to
 # remove for one more join with the key: <ownership tag>-tailscale, wired from
 # claude_vm_tailscale_tag (inventory/group_vars/all/defaults.yml).
-tailscale_joined_tag: claude-on-proxmox-tailscale
+tailscale_joined_tag: agent-warehouse-tailscale
 
 # Deleting a VM's device from the tailnet through Tailscale's API, when the VM
 # is destroyed (the release entry point) or Tailscale is turned off on it, so
@@ -97,7 +105,7 @@ tailscale_daemon_flags: []
 tailscale_login_timeout: 300
 
 # Where this role keeps the two markers that say what it made.
-tailscale_marker_dir: /var/lib/claude-on-proxmox
+tailscale_marker_dir: /var/lib/agent-warehouse
 
 # The sign-in's browser step runs on this machine, never in a test (wired from
 # login_desktop).

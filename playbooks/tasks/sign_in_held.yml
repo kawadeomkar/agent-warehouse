@@ -31,7 +31,7 @@
     - claude_vm_login_held | bool or claude_vm_login_unasked | bool
     - claude_vm_sign_in_due | bool
 
-# NEXT STEPS (callback_plugins/claude_on_proxmox.py): the line above, in place
+# NEXT STEPS (callback_plugins/agent_warehouse.py): the line above, in place
 # of the role's own report of the same sign-out, just before it - one line, and
 # the one that says why. set_stats templates its keys; each stat is written out
 # here, and tests/unit/test_attention_callback.py holds every one to the five.

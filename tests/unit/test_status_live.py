@@ -24,7 +24,7 @@ from vt import VT
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 LIVE = {
     "ANSIBLE_CALLBACK_PLUGINS": str(REPO / "callback_plugins"),
-    "ANSIBLE_STDOUT_CALLBACK": "claude_on_proxmox_status",
+    "ANSIBLE_STDOUT_CALLBACK": "agent_warehouse_status",
     # UTF-8 whatever this machine's locale: the callback draws only for a terminal that takes the spinner.
     "PYTHONUTF8": "1",
 }
@@ -117,7 +117,7 @@ def _at_a_terminal(
 def _report(log: str) -> list[str]:
     """The finished report, as the run log holds it: from its title to its exit line."""
     lines = log.splitlines()
-    start = next(i for i, line in enumerate(lines) if re.search(r"\| claude-on-proxmox  \d{4}-", line))
+    start = next(i for i, line in enumerate(lines) if re.search(r"\| agent-warehouse  \d{4}-", line))
     end = next(i for i in range(start, len(lines)) if re.match(r"exit \d", lines[i]))
     return [lines[start].split("| ", 1)[1]] + lines[start + 1 : end + 1]
 
@@ -174,7 +174,7 @@ def test_a_resize_keeps_every_frame_in_the_scrollback_and_the_finished_report_wh
     assert shown[-len(report) :] == report
     # The screen was pushed up rather than drawn over: what went before is whole lines, never a frame overwritten
     # part way, and the report is printed once.
-    assert sum(1 for line in shown if line.startswith("claude-on-proxmox  ") and "·" in line) >= 2
+    assert sum(1 for line in shown if line.startswith("agent-warehouse  ") and "·" in line) >= 2
     assert sum(1 for line in shown if re.match(r"exit \d", line)) == 1
     # A frame worked out for the old size can still be on its way when the window shrinks, and wrap: that is what
     # pushing the screen up and drawing afresh is for, so no count of wraps holds across a resize.

@@ -8,6 +8,9 @@
 # (vars/main.yml, github_projects_listing_token). Nothing here fails a VM that
 # is merely signed out: public repositories still clone, and the run says what
 # is missing.
+- name: auth | Move this role's files on the VM from their 1.x names
+  ansible.builtin.include_tasks: names.yml
+
 - name: auth | Read gh and its login state
   ansible.builtin.include_tasks: login_read.yml
 

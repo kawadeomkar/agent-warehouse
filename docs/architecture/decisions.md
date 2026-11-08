@@ -12,7 +12,7 @@ ansible-core 2.21: both read in their source and run against a fake Proxmox API.
 `community.proxmox` ships an inventory plugin, `community.proxmox.proxmox`, that can do the job of
 `playbooks/discover.yml`. It lists the cluster and reads each VM's guest agent; its `compose` can take the
 address on `net0`'s MAC, as `tasks/vm_addresses.yml` does, and a filter can keep the VMs tagged
-`claude-on-proxmox` as a whole tag. It never sees `group_vars`, but its URL and token take lookups, so it
+`agent-warehouse` as a whole tag. It never sees `group_vars`, but its URL and token take lookups, so it
 could read the address from `inventory/hosts.yml` and the token from the vault rather than have them
 declared a second time. It is not used, because:
 
@@ -184,7 +184,7 @@ user's choice. What was decided, and why:
   `vscode_windows` 1.0 promised; and the shared helper (`claude-start.sh`) and the ownership marker - the first
   line of every file in JSON with comments that `just code` writes for an editor to read from 1.1 on, a tasks or
   settings file (`.zed/tasks.json` today, any other editor's later),
-  `// Written by just code (claude-on-proxmox); edits here are overwritten.`, without which such a file there is
+  `// Written by just code (agent-warehouse); edits here are overwritten.`, without which such a file there is
   someone else's and left as it is - are any editor's, never one editor's names. The helpers and the notes, a
   script and a page, carry no marker: they are `just code`'s by where they live, its helpers' and its notes'
   directories.
@@ -200,8 +200,47 @@ user's choice. What was decided, and why:
 - **One hypervisor per checkout.** A second one is a provider of its own, its VMs found and listed through entry
   points of its role, read by static imports as the editors' files are; the `just status --json` keys 1.0 promises,
   some of them Proxmox's (`vmid`, `node`, `proxmox`), stay for every provider.
-- **The names runs left behind stay**, whatever the project is called: the tag, the markers and drop-ins on each VM,
-  just code's helpers there - the shared one's path is in a task of the user's own - and its ownership marker, the
-  managed SSH config's file and blocks, the checkout's folder. `tests/unit/test_persisted_names.py` lists them.
+- **The names runs left behind move only with a migration** (decided November 2026, for 2.0, when the project
+  became agent-warehouse): the tag, the markers and drop-ins on each VM, just code's helpers there - the shared one's
+  path is in a task of the user's own - and its ownership marker, the managed SSH config's file and blocks, the
+  checkout's folder. Each is read under its old name and written under its new one, the old one still read through
+  2.x, so no deployed VM or machine is stranded. `tests/unit/test_persisted_names.py` lists them: a change to one
+  fails it, and is the place to write that name's migration.
 - **Coupling only shrinks.** `tests/unit/test_ratchets.py` holds how many lines name VS Code outside its own files,
   and how many read Proxmox's API outside its own roles, file by file, to what they are, and fails when one grows.
+
+## 15.5 The VPN as a choice, beside the editor
+
+*Decided 5 November 2026, for 1.x releases: each step only adds.*
+
+The VPN each VM joins becomes the user's choice the way the editor did, and in the long term the project has three
+such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the editor
+([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)).
+
+- **One VPN at a time**, the `vpn` setting: Tailscale, WireGuard - each VM a peer of a WireGuard server the user
+  already runs - or none. Unset, it follows `tailscale_enabled`, which 1.0 promised and which stays read through 1.x; `vpn: none` is
+  a value, not a member, since there is nothing to plan for it.
+- **The pattern is the editor's, in two halves.** What a VPN decides on this machine is a plan of who is on the
+  network, made by a family module and held by a registry to the ownership rules; what it does on a VM stays its
+  role, imported statically per member. Rejected: a class hierarchy per choice (a module cannot inherit a default,
+  so a new member of the seam fails every family at once, which is the check wanted); finding members at run time,
+  by an entry point or a templated role name (the static walks of the tests need literal names, and a templated
+  `include_role`'s tasks never run under `--tags`); one engine for every choice (a window, a service and a fleet
+  share a shape, not a lifecycle); and the Tailscale role's VM-side decisions moved into Python, which read the VM's
+  live state and keep the auth key from ever reaching a node that joined.
+- **What a VM must not change about itself is kept by the host's OS**: on Proxmox a tag beside the ownership tag
+  (`<tag>-tailscale` today), on Unraid later in the domain's metadata. A VPN says which marks to keep; it never
+  calls the hypervisor's API itself.
+- **The host's OS will be the setting `os`**, the third choice, `proxmox` by default.
+- **WireGuard: each VM a peer of a server the user already runs, which the project never writes.** Setting the
+  server up - its interface, the user's devices, its firewall, a port open to the internet - is the user's, or another
+  provisioning's, and differs on every router; the project joins its VMs, keeps them and removes them, as it does with
+  a tailnet. One network for the devices and the VMs means one tunnel on a laptop reaches both, which matters since
+  WireGuard's app on macOS and iOS runs one tunnel at a time. A VM a server of its own (each VM listening on the
+  internet) was rejected. The first hub is `manual`: each run says the peer to add. A hub with an API for its peers
+  can write them - OPNsense's is next - only for peers with every mark of the project's: their name, an address in
+  the VMs' range, the user's instance.
+- **The VM's key is made on the VM and never leaves it**, and the link is systemd-networkd's (`PrivateKeyFile=`),
+  reloaded alone, rather than `wg-quick` or netplan, whose apply reconfigures every interface. A VM's address is
+  given once from a range the user keeps for the VMs and recorded in Proxmox as a mark, so it survives a hub that
+  lost its peers, and a `manual` hub needs nothing read back.

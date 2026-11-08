@@ -68,13 +68,33 @@
          | regex_replace('(.)/+$', '\1') ~ '/' ~ inventory_hostname ~ '-' ~ now(fmt='%Y%m%d-%H%M%S') }}
 
 # just code's manifest says which copies are still as it wrote them, from the
-# directory just code keeps on the VM, as code.yml names it.
+# directory just code keeps on the VM, as code.yml names it - or by its 1.x name
+# on a VM no just code of 2.0 has opened, which moves it.
+- name: session_save | Look for just code's directory on the VM
+  ansible.builtin.stat:
+    path: "{{ claude_vm_save_projects | just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true))) }}"
+    get_checksum: false
+  become: false
+  register: claude_vm_save_code_dir
+  ignore_unreachable: true
+
+- name: session_save | Fail when the VM stopped answering as just code's directory was looked for
+  ansible.builtin.assert:
+    that: not (claude_vm_save_code_dir.unreachable | default(false))
+    fail_msg: "it stopped answering over SSH as just code's directory was looked for"
+    quiet: true
+
 - name: session_save | Read what of the VM's Claude Code sessions is only there
+  vars:
+    claude_vm_save_code_given: "{{ editor_files_dir | default(vscode_workspaces_dir | default('', true)) }}"
+    claude_vm_save_code_1x: "{{ claude_vm_save_projects | just_code_dir_1x(claude_vm_save_code_given) }}"
   claude_sessions_info:
     path: "{{ claude_vm_save_claude }}"
     all: true
     manifest: >-
-      {{ claude_vm_save_projects | just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true))) }}/claude-sessions/manifest.json
+      {{ (claude_vm_save_code_1x
+          if claude_vm_save_code_1x | length > 0 and not (claude_vm_save_code_dir.stat.exists | default(false))
+          else claude_vm_save_projects | just_code_dir(claude_vm_save_code_given)) }}/claude-sessions/manifest.json
     memory: true
   become: false
   register: claude_vm_save_found

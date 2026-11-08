@@ -23,7 +23,7 @@ every other message erasing it first and drawing it after, the echo off while it
 from __future__ import annotations
 
 DOCUMENTATION = """
-    name: claude_on_proxmox_status
+    name: agent_warehouse_status
     type: stdout
     short_description: just status's report, drawn live at a terminal and printed whole when the run ends
     description:
@@ -32,7 +32,7 @@ DOCUMENTATION = """
         --json), it draws nothing; under STATUS_QUIET the report goes to the run log alone.
       - Says a task's failure on stderr only when the run ends without a report, and shows task warnings.
     requirements:
-      - Chosen with ANSIBLE_STDOUT_CALLBACK=claude_on_proxmox_status, as just status does.
+      - Chosen with ANSIBLE_STDOUT_CALLBACK=agent_warehouse_status, as just status does.
 """
 
 import os
@@ -64,7 +64,7 @@ REPORT_ACTIONS = frozenset({"set_fact", "ansible.builtin.set_fact", "ansible.leg
 class CallbackModule(CallbackBase):
     CALLBACK_VERSION = 2.0
     CALLBACK_TYPE = "stdout"
-    CALLBACK_NAME = "claude_on_proxmox_status"
+    CALLBACK_NAME = "agent_warehouse_status"
 
     def __init__(self):
         super().__init__()

@@ -19,8 +19,21 @@ common_ssh_path: >-
   {{ (common_ssh_path_dirs
       | map('regex_replace', '^', ansible_facts.getent_passwd[common_user][4] ~ '/')
       | list + [common_ssh_path_system]) | join(':') }}
-common_ssh_path_dropin: /etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf
+common_ssh_path_dropin: /etc/ssh/sshd_config.d/15-agent-warehouse-path.conf
 
 # With common_user_passwordless_sudo off: cloud-init's settings for the user it
 # creates, read after cloud.cfg and every drop-in sorted before it.
-common_cloud_init_user_cfg: /etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg
+common_cloud_init_user_cfg: /etc/cloud/cloud.cfg.d/99-agent-warehouse-user.cfg
+
+# The sshd hardening and apt's setting, by path.
+common_sshd_hardening: /etc/ssh/sshd_config.d/10-agent-warehouse.conf
+common_apt_downloads: /etc/apt/apt.conf.d/90agent-warehouse-downloads
+
+# Each file by its name through 1.x and its name from 2.0, which names.yml
+# moves it to (2.x), and the tmux block's 1.x marker, which tmux.yml takes out.
+common_names_1x:
+  - {old: /etc/ssh/sshd_config.d/10-claude-on-proxmox.conf, new: "{{ common_sshd_hardening }}"}
+  - {old: /etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf, new: "{{ common_ssh_path_dropin }}"}
+  - {old: /etc/apt/apt.conf.d/90claude-on-proxmox-downloads, new: "{{ common_apt_downloads }}"}
+  - {old: /etc/cloud/cloud.cfg.d/99-claude-on-proxmox-user.cfg, new: "{{ common_cloud_init_user_cfg }}"}
+common_tmux_marker_1x: "# {mark} claude-on-proxmox: common_tmux_settings"

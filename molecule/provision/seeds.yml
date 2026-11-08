@@ -13,26 +13,29 @@
   gather_facts: false
   vars:
     verify_seeds:
-      # The lookalike: an unanchored substring match on "claude-on-proxmox"
+      # The lookalike: an unanchored substring match on "agent-warehouse"
       # would claim this VM and configure someone else's staging box.
-      - {vmid: 9011, name: stranger, start: true, config: {tags: claude-on-proxmox-staging}}
+      - {vmid: 9011, name: stranger, start: true, config: {tags: agent-warehouse-staging}}
       # Tagged the other way round, for the same reason.
-      - {vmid: 9012, name: bystander, start: true, config: {tags: not-claude-on-proxmox}}
+      - {vmid: 9012, name: bystander, start: true, config: {tags: not-agent-warehouse}}
       # Correctly tagged but has no net0, as if its NIC were removed in the UI.
       # net_mac used to raise on this and take discovery down for the fleet.
       # Proxmox removes a setting with delete=<key>; sending it blank does not.
-      - {vmid: 9005, name: nonic, start: true, config: {tags: claude-on-proxmox, delete: net0}}
+      - {vmid: 9005, name: nonic, start: true, config: {tags: agent-warehouse, delete: net0}}
       # Tags kept comma-joined, as proxmox_kvm sends them and some Proxmox
       # versions echo them back, so both separators the tag pattern allows for
       # are exercised - the fake otherwise stores them ";"-joined, as PVE does.
+      # Under the ownership tag through 1.x, as a VM 1.x made carries it: the
+      # fleet is a mixed one, which discovery, just status and destroy each
+      # take whole.
       - {vmid: 9008, name: commas, start: true, config: {tags: "ansible,claude-on-proxmox", fake-verbatim-tags: 1}}
       # Its LAN NIC is net1, as on a template built that way. With proxmox_nic
       # at net0 it has no address; with net1 it must be found.
-      - {vmid: 9009, name: netone, start: true, config: {tags: claude-on-proxmox, delete: net0, net1: "virtio=BC:24:11:00:23:31,bridge=vmbr0"}}
+      - {vmid: 9009, name: netone, start: true, config: {tags: agent-warehouse, delete: net0, net1: "virtio=BC:24:11:00:23:31,bridge=vmbr0"}}
       # Stopped, and its VMID contains 401: Proxmox answers its agent with
       # "VM 4013 is not running", which the auth-failure check once took for
       # a 401 and failed discovery and the listing over.
-      - {vmid: 4013, name: parked, config: {tags: claude-on-proxmox}}
+      - {vmid: 4013, name: parked, config: {tags: agent-warehouse}}
       # Created before this project tagged its VMs, with the tags main used.
       # destroy.yml must refuse it, unless told to delete it anyway.
       - {vmid: 9010, name: legacy, config: {tags: "claude;ansible"}}
@@ -105,13 +108,13 @@
           - verify_resources.json.data | selectattr('node', 'equalto', 'pve2')
             | selectattr('template', 'defined') | list | length == 0
           - verify_resources.json.data | selectattr('node', 'equalto', 'pve2')
-            | selectattr('tags', 'defined') | map(attribute='tags') | list == ['claude-on-proxmox']
+            | selectattr('tags', 'defined') | map(attribute='tags') | list == ['agent-warehouse']
           # The container is listed as a real cluster lists one - type lxc,
           # tagged as this project's - and is not a VM to /nodes/pve/qemu.
           - verify_resources.json.data | selectattr('type', 'equalto', 'lxc')
             | map(attribute='name') | list == ['ours-container']
           - verify_resources.json.data | selectattr('type', 'equalto', 'lxc')
-            | map(attribute='tags') | list == ['claude-on-proxmox']
+            | map(attribute='tags') | list == ['agent-warehouse']
           - verify_node_qemu.json.data | selectattr('vmid', 'equalto', 9003) | list | length == 0
           - verify_parked_agent.msg is search('VM 4013 is not running')
         fail_msg: >-

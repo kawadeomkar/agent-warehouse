@@ -1,5 +1,5 @@
 #!/usr/bin/python
-# Copyright (c) claude-on-proxmox contributors
+# Copyright (c) agent-warehouse contributors
 # MIT License
 """Write the copies of another machine's Claude Code sessions that the VM resumes, from the files rsync brought."""
 
@@ -86,15 +86,15 @@ options:
     type: bool
     default: true
 author:
-  - claude-on-proxmox contributors
+  - agent-warehouse contributors
 """
 
 EXAMPLES = r"""
 - name: Write the copies
   claude_sessions_copy:
-    mirror: /home/dev/projects/.claude-on-proxmox/claude-sessions/mirror
+    mirror: /home/dev/projects/.agent-warehouse/claude-sessions/mirror
     dest: /home/dev/.claude
-    manifest: /home/dev/projects/.claude-on-proxmox/claude-sessions/manifest.json
+    manifest: /home/dev/projects/.agent-warehouse/claude-sessions/manifest.json
     sessions:
       - id: 0a608ad8-0c5e-4d8e-9a7e-2f6d1f0b9c11
         folder: -Users-me-homeserver
@@ -142,8 +142,7 @@ import shutil
 import tempfile
 import time
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.claude_on_proxmox import (
+from ansible.module_utils.agent_warehouse import (
     MANIFEST_FORMAT,
     SESSION_ID,
     file_digest,
@@ -152,6 +151,7 @@ from ansible.module_utils.claude_on_proxmox import (
     read_manifest,
     transcript_entry,
 )
+from ansible.module_utils.basic import AnsibleModule
 
 # How Claude Code's system prompt names the auto-memory folder (2.1.308): read from each entry, never computed,
 # since the folder is Claude Code's own name for the directory the session was started in.
@@ -272,7 +272,7 @@ def _directory(path, created):
 
 def _write(path, data, mtime):
     """Write ``data`` to ``path`` through a file beside it, 0600, with ``mtime``."""
-    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".claude-on-proxmox-")
+    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".agent-warehouse-")
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(data)

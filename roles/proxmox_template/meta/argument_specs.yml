@@ -25,6 +25,7 @@ argument_specs:
         description: get_url checksum spec. Set to an empty string to skip verification.
       proxmox_template_image_dir:
         type: path
+        default: /var/lib/vz/agent-warehouse
         description:
           - Directory on the node that keeps the pristine download. Created if missing.
           - Keep it outside the content directories of a storage, or Proxmox lists the

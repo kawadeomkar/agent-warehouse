@@ -110,7 +110,7 @@ The VM a recipe acts on when no name is given.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vm_default_name` | `claude-on-proxmox-default` |  |
+| `vm_default_name` | `agent-warehouse-default` |  |
 
 VM sizing. These apply to every VM a run creates - VMs are no longer listed in hosts.yml, so there is no per-VM override. Provision fleets that need different sizes in separate runs.
 
@@ -210,7 +210,7 @@ An editor over SSH. On the VM, whichever editor is chosen: an sshd drop-in with 
 |---|---|---|
 | `vscode_remote` | `true` | Sets `vscode_server_enabled` ([`vscode_server`](roles/vscode_server.md)): Write the sshd drop-in and the inotify limit, and check what sshd applies. |
 
-On this machine: an SSH alias per VM in ~/.ssh/claude-on-proxmox.conf, included from the top of ~/.ssh/config, so `ssh alpha` and your editor follow the VM's address; just destroy removes a VM's. Set false to keep out of ~/.ssh entirely, or claude_ssh_config_include false to write the file but not the Include line, which the run then prints for you to add.
+On this machine: an SSH alias per VM in ~/.ssh/agent-warehouse.conf, included from the top of ~/.ssh/config, so `ssh alpha` and your editor follow the VM's address; just destroy removes a VM's. Set false to keep out of ~/.ssh entirely, or claude_ssh_config_include false to write the file but not the Include line, which the run then prints for you to add.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -253,7 +253,7 @@ In VS Code, `just code` opens a workspace file that starts claude in a terminal 
 |---|---|---|
 | `editor_claude_terminal` | same as `vscode_claude_terminal` | For example `true`. |
 
-Where those files go on the VM, as an absolute path of its own, never inside a repository: just code refuses one in a checkout of vm_projects_dir. Empty: .claude-on-proxmox in vm_projects_dir. A directory that already exists keeps its mode; files written before a move stay where they were.
+Where those files go on the VM, as an absolute path of its own, never inside a repository: just code refuses one in a checkout of vm_projects_dir. Empty: .agent-warehouse in vm_projects_dir. A directory that already exists keeps its mode; files written before a move stay where they were.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -376,9 +376,68 @@ Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run on
 |---|---|---|
 | `login_desktop` | `true` | Sets `claude_code_login_desktop` ([`claude_code`](roles/claude_code.md)): Open the sign-in page in the controller's browser. Sets `github_projects_login_desktop` ([`github_projects`](roles/github_projects.md)): During the device flow, open the page and copy the code on the controller. Sets `tailscale_login_desktop` ([`tailscale`](roles/tailscale.md)): Open the sign-in page in a browser on the machine running Ansible. Sets `claude_code_login_redirect` ([`claude_code`](roles/claude_code.md)): Bring the browser back to the VM by itself once you authorise, with nothing to paste - claude's callback port forwarded from the controller over SSH for the sign-in. |
 
+### VPN
+
+The VPN each VM joins: tailscale, wireguard (each VM a peer of a WireGuard server you already run) or none. Every VM deployed from then on follows it, and a VPN this project set up is taken off a VM again when another is chosen, saying so. Unset, it follows tailscale_enabled below.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `vpn` | computed | For example `tailscale`. |
+
+Which address each VM's SSH alias uses: lan (its LAN address, as its guest agent reports it) or, for a VPN that offers it - WireGuard ([docs/guides/wireguard.md](../guides/wireguard.md)) - tunnel, its address on the VPN: one address that works at home and away.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `vpn_reach` | `lan` |  |
+
+### WireGuard
+
+With vpn: wireguard ([docs/guides/wireguard.md](../guides/wireguard.md)), each VM is a peer of a WireGuard server you already run, its hub: its key is made on the VM and never leaves it, and its address on the tunnel is given from the range below and kept for its life, recorded in Proxmox. The project never changes the server but for its VMs' own peers: each run says the peer to add there (wireguard_hub: manual), and just destroy the one to remove - or, on OPNsense 26.7.2 or later (wireguard_hub: opnsense, below), writes them through the router's API.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_hub` | `manual` |  |
+
+The server's tunnel network, which the VMs route into it: the devices you reach them from are on it.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_hub_network` | `""` | For example `198.51.100.0/24`. |
+
+The part of that network kept for the VMs, which no device of yours uses - nor the VMs of another Proxmox whose VMs join the same server: each Proxmox gives out its range's addresses knowing only its own VMs.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_vm_prefix` | `""` | For example `198.51.100.128/25`. |
+
+The server's public key (`wg show <its interface> public-key` there).
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_hub_public_key` | `""` | For example `<the server's public key>`. |
+
+What the VMs dial: the server's address or name, and its listen port. On the VMs' own LAN, its LAN address; a name is looked up once, when the link is made.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_hub_endpoint` | `""` | For example `vpn.example.net:51820`. |
+
+Seconds between the keepalives each VM sends, so a server on the internet can reach a VM behind NAT.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_keepalive` | `25` |  |
+
+On OPNsense 26.7.2 or later, its peers written through the router's API, with the hub's kind above set to opnsense: the router a host of its own in hosts.yml (group wireguard_hub), whose API answers at its ansible_host; your instance's name; the router's certificate pinned by its SHA-256 (it is self-signed); and an API user's key and secret, in the vault, with the WireGuard page's privilege alone. The instance's tunnel network is read from the router.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `wireguard_hub_instance` | `""` | For example `home`. |
+| `wireguard_hub_cert_sha256` | `""` | For example `<the router's certificate's SHA-256>`. |
+
 ### Tailscale
 
-Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). just init asks, and writes your answer here; on until it is answered. Every VM deployed from then on follows it: false installs nothing of Tailscale's, takes it off again where this project installed it, saying so, and leaves a Tailscale installed by hand alone.
+Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). The old form of vpn above, still read for vpn's default: true is vpn: tailscale, false is vpn: none. just init wrote your answer here. Off installs nothing of Tailscale's, takes it off again where this project installed it, saying so, and leaves a Tailscale installed by hand alone.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -510,5 +569,14 @@ Optional: what deletes a VM's device from your tailnet when just destroy deletes
 | `vault_tailscale_api_token` | Sets `tailscale_api_token` ([`tailscale`](roles/tailscale.md)): An API access token (tskey-api-...), used under tailscale_api_auth_method auto or token. |
 | `vault_tailscale_oauth_client_id` | Sets `tailscale_oauth_client_id` ([`tailscale`](roles/tailscale.md)): An OAuth client's ID, used under tailscale_api_auth_method auto or oauth. |
 | `vault_tailscale_oauth_client_secret` | Sets `tailscale_oauth_client_secret` ([`tailscale`](roles/tailscale.md)): That client's secret (tskey-client-...), used under tailscale_api_auth_method auto or oauth. |
+
+### Secrets: WireGuard
+
+Optional, with wireguard_hub: opnsense: the key and secret of an API user on your OPNsense router with the WireGuard page's privilege alone, which writes your VMs' peers on your instance and nothing else ([docs/guides/wireguard.md](../guides/wireguard.md)). Used only on this machine, never sent to a VM.
+
+| Secret, in `vault.yml` | Notes |
+|---|---|
+| `vault_wireguard_hub_api_key` |  |
+| `vault_wireguard_hub_api_secret` |  |
 
 <!-- END_GENERATED: settings -->

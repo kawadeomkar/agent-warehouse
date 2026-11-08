@@ -445,7 +445,7 @@ def _run(
         [str(ANSIBLE_PLAYBOOK), "-i", str(inventory), *args, str(playbook)],
         cwd=root,
         # Custom stats shown: the report then carries what the run recorded
-        # for NEXT STEPS (callback_plugins/claude_on_proxmox.py), _left_to_do.
+        # for NEXT STEPS (callback_plugins/agent_warehouse.py), _left_to_do.
         env=_env(root, ANSIBLE_STDOUT_CALLBACK="ansible.builtin.json", ANSIBLE_SHOW_CUSTOM_STATS="1", **(env or {})),
         # Never the developer's terminal: a pause would wait on it. With no
         # terminal the sign-in's prompt returns at once, as in an unattended run.
@@ -979,7 +979,7 @@ def _bare_repos(git_root: Path, specs: Iterable[str]) -> None:
 # themselves: alpha's window of its projects directory, every switch on, both editors' CLIs found - ZFS's event
 # daemon, zed, first on PATH, as on Ubuntu, which a plan never runs.
 EDITOR_ROOT = "/home/dev/projects"
-EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.claude-on-proxmox"
+EDITOR_FILES_DIR = f"{EDITOR_ROOT}/.agent-warehouse"
 ZEDITOR, VSCODE_CLI = "/usr/local/bin/zeditor", "/usr/local/bin/code"
 EDITOR_PROBE = {"which": ["/usr/sbin/zed", ZEDITOR, VSCODE_CLI], "versions": [[ZEDITOR, "Zed 0.210.4"]]}
 
@@ -1139,7 +1139,7 @@ def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_pol
     when running, started, its agent asked agent_polls times: the fake refuses the first two polls, as an agent still
     starting does, and answers from the third."""
     _pve(base, "POST", "nodes/pve/qemu/9000/clone", newid=vmid, name=name)
-    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "claude-on-proxmox"}))
+    _pve(base, "PUT", f"nodes/pve/qemu/{vmid}/config", **(config or {"tags": "agent-warehouse"}))
     if running:
         _pve(base, "POST", f"nodes/pve/qemu/{vmid}/status/start")
         for _ in range(agent_polls):
@@ -1178,7 +1178,7 @@ def fake_fleet(directory: Path, version: str = "9.2.21"):
     for base in _fake_pve(directory):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
-            _pve_vm(base, vmid, name, running=running, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+            _pve_vm(base, vmid, name, running=running, tags="agent-warehouse", ciuser="dev", onboot="1")
             if name == "alpha":
                 # Made two days ago, so its day of history is its own; beta and gamma were made just now.
                 _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)

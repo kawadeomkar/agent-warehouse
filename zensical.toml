@@ -9,12 +9,12 @@
 # docs/development/docs.md says how the wiki is organised and generated.
 
 [project]
-site_name = "claude-on-proxmox"
+site_name = "agent-warehouse"
 # Where .github/workflows/docs.yml publishes it, from main.
-site_url = "https://kawadeomkar.github.io/claude-on-proxmox/"
+site_url = "https://kawadeomkar.github.io/agent-warehouse/"
 site_description = "Ansible that turns a Proxmox VE host into Claude Code development VMs"
-repo_url = "https://github.com/kawadeomkar/claude-on-proxmox"
-repo_name = "kawadeomkar/claude-on-proxmox"
+repo_url = "https://github.com/kawadeomkar/agent-warehouse"
+repo_name = "kawadeomkar/agent-warehouse"
 edit_uri = "edit/main/docs/"
 extra_css = ["stylesheets/extra.css"]
 docs_dir = "docs"
@@ -44,6 +44,7 @@ nav = [
     { "GitHub" = "guides/github.md" },
     { "Remote Control" = "guides/remote-control.md" },
     { "Tailscale" = "guides/tailscale.md" },
+    { "WireGuard" = "guides/wireguard.md" },
     { "VS Code" = "guides/vscode.md" },
     { "Zed" = "guides/zed.md" },
     { "During a run" = "guides/runs.md" },
@@ -62,6 +63,7 @@ nav = [
       { "claude_code" = "reference/roles/claude_code.md" },
       { "github_projects" = "reference/roles/github_projects.md" },
       { "tailscale" = "reference/roles/tailscale.md" },
+      { "wireguard" = "reference/roles/wireguard.md" },
       { "proxmox_vm" = "reference/roles/proxmox_vm.md" },
       { "proxmox_template" = "reference/roles/proxmox_template.md" },
     ] },

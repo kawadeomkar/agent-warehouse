@@ -3,7 +3,7 @@
 # hashes, and `just install` installs exactly what it lists into your virtualenv for the project.
 
 [project]
-name = "claude-on-proxmox"
+name = "agent-warehouse"
 # The [project] table requires one; nothing is built or published, so it never changes.
 version = "0"
 description = "The controller's Python for the playbooks, and the linters and tests that check them."

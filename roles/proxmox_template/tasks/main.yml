@@ -67,6 +67,30 @@
 - name: Build the template
   when: proxmox_template_existing.rc != 0 or proxmox_template_rebuilding | bool
   block:
+    - name: Look for the image directory by its 1.x name
+      ansible.builtin.stat:
+        path: "{{ proxmox_template_image_dir_1x }}"
+      register: proxmox_template_image_dir_1x_found
+      when: proxmox_template_image_dir == proxmox_template_image_dir_default
+
+    - name: Look for the image directory by its name from 2.0
+      ansible.builtin.stat:
+        path: "{{ proxmox_template_image_dir }}"
+      register: proxmox_template_image_dir_found
+      when: proxmox_template_image_dir_1x_found.stat.isdir | default(false)
+
+    # Under one condition, read before it runs; never in check mode, which runs
+    # no command.
+    - name: Move the image directory to its name from 2.0
+      ansible.builtin.command:
+        argv: [mv, -n, "{{ proxmox_template_image_dir_1x }}", "{{ proxmox_template_image_dir }}"]
+        creates: "{{ proxmox_template_image_dir }}"
+      when:
+        - proxmox_template_image_dir_1x_found.stat.isdir | default(false)
+        - not (proxmox_template_image_dir_1x_found.stat.islnk | default(false))
+        - not proxmox_template_image_dir_found.stat.exists
+        - not ansible_check_mode
+
     - name: Ensure image directory exists
       ansible.builtin.file:
         path: "{{ proxmox_template_image_dir }}"
@@ -100,7 +124,7 @@
     - name: Decide which image to import
       ansible.builtin.set_fact:
         proxmox_template_import_path: >-
-          {{ proxmox_template_image_dir ~ '/claude-on-proxmox-' ~ proxmox_template_vmid ~ '.img'
+          {{ proxmox_template_image_dir ~ '/agent-warehouse-' ~ proxmox_template_vmid ~ '.img'
              if proxmox_template_install_guest_agent | bool
              else proxmox_template_image.dest }}
 

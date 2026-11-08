@@ -26,7 +26,7 @@ VM {{ vm.vmid }} on Proxmox node **{{ vm.node }}** · written by `just code` on 
 {% if code_notes_live %}
 {{ code_notes_live }}
 {% else %}
-<!-- claude-on-proxmox:live -->
+<!-- agent-warehouse:live -->
 ## Signed in
 
 {% if window_tasks %}
@@ -34,7 +34,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 {% else %}
 {{ editor_name }} does not fill this in: `just status {{ name }}` on your machine says what is signed in.
 {% endif %}
-<!-- /claude-on-proxmox:live -->
+<!-- /agent-warehouse:live -->
 {% endif %}
 
 ## At a glance
@@ -55,7 +55,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 | {{ editor_name }} | `{{ again }}`, or one repository: `{{ again }} --project <repo>` |
 | SSH, by alias | `ssh {{ name }}` |
 | SSH, by address | `ssh {{ vm_user }}@{{ vm.address }}` |
-{% if tailscale_enabled | default(true) | bool %}
+{% if tailscale_wanted | default(tailscale_enabled | default(true)) | bool %}
 | SSH, over Tailscale | the command in the Tailscale row of **Signed in**, once the VM is on your tailnet |
 {% endif %}
 {% if claude_code_remote_control | default(true) | bool %}
@@ -85,7 +85,7 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 {% if github_auth | default(true) | bool %}
 | `just login {{ name }} --only github` | sign `gh` in, then clone the private repositories |
 {% endif %}
-{% if tailscale_enabled | default(true) | bool %}
+{% if tailscale_wanted | default(tailscale_enabled | default(true)) | bool %}
 | `just login {{ name }} --only tailscale` | sign it in to Tailscale |
 {% endif %}
 | `just deploy {{ name }} --only configure` | run the configuration again; `--tags <role>` for one part of it |

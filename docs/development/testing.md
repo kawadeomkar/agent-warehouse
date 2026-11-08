@@ -2,7 +2,7 @@
 
 What the suite runs, and how to run it. How it is built - the harness, each scenario, the fakes - is
 [Architecture § 11](../architecture/testing.md); the workflow around a change is in
-[CONTRIBUTING.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/CONTRIBUTING.md).
+[CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md).
 
 ```bash
 just lint                     # every linter: the lock, yamllint, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks

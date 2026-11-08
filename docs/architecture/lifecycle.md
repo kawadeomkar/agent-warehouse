@@ -168,12 +168,22 @@ hosts: claude_vms, become: true
   roles: common → vscode_server → dev_tools → claude_code → github_projects   (each tagged)
   tasks: block (tagged tailscale): import_role tailscale
          rescue: append the failure to claude_vm_configure_failures, say it
+         block (tagged wireguard): import_role wireguard tasks_from: key (vpn: wireguard),
+                                   or import_role wireguard, off, where its marker is
+         rescue: the same
 ```
 
 ```yaml
   post_tasks (tagged always): getent vm_user → claude_vm_workspace fact
 hosts: localhost  (tagged tailscale)
-  import tasks/tailscale_record.yml   → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
+  import tasks/vpn_members.yml  Tailscale's plan → tasks/vpn_apply.yml → tasks/vm_marks.yml
+                                 → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
+hosts: localhost  (tagged wireguard; vpn: wireguard)
+  block: import tasks/vpn_members.yml  the cluster listed again, WireGuard's plan → tasks/vpn_apply.yml
+                                 → each VM's address as <ownership tag>-wg-<address>, the peer to add said
+  rescue: no plan, so no link changed; the failure appended to each VM's claude_vm_configure_failures
+hosts: claude_vms  (tagged wireguard; vpn: wireguard)
+  block: import_role wireguard   → the link claude-wg, as the plan has it   rescue: as above
 hosts: localhost  (tagged always)
   collect {name, address, user, vmid, workspace} for every claude_vms host that has the fact
   import tasks/ssh_config.yml  state: present   → the connect line per VM
@@ -188,8 +198,9 @@ recoverable errors").
 
 The third play records in Proxmox, as a tag the VM cannot change, each VM whose Tailscale has had a login, so
 that the vault's auth key is never sent to it again ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)):
-`tasks/tailscale_record.yml`, which `tailscale_login.yml` runs too, after its sign-ins. It reads each VM's tags
-and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
+Tailscale's plan of its members (`tasks/vpn_members.yml`, [§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)),
+applied by `tasks/vpn_apply.yml` through `tasks/vm_marks.yml`, which `tailscale_login.yml` runs too, after its
+sign-ins. It reads each VM's tags and writes them back with the record, VM by VM, so one Proxmox cannot answer for is said, and kept for NEXT
 STEPS, while the others are still recorded.
 
 The fourth play keeps an SSH alias per VM on the controller (§4.8), so `ssh alpha` and the editor -
@@ -233,7 +244,7 @@ against 41 s.
 1. `vars_prompt` confirmation with `default: "no"` — a run with no terminal (CI, cron, a nested
    playbook) takes the default rather than hanging, so the default must be the safe answer. The
    question, under a `CONFIRM DELETION` block
-   ([§7.5](custom-code.md#75-callback_pluginsclaude_on_proxmoxpy--the-waits-and-next-steps)), names the
+   ([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)), names the
    VMs from `vm_name` alone, through the play var `claude_vm_confirm_names`: a `vars_prompt` is
    templated before any inventory variable is in scope, `-e` answer or not, so naming
    `claude_vm_names` failed every run.
@@ -308,7 +319,7 @@ point of `claude_code` (stop Remote Control's path unit and service, `claude aut
 (`gh auth logout`, and no token revoked: revoking the one this project's device flow made, through
 GitHub's `POST /credentials/revoke`, ended every GitHub CLI sign-in of the account, the controller's own
 included - seen live - so the report says where to revoke it and what that does; the digest that flow
-writes, `~/.config/claude-on-proxmox/gh-device-login`, tells its token from the vault token, whatever the
+writes, `~/.config/agent-warehouse/gh-device-login`, tells its token from the vault token, whatever the
 marker says, and from one pasted by hand) and
 `tailscale` (start a stopped `tailscaled`, read `Self.ID`, `tailscale logout`, then with the API
 credential the vault holds look the device up and delete it from the controller, only when its name is
@@ -352,6 +363,14 @@ VM deleted and released with no GitHub token or Tailscale device left. The kept 
 recorded `''` while every VM it names has a line of its own there, which every VM still there has: it
 named each VM and its rerun a second time. The report once looped over the deleted VMs alone, so a VM
 released and then refused its deletion, or kept by its save, had no line of its own.
+
+**Between the delete play and play 3 — the WireGuard peers left (localhost).** WireGuard's release plan of the VMs deleted
+(`tasks/vpn_members.yml`, `phase: release`), whatever the `vpn` setting is: for each one Proxmox recorded a
+WireGuard address for (`claude_vm_marks`, read from the listing as each VM was added), the peer to remove from the
+user's server, said and kept for NEXT STEPS (`vpn_next`, matter `wireguard_peer`). The project never writes that
+server, and the VM's key went with it. In a block whose rescue says, for each deleted VM with an address, that its
+peer stays, and keeps that for NEXT STEPS: play 3 still runs, so a VM the run started is stopped again and every
+deleted VM's alias goes.
 
 ## 4.6 `playbooks/status.yml` — read-only, drawn live
 
@@ -445,8 +464,8 @@ size, the template's age, Remote Control off on purpose, a gh left alone and wor
 committed are shown and not counted: a branch kept local is often on purpose, and WORK never says "clean". A run that failed or wrote no report exits 3.
 
 **Live at a terminal.** The recipe chooses its own stdout callback,
-`callback_plugins/claude_on_proxmox_status.py`
-([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsclaude_on_proxmox_statuspy--just-status)),
+`callback_plugins/agent_warehouse_status.py`
+([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)),
 the only callback of the run. At a terminal it draws the whole report at the bottom of the screen
 within a second, a spinner wherever a value is still being read, and redraws it as each piece lands;
 when the run ends the live region is erased and the finished report printed once. Piped, in the log,
@@ -555,17 +574,25 @@ The aliases are the one thing this project writes on the controller besides `kno
 every writer goes through one task file so the block format cannot drift. Inputs: a list of
 `{name, address, user, workspace?}` and a state; `workspace` only feeds the connect line, and only
 `configure`, which has read it on the VM, passes it. The managed file,
-`~/.ssh/claude-on-proxmox.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
+`~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
 with what ssh reads and nothing else - no state of this project's is kept in a user's ssh config:
 
 ```
-# BEGIN claude-on-proxmox: alpha
+# BEGIN agent-warehouse: alpha
 Host alpha
     HostName 192.0.2.51          ← or alpha.<claude_ssh_host_domain>
     User dev
     ServerAliveInterval 30       ← claude_ssh_options, verbatim
-# END claude-on-proxmox: alpha
+# END agent-warehouse: alpha
 ```
+
+Through 1.x the managed file was `~/.ssh/claude-on-proxmox.conf`, its markers `claude-on-proxmox`
+(`claude_ssh_config_legacy_file`, beside the default only). The first run of this task file in 2.0, writing
+or removing, moves it to the new name and rewrites its markers before anything else, so the aliases of the
+VMs that run did not name move with it; left, its blocks would answer for aliases the new file no longer
+has, and its `Include`, first in the user's config, would answer the probe below with the old file's
+`HostName`, so the new file would never be included. Both files there is said, and the old one left to the
+user. Until the move, `ssh_config.yml`'s prune and `just status` read the old file, never moving it.
 
 The user's own `~/.ssh/config` gets exactly one line, `Include <managed file>`, inserted at the top
 (`lineinfile`, `insertbefore: BOF`): an `Include` below a `Host` block is scoped to that block. It is
@@ -643,7 +670,7 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    notes alone too, for an editor whose window runs no tasks) or with the terminal or the session
    copies on, an `editor_files_dir` that is not absolute, is `/` (the whole of the VM) or is the projects
    directory (its files would sit among the repositories), and with the terminal, one that is the folder being opened
-   (`--project .claude-on-proxmox`). Each names the variable it is about.
+   (`--project .agent-warehouse`). Each names the variable it is about.
 6. Refresh the alias, then look for the folder to open - the workspace, or `<workspace>/<project>` -
    with `stat` on the VM. Read-only. Unreachable, missing and not-a-folder are each their own
    message: a missing project lists what the workspace holds and, for a name that differs only in
@@ -694,7 +721,10 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    `code --remote ssh-remote+alpha <workspaces>/project/<project>.code-workspace` (the `code` that `which`
    found, by its path), or
    `<workspaces>/<workspace's name>.code-workspace` for the whole directory, where `<workspaces>` is
-   `editor_files_dir` or `<workspace>/.claude-on-proxmox`. One project's file is in `project/`
+   `editor_files_dir` or `<workspace>/.agent-warehouse` (`<workspace>/.claude-on-proxmox` through 1.x: the first
+   run of 2.0 moves it there before any write, the session copies' manifest, the notes and the helpers with it,
+   and keeps the shared helper's 1.x path as a link to the new one, for a task of the user's own; never a link of
+   the whole directory, whose tasks file Zed would read twice). One project's file is in `project/`
    so a repository that shares the workspace's name cannot collide with the whole directory's. Off,
    it opens the folder itself and writes nothing.
 9. Say what VS Code will do, from the user's VS Code settings, read and never written: looked for
@@ -779,7 +809,7 @@ file of `playbooks/files/` once, and only a helper the editor's plan names, so n
 ever sent. The one command whose `argv` is not a literal list is the plan's launch, run here; the plan's refusal
 comes before the first write; and a `shell`, a writer in a `block` or a `connection` fails the test by name.
 The helpers are run against stand-ins with nothing else on PATH, never in a login shell there, which would put
-this machine's own `code` and `tailscale` back. `--project .claude-on-proxmox`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
+this machine's own `code` and `tailscale` back. `--project .agent-warehouse`, which names the files' own directory, is refused. Cloud-init placed the key, so a VM that was provisioned but never configured still
 opens once it has a workspace, and its terminal says to run `just deploy --only configure`.
 
 **The session notes.** In VS Code, with `editor_session_notes` (the default, with the terminal), a page about the
@@ -798,7 +828,7 @@ focus from it. The helper's bash (`session-notes.sh`) is in charge whatever its 
 through the remote CLI VS Code Server puts on every task's `PATH`, and ends `exit 0`, so the notes always
 open and VS Code never prints the command line; it never `exec`s into Python, which would leave the notes to
 Python's fate. Python reads `claude auth status`, the Remote Control unit, gh's login and `tailscale status
---json` at once, 2 s each, and rewrites only the section between `<!-- claude-on-proxmox:live -->` and
+--json` at once, 2 s each, and rewrites only the section between `<!-- agent-warehouse:live -->` and
 its closing marker, atomically, 0600, in a regular file that has them; every value is cleaned as
 `plain_text` cleans, no command it runs prints a token, and the Tailscale row carries the `ssh` command
 over the MagicDNS name, which only the VM knows. Its time is in this machine's zone, which is the user's
@@ -1043,7 +1073,8 @@ host's own.
 every write is under it, or under a value given on the command line: `init_given`, the JSON
 `just init` built from its options, each held to its characters first, and the secret from
 `--token-secret-file`'s file or
-`CLAUDE_ON_PROXMOX_TOKEN_SECRET`, read under `no_log`. Every given value is held to its rule before
+`AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name through 1.x, while that is unset),
+read under `no_log`. Every given value is held to its rule before
 anything is written, so a run failed by its last one leaves the files as they were; it fills only what is
 still the example's, and fails the run, naming both, when it differs from what is set (compared in its
 normal form, a name or a GitHub login case-insensitively); equal, it is nothing to do, so the same command

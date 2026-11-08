@@ -124,12 +124,15 @@ settings)
   # files are read as YAML by the environment's Python (<bin>): at the top of
   # local.yml, and in hosts.yml in every group's and host's vars. vault.yml is
   # encrypted here, so its vm_password is checked where Ansible reads it.
+  # A choice's setting (vpn) set to a value that is none of its choices is
+  # refused too, naming them: its rows are literal data in the defaults.
   bin=$2
   shift 2
   any=
   for file in "$@"; do [ ! -e "$file" ] || any=1; done
   [ -n "$any" ] || exit 0
-  # The checkout first, whose inventory defaults name what 1.1 renamed.
+  # The checkout first, whose inventory defaults name what 1.1 renamed and
+  # each choice's members.
   exec "$bin/python" -I - "$(dirname "$0")/.." "$@" << 'PYTHON'
 import os
 import re
@@ -146,6 +149,12 @@ RENAMED = {
     "claude_vm_default_name": ("vm_default_name", "rename it there"),
     "vm_password": ("vault_vm_password", "it is a secret, so move it to vault.yml under that name, with just vault"),
 }
+
+
+# Each choice's setting checked here: the defaults' list of its members, and the values that are no member.
+CHOICES = {"vpn": ("claude_vpns", ("none",))}
+# vpn_reach, held to what the VPN it is set beside offers (its row's reach): lan always.
+REACH = ("lan", "tunnel")
 
 
 class Loader(yaml.SafeLoader):
@@ -201,6 +210,11 @@ def group(data):
 
 
 found = False
+try:
+    with open(os.path.join(sys.argv[1], "inventory", "group_vars", "all", "defaults.yml"), encoding="utf-8") as stream:
+        DEFAULTS = yaml.load(stream, Loader=Loader) or {}
+except (OSError, yaml.YAMLError):
+    DEFAULTS = {}
 for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -229,6 +243,28 @@ for path in sys.argv[2:]:
             else:
                 print(f"warning: {path} sets {name}, which 1.1 calls {NAMED_ANEW[name]}: it is still read, but "
                       "rename it there (docs/guides/upgrading.md)", file=sys.stderr)
+        if name in CHOICES and value not in ("", None) and not (isinstance(value, str) and "{{" in value):
+            rows, also = CHOICES[name]
+            members = [*sorted(DEFAULTS.get(rows) or {}), *also]
+            if not isinstance(value, str) or value not in members:
+                # Never the value said back: it is one line of the user's file. A boolean is YAML's reading of an
+                # unquoted on, yes or true, which would make the setting "True": no choice, and Tailscale off.
+                why = " (YAML reads an unquoted on, off, yes, no, true or false as a boolean)" if isinstance(
+                    value, bool) else ""
+                print(f"error: {path} sets {name} to something that is none of its choices{why}: "
+                      f"{', '.join(members)}", file=sys.stderr)
+                found = True
+        if name == "vpn_reach" and value not in ("", None, "lan") and "{{" not in str(value):
+            # The VPN beside it: this file's vpn, or what tailscale_enabled makes it while vpn is not set.
+            settings_here = dict(settings(data))
+            vpn = settings_here.get("vpn") or (
+                "tailscale" if settings_here.get("tailscale_enabled", True) not in (False, "false") else "none"
+            )
+            offers = ((DEFAULTS.get("claude_vpns") or {}).get(vpn) or {}).get("reach") or ["lan"]
+            if value not in REACH or value not in offers:
+                print(f"error: {path} sets vpn_reach to something {vpn} does not offer: {', '.join(offers)}",
+                      file=sys.stderr)
+                found = True
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",

@@ -1,4 +1,4 @@
-# claude-on-proxmox
+# agent-warehouse
 
 Ansible that creates Ubuntu VMs on a Proxmox VE host and configures each as a
 [Claude Code](https://code.claude.com/docs) development machine: one `just deploy` builds the template,
@@ -6,9 +6,9 @@ creates the VM, installs the tools and Claude Code, signs it in to Claude, GitHu
 opens it in your editor: VS Code with a Claude terminal by default, or Zed.
 
 This wiki is the project's documentation, and the source of truth for it. The
-[README](https://github.com/kawadeomkar/claude-on-proxmox#readme) gets you to a first deploy; everything
+[README](https://github.com/kawadeomkar/agent-warehouse#readme) gets you to a first deploy; everything
 else is here. It reads the same in the repository and as a site with search, at
-<https://kawadeomkar.github.io/claude-on-proxmox/>.
+<https://kawadeomkar.github.io/agent-warehouse/>.
 
 ## Getting started
 
@@ -26,6 +26,7 @@ else is here. It reads the same in the repository and as a site with search, at
 - [Remote Control](guides/remote-control.md) - the VM's Claude session on claude.ai and your phone, or
   an API key instead.
 - [Tailscale](guides/tailscale.md) - each VM on your tailnet, and keeping it off your other devices.
+- [WireGuard](guides/wireguard.md) - each VM a peer of a WireGuard server you already run.
 - [VS Code](guides/vscode.md) - the default editor, and what every editor shares: the SSH alias, `just code`,
   this machine's sessions on the VM, the session notes.
 - [Zed](guides/zed.md) - `just code` in Zed instead, and Claude in its terminal on the VM.
@@ -55,7 +56,7 @@ changing behaviour.
 
 - [Testing](development/testing.md) - the test suite, the fakes it runs against, and CI.
 - [This wiki](development/docs.md) - how these pages are organised, generated and checked.
-- [CONTRIBUTING.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/CONTRIBUTING.md) - setup,
+- [CONTRIBUTING.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/CONTRIBUTING.md) - setup,
   conventions and pull requests.
-- [SECURITY.md](https://github.com/kawadeomkar/claude-on-proxmox/blob/main/SECURITY.md) - reporting a
+- [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) - reporting a
   vulnerability, and the known trade-offs.

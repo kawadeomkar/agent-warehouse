@@ -1,6 +1,6 @@
 """Every `just` command drawn live, declared: what each recipe's run is made of, and nothing about how it is drawn.
 
-A recipe that is drawn live exports CLAUDE_ON_PROXMOX_LIVE, its title, whose first word names its declaration here
+A recipe that is drawn live exports AGENT_WAREHOUSE_LIVE, its title, whose first word names its declaration here
 (RECIPES). A declaration says what the run is made of - its stages, each stage's steps and how a play or a task is
 matched to them - and run/model.py, tui/run.py and ansible/engine.py draw any run from it alone. A
 command extends the shared engine only through a declaration: anything a declaration cannot say becomes a new field
@@ -165,10 +165,12 @@ SIGN_IN_FAILURES = Causes(
 )
 
 # What configuration and the sign-ins rescue and record in claude_vm_configure_failures, for a last play to raise:
-# Tailscale's role in configure, and the work after a sign-in.
+# the VPNs' roles in configure, and the work after a sign-in.
 CONFIGURE_FAILURES = Causes(
     blocks=[
         "Install Tailscale and keep it joined",
+        "Make the VM's WireGuard key, or take WireGuard off",
+        "Join the WireGuard network",
         "Start Remote Control as just deploy --only configure would",
         "Configure the repositories now that gh is signed in",
     ]

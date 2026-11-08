@@ -1,7 +1,7 @@
 ---
 # Shared settings live in .config/molecule/config.yml at the project root.
 platforms:
-  - name: claude-on-proxmox-proxmox_template
+  - name: agent-warehouse-proxmox_template
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
     pre_build_image: true
     command: ""
@@ -19,7 +19,7 @@ provisioner:
     # What every run of the role here is built with, converge's and the side
     # effect's; a case passes only what it changes.
     host_vars:
-      claude-on-proxmox-proxmox_template:
+      agent-warehouse-proxmox_template:
         proxmox_template_qm: /usr/local/bin/qm
         proxmox_template_virt_customize: /usr/local/bin/virt-customize
         # libguestfs is faked here rather than installed into the container.

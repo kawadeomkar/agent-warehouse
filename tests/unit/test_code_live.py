@@ -70,7 +70,7 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
     ssh = root / "ssh"
     ssh.mkdir(mode=0o700)
     # As after a just deploy: the user's config reaches the managed file already.
-    (ssh / "config").write_text(f"Include {ssh / 'claude-on-proxmox.conf'}\n")
+    (ssh / "config").write_text(f"Include {ssh / 'agent-warehouse.conf'}\n")
     (ssh / "config").chmod(0o600)
     cert, key = harness._certificate(root)
     pve, port = harness._start(
@@ -94,7 +94,7 @@ def _code(root, title, vm="alpha", piped=False, editor="vscode"):
             "code_session_source_dir": str(world["here"] / ".claude"),
             "code_session_dest_dir": str(world["vm"] / ".claude"),
             "vscode_claude_sessions": True,
-            "claude_ssh_config_file": str(ssh / "claude-on-proxmox.conf"),
+            "claude_ssh_config_file": str(ssh / "agent-warehouse.conf"),
             "claude_ssh_user_config": str(ssh / "config"),
             "vm_editor": editor,
         }
@@ -151,7 +151,7 @@ def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed
     zed_opened.assert_drawn_and_gone()
     projects = zed_opened.world["vm"] / "projects"
     assert zed_opened.code == [f"zed ssh://alpha{projects}"], zed_opened.code
-    tasks = projects / ".claude-on-proxmox" / ".zed" / "tasks.json"
+    tasks = projects / ".agent-warehouse" / ".zed" / "tasks.json"
     assert tasks.read_text().startswith(tcs.MARKER_LINE + "\n"), tasks.read_text()
 
 
@@ -160,4 +160,4 @@ def test_a_vm_that_is_not_there_is_said_under_the_step_it_failed_in(missing):
     assert missing.rc == 2, text
     assert re.search(r"^✗ find the VM · gamma: Find the VM", text, re.M), text
     assert "Fail as just code does, outside just deploy" not in missing.above_summary("code")
-    assert re.search(r"^claude-on-proxmox  code gamma · failed after .* at find the VM", text, re.M), text
+    assert re.search(r"^agent-warehouse  code gamma · failed after .* at find the VM", text, re.M), text

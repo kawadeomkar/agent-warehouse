@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
+from ..catalogue import rows_from
 from ..records import Checked, plain
 from ..refs import NextStep, VmRef
 
@@ -169,10 +170,11 @@ class OpenPlan(Checked):
 
 def editors_from(raw: object) -> dict[str, Editor]:
     """The inventory defaults' claude_editors, as the registry's filters are handed it: parsed on every call."""
-    rows = plain(raw, "claude_editors")
-    return {
-        key: Editor(key=key, **(row | {"server": ProcessMatch(**row.get("server", {}))})) for key, row in rows.items()
-    }
+    return rows_from(
+        raw,
+        "claude_editors",
+        lambda key, row: Editor(key=key, **(row | {"server": ProcessMatch(**row.get("server", {}))})),
+    )
 
 
 def inputs_from(raw: object) -> OpenInputs:

@@ -14,7 +14,8 @@ ran to `qm create` - after the download and `virt-customize` - and died there wi
 `VM 9000 already exists on node 'pve2'`.
 
 1. Download Ubuntu Noble's minimal cloud image, checksummed against Ubuntu's published `SHA256SUMS`, into
-   `proxmox_template_image_dir` (`/var/lib/vz/claude-on-proxmox`, created `0755`). Not a content
+   `proxmox_template_image_dir` (`/var/lib/vz/agent-warehouse`, created `0755`; the build first moves
+   `/var/lib/vz/claude-on-proxmox`, its 1.x name, there, so the download is not fetched again). Not a content
    directory of the `local` storage: under `template/iso` Proxmox listed the image as an ISO. The
    minimal image has 288 packages to the server image's 426: no multipathd, fwupd, ModemManager,
    udisks2, polkit or rsyslog, which a headless VM has no use for, and the same kernel package. What a
@@ -60,7 +61,7 @@ check and `absent.yml`, both only for a VM that exists.
 | Apply hardware + cloud-init | cores, memory and its minimum (`balloon`, from `proxmox_vm_memory_min_mb`, equal to the memory unless set: Proxmox reads 0 as no balloon device, which would also stop the VM reporting its memory use); `when: proxmox_vm_needs_configuration`; to `proxmox_vm_found_node`, the node the lookup found the VM on, as is every call after the clone — a migrated VM is no longer on `proxmox_vm_node` |
 | Resize root disk | same condition; `proxmox_disk` no-ops when already the right size |
 | Start | `when: needs_configuration or proxmox_vm_start_existing` |
-| Mark finished | removes `claude-on-proxmox-unfinished`, which the settings call added — see [§8](convergence.md) |
+| Mark finished | removes `agent-warehouse-unfinished`, which the settings call added — see [§8](convergence.md) |
 | Read NIC config | only for a VM this run cloned: `until` non-empty, `retries`/`delay`, `failed_when: false`; an existing VM's config is the one the lookup fetched (`proxmox_vm_found_config`); then a dedicated assert |
 | Wait for guest agent | polls until an IPv4 appears, breaking early on 401/403 |
 | Record address | `set_fact proxmox_vm_address`, then assert non-empty |
@@ -74,7 +75,8 @@ with `force: true` (which also covers a VM restarted between the two calls) and
 `destroy_unreferenced_disks: true` (a disk that still carries the VMID but that the configuration no
 longer lists goes with the VM - these VMs are deleted often, and the tag check has already
 established the VMID is this project's), then one housekeeping
-step: remove the address from `known_hosts`. It matters because names and DHCP leases are reused,
+step: remove the address from `known_hosts`, and the WireGuard address the VM's mark holds, which its alias
+connects to under `vpn_reach: tunnel`. It matters because names, DHCP leases and WireGuard addresses are reused,
 and a stale host key produces `HOST KEY VERIFICATION FAILED` with no hint why. If no address could
 be determined, a warning says so and names the `ssh-keygen -R` fix. There are no cached facts to
 clear: the project has no fact cache ([§13](toolchain.md)).
@@ -152,7 +154,7 @@ Notable choices:
   is not there costs nothing. `dev_tools` does the same for `~/.cargo/bin` ([§5.4](#54-dev_tools--developer-tooling)),
   and ssh commands get both from the drop-in below.
 - **`ssh vm <command>` gets the same directories from sshd** (`common_ssh_path_dirs`,
-  `/etc/ssh/sshd_config.d/15-claude-on-proxmox-path.conf`). A command given to ssh runs in a shell that is
+  `/etc/ssh/sshd_config.d/15-agent-warehouse-path.conf`). A command given to ssh runs in a shell that is
   neither login nor interactive: Debian's bash reads `/etc/bash.bashrc` and `~/.bashrc` for it, both return at
   once, so `/etc/profile.d` never runs and PATH is `/etc/environment`'s. sshd applies `SetEnv` after PAM's
   environment, so `SetEnv PATH=` under `Match User <vm_user>` wins for that user's sessions alone - root's, and
@@ -383,7 +385,7 @@ printed URL and concluded no tunnel could complete the login; the second URL is 
 The line is `<code>#<state>`, split on `#`. A wrong code prints `Login failed: ...` and exits 1; a right
 one writes `~/.claude/.credentials.json`, prints `Login successful.` and exits 0; a line without `#`
 prints `Invalid code. Please make sure the full code was copied.` and waits for another. So the flow:
-mkfifo a pipe under `~/.config/claude-on-proxmox/`; start `exec 0<>pipe && echo $$ >pid && exec claude
+mkfifo a pipe under `~/.config/agent-warehouse/`; start `exec 0<>pipe && echo $$ >pid && exec claude
 auth login` with `async`, so claude holds its own input open and never sees an early end of it, and the
 recorded pid is claude's because the shell exec's into it (in a `( ... )` subshell `$$` is the parent's);
 `wait_for` the URL. With `claude_code_login_redirect` (which follows `login_desktop`), claude's
@@ -568,7 +570,7 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
 3. **Sign out the login the role made when the vault token is cleared**, the other direction of
    the same rule, as `settings.yml` removes the API key it wrote. gh cannot tell the role's token
    from one the user pasted by hand, so the role leaves a marker whenever the login is the vault
-   token's - the token's SHA-256 digest in `~/.config/claude-on-proxmox/gh-login`, 0600, rewritten
+   token's - the token's SHA-256 digest in `~/.config/agent-warehouse/gh-login`, 0600, rewritten
    if it goes missing - and signs out, by account (`--user`), only a stored token whose digest the
    marker holds, removing the marker with it. No marker, a stale one, a device-flow login, a
    `GH_TOKEN`: each stays whatever the vault says. A device-flow login the role made leaves a marker
@@ -745,7 +747,8 @@ The design rests on facts established against Tailscale 1.104.1 - its source, a 
 logged in, and a Headscale run on an internal Docker network - and recorded with their sources in the
 plan's research record.
 
-- **Ownership.** `/var/lib/claude-on-proxmox/tailscale-installed` is written before the repository: a
+- **Ownership.** `/var/lib/agent-warehouse/tailscale-installed` (`/var/lib/claude-on-proxmox` through 1.x, moved by
+  `names.yml` before anything reads it, and read by `ownership.yml` there until then) is written before the repository: a
   Tailscale with it, or none at all, is the role's to install, maintain and remove; a package dpkg has
   without it, or a Tailscale dpkg does not know (a `tailscaled` of Tailscale's static binaries in
   `/usr/sbin` or under `/usr/local`, the snap's `/snap/bin/tailscale`), was installed some other way and
@@ -790,7 +793,8 @@ plan's research record.
   one expired, each of which leaves a node key, and a sign-in under way, the role's pending marker or a page
   tailscaled holds, which may be approved after the run - and the play after each of them,
   `configure.yml`'s after the role and `tailscale_login.yml`'s after the sign-ins, runs
-  `tasks/tailscale_record.yml`, which tags each such VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
+  Tailscale's plan (`tasks/vpn_members.yml`) and `tasks/vm_marks.yml`, which tags each such VM
+  `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`)
   through the API - VM by VM, reading its tags first and writing them back as read, on the VM of that name
   and VMID that carries the ownership tag, never in check mode, and saying, with a NEXT STEPS line, a VM
   Proxmox could not read or write for - and discovery, provisioning's publish (from the role's lookup) and
@@ -873,3 +877,38 @@ plan's research record.
   the network came back - and the joined marker stays with the login that may be left: turned on again,
   the daemon starts on that state, and the login is still the role's. A device the API no longer has
   (404) is said as gone already, as the release says it.
+
+## 5.9 `wireguard` — each VM a peer of your WireGuard server
+
+Run with `vpn: wireguard` ([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)): the
+VM a peer of a WireGuard server the user already runs, its hub, which the project never writes. The role is the VM's
+half; who is on the network - each VM's address, the peer its server is to have - is the members' plan, made on the
+controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`).
+
+- **Ownership.** `/var/lib/agent-warehouse/wireguard-installed` (in the directory's 1.x name until a run of 2.0 moves it)
+  is written before the role's first change on a VM,
+  saying whether the role installed `wireguard-tools` there; everything else the role makes has a name of its own -
+  the key `/etc/systemd/network/claude-wg.key`, the files `50-claude-wg.netdev` and `50-claude-wg.network`, the link
+  `claude-wg` - so a WireGuard of the user's (`wg0`, `/etc/wireguard`) is never touched.
+- **The key** (`tasks_from: key`, in configure's play, before the plan). `wireguard-tools` installed, and the key
+  made once with `wg genkey` under `umask 077`, `root:systemd-network` 0640 - what systemd-networkd's
+  `PrivateKeyFile=` reads - and never read by Ansible: `wg pubkey` reads it on the VM, and only the public key is
+  printed. The public key and whether the link has shaken hands with the hub are facts the plan reads through
+  `hostvars`.
+- **The link** (`main`, in the play after the plan). Two files of systemd-networkd's, every value the plan's, held
+  by the core to its rules: the hub its one peer, its endpoint and the networks routed to it (`AllowedIPs`, the
+  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, with no prefix route
+  in the main table (`AddPrefixRoute=no`), but a `[RoutingPolicyRule]` from that address to a table of its own
+  (`wireguard_route_table`, never wg-quick's 51820) whose one route is the link - to the hub's network, or under
+  `vpn_reach: tunnel` to every address - so what reached the VM at its tunnel address is answered there, and a reply
+  from its LAN address leaves on the LAN where its request came in: in the tunnel it would carry an address the
+  hub's peer for the VM does not hold, and the hub would drop it. networkd makes no route for `AllowedIPs`, and
+  applies a netdev only when it makes the link, so a changed one deletes the link first, and the reload makes it
+  again; a changed network alone is reconfigured. The netdev carries the VM's public key in a comment, since it names
+  the key's file and networkd reads the file only then: a new key changes the netdev, and the link is made with it. An endpoint name is looked up once, when the link is made.
+- **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
+  removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
+- **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the
+  hub, read and never changed, kept in `wireguard_status_found`; a link that has never reached the hub, or not in
+  three minutes, is a line to act on.
+- **No handlers**: the role runs in blocks whose rescue records a failure, and a handler would run out of its reach.

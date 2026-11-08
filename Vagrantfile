@@ -45,7 +45,7 @@ Vagrant.configure("2") do |config|
     # missing, so a provision fails on it rather than on another Ansible.
     ansible.playbook_command = ENV.fetch("ANSIBLE_PLAYBOOK") do
       bin = `tools/env-run --bin 2>/dev/null`.strip
-      File.join(bin.empty? ? "/no-environment-for-claude-on-proxmox-run-just-install" : bin, "ansible-playbook")
+      File.join(bin.empty? ? "/no-environment-for-agent-warehouse-run-just-install" : bin, "ansible-playbook")
     end
     ENV["ANSIBLE_COLLECTIONS_PATH"] ||= `tools/env-run --collections`.strip
     ansible.playbook = "playbooks/configure.yml"

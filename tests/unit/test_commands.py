@@ -324,7 +324,7 @@ def test_no_make_variable_is_left() -> None:
     assert left == [], "\n".join(left)
     assert MAKE_VARIABLE.search("`TAGS=dev_tools` runs it alone") and MAKE_VARIABLE.search('VM_NAME="a b"')
     assert not MAKE_VARIABLE.search("just ANSIBLE_ARGS=-vvv deploy") and not MAKE_VARIABLE.search("--host=pve")
-    assert not MAKE_VARIABLE.search("CLAUDE_ON_PROXMOX_TOKEN_SECRET=x")
+    assert not MAKE_VARIABLE.search("AGENT_WAREHOUSE_TOKEN_SECRET=x")
 
 
 # The targets only an earlier Makefile had, whose names no sentence would put after "just".

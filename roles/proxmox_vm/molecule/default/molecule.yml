@@ -3,7 +3,7 @@
 # so the container only hosts a fake Proxmox API (tests/molecule/fake_pve_api.py)
 # published on 127.0.0.1:18006.
 platforms:
-  - name: claude-on-proxmox-proxmox_vm
+  - name: agent-warehouse-proxmox_vm
     image: "${MOLECULE_IMAGE:-geerlingguy/docker-ubuntu2404-ansible@sha256:29e6f9d736c3401815d98f626a41c55a54a4ef1edb9d1d1223018746d3acba14}"
     pre_build_image: true
     command: ""
@@ -23,7 +23,7 @@ provisioner:
       # Python (with proxmoxer) rather than a discovered system interpreter.
       localhost:
         ansible_python_interpreter: "{{ ansible_playbook_python }}"
-      claude-on-proxmox-proxmox_vm:
+      agent-warehouse-proxmox_vm:
         proxmox_vm_api_host: 127.0.0.1
         proxmox_vm_api_port: 18006
         proxmox_vm_api_user: ansible@pve

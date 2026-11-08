@@ -1,0 +1,59 @@
+---
+# A VPN's plan applied (tasks/vpn_members.yml made it, and refused what it
+# refuses): each VM's marks in Proxmox (tasks/vm_marks.yml), the one writer of a
+# mark; what the plan says of each VM; and what is left to do, kept for NEXT
+# STEPS. What the plan holds is data, held by the core to its rules before it
+# reached here: marks only for the VMs it was given, only of the family's own;
+# lines and records of those VMs alone. A hub of kind manual is written by
+# nobody but the user: its peers to add and remove are what the plan says.
+- name: vpn_apply | Keep each VM's marks in Proxmox
+  ansible.builtin.import_tasks: vm_marks.yml
+  vars:
+    claude_vm_marks_changes: "{{ claude_vpn_plan.marks | default([]) }}"
+
+# A hub with an API, as the plan says - its hub's kind is the inputs', held to
+# them by the core: the plan's peers written there, and the instance applied
+# once, when something changed or when it runs short of what is saved
+# (reapply); nothing in check mode. Only the project's own peers reach here,
+# held by the core to every mark of theirs.
+- name: vpn_apply | Write the plan's peers on the hub
+  opnsense_wireguard:
+    url: "https://{{ hostvars[groups['wireguard_hub'][0]].ansible_host }}"
+    cert_sha256: "{{ wireguard_hub_cert_sha256 }}"
+    api_key: "{{ wireguard_hub_api_key }}"
+    api_secret: "{{ wireguard_hub_api_secret }}"
+    instance: "{{ wireguard_hub_instance }}"
+    state: apply
+    # Each change as the module takes it: what it is and the peer's own fields, those the plan left empty out.
+    changes: >-
+      {{ claude_vpn_plan.peers | default([]) | map('dict2items')
+         | map('selectattr', 'key', 'in', ['kind', 'name', 'ref', 'public_key', 'address'])
+         | map('selectattr', 'value') | map('items2dict') | list }}
+    reconfigure: "{{ claude_vpn_plan.reapply | default(false) }}"
+  when:
+    - claude_vpn_plan.hub | default('none') == 'opnsense'
+    - claude_vpn_plan.peers | default([]) | length > 0 or claude_vpn_plan.reapply | default(false)
+
+- name: vpn_apply | Say each VM's place on the network
+  ansible.builtin.debug:
+    msg: "{{ claude_vpn_said.text }}"
+  loop: "{{ claude_vpn_plan.report | default([]) }}"
+  loop_control:
+    loop_var: claude_vpn_said
+    label: "{{ claude_vpn_said.vm }}"
+
+# NEXT STEPS (callback_plugins/agent_warehouse.py): each record's line - a just
+# command, or a step outside the project said as it is - and '' once nothing is
+# left, so a peer added since the last run clears its line.
+- name: vpn_apply | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      vpn_next: >-
+        {{ {claude_vpn_step.vm.name:
+            {claude_vpn_step.matter: (claude_vpn_step.action.line if claude_vpn_step.action else claude_vpn_step.text)}} }}
+    aggregate: true
+    per_host: false
+  loop: "{{ claude_vpn_plan.next_steps | default([]) }}"
+  loop_control:
+    loop_var: claude_vpn_step
+    label: "{{ claude_vpn_step.vm.name }}"

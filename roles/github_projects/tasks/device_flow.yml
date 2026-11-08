@@ -105,7 +105,7 @@
           and authorise GitHub CLI there{{ github_projects_login_opens }}.{{ github_projects_login_elsewhere }} This run
           waits for that: the wait ends by itself when the code expires, after fifteen minutes, and Ctrl-C ends the
           whole run.
-      # Drawn as a block by the stdout callback (callback_plugins/claude_on_proxmox.py).
+      # Drawn as a block by the stdout callback (callback_plugins/agent_warehouse.py).
       tags: [attention_browser]
 
     # The two steps on the controller, both best effort: a headless controller

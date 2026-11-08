@@ -10,6 +10,69 @@ Every target that runs Ansible compares the installed collections with those pin
 naming `just install`, while one differs. They live in the checkout's own folder
 (`tools/env-run --collections`), so another clone or worktree keeps its own, on its own versions.
 
+## The project is called agent-warehouse
+
+From 2.0 the project is called agent-warehouse, since it is to run more models than Claude Code and more
+hypervisors than Proxmox VE. For an install made by 1.x:
+
+- **The repository is `kawadeomkar/agent-warehouse`**, and the wiki is at
+  <https://kawadeomkar.github.io/agent-warehouse/>. GitHub sends the old repository's web and git addresses on to
+  the new one, but not the old wiki's. Point your clone at the new address:
+  `git remote set-url origin https://github.com/kawadeomkar/agent-warehouse.git` (or `git@github.com:kawadeomkar/agent-warehouse.git`).
+- **The token secret's variable is `AGENT_WAREHOUSE_TOKEN_SECRET`.** `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name
+  through 1.x, is still read while the new one is not set, and `just init` says so; set beside the new one to a
+  different secret, it is refused, and neither is said. Rename it wherever you export it.
+- **What the runs print says agent-warehouse:** the first line of every live run and of `just status`. Wording,
+  which the promise leaves free, but a script that read those lines by the old name must follow.
+- **The managed SSH config is `~/.ssh/agent-warehouse.conf`.** The first run that writes or removes an alias
+  (`just deploy`, `just code`, `just destroy`, `just deploy --only ssh-config`) moves `~/.ssh/claude-on-proxmox.conf`
+  there, every VM's alias with it, and adds one `Include` of the new file at the top of `~/.ssh/config`. The old
+  `Include` line stays, since the project never rewrites that file, and does nothing once its file is gone: delete
+  it when you like. `just status` reads the old file until then. Both files there is said, and the old one left to
+  you.
+- **The checkout's own folder is under `agent-warehouse/`** (`tools/env-run --data`), not `claude-on-proxmox/`. The
+  first recipe after the pull stops, naming `just install`, which moves the folder, keeps its Galaxy collections, and
+  makes its Python environment again when the checkout has one of its own (a virtualenv of yours is left as it is).
+  `just clean env` deletes a folder left under the old name too.
+- **`just init`'s git hook says agent-warehouse**; the one an earlier version installed is still known as the
+  project's and replaced.
+- **just code's own directory on a VM is `<projects>/.agent-warehouse/`.** The first `just code` or `just deploy`
+  of a VM moves `<projects>/.claude-on-proxmox/` there, the session copies' manifest, the notes and the helpers with
+  it, and keeps the shared helper's 1.x path, `.claude-on-proxmox/helpers/claude-start.sh`, as a link to the new one
+  through 2.x, for a Zed task of your own; point that task at the new path when you like. A window VS Code reopens
+  from its recent list by the old workspace file's path finds nothing there: open it with `just code` again. A
+  directory you chose with `editor_files_dir` stays where it is. Zed's tasks file and the notes written by 1.x are
+  known as just code's and written again.
+- **The default VM is `agent-warehouse-default`.** A bare `just deploy` or `just destroy`, which acts on it, is refused
+  while a VM of this project's is named `claude-on-proxmox-default`, 1.x's default, and none has the new name: the
+  deploy would make a second VM beside it. Keep yours as the default with
+  `just settings vm_default_name --value claude-on-proxmox-default`, or name the VMs. Renaming the VM in Proxmox is
+  yours to do: renamed, it is a new cloud-init instance, with new SSH host keys at its next start.
+- **On the Proxmox host**, a template's notes say "Built by agent-warehouse:" from its next build, and one 1.x
+  built, "Built by claude-on-proxmox:", is still read as its record, so no template is rebuilt for that alone. The
+  next build moves `/var/lib/vz/claude-on-proxmox`, where the image is kept, to `/var/lib/vz/agent-warehouse`; a
+  directory you set with `proxmox_template_image_dir` stays where it is.
+- **On each VM**, the next `just deploy` or `just login` moves what 1.x named claude-on-proxmox: the sshd drop-ins
+  (`10-agent-warehouse.conf`, `15-agent-warehouse-path.conf`), apt's (`90agent-warehouse-downloads`), the cloud-init
+  file a VM with passwordless sudo off keeps (`99-agent-warehouse-user.cfg`), the tmux settings' block, and
+  `~/.config/agent-warehouse`, where the GitHub and Claude sign-ins keep their state - a login the project made is
+  still known as its own. sshd is not restarted for the move. `just status` reads the 1.x names until then.
+- **The Tailscale and WireGuard markers** move from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the
+  next `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
+  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale or WireGuard the project set up stays the
+  project's, and one turned off since is still found and removed. `just status` reads the 1.x names until then.
+- **The ownership tag is `agent-warehouse`.** A VM 1.x made, tagged `claude-on-proxmox`, is this project's through
+  2.x as before, and so are the tags 1.x made from it: `claude-on-proxmox-tailscale` keeps the vault's auth key from
+  that VM as `agent-warehouse-tailscale` does, and `claude-on-proxmox-unfinished` still gets it finished. The next
+  `just deploy` that names the VM writes them under the new tag, in their places, and keeps every other tag; until
+  then, a message may name the new spelling of a tag the VM carries under the old. While the ownership tag is one you
+  set in `local.yml`, nothing changes.
+- **Before you upgrade, if Datacenter, Options, User Tag Access is `list` or `existing`,** add `agent-warehouse`,
+  `agent-warehouse-unfinished` and `agent-warehouse-tailscale` to its allowed list
+  ([Proxmox access](../getting-started/proxmox-access.md)), or a token that is not root's cannot write them.
+- **Upgrade every checkout that shares the Proxmox host at once.** A 1.x checkout does not know the new tag, so it
+  no longer sees a VM 2.0 has written it on, and refuses to change or delete it.
+
 ## An environment and collections of the checkout's own
 
 From 1.0, `just install` makes the project's Python environment itself, with uv, when you bring none: a
@@ -68,11 +131,21 @@ says so while one is set (`tools/check settings`), naming the new name. Rename i
   nothing: give `-e editor_claude_terminal=false` instead). The warning says so while both are set.
 - **`just settings` moves it for you.** `--value` on either name writes the new name and takes the old name's line
   out; `--reset` on either takes both out.
-- **An empty `editor_files_dir` is the default** (`.claude-on-proxmox` in the projects directory), never the old
+- **An empty `editor_files_dir` is the default** (`.agent-warehouse` in the projects directory from 2.0,
+  `.claude-on-proxmox` before), never the old
   name's value: the old name is read only while the new one is not set at all.
 
 `vscode_remote` and `vscode_user_settings_file` keep their names: the first still sets up the VM for any editor, the
 second is VS Code's own.
+
+## The vpn setting
+
+The VPN each VM joins is the `vpn` setting from 1.x: `tailscale` or `none`. `tailscale_enabled`, which `just init`
+wrote into `local.yml`, keeps working: while `vpn` is not set, `true` is `vpn: tailscale` and `false` is `vpn: none`.
+Once `vpn` is set it is the one read, and `tailscale_enabled` beside it changes nothing: `just init` then asks no
+Tailscale question, and refuses a `--tailscale` that `vpn` contradicts. `just status --json` keeps
+`settings.tailscale_enabled`, now whether Tailscale is the VPN, and adds `settings.vpn` and `settings.tailscale_off`,
+the setting that turned it off.
 
 ## What just code writes and says from 1.1
 
@@ -111,7 +184,8 @@ the time each poll takes, and on a running VM with no agent Proxmox spends a few
 seconds pinging the agent before it answers each one, so expect closer to nine
 minutes before the failure.
 
-The build keeps the pristine download under `/var/lib/vz/claude-on-proxmox` on the node
+The build keeps the pristine download under `/var/lib/vz/agent-warehouse` on the node (`/var/lib/vz/claude-on-proxmox`
+through 1.x, which the next build moves there)
 (`proxmox_template_image_dir`) and removes the customised copy it imports once the template is
 finished. Earlier versions kept both under `local`'s `template/iso`, where the UI lists them as
 ISO images; they are safe to delete from there once the template is built.
@@ -209,7 +283,7 @@ does not set `tailscale_enabled`: `y` keeps your VMs as they are, `n` takes Tail
 
 ## Adopting VMs created before tagging
 
-From PR #6 as well, which recognises this project's VMs by their tag. This project now recognises its VMs by one Proxmox tag, `claude-on-proxmox`, and
+From PR #6 as well, which recognises this project's VMs by their tag. This project now recognises its VMs by one Proxmox tag, `agent-warehouse`, and
 nothing else. VMs created by an earlier version carry `claude;ansible` instead,
 so `just status`, `just deploy --only configure` and `just destroy` do not see them, and
 `just deploy --only provision` refuses to touch a VM of that name rather than take it over.
@@ -219,7 +293,7 @@ VM's title bar), or on the Proxmox host:
 
 ```bash
 qm config 105 | grep ^tags          # the VM's current tags, if any
-qm set 105 --tags "claude;ansible;claude-on-proxmox"
+qm set 105 --tags "claude;ansible;agent-warehouse"
 ```
 
 `--tags` **replaces** the whole list rather than adding to it, so include every

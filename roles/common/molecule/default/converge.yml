@@ -10,4 +10,4 @@
         common_extra_packages: [sl]
         common_timezone: Europe/Amsterdam
         # The agent under its unit's full name; side_effect.yml runs it under the default's.
-        common_enabled_services: [qemu-guest-agent.service, claude-on-proxmox-stand-in]
+        common_enabled_services: [qemu-guest-agent.service, agent-warehouse-stand-in]

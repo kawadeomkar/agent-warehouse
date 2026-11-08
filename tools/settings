@@ -78,8 +78,10 @@ EXPRESSION_REFUSED = (
     f"to write one, edit {LOCAL}"
 )
 # A setting that names one entry of an internal list of the inventory defaults takes that list's names as its
-# choices: the editor setting, one of claude_editors (what just code has files for).
-CHOICES_FROM = {"editor": "claude_editors"}
+# choices: the editor setting, one of claude_editors (what just code has files for), and the vpn setting, one of
+# claude_vpns, or none, which is no entry (lib/claude_vm/catalogue.py: CHOICES).
+CHOICES_FROM = {"editor": "claude_editors", "vpn": "claude_vpns"}
+CHOICES_ALSO = {"vpn": ("none",)}
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # What each type takes, as a refusal says it.
 TAKES = {
@@ -487,7 +489,7 @@ class Settings:
         default = self.defaults.get(target)
         listed = self.defaults.get(CHOICES_FROM.get(target, ""))
         if isinstance(listed, dict) and listed:
-            return {"type": "str", "choices": sorted(listed)}
+            return {"type": "str", "choices": sorted(listed) + list(CHOICES_ALSO.get(target, ()))}
         # A default that is another setting's value and nothing else, as a setting's name from 1.1 is fed its name
         # from 1.0: it takes that setting's type.
         alias = wiring.alias_of(default)

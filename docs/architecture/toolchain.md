@@ -8,11 +8,14 @@ matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads o
 pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
 makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.
 That one lives in the checkout's folder outside it,
-`${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+`${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
 (`tools/env-run --data`), never a `.venv` in the checkout, so a worktree or a second clone has its own; and
 the Galaxy collections live in the same folder for every checkout (`tools/env-run --collections`, exported
 as `ANSIBLE_COLLECTIONS_PATH` by every recipe, through the justfile's `find_bin`), so one checkout's `just install` never changes another's.
-`just clean env` deletes that folder. `just install` runs `ansible-galaxy` with `--no-cache`: its response
+`just clean env` deletes that folder. Through 1.x it was under `claude-on-proxmox/` rather than
+`agent-warehouse/` (`tools/env-run --legacy-data`): `just install` moves it, once, keeping the collections and
+making an environment in it again, since uv wrote the folder's old path into each of its commands; `just clean
+env` deletes one left behind too. `just install` runs `ansible-galaxy` with `--no-cache`: its response
 cache writes an empty entry before each request to Galaxy, and the retry after one that failed (a 502, a
 timeout) reads that entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core
 2.21), so one bad answer from Galaxy failed the install. It installs only when `tools/check collections` finds a

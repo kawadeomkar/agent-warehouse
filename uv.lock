@@ -11,6 +11,66 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "agent-warehouse"
+version = "0"
+source = { virtual = "." }
+default-groups = ["dev", "docs"]
+dependencies = [
+    { name = "ansible-core" },
+    { name = "proxmoxer" },
+    { name = "requests" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "ansible-lint" },
+    { name = "docker" },
+    { name = "molecule" },
+    { name = "molecule-plugins", extra = ["docker"] },
+    { name = "pre-commit" },
+    { name = "pytest" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "uv" },
+    { name = "yamllint" },
+]
+docs = [
+    { name = "docsible" },
+    { name = "markdown" },
+    { name = "markdown-it-py" },
+    { name = "pymdown-extensions" },
+    { name = "zensical" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ansible-core", specifier = "==2.21.5" },
+    { name = "proxmoxer", specifier = "==2.3.0" },
+    { name = "requests", specifier = "==2.34.2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "ansible-lint", specifier = "==26.10.1" },
+    { name = "docker", specifier = "==7.2.0" },
+    { name = "molecule", specifier = "==26.10.0" },
+    { name = "molecule-plugins", extras = ["docker"], specifier = "==26.10.12" },
+    { name = "pre-commit", specifier = "==4.7.0" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest-xdist", specifier = "==3.8.0" },
+    { name = "ruff", specifier = "==0.17.2" },
+    { name = "uv", specifier = "==0.13.5" },
+    { name = "yamllint", specifier = "==1.38.0" },
+]
+docs = [
+    { name = "docsible", specifier = "==0.8.0" },
+    { name = "markdown", specifier = "==3.11" },
+    { name = "markdown-it-py", specifier = "==4.2.0" },
+    { name = "pymdown-extensions", specifier = "==12.3" },
+    { name = "zensical", specifier = "==0.0.71" },
+]
+
+[[package]]
 name = "ansible-compat"
 version = "26.10.0"
 source = { registry = "https://pypi.org/simple" }
@@ -351,66 +411,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/8a/b618149cc5207943a0242068d7a27897f56a62947b5a039085f2a22029f8/charset_normalizer-3.5.2-cp37-abi3-win_amd64.whl", hash = "sha256:9f56f72050826f63dcee7a7f55b0a77168cb3bfc553fd405e7f8f9ece75a4036", size = 200092, upload-time = "2026-09-30T04:38:49.707Z" },
     { url = "https://files.pythonhosted.org/packages/03/cf/4c66866fa9e2b1c78e3c911516d1de497a677b7ac60f1eceda74ce777ca3/charset_normalizer-3.5.2-cp37-abi3-win_arm64.whl", hash = "sha256:40ab6bffa02ae10a0581e6c198be7d2d8ca5c2a0c64e4ed3465d766df457573e", size = 294363, upload-time = "2026-09-30T04:38:51.312Z" },
     { url = "https://files.pythonhosted.org/packages/fc/ad/d07d7862a62ffa6d79d68074d14823243dd235a77c45262acbf6adeb28bf/charset_normalizer-3.5.2-py3-none-any.whl", hash = "sha256:b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685", size = 68872, upload-time = "2026-09-30T04:39:21.828Z" },
-]
-
-[[package]]
-name = "claude-on-proxmox"
-version = "0"
-source = { virtual = "." }
-default-groups = ["dev", "docs"]
-dependencies = [
-    { name = "ansible-core" },
-    { name = "proxmoxer" },
-    { name = "requests" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "ansible-lint" },
-    { name = "docker" },
-    { name = "molecule" },
-    { name = "molecule-plugins", extra = ["docker"] },
-    { name = "pre-commit" },
-    { name = "pytest" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "uv" },
-    { name = "yamllint" },
-]
-docs = [
-    { name = "docsible" },
-    { name = "markdown" },
-    { name = "markdown-it-py" },
-    { name = "pymdown-extensions" },
-    { name = "zensical" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "ansible-core", specifier = "==2.21.5" },
-    { name = "proxmoxer", specifier = "==2.3.0" },
-    { name = "requests", specifier = "==2.34.2" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "ansible-lint", specifier = "==26.10.1" },
-    { name = "docker", specifier = "==7.2.0" },
-    { name = "molecule", specifier = "==26.10.0" },
-    { name = "molecule-plugins", extras = ["docker"], specifier = "==26.10.12" },
-    { name = "pre-commit", specifier = "==4.7.0" },
-    { name = "pytest", specifier = "==9.1.1" },
-    { name = "pytest-xdist", specifier = "==3.8.0" },
-    { name = "ruff", specifier = "==0.17.2" },
-    { name = "uv", specifier = "==0.13.5" },
-    { name = "yamllint", specifier = "==1.38.0" },
-]
-docs = [
-    { name = "docsible", specifier = "==0.8.0" },
-    { name = "markdown", specifier = "==3.11" },
-    { name = "markdown-it-py", specifier = "==4.2.0" },
-    { name = "pymdown-extensions", specifier = "==12.3" },
-    { name = "zensical", specifier = "==0.0.71" },
 ]
 
 [[package]]

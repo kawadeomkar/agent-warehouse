@@ -7,7 +7,7 @@
   when Proxmox does not answer, refuses the token, or a name matches no VM.
 - Every task status runs, and every task file and role entry point it reaches, held to a fixed set of reads: GETs
   through uri pinned to the API's URL, the readers, add_host, set_fact, and the report's one write.
-- The callback (callback_plugins/claude_on_proxmox_status.py), driven in this process with canned results and a
+- The callback (callback_plugins/agent_warehouse_status.py), driven in this process with canned results and a
   stand-in terminal: what it writes, and what it never does. test_status_live.py runs it at a pseudo-terminal.
 """
 
@@ -89,9 +89,9 @@ PROMISED_KEYS = {
     "attention": {"command", "level", "source", "subject", "text", "vm"},
     "proxmox": {"nodes", "unread", "version"},
     "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
-    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user"},
+    "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user", "vpn"},
     # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
-    "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "work"},
+    "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "vpn", "work"},
     "system": {
         "claude",
         "editor_windows",
@@ -296,7 +296,7 @@ LISTING = [
         "node": "pve",
         "type": "qemu",
         "status": "running",
-        "tags": "claude-on-proxmox",
+        "tags": "agent-warehouse",
         "maxcpu": 2,
         "maxmem": 4 * 1024**3,
         "mem": 1024**3,
@@ -310,13 +310,13 @@ LISTING = [
         "node": "pve",
         "type": "qemu",
         "status": "stopped",
-        "tags": "claude-on-proxmox;claude-on-proxmox-unfinished",
+        "tags": "agent-warehouse;agent-warehouse-unfinished",
         "maxcpu": 2,
         "maxmem": 4 * 1024**3,
     },
-    {"vmid": 102, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "claude-on-proxmox"},
-    {"vmid": 103, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "claude-on-proxmox"},
-    {"vmid": 104, "node": "pve2", "type": "qemu", "status": "unknown", "tags": "claude-on-proxmox"},
+    {"vmid": 102, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "agent-warehouse"},
+    {"vmid": 103, "name": "twin", "node": "pve", "type": "qemu", "status": "running", "tags": "agent-warehouse"},
+    {"vmid": 104, "node": "pve2", "type": "qemu", "status": "unknown", "tags": "agent-warehouse"},
     {
         "vmid": 200,
         "name": "stranger",
@@ -333,11 +333,11 @@ LISTING = [
         "node": "pve",
         "type": "lxc",
         "status": "running",
-        "tags": "claude-on-proxmox",
+        "tags": "agent-warehouse",
     },
 ]
 SETTINGS = {
-    "tag": "claude-on-proxmox",
+    "tag": "agent-warehouse",
     "template_name": "ubuntu-24.04-cloudinit",
     "storage": "local-lvm",
     "sections": "",
@@ -353,7 +353,7 @@ def _tagged(listing=LISTING):
     return [
         e
         for e in listing
-        if e.get("type") == "qemu" and re.search(r"(^|[;,])claude-on-proxmox([;,]|$)", e.get("tags", ""))
+        if e.get("type") == "qemu" and re.search(r"(^|[;,])agent-warehouse([;,]|$)", e.get("tags", ""))
     ]
 
 
@@ -375,6 +375,17 @@ def test_the_fleet_is_this_projects_vms_and_the_rest_as_totals() -> None:
     assert by[102]["skipped"] == by[103]["skipped"] == "duplicate"
     assert by[104]["skipped"] == "node"
     assert by[101]["unfinished"]
+
+
+def test_a_vm_1x_left_unfinished_is_shown_so_while_its_tag_is_owned() -> None:
+    # The listing's tagged VMs come from claude_vm_tag_pattern, which owns the 1.x tag too (test_tailscale.py).
+    vm = {"vmid": 105, "name": "half-by-1x", "node": "pve", "type": "qemu", "status": "stopped"}
+    vm["tags"] = "claude-on-proxmox;claude-on-proxmox-unfinished"
+    owned = {**SETTINGS, "names": [], "tags_owned": ["agent-warehouse", "claude-on-proxmox"]}
+    assert S.status_fleet([vm], tagged=[vm], requested=[vm], settings=owned)["vms"][0]["unfinished"]
+    # Read under the one tag given, as a tag of one's own is: not this tag's unfinished VM.
+    alone = {**SETTINGS, "names": []}
+    assert not S.status_fleet([vm], tagged=[vm], requested=[vm], settings=alone)["vms"][0]["unfinished"]
 
 
 def test_a_name_given_that_matches_nothing_is_said_with_the_nameless_vms_it_may_be() -> None:
@@ -659,9 +670,23 @@ def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180):
     return report, model
 
 
+def test_status_reads_the_aliases_of_the_managed_file_by_its_1x_name_and_moves_nothing(tmp_path, fake_pve) -> None:
+    # Before the first alias write of 2.0 moves it, the aliases are in the 1.x file, beside the new name.
+    legacy = tmp_path / "claude-on-proxmox.conf"
+    legacy.write_text(
+        "# BEGIN claude-on-proxmox: alpha\nHost alpha\n  HostName 192.0.2.60\n# END claude-on-proxmox: alpha\n"
+    )
+    before = legacy.read_bytes()
+    settings = {"claude_ssh_config_file": str(tmp_path / "agent-warehouse.conf")}
+    report, model = _status_run(tmp_path, fake_pve, settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert model["vms"][0]["name"] == "alpha" and model["vms"][0]["alias"] is True
+    assert legacy.read_bytes() == before and not (tmp_path / "agent-warehouse.conf").exists()
+
+
 def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_pve) -> None:
     (tmp_path / "ssh.conf").write_text(
-        "# BEGIN claude-on-proxmox: alpha\nHost alpha\n  HostName 192.0.2.60\n# END claude-on-proxmox: alpha\n"
+        "# BEGIN agent-warehouse: alpha\nHost alpha\n  HostName 192.0.2.60\n# END agent-warehouse: alpha\n"
     )
     report, model = _status_run(tmp_path, fake_pve)
     assert report["rc"] == 0, report["stderr"][-2000:]
@@ -799,6 +824,9 @@ COMMANDS = {
     ("dpkg-query", "--show", "--showformat=${db:Status-Status}", "tailscale"),
     ("tailscale", "status", "--json"),
     ("tailscale", "debug", "prefs"),
+    ("dpkg-query", "--show", "--showformat=${db:Status-Status}", "wireguard-tools"),
+    ("sh", "-c", 'date +%s; wg show "$1" latest-handshakes 2>/dev/null || true', "sh", "{{ wireguard_link }}"),
+    ("ip", "-4", "-o", "addr", "show", "dev", "{{ wireguard_link }}"),
 }
 SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml"}
 ENTRY_POINTS = {
@@ -807,6 +835,7 @@ ENTRY_POINTS = {
     ("claude_code", "status"),
     ("github_projects", "status"),
     ("tailscale", "status"),
+    ("wireguard", "status"),
 }
 URI_KEYS = {"url", "headers", "validate_certs", "ca_path", "timeout"}
 TASK_KEYS = {
@@ -967,8 +996,8 @@ def callback(monkeypatch):
             monkeypatch.delenv("STATUS_QUIET", raising=False)
         terminal = _Terminal()
         monkeypatch.setattr(sys, "stdout", terminal)
-        path = REPO / "callback_plugins" / "claude_on_proxmox_status.py"
-        module = load_module(path, "claude_on_proxmox_status_under_test", register=False)
+        path = REPO / "callback_plugins" / "agent_warehouse_status.py"
+        module = load_module(path, "agent_warehouse_status_under_test", register=False)
         cb = module.CallbackModule()
         if cb._live:
             cb._out.region._terminal_size = lambda: (100, 60)
@@ -1018,7 +1047,7 @@ def test_the_live_region_is_redrawn_in_place_and_erased_for_the_finished_report(
     # The tab says the report is done, then the region is erased for the report.
     assert terminal.getvalue().startswith("\x1b]0;status · done\x07")
     out = re.sub(r"\x1b\]0;[^\x07]*\x07", "", terminal.getvalue())
-    assert out.startswith("\x1b[") and "\r\x1b[J" in out.split("claude-on-proxmox")[0]
+    assert out.startswith("\x1b[") and "\r\x1b[J" in out.split("agent-warehouse")[0]
     assert out.rstrip().split("\n")[-1].startswith("exit 2")
     assert "⠋" not in out.split("\x1b[J", 1)[1]
 
@@ -1098,7 +1127,7 @@ def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callba
     cb.v2_playbook_on_stats(None)
     assert terminal.getvalue() == ""
     assert len(shown) == 1 and shown[0][1] == {"log_only": True}, shown
-    assert shown[0][0].startswith("claude-on-proxmox") and "VMS" in shown[0][0], shown[0][0]
+    assert shown[0][0].startswith("agent-warehouse") and "VMS" in shown[0][0], shown[0][0]
 
 
 # ------------------------------------------------------------------------------------- every state at once ----
@@ -1250,7 +1279,7 @@ def _every_state():
                 "node": "pve",
                 "type": "qemu",
                 "status": "running",
-                "tags": "claude-on-proxmox",
+                "tags": "agent-warehouse",
                 "maxcpu": 128,
                 "maxmem": 1024 * G,
                 "mem": 999 * G,

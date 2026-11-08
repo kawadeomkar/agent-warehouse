@@ -1,0 +1,96 @@
+---
+# The link, claude-wg, as two files of systemd-networkd's beside the key: the
+# hub its one peer, the networks routed into it, the keepalive that keeps a hub
+# on the internet able to reach a VM behind NAT; and the VM's address on the
+# tunnel, with no prefix route in the main table - a reply to a device of the
+# tunnel's that reached the VM at its LAN address leaves on the LAN, where it
+# came in, never into the tunnel, whose hub drops it as from an address the
+# VM's peer does not hold - but a rule and a table that answer what reached
+# that address back through the tunnel: the hub's network under vpn_reach:
+# lan, every address under tunnel (docs/guides/wireguard.md). Every value is the plan's,
+# held by the core to its rules (lib/claude_vm/vpn/registry.py): the hub's key
+# is base64, its endpoint a name or an address and a port, every address one
+# Python parsed. networkd adds no route for AllowedIPs (its RouteTable= is off)
+# and replaces the link's peers whenever it applies the file, so the file is
+# the truth.
+- name: configure | Keep systemd-networkd running, which makes the link
+  ansible.builtin.systemd_service:
+    name: systemd-networkd
+    state: started
+    enabled: true
+
+- name: configure | Write the link's netdev
+  ansible.builtin.copy:
+    dest: "{{ wireguard_netdev_path }}"
+    content: |
+      # Written by agent-warehouse (roles/wireguard); a run rewrites it.
+      [NetDev]
+      Name={{ wireguard_link }}
+      Kind=wireguard
+      Description=agent-warehouse: this VM on your WireGuard network
+
+      [WireGuard]
+      # This VM's public key, read by the key step: networkd reads the key file only when it makes the link, so a new
+      # key changes this file, and the link is made again with it.
+      # {{ wireguard_public_key | default('') | regex_search('^[A-Za-z0-9+/]{43}=$') | default('', true) }}
+      PrivateKeyFile={{ wireguard_key_path }}
+
+      [WireGuardPeer]
+      PublicKey={{ wireguard_tunnel.hub_public_key }}
+      Endpoint={{ wireguard_tunnel.endpoint }}
+      AllowedIPs={{ wireguard_tunnel.allowed_ips | join(',') }}
+      PersistentKeepalive={{ wireguard_tunnel.keepalive }}
+    owner: root
+    group: systemd-network
+    mode: "0644"
+  register: wireguard_netdev
+
+- name: configure | Write the link's network
+  ansible.builtin.copy:
+    dest: "{{ wireguard_network_path }}"
+    content: |
+      # Written by agent-warehouse (roles/wireguard); a run rewrites it.
+      [Match]
+      Name={{ wireguard_link }}
+
+      [Address]
+      Address={{ wireguard_tunnel.address }}
+      # No route to the tunnel network in the main table: what the VM sends from its LAN address leaves on the LAN.
+      AddPrefixRoute=no
+
+      # What reached the VM at its tunnel address is answered back through the tunnel: the hub's network, or under
+      # vpn_reach: tunnel every address, the LAN's devices too, whose replies would otherwise leave off the tunnel.
+      [RoutingPolicyRule]
+      From={{ wireguard_tunnel.address | split('/') | first }}/32
+      Table={{ wireguard_route_table }}
+      Priority={{ wireguard_rule_priority }}
+
+      [Route]
+      Destination={{ wireguard_tunnel.allowed_ips | first }}
+      Table={{ wireguard_route_table }}
+    owner: root
+    group: systemd-network
+    mode: "0644"
+  register: wireguard_network
+
+# networkd applies a netdev only when it makes the link, so a changed one is
+# made again: deleted, then made by the reload.
+- name: configure | Make the link again where its netdev changed
+  ansible.builtin.command: # noqa: no-handler - a handler would run out of the rescue's reach
+    argv: [networkctl, delete, "{{ wireguard_link }}"]
+  register: wireguard_deleted
+  changed_when: wireguard_deleted.rc == 0
+  failed_when: false
+  when: wireguard_netdev is changed
+
+- name: configure | Have systemd-networkd read the files again
+  ansible.builtin.command: # noqa: no-handler - a handler would run out of the rescue's reach
+    argv: [networkctl, reload]
+  changed_when: true
+  when: wireguard_netdev is changed or wireguard_network is changed
+
+- name: configure | Give the link its address again
+  ansible.builtin.command: # noqa: no-handler - a handler would run out of the rescue's reach
+    argv: [networkctl, reconfigure, "{{ wireguard_link }}"]
+  changed_when: true
+  when: wireguard_network is changed and wireguard_netdev is not changed

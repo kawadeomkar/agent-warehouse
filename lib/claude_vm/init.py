@@ -9,6 +9,8 @@ to the same rule before they reach a file. A refusal is a ValueError.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import ipaddress
 import json
 import re
@@ -44,6 +46,9 @@ RULES = {
     ),
     "yes_no": "y or n",
     "choice": "one of the numbers listed",
+    "ipv4_network": "an IPv4 network with its length and no host bits, such as 198.51.100.0/24",
+    "wireguard_key": "a WireGuard public key: 44 characters of base64, as wg show <interface> public-key prints it",
+    "endpoint": "an address or a host name, a colon and a port: 192.0.2.1:51820, or vpn.example.net:51820",
 }
 
 
@@ -92,6 +97,22 @@ def init_answer(value, kind, choices=None):
         return text if _AUTH_KEY.fullmatch(text) else ""
     if kind == "yes_no":
         return {"y": "y", "yes": "y", "n": "n", "no": "n"}.get(text.lower(), "")
+    if kind == "ipv4_network":
+        try:
+            return str(ipaddress.IPv4Network(text)) if "/" in text else ""
+        except ValueError:
+            return ""
+    if kind == "wireguard_key":
+        try:
+            return text if len(text) == 44 and len(base64.b64decode(text, validate=True)) == 32 else ""
+        except (binascii.Error, ValueError):
+            return ""
+    if kind == "endpoint":
+        host, _, port = text.rpartition(":")
+        if not port.isdigit() or not 0 < int(port) < 65536:
+            return ""
+        host = _host(host) if host and ":" not in host else ""
+        return f"{host}:{int(port)}" if host else ""
     items = list(choices or [])
     if text.isdigit() and 1 <= int(text) <= len(items):
         return items[int(text) - 1]

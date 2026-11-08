@@ -24,7 +24,7 @@ text { font: 12px/1 ui-monospace, 'SF Mono', Menlo, 'DejaVu Sans Mono', Consolas
 <path d="M10 0H742a10 10 0 0 1 10 10V30H0V10A10 10 0 0 1 10 0z" fill="#171d26"/>
 <path d="M0 30H752" stroke="#29313d" stroke-width="1"/>
 <rect x="0.5" y="0.5" width="751" height="601" rx="9.5" fill="none" stroke="#29313d"/>
-<text class="bar" x="16" y="19">~/claude-on-proxmox</text>
+<text class="bar" x="16" y="19">~/agent-warehouse</text>
 <text class="bar" x="736" y="19" text-anchor="end">zsh · 100 × 32</text>
 <g transform="translate(16 56)">
 <use href="#l0" xlink:href="#l0" y="0"/>

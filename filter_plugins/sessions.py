@@ -16,6 +16,7 @@ FILTERS = (
     "claude_sessions_saved",
     "projects_dir",
     "just_code_dir",
+    "just_code_dir_1x",
 )
 
 

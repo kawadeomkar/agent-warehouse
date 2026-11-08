@@ -253,9 +253,9 @@ def uri_result(data=None, status=200, skipped=False):
 
 
 NET0 = "virtio=BC:24:11:0E:72:04,bridge=vmbr0"
-ALPHA = {"vmid": 9001, "name": "alpha", "node": "pve", "status": "running", "tags": "claude-on-proxmox"}
+ALPHA = {"vmid": 9001, "name": "alpha", "node": "pve", "status": "running", "tags": "agent-warehouse"}
 PARKED = {"vmid": 4013, "name": "parked", "node": "pve", "status": "stopped"}
-NAMELESS = {"vmid": 8001, "node": "pve2", "status": "unknown", "tags": "claude-on-proxmox"}
+NAMELESS = {"vmid": 8001, "node": "pve2", "status": "unknown", "tags": "agent-warehouse"}
 
 
 class TestGuestAddresses:
@@ -317,27 +317,28 @@ class TestGuestAddresses:
 ssh_config_blocks = proxmox_filters.ssh_config_blocks
 ssh_config_prune = proxmox_filters.ssh_config_prune
 
-MANAGED = """# BEGIN claude-on-proxmox: alpha
+MANAGED = """# BEGIN agent-warehouse: alpha
 Host alpha
     HostName 192.0.2.51
     User dev
-# END claude-on-proxmox: alpha
-# BEGIN claude-on-proxmox: beta
+# END agent-warehouse: alpha
+# BEGIN agent-warehouse: beta
 Host beta
     HostName 192.0.2.52
     User dev
-# END claude-on-proxmox: beta
-# BEGIN claude-on-proxmox: old
+# END agent-warehouse: beta
+# BEGIN agent-warehouse: old
 Host old
     HostName 192.0.2.9
     User dev
-# END claude-on-proxmox: old
+# END agent-warehouse: old
 """
 
-TAG = r"(?i)(^|[;,])claude\-on\-proxmox([;,]|$)"
+# claude_vm_tag_pattern as the inventory renders it for the default tag: it, and its 1.x name.
+TAG = r"(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|$)"
 
 
-def vm(name, vmid, tags="claude-on-proxmox", kind="qemu"):
+def vm(name, vmid, tags="agent-warehouse", kind="qemu"):
     entry = {"vmid": vmid, "type": kind, "node": "pve"}
     if name is not None:
         entry["name"] = name
@@ -412,10 +413,10 @@ class TestProxmoxTags:
     @pytest.mark.parametrize(
         ("tags", "listed"),
         [
-            ("claude-on-proxmox;claude-on-proxmox-tailscale", ["claude-on-proxmox", "claude-on-proxmox-tailscale"]),
+            ("agent-warehouse;agent-warehouse-tailscale", ["agent-warehouse", "agent-warehouse-tailscale"]),
             # As proxmox_kvm sends them, and some versions echo them back.
-            ("ansible,claude-on-proxmox", ["ansible", "claude-on-proxmox"]),
-            (" Claude-On-Proxmox ; ;staging,", ["Claude-On-Proxmox", "staging"]),
+            ("ansible,agent-warehouse", ["ansible", "agent-warehouse"]),
+            (" Agent-Warehouse ; ;staging,", ["Agent-Warehouse", "staging"]),
             ("", []),
             (None, []),
         ],
@@ -424,8 +425,65 @@ class TestProxmoxTags:
         assert proxmox_filters.proxmox_tags(tags) == listed
 
     def test_a_tag_is_never_matched_inside_another(self):
-        tags = proxmox_filters.proxmox_tags("claude-on-proxmox-staging;not-claude-on-proxmox")
-        assert "claude-on-proxmox" not in tags
+        tags = proxmox_filters.proxmox_tags("agent-warehouse-staging;not-agent-warehouse")
+        assert "agent-warehouse" not in tags
+
+
+OWNED = ["agent-warehouse", "claude-on-proxmox"]
+
+
+class TestTheTagThrough1x:
+    """A VM 1.x made: its tags under the ownership tag through 1.x, read as the new one's and written so once."""
+
+    def test_the_project_s_own_tags_move_in_their_places_and_every_other_stays_as_given(self):
+        tags = (
+            "claude-on-proxmox;Keep.Me;claude-on-proxmox-Tailscale;claude-on-proxmox-unfinished;"
+            "claude-on-proxmox-wg-198.51.100.130-reached;claude-on-proxmox-staging;not-claude-on-proxmox"
+        )
+        assert proxmox_filters.proxmox_tags_moved(tags, "agent-warehouse", ["claude-on-proxmox"]) == [
+            "agent-warehouse",
+            "Keep.Me",
+            "agent-warehouse-tailscale",
+            "agent-warehouse-unfinished",
+            "agent-warehouse-wg-198.51.100.130-reached",
+            # Not a tag the project makes: a lookalike, someone else's.
+            "claude-on-proxmox-staging",
+            "not-claude-on-proxmox",
+        ]
+
+    @pytest.mark.parametrize(
+        ("tags", "moved"),
+        [
+            # Both, as on a VM someone tagged by hand: once, where the first was.
+            ("claude-on-proxmox;agent-warehouse;ansible", ["agent-warehouse", "ansible"]),
+            ("agent-warehouse,agent-warehouse-tailscale", ["agent-warehouse", "agent-warehouse-tailscale"]),
+            # A mark that holds no address is no mark: left as it is.
+            ("claude-on-proxmox;claude-on-proxmox-wg-999.0.0.1", ["agent-warehouse", "claude-on-proxmox-wg-999.0.0.1"]),
+            ("", []),
+        ],
+    )
+    def test_a_vm_s_tags_are_written_once_each(self, tags, moved):
+        assert proxmox_filters.proxmox_tags_moved(tags, "agent-warehouse", ["claude-on-proxmox"]) == moved
+
+    def test_a_tag_of_one_s_own_moves_nothing(self):
+        tags = ["team.a", "claude-on-proxmox", "claude-on-proxmox-tailscale"]
+        assert proxmox_filters.proxmox_tags_moved(tags, "team.a", []) == tags
+
+    def test_a_mark_under_either_tag_is_the_vm_s_once(self):
+        tags = "claude-on-proxmox;claude-on-proxmox-tailscale;agent-warehouse-tailscale;agent-warehouse-wg-198.51.100.9"
+        assert proxmox_filters.proxmox_marks(tags, OWNED) == ["tailscale", "wg-198.51.100.9"]
+        # One tag alone reads its own marks only: a reader that forgets the 1.x name misses the record.
+        assert proxmox_filters.proxmox_marks("claude-on-proxmox-tailscale", "agent-warehouse") == []
+
+    def test_an_address_a_1x_vm_holds_is_taken(self):
+        listing = [
+            {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130"},
+            {"vmid": 4014, "tags": "agent-warehouse;agent-warehouse-wg-198.51.100.131-reached"},
+            # Its mark under the 1.x tag, but not the project's VM: no address of it is taken.
+            {"vmid": 4015, "tags": "claude-on-proxmox-wg-198.51.100.132"},
+        ]
+        assert proxmox_filters.proxmox_wireguard_taken(listing, OWNED) == ["198.51.100.130", "198.51.100.131"]
+        assert proxmox_filters.proxmox_wireguard_taken(listing, OWNED, but=[4013]) == ["198.51.100.131"]
 
 
 class TestDuplicateNames:
@@ -449,7 +507,7 @@ class TestDuplicateNames:
 class TestSshAliasRefusal:
     """Which VM names may be an alias in a file included ahead of the user's whole ssh config."""
 
-    @pytest.mark.parametrize("name", ["alpha", "dev-01", "claude-on-proxmox-default", "b2", "x", "1a", "0xg", "9-1"])
+    @pytest.mark.parametrize("name", ["alpha", "dev-01", "agent-warehouse-default", "b2", "x", "1a", "0xg", "9-1"])
     def test_a_name_that_can_be_nothing_else(self, name):
         assert checks.ssh_alias_refusal(name, ["pve", "localhost"]) == ""
 
@@ -586,7 +644,15 @@ class TestSshConfigBlocks:
         assert ssh_config_blocks("Host *\n    ServerAliveInterval 30\n") == []
 
     def test_a_block_whose_end_marker_names_another_vm_is_not_a_block(self):
-        text = "# BEGIN claude-on-proxmox: alpha\nHost alpha\n# END claude-on-proxmox: beta\n"
+        text = "# BEGIN agent-warehouse: alpha\nHost alpha\n# END agent-warehouse: beta\n"
+        assert ssh_config_blocks(text) == []
+
+    def test_reads_the_blocks_of_a_file_as_1x_marked_them(self):
+        # The managed file under its 1.x name, which the prune and just status read until a write moves it.
+        assert ssh_config_blocks(MANAGED.replace("agent-warehouse", "claude-on-proxmox")) == ssh_config_blocks(MANAGED)
+
+    def test_a_block_whose_markers_name_two_spellings_is_not_a_block(self):
+        text = "# BEGIN claude-on-proxmox: alpha\nHost alpha\n# END agent-warehouse: alpha\n"
         assert ssh_config_blocks(text) == []
 
     def test_rejects_non_text(self):
@@ -622,7 +688,7 @@ class TestSshConfigPrune:
         assert ssh_config_prune(self.BLOCKS, fleet, TAG)["untagged"] == ["old"]
 
     def test_a_lookalike_tag_does_not_make_a_vm_tagged(self):
-        fleet = [vm("alpha", 9001), vm("beta", 9002), vm("old", 9011, tags="claude-on-proxmox-staging")]
+        fleet = [vm("alpha", 9001), vm("beta", 9002), vm("old", 9011, tags="agent-warehouse-staging")]
         result = ssh_config_prune(self.BLOCKS, fleet, TAG)
         assert result["untagged"] == ["old"]
         assert result["prune"] == []
@@ -653,8 +719,8 @@ class TestSshConfigPrune:
 
     def test_tags_in_either_separator_count(self):
         fleet = [
-            vm("alpha", 9001, tags="ansible,claude-on-proxmox"),
-            vm("beta", 9002, tags="ansible;claude-on-proxmox"),
+            vm("alpha", 9001, tags="ansible,agent-warehouse"),
+            vm("beta", 9002, tags="ansible;agent-warehouse"),
         ]
         result = ssh_config_prune(self.BLOCKS[:2], fleet, TAG)
         assert result == {"prune": [], "held": [], "untagged": [], "nameless": [], "refused": []}
@@ -706,8 +772,14 @@ BUILT = {
 
 
 def test_a_template_its_settings_would_build_differs_in_nothing():
-    assert RECORD.startswith("Built by claude-on-proxmox: build=1; image=https://")
+    assert RECORD.startswith("Built by agent-warehouse: build=1; image=https://")
     assert proxmox_template_drift(BUILT, WANTED) == []
+
+
+def test_a_template_whose_record_1x_wrote_differs_in_nothing_for_that():
+    # Every template 1.x built keeps its record under 1.x's name: read as the record, so none is rebuilt for it.
+    old = RECORD.replace("Built by agent-warehouse:", "Built by claude-on-proxmox:")
+    assert old != RECORD and proxmox_template_drift({**BUILT, "description": old}, WANTED) == []
 
 
 def _qm(value) -> str:
@@ -722,7 +794,7 @@ def test_qm_config_reads_as_the_api_gives_it():
 
 
 def test_qm_config_decodes_the_description_proxmox_ve_9_2_printed():
-    # As qm config 9000 printed a template this role built, on Proxmox VE 9.2.24; the API gave it decoded.
+    # As qm config 9000 printed a template this role built through 1.x, on Proxmox VE 9.2.24; the API gave it decoded.
     line = (
         "description: Built by claude-on-proxmox%3A build=1; image=https%3A//cloud-images.ubuntu.com/minimal/releases/"
         "noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img; packages=qemu-guest-agent; sha256=3839f148c5a3"

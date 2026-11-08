@@ -31,7 +31,7 @@
   ansible.builtin.debug:
     msg: "{{ lookup('ansible.builtin.vars', 'claude_vm_' ~ claude_vm_sign_in ~ '_login_failure') }}"
 
-# NEXT STEPS (callback_plugins/claude_on_proxmox.py): the line above, under the
+# NEXT STEPS (callback_plugins/agent_warehouse.py): the line above, under the
 # sign-in's own matter and its role's stat, which replaces whatever an earlier
 # report of the run left for this VM's sign-in. set_stats templates its keys
 # too; each stat is written out here, and

@@ -77,7 +77,7 @@ Either way `gh` becomes git's credential helper for github.com (`gh auth setup-g
 keep their HTTPS remotes and `git push` and `gh pr create` work, in a terminal, in the `just code` window
 and in a Remote Control session alike. The token lives in `~/.config/gh/hosts.yml` on the VM, readable by
 the VM user and so by Claude Code (see [What the VM trusts](what-the-vm-trusts.md)). The role marks the login
-it made - a digest of the token, in `~/.config/claude-on-proxmox/` on the VM - and removes only that one
+it made - a digest of the token, in `~/.config/agent-warehouse/` on the VM - and removes only that one
 when you clear `vault_github_token`; a login you made yourself is never replaced by the vault token nor
 removed, a token of your own pasted into `gh` included. `gh auth status --json`, which the role reads, needs gh 2.81 or newer: GitHub's apt repository,
 which `dev_tools` installs from, provides it, and an older gh is a named failure rather than a VM reported

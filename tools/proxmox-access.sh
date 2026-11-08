@@ -1,5 +1,5 @@
 #!/bin/sh
-# Set up the API access claude-on-proxmox uses on a Proxmox VE host, and
+# Set up the API access agent-warehouse uses on a Proxmox VE host, and
 # nothing else. Run it on the host, as root:
 #
 #   on the host's shell (the web UI: the node, then Shell):  sh proxmox-access.sh [options]
@@ -180,7 +180,7 @@ if pvesh get "/access/users/$user" --output-format json >/dev/null 2>&1; then
   say "user $user exists"
 else
   user_was_there=0
-  run pveum user add "$user" --comment claude-on-proxmox
+  run pveum user add "$user" --comment agent-warehouse
   # With --dry-run it is still not there.
   [ "$mode" = dry-run ] && user_exists=0 || user_exists=1
 fi
@@ -239,12 +239,12 @@ if existing=$(pvesh get "/access/users/$user/token/$token" --output-format json 
   esac
 elif [ "$mode" = dry-run ]; then
   broad
-  run pveum user token add "$user" "$token" --privsep 0 --comment claude-on-proxmox
+  run pveum user token add "$user" "$token" --privsep 0 --comment agent-warehouse
 else
   broad
   changes=$((changes + 1))
-  say "+ pveum user token add $user $token --privsep 0 --comment claude-on-proxmox"
-  made=$(pveum user token add "$user" "$token" --privsep 0 --comment claude-on-proxmox --output-format json)
+  say "+ pveum user token add $user $token --privsep 0 --comment agent-warehouse"
+  made=$(pveum user token add "$user" "$token" --privsep 0 --comment agent-warehouse --output-format json)
   secret=$(printf '%s' "$made" | sed -n 's/.*"value":"\([0-9a-f-]*\)".*/\1/p')
   [ -n "$secret" ] || die "pveum made the token $user!$token but printed no secret: remove it - pveum user token delete $user $token - and run this again"
   say "The token's secret, which Proxmox shows only this once: just init asks for it."

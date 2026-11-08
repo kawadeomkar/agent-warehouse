@@ -44,13 +44,25 @@ proxmox_vm_reported_address: >-
 
 # Internal: the tags of the VM the name lookup found, as a list, split on ";"
 # or "," as proxmox_tags splits every VM's. Matching whole elements, not a
-# substring, is what keeps "claude-on-proxmox" from matching
-# "claude-on-proxmox-staging". Lowercased, because Proxmox stores tags
-# lowercased by default: a tag configured as "Claude-On-Proxmox" comes back as
-# "claude-on-proxmox", and main.yml lowercases its side of the comparison to
-# match.
-proxmox_vm_found_tags: >-
-  {{ proxmox_vm_lookup.proxmox_vms[0].tags | default('', true) | proxmox_tags | map('lower') | list }}
+# substring, is what keeps "agent-warehouse" from matching
+# "agent-warehouse-staging". Lowercased, because Proxmox stores tags
+# lowercased by default: a tag configured as "Agent-Warehouse" comes back as
+# "agent-warehouse", and main.yml lowercases its side of the comparison to
+# match. Each tag 1.x gave the VM (proxmox_vm_tags_1x) is read under its name
+# from 2.0, so that a VM 1.x made is owned, finished and keeps its marks as
+# before; present.yml writes them so (proxmox_vm_tags_moving).
+proxmox_vm_found_tags: "{{ proxmox_vm_tags_now | map('lower') | list }}"
+
+# Internal: the VM's tags as Proxmox gave them, which a refusal names.
+proxmox_vm_tags_given: "{{ proxmox_vm_lookup.proxmox_vms[0].tags | default('', true) | proxmox_tags }}"
+
+# Internal: those tags, each the project gave the VM through 1.x under its name
+# from 2.0, in its place, every other as given: what present.yml writes.
+proxmox_vm_tags_now: "{{ proxmox_vm_tags_given | proxmox_tags_moved(proxmox_vm_sent_tags[0], proxmox_vm_tags_1x) }}"
+
+# Internal: whether the VM carries a tag under its 1.x name, which present.yml
+# writes anew once.
+proxmox_vm_tags_moving: "{{ proxmox_vm_tags_now != proxmox_vm_tags_given }}"
 
 # Internal: the tags this role writes - proxmox_vm_tags, lowercased the way
 # Proxmox stores them, so that what is sent is what the lookup finds again
@@ -61,12 +73,16 @@ proxmox_vm_sent_tags: "{{ proxmox_vm_tags | map('lower') | list }}"
 # follows it has succeeded. See proxmox_vm_needs_configuration.
 proxmox_vm_unfinished_tag: "{{ proxmox_vm_sent_tags[0] }}-unfinished"
 
-# Internal: the tag configure.yml writes once the VM has held a Tailscale login
-# of the tailscale role's (claude_vm_tailscale_tag), kept by every call below
-# that replaces the tag list. A VM repaired, or force-updated, would otherwise
-# lose the record, and be handed the vault's Tailscale key again.
+# Internal: the marks configure.yml writes (tasks/vm_marks.yml), kept by every
+# call below that replaces the tag list: the tag it writes once the VM has held
+# a Tailscale login of the tailscale role's (claude_vm_tailscale_tag), and the
+# WireGuard address the VM keeps for its life (<tag>-wg-<address>). A VM
+# repaired, or force-updated, would otherwise lose them: be handed the vault's
+# Tailscale key again, and its address be free for another VM.
 proxmox_vm_tailscale_tag: "{{ proxmox_vm_sent_tags[0] }}-tailscale"
-proxmox_vm_kept_tags: "{{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}"
+proxmox_vm_kept_tags: >-
+  {{ ([proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [])
+     + (proxmox_vm_found_tags | select('match', (proxmox_vm_sent_tags[0] ~ '-wg-') | regex_escape) | list) }}
 
 # Internal: whether the VM still needs its settings applied, its disk resized
 # and a start. Existence alone is not convergence - if a run died between the
@@ -117,5 +133,13 @@ proxmox_vm_forget_address: >-
 proxmox_vm_forget_names: >-
   {{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address | length > 0 else [])
       + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain]
-         if proxmox_vm_known_hosts_domain | length > 0 else []))
+         if proxmox_vm_known_hosts_domain | length > 0 else [])
+      + proxmox_vm_forget_tunnel)
      | reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) | list }}
+
+# Internal: the WireGuard address Proxmox recorded for the VM (its mark,
+# <tag>-wg-<address>), which its SSH alias connects to under vpn_reach: tunnel.
+# Addresses are given lowest free first, so the next VM is soon given it.
+proxmox_vm_forget_tunnel: >-
+  {{ proxmox_vm_found_tags | select('match', (proxmox_vm_sent_tags[0] ~ '-wg-') | regex_escape)
+     | map('regex_replace', '^.*-wg-([0-9.]+)(-reached)?$', '\1') | list }}

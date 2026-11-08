@@ -11,7 +11,7 @@ existence would skip the repair forever and then wait out the whole agent poll b
 that was never enabled. So `proxmox_vm_needs_configuration`
 ([its value](../reference/roles/proxmox_vm.md#internal-values)) holds for a VM that does not exist yet, for
 `proxmox_vm_force_update`, for a config with no cloud-init user (`ciuser`), and for one tagged
-`proxmox_vm_unfinished_tag`, `claude-on-proxmox-unfinished`.
+`proxmox_vm_unfinished_tag`, `agent-warehouse-unfinished`.
 
 The cloud-init user is written only by the settings call, and the template has none, so its absence
 is the marker that the call did not complete. That call is not the last step, though: the resize and

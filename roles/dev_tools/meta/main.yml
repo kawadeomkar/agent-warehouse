@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: dev_tools
   description: Developer tooling - Node.js, Docker Engine, GitHub CLI, uv, build packages
   license: MIT

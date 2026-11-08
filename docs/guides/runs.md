@@ -8,7 +8,7 @@ screen, redrawn in place, under what the run will do, which it says first.
 ```
   Template "ubuntu-24.04-cloudinit" is already built. Then provisioning and configuring alpha.
   alpha is up at 192.0.2.51
-claude-on-proxmox  deploy alpha · started 18:22
+agent-warehouse  deploy alpha · started 18:22
 
  ✓ template     ████████████████████    3/3                    no changes                     0.7 s
  ✓ provision    ████████████████████    5/5    2 changed       VM 104 · 192.0.2.51             1:00
@@ -55,7 +55,7 @@ the slowest tasks of a second or more; the totals and the log. NEXT STEPS follow
 that is not drawn prints it: a command or a URL in it is on one line to copy, however your terminal wraps it.
 
 ```
-claude-on-proxmox  deploy alpha · done in 6 min 12 s · 18:28
+agent-warehouse  deploy alpha · done in 6 min 12 s · 18:28
 
 STAGES          TIME    TASKS  CHANGED
  ✓ template    0.7 s        3        —   proxmox_template 0.5 s
@@ -123,7 +123,7 @@ same `just deploy` signed in is not listed. Nothing is printed when nothing is l
 is still to set and, after its checks, each problem and its fix, or `just deploy alpha` once there is none.
 The task timings come after it, and under `just deploy` in the run log only.
 
-The blocks come from `callback_plugins/claude_on_proxmox.py`, which `ansible.cfg` names; put
+The blocks come from `callback_plugins/agent_warehouse.py`, which `ansible.cfg` names; put
 `ANSIBLE_STDOUT_CALLBACK=default` in front of a `just` command for Ansible's own output (the prompts keep
 their blocks). The run log below holds the same blocks without colour, but never `just destroy`'s
 question, which Ansible does not log.
@@ -135,9 +135,9 @@ named after when it started, the recipe and the part it was narrowed to:
 
 ```bash
 just deploy beta
-#   Logging this run to /home/you/claude-on-proxmox/.logs/20261007-203015-deploy.log
+#   Logging this run to /home/you/agent-warehouse/.logs/20261007-203015-deploy.log
 just deploy beta --only configure
-#   Logging this run to /home/you/claude-on-proxmox/.logs/20261007-204510-deploy-configure.log
+#   Logging this run to /home/you/agent-warehouse/.logs/20261007-204510-deploy-configure.log
 just logs                         # the newest 20, newest first
 just clean logs                   # delete them all
 ```
@@ -158,5 +158,5 @@ logged the same way. A command you run with `ansible-playbook` directly is not; 
 - Settings: [Sign-ins and teardown](../reference/settings.md#sign-ins-and-teardown), for the sign-ins a
   run starts, and [Commands](../reference/commands.md) for `just logs` and `LOG_DIR`
 - How it works: the blocks, NEXT STEPS and the live output in
-  [§7.5](../architecture/custom-code.md#75-callback_pluginsclaude_on_proxmoxpy--the-waits-and-next-steps),
+  [§7.5](../architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps),
   the run logs in [the security model](../architecture/security-model.md#run-logs)

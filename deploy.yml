@@ -4,7 +4,7 @@
 # Code - so one command ends at a window on the VM with a Claude session
 # running and gh signed in.
 #
-#   just deploy                       -> claude-on-proxmox-default, and only it
+#   just deploy                       -> agent-warehouse-default, and only it
 #   just deploy alpha,beta    -> alpha and beta, and only them
 #
 # Each stage is a playbook of its own, imported as is, so deploy is the sum of
@@ -145,7 +145,7 @@
                              and (github_auth_method | default('auto') == 'web'
                                   or github_auth_method | default('auto') == 'auto'
                                      and (github_token | default('', true) | length) == 0) else [])
-             + (['Tailscale'] if tailscale_enabled | default(true) | bool
+             + (['Tailscale'] if tailscale_wanted | default(tailscale_enabled | default(true)) | bool
                                 and (tailscale_auth_method | default('auto') == 'web'
                                      or tailscale_auth_method | default('auto') == 'auto'
                                         and (tailscale_auth_key | default('', true) | length) == 0) else [])
@@ -226,15 +226,16 @@
 # VM by VM, after GitHub's: Tailscale's web login waits up to
 # tailscale_login_timeout for a browser, and starts by itself or is asked about
 # as GitHub's sign-in is, by tailscale_login_auto_start. Where an auth key
-# joined the VM during configuration, this only reports. Off with
-# tailscale_enabled: false.
+# joined the VM during configuration, this only reports. Off where the vpn
+# setting is not tailscale (tailscale_wanted; a run without the inventory's
+# defaults follows tailscale_enabled, as the role does).
 - name: Sign each VM in to Tailscale
   ansible.builtin.import_playbook: playbooks/tailscale_login.yml
   vars:
     claude_vm_discovery: false
     claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
-  when: deploy_sign_in | bool and tailscale_enabled | default(true) | bool
+  when: deploy_sign_in | bool and tailscale_wanted | default(tailscale_enabled | default(true)) | bool
 
 # just code, for the one VM this run was for: an alias that follows the VM,
 # then the editor's window. A fleet is not opened

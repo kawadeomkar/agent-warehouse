@@ -119,7 +119,7 @@ pytest over `tests/unit/`, file by file:
   `local.yml`, and no host-pattern warning.
   The 1.1 name pairs: the new name fed from 1.0's while it is unset, `--value` on either writing the new name and
   taking the old one's line out, `--reset` on either taking both.
-- **The stdout callback** (`test_attention_callback.py`): `callback_plugins/claude_on_proxmox.py` run
+- **The stdout callback** (`test_attention_callback.py`): `callback_plugins/agent_warehouse.py` run
   for real - untagged output byte for byte the default's, no hook failing, the browser block, one
   waiting line for a tagged retry, NEXT STEPS from `set_stats` records, colour on the screen and never in
   the log, `just init`'s two matters before a VM's, a probe filter file executed in one process however many
@@ -286,7 +286,7 @@ pytest over `tests/unit/`, file by file:
   joined (`tailscale_joined_before`, its tag matched whole in a `;`- or `,`-joined list), when the key is
   held back, under `key` by name; any login the role's
   Tailscale has had, or a sign-in under way, held to be recorded, by configure and by the sign-in alike, and
-  the record (`tasks/tailscale_record.yml`) after each, against the fake Proxmox: tagging only the VM of that
+  the record (`tasks/vpn_members.yml`, `tasks/vm_marks.yml`) after each, against the fake Proxmox: tagging only the VM of that
   name and VMID that is the project's, its tags written back as read, never in check mode, and VM by VM -
   one Proxmox cannot answer for said and kept for NEXT STEPS while the others are written; a refused
   key and an OAuth secret without tags as reports; one `set` for drift; a login or a Tailscale made by hand only read; tags compared only
@@ -613,10 +613,10 @@ that must not be claimed, or that are this project's but once broke a fleet-wide
 
 | Fixture | Why |
 |---|---|
-| `stranger`, tagged `claude-on-proxmox-staging` | a substring match would configure someone else's staging box |
-| `bystander`, tagged `not-claude-on-proxmox` | the same trap from the other side |
+| `stranger`, tagged `agent-warehouse-staging` | a substring match would configure someone else's staging box |
+| `bystander`, tagged `not-agent-warehouse` | the same trap from the other side |
 | `nonic`, correctly tagged but with its `net0` removed (`delete=net0`) | `net_mac` used to raise and take discovery down for the fleet |
-| `commas`, tagged `ansible,claude-on-proxmox` and kept comma-joined | exercises the `,` separator of `claude_vm_tag_pattern`; every other VM has the `;` form |
+| `commas`, tagged `ansible,claude-on-proxmox` and kept comma-joined | exercises the `,` separator of `claude_vm_tag_pattern`, every other VM having the `;` form, and the ownership tag through 1.x, which discovery, `just status` and destroy take as the new one's |
 | `netone`, tagged, LAN NIC on `net1` and no `net0` | skipped with `proxmox_nic: net0`, found at `192.0.2.59` with `net1` — discovery and the listing used to hard-code `net0` |
 | `parked`, tagged, **stopped**, VMID **4013** | its agent answers `VM 4013 is not running`, which the unanchored `40[13]` took for a 401 and failed discovery and the fleet listing |
 | `legacy`, tagged `claude;ansible` as `main` tagged VMs, stopped | `destroy.yml` must refuse it, and delete it with `proxmox_vm_allow_untagged_delete` |
@@ -674,7 +674,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   mistyped project (the projects are listed, the file among them is not), `parkbnb` for `ParkBnb`
   (suggested; only where the filesystem is case-sensitive, as on CI, since macOS's is not), a file,
   `../etc` and `..` (the playbook's own check), a VM with no projects directory,
-  an empty one, `.claude-on-proxmox` (the workspace files' own directory), a relative
+  an empty one, `.agent-warehouse` (the workspace files' own directory), a relative
   `vscode_workspaces_dir`, and one case over real SSH to an address nothing answers on. The twelve
   that `code.yml` refuses before it refreshes the alias run at once; the five it refuses after (the
   project's, the missing and the empty directory) write the shared SSH config, and run one by one beside
@@ -683,7 +683,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   config in the ephemeral directory never exists. The workspace files are read back and parsed: one
   folder, the project's path; one task, `folderOpen`, `bash -l` and a helper's path in that folder,
   the helpers written beside the files byte for byte as `playbooks/files/` has them; the whole
-  directory's hides `.claude-on-proxmox`. With VS Code settings in the ephemeral directory (never the
+  directory's hides `.agent-warehouse`. With VS Code settings in the ephemeral directory (never the
   developer's) saying nothing, `"on"` behind a commented-out `"off"`, and `"off"`, the message asks
   for trust and *Allow*, trust only, and says the terminal will not start; reopening leaves the file's
   mtime and checksum alone; `editor_claude_terminal: false` opens the bare folder and writes no file,
@@ -699,6 +699,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
 | `fake_github_api.py` | the GitHub REST API | serves local bare repositories, in paginated responses; `/user` and `/user/repos` answer a token, private repositories included; each repository's branches, none for a never-pushed one or a fresh one - listed as GitHub lists a repository created with no commit, with a push time and a size of 0, and served as a bare repository with no commit; `POST /credentials/revoke` takes credentials unauthenticated and refuses an authenticated call, as GitHub does, and `/fake/revoked` lists what it took, so a test can hold that nothing reaches it |
 | `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went |
+| `fake_opnsense.py` | OPNsense's API, for the `opnsense` hub | WireGuard instances (each answered with a canned `privkey`, which the module must drop) and their peers by uuid, added, set, deleted and reconfigured; the firmware version, paging, 401 and both validation shapes on cue under `/api/fake/`; every request logged with whether it carried the key |
 | `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's, and `fake-quit` end unapproved right after naming it |
 | `fake_tailscale.sh` | `tailscale` | output that is Tailscale's own, as the research and a Headscale run recorded it, for the commands the role runs, against a node whose state is files under HOME: `status --json` and `debug prefs` shaped as a Running and a signed-out node really print, a join with a canned key on stdin, a refused or slow key, the web login's page and an approval that lands after `up` has exited (by the clock, `approve-after`, or at the Nth status read after the page, `approve-at-read`, which no loaded machine can outrun; `up-waits` shortens `up`'s own wait), `NeedsMachineAuth`, a taken name, `NoState` reads after a start, logout resetting the prefs, a node ID (`node-id`), and with `real-daemon` an answer only while the real daemon's socket exists; a key is never written, and `calls.log` shows `KEY` in its place |
 | `fake_anthropic_api.py` | the Anthropic Messages API | for the real `claude` in the `configure` scenario: one short answer to every request, streamed or not, on 127.0.0.1 only, with each request's body logged, so a test reads the system prompt and the history a resume sent |

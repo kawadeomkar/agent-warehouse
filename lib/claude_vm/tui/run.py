@@ -209,7 +209,7 @@ class Run(model.Run):
     def _header(self, now, limit):
         # The plan is printed whole above the region, as every report is: here it could only be cut.
         started = time.strftime("%H:%M", time.localtime(self.started_at))
-        first = [("claude-on-proxmox", "b"), (f"  {self.title} · started {started}", "")]
+        first = [("agent-warehouse", "b"), (f"  {self.title} · started {started}", "")]
         if self.check:
             first.append((" · a dry run: nothing is changed", "y"))
         # A run drawn as its steps has no stage row to say its VM on: the header does, at its right.
@@ -538,7 +538,7 @@ class Run(model.Run):
         else:
             where = f" at {self.first_failure}" if self.first_failure else ""
             said, style = f"failed after {took}{where}", "r"
-        return [("claude-on-proxmox", "b"), (f"  {self.title} · {said}", style), tail]
+        return [("agent-warehouse", "b"), (f"  {self.title} · {said}", style), tail]
 
     def summary(self, now, cols, color=True, failed_hosts=(), next_steps=()):
         limit = cols - 1

@@ -76,7 +76,7 @@ secret gets a canned value and a place in those searches.
   `claude_vm/ansible/` imports `ansible`, and no module imports `yaml`, `asyncio` or `subprocess` when it is
   imported; a record is a frozen `Checked` dataclass and leaves the core only through `to_wire`. What runs on a VM
   (`playbooks/library/`, `playbooks/module_utils/`, `playbooks/files/`) never imports it and is handed data
-  instead; what the modules in `playbooks/library/` share goes in `playbooks/module_utils/claude_on_proxmox.py`,
+  instead; what the modules in `playbooks/library/` share goes in `playbooks/module_utils/agent_warehouse.py`,
   standard library only, which Ansible sends with each
   ([docs/architecture/custom-code.md](docs/architecture/custom-code.md) §7.10). `tests/unit/test_claude_vm.py`
   holds these.
@@ -111,6 +111,20 @@ secret gets a canned value and a place in those searches.
 4. Add it to the role table in `docs/reference/roles/README.md` and to the `nav` in `zensical.toml`,
    and run `just docs`, which writes its reference page from its files.
 
+## Adding a member to a choice
+
+The editor and the VPN are choices: a setting naming one row of a list in the inventory defaults
+(`docs/architecture/custom-code.md` §7.11). A new editor or VPN is:
+
+1. Its row, literal values only, in `claude_editors` or `claude_vpns`, and its value in the setting's description in
+   `inventory/group_vars/all/defaults.yml` and `local.yml.example`.
+2. Its code: an editor's check file (`playbooks/tasks/<editor>_check.yml`) and its family's plan
+   (`lib/claude_vm/editors/<family>.py`); a VPN's role (Adding a role, above), imported in `playbooks/configure.yml`
+   with a literal name and its `when`, its `status` and `release` entry points beside the others'.
+3. Its cases in the choice's conformance tests (`tests/unit/test_editor_conformance.py`, `tests/unit/test_choices.py`),
+   and its guide in `docs/guides/`.
+4. `just docs`, and the guide in `docs/README.md` and `zensical.toml`.
+
 ## Pull requests
 
 CI runs lint, unit tests, every Molecule scenario and the integration scenario on your PR, plus a
@@ -143,12 +157,14 @@ and only that:
 - the settings `local.yml.example` and `vault.yml.example` list, and the shape of `inventory/hosts.yml`: the
   `proxmox` group, its host and that host's `ansible_host`;
 - the role names `just deploy --tags` takes: `common`, `vscode_server`, `dev_tools`, `claude_code`,
-  `github_projects` and `tailscale`;
+  `github_projects`, `tailscale` and `wireguard`;
 - the settings every recipe takes from the environment or before its name: `ANSIBLE_ARGS`, `LOG_DIR`,
   `LOG_RETENTION_DAYS`, `PYTHON` and `UV`;
 - the path of the helper `just code` copies to a VM for any editor's Claude task, which a task of your own may
   run (`docs/guides/zed.md`): `helpers/claude-start.sh` in just code's own directory there,
-  `<projects>/.claude-on-proxmox/helpers/claude-start.sh` by default, run as `bash <path>` with no arguments;
+  `<projects>/.agent-warehouse/helpers/claude-start.sh` by default, run as `bash <path>` with no arguments (its 1.x
+  path, `<projects>/.claude-on-proxmox/helpers/claude-start.sh`, is kept through 2.x as a link to it on every VM
+  `just code` moved the directory on);
 - `just status`'s exit codes for a run that reads the fleet - 0 nothing is wrong, 1 a problem, 2 something
   could not be read, 3 the run failed - and the JSON `just status --json` and `just settings --json` print, to
   which a release may add keys but never removes or renames one (`test_status.py` and `test_settings.py` hold

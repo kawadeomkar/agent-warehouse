@@ -1,7 +1,7 @@
 ---
 galaxy_info:
-  author: claude-on-proxmox contributors
-  namespace: claude_on_proxmox
+  author: agent-warehouse contributors
+  namespace: agent_warehouse
   role_name: proxmox_vm
   description: Clone, configure (cloud-init) and start a VM on Proxmox VE via its API
   license: MIT

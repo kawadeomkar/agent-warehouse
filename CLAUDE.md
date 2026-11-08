@@ -123,16 +123,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 ## Invariants — do not break these
 
 - **No addresses in git.** The Proxmox host's address is the only one anyone supplies, and it lives
-  in git-ignored `inventory/hosts.yml`. VM addresses are always DHCP, read back from the QEMU guest
+  in git-ignored `inventory/hosts.yml` - but for a WireGuard server's, which `vpn: wireguard` dials
+  (`wireguard_hub_endpoint`, in git-ignored `local.yml`). VM addresses are always DHCP, read back from the QEMU guest
   agent. Never add a VM to a committed inventory, and never hardcode a VM address in a default.
 - **No secrets in git.** Secrets go in `inventory/group_vars/all/vault.yml` (ansible-vault). CI runs
   gitleaks plus `tests/check_no_local_files.sh`, which blocks `hosts.yml`, `local.yml`, `vault.yml`,
   `.vault_pass`, `host_vars/` and friends. `tests/unit/test_tracked_files.py` tests that guard both
   ways — extend it when you change the patterns.
 - **The ownership tag is the safety interlock.** Every VM this project creates carries
-  `claude-on-proxmox` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
+  `agent-warehouse` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
   provisioning *refuse* an existing VM without it — provisioning also refuses a template. It is
-  matched as a whole tag via `claude_vm_tag_pattern`, never as a substring.
+  matched as a whole tag via `claude_vm_tag_pattern`, never as a substring. While `claude_vm_tag` is
+  the default, 1.x's `claude-on-proxmox` is owned too (`claude_vm_tags_owned`), and every tag made
+  from the ownership tag - `-tailscale` above all, which keeps the vault's key from a VM - is read
+  under either; only provisioning writes them under the new tag (`proxmox_vm_tags_1x`), so a reader
+  that takes one prefix alone hands the key to a VM 1.x recorded.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -152,7 +157,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       made by hand stays, and the token only lists there. A git identity set by hand is never replaced:
       `user.name` and `user.email` are each derived only where unset.
     - A cleared vault token signs out only the login the role itself made, told by the marker
-      `~/.config/claude-on-proxmox/gh-login` on the VM (the token's digest), by account. Never decide a logout
+      `~/.config/agent-warehouse/gh-login` on the VM (the token's digest), by account. Never decide a logout
       from the token's prefix alone: a token the user pasted into gh by hand looks the same.
     - Under `auto`, a vault token gh refuses for a missing scope keeps listing and gh stays signed out, the
       scopes to add said (`github_projects_token_short`): failing it would fail every VM on upgrade, since they
@@ -259,8 +264,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The key is used from a settled `NeedsLogin` with no `HaveNodeKey` only, on a VM whose Tailscale never
       had a login, and never sent to a node that has a login: one Tailscale no longer accepts logs the node out
       (tailscale#19501).
-    - That a VM's Tailscale had a login is kept in Proxmox, where the VM cannot change it:
-      `tasks/tailscale_record.yml` tags the VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever
+    - That a VM's Tailscale had a login is kept in Proxmox, where the VM cannot change it: Tailscale's plan of
+      its members (`tasks/vpn_members.yml`, `lib/claude_vm/vpn/tailscale.py`), applied by `tasks/vm_marks.yml`,
+      the one writer of a mark, tags the VM `<ownership tag>-tailscale` (`claude_vm_tailscale_tag`) wherever
       the role saw a login or a sign-in under way (`tailscale_login_seen`, `tailscale_login_to_record`), and the
       role reads it as `tailscale_joined_before` from the listing, never from the VM, whose root can make
       `tailscale` say anything to be handed the fleet's key. `proxmox_vm` keeps the tag (`proxmox_vm_kept_tags`).
@@ -273,7 +279,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The web login runs one `up` per attempt and reads the page once - each keyless `up` mints a new one -
       opens it here only when it is Tailscale's own page (or one under `tailscale_login_server`), and never runs
       over an expired login made by hand (`tailscale_login_expired_elsewhere`).
-    - Only a Tailscale the marker `/var/lib/claude-on-proxmox/tailscale-installed` marks is the role's business;
+    - Only a Tailscale the marker `/var/lib/agent-warehouse/tailscale-installed` marks is the role's business (through
+      1.x under `/var/lib/claude-on-proxmox`, which the role moves first, its drop-in renamed with its comment so
+      tailscaled is not restarted; configure's stat and `ownership.yml` read the 1.x one until then);
       one installed any other way is left alone, off too, and reported while on. Only the role's own login (the
       node key in `tailscale-joined`) has its settings changed, by one `tailscale set`. Tags are compared only
       when configured and never "fixed" by a web login. The log switch is a systemd drop-in written before the
@@ -285,15 +293,38 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the Vagrantfile is keyless with logs
       off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The template is
       never signed in to anything.
+- **WireGuard's VMs are peers of the user's server, which the project never writes, and a VM's key never leaves
+  it.** Read [§5.9](docs/architecture/roles.md#59-wireguard--each-vm-a-peer-of-your-wireguard-server) first.
+    - With `vpn: wireguard` (docs/guides/wireguard.md) the `wireguard` role makes the VM's key on the VM (`wg
+      genkey` under `umask 077`, `root:systemd-network` 0640, what networkd's `PrivateKeyFile=` reads), never
+      reads it - only `wg pubkey`'s output leaves the VM - and touches only its own names (`claude-wg`,
+      `50-claude-wg.*`, `claude-wg.key`, the marker `wireguard-installed`, and `wireguard-tools` where the marker
+      says it installed it), never a `wg0` of the user's.
+    - Who is on the network is WireGuard's plan in the core (`lib/claude_vm/vpn/wireguard.py`, held by
+      `registry.py`): each VM's address from `wireguard_vm_prefix`, kept for its life as the mark
+      `<ownership tag>-wg-<address>` in Proxmox (`tasks/vm_marks.yml`, the one writer of a mark), its link's every
+      value, and the peer its server is to have - only by the name `<tag>-<vm>`, the VM's own key and its own
+      address as a /32 - which the run says (`wireguard_hub: manual`), or writes through the router's API
+      (`opnsense`: `playbooks/library/opnsense_wireguard.py`, the certificate pinned, OPNsense 26.7.2 or later,
+      every `privkey` the API answers with dropped), changing only a peer with every mark of the project's,
+      removing one only from a complete listing, and `just destroy` the one to remove. Settings that cannot work
+      are refused before anything is written.
+    - The plan runs between the role's two entry points: `key` in configure's play, the plan on localhost, `main`
+      in a play of its own, each in a block whose rescue records a failure raised at the end of the run.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
-    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/claude-on-proxmox.conf` (plus one `Include`
+    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
       line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
-      `${XDG_DATA_HOME:-~/.local/share}/claude-on-proxmox/checkouts/<folder>-<cksum of its path>`
+      `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
       (`tools/env-run --data`: the Galaxy collections, and the Python environment when the user brings no
       virtualenv), which `just clean env` deletes, and nothing beside it. Nothing else in `~/.ssh` is ever
-      edited. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
+      edited. Through 1.x they were `~/.ssh/claude-on-proxmox.conf` and `.../claude-on-proxmox/checkouts/...`:
+      the first alias write moves the managed file, its block markers rewritten, before anything is read or
+      written (`claude_ssh_config_legacy_file`, the default's directory only, so a test's stays in its own), and
+      `just install` moves the checkout's folder (`tools/env-run --legacy-data`), making the environment in it
+      again; `just status` and the prune read the 1.x file while it is the one there, and `just clean env`
+      deletes a 1.x folder left behind. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
       unless the user points `destroy_sessions_dir` elsewhere.
     - The fourth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
       window step run `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/tasks/vscode_check.yml`):
@@ -316,9 +347,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
   [§7.6](docs/architecture/custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)
   and [In the editor](docs/architecture/security-model.md#in-the-editor) first.
-    - It writes in `<projects>/.claude-on-proxmox/`, beside the repositories and never in one: a directory inside
+    - It writes in `<projects>/.agent-warehouse/`, beside the repositories and never in one: a directory inside
       a checkout (a `.git` in any folder from the first below the projects directory down to it) is refused,
-      for every editor, before anything is written on the VM.
+      for every editor, before anything is written on the VM. Through 1.x it was `<projects>/.claude-on-proxmox/`:
+      the first run of 2.0 moves it (`mv -n`, the one command of the allowlist's that is not a read, under
+      `code_ws_dir_moves`, read from the stats before the move) and keeps only the shared helper's 1.x path, as a
+      link to the new one - never a link of the whole directory, which Zed would read its tasks file through twice.
+      Zed's 1.x marker and the notes' 1.x markers are just code's too, and written again.
     - In VS Code, never make the "Session notes" task the Claude task's `dependsOn`: VS Code then asks every
       task provider, which held Claude back 7.5 s live, and `test_code_session.py` fails on any `dependsOn`.
       The notes' bash runs its Python in the background, waits 5 s at most and ends `exit 0`; never `exec`
@@ -418,7 +453,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
 - **`just deploy` is drawn live, and nothing a person must read is drawn only there.** Read
   [`just deploy`, drawn live](docs/architecture/custom-code.md#just-deploy-drawn-live) first.
-    - Only the recipes drawn live export `CLAUDE_ON_PROXMOX_LIVE` (the run's title) - `deploy`, `login`,
+    - Only the recipes drawn live export `AGENT_WAREHOUSE_LIVE` (the run's title) - `deploy`, `login`,
       `destroy`, `code`, and `lint`, `init` and `test` for their parts - and the engine takes it out of its
       environment at once, so nothing the run starts inherits it. Any `-v` or another stdout callback is the
       stream.
@@ -448,9 +483,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The vault is re-encrypted by piping its text into `ansible-vault encrypt`'s stdin under `no_log`, never
       through `copy`, which decrypts. `.vault_pass` is created `O_EXCL`, 0600, and never rewritten.
     - The token secret is never taken from the command line - only from `--token-secret-file`'s file or
-      `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, read in the playbook - and `just init` refuses any word after its options
-      without printing it. Tailscale's auth key is asked only after a `y`, hidden, and never taken from the
-      command line.
+      `AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its 1.x name, while that is unset; two
+      different secrets under the two names are refused unsaid), read in the playbook - and `just init` refuses any
+      word after its options without printing it. Tailscale is asked about while `local.yml` sets neither
+      `tailscale_enabled` nor `vpn` (which outranks it), and a `--tailscale` the `vpn` set contradicts fails the run,
+      naming both. Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`),
+      hidden, and never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
       `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and
@@ -472,7 +510,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       both).
 - **`just status` is read-only information, and must never change anything.** Read
   [§4.6](docs/architecture/lifecycle.md#46-playbooksstatusyml--read-only-drawn-live) and
-  [§7.7](docs/architecture/custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsclaude_on_proxmox_statuspy--just-status)
+  [§7.7](docs/architecture/custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)
   first.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
       real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only), not GitHub or Tailscale,
@@ -488,7 +526,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       that a run against the fake sent nothing but GETs.
     - Every value a VM or Proxmox supplies is made one line of plain text (`one_line`, `status_clean`) before the
       model keeps it; every line of the report fits 100 columns. Its stdout callback
-      (`callback_plugins/claude_on_proxmox_status.py`) takes the finished report only from the report play's own
+      (`callback_plugins/agent_warehouse_status.py`) takes the finished report only from the report play's own
       `set_fact` on localhost.
     - Every status run in a test pins `status_report_file` and `claude_ssh_config_file` into its own directory
       and gets a refusing stand-in `ssh` (`status_root`); the reads inside a VM run against stand-in VMs
@@ -569,7 +607,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   ([§6.3](docs/architecture/variables.md#63-computed-internals)).
 - **Existence is not convergence.** `present.yml` tags a new VM in a call of its own straight after the clone,
   and `proxmox_vm_needs_configuration` keys off the cloud-init user, which only the settings call writes, and the
-  `claude-on-proxmox-unfinished` tag (`proxmox_vm_unfinished_tag`), which only the call after a successful start
+  `agent-warehouse-unfinished` tag (`proxmox_vm_unfinished_tag`), which only the call after a successful start
   removes. Never key it off the ownership tag again: "untagged" must mean "not ours". Do not decide the start
   from `status` alone, and do not run the resize on every run
   ([Existence is not convergence](docs/architecture/convergence.md#existence-is-not-convergence)).
@@ -596,13 +634,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   user's real home ([§4.4](docs/architecture/lifecycle.md#44-playbooksconfigureyml)).
 - **NEXT STEPS is recorded by each report, never read off the output.** Each report is followed straight away by
   a `set_stats` record under its owner's `*_next` stat, `{vm: {matter: line}}`, made from the facts its message
-  is built from: the line while something is left, `''` once nothing is. `callback_plugins/claude_on_proxmox.py`
+  is built from: the line while something is left, `''` once nothing is. `callback_plugins/agent_warehouse.py`
   reads only those tasks' own results, never the run's custom stats, to which any module's `ansible_stats` adds.
   Never decide from a message's text. `tests/unit/test_attention_callback.py` fails on a report without its
   record, or with one under `no_log`, its own or one from above it, which censors the result the record is read
   from. The harness's runs never load the callback - their `ansible.cfg` holds only
   `inject_facts_as_vars = false`, and the JSON callback shows custom stats, which `_left_to_do` reads
-  ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsclaude_on_proxmoxpy--the-waits-and-next-steps)).
+  ([§7.5](docs/architecture/custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)).
 - **Discovery is a playbook, not the `community.proxmox` inventory plugin.** Decided, not open
   ([§15.1](docs/architecture/decisions.md#151-discovery-stays-a-playbook-not-the-inventory-plugin)).
 - **Fleet listings read `/cluster/resources`, never an unfiltered `proxmox_vm_info`**, which fails for every VM
@@ -732,7 +770,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `--only`; `--start` only where something is started - are the first lines of each script, said before any
       check or tool. `just deploy configure`, a stage where the names go, asks at a
       terminal whether the stage or a VM so named was meant, and is refused without one.
-    - `just init` takes `--token-secret-file` and the exported `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, never the secret
+    - `just init` takes `--token-secret-file` and the exported `AGENT_WAREHOUSE_TOKEN_SECRET`, never the secret
       itself: `--token-secret` is no option, and a word after its options - make's `TOKEN_SECRET=...` - is caught
       by `EXTRA` and refused without being said.
     - `--project` is a GitHub repository name, so `/`, `.` and `..` are refused, and `code.yml` repeats the check

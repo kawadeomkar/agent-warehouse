@@ -129,6 +129,8 @@ VMS = {
             "scsi0": "local-lvm:base-9000-disk-0,discard=on,size=3584M",
             "ide2": "local-lvm:vm-9000-cloudinit,media=cdrom",
             "net0": "virtio=BC:24:11:00:23:28,bridge=vmbr0",
+            # As a 1.x build recorded it, on purpose: every scenario's deploy then holds that 2.0 rebuilds no template
+            # for its record's 1.x name alone.
             "description": "Built by claude-on-proxmox: build=1;"
             " image=https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img;"
             " packages=qemu-guest-agent; sha256=0000000000000000000000000000000000000000000000000000000000000000",
@@ -152,7 +154,7 @@ VMS = {
         "node": DOWN_NODE,
         "status": "unknown",
         "template": 0,
-        "config": {"name": "ours-on-a-node-that-is-down", "tags": "claude-on-proxmox"},
+        "config": {"name": "ours-on-a-node-that-is-down", "tags": "agent-warehouse"},
     },
     # A container carrying this project's tag, inside the fleet's numbering:
     # the provision scenario numbers alpha and beta from NEXTID_LOWER and must
@@ -165,7 +167,7 @@ VMS = {
         "type": "lxc",
         "status": "running",
         "template": 0,
-        "config": {"hostname": "ours-container", "tags": "claude-on-proxmox"},
+        "config": {"hostname": "ours-container", "tags": "agent-warehouse"},
     },
 }
 # /cluster/nextid answers with the lowest free VMID, as Proxmox does - not the

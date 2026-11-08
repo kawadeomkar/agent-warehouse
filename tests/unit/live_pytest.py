@@ -1,7 +1,7 @@
 """pytest's run as `just test` draws it: each test's start and end, as JSON lines, for tools/live's pytest reader.
 
 `just test` runs pytest with `-p live_pytest`, which pytest finds on its pythonpath (tests/unit). With
-CLAUDE_ON_PROXMOX_LIVE_PYTEST naming a file - tools/live sets it for a drawn run, and nothing else does - each event is
+AGENT_WAREHOUSE_LIVE_PYTEST naming a file - tools/live sets it for a drawn run, and nothing else does - each event is
 a line appended to it: how many tests there are, once collected; each test as it starts; each test's outcome as it
 ends, with what a failure said. Without it the plugin does nothing, so a run piped, in CI or by hand is pytest's own.
 Under pytest-xdist the workers write nothing: the controller collects nothing itself, so the count comes from the
@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-EVENTS = "CLAUDE_ON_PROXMOX_LIVE_PYTEST"
+EVENTS = "AGENT_WAREHOUSE_LIVE_PYTEST"
 _run = {"out": None, "counted": False, "config": None}
 
 

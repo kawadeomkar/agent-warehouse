@@ -39,7 +39,8 @@ BETA = {"name": "beta", "address": "192.0.2.52", "user": "dev", "workspace": "/h
 def _paths(tmp_path: Path) -> dict[str, str]:
     ssh_dir = tmp_path / "home" / ".ssh"
     return {
-        "claude_ssh_config_file": str(ssh_dir / "claude-on-proxmox.conf"),
+        "claude_ssh_config_file": str(ssh_dir / "agent-warehouse.conf"),
+        "claude_ssh_config_legacy_file": str(ssh_dir / "claude-on-proxmox.conf"),
         "claude_ssh_user_config": str(ssh_dir / "config"),
     }
 
@@ -105,7 +106,7 @@ def _user_config(tmp_path: Path) -> Path:
 
 
 def _blocks(text: str) -> list[str]:
-    return re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M)
+    return re.findall(r"^# BEGIN agent-warehouse: (\S+)$", text, flags=re.M)
 
 
 def _ssh_g(config: Path | str, alias: str = "alpha", home: Path | None = None) -> str:
@@ -132,13 +133,13 @@ def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Pa
 
     managed = _managed(tmp_path)
     assert _blocks(managed) == ["alpha", "beta"]
-    assert "# BEGIN claude-on-proxmox: alpha\nHost alpha\n    HostName 192.0.2.51\n    User dev\n" in managed
+    assert "# BEGIN agent-warehouse: alpha\nHost alpha\n    HostName 192.0.2.51\n    User dev\n" in managed
     # The block holds what ssh reads, and no state of this project's.
     assert "# vmid" not in managed
     assert "# workspace" not in managed
     assert "ForwardAgent" not in managed
     assert "IdentityFile" not in managed
-    assert managed.endswith("# END claude-on-proxmox: beta\n")
+    assert managed.endswith("# END agent-warehouse: beta\n")
 
     user_config = _user_config(tmp_path)
     assert user_config.read_text().splitlines()[0] == f"Include {_paths(tmp_path)['claude_ssh_config_file']}"
@@ -156,6 +157,60 @@ def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Pa
     again = _run(tmp_path, [ALPHA, BETA])
     assert again.returncode == 0, again.stdout + again.stderr
     assert _changed(again) == 0
+
+
+# The managed file as 1.x wrote it: its 1.x name, its 1.x markers, and its Include at the top of the user's config.
+LEGACY = "".join(
+    f"# BEGIN claude-on-proxmox: {vm['name']}\nHost {vm['name']}\n    HostName {vm['address']}\n    User dev\n"
+    f"# END claude-on-proxmox: {vm['name']}\n"
+    for vm in (ALPHA, BETA)
+)
+
+
+def _as_1x_left_it(tmp_path: Path) -> Path:
+    legacy = Path(_paths(tmp_path)["claude_ssh_config_legacy_file"])
+    legacy.parent.mkdir(parents=True, mode=0o700)
+    legacy.write_text(LEGACY)
+    legacy.chmod(0o600)
+    _user_config(tmp_path).write_text(f"Include {legacy}\n\nHost github.com\n    User git\n")
+    return legacy
+
+
+def test_the_managed_file_by_its_1x_name_is_moved_once_with_its_markers(tmp_path: Path) -> None:
+    # One VM refreshed, as just code alpha does: the other VM's alias moves with the file rather than being lost, the
+    # new file gets its Include above the old one, and the old Include stays, of a file no longer there.
+    legacy = _as_1x_left_it(tmp_path)
+    result = _run(tmp_path, [{**ALPHA, "address": "192.0.2.61"}])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not legacy.exists()
+    managed = _managed(tmp_path)
+    assert _blocks(managed) == ["alpha", "beta"] and "claude-on-proxmox" not in managed
+    assert oct(Path(_paths(tmp_path)["claude_ssh_config_file"]).stat().st_mode & 0o777) == "0o600"
+    lines = _user_config(tmp_path).read_text().splitlines()
+    assert lines[:2] == [f"Include {_paths(tmp_path)['claude_ssh_config_file']}", f"Include {legacy}"]
+    # As ssh reads the user's config: the new file, the address just written, and beta's as 1.x left it.
+    home = tmp_path / "home"
+    assert "hostname 192.0.2.61" in _ssh_g(_user_config(tmp_path), "alpha", home).splitlines()
+    assert "hostname 192.0.2.52" in _ssh_g(_user_config(tmp_path), "beta", home).splitlines()
+    again = _run(tmp_path, [{**ALPHA, "address": "192.0.2.61"}])
+    assert again.returncode == 0 and _changed(again) == 0, again.stdout + again.stderr
+
+
+def test_removing_an_alias_moves_the_managed_file_by_its_1x_name_first(tmp_path: Path) -> None:
+    legacy = _as_1x_left_it(tmp_path)
+    removed = _run(tmp_path, [{"name": "alpha"}], state="absent")
+    assert removed.returncode == 0, removed.stdout + removed.stderr
+    assert not legacy.exists() and _blocks(_managed(tmp_path)) == ["beta"]
+
+
+def test_the_managed_file_by_both_names_is_said_and_the_old_one_left(tmp_path: Path) -> None:
+    legacy = _as_1x_left_it(tmp_path)
+    Path(_paths(tmp_path)["claude_ssh_config_file"]).write_text("")
+    result = _run(tmp_path, [ALPHA])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert legacy.read_text() == LEGACY
+    assert _blocks(_managed(tmp_path)) == ["alpha"]
+    assert "the managed SSH config's name through 1.x" in result.stdout
 
 
 def test_a_new_address_rewrites_one_block_and_keeps_the_include_once(tmp_path: Path) -> None:
@@ -320,10 +375,10 @@ def test_the_mode_of_an_existing_user_config_is_left_alone(tmp_path: Path, forei
 @pytest.mark.parametrize(
     "line",
     [
-        "Include ~/.ssh/claude-on-proxmox.conf",
-        "Include ${HOME}/.ssh/claude-on-proxmox.conf",
-        "Include claude-on-proxmox.conf",
-        "  include   ~/.ssh/claude-on-proxmox.conf  ",
+        "Include ~/.ssh/agent-warehouse.conf",
+        "Include ${HOME}/.ssh/agent-warehouse.conf",
+        "Include agent-warehouse.conf",
+        "  include   ~/.ssh/agent-warehouse.conf  ",
     ],
 )
 def test_an_include_already_there_in_another_spelling_is_not_added_again(tmp_path: Path, line: str) -> None:
@@ -350,10 +405,10 @@ def _probe(tmp_path: Path, config: Path) -> str:
 
 
 def _ssh_reads_include(tmp_path: Path, line: str) -> bool:
-    """Whether this machine's ssh reaches ~/.ssh/claude-on-proxmox.conf through that Include spelling."""
+    """Whether this machine's ssh reaches ~/.ssh/agent-warehouse.conf through that Include spelling."""
     home = tmp_path / "probe-home"
     (home / ".ssh").mkdir(parents=True)
-    (home / ".ssh" / "claude-on-proxmox.conf").write_text("Host alpha\n    HostName 192.0.2.99\n")
+    (home / ".ssh" / "agent-warehouse.conf").write_text("Host alpha\n    HostName 192.0.2.99\n")
     config = home / ".ssh" / "config"
     config.write_text(f"{line}\n")
     return "hostname 192.0.2.99" in _ssh_g(config, home=home)
@@ -365,7 +420,7 @@ def test_an_include_below_a_host_block_does_not_count(tmp_path: Path) -> None:
     # top, and the user's own kept.
     user_config = _user_config(tmp_path)
     user_config.parent.mkdir(parents=True)
-    before = "Host github.com\n    User git\n    Include ~/.ssh/claude-on-proxmox.conf\n"
+    before = "Host github.com\n    User git\n    Include ~/.ssh/agent-warehouse.conf\n"
     user_config.write_text(before)
     result = _run(tmp_path, [ALPHA])
     assert result.returncode == 0, result.stdout + result.stderr
@@ -508,6 +563,11 @@ def test_every_playbook_scenario_keeps_the_managed_file_out_of_the_home_director
             "or the scenario writes into the developer's ~/.ssh"
         )
     assert found.get("claude_ssh_config_include") is False, f"{scenario.name}: claude_ssh_config_include must be false"
+    # The managed file's 1.x name, which a run moves from: beside claude_ssh_config_file unless a scenario names it,
+    # and then in the ephemeral directory too.
+    if "claude_ssh_config_legacy_file" in found:
+        legacy = str(found["claude_ssh_config_legacy_file"])
+        assert EPHEMERAL in legacy, f"{scenario.name}: claude_ssh_config_legacy_file must point into ${EPHEMERAL}"
 
 
 def _commands(items: list) -> list:
@@ -578,10 +638,10 @@ def test_an_include_ssh_does_not_expand_is_not_taken_for_ours(tmp_path: Path) ->
     """ssh expands ${HOME} but not $HOME, so that line includes nothing and ours is added."""
     user_config = _user_config(tmp_path)
     user_config.parent.mkdir(parents=True)
-    user_config.write_text("Include $HOME/.ssh/claude-on-proxmox.conf\n")
+    user_config.write_text("Include $HOME/.ssh/agent-warehouse.conf\n")
     result = _run(tmp_path, [ALPHA])
     assert result.returncode == 0, result.stdout + result.stderr
     lines = user_config.read_text().splitlines()
     assert lines[0] == f"Include {_paths(tmp_path)['claude_ssh_config_file']}"
-    assert "Include $HOME/.ssh/claude-on-proxmox.conf" in lines
+    assert "Include $HOME/.ssh/agent-warehouse.conf" in lines
     assert "hostname 192.0.2.51" in _probe(tmp_path, user_config)

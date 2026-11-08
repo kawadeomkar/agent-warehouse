@@ -11,26 +11,26 @@
   ansible.builtin.include_tasks: state.yml
   vars:
     tailscale_settle_seconds: 0
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 - name: status | Say how this VM is on Tailscale
   ansible.builtin.include_tasks: report.yml
-  when: tailscale_enabled | bool
+  when: tailscale_wanted | bool
 
 # What the report shows, and nothing else: no key, no login link.
 - name: status | Keep how this VM is on Tailscale
   ansible.builtin.set_fact:
     tailscale_status_found:
-      enabled: "{{ tailscale_enabled | bool }}"
+      enabled: "{{ tailscale_wanted | bool }}"
       installed: "{{ tailscale_installed | bool }}"
       ours: "{{ tailscale_ours | bool }}"
-      daemon_up: "{{ tailscale_daemon_up | bool if tailscale_enabled | bool else false }}"
-      backend: "{{ tailscale_backend if tailscale_enabled | bool else '' }}"
-      case: "{{ tailscale_report_case if tailscale_enabled | bool else 'off' }}"
-      dns_name: "{{ tailscale_dns_name if tailscale_enabled | bool else '' }}"
-      ipv4: "{{ tailscale_ipv4 if tailscale_enabled | bool else '' }}"
-      key_expiry: "{{ tailscale_self.KeyExpiry | default('') if tailscale_enabled | bool else '' }}"
+      daemon_up: "{{ tailscale_daemon_up | bool if tailscale_wanted | bool else false }}"
+      backend: "{{ tailscale_backend if tailscale_wanted | bool else '' }}"
+      case: "{{ tailscale_report_case if tailscale_wanted | bool else 'off' }}"
+      dns_name: "{{ tailscale_dns_name if tailscale_wanted | bool else '' }}"
+      ipv4: "{{ tailscale_ipv4 if tailscale_wanted | bool else '' }}"
+      key_expiry: "{{ tailscale_self.KeyExpiry | default('') if tailscale_wanted | bool else '' }}"
       line: >-
         {{ (tailscale_report_reported.msg | default('') | regex_replace('^' ~ (inventory_hostname | regex_escape) ~ ': ', ''))
-           if tailscale_enabled | bool else '' }}
-      left: "{{ tailscale_report_left | bool if tailscale_enabled | bool else false }}"
+           if tailscale_wanted | bool else '' }}
+      left: "{{ tailscale_report_left | bool if tailscale_wanted | bool else false }}"

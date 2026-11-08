@@ -109,7 +109,7 @@ hyphenate_names := 'names=$(IFS=,; printf %s "$*"); for name in $(printf %s "$na
 find_bin := 'bin=' + quote(BIN) + '; [ -n "$bin" ] || bin=$(PYTHON=' + quote(PYTHON) + ' tools/env-run --bin); ANSIBLE_COLLECTIONS_PATH=$(tools/env-run --collections); export ANSIBLE_COLLECTIONS_PATH'
 # tools/run-logged with the run's logging settings; its first argument is the
 # log's name.
-run_logged := 'env LOG_DIR=' + quote(if LOG_DIR == '' { '' } else { absolute_path(LOG_DIR) }) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' CLAUDE_ON_PROXMOX_LOG_STAMP=' + quote(stamp) + ' ' + quote(justfile_directory() / 'tools/run-logged')
+run_logged := 'env LOG_DIR=' + quote(if LOG_DIR == '' { '' } else { absolute_path(LOG_DIR) }) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' AGENT_WAREHOUSE_LOG_STAMP=' + quote(stamp) + ' ' + quote(justfile_directory() / 'tools/run-logged')
 # tools/live with the environment's Python and the run's logging settings, each option in its = form so that a
 # value starting with - (ANSIBLE_ARGS=-vvv) is still its value: `run <stage> [--step <label>] -- <command>` in front
 # of each command of a recipe drawn in parts, `end "$?"` from its trap.
@@ -145,11 +145,11 @@ stages := 'template|provision|configure|check|ssh-config'
 # The roles configuration can be narrowed to (deploy --tags), as configure.yml
 # tags them, and the roles with a Molecule scenario of their own (test --role):
 # those, and the two that build the template and the VMs.
-configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale'
+configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale wireguard'
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools wireguard vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
@@ -158,7 +158,7 @@ pre_commit_skip := 'yamllint,ansible-lint,ruff-check,ruff-format,gitleaks'
 # What init says when a word follows its options - a bare word, or an
 # answer as make took it, TOKEN_SECRET=... - without saying the word, which
 # may be the secret.
-init_extra_refused := "echo \"error: just init takes only its options (just help init), and nothing after them - never the token secret, which the command line would put in the shell's history and the process list: put it in a file only you can read, just init --token-secret-file <file>, or export CLAUDE_ON_PROXMOX_TOKEN_SECRET from wherever your secrets live - a CI secret, or read -rs at a prompt\" >&2; exit 1"
+init_extra_refused := "echo \"error: just init takes only its options (just help init), and nothing after them - never the token secret, which the command line would put in the shell's history and the process list: put it in a file only you can read, just init --token-secret-file <file>, or export AGENT_WAREHOUSE_TOKEN_SECRET from wherever your secrets live - a CI secret, or read -rs at a prompt\" >&2; exit 1"
 
 [arg('RECIPE', pattern='[a-z]+', help='The one recipe whose options to show')]
 [default]
@@ -171,7 +171,7 @@ help *RECIPE:
     if [ "$#" -eq 1 ]; then exec {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --usage "$1"; fi
     {{ quote(just_executable()) }} --justfile {{ quote(justfile()) }} --list --unsorted
     echo
-    echo "Without names, deploy and destroy act on claude-on-proxmox-default; status, login and deploy"
+    echo "Without names, deploy and destroy act on agent-warehouse-default; status, login and deploy"
     echo "--only configure, --check or --only ssh-config act on every VM this project created."
     echo "Options go after the recipe's name, settings before it or exported: ANSIBLE_ARGS='...' passes"
     echo "anything else to ansible-playbook in init, deploy, code, login, status and destroy, and"
@@ -195,7 +195,7 @@ help *RECIPE:
 # empty ones left out. The token's secret is never one of them: it is never
 # on the command line, which the shell's history keeps and the process list
 # shows. init_settings.yml reads it from --token-secret-file's file, or from
-# CLAUDE_ON_PROXMOX_TOKEN_SECRET in the environment. A word after the options
+# AGENT_WAREHOUSE_TOKEN_SECRET in the environment. A word after the options
 # is caught by EXTRA and refused without being said.
 [arg('EXTRA', help='Nothing: any word after the options is refused, unsaid')]
 [arg('PROMPT', long='no-prompt', value='no', help='Ask nothing, even at a terminal')]
@@ -206,7 +206,7 @@ help *RECIPE:
 [arg('TOKEN_ID', long='token-id', pattern='[A-Za-z0-9._-]*', help="The API token's ID, the part after its user's !, when it is not ansible")]
 [arg('GITHUB_USER', long='github-user', pattern='[A-Za-z0-9-]*', help='The GitHub account whose repositories are cloned')]
 [arg('TOKEN_USER', long='token-user', pattern='[A-Za-z0-9._@-]*', help="The API token's user, when it is not ansible@pve")]
-[arg('TOKEN_SECRET_FILE', long='token-secret-file', pattern='[A-Za-z0-9._/~+-]*', help="A file holding the token's secret (or CLAUDE_ON_PROXMOX_TOKEN_SECRET in the environment; never on the command line)")]
+[arg('TOKEN_SECRET_FILE', long='token-secret-file', pattern='[A-Za-z0-9._/~+-]*', help="A file holding the token's secret (or AGENT_WAREHOUSE_TOKEN_SECRET in the environment; never on the command line)")]
 [continue]
 [doc('Set up this checkout, then ask for what a first deploy needs')]
 [group('use')]
@@ -258,7 +258,7 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
       [ -n "$hook" ] || hook=$(git rev-parse --git-path hooks/pre-commit)
       if ! cmp -s tools/git-hook "$hook" || ! [ -x "$hook" ]; then
         if [ -e "$hook" ] || [ -L "$hook" ]; then
-          if grep -q -e 'File generated by pre-commit' -e "claude-on-proxmox's pre-commit hook" "$hook" 2>/dev/null; then
+          if grep -q -e 'File generated by pre-commit' -e "agent-warehouse's pre-commit hook" -e "claude-on-proxmox's pre-commit hook" "$hook" 2>/dev/null; then
             rm -f "$hook"
           else
             mv "$hook" "$hook.legacy"
@@ -282,9 +282,9 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     # when each playbook prints as it did): its title, which no value given goes into, the state the two playbooks
     # share, and a trap that says the run's end however it ends, so neither is exec'd.
     if [ -z {{ quote(live_run) }} ] && [ -n {{ quote(live_state) }} ]; then
-      CLAUDE_ON_PROXMOX_LIVE=init
-      CLAUDE_ON_PROXMOX_LIVE_STATE={{ quote(live_state) }}-init-$$.json
-      export CLAUDE_ON_PROXMOX_LIVE CLAUDE_ON_PROXMOX_LIVE_STATE
+      AGENT_WAREHOUSE_LIVE=init
+      AGENT_WAREHOUSE_LIVE_STATE={{ quote(live_state) }}-init-$$.json
+      export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_STATE
       live_end() { {{ live }} end "$1" || :; }
       trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT
     fi
@@ -325,6 +325,16 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
 install LOCK='':
     {{ guard }}
     if [ -n "$1" ]; then UV_PYTHON_DOWNLOADS=never exec {{ quote(UV) }} lock; fi
+    # The checkout's folder had another name through 1.x: moved once, its collections kept. An environment in it is
+    # made again, since uv wrote the folder's old path into each of its commands.
+    data=$(tools/env-run --data)
+    legacy=$(tools/env-run --legacy-data)
+    if [ ! -e "$data" ] && [ -d "$legacy" ]; then
+      mkdir -p "$(dirname "$data")"
+      mv "$legacy" "$data"
+      rm -rf "$data/venv"
+      echo "Moved this checkout's own folder from $legacy to $data, its name from 2.0."
+    fi
     which=$(PYTHON={{ quote(PYTHON) }} tools/env-run --which)
     case "$which" in
     own\ *)
@@ -389,7 +399,7 @@ vault:
 # mean either. just deploy test is the VM test.
 [arg('START', long='start', value='true', help='Start a VM this run would leave stopped (proxmox_vm_start_existing)')]
 [arg('CHECK', long='check', value='check', help='Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)')]
-[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means claude-on-proxmox-default, or every VM this project created for --only configure, --check and --only ssh-config')]
+[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config')]
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [continue]
@@ -490,10 +500,10 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
       {{ no_tty_args }}
     fi
     [ -z "$roles" ] || set -- "$@" --tags "$roles"
-    # The live output (callback_plugins/claude_on_proxmox.py): set, the run is drawn rather than streamed, under
+    # The live output (callback_plugins/agent_warehouse.py): set, the run is drawn rather than streamed, under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
-    CLAUDE_ON_PROXMOX_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}${names:+ $(printf %s "$names" | tr , ' ')}"
-    export CLAUDE_ON_PROXMOX_LIVE
+    AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}${names:+ $(printf %s "$names" | tr , ' ')}"
+    export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} ${check:+--check --diff} "$playbook"
 
 # One VM at a time: an editor opens one window per workspace, and "open it in
@@ -530,11 +540,11 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     [ -z "$session" ] || set -- "$@" -e "{\"vm_session\": \"$session\"}"
     [ -z "$ide" ] || set -- "$@" -e "{\"vm_editor\": \"$ide\"}"
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
+    # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title; a session's ID, which its report names, is left out of it. Any -v in ANSIBLE_ARGS streams it as
     # before.
-    CLAUDE_ON_PROXMOX_LIVE="code${project:+ --project $project} $names"
-    export CLAUDE_ON_PROXMOX_LIVE
+    AGENT_WAREHOUSE_LIVE="code${project:+ --project $project} $names"
+    export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} code "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/code.yml
 
 # The sign-ins only the person can make, each a page in the browser: Claude's
@@ -567,15 +577,15 @@ login SIGN_IN='' *NAMES:
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
     {{ no_tty_args }}
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
+    # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
-    CLAUDE_ON_PROXMOX_LIVE="login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
-    export CLAUDE_ON_PROXMOX_LIVE
+    AGENT_WAREHOUSE_LIVE="login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
+    export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} "login${only:+-$only}" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} "playbooks/${only:+${only}_}login.yml"
 
 # What every VM this project created is doing, and what needs doing next,
 # read without changing anything (playbooks/status.yml): a dry run, with its
-# own stdout callback (callback_plugins/claude_on_proxmox_status.py) the only
+# own stdout callback (callback_plugins/agent_warehouse_status.py) the only
 # one, so ansible.cfg's profile_tasks prints nothing on stdout (naming a stdout
 # callback in callbacks_enabled loads nothing more, and an empty one is an
 # error). No VM to read leaves a play's group empty, which Ansible warns of
@@ -611,9 +621,9 @@ status ONLY='' JSON='' *NAMES:
     chmod 700 {{ quote(absolute_path(STATUS_DIR)) }}
     rm -f "$report"
     rc=0
-    STATUS_REPORT_FILE=$report STATUS_QUIET=$json ANSIBLE_STDOUT_CALLBACK=claude_on_proxmox_status \
+    STATUS_REPORT_FILE=$report STATUS_QUIET=$json ANSIBLE_STDOUT_CALLBACK=agent_warehouse_status \
       ANSIBLE_HOST_PATTERN_MISMATCH=ignore \
-      ANSIBLE_CALLBACKS_ENABLED=claude_on_proxmox_status \
+      ANSIBLE_CALLBACKS_ENABLED=agent_warehouse_status \
       {{ run_logged }} status "$bin/ansible-playbook" "$@" --check {{ ANSIBLE_ARGS }} playbooks/status.yml || rc=$?
     if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then
       rm -f "$report"
@@ -664,7 +674,7 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
     [ -z "$reset" ] || set -- "$@" --reset=true
     exec "$bin/python" tools/settings "$@" --all="$all" --changed="$changed" --json="$json" -- ${name:+"$name"}
 
-[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means claude-on-proxmox-default')]
+[arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default')]
 [continue]
 [doc("Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them")]
 [group('use')]
@@ -680,10 +690,10 @@ destroy *NAMES:
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
-    # Drawn live (callback_plugins/claude_on_proxmox.py, its declaration in lib/claude_vm/run/recipes.py), under
+    # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
-    CLAUDE_ON_PROXMOX_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
-    export CLAUDE_ON_PROXMOX_LIVE
+    AGENT_WAREHOUSE_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
+    export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} destroy "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/destroy.yml
 
 # Only files named the way tools/run-logged names its logs, and only in
@@ -727,10 +737,10 @@ lint ALL_HOOKS='' *PARTS:
     # the state its checks share, and a trap that says the run's end however it ends, so no check is exec'd. Each
     # check is a command through tools/live, which passes it through unchanged where nothing is drawn.
     if [ -z {{ quote(live_run) }} ]; then
-      CLAUDE_ON_PROXMOX_LIVE="lint${all_hooks:+ --all-hooks}${*:+ $*}"
+      AGENT_WAREHOUSE_LIVE="lint${all_hooks:+ --all-hooks}${*:+ $*}"
       state={{ quote(live_state) }}
-      CLAUDE_ON_PROXMOX_LIVE_STATE=${state:+$state-lint-$$.json}
-      export CLAUDE_ON_PROXMOX_LIVE CLAUDE_ON_PROXMOX_LIVE_STATE
+      AGENT_WAREHOUSE_LIVE_STATE=${state:+$state-lint-$$.json}
+      export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_STATE
       live_end() { {{ live }} end "$1" || :; }
       trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT
     fi
@@ -863,11 +873,11 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
         if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ]; }; then stages="$stages $part"; fi
       done
       [ -z "$lanes" ] || stages="$stages molecule"
-      CLAUDE_ON_PROXMOX_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${asked:+ $asked}"
+      AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${asked:+ $asked}"
       state={{ quote(live_state) }}
-      CLAUDE_ON_PROXMOX_LIVE_STATE=${state:+$state-test-$$.json}
-      CLAUDE_ON_PROXMOX_LIVE_STAGES=$stages
-      export CLAUDE_ON_PROXMOX_LIVE CLAUDE_ON_PROXMOX_LIVE_STATE CLAUDE_ON_PROXMOX_LIVE_STAGES
+      AGENT_WAREHOUSE_LIVE_STATE=${state:+$state-test-$$.json}
+      AGENT_WAREHOUSE_LIVE_STAGES=$stages
+      export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_STATE AGENT_WAREHOUSE_LIVE_STAGES
       live_end() { {{ live }} --log="$name" end "$1" || :; }
       trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT
     fi
@@ -953,9 +963,16 @@ clean *PART:
     [ "$#" -le 1 ] || { echo "error: just clean takes one part, logs or env (got: [$*])" >&2; exit 1; }
     part=${1:-}
     if [ "$part" = env ]; then
-      # Only this checkout's own folder outside it, as tools/env-run names it: never a virtualenv of yours.
+      # Only this checkout's own folder outside it, as tools/env-run names it, and its name through 1.x if one is
+      # left: never a virtualenv of yours.
       data=$(tools/env-run --data)
-      case "$data" in */claude-on-proxmox/checkouts/?*) ;; *) echo "error: not this checkout's own folder: [$data]" >&2; exit 1 ;; esac
+      legacy=$(tools/env-run --legacy-data)
+      case "$data" in */agent-warehouse/checkouts/?*) ;; *) echo "error: not this checkout's own folder: [$data]" >&2; exit 1 ;; esac
+      case "$legacy" in */claude-on-proxmox/checkouts/?*) ;; *) echo "error: not this checkout's own folder: [$legacy]" >&2; exit 1 ;; esac
+      if [ -d "$legacy" ]; then
+        rm -rf "$legacy"
+        echo "Deleted this checkout's own folder by its name through 1.x, $legacy."
+      fi
       if [ -d "$data" ]; then
         rm -rf "$data"
         echo "Deleted this checkout's own environment and collections, $data. just install makes them again."

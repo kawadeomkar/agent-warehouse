@@ -115,7 +115,7 @@
             claude_vm_sign_in_why: "{{ ansible_failed_result.msg | default('the sign-in failed', true) | string | trim }}"
 
 # Records in Proxmox each VM whose Tailscale has had a login, as configure.yml
-# does after the role (tasks/tailscale_record.yml): a login this sign-in made, a
+# does after the role (tasks/vpn_members.yml): a login this sign-in made, a
 # page still waiting, one found. After the last prompt, so that it holds no VM's
 # sign-in back, and before the last play, since a play in which every VM fails
 # ends the run.
@@ -125,11 +125,29 @@
   module_defaults:
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
+  # In a block whose rescue says why and goes on: the record was never a
+  # failure of the run (tasks/vm_marks.yml), and the plays after it - the
+  # aliases, the sign-ins, the editor - must still run.
   tasks:
-    - name: Record each VM
-      ansible.builtin.import_tasks: tasks/tailscale_record.yml
-      vars:
-        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
+    - name: Plan and record Tailscale's members
+      block:
+        - name: Plan Tailscale's record of each VM
+          ansible.builtin.import_tasks: tasks/vpn_members.yml
+          vars:
+            claude_vpn_planned: tailscale
+            claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
+            claude_vpn_phase: configure
+
+        - name: Record each VM
+          ansible.builtin.import_tasks: tasks/vpn_apply.yml
+      rescue:
+        - name: Say why Tailscale's record could not be made, and go on
+          vars:
+            claude_vm_tailscale_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.debug:
+            msg: >-
+              Tailscale's record in Proxmox failed at "{{ ansible_failed_task.name | default('a task') }}":
+              {{ claude_vm_tailscale_why | full_stop }} No VM's record changed this run; the next run tries again.
 
 # just deploy carries on past a sign-in that failed - the person's to finish
 # later with just login --only tailscale; this command exists to sign in, so here the

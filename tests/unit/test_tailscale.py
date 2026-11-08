@@ -363,7 +363,7 @@ def test_a_vm_that_joined_before_is_never_handed_the_key_again(configured):
     )
     assert _failures(first)["joined-before-key"] == (
         "tailscale : connect | Fail when the key would go to a VM that joined before: joined-before-key had a"
-        " Tailscale login before, as its tag in Proxmox records (claude-on-proxmox-tailscale), and has none now:"
+        " Tailscale login before, as its tag in Proxmox records (agent-warehouse-tailscale), and has none now:"
         " something on the VM logged it out. vault_tailscale_auth_key is not sent to a VM again,"
         " and tailscale_auth_method key signs none in by the browser. Set tailscale_auth_method to auto and run just"
         " login joined-before-key --only tailscale; or, if you logged it out yourself, remove that tag from the VM in"
@@ -614,14 +614,14 @@ def test_tailscale_auth_method_decides_whether_the_key_is_used(configured):
     assert _said(first)["key-method-expired-recorded"] == (
         "key-method-expired-recorded: signed out of Tailscale (its key expired), and tailscale_auth_method key never"
         " signs a VM in by the browser nor sends the key to a node that had a login: run sudo tailscale logout on it,"
-        " remove its claude-on-proxmox-tailscale tag in Proxmox, then just deploy key-method-expired-recorded --tags"
+        " remove its agent-warehouse-tailscale tag in Proxmox, then just deploy key-method-expired-recorded --tags"
         " tailscale joins it with the key."
     )
 
 
 # ------------------------------------------------------- what reaches text ---
 def test_next_steps_keep_what_is_left_to_do_and_nothing_where_it_runs_as_it_should(configured):
-    # What the run's last lines list (callback_plugins/claude_on_proxmox.py):
+    # What the run's last lines list (callback_plugins/agent_warehouse.py):
     # the report itself while something is left, whether or not it names a just
     # command - a stopped node, missing tags, an admin's approval.
     root, first, first_calls, second = configured
@@ -742,7 +742,7 @@ def test_a_web_login_runs_one_up_reads_the_page_once_and_joins_when_approved_aft
 
 
 def test_every_login_and_page_the_sign_in_meets_is_for_proxmox_to_record(web_logins):
-    # The play after the sign-ins tags them in Proxmox (tasks/tailscale_record.yml), as configure's does
+    # The play after the sign-ins tags them in Proxmox (tasks/vpn_members.yml), as configure's does
     # after the role: a login made here, a page still waiting - approved after the run, it would be a
     # login nothing saw - and one found. Never a VM whose Tailscale is not the role's, or not there.
     root, report = web_logins
@@ -773,9 +773,18 @@ def test_the_record_follows_the_sign_ins_and_comes_before_the_last_play():
         plays = yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text())
         names = [play.get("name") for play in plays]
         assert names.index(after) < names.index(record) < names.index(before), playbook
-        (task,) = plays[names.index(record)]["tasks"]
-        assert task["ansible.builtin.import_tasks"] == "tasks/tailscale_record.yml", playbook
-        assert task["vars"] == {"claude_vm_tailscale_record_vms": "{{ groups['claude_vms'] | default([]) }}"}
+        # In a block whose rescue says why and goes on: the record never fails the run, nor holds a later play back.
+        (block,) = plays[names.index(record)]["tasks"]
+        (said,) = block["rescue"]
+        assert "when" not in block and "ansible.builtin.debug" in said
+        plan, apply = block["block"]
+        assert plan["ansible.builtin.import_tasks"] == "tasks/vpn_members.yml", playbook
+        assert plan["vars"] == {
+            "claude_vpn_planned": "tailscale",
+            "claude_vpn_hosts": "{{ groups['claude_vms'] | default([]) }}",
+            "claude_vpn_phase": "configure",
+        }
+        assert apply["ansible.builtin.import_tasks"] == "tasks/vpn_apply.yml", playbook
 
 
 def test_the_page_is_said_before_the_wait(web_logins):
@@ -1272,10 +1281,10 @@ def test_under_deploy_the_failure_waits_for_deploy_s_own_last_play(tmp_path):
 RECORD_PLAY = "Record in Proxmox each VM whose Tailscale has had a login"
 # The fake's VMs: a VMID, the name Proxmox has for it, and its tags.
 TO_RECORD = (
-    (9101, "fresh", "claude-on-proxmox;keepme"),
-    (9102, "recorded", "claude-on-proxmox;claude-on-proxmox-tailscale"),
-    (9103, "nologin", "claude-on-proxmox"),
-    (9104, "renamed-since", "claude-on-proxmox"),
+    (9101, "fresh", "agent-warehouse;keepme"),
+    (9102, "recorded", "agent-warehouse;agent-warehouse-tailscale"),
+    (9103, "nologin", "agent-warehouse"),
+    (9104, "renamed-since", "agent-warehouse"),
     (9105, "stranger", ""),
 )
 # Each host as the role and discovery leave it: the VMID discovery read, whether
@@ -1326,7 +1335,7 @@ def test_a_join_is_recorded_in_proxmox_keeping_the_vm_s_other_tags(recording):
     assert report["rc"] == 0, _failures(report)
     after = _tags(base)
     # Only the VM of that name and VMID, carrying the ownership tag, with a login of the role's and no record yet.
-    assert after[9101] == "claude-on-proxmox;claude-on-proxmox-tailscale;keepme"
+    assert after[9101] == "agent-warehouse;agent-warehouse-tailscale;keepme"
     assert {vmid: tags for vmid, tags in after.items() if vmid != 9101} == {
         vmid: tags for vmid, tags in before.items() if vmid != 9101
     }
@@ -1336,6 +1345,24 @@ def test_a_join_is_recorded_in_proxmox_keeping_the_vm_s_other_tags(recording):
     again = _run(root, playbook, hosts, timeout=120)
     assert again["rc"] == 0, _failures(again)
     assert _config_writes(root)[writes + 1 :] == []
+
+
+def test_a_vm_1x_made_is_recorded_under_the_new_tag_and_one_1x_recorded_is_left_as_it_is(recording):
+    # Owned through the ownership tag 1.x gave it: read under the new tag alone, the record would go unwritten there,
+    # and the vault's key could be sent to it again once it is logged out.
+    base, root, playbook = recording
+    _pve_vm(base, 9108, "made-by-1x", tags="claude-on-proxmox;keepme")
+    _pve_vm(base, 9109, "recorded-by-1x", tags="claude-on-proxmox;claude-on-proxmox-tailscale")
+    hosts = {
+        **RECORD_HOSTS,
+        "made-by-1x": {"proxmox_vm_id": 9108, "claude_vm_marks": [], "tailscale_login_to_record": True},
+        "recorded-by-1x": {"proxmox_vm_id": 9109, "claude_vm_marks": ["tailscale"], "tailscale_login_to_record": True},
+    }
+    report = _run(root, playbook, hosts, timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    listed = {vm["vmid"]: vm.get("tags", "") for vm in _pve(base, "GET", "cluster/resources")["data"]}
+    assert listed[9108] == "agent-warehouse-tailscale;claude-on-proxmox;keepme"
+    assert listed[9109] == "claude-on-proxmox;claude-on-proxmox-tailscale"
 
 
 def test_check_mode_records_nothing(recording):
@@ -1362,7 +1389,7 @@ def test_a_record_proxmox_cannot_write_is_said_and_the_others_are_still_written(
     said = [
         item["msg"]
         for name, host, result in _results(report)
-        if name.endswith("tailscale_record | Say each VM whose record could not be written")
+        if name.endswith("vm_marks | Say each VM whose marks could not be written")
         for item in result.get("results", [])
         if "msg" in item
     ]
@@ -1372,9 +1399,9 @@ def test_a_record_proxmox_cannot_write_is_said_and_the_others_are_still_written(
         "), so vault_tailscale_auth_key could be sent to it again if it is logged out. The next just deploy fresh"
         " --only configure records it."
     ), said
-    assert "claude-on-proxmox-tailscale" not in _tags(base)[9101]
+    assert "agent-warehouse-tailscale" not in _tags(base)[9101]
     listed = {vm["vmid"]: vm.get("tags", "") for vm in _pve(base, "GET", "cluster/resources")["data"]}
-    assert listed[9106] == "claude-on-proxmox;claude-on-proxmox-tailscale"
+    assert listed[9106] == "agent-warehouse;agent-warehouse-tailscale"
     # NEXT STEPS keeps the line under a matter of its own, and nothing for each other VM read: the one
     # recorded, and the two never tagged.
     left = {host: matters.get("tailscale_record") for host, matters in _left_to_do(report).items()}
@@ -1385,8 +1412,8 @@ def test_a_record_is_written_with_the_tags_as_proxmox_gave_them(recording):
     # Compared in lowercase, as the ownership tag is matched, and written back as read: a tag of the
     # user's in capitals - a host whose Tag Style keeps case - stays so, and a record in capitals counts.
     base, root, playbook = recording
-    _pve(base, "PUT", "nodes/pve/qemu/9101/config", tags="Claude-On-Proxmox;KeepMe", **{"fake-verbatim-tags": 1})
-    _pve_vm(base, 9107, "shouting", tags="claude-on-proxmox;CLAUDE-ON-PROXMOX-TAILSCALE", **{"fake-verbatim-tags": 1})
+    _pve(base, "PUT", "nodes/pve/qemu/9101/config", tags="Agent-Warehouse;KeepMe", **{"fake-verbatim-tags": 1})
+    _pve_vm(base, 9107, "shouting", tags="agent-warehouse;AGENT-WAREHOUSE-TAILSCALE", **{"fake-verbatim-tags": 1})
     hosts = {
         **RECORD_HOSTS,
         "shouting": {"proxmox_vm_id": 9107, "tailscale_joined_before": False, "tailscale_login_to_record": True},
@@ -1401,7 +1428,7 @@ def test_a_record_is_written_with_the_tags_as_proxmox_gave_them(recording):
     ]
     # In any order: Proxmox keeps its own.
     assert sent == [
-        ("/api2/json/nodes/pve/qemu/9101/config", ["Claude-On-Proxmox", "KeepMe", "claude-on-proxmox-tailscale"])
+        ("/api2/json/nodes/pve/qemu/9101/config", ["Agent-Warehouse", "KeepMe", "agent-warehouse-tailscale"])
     ]
 
 
@@ -1437,24 +1464,33 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
 @pytest.mark.parametrize(
     ("tag", "tags", "recorded"),
     [
-        ("claude-on-proxmox", "claude-on-proxmox;claude-on-proxmox-tailscale", True),
+        ("agent-warehouse", "agent-warehouse;agent-warehouse-tailscale", True),
         # proxmox_kvm sends them comma-joined, and some Proxmox versions return them so.
-        ("claude-on-proxmox", "claude-on-proxmox-tailscale,claude-on-proxmox", True),
-        ("claude-on-proxmox", "CLAUDE-ON-PROXMOX-TAILSCALE", True),
+        ("agent-warehouse", "agent-warehouse-tailscale,agent-warehouse", True),
+        ("agent-warehouse", "AGENT-WAREHOUSE-TAILSCALE", True),
         # Whole tags only: a tag that merely starts or ends with the record is someone else's.
-        ("claude-on-proxmox", "claude-on-proxmox;claude-on-proxmox-tailscale-old", False),
-        ("claude-on-proxmox", "not-claude-on-proxmox-tailscale", False),
-        ("claude-on-proxmox", "claude-on-proxmox", False),
-        ("claude-on-proxmox", "", False),
+        ("agent-warehouse", "agent-warehouse;agent-warehouse-tailscale-old", False),
+        ("agent-warehouse", "not-agent-warehouse-tailscale", False),
+        ("agent-warehouse", "agent-warehouse", False),
+        ("agent-warehouse", "", False),
+        # The record 1.x wrote, under the ownership tag through 1.x: still the record while the tag is the default,
+        # on a VM provisioning has not written its tags anew on, or has.
+        ("agent-warehouse", "claude-on-proxmox;claude-on-proxmox-tailscale", True),
+        ("agent-warehouse", "agent-warehouse;claude-on-proxmox-tailscale", True),
+        ("Agent-Warehouse", "CLAUDE-ON-PROXMOX-TAILSCALE", True),
+        ("agent-warehouse", "claude-on-proxmox;not-claude-on-proxmox-tailscale", False),
+        ("agent-warehouse", "claude-on-proxmox;claude-on-proxmox-tailscale-old", False),
         # Another person's tag on a shared host: lowercased as Proxmox stores it, its dot a dot.
         ("Team.A", "team.a;team.a-tailscale", True),
         ("Team.A", "team.a;teamxa-tailscale", False),
+        # A tag of one's own has no 1.x name.
+        ("Team.A", "team.a;claude-on-proxmox-tailscale", False),
     ],
 )
 def test_the_record_s_pattern_matches_the_whole_tag_in_either_list(tag, tags, recorded):
     # What discover.yml, provision.yml and status.yml read as tailscale_joined_before: `is regex`, a search.
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    names = ("claude_vm_tailscale_tag", "claude_vm_tailscale_tag_pattern")
+    names = ("claude_vm_tag_1x", "claude_vm_tags_owned", "claude_vm_tailscale_tag", "claude_vm_tailscale_tag_pattern")
     variables = {"claude_vm_tag": tag, **{name: trust_as_template(defaults[name]) for name in names}}
     pattern = Templar(loader=DataLoader(), variables=variables).template(variables["claude_vm_tailscale_tag_pattern"])
     assert bool(re.search(pattern, tags)) is recorded
@@ -1469,12 +1505,18 @@ def test_proxmox_vm_keeps_the_record_whenever_it_replaces_a_vm_s_tags():
         for task in tasks
         if "tags" in task.get("community.proxmox.proxmox_kvm", {})
     }
+    # The first tagging of a VM this run cloned may leave it out: that VM never joined. The move of a 1.x VM's tags
+    # writes them all, each the project's under its new name (proxmox_tags_moved, test_filters.py).
+    whole = {
+        "present | Tag the new VM as created by this project": "{{ proxmox_vm_sent_tags }}",
+        "present | Move the VM's tags to their names from 2.0": "{{ proxmox_vm_tags_now }}",
+    }
     for name, tags in writes.items():
-        # Only the first tagging of a VM this run cloned may leave it out: that VM never joined.
-        if name != "present | Tag the new VM as created by this project":
-            assert "proxmox_vm_kept_tags" in tags, name
+        assert tags == whole[name] if name in whole else "proxmox_vm_kept_tags" in tags, name
     role_vars = yaml.safe_load((REPO / "roles" / "proxmox_vm" / "vars" / "main.yml").read_text())
     assert role_vars["proxmox_vm_tailscale_tag"] == "{{ proxmox_vm_sent_tags[0] }}-tailscale"
+    # Read off the tags under their names from 2.0, so that a 1.x record is kept under the new one.
+    assert role_vars["proxmox_vm_found_tags"] == "{{ proxmox_vm_tags_now | map('lower') | list }}"
 
 
 # ------------------------------------------------------------ static guards ---
@@ -1622,11 +1664,19 @@ def test_configure_runs_the_role_last_in_a_rescued_block_and_deploy_defers_its_f
     assert block["tags"] == ["tailscale"]
     # Off, one read decides whether the role runs at all: only where it installed Tailscale. On the task, not the
     # block, whose condition its rescue would share.
-    marker, role = block["block"]
+    # And by its directory's 1.x name, which the role moves first (2.x): a Tailscale 1.x installed is still found.
+    marker, marker_1x, role = block["block"]
     assert marker["ansible.builtin.stat"] == {"path": "{{ tailscale_installed_marker_path }}"}
-    assert marker["when"] == "not (tailscale_enabled | bool)"
+    assert marker["when"] == "not (tailscale_wanted | bool)"
+    assert marker_1x["ansible.builtin.stat"] == {
+        "path": "{{ tailscale_marker_dir_1x }}/{{ tailscale_installed_marker_path | basename }}"
+    }
+    assert marker_1x["when"] == "not (tailscale_wanted | bool) and tailscale_marker_dir_1x | length > 0"
     assert role["ansible.builtin.import_role"] == {"name": "tailscale"}
-    assert role["when"] == "tailscale_enabled | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
+    assert role["when"] == (
+        "tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)"
+        " or claude_vm_tailscale_marker_1x.stat.exists | default(false)"
+    )
     assert "when" not in block
     assert any("claude_vm_configure_failures" in json.dumps(task) for task in block["rescue"])
     assert "tailscale" not in [role["role"] for role in play["roles"]]

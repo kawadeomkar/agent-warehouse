@@ -2,9 +2,9 @@
 
 ```
 ansible.cfg                       inventory dir, accept-new host keys, forks, the stdout callback, YAML results
-callback_plugins/claude_on_proxmox.py   the default output, the waits set apart, NEXT STEPS after the recap, just deploy
+callback_plugins/agent_warehouse.py   the default output, the waits set apart, NEXT STEPS after the recap, just deploy
                                   drawn live (§7.5)
-callback_plugins/claude_on_proxmox_status.py   just status's own: the report drawn live at a terminal (§7.7)
+callback_plugins/agent_warehouse_status.py   just status's own: the report drawn live at a terminal (§7.7)
 .logs/                            one log per just run that used Ansible (git-ignored, 0700, pruned after 14 days)
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
@@ -67,8 +67,10 @@ playbooks/
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
-                                  load, upgrades and the user's processes, read only)
-  module_utils/                   claude_on_proxmox.py, what those modules share, sent with each: the session ID,
+                                  load, upgrades and the user's processes, read only); opnsense_wireguard (the
+                                  OPNsense hub's peers through the router's API: the certificate pinned, the
+                                  version floor, every private key it answers with dropped)
+  module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
@@ -88,14 +90,17 @@ playbooks/
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
   tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
+  tasks/default_name_1x.yml       refuses a bare deploy or destroy while the default VM has its 1.x name alone (provision, destroy)
   tasks/vms_requested.yml         the tagged VMs asked for and their addresses, those named after a host of the
                                   inventory left out and said, two of one name refused (discover, ssh_config)
-  tasks/tailscale_record.yml      tags each VM whose Tailscale has had a login in Proxmox, VM by VM, so the vault's
-                                  key is never sent to it again (configure.yml, tailscale_login.yml)
+  tasks/vpn_members.yml           a VPN's plan of who is on its network (lib/claude_vm/vpn/), its refusals first
+  tasks/vpn_apply.yml             the plan applied: each VM's marks (configure.yml, tailscale_login.yml)
+  tasks/vm_marks.yml              each VM's marks as tags in Proxmox, VM by VM, the one writer of one: that its
+                                  Tailscale has had a login, so the vault's key is never sent to it again
   tasks/sign_in_failed.yml        a VM a sign-in did not sign in - not reached, or its sign-in failed - remembered,
                                   said and kept for NEXT STEPS (claude_login.yml, github_login.yml, tailscale_login.yml)
   tasks/sign_in_held.yml          GitHub's or Tailscale's sign-in held back for a VM, said and kept for NEXT STEPS
-  tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/claude-on-proxmox.conf, Include once
+  tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/agent-warehouse.conf, Include once
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/session_save.yml          destroy's save of what of a VM's Claude sessions is only there, into .sessions/
@@ -148,6 +153,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  catalogue.py, what the choices a checkout makes once share - the editor, the
+                                  VPN: each a setting naming a row of a list of the defaults (§7.11)
                                   editors/: model.py, the editors' records; family.py, the seam; common.py, what
                                   more than one family uses, the helpers' directory and the marker among it; vscode.py
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes
@@ -202,7 +209,8 @@ tests/
                                   fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
-                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure;
+                                  fake_opnsense.py, an OPNsense router's WireGuard API for the hub's peers.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why
@@ -211,7 +219,7 @@ molecule/
   configure/                      configure.yml end to end in a container
                                   (in both, group_vars/all/defaults.yml is a symlink to the real one; keep it a git checkout)
 .config/molecule/config.yml       driver, shared provisioner settings, the dependency step off
-.config/ansible-lint-rules/       claude_on_proxmox_module_utils.py, no rule: puts playbooks/module_utils/ on the
+.config/ansible-lint-rules/       agent_warehouse_module_utils.py, no rule: puts playbooks/module_utils/ on the
                                   path in ansible-lint's own process, where its args rule imports the modules in
                                   playbooks/library/
 .github/                          CI, releases and the sections of their notes (release.yml), the labels

@@ -67,6 +67,8 @@ SECRET_PROMPT = b"API token secret"
 GITHUB_PROMPT = b"GitHub username:"
 TAILSCALE_PROMPT = b"Use Tailscale on the VMs? y or n:"
 TAILSCALE_KEY_PROMPT = b"Tailscale auth key (output is hidden):"
+# Asked after an n to Tailscale: each VM a peer of a WireGuard server the person already runs.
+WIREGUARD_PROMPT = b"Join the VMs to a WireGuard server you run instead? y or n:"
 ACCESS_PROMPT = b"Set it up now? y or n"
 
 
@@ -244,7 +246,9 @@ def test_every_answer_typed_writes_the_three_files_and_the_same_again_changes_no
     # At -vvv with every module's arguments in its result, as the most a run can
     # print or log: the secret typed is in neither.
     loud = {"ansible_inject_invocation": True}
-    rc, output, log = _init_at_a_terminal(tmp_path, files, EVERY_ANSWER, loud, args=["-vvv"])
+    # WireGuard's question follows the n to Tailscale, and is answered n.
+    steps = [*EVERY_ANSWER[:2], (WIREGUARD_PROMPT, b"n\n"), *EVERY_ANSWER[2:]]
+    rc, output, log = _init_at_a_terminal(tmp_path, files, steps, loud, args=["-vvv"])
     assert rc == 0, output
     # The person's accounts first, then every Proxmox question together: no other question between the
     # token's ID and its secret (the offer, here refused root SSH, asks nothing), and the ID's question
@@ -579,7 +583,7 @@ def test_the_secret_given_in_the_environment_is_written_and_never_said(tmp_path:
     files = _files(tmp_path)
     given = {"host": "pve.lan", "github_user": "octocat"}
     log = tmp_path / "run.log"
-    env = {"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET.upper(), "ANSIBLE_LOG_PATH": str(log), "ANSIBLE_LOG_VERBOSITY": "3"}
+    env = {"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET.upper(), "ANSIBLE_LOG_PATH": str(log), "ANSIBLE_LOG_VERBOSITY": "3"}
     report = _init(tmp_path, files, {"init_given": given}, "-e", '{"ansible_inject_invocation": true}', env=env)
     assert report["rc"] == 0, _failures(report)
     assert SECRET_LINE in _decrypt(files)
@@ -587,10 +591,45 @@ def test_the_secret_given_in_the_environment_is_written_and_never_said(tmp_path:
     assert SECRET not in seen and SECRET.upper() not in seen
 
 
+def test_the_secret_given_by_its_name_through_1x_is_written_and_said_to_move(tmp_path: Path) -> None:
+    # CLAUDE_ON_PROXMOX_TOKEN_SECRET, the variable's name through 1.x: read while AGENT_WAREHOUSE_TOKEN_SECRET is
+    # not set, with a notice naming the new name, and the secret said nowhere.
+    files = _files(tmp_path)
+    given = {"host": "pve.lan", "github_user": "octocat"}
+    report = _init(tmp_path, files, {"init_given": given}, env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    assert report["rc"] == 0, _failures(report)
+    assert SECRET_LINE in _decrypt(files)
+    assert "CLAUDE_ON_PROXMOX_TOKEN_SECRET is this project's name through 1.x" in json.dumps(report)
+    assert SECRET not in json.dumps(report)
+
+
+def test_the_secret_given_by_both_names_is_taken_once_or_refused_unsaid(tmp_path: Path) -> None:
+    # The same secret under both names is one secret, with no notice; two different ones are refused, naming the
+    # variables and neither value.
+    files = _files(tmp_path)
+    given = {"host": "pve.lan", "github_user": "octocat"}
+    both = {"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET, "CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET}
+    report = _init(tmp_path, files, {"init_given": given}, env=both)
+    assert report["rc"] == 0, _failures(report)
+    assert SECRET_LINE in _decrypt(files)
+    # Said by the notice's text alone: the report lists the skipped notice task by its name too.
+    assert "CLAUDE_ON_PROXMOX_TOKEN_SECRET is this project's name through 1.x" not in json.dumps(report)
+    other = "99999999-8888-7777-6666-555555555555"
+    (tmp_path / "other").mkdir()
+    files = _files(tmp_path / "other")
+    report = _init(
+        tmp_path / "other", files, {"init_given": given}, env=both | {"CLAUDE_ON_PROXMOX_TOKEN_SECRET": other}
+    )
+    assert report["rc"] != 0
+    failure = "\n".join(_failures(report).values())
+    assert "unset CLAUDE_ON_PROXMOX_TOKEN_SECRET" in failure
+    assert SECRET not in json.dumps(report) and other not in json.dumps(report)
+
+
 def test_the_secret_given_two_ways_is_refused(tmp_path: Path) -> None:
     files = _files(tmp_path)
     given = {"token_secret_file": str(_secret_file(tmp_path))}
-    report = _init(tmp_path, files, {"init_given": given}, env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    report = _init(tmp_path, files, {"init_given": given}, env={"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET})
     assert report["rc"] != 0
     assert "give it one way" in "\n".join(_failures(report).values())
 
@@ -689,7 +728,7 @@ def test_prompt_no_with_values_given_and_one_missing_fails(tmp_path: Path) -> No
     files = _files(tmp_path)
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [], {"init_given": {"host": "pve.lan"}}, ask=False)
     assert rc != 0
-    assert "the API token secret (--token-secret-file or CLAUDE_ON_PROXMOX_TOKEN_SECRET)" in output
+    assert "the API token secret (--token-secret-file or AGENT_WAREHOUSE_TOKEN_SECRET)" in output
 
 
 def test_a_broken_value_given_last_leaves_every_file_as_it_was(tmp_path: Path) -> None:
@@ -771,7 +810,7 @@ def test_y_sets_up_the_access_and_the_vault_takes_the_tokens_secret(tmp_path: Pa
     rc, output, log = _init_at_a_terminal(tmp_path, files, steps, {"ansible_inject_invocation": True}, env=env)
     assert rc == 0, output
     # The question showed what the script would run, and it ran that.
-    assert "pveum user token add ansible@pve ansible --privsep 0 --comment claude-on-proxmox" in output
+    assert "pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse" in output
     state = _pve_cli_state(host)
     assert state["roles"]["AnsibleVM"] == ROLE and state["tokens"]["ansible@pve!ansible"]["privsep"] == 0
     assert len(_pve_cli_writes(host)) == 6
@@ -960,7 +999,8 @@ OPTIONAL = "Optional, with just vault: vault_github_token, vault_anthropic_api_k
 
 def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), *THE_PROXMOX_QUESTIONS]
+    # Enter at WireGuard's question, which follows an n, decides later and writes nothing of it.
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), (WIREGUARD_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
@@ -973,6 +1013,34 @@ def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
     assert TAILSCALE_PROMPT.decode() not in output
+
+
+def test_y_to_wireguard_after_n_to_tailscale_writes_vpn_and_what_the_vms_need_of_the_server(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"n\n"),
+        (WIREGUARD_PROMPT, b"y\n"),
+        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
+        (b"The part of it kept for the VMs:", b"198.51.100.1/25\n"),  # host bits: asked again
+        (b"The part of it kept for the VMs:", b"198.51.100.128/25\n"),
+        (b"The server's public key:", key.encode() + b"\n"),
+        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    local = Path(files["init_local_file"]).read_text()
+    for line in (
+        'vpn: "wireguard"',
+        'wireguard_hub_network: "198.51.100.0/24"',
+        'wireguard_vm_prefix: "198.51.100.128/25"',
+        f'wireguard_hub_public_key: "{key}"',
+        'wireguard_hub_endpoint: "192.0.2.1:51820"',
+        "tailscale_enabled: false",
+    ):
+        assert line in local.splitlines(), line
 
 
 def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: Path) -> None:
@@ -1100,6 +1168,74 @@ def test_the_tailscale_notice_is_gone_once_the_setting_is_there(tmp_path: Path, 
 # --tailscale that differs from the setting: test_given_values_that_differ_from_set_ones_fail_and_write_nothing.
 
 
+@pytest.mark.parametrize("vpn", ["tailscale", "none", "wireguard"])
+def test_a_vpn_set_in_local_yml_is_never_asked_over_nor_tailscale_enabled_written(tmp_path: Path, vpn: str) -> None:
+    # vpn outranks tailscale_enabled: an answer to the Tailscale question would change nothing, and the notice that
+    # Tailscale is on by default would be untrue under none or wireguard.
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + f"vpn: {vpn}\n")
+    before = local.read_text()
+    # vpn: tailscale chooses Tailscale, as tailscale_enabled: true does: its auth key is still asked for, Enter here.
+    key = [(TAILSCALE_KEY_PROMPT, b"\n")] if vpn == "tailscale" else []
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *key, *THE_PROXMOX_QUESTIONS])
+    assert rc == 0, output
+    assert TAILSCALE_PROMPT.decode() not in output and WIREGUARD_PROMPT.decode() not in output
+    assert (TAILSCALE_KEY_PROMPT.decode() in output) is (vpn == "tailscale")
+    assert "NOTICE  Tailscale is on by default" not in output
+    assert local.read_text() == before
+
+
+@pytest.mark.parametrize(
+    ("vpn", "given", "refused"), [("tailscale", "off", True), ("none", "on", True), ("none", "off", False)]
+)
+def test_tailscale_given_that_the_vpn_set_contradicts_fails_naming_both(
+    tmp_path: Path, vpn: str, given: str, refused: bool
+) -> None:
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + f"vpn: {vpn}\n")
+    before = local.read_text()
+    report = _init(tmp_path, files, {"init_given": _every_value_given(tmp_path) | {"tailscale": given}})
+    assert (report["rc"] != 0) is refused, _failures(report)
+    if refused:
+        assert any(f'already sets vpn: "{vpn}"' in failure for failure in _failures(report).values())
+        assert local.read_text() == before
+    else:
+        assert not [line for line in local.read_text().splitlines() if line.startswith("tailscale_enabled:")]
+
+
+def test_wireguard_s_questions_ask_only_what_is_not_set_and_write_vpn_last(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + 'wireguard_vm_prefix: "198.51.100.128/25"\n')
+    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"n\n"),
+        (WIREGUARD_PROMPT, b"y\n"),
+        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
+        (b"The server's public key:", key.encode() + b"\n"),
+        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    assert "The part of it kept for the VMs:" not in output
+    lines = local.read_text().splitlines()
+    assert lines.count('wireguard_vm_prefix: "198.51.100.128/25"') == 1
+    for line in (
+        'vpn: "wireguard"',
+        'wireguard_hub_network: "198.51.100.0/24"',
+        'wireguard_hub_endpoint: "192.0.2.1:51820"',
+    ):
+        assert line in lines, line
+    # Each on its example's own line, so the file's order is not the writes': vpn is written last.
+    tasks = yaml.safe_load((REPO / "playbooks" / "init_settings.yml").read_text())[0]["tasks"]
+    (write,) = [task for task in tasks if task.get("name") == "Write WireGuard's settings into local.yml"]
+    assert write["loop"][-1] == "vpn"
+
+
 # ----------------------------------------------------------------- NEXT STEPS ---
 @pytest.mark.parametrize("asking", [False, True], ids=["no-terminal", "init_ask"])
 def test_next_steps_keep_each_value_still_to_set(tmp_path: Path, asking: bool) -> None:
@@ -1190,9 +1326,9 @@ def test_every_write_is_at_a_terminal_or_of_a_given_value():
         if guard and isinstance(guards.get(guard.group(1)), str):
             named.append(guard.group(1))
             when = guards[guard.group(1)].removeprefix("{{").strip()
-        # Its first condition: a terminal, or (the rest of it) a value given.
-        assert re.match(r"\(?init_ask \| bool or ", when), task["name"]
-    assert len(writers) == 5, writers
+        # Its first condition: a terminal, or (the rest of it) a value given; or a terminal alone.
+        assert re.match(r"\(?init_ask \| bool (or|and) ", when), task["name"]
+    assert len(writers) == 6, writers
     # The address, and the vault's password and text, each through its guard.
     assert sorted(named) == ["init_host_writing", "init_vault_writing", "init_vault_writing"], named
 
@@ -1259,6 +1395,8 @@ SECRET_NAMES = (
     "init_vault_with_github",
     "init_secret_given_value",
     "init_secret_env",
+    "init_secret_env_new",
+    "init_secret_env_old",
     "init_secret_held",
     "init_vault_read",
     "init_vault_decrypted.stdout",

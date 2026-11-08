@@ -3,6 +3,9 @@
 # gh on this VM is signed in to GitHub, how, and if not what to run. In the
 # role rather than the playbook so that it decides from the same vars/main.yml
 # definitions auth.yml does, and the two cannot disagree.
+- name: login | Move this role's files on the VM from their 1.x names
+  ansible.builtin.include_tasks: names.yml
+
 - name: login | Read gh and its login state
   ansible.builtin.include_tasks: login_read.yml
 

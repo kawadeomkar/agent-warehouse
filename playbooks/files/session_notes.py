@@ -20,7 +20,9 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-START, END = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"
+START, END = "<!-- agent-warehouse:live -->", "<!-- /agent-warehouse:live -->"
+# The section's markers through 1.x, in notes 1.x wrote: found too, and written over with the new ones.
+START_1X, END_1X = "<!-- claude-on-proxmox:live -->", "<!-- /claude-on-proxmox:live -->"
 # What plain_text removes (filter_plugins/text.py): whole escape sequences, then every control character.
 SEQUENCES = re.compile(
     r"(?:\x1b[\]PX^_]|[\x9d\x90\x98\x9e\x9f])[^\x07\x1b\x9c\n]*(?:\x07|\x1b\\|\x9c)?"
@@ -141,7 +143,9 @@ def main():
         return
     with open(notes, encoding="utf-8") as handle:
         text = handle.read()
-    start, end = text.find(START), text.find(END)
+    start, end, end_marker = text.find(START), text.find(END), END
+    if start < 0 or end < start:
+        start, end, end_marker = text.find(START_1X), text.find(END_1X), END_1X
     if start < 0 or end < start:
         return
     user = pwd.getpwuid(os.getuid()).pw_name
@@ -161,7 +165,7 @@ def main():
         + [f"| {label} | {value} |" for label, value in rows]
         + [END]
     )
-    updated = text[:start] + live + text[end + len(END) :]
+    updated = text[:start] + live + text[end + len(end_marker) :]
     if updated == text:
         return
     descriptor, temporary = tempfile.mkstemp(dir=os.path.dirname(notes), prefix=".session-")

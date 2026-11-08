@@ -3,7 +3,7 @@
 # of every GitHub project and, last, Tailscale. Finds them by tag, so it works
 # on its own and not only straight after provisioning.
 #
-#   just deploy --only configure                    -> every VM tagged claude-on-proxmox
+#   just deploy --only configure                    -> every VM tagged agent-warehouse
 #   just deploy alpha,beta --only configure
 #
 # deploy.yml imports this with claude_vm_discovery: false, because provisioning
@@ -108,7 +108,7 @@
   # block's tag, so just deploy <vm> --tags tailscale runs every task of the role,
   # where an include's tag would reach only the include.
   #
-  # Off (tailscale_enabled: false), the role runs only on a VM where it
+  # Off (vpn not tailscale: tailscale_wanted), the role runs only on a VM where it
   # installed Tailscale, or began to - the marker install.yml writes first - to
   # log it out and remove it, saying so; a VM without one gets this one read and
   # nothing else of Tailscale's. The condition is the import's, so each of the
@@ -122,12 +122,21 @@
           ansible.builtin.stat:
             path: "{{ tailscale_installed_marker_path }}"
           register: claude_vm_tailscale_marker
-          when: not (tailscale_enabled | bool)
+          when: not (tailscale_wanted | bool)
+
+        # Its marker by the directory's 1.x name, which the role moves first.
+        - name: Look for one by its marker's 1.x directory
+          ansible.builtin.stat:
+            path: "{{ tailscale_marker_dir_1x }}/{{ tailscale_installed_marker_path | basename }}"
+          register: claude_vm_tailscale_marker_1x
+          when: not (tailscale_wanted | bool) and tailscale_marker_dir_1x | length > 0
 
         - name: Run the tailscale role
           ansible.builtin.import_role:
             name: tailscale
-          when: tailscale_enabled | bool or claude_vm_tailscale_marker.stat.exists | default(false)
+          when: >-
+            tailscale_wanted | bool or claude_vm_tailscale_marker.stat.exists | default(false)
+            or claude_vm_tailscale_marker_1x.stat.exists | default(false)
       rescue:
         - name: Remember that Tailscale failed, for the end of the run
           vars:
@@ -140,6 +149,56 @@
                     | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags tailscale')] }}
 
         - name: Say why, and go on
+          ansible.builtin.debug:
+            msg: "{{ claude_vm_configure_failures | last }}"
+
+    # WireGuard's key, made on the VM, and its public key read for the members'
+    # plan in the play after this one, which gives each VM its address; the
+    # link itself is set up by the play after that. Off (vpn not wireguard:
+    # wireguard_wanted), the role runs only on a VM where its marker is, to take
+    # off what it set up. Like Tailscale's: a failure is recorded and raised at
+    # the end of the run, the import static for --tags wireguard, and the
+    # conditions on the tasks rather than the block.
+    - name: Make the VM's WireGuard key, or take WireGuard off
+      tags: [wireguard]
+      block:
+        - name: Look for a WireGuard this project set up, now that it is off
+          ansible.builtin.stat:
+            path: "{{ wireguard_installed_marker_path }}"
+          register: claude_vm_wireguard_marker
+          when: not (wireguard_wanted | default(false) | bool)
+
+        - name: Look for one by its marker's 1.x directory
+          ansible.builtin.stat:
+            path: "{{ wireguard_marker_dir_1x }}/{{ wireguard_installed_marker_path | basename }}"
+          register: claude_vm_wireguard_marker_1x
+          when: not (wireguard_wanted | default(false) | bool) and wireguard_marker_dir_1x | length > 0
+
+        - name: Make the VM's WireGuard key
+          ansible.builtin.import_role:
+            name: wireguard
+            tasks_from: key
+          when: wireguard_wanted | default(false) | bool
+
+        - name: Take WireGuard off
+          ansible.builtin.import_role:
+            name: wireguard
+          when: >-
+            not (wireguard_wanted | default(false) | bool)
+            and (claude_vm_wireguard_marker.stat.exists | default(false)
+                 or claude_vm_wireguard_marker_1x.stat.exists | default(false))
+      rescue:
+        - name: Remember that WireGuard failed, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ claude_vm_configure_failures | default([])
+                 + [(inventory_hostname ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags wireguard')] }}
+
+        - name: Say why WireGuard failed, and go on
           ansible.builtin.debug:
             msg: "{{ claude_vm_configure_failures | last }}"
 
@@ -163,8 +222,9 @@
       tags: [always]
 
 # Records in Proxmox, where the VM cannot change it, each VM whose Tailscale has
-# held a login (tasks/tailscale_record.yml), so that the vault's key is never
-# sent to it again: right after the role, which says which ones have.
+# held a login - Tailscale's plan (tasks/vpn_members.yml), its marks applied
+# (tasks/vpn_apply.yml) - so that the vault's key is never sent to it again:
+# right after the role, which says which ones have.
 - name: Record in Proxmox each VM whose Tailscale has had a login
   hosts: localhost
   gather_facts: false
@@ -172,11 +232,123 @@
   module_defaults:
     group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
 
+  # In a block whose rescue says why and goes on: the record was never a
+  # failure of the run (tasks/vm_marks.yml), and the plays after it - the
+  # aliases, the sign-ins, the editor - must still run.
   tasks:
-    - name: Record each VM
-      ansible.builtin.import_tasks: tasks/tailscale_record.yml
-      vars:
-        claude_vm_tailscale_record_vms: "{{ groups['claude_vms'] | default([]) }}"
+    - name: Plan and record Tailscale's members
+      block:
+        - name: Plan Tailscale's record of each VM
+          ansible.builtin.import_tasks: tasks/vpn_members.yml
+          vars:
+            claude_vpn_planned: tailscale
+            claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
+            claude_vpn_phase: configure
+
+        - name: Record each VM
+          ansible.builtin.import_tasks: tasks/vpn_apply.yml
+      rescue:
+        - name: Say why Tailscale's record could not be made, and go on
+          vars:
+            claude_vm_tailscale_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.debug:
+            msg: >-
+              Tailscale's record in Proxmox failed at "{{ ansible_failed_task.name | default('a task') }}":
+              {{ claude_vm_tailscale_why | full_stop }} No VM's record changed this run; the next run tries again.
+
+# WireGuard's plan of its members (tasks/vpn_members.yml): each VM's address,
+# kept as a mark in Proxmox, its tunnel, and the peer its server is to have,
+# said (docs/guides/wireguard.md). After the configure play, which read each
+# VM's public key; the plan refuses before anything is written when the
+# settings cannot work (wireguard_hub_network, wireguard_vm_prefix, the
+# server's key and endpoint).
+- name: Plan each VM's place on the WireGuard network
+  hosts: localhost
+  gather_facts: false
+  tags: [wireguard]
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+
+  # In a block whose rescue records the failure on every VM, raised at the end
+  # of the run like the roles': a refusal of the settings, or a hub that cannot
+  # be read or written, never costs a VM its SSH alias, nor deploy its editor.
+  tasks:
+    - name: Plan and apply WireGuard's members
+      block:
+        - name: Plan WireGuard's members
+          ansible.builtin.import_tasks: tasks/vpn_members.yml
+          vars:
+            claude_vpn_planned: wireguard
+            claude_vpn_hosts: "{{ groups['claude_vms'] | default([]) }}"
+            claude_vpn_phase: configure
+          when: wireguard_wanted | default(false) | bool
+
+        - name: Apply WireGuard's plan
+          ansible.builtin.import_tasks: tasks/vpn_apply.yml
+          when: wireguard_wanted | default(false) | bool
+      rescue:
+        # No plan: the play below changes no VM's link this run.
+        - name: Drop WireGuard's plan
+          ansible.builtin.set_fact:
+            claude_vpn_plans: "{{ claude_vpn_plans | default({}) | combine({'wireguard': {}}) }}"
+
+        - name: Remember that WireGuard's plan failed, on each VM, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ hostvars[claude_vm_wireguard_of].claude_vm_configure_failures | default([])
+                 + [(claude_vm_wireguard_of ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ claude_vm_wireguard_of ~ ' --tags wireguard')] }}
+          delegate_to: "{{ claude_vm_wireguard_of }}"
+          delegate_facts: true
+          loop: "{{ groups['claude_vms'] | default([]) }}"
+          loop_control:
+            loop_var: claude_vm_wireguard_of
+
+        - name: Say why WireGuard's plan failed, and go on
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.debug:
+            msg: >-
+              WireGuard failed at "{{ ansible_failed_task.name | default('a task') }}":
+              {{ claude_vm_wireguard_why | full_stop }} No VM's link is changed this run.
+
+# Each VM's link, as the plan has it: the role's main, in a block whose rescue
+# records a failure, raised at the end of the run, so the VM still gets its
+# alias.
+- name: Join each VM to the WireGuard network
+  hosts: claude_vms
+  gather_facts: false
+  become: true
+  tags: [wireguard]
+
+  tasks:
+    - name: Join the WireGuard network
+      block:
+        - name: Set the VM's link up as the plan has it
+          ansible.builtin.import_role:
+            name: wireguard
+          vars:
+            wireguard_tunnel: >-
+              {{ (hostvars['localhost'].claude_vpn_plans | default({})).wireguard.tunnels | default([])
+                 | selectattr('vm.name', 'equalto', inventory_hostname) | first | default({}, true) }}
+          when: wireguard_wanted | default(false) | bool
+      rescue:
+        - name: Remember that WireGuard's link failed, for the end of the run
+          vars:
+            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
+          ansible.builtin.set_fact:
+            claude_vm_configure_failures: >-
+              {{ claude_vm_configure_failures | default([])
+                 + [(inventory_hostname ~ ': WireGuard failed at "' ~ (ansible_failed_task.name | default('a task'))
+                     ~ '": ' ~ claude_vm_wireguard_why)
+                    | retry_line('just deploy ' ~ inventory_hostname ~ ' --tags wireguard')] }}
+
+        - name: Say why WireGuard's link failed, and go on
+          ansible.builtin.debug:
+            msg: "{{ claude_vm_configure_failures | last }}"
 
 # One SSH alias per VM on this machine, so `ssh alpha` and the editor follow
 # the address DHCP gave it (docs/guides/vscode.md). A localhost play after the
@@ -195,11 +367,28 @@
     - name: Collect each configured VM's name, address and workspace
       vars:
         claude_ssh_vm_vars: "{{ hostvars[claude_ssh_host] }}"
+        # Under vpn_reach: tunnel, the address WireGuard's plan gave the VM this run, which its marks read at
+        # discovery may not hold yet. A VM the plan gave a tunnel and no alias keeps its LAN address: the address
+        # its marks held before the plan may be one it no longer has. Else the one they hold, else its LAN address
+        # (vpn_alias_address).
+        claude_ssh_wireguard: "{{ (claude_vpn_plans | default({})).get('wireguard') or {} }}"
+        claude_ssh_planned_alias: >-
+          {{ claude_ssh_wireguard.get('aliases', [])
+             | selectattr('vm.name', 'equalto', claude_ssh_host) | map(attribute='address') | first | default('') }}
+        claude_ssh_planned_tunnel: >-
+          {{ claude_ssh_wireguard.get('tunnels', []) | selectattr('vm.name', 'equalto', claude_ssh_host) | list
+             | length > 0 }}
+        claude_ssh_lan: "{{ claude_ssh_vm_vars.ansible_host | default(claude_ssh_host) }}"
       ansible.builtin.set_fact:
         claude_ssh_configured: >-
           {{ claude_ssh_configured | default([]) + [{
                'name': claude_ssh_host,
-               'address': claude_ssh_vm_vars.ansible_host | default(claude_ssh_host),
+               'address': claude_ssh_planned_alias
+                          or (claude_ssh_lan if claude_ssh_planned_tunnel | bool
+                              else claude_ssh_lan
+                                   | vpn_alias_address(claude_ssh_vm_vars.claude_vm_marks | default([]),
+                                                       claude_vpn_key | default('none'), vpn_reach | default('lan'),
+                                                       wireguard_vm_prefix | default(''))),
                'user': claude_ssh_vm_vars.vm_user | default(vm_user),
                'workspace': claude_ssh_vm_vars.claude_vm_workspace,
              }] }}

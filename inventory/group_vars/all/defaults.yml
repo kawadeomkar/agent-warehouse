@@ -97,24 +97,41 @@ proxmox_template_rebuild: true
 # tagged VM - so just status, just login and just deploy --only configure,
 # --check and --only ssh-config are fleet-wide. No VM is declared anywhere:
 # Proxmox gives each its ID, and DHCP its address.
-vm_default_name: claude-on-proxmox-default
+vm_default_name: agent-warehouse-default
+# The default's name through 1.x and from 2.0: a bare deploy or destroy is
+# refused while a VM of this project's has the first and none the second
+# (tasks/default_name_1x.yml). Not settings.
+claude_vm_default_name_1x: claude-on-proxmox-default
+claude_vm_default_name_2_0: agent-warehouse-default
 # Applied to every VM this project creates, and how they are found again.
-claude_vm_tag: claude-on-proxmox
-# Matches claude_vm_tag as a whole tag in Proxmox's ";"-joined tag string (or
+claude_vm_tag: agent-warehouse
+# The ownership tag through 1.x, while claude_vm_tag is the default: a VM 1.x
+# made carries it, and its marks and unfinished tag under it, and is this
+# project's through 2.x as if it carried the new one. Provisioning writes them
+# under the new tag (proxmox_vm_tags_1x); everything else only reads. A tag
+# set in local.yml has no 1.x name. Not a setting.
+claude_vm_tag_1x: "{{ 'claude-on-proxmox' if claude_vm_tag | lower == 'agent-warehouse' else '' }}"
+# Every tag a VM of this project's carries as its ownership tag, lowercased:
+# claude_vm_tag first. What a mark or the unfinished tag is read under.
+claude_vm_tags_owned: "{{ [claude_vm_tag | lower] + ([claude_vm_tag_1x] if claude_vm_tag_1x | length > 0 else []) }}"
+# Matches an owned tag as a whole tag in Proxmox's ";"-joined tag string (or
 # the ","-joined form proxmox_kvm sends), never as a substring of a longer one.
 # Case-insensitive, because Proxmox stores tags lowercased by default: a
-# claude_vm_tag of "Claude-On-Proxmox" is stamped on a VM as
-# "claude-on-proxmox", and matched as typed it would never be found again.
+# claude_vm_tag of "Agent-Warehouse" is stamped on a VM as
+# "agent-warehouse", and matched as typed it would never be found again.
 # The proxmox_vm role lowercases both sides of its own comparison the same way.
-claude_vm_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tag | lower | regex_escape }}([;,]|$)"
+claude_vm_tag_pattern: "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|$)"
 # The tag a VM carries once it has held a Tailscale login of the tailscale
 # role's own, written by configure.yml after the role and read back by
 # discovery, provisioning and just status as tailscale_joined_before: kept in
 # Proxmox, where the VM cannot change it, so that a VM logged out from inside is
 # never handed vault_tailscale_auth_key again. Remove it in Proxmox to let the
 # key join that VM once more. Like the ownership tag, matched whole.
+# Written under claude_vm_tag, and read under either owned tag: a VM whose
+# record 1.x wrote is never handed the key either.
 claude_vm_tailscale_tag: "{{ claude_vm_tag | lower }}-tailscale"
-claude_vm_tailscale_tag_pattern: "(?i)(^|[;,]){{ claude_vm_tailscale_tag | regex_escape }}([;,]|$)"
+claude_vm_tailscale_tag_pattern: >-
+  (?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)
 # The VMs this project owns, filtered out of the cluster's VM list. Defined
 # here, not in each playbook, so discover.yml, status.yml and destroy.yml cannot
 # drift on what "ours" means. Evaluated lazily: any play that uses it must have
@@ -246,6 +263,49 @@ destroy_sessions_dir: ""
 # test_claude_login.py and test_tailscale.py fail if one does not.
 login_desktop: true
 
+# ---------------------------------------------------------------- VPN -----
+# Each setting's description: local.yml.example, under VPN.
+# Unset, it follows tailscale_enabled below, the setting it replaces, which is
+# still read: tailscale while that is true, else none.
+vpn: "{{ 'tailscale' if tailscale_enabled | bool else 'none' }}"
+vpn_reach: lan
+# The VPNs a VM can be on, by the vpn setting's value: each one's name, the
+# family of the core that plans its members (lib/claude_vm/vpn/), the role
+# that runs it on each VM, whether it has a sign-in of its own (a stage of
+# just login and just deploy), and the addresses an SSH alias can reach it
+# at. Literal values only. Internal, not a setting: tests hold it to each
+# role's static import in configure.yml and to the settings' checks
+# (docs/architecture/custom-code.md §7.11).
+claude_vpns:
+  tailscale:
+    name: Tailscale
+    family: tailscale
+    role: tailscale
+    sign_in: true
+    reach: [lan]
+  wireguard:
+    name: WireGuard
+    family: wireguard
+    role: wireguard
+    sign_in: false
+    reach: [lan, tunnel]
+# The vpn setting as every playbook reads it: an empty one is none. Internal,
+# not a setting.
+claude_vpn_key: "{{ vpn | default('none', true) | string }}"
+
+# ------------------------------------------------------------ WireGuard -----
+# Each setting's description: local.yml.example, under WireGuard.
+wireguard_hub: manual
+wireguard_hub_network: ""
+wireguard_vm_prefix: ""
+wireguard_hub_public_key: ""
+wireguard_hub_endpoint: ""
+wireguard_keepalive: 25
+wireguard_hub_instance: ""
+wireguard_hub_cert_sha256: ""
+wireguard_hub_api_key: "{{ vault_wireguard_hub_api_key | default('', true) }}"
+wireguard_hub_api_secret: "{{ vault_wireguard_hub_api_secret | default('', true) }}"
+
 # ------------------------------------------------------------ Tailscale -----
 # Each setting's description: local.yml.example, under Tailscale.
 tailscale_enabled: true
@@ -342,7 +402,13 @@ vscode_user_settings_file: ""
 # Include line at the top of ~/.ssh/config, added once and never removed
 # (docs/architecture/lifecycle.md §4.8).
 claude_ssh_config: true
-claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/claude-on-proxmox.conf"
+claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/agent-warehouse.conf"
+# The managed file's name through 1.x, beside it: the first alias write of 2.0
+# moves it to claude_ssh_config_file (tasks/ssh_config.yml), and until then
+# just status and the prune read it. Only the default name had one.
+claude_ssh_config_legacy_file: >-
+  {{ (claude_ssh_config_file | dirname) ~ '/claude-on-proxmox.conf'
+     if claude_ssh_config_file | basename == 'agent-warehouse.conf' else '' }}
 claude_ssh_user_config: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/config"
 claude_ssh_config_include: true
 claude_ssh_host_domain: ""
@@ -370,6 +436,7 @@ proxmox_vm_nic: "{{ proxmox_nic }}"
 proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
+proxmox_vm_tags_1x: "{{ claude_vm_tags_owned[1:] }}"
 proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
 proxmox_vm_known_hosts_kept: "{{ claude_vm_inventory_addresses }}"
 
@@ -404,3 +471,15 @@ github_projects_git_user_email: "{{ git_user_email }}"
 
 tailscale_login_desktop: "{{ login_desktop }}"
 tailscale_joined_tag: "{{ claude_vm_tailscale_tag }}"
+# Whether Tailscale is the VPN, from the vpn setting: the role's own input,
+# since vpn's default reads tailscale_enabled, which the role cannot then be
+# handed. And the setting that turned it off, as its messages name it.
+tailscale_wanted: "{{ claude_vpn_key == 'tailscale' }}"
+tailscale_off_setting: >-
+  {{ {'name': 'tailscale_enabled', 'value': 'false'} if not (tailscale_enabled | bool)
+     else {'name': 'vpn', 'value': claude_vpn_key} }}
+
+# Whether WireGuard is the VPN, from the vpn setting, and why it is off where it
+# is, as the role's messages name it.
+wireguard_wanted: "{{ claude_vpn_key == 'wireguard' }}"
+wireguard_off_why: "vpn is {{ claude_vpn_key }}"

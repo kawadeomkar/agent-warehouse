@@ -52,10 +52,10 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - /home/dev/.config/claude-on-proxmox/gh-login.out
-        - /home/dev/.config/claude-on-proxmox/gh-login
+        - /home/dev/.config/agent-warehouse/gh-login.out
+        - /home/dev/.config/agent-warehouse/gh-login
         - /home/dev/.ansible_async
-        - /home/dev/.config/claude-on-proxmox/gh-login.pid
+        - /home/dev/.config/agent-warehouse/gh-login.pid
       register: verify_gh_leftovers
 
     - name: Read settings.json
@@ -103,10 +103,10 @@
       loop:
         - /home/dev/.claude/.credentials.json
         - /etc/systemd/system/claude-remote-control.path
-        - /home/dev/.config/claude-on-proxmox/claude-login.out
-        - /home/dev/.config/claude-on-proxmox/claude-login.in
-        - /home/dev/.config/claude-on-proxmox/claude-login.pid
-        - /home/dev/.config/claude-on-proxmox/claude-login.run
+        - /home/dev/.config/agent-warehouse/claude-login.out
+        - /home/dev/.config/agent-warehouse/claude-login.in
+        - /home/dev/.config/agent-warehouse/claude-login.pid
+        - /home/dev/.config/agent-warehouse/claude-login.run
       register: verify_sign_in
 
     # Gone means unloaded, not only a missing file: a unit deleted without
@@ -233,7 +233,7 @@
           - sh
           - -c
           - >-
-            cat /var/lib/claude-on-proxmox/tailscale-joined;
+            cat /var/lib/agent-warehouse/tailscale-joined;
             systemctl is-active tailscaled; systemctl show tailscaled -p Environment
       register: verify_tailscale
       changed_when: false
@@ -285,18 +285,18 @@
   tasks:
     - name: Read the managed ssh config
       ansible.builtin.slurp:
-        src: "{{ verify_ssh_dir }}/claude-on-proxmox.conf"
+        src: "{{ verify_ssh_dir }}/agent-warehouse.conf"
       register: verify_ssh_managed
 
     - name: Stat the managed file and the user config that must not exist
       ansible.builtin.stat:
         path: "{{ verify_ssh_dir }}/{{ item }}"
       register: verify_ssh_stats
-      loop: [claude-on-proxmox.conf, ssh_config]
+      loop: [agent-warehouse.conf, ssh_config]
 
     - name: Resolve the alias with the real ssh client
       ansible.builtin.command:
-        argv: [ssh, -G, -F, "{{ verify_ssh_dir }}/claude-on-proxmox.conf", claude-dev]
+        argv: [ssh, -G, -F, "{{ verify_ssh_dir }}/agent-warehouse.conf", claude-dev]
       register: verify_ssh_resolved
       changed_when: false
 
@@ -305,8 +305,8 @@
         verify_ssh_text: "{{ verify_ssh_managed.content | b64decode }}"
       ansible.builtin.assert:
         that:
-          - "'# BEGIN claude-on-proxmox: claude-dev' in verify_ssh_text"
-          - "'# END claude-on-proxmox: claude-dev' in verify_ssh_text"
+          - "'# BEGIN agent-warehouse: claude-dev' in verify_ssh_text"
+          - "'# END agent-warehouse: claude-dev' in verify_ssh_text"
           # What ssh reads, and no state of this project's
           - "'# workspace' not in verify_ssh_text"
           - "'# vmid' not in verify_ssh_text"

@@ -69,3 +69,17 @@
         host: 127.0.0.1
         port: 8080
         timeout: 30
+
+    # The image directory by its 1.x name, as a host 1.x built a template on
+    # has it: the build moves it, and what is in it, to its name from 2.0.
+    - name: Make the image directory by its 1.x name
+      ansible.builtin.file:
+        path: /var/lib/vz/claude-on-proxmox
+        state: directory
+        mode: "0755"
+
+    - name: Leave the image directory as 1.x left it
+      ansible.builtin.copy:
+        dest: /var/lib/vz/claude-on-proxmox/kept-by-1x
+        content: "kept\n"
+        mode: "0644"

@@ -205,7 +205,10 @@ claude_code_remote_control_bridge_wanted: >-
 # GitHub device flow's: claude's output, the named pipe its input comes
 # through, the pid that ends an attempt nobody completes, and the run that
 # waits for it (the controller_run filter's record). 0700, the user's.
-claude_code_login_dir: "{{ claude_code_home }}/.config/claude-on-proxmox"
+claude_code_login_dir: "{{ claude_code_home }}/.config/agent-warehouse"
+# The same by its 1.x name, which names.yml moves it from (2.x): the directory
+# github_projects keeps its markers in too.
+claude_code_login_dir_1x: "{{ claude_code_home }}/.config/claude-on-proxmox"
 claude_code_login_output: "{{ claude_code_login_dir }}/claude-login.out"
 claude_code_login_pipe: "{{ claude_code_login_dir }}/claude-login.in"
 claude_code_login_pidfile: "{{ claude_code_login_dir }}/claude-login.pid"

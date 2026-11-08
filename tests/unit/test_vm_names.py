@@ -11,6 +11,9 @@ group_vars/all reads it:
 - just status shows it from the listing, read no further, and reads every other VM through the API's own address;
 - a name given that is one is refused before Proxmox is asked anything, by every playbook that takes names;
 - a fleet-wide alias refresh removes an alias of such a name, or of an address, that an earlier version wrote.
+
+And the names 1.x left in Proxmox: its default VM's, which a bare run refuses to miss, and its ownership tag, under
+which a VM is still the project's, and which provisioning writes under the new one.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _messages, _pve_vm, _results, _run, fake_fleet
+from harness import REPO, _failures, _messages, _pve, _pve_vm, _results, _run, fake_fleet
 from test_status import _status_run, status_root
 
 PLAYBOOKS = REPO / "playbooks"
@@ -36,7 +39,7 @@ def fleet(tmp_path):
     localhost."""
     for base in fake_fleet(tmp_path):
         for vmid, name in [(9013, "pve"), (9014, "localhost")]:
-            _pve_vm(base, vmid, name, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+            _pve_vm(base, vmid, name, running=True, tags="agent-warehouse", ciuser="dev", onboot="1")
         yield base
 
 
@@ -79,7 +82,7 @@ def _creating(tmp_path: Path, base: str, playbook: str, names: str, *inventory: 
 
 
 def _block(name: str) -> str:
-    return f"# BEGIN claude-on-proxmox: {name}\nHost {name}\n    HostName 192.0.2.99\n# END claude-on-proxmox: {name}\n"
+    return f"# BEGIN agent-warehouse: {name}\nHost {name}\n    HostName 192.0.2.99\n# END agent-warehouse: {name}\n"
 
 
 def _task(report: dict, name: str) -> dict:
@@ -135,15 +138,15 @@ def test_status_shows_such_a_vm_unread_and_reads_the_rest_through_the_api_s_own_
 def test_a_fleet_wide_refresh_removes_an_alias_no_vm_may_have_and_leaves_a_dotted_one(tmp_path, fleet) -> None:
     # An earlier version wrote an alias for any tagged VM, so the managed file may hold one for the VM named pve - the
     # Proxmox host's root SSH - or for one named like an address. Tagged VMs still carry both names here.
-    _pve_vm(fleet, 9015, "3232235777", tags="claude-on-proxmox", ciuser="dev")
+    _pve_vm(fleet, 9015, "3232235777", tags="agent-warehouse", ciuser="dev")
     # A dotted name: the user's own, written by a run that named it. Running, so the refresh has its address.
-    _pve_vm(fleet, 9016, "alpha.lab", running=True, tags="claude-on-proxmox", ciuser="dev")
+    _pve_vm(fleet, 9016, "alpha.lab", running=True, tags="agent-warehouse", ciuser="dev")
     managed = tmp_path / "ssh.conf"
     managed.write_text(_block("pve") + _block("3232235777") + _block("alpha.lab"))
     report = _refresh(tmp_path, fleet)
     assert report["rc"] == 0, report["stderr"][-2000:]
     text = managed.read_text()
-    assert re.findall(r"^# BEGIN claude-on-proxmox: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
+    assert re.findall(r"^# BEGIN agent-warehouse: (\S+)$", text, flags=re.M) == ["alpha.lab", "alpha", "beta"]
     # Left as it was: neither refreshed nor removed by a run that did not name it.
     assert _block("alpha.lab") in text
     said = _messages(report, "Report what was kept, pruned and left alone")["localhost"]
@@ -235,3 +238,126 @@ def test_deploy_refuses_a_name_in_its_first_play() -> None:
     first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
     assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == ["playbooks/tasks/vm_names.yml"]
     assert first["tasks"][0]["vars"] == {"claude_vm_names_alias": True}
+
+
+# ------------------------------------------------------------------- the default VM's name through 1.x ----
+
+DEFAULT_1X = "claude-on-proxmox-default"
+DEFAULT_REFUSAL = "default_name_1x | Refuse a bare run that would miss the default VM by its 1.x name"
+
+
+def _default_check(tmp_path: Path, base: str, **given) -> dict:
+    """The cluster's listing, then tasks/default_name_1x.yml, on localhost against the fake, with given as -e."""
+    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
+    tasks = PLAYBOOKS / "tasks"
+    play = {
+        "name": "Check the default VM's name",
+        "hosts": "localhost",
+        "gather_facts": False,
+        "tasks": [
+            {"name": "List the cluster", "ansible.builtin.import_tasks": str(tasks / "cluster_vms.yml")},
+            {
+                "name": "Check it",
+                "ansible.builtin.import_tasks": str(tasks / "default_name_1x.yml"),
+                "vars": {"claude_vm_default_doing": "it would do something else"},
+            },
+        ],
+    }
+    (root / "check.yml").write_text(yaml.safe_dump([play]))
+    extra = ["-e", json.dumps(given)] if given else []
+    return _run(root, root / "check.yml", {}, *_proxmox_inventory(root), *extra, timeout=120)
+
+
+@pytest.mark.parametrize(
+    ("vms", "given", "refused"),
+    [
+        # A VM of the project's by the 1.x default's name alone: refused, naming the setting that keeps it.
+        ([DEFAULT_1X], {}, True),
+        # The setting kept at the 1.x name, names given, or the new default there too: each passes.
+        ([DEFAULT_1X], {"vm_default_name": DEFAULT_1X}, False),
+        ([DEFAULT_1X], {"vm_name": "alpha"}, False),
+        ([DEFAULT_1X, "agent-warehouse-default"], {}, False),
+        ([], {}, False),
+    ],
+    ids=["1x-only", "kept-by-setting", "names-given", "both", "neither"],
+)
+def test_a_bare_run_is_refused_only_while_the_default_vm_has_its_1x_name_alone(tmp_path, fleet, vms, given, refused):
+    for vmid, name in enumerate(vms, start=9021):
+        _pve_vm(fleet, vmid, name, running=True, tags="agent-warehouse", ciuser="dev", onboot="1")
+    report = _default_check(tmp_path, fleet, **given)
+    result = _task(report, DEFAULT_REFUSAL)
+    assert bool(result.get("failed")) is refused, report["stderr"][-2000:]
+    if refused:
+        assert f"just settings vm_default_name --value {DEFAULT_1X}" in result["msg"], result["msg"]
+
+
+def test_a_bare_provision_with_the_default_vm_by_its_1x_name_creates_nothing(tmp_path, fleet) -> None:
+    _pve_vm(fleet, 9021, DEFAULT_1X, running=True, tags="claude-on-proxmox", ciuser="dev", onboot="1")
+    calls = tmp_path / "pve" / "calls.log"
+    before = len(calls.read_text().splitlines()) if calls.exists() else 0
+    report = _playbook(tmp_path, fleet, PLAYBOOKS / "provision.yml", "-e", json.dumps({"deploy_sign_in": False}))
+    assert report["rc"] != 0 and _task(report, DEFAULT_REFUSAL).get("failed"), report["stderr"][-2000:]
+    sent = [json.loads(line)["method"] for line in calls.read_text().splitlines()[before:]]
+    assert set(sent) <= {"GET"}, sent
+
+
+# ------------------------------------------------------ the tag through 1.x ---
+MOVE = "present | Move the VM's tags to their names from 2.0"
+SETTINGS = "present | Apply hardware and cloud-init settings"
+
+
+def _listed(base: str) -> dict:
+    return {vm["vmid"]: vm.get("tags", "") for vm in _pve(base, "GET", "cluster/resources")["data"]}
+
+
+def _ran(report: dict, name: str, vm: str) -> dict:
+    """What the role's task of that name did for that VM."""
+    return next((result for task, host, result in _results(report) if task.endswith(name) and host == vm), {})
+
+
+def _provisioning(tmp_path: Path, base: str, name: str) -> dict:
+    """provision.yml for that VM against the fake, with a key for its cloud-init user, as a deploy has one."""
+    settings = {**FROM_THE_HOST, "vm_ssh_public_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse test"]}
+    extra = json.dumps({"vm_name": name, "deploy_sign_in": False})
+    return _playbook(tmp_path, base, PLAYBOOKS / "provision.yml", "-e", extra, settings=settings)
+
+
+def test_a_vm_1x_tagged_is_provisioned_as_the_project_s_and_its_tags_move_once(tmp_path, fleet) -> None:
+    # Finished, running, its Tailscale recorded and a tag of the user's: owned, changed in nothing but its tags.
+    _pve_vm(
+        fleet,
+        9031,
+        "made-by-1x",
+        running=True,
+        tags="claude-on-proxmox;keepme;claude-on-proxmox-tailscale",
+        ciuser="dev",
+        onboot="1",
+    )
+    report = _provisioning(tmp_path, fleet, "made-by-1x")
+    assert report["rc"] == 0, _failures(report)
+    assert _ran(report, MOVE, "made-by-1x").get("changed") is True
+    assert _ran(report, SETTINGS, "made-by-1x").get("skipped") is True
+    assert _listed(fleet)[9031] == "agent-warehouse;agent-warehouse-tailscale;keepme"
+    again = _provisioning(tmp_path, fleet, "made-by-1x")
+    assert again["rc"] == 0, _failures(again)
+    assert _ran(again, MOVE, "made-by-1x").get("skipped") is True
+
+
+def test_a_vm_1x_left_unfinished_is_finished_under_the_new_tag(tmp_path, fleet) -> None:
+    _pve_vm(fleet, 9032, "half-by-1x", tags="claude-on-proxmox;claude-on-proxmox-unfinished", ciuser="dev", onboot="1")
+    report = _provisioning(tmp_path, fleet, "half-by-1x")
+    assert report["rc"] == 0, _failures(report)
+    # The settings call writes the tags itself, so the move is left to it.
+    assert _ran(report, MOVE, "half-by-1x").get("skipped") is True
+    assert _ran(report, SETTINGS, "half-by-1x").get("changed") is True
+    assert _listed(fleet)[9032] == "agent-warehouse"
+
+
+@pytest.mark.parametrize("tags", ["claude-on-proxmox-staging", "not-claude-on-proxmox", "claude-on-proxmox-tailscale"])
+def test_a_vm_whose_1x_tag_is_a_lookalike_or_a_mark_alone_is_refused(tmp_path, fleet, tags) -> None:
+    _pve_vm(fleet, 9033, "lookalike", running=True, tags=tags, ciuser="dev", onboot="1")
+    report = _provisioning(tmp_path, fleet, "lookalike")
+    assert report["rc"] != 0
+    refusal = _ran(report, "Refuse to change a VM this project does not own", "lookalike")
+    assert refusal.get("failed") and f"Its tags are: {tags}." in refusal["msg"], _failures(report)
+    assert _listed(fleet)[9033] == tags

@@ -7,17 +7,17 @@ the host.
 ## Set up the project
 
 ```bash
-git clone https://github.com/kawadeomkar/claude-on-proxmox.git && cd claude-on-proxmox
+git clone https://github.com/kawadeomkar/agent-warehouse.git && cd agent-warehouse
 just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
 ```
 
 You need no Python of your own. `just install`, which `just init` runs first, makes the project's
 environment with uv: a Python uv downloads (3.13), and the versions `uv.lock` pins, in a folder of this
-checkout's own outside it - `~/.local/share/claude-on-proxmox/checkouts/<folder>-<number>/`, which
+checkout's own outside it - `~/.local/share/agent-warehouse/checkouts/<folder>-<number>/`, which
 `tools/env-run --data` names - with the Galaxy collections beside it, so no other checkout's tools or
 collections can change this one's. Every recipe runs its tools from there. To use a virtualenv of your own
-instead, of Python 3.12 or later and made with any tool (`python3 -m venv ~/.virtualenvs/claude-on-proxmox`),
-activate it, or export its Python as `PYTHON=~/.virtualenvs/claude-on-proxmox/bin/python`: `just install`
+instead, of Python 3.12 or later and made with any tool (`python3 -m venv ~/.virtualenvs/agent-warehouse`),
+activate it, or export its Python as `PYTHON=~/.virtualenvs/agent-warehouse/bin/python`: `just install`
 then installs into it, and removes nothing else there; a Python that is not a virtualenv is refused. Run
 `just install` again after a pull; `just clean env` deletes the checkout's own environment and collections.
 
@@ -98,7 +98,7 @@ $ just init --host pve.lan --github-user octocat --token-secret-file ~/.config/p
 |---|---|
 | `--host` | The Proxmox host's address |
 | `--token-user`, `--token-id` | The token's user (`ansible@pve`) and ID (`ansible`), each only when it differs |
-| `--token-secret-file` | A file holding the token's secret, a relative path from where you run `just`; or `CLAUDE_ON_PROXMOX_TOKEN_SECRET` exported in the environment, from a CI secret or `read -rs`, never typed into a command |
+| `--token-secret-file` | A file holding the token's secret, a relative path from where you run `just`; or `AGENT_WAREHOUSE_TOKEN_SECRET` exported in the environment, from a CI secret or `read -rs`, never typed into a command (`CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its name through 1.x, is read while it is unset) |
 | `--github-user` | Your GitHub username |
 | `--storage` | The storage for VM disks: written whenever the token can use it, the default's fitting or not |
 | `--bridge` | The bridge the template is built on, before it is: clones take the template's |
@@ -210,7 +210,7 @@ report within a second and fills it in as each value is read:
 
 ```
 $ just status
-claude-on-proxmox  2026-10-25 14:32 PDT · pve, Proxmox VE 9.2.21 · 3 VMs
+agent-warehouse  2026-10-25 14:32 PDT · pve, Proxmox VE 9.2.21 · 3 VMs
 
 VMS  pve · this project: 3 VMs, 6 vCPUs, 12 GiB, 96 GiB of disk
  VMID  NAME     UP        vCPU  CPU  LAST 24 H     MEM GiB             ROOT GiB   CREATED
@@ -239,7 +239,7 @@ SYSTEM    OS              KERNEL                     LOAD 1 / 15 MIN   UPDATES
 
 WORK  in ~/projects, as of each checkout's last fetch
           CHECKED                 NOT ON ANY REMOTE, OR NOT COMMITTED             CLAUDE   EDITOR
- alpha    2 checkouts, 1 tree     claude-on-proxmox: 2 commits on 1 branch,       1        1 window
+ alpha    2 checkouts, 1 tree     agent-warehouse: 2 commits on 1 branch,       1        1 window
                                   changes in 1 worktree
  beta     1 checkout              nothing                                         —        —
 

@@ -20,3 +20,12 @@ all:
     # and playbooks/discover.yml finds already-created ones by their tag.
     claude_vms:
       hosts: {}
+
+    # With vpn: wireguard and wireguard_hub: opnsense: the OPNsense router whose
+    # API writes your VMs' peers (docs/guides/wireguard.md). Reached from this
+    # machine alone; no VM may take its name.
+    # wireguard_hub:
+    #   hosts:
+    #     router:
+    #       ansible_host: 192.0.2.1
+    #       ansible_connection: local

@@ -29,6 +29,14 @@
     path: "{{ tailscale_installed_marker_path }}"
   register: tailscale_installed_marker
 
+# Through 1.x, in /var/lib/claude-on-proxmox: read there on a VM no run of 2.0
+# has moved it on (names.yml), as just status's read is, never moving it here.
+- name: ownership | Look for that marker by its 1.x directory
+  ansible.builtin.stat:
+    path: "{{ tailscale_marker_dir_1x }}/{{ tailscale_installed_marker_path | basename }}"
+  register: tailscale_installed_marker_1x
+  when: not tailscale_installed_marker.stat.exists and tailscale_marker_dir_1x | length > 0
+
 # The node key of the login this role's own join produced (connect.yml): a
 # login made by hand has another, and keeps its own settings.
 - name: ownership | Read the node key of the login this role made
@@ -36,3 +44,10 @@
     src: "{{ tailscale_joined_marker_path }}"
   register: tailscale_joined_marker
   failed_when: false
+
+- name: ownership | Read the node key of the login this role made, by its 1.x directory
+  ansible.builtin.slurp:
+    src: "{{ tailscale_marker_dir_1x }}/{{ tailscale_joined_marker_path | basename }}"
+  register: tailscale_joined_marker_1x
+  failed_when: false
+  when: tailscale_joined_marker.content is not defined and tailscale_marker_dir_1x | length > 0

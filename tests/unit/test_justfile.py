@@ -424,7 +424,7 @@ def test_a_copy_with_no_git_of_its_own_inside_another_work_tree_runs(tmp_path: P
     # A release archive unpacked in a home directory that is a git repository: git takes the copy for that
     # tree's, from where just was started and from the justfile's directory alike.
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=_env())
-    copy = tmp_path / "claude-on-proxmox"
+    copy = tmp_path / "agent-warehouse"
     copy.mkdir()
     result = subprocess.run(
         [str(REPO / "tools" / "check"), "checkout", str(copy)],
@@ -731,9 +731,9 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
     ],
 )
 def test_each_recipe_drawn_live_is_drawn_under_what_was_run(tmp_path: Path, args: list[str], title: str) -> None:
-    # The live output's switch and its title (callback_plugins/claude_on_proxmox.py), as the playbook sees it.
+    # The live output's switch and its title (callback_plugins/agent_warehouse.py), as the playbook sees it.
     seen = tmp_path / "live"
-    body = f'printf "%s\\n" "${{CLAUDE_ON_PROXMOX_LIVE-unset}}" > "{seen}"'
+    body = f'printf "%s\\n" "${{AGENT_WAREHOUSE_LIVE-unset}}" > "{seen}"'
     result = _just(*args, settings=_recording(tmp_path, body))
     assert result.returncode == 0, _output(result)
     assert seen.read_text() == f"{title}\n"
@@ -863,7 +863,7 @@ def test_just_lists_every_recipe_and_help_names_each_option(tmp_path: Path) -> N
     assert listed.returncode == 0, _output(listed)
     for name in _public():
         assert re.search(rf"(?m)^\s+{re.escape(name)}\b", listed.stdout), name
-    assert "Without names, deploy and destroy act on claude-on-proxmox-default" in listed.stdout
+    assert "Without names, deploy and destroy act on agent-warehouse-default" in listed.stdout
     for name, recipe in _public().items():
         usage = _just("help", name)
         assert usage.returncode == 0, _output(usage)
@@ -1036,9 +1036,10 @@ def test_clean_never_touches_the_python_environment() -> None:
     # Never one of yours; this checkout's own only as just clean env, the folder tools/env-run names.
     body = json.dumps(_json()["recipes"]["clean"]["body"])
     assert ".venv" not in body and "PYTHON" not in body and "bin" not in body
-    assert (
-        'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/claude-on-proxmox/checkouts/?*" in body
-    )
+    assert 'rm -rf \\"$data\\"' in body and "tools/env-run --data" in body and "*/agent-warehouse/checkouts/?*" in body
+    # And the same folder by its name through 1.x, which a checkout not installed again since may still have.
+    assert 'rm -rf \\"$legacy\\"' in body and "tools/env-run --legacy-data" in body
+    assert "*/claude-on-proxmox/checkouts/?*" in body
 
 
 # ---------------------------------------------------------------- --project ----
@@ -1675,9 +1676,10 @@ PRE_COMMIT_S_HOOK = (
     [
         (PRE_COMMIT_S_HOOK, False),
         ("#!/bin/sh\n# claude-on-proxmox's pre-commit hook, as an earlier version wrote it\n", False),
+        ("#!/bin/sh\n# agent-warehouse's pre-commit hook, as another worktree's version wrote it\n", False),
         ("#!/bin/sh\necho a hook of another tool's\n", True),
     ],
-    ids=["pre-commit-s", "an-earlier-one", "another-tool-s"],
+    ids=["pre-commit-s", "an-earlier-one", "this-one-s-older", "another-tool-s"],
 )
 def test_init_replaces_pre_commit_s_hook_and_moves_another_tool_s_aside(
     tmp_path: Path, before: str, aside: bool
@@ -1882,7 +1884,7 @@ def test_tailscale_is_on_or_off(tmp_path: Path) -> None:
     "args",
     [
         pytest.param([f"TOKEN_SECRET={SECRET}"], id="make-s-spelling"),
-        pytest.param([f"CLAUDE_ON_PROXMOX_TOKEN_SECRET={SECRET}"], id="the-variable"),
+        pytest.param([f"AGENT_WAREHOUSE_TOKEN_SECRET={SECRET}"], id="the-variable"),
         pytest.param(["--host", "pve.lan", SECRET], id="a-bare-word"),
         pytest.param(["--token-secret", SECRET], id="an-option"),
         pytest.param([f"--token-secret={SECRET}"], id="an-option-with-its-value"),
@@ -1896,18 +1898,18 @@ def test_the_token_secret_is_refused_on_the_command_line_and_never_said(tmp_path
 
 
 def test_the_token_secret_as_a_setting_is_refused_and_never_said(tmp_path: Path) -> None:
-    result = _just(f"CLAUDE_ON_PROXMOX_TOKEN_SECRET={SECRET}", "init", settings=_safe(tmp_path))
+    result = _just(f"AGENT_WAREHOUSE_TOKEN_SECRET={SECRET}", "init", settings=_safe(tmp_path))
     assert result.returncode != 0 and "11111111-2222" not in _output(result)
 
 
 def test_a_word_after_init_s_options_is_refused_naming_the_two_ways_in(tmp_path: Path) -> None:
     result, _ = _init(tmp_path, f"TOKEN_SECRET={SECRET}")
     assert "just init takes only its options" in result.stderr
-    assert "--token-secret-file" in result.stderr and "CLAUDE_ON_PROXMOX_TOKEN_SECRET" in result.stderr
+    assert "--token-secret-file" in result.stderr and "AGENT_WAREHOUSE_TOKEN_SECRET" in result.stderr
 
 
 def test_the_secret_in_the_environment_reaches_no_argument(tmp_path: Path) -> None:
-    result, runs = _init(tmp_path, "--host", "pve.lan", env={"CLAUDE_ON_PROXMOX_TOKEN_SECRET": SECRET})
+    result, runs = _init(tmp_path, "--host", "pve.lan", env={"AGENT_WAREHOUSE_TOKEN_SECRET": SECRET})
     assert result.returncode == 0, _output(result)
     assert SECRET not in "\n".join(arg for run in runs for arg in run) + _output(result)
 
@@ -1989,9 +1991,12 @@ def test_env_run_keeps_one_folder_per_checkout_outside_it(tmp_path: Path) -> Non
     # Named for the checkout and told apart by its path: a worktree or a second clone shares nothing with another.
     env = _no_virtualenv(tmp_path)
     data = _env_run_in(env, "--data").stdout.strip()
-    assert data == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", data
+    assert data == f"{tmp_path}/data/agent-warehouse/checkouts/{REPO.name}-{_checksum(REPO)}", data
     assert not data.startswith(str(REPO))
     assert _env_run_in(env, "--collections").stdout.strip() == f"{data}/collections"
+    # Its name through 1.x, which just install moves it from.
+    legacy = _env_run_in(env, "--legacy-data").stdout.strip()
+    assert legacy == f"{tmp_path}/data/claude-on-proxmox/checkouts/{REPO.name}-{_checksum(REPO)}", legacy
     other = tmp_path / "other" / REPO.name
     (other / "tools").mkdir(parents=True)
     shutil.copy(ENV_RUN, other / "tools" / "env-run")
@@ -2077,6 +2082,32 @@ def test_install_makes_this_checkout_s_own_environment_with_uv_when_there_is_non
     ]
 
 
+def test_install_moves_this_checkout_s_folder_from_its_1x_name_and_makes_its_environment_again(tmp_path: Path) -> None:
+    # The collections are kept; the environment is made again, since uv wrote the old path into each of its commands.
+    env = _no_virtualenv(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    legacy = Path(_env_run_in(env, "--legacy-data").stdout.strip())
+    (legacy / "collections" / "ansible_collections").mkdir(parents=True)
+    (legacy / "collections" / "kept").write_text("kept")
+    (legacy / "venv" / "bin").mkdir(parents=True)
+    (legacy / "venv" / "bin" / "old-command").write_text(f"#!{legacy}/venv/bin/python\n")
+    galaxy = tmp_path / "galaxy"
+    galaxy.write_text(f"#!/bin/sh\n{NOT_THE_PINS}\n")
+    galaxy.chmod(0o755)
+    _stand_in(
+        tmp_path / "uv-bin",
+        "uv",
+        'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
+        f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
+        f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
+    )
+    result = _just("install", settings=[f"UV={tmp_path / 'uv-bin' / 'uv'}"], env=env)
+    assert result.returncode == 0, _output(result)
+    assert f"Moved this checkout's own folder from {legacy} to {data}" in result.stdout
+    assert not legacy.exists() and (data / "collections" / "kept").read_text() == "kept"
+    assert not (data / "venv" / "bin" / "old-command").exists() and (data / "venv" / "bin" / "python").exists()
+
+
 def test_every_recipe_points_ansible_at_this_checkout_s_collections(tmp_path: Path) -> None:
     seen = tmp_path / "collections"
     result = _just("status", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
@@ -2097,6 +2128,11 @@ def test_clean_env_deletes_this_checkout_s_own_folder_and_nothing_else(tmp_path:
     assert not data.exists() and neighbour.exists()
     again = _just("clean", "env", env=env)
     assert again.returncode == 0 and f"This checkout has no environment of its own, in {data}" in again.stdout
+    # And its folder by its name through 1.x, if a checkout not installed again since left one.
+    legacy = Path(_env_run_in(env, "--legacy-data").stdout.strip())
+    (legacy / "collections").mkdir(parents=True)
+    cleaned = _just("clean", "env", env=env)
+    assert cleaned.returncode == 0 and f"by its name through 1.x, {legacy}" in cleaned.stdout and not legacy.exists()
 
 
 def test_every_local_hook_runs_through_env_run() -> None:
@@ -2369,10 +2405,11 @@ def test_a_scenario_that_fails_beside_the_others_fails_the_run_and_says_where_it
     assert result.returncode != 0, _output(result)
     said = _output(result)
     # Every scenario ran, the one that failed among them, and it is said with its log and how its output ended.
-    assert sorted(_lanes_ran(tmp_path)) == sorted(_evaluate("scenario_roles").split())
+    roles = _evaluate("scenario_roles").split()
+    assert sorted(_lanes_ran(tmp_path)) == sorted(roles)
     log = tmp_path / "logs" / "20261106-120000-test-common.log"
     assert re.search(rf"^common failed \(exit 3\) after \d+ s; its log: {re.escape(str(log))}$", said, flags=re.M), said
-    assert "    it broke here" in said and "common failed, 8 of 8 ran" in said, said
+    assert "    it broke here" in said and f"common failed, {len(roles)} of {len(roles)} ran" in said, said
 
 
 @pytest.mark.parametrize(
@@ -2507,7 +2544,7 @@ def test_status_runs_as_a_dry_run_with_its_own_callback_alone(tmp_path: Path) ->
     assert result.returncode == 0, _output(result)
     callback, enabled, quiet, report, mismatch = seen.read_text().splitlines()
     # profile_tasks, which ansible.cfg enables, would print on stdout: naming the stdout callback loads nothing more.
-    assert callback == enabled == "claude_on_proxmox_status"
+    assert callback == enabled == "agent_warehouse_status"
     assert quiet == "true"
     # A fleet with no VM to read leaves play 2's group empty: the report says so, never Ansible's warning above it.
     assert mismatch == "ignore"
@@ -2717,7 +2754,7 @@ def _live_recorded(tmp_path: Path, *args: str) -> tuple[list[list[str]], list[st
     settings = _linters(tmp_path)
     (tmp_path / "bin" / "python").unlink()
     seen = tmp_path / "live-env"
-    said = "${CLAUDE_ON_PROXMOX_LIVE-unset}|${CLAUDE_ON_PROXMOX_LIVE_STATE-unset}"
+    said = "${AGENT_WAREHOUSE_LIVE-unset}|${AGENT_WAREHOUSE_LIVE_STATE-unset}"
     _stand_in(tmp_path / "bin", "python", f'echo "{said}" >> "{seen}"')
     result = _just(*args, settings=settings)
     assert result.returncode == 0, _output(result)
@@ -2745,7 +2782,7 @@ def test_lint_as_a_stage_of_another_run_draws_into_it_and_says_no_end_of_its_own
 
 def test_init_draws_its_two_playbooks_as_one_run_whose_trap_says_its_end(tmp_path: Path) -> None:
     seen = tmp_path / "live-env"
-    said = "${CLAUDE_ON_PROXMOX_LIVE-unset}|${CLAUDE_ON_PROXMOX_LIVE_STATE-unset}"
+    said = "${AGENT_WAREHOUSE_LIVE-unset}|${AGENT_WAREHOUSE_LIVE_STATE-unset}"
     settings = _init_settings(tmp_path, f'echo "{said}" >> "{seen}"')
     result = _just("init", settings=settings)
     assert result.returncode == 0, _output(result)
