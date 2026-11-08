@@ -236,16 +236,20 @@ REACH_PLAY = "Reach each VM before its sign-in"
 FAILED_SAID = "sign_in_failed | Say why, and go on with the next VM"
 
 
-def _seconds_per_turn(report: dict) -> dict:
-    took = {}
+def _seconds_waiting(report: dict) -> dict:
+    """How long each VM's sign-in waited, from its waits' own durations: each of browser_login's "Wait for" tasks
+    that ran for it. Not the VM's whole turn, whose connections and other tasks a busy runner stretches: CI's shards
+    took turns of 65-80 s whose waits had ended at once."""
+    waited = {}
     for play in report["plays"]:
-        hosts = {host for task in play["tasks"] for host in task["hosts"]}
-        if len(hosts) == 1 and hosts != {"localhost"}:
-            (host,) = hosts
-            span = play["play"]["duration"]
-            seconds = (datetime.fromisoformat(span["end"]) - datetime.fromisoformat(span["start"])).total_seconds()
-            took[host] = took.get(host, 0) + seconds
-    return took
+        for entry in play["tasks"]:
+            if not entry["task"]["name"].split(" : ")[-1].startswith("browser_login | Wait for"):
+                continue
+            duration = entry["task"]["duration"]
+            start, end = (datetime.fromisoformat(duration[key].replace("Z", "+00:00")) for key in ("start", "end"))
+            for host, result in entry["hosts"].items():
+                waited[host] = waited.get(host, 0) + (0 if result.get("skipped") else (end - start).total_seconds())
+    return waited
 
 
 def _strings(value):
@@ -870,9 +874,9 @@ def test_claude_s_other_outcomes_end_the_wait_at_once(refused):
     # Waiting for an answer that had come in other words, or for a claude that
     # was gone, cost the whole answer timeout.
     _, report = refused
-    took = _seconds_per_turn(report)
-    assert set(took) == set(REFUSED), took
-    assert all(seconds < LONG / 2 for seconds in took.values()), took
+    waited = _seconds_waiting(report)
+    assert set(waited) == set(REFUSED), waited
+    assert all(seconds < LONG / 2 for seconds in waited.values()), waited
 
 
 def test_a_code_given_after_the_attempt_ended_is_said_to_be_too_late(refused):
