@@ -27,17 +27,43 @@
       register: wireguard_molecule_vm_key
       changed_when: false
 
-    - name: Make the hub's link, the VM its one peer
+    # By systemd-networkd, as the role makes its own link: a key file read by
+    # networkd, never by wg (prepare.yml says why).
+    - name: Write the hub's link, the VM its one peer
+      ansible.builtin.copy:
+        dest: "/etc/systemd/network/{{ wireguard_molecule_hub_file.name }}"
+        content: "{{ wireguard_molecule_hub_file.content }}"
+        owner: root
+        group: systemd-network
+        mode: "0644"
+      loop:
+        - name: 40-hubwg.netdev
+          content: |
+            [NetDev]
+            Name=hubwg
+            Kind=wireguard
+
+            [WireGuard]
+            PrivateKeyFile=/etc/systemd/network/40-hubwg.key
+            ListenPort=51820
+
+            [WireGuardPeer]
+            PublicKey={{ wireguard_molecule_vm_key.stdout | trim }}
+            AllowedIPs=198.51.100.130/32
+        - name: 40-hubwg.network
+          content: |
+            [Match]
+            Name=hubwg
+
+            [Network]
+            LinkLocalAddressing=no
+      loop_control:
+        loop_var: wireguard_molecule_hub_file
+        label: "{{ wireguard_molecule_hub_file.name }}"
+
+    - name: Have systemd-networkd make the hub's link
       ansible.builtin.command:
-        argv:
-          - sh
-          - -c
-          - >-
-            ip link add hubwg type wireguard &&
-            wg set hubwg listen-port 51820 private-key /root/hub.key peer "$1" allowed-ips 198.51.100.130/32 &&
-            ip link set hubwg up
-          - sh
-          - "{{ wireguard_molecule_vm_key.stdout | trim }}"
+        argv: [networkctl, reload]
       changed_when: true
 
     - name: Wait for the VM's link to shake hands with the hub
