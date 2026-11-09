@@ -188,6 +188,30 @@ def test_check_settings_refuses_a_vpn_yaml_reads_as_no_word(tmp_path, value):
     assert "sets vpn to something that is none of its choices" in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("text", "said"),
+    [
+        ("vpn: wireguard\n", "sets vpn to wireguard, which 2.1 removed: a VPN that routes your LAN"),
+        ("vpn_reach: tunnel\n", "sets vpn_reach, which 2.1 removed with WireGuard: take it out"),
+        ("wireguard_hub: opnsense\n", "sets wireguard_hub, which 2.1 removed with WireGuard: take it out"),
+        ('wireguard_hub_endpoint: "192.0.2.1:51820"\n', "sets wireguard_hub_endpoint, which 2.1 removed"),
+    ],
+)
+def test_check_settings_refuses_what_2_1_removed_with_wireguard_pointing_at_the_upgrade(tmp_path, text, said):
+    result = _check(tmp_path, text)
+    assert result.returncode == 1
+    assert said in result.stderr and "docs/guides/upgrading.md" in result.stderr
+    # Said once, as removed: never also as a value that is none of vpn's choices.
+    assert "none of its choices" not in result.stderr
+
+
+@pytest.mark.parametrize("text", ["vpn_reach: lan\n", 'wireguard_vm_prefix: ""\n'])
+def test_check_settings_lets_a_removed_setting_that_changed_nothing_pass(tmp_path, text):
+    result = _check(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert ("warning:" in result.stderr) is text.startswith("vpn_reach")
+
+
 def test_check_settings_finds_the_defaults_whatever_cdpath_says(tmp_path):
     # just runs tools/check by a relative path: an exported CDPATH would have cd print the directory, or go to
     # another checkout's, and every choice but none be refused.

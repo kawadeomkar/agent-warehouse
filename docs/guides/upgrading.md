@@ -147,6 +147,35 @@ Tailscale question, and refuses a `--tailscale` that `vpn` contradicts. `just st
 `settings.tailscale_enabled`, now whether Tailscale is the VPN, and adds `settings.vpn` and `settings.tailscale_off`,
 the setting that turned it off.
 
+## WireGuard, removed in 2.1
+
+`vpn: wireguard` - each VM a peer of a WireGuard server you run, by hand or through an OPNsense router's API - came
+in 2.0 and went in 2.1 ([§15.5](../architecture/decisions.md#155-the-vpn-as-a-choice-beside-the-editor)). A VPN that
+already routes your LAN - WireGuard on your router, a Tailscale subnet router, any other - reaches every VM at its
+LAN address: set `vpn: none`. Or set `vpn: tailscale` to join each VM to your tailnet ([Tailscale](tailscale.md)).
+
+Every recipe that reads the settings refuses a `local.yml` or `hosts.yml` that still sets `vpn: wireguard`,
+`vpn_reach: tunnel` or a `wireguard_*` setting, naming it: take it out. `vpn_reach: lan`, which changed nothing, is
+only warned of. Then, on each VM 2.0 set WireGuard up on:
+
+```
+sudo networkctl delete claude-wg
+sudo rm -f /etc/systemd/network/50-claude-wg.netdev /etc/systemd/network/50-claude-wg.network \
+  /etc/systemd/network/claude-wg.key
+grep -qx 'installed wireguard-tools' /var/lib/agent-warehouse/wireguard-installed && sudo apt-get remove -y wireguard-tools
+sudo networkctl reload
+sudo rm -f /var/lib/agent-warehouse/wireguard-installed
+```
+
+And outside the VMs:
+
+- each VM's peer, `agent-warehouse-<vm>`, removed from your WireGuard server;
+- if you like, each VM's `agent-warehouse-wg-<address>` tag taken off in Proxmox: nothing reads it now, and a VM
+  repaired loses it;
+- with the OPNsense hub: the router's API user deleted, `vault_wireguard_hub_api_key` and
+  `vault_wireguard_hub_api_secret` taken out of the vault (`just vault`), and the `wireguard_hub` group out of
+  `hosts.yml`.
+
 ## What just code writes and says from 1.1
 
 The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace files and notes, and puts
