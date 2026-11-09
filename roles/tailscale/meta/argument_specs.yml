@@ -192,55 +192,6 @@ argument_specs:
         type: path
         default: /var/lib/agent-warehouse
 
-  # tasks_from: status, which playbooks/status.yml (just status) runs on each VM.
-  status:
-    short_description: Say how the VM is on Tailscale, changing nothing
-    description:
-      - Reads what Tailscale is installed and whose, and its state once, without waiting for it to settle, and gives
-        the report configure gives, keeping what just status shows in tailscale_status_found. Never installs, joins,
-        signs in, changes a setting or removes anything.
-    options:
-      tailscale_enabled:
-        type: bool
-        default: false
-      tailscale_wanted:
-        type: bool
-        description:
-          - Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while
-            tailscale_enabled is true); alone, the role follows tailscale_enabled, off by default.
-      tailscale_off_setting:
-        type: dict
-        description: The setting that turned Tailscale off, as name and value, which the messages name.
-      tailscale_auth_method:
-        type: str
-        default: auto
-        choices: [auto, key, web]
-      tailscale_joined_before:
-        type: bool
-        default: false
-        description: Whether the VM joined before, so that the line never says the key will join it again.
-      tailscale_joined_tag:
-        type: str
-        default: agent-warehouse-tailscale
-        description: The tag in Proxmox that records a VM's join, which the line names.
-      tailscale_auth_key:
-        type: str
-        default: ""
-        no_log: true
-        description: Only whether one is set is read, for the line that says what joins the VM.
-      tailscale_hostname:
-        type: str
-        description: The machine name asked for, which a name taken is told by.
-      tailscale_login_server:
-        type: str
-        default: ""
-      tailscale_advertise_tags:
-        type: list
-        elements: str
-        default: []
-      tailscale_marker_dir:
-        type: path
-        default: /var/lib/agent-warehouse
 
   # tasks_from: release, which playbooks/destroy.yml runs on each VM before it
   # is deleted.

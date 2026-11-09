@@ -1,0 +1,16 @@
+---
+# just status, as the recipe runs it but for keeping nothing (tools/status), in the scenario's own inventory: what the
+# caller's status_report_vars give as extra vars, and its report left as the fact status_report on this host.
+- name: status_report | Run just status
+  ansible.builtin.command:
+    argv: >-
+      {{ [ansible_playbook_python, (playbook_dir ~ '/../../tools/status') | realpath, '--json']
+         + (ansible_inventory_sources | map('regex_replace', '^', '--inventory=') | list)
+         + ['-e', status_report_vars | to_json] }}
+  register: status_report_run
+  changed_when: false
+  failed_when: status_report_run.rc not in [0, 1, 2]
+
+- name: status_report | Keep its report
+  ansible.builtin.set_fact:
+    status_report: "{{ status_report_run.stdout | from_json }}"

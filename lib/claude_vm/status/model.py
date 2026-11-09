@@ -1,14 +1,12 @@
 """`just status`: what each VM this project created is doing, and what needs doing next, as one model.
 
-playbooks/status.yml reads, and these turn what it read into one model: what `just status --json` prints and what
-the report file holds. claude_vm.tui.status draws the report from it twice: once finished, when the run ends, and over
-and over while it runs, when callback_plugins/agent_warehouse_status.py draws it live with a spinner wherever a
-value is still being read (docs/architecture/lifecycle.md §4.6).
+The engine (claude_vm.status.engine) reads, and these turn what it read into one model: what `just status --json`
+prints. claude_vm.tui.status draws the report from it twice: once finished, when the run ends, and over and over while
+it runs, with a spinner wherever a value is still being read (docs/architecture/lifecycle.md §4.6).
 
 Nothing here reads or writes anything. Every value a VM supplies is cleaned by status_clean before anything keeps
 it, and again by status_report: one line of plain text each (lib/claude_vm/text.py's one_line), so a name, a
-directory or a line a tool printed can never start a line of the report of its own. A refusal is a ValueError, which
-ansible-core says with the filter's name.
+directory or a line a tool printed can never start a line of the report of its own.
 """
 
 from __future__ import annotations
@@ -23,9 +21,9 @@ from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
 from ..text import and_list, one_line, plural
 
-# The report's sections, in the order they are drawn: vms and storage read only the API, the rest the VMs over SSH
-# too - access for the tailnet column, sign-ins for the roles' reads, system for vm_status_info, work for the
-# checkouts (git_checkouts_info's work).
+# The report's sections, in the order they are drawn: vms, storage and capacity read only the API, the rest the VMs
+# over SSH too - access for the tailnet column, sign-ins for the roles' reads, system for the probe's system read, work
+# for the checkouts.
 SECTIONS = ("vms", "storage", "capacity", "access", "sign-ins", "system", "work")
 SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
 # A field a VM supplies is cut to this; a role's whole line, which carries a command, to the longer.
@@ -35,7 +33,7 @@ LINE_KEYS = frozenset({"line"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
-# tags say whether the VM is sized, whose size proxmox_vm's settings_drift then calls no drift.
+# tags say whether the VM is sized, whose size proxmox_vm_drift then calls no drift.
 CONFIG_KEYS = (
     "cores",
     "sockets",
@@ -133,20 +131,20 @@ def status_fleet(
     settings=None,
     unread="",
     hosts=None,
+    pending=False,
 ):
-    """Play 1's findings, as one value: Proxmox, the VMs this project created (with what the listing, their config
+    """The fleet's findings, as one value: Proxmox, the VMs this project created (with what the listing, their config
     and their agent's address say), the other VMs as totals, the storages, the template and the SSH aliases.
 
-    ``listing`` is /cluster/resources?type=vm; ``tagged`` and ``requested`` the group vars claude_vm_tagged and
-    claude_vm_requested, the one definition of which VMs are this project's and which were asked for;
-    ``addressed`` the requested VMs with an address (vm_addresses.yml), ``configs`` its config results, each with
+    ``listing`` is /cluster/resources?type=vm; ``tagged`` and ``requested`` which VMs are this project's and which were
+    asked for; ``addressed`` the requested VMs with an address, ``configs`` its config results, each with
     the VM it read as ``claude_vm_item``; ``lists`` the results of reading /version and the storages' listing;
     ``contents`` the results of reading each storage's disks, each with its ``item``; ``template_config`` the result
     of reading the template's config, and ``template_drift`` how it differs from what its settings would build
-    (roles/proxmox_template's drift entry point), which the next just deploy rebuilds; ``aliases`` the names the
-    managed SSH config holds, or None with the aliases off; ``settings`` what the inventory says; ``unread`` why
-    Proxmox could not be read, if it could not; ``hosts`` the inventory's own hosts (claude_vm_inventory_hosts),
-    whose names a VM is never read under, since add_host would merge it into that host.
+    (proxmox_template_drift), which the next just deploy rebuilds; ``aliases`` the names the managed SSH config holds,
+    or None with the aliases off; ``settings`` what the inventory says; ``unread`` why Proxmox could not be read, if it
+    could not; ``hosts`` the inventory's own hosts (claude_vm_inventory_hosts), whose names a VM is never read under;
+    with ``pending``, the fleet as the listing alone has it, drawn while the rest of Proxmox is read.
     """
     settings = dict(settings or {})
     if not settings.get("discovery", True):
@@ -201,7 +199,7 @@ def status_fleet(
         if "name" in entry:
             counts[entry["name"]] = counts.get(entry["name"], 0) + 1
     template_name = settings.get("template_name")
-    # The one status.yml read the config of.
+    # The one whose config was read.
     built = built_template(entries, template_name)
     template = (
         {
@@ -250,7 +248,7 @@ def status_fleet(
                 "config": config,
                 "own_repos": found["own_repos"]["names"] if found.get("own_repos", {}).get("own") else None,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
-                # Read in play 2, by name: a VM that is not can only be shown from the listing.
+                # Read by name: a VM that is not can only be shown from the listing.
                 "read": reason == "",
                 "skipped": reason,
             }
@@ -302,6 +300,7 @@ def status_fleet(
         ),
         "template": template if template else {"name": template_name, "missing": True},
         "aliases": aliases,
+        "pending": bool(pending),
     }
 
 
@@ -408,9 +407,9 @@ def _pressure(points, now, since=None):
 
 
 def status_vm_api(results, now=None, since=None):
-    """One VM's API reads (play 2's loop over status/current, rrddata, pending and the agent) as its "api" part.
+    """One VM's API reads (status/current, rrddata, pending and the agent) as its "api" part.
 
-    ``results`` is the loop's registered results, each with ``item.name`` saying which read it was; ``since`` when
+    ``results`` is each read's result, with ``item.name`` saying which read it was; ``since`` when
     the VM was made, before which its history is another VM's of the same ID."""
     now = time.time() if now is None else now
     by = {}
@@ -456,6 +455,7 @@ SYSTEM_KEYS = (
     "memory",
     "uptime",
     "upgrades",
+    "upgrades_pending",
     "security",
     "claude",
     "vscode_windows",
@@ -471,7 +471,7 @@ def _read(result):
 
 
 def status_system_read(result):
-    """What vm_status_info read of a VM, as the "system" part: its fields alone, or None when it was not read."""
+    """What the probe read of a VM's system, as the "system" part: its fields alone, or None when it was not read."""
     if not _read(result):
         return None
     return {key: result.get(key) for key in SYSTEM_KEYS}
@@ -645,7 +645,7 @@ def short_kernel(release):
 
 
 def status_work_read(result, directory):
-    """What git_checkouts_info's work read of a VM's checkouts, as the "work" part: the directory read, how many
+    """What the probe read of a VM's checkouts, as the "work" part: the directory read, how many
     checkouts and extra worktrees it holds, and per checkout what is on no remote or not committed. None when it was
     not read."""
     if not _read(result):
@@ -824,7 +824,7 @@ def _ssh_items(vm, settings, live, now):
             busy = []
             if system.get("claude"):
                 busy.append(plural(system["claude"], "claude process", "claude processes"))
-            # Each editor's windows, named as the editors list names it (status.yml's editor_names), in its order.
+            # Each editor's windows, named as the editors list names it (the settings' editor_names), in its order.
             windows = system.get("editor_windows_by")
             windows = windows if isinstance(windows, dict) else {}
             for key, editor in (settings.get("editor_names") or {}).items():
@@ -937,19 +937,21 @@ def status_report(found, read_at="", now=None, live=False):
     """The report's model, from what every host found: localhost's ``fleet``, and each VM's parts by its name.
 
     ``found`` is {host: status_found}. With ``live``, a VM's part not read yet is pending rather than "not read",
-    and nothing is ranked: the model of a frame the callback draws while the run goes on."""
+    and nothing is ranked: the model of a frame drawn while the run goes on."""
     now = time.time() if now is None else now
     found = status_clean(found or {})
     read_at = one_line(str(read_at or ""), FIELD_LIMIT)
     fleet = (found.get("localhost") or {}).get("fleet") or {}
     settings = dict(fleet.get("settings") or {})
-    # status.yml names the editor set, resolved, for the line under ACCESS: a fleet without its name is a bug to
+    # The settings name the editor set, resolved, for the line under ACCESS: a fleet without its name is a bug to
     # fail on, never a line that says "None". Before the fleet is found there is no line to say it on.
     if fleet and not settings.get("editor_name"):
-        raise ValueError("the fleet's settings name no editor: status.yml gives editor_name")
+        raise ValueError("the fleet's settings name no editor: the settings give editor_name")
     sections = status_sections(settings.get("sections"))
     aliases = fleet.get("aliases")
     settings["aliases_enabled"] = aliases is not None
+    # The fleet as the listing alone has it: a VM's address is still being read, so a running VM may yet be read.
+    fleet_pending = bool(live and fleet.get("pending"))
     proxmox = dict(fleet.get("proxmox") or {})
     ssh_wanted = status_needs_ssh(sections)
     template = dict(fleet.get("template") or {})
@@ -982,10 +984,11 @@ def status_report(found, read_at="", now=None, live=False):
             else None
         )
         vm["pending_api"] = live and vm.get("read") and api is None
-        # Read over SSH by play 2's own test: a section that needs it, and a VM the listing shows running with an
-        # address.
+        # Read over SSH where a section needs it, and the listing shows the VM running with an address.
         vm["ssh"] = parts.get("ssh")
-        vm["needs_ssh"] = bool(ssh_wanted and vm.get("read") and vm.get("status") == "running" and vm.get("address"))
+        vm["needs_ssh"] = bool(
+            ssh_wanted and vm.get("read") and vm.get("status") == "running" and (vm.get("address") or fleet_pending)
+        )
         vm["pending_ssh"] = live and vm["needs_ssh"] and vm["ssh"] is None
         # Memory in use as the VM counts it, where it was read over SSH: Proxmox's own figure counts the page cache
         # as used, which on a live VM was twice the VM's MemTotal - MemAvailable. Proxmox's otherwise.
@@ -1067,6 +1070,7 @@ def status_report(found, read_at="", now=None, live=False):
         "exit": exit_code,
         "read_at": read_at,
         "live": bool(live),
+        "fleet_pending": fleet_pending,
         "sections": sections,
         "title": title,
         "proxmox": proxmox,

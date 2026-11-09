@@ -318,7 +318,7 @@ def proxmox_vm_drift(config, wanted):
     """How a VM's settings differ from what roles/proxmox_vm would send it: ``{hardware: [...], cloud_init: [...]}``.
 
     ``config`` is the VM's config as /nodes/<node>/qemu/<vmid>/config gives it; ``wanted`` what the role sends, from
-    its own variables (tasks/settings_drift.yml). Deploy applies these only to a new VM or under
+    its own variables. Deploy applies these only to a new VM or under
     proxmox_vm_force_update, so an edited vm_cores never reaches an existing VM by itself: this is how `just status`
     sees it. Hardware differences are ``{setting, wanted, has}``, the disk's size in bytes and only when it is
     smaller than asked, since the role grows a disk and never shrinks one; the cloud-init settings that differ are

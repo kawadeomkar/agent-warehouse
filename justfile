@@ -64,8 +64,9 @@ ANSIBLE_ARGS := env('ANSIBLE_ARGS', '')
 # lists them.
 LOG_DIR := env('LOG_DIR', justfile_directory() / '.logs')
 LOG_RETENTION_DAYS := env('LOG_RETENTION_DAYS', '14')
-# Where just status's run writes its report, which the recipe reads and then
-# removes: git-ignored, and refused by tests/check_no_local_files.sh.
+# Where just status keeps what it can work out again: the settings and each
+# VM's upgrades (docs/architecture/lifecycle.md §4.6): git-ignored, and refused
+# by tests/check_no_local_files.sh.
 STATUS_DIR := env('STATUS_DIR', justfile_directory() / '.cache' / 'status')
 # Where a run drawn in parts keeps its model between its parts (tools/live), a file named for the run's stamp and its
 # top recipe that its end removes: git-ignored, and refused by tests/check_no_local_files.sh. LIVE_DIR= keeps none, and
@@ -190,7 +191,7 @@ help *RECIPE:
     echo "Without names, deploy and destroy act on agent-warehouse-default; status, login and deploy"
     echo "--only configure, --check or --only ssh-config act on every VM this project created."
     echo "Options go after the recipe's name, settings before it or exported: ANSIBLE_ARGS='...' passes"
-    echo "anything else to ansible-playbook in init, deploy, code, login, status and destroy, and"
+    echo "anything else to ansible-playbook in init, deploy, code, login and destroy (status takes -e and -i), and"
     echo "LOG_DIR=<dir> moves the run logs: just ANSIBLE_ARGS=-vvv deploy alpha."
 
 # ------------------------------------------------------------------ use ----
@@ -650,18 +651,16 @@ login SIGN_IN='' *NAMES:
     export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} "login${only:+-$only}" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} "playbooks/${only:+${only}_}login.yml"
 
-# What every VM this project created is doing, and what needs doing next,
-# read without changing anything (playbooks/status.yml): a dry run, with its
-# own stdout callback (callback_plugins/agent_warehouse_status.py) the only
-# one, so ansible.cfg's profile_tasks prints nothing on stdout (naming a stdout
-# callback in callbacks_enabled loads nothing more, and an empty one is an
-# error). No VM to read leaves a play's group empty, which Ansible warns of
-# above the report: status says it in the report instead. The callback draws the
-# report live at a terminal and prints it whole at the end. The run writes the report to a file of its own, named after the
-# run, which the last line reads its exit code from, prints under --json, and
-# removes: 0 nothing is wrong, 1 a problem, 2 something could not be read, 3
-# the run itself failed or wrote no report. ansible-playbook's own code is
-# caught, since -e would end the script at it: its 2 would read as "not read".
+# What every VM this project created is doing, and what needs doing next, read
+# without changing anything: tools/status, no ansible-playbook, so the VMs are
+# on screen in a fraction of a second (docs/architecture/lifecycle.md §4.6).
+# The engine draws the report live at a terminal and prints it whole at the
+# end, the JSON alone on standard output under --json, and exits with the
+# report's own code: 0 nothing is wrong, 1 a problem, 2 something could not be
+# read, 3 the run itself failed. It keeps what it can work out again in
+# STATUS_DIR: the settings, while the files they are made from stay as they
+# are, and each VM's upgrades, while its package state does. From ANSIBLE_ARGS
+# it takes -e and -i; given -e, it keeps nothing and asks Ansible.
 [arg('JSON', long='json', value='true', help='The report as JSON, alone on standard output, with the same exit code')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='Only these VMs; none reads every VM this project created')]
 [arg('ONLY', long='only', pattern='((vms|storage|capacity|access|sign-ins|system|work)(,(vms|storage|capacity|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM')]
@@ -679,25 +678,13 @@ status ONLY='' JSON='' *NAMES:
     {{ hyphenate_names }}
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
-    tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
-    {{ vm_args }}
-    [ -z "$only" ] || set -- "$@" -e "{\"status_only\": \"$only\"}"
-    report={{ quote(absolute_path(STATUS_DIR)) }}/{{ stamp }}-$$.json
-    mkdir -p {{ quote(absolute_path(STATUS_DIR)) }}
-    chmod 700 {{ quote(absolute_path(STATUS_DIR)) }}
-    rm -f "$report"
-    rc=0
-    STATUS_REPORT_FILE=$report STATUS_QUIET=$json ANSIBLE_STDOUT_CALLBACK=agent_warehouse_status \
-      ANSIBLE_HOST_PATTERN_MISMATCH=ignore \
-      ANSIBLE_CALLBACKS_ENABLED=agent_warehouse_status \
-      {{ run_logged }} status "$bin/ansible-playbook" "$@" --check {{ ANSIBLE_ARGS }} playbooks/status.yml || rc=$?
-    if [ "$rc" -ne 0 ] || [ ! -s "$report" ]; then
-      rm -f "$report"
-      echo "just status: the run failed (ansible-playbook exited $rc) and wrote no report" >&2
-      exit 3
-    fi
-    exec "$bin/python" tools/status-exit "$report" "$json"
+    {{ vault_args }}
+    set -- "$@" --vault-file {{ quote(VAULT_FILE) }} --cache {{ quote(absolute_path(STATUS_DIR)) }}
+    [ -z "$names" ] || set -- "$@" --names "$names"
+    [ -z "$only" ] || set -- "$@" --only "$only"
+    [ -z "$json" ] || set -- "$@" --json
+    STATUS_QUIET=$json exec {{ run_logged }} status "$bin/python" tools/status "$@" {{ ANSIBLE_ARGS }}
 
 # Each setting's value and where it was set (tools/settings): Ansible's own
 # variables for a play of the role, on the group its playbook runs it on, with

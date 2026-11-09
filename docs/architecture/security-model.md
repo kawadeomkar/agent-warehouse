@@ -83,8 +83,9 @@ What `claude`, `gh` and `ssh` print on the VM, which its user controls, is quote
 `plain_text` filter, every escape sequence and control character removed; so are the warnings, deprecations and
 failure messages a module there returns, which ansible-core prints as they are, and a dry run's diffs, which the
 stdout callbacks print through `plain_summary` ([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
-NEXT STEPS takes its lines from the project's own `set_stats` tasks only, and `just status` its report from its
-own play on this machine, since any module's result can carry custom stats and facts. No sign-in page opens
+NEXT STEPS takes its lines from the project's own `set_stats` tasks only, since any module's result can carry custom
+stats. `just status` runs no playbook: what a VM sends it is data, held to a size, a time and a shape, each value one
+line of plain text before anything keeps it. No sign-in page opens
 through a `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
 a command line.
 

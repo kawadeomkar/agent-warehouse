@@ -108,6 +108,11 @@ def _vms_lines(model):
 
 
 def _storage_lines(model):
+    if model.get("fleet_pending"):
+        return [
+            [seg("STORAGE", "h")],
+            [seg(" "), seg(PENDING, "c"), seg(" reading the storages and the template", "d")],
+        ]
     if not model.get("storages") and not model.get("template"):
         return []
     lines = [[seg("STORAGE", "h")]]
@@ -156,6 +161,8 @@ def _guests(held):
 def _capacity_lines(model):
     """Each node's CPU threads and memory, and what the VMs and containers on it hold: what a new VM's size is weighed
     against."""
+    if model.get("fleet_pending"):
+        return [[seg("CAPACITY", "h")], [seg(" "), seg(PENDING, "c"), seg(" reading the nodes", "d")]]
     nodes = model.get("capacity") or []
     if not nodes:
         return []
@@ -249,8 +256,12 @@ def _access_lines(model):
     for vm in vms:
         state = vm.get("state")
         lan = vm.get("address") or ("stopped" if state == "stopped" else "—")
+        if model.get("fleet_pending") and not vm.get("address") and state == "running":
+            lan = PENDING
         row = [seg(f" {_short(vm['name'], nw):<{nw}}   "), seg(f"{lan:<14}", "d" if not vm.get("address") else "")]
-        if aliases:
+        if aliases and model.get("fleet_pending"):
+            row += [seg(f"{PENDING:<{alias_width}}", "c")]
+        elif aliases:
             # A cell one short and a space: two spaces before the tailnet column, an alias cut or not.
             alias = _cell(vm["name"] if vm.get("alias") else "none", alias_width - 1, "" if vm.get("alias") else "y")
             row += [*alias, seg(" ")]
@@ -402,7 +413,9 @@ def _system_lines(model):
         load = system.get("load") or []
         load_text = f"{load[0]:.2f} / {load[2]:.2f}" if len(load) == 3 else "—"
         upgrades, security = system.get("upgrades"), system.get("security")
-        if not isinstance(upgrades, int):
+        if system.get("upgrades_pending"):
+            updates, style = PENDING, "c"
+        elif not isinstance(upgrades, int):
             updates, style = "not read", "d"
         elif upgrades == 0:
             updates, style = "none", ""
@@ -556,6 +569,30 @@ def status_lines(model, reading=""):
     if not model.get("live"):
         out += _footer(model, reading)
     return out
+
+
+SECTION_TITLES = {
+    "vms": "VMS",
+    "storage": "STORAGE",
+    "capacity": "CAPACITY",
+    "access": "ACCESS",
+    "sign-ins": "SIGN-INS",
+    "system": "SYSTEM",
+    "work": "WORK",
+}
+
+
+def skeleton_lines(title, sections):
+    """The report's outline, each section's title with a spinner: drawn before anything has been read."""
+    out = [[seg(title, "b")], []]
+    for section in sections:
+        out += [[seg(SECTION_TITLES[section], "h"), seg("  "), seg(PENDING, "c")], []]
+    out += [[seg("ATTENTION", "h"), seg("  "), seg(PENDING, "c"), seg(" ranked once every VM is read", "d")], []]
+    return out
+
+
+def skeleton_text(title, sections, color=False, glyph=None, cols=None):
+    return "\n".join(render(cut(line, cols or WIDTH), color, glyph) for line in skeleton_lines(title, sections))
 
 
 def status_text(model, color=False, reading="", glyph=None, cols=None):

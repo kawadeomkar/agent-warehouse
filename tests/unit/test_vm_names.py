@@ -53,7 +53,7 @@ def _proxmox_inventory(root: Path) -> list[str]:
 def _playbook(tmp_path: Path, base: str, path: Path, *extra: str, settings: dict = FROM_THE_HOST) -> dict:
     """A playbook of the project's against the fake, from a run directory of its own with settings, the files it
     imports where they are: deploy.yml's playbooks/, or a playbook's tasks/. extra goes on the command line."""
-    root, _ = status_root(tmp_path, base, settings)
+    root = status_root(tmp_path, base, settings)
     text = path.read_text()
     if path.parent == REPO:
         text = text.replace(" playbooks/", f" {PLAYBOOKS}/")
@@ -124,7 +124,7 @@ def test_a_name_given_that_is_a_host_of_the_inventory_is_refused_before_proxmox_
 
 
 def test_status_shows_such_a_vm_unread_and_reads_the_rest_through_the_api_s_own_address(tmp_path, fleet) -> None:
-    root, _ = status_root(tmp_path, fleet, FROM_THE_HOST)
+    root = status_root(tmp_path, fleet, FROM_THE_HOST)
     report, model = _status_run(tmp_path, fleet, *_proxmox_inventory(root), settings=FROM_THE_HOST)
     assert report["rc"] == 0, report["stderr"][-2000:]
     by = {vm["name"]: vm for vm in model["vms"]}
@@ -197,7 +197,7 @@ def test_a_name_this_machine_reaches_another_host_by_is_refused_before_proxmox_i
 
 
 def test_a_name_with_a_dot_passes_the_checks_deploy_makes_first(tmp_path, fleet) -> None:
-    root, _ = status_root(tmp_path, fleet, FROM_THE_HOST)
+    root = status_root(tmp_path, fleet, FROM_THE_HOST)
     play = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
     tasks = [{**task, "ansible.builtin.import_tasks": f"{PLAYBOOKS / 'tasks'}/vm_names.yml"} for task in play["tasks"]]
     (root / "first.yml").write_text(yaml.safe_dump([{**play, "tasks": tasks}]))
@@ -248,7 +248,7 @@ DEFAULT_REFUSAL = "default_name_1x | Refuse a bare run that would miss the defau
 
 def _default_check(tmp_path: Path, base: str, **given) -> dict:
     """The cluster's listing, then tasks/default_name_1x.yml, on localhost against the fake, with given as -e."""
-    root, _ = status_root(tmp_path, base, FROM_THE_HOST)
+    root = status_root(tmp_path, base, FROM_THE_HOST)
     tasks = PLAYBOOKS / "tasks"
     play = {
         "name": "Check the default VM's name",

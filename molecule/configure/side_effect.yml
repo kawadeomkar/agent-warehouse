@@ -43,10 +43,14 @@
 # Control waiting for one, gh signed out, Tailscale joined with the stand-in. With discovery off it reads the
 # container as configure reached it - no Proxmox here - and only the sections that read the VM.
 - name: Report on the container the way just status does
-  ansible.builtin.import_playbook: ../../playbooks/status.yml
-  vars:
-    status_report_file: ""
-    status_only: access,sign-ins,system
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run just status
+      ansible.builtin.include_tasks: ../provision/tasks/status_report.yml
+      vars:
+        status_report_vars:
+          status_only: access,sign-ins,system
 
 - name: Assert what just status read inside the container
   hosts: localhost

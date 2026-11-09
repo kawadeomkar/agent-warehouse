@@ -88,12 +88,12 @@ Proxmox gave them, and `just status`'s model; the whole-tag patterns in
 `inventory/group_vars/all/defaults.yml` match the joined form.
 
 **`proxmox_vm_drift(config, wanted)`** — what of a VM's settings differs from what `just deploy` would
-send, from its config as Proxmox reads it and the settings the role works out (`settings_drift.yml`):
+send, from its config as Proxmox reads it and the settings the role works out (`present.yml`):
 `hardware`, each `{setting, wanted, has}` (cores, memory, the balloon minimum, start at boot, and the
 disk only when smaller, compared in bytes, since Proxmox stores 1024G as 1T and cannot shrink a disk),
 and `cloud_init`, the names of the cloud-init settings that differ (user, SSH keys, network, DNS). A
 config not read has none. `just status` says each as a thing to do, with the `proxmox_vm_force_update`
-run that sends them and what else it does ([§4.6](lifecycle.md#46-playbooksstatusyml--read-only-drawn-live)).
+run that sends them and what else it does ([§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)).
 
 Covered by the unit tests in `tests/unit/test_filters.py`, and `proxmox_vm_drift` by
 `tests/unit/test_status.py`.
@@ -232,7 +232,7 @@ callbacks, the engines, `just status`'s model and `tools/settings` import the mo
 The stdout callback `ansible.cfg` names (`stdout_callback`, `callback_plugins`), and nothing else does: the
 unit harness runs the JSON callback with an `ansible.cfg` that holds only `inject_facts_as_vars = false`
 (`harness.ANSIBLE_CFG`) and Molecule sets an `ANSIBLE_CONFIG` of its own, so no output a test pins goes
-through it. `just status` chooses one of its own for its run instead (§7.7). It subclasses the default callback and carries the
+through it. `just status` runs no playbook (§7.7). It subclasses the default callback and carries the
 default's `DOCUMENTATION` fragments (`default_callback`, `result_format_callback`). Without them the
 subclass has no options: every hook fails on its first `get_option`, Ansible only warns, and every task's
 result disappears from the screen and the log in a run that still exits 0. `--syntax-check` loads no
@@ -445,7 +445,7 @@ files; the filters decide from what they read, and touch no file. What the modul
 the manifest's format and its reading, and a file's digest as the manifest records it; a transcript's line
 as the object it holds; the folders directly in a folder, never through a link; a version's order; the
 user's own processes, from `/proc`; and the one rule of what is a `claude`, which `claude_sessions_info`'s
-open sessions, `git_checkouts_info`'s `busy` and `vm_status_info`'s count (§7.7) all ask: the program or its
+open sessions, `git_checkouts_info`'s `busy` and the probe's count (§7.7) all ask: the program or its
 first argument named `claude`, or either one Claude Code's npm package, so that npm's bin, run through its
 `node` shebang, is one too.
 
@@ -547,9 +547,9 @@ Covered by `tests/unit/test_session_handoff.py`, with real git checkouts and can
 the window step's runs in `tests/unit/test_code_session.py`, and by destroy's release play, run in
 `tests/unit/test_release.py`.
 
-## 7.7 `filter_plugins/status.py` and `callback_plugins/agent_warehouse_status.py` — just status
+## 7.7 `lib/claude_vm/status/` and `tools/status` — just status
 
-**`status_fleet(listing, tagged, requested, ...)`** — the fleet `playbooks/status.yml`'s first play
+**`status_fleet(listing, tagged, requested, ...)`** — the fleet the engine
 found, as data: this project's VMs with what the listing, their config and their agent said, each marked
 `read` or with why it is not (`node`, `nameless`, `duplicate`, `name`); the other VMs as totals only; the
 storages with this project's share of each (`status_storages` picks them); the template; the aliases in
@@ -562,8 +562,8 @@ VM was made, on - Proxmox keeps a VMID's history, and an ID used again carries t
 filesystem from the agent, the OS, and the settings waiting for a restart. `status_report` takes memory in
 use from the VM's own `/proc/meminfo` where it was read over SSH: Proxmox's figure counts the page cache as
 used, twice the VM's own on a live VM.
-**`status_system_read(result)`** — what `vm_status_info` read of a VM, its fields alone, or none when it
-was not read. **`status_work_read(result, directory)`** — what `git_checkouts_info`'s `work` read of a VM's
+**`status_system_read(result)`** — what the probe read of a VM's system, its fields alone, or none when it
+was not read. **`status_work_read(result, directory)`** — what the probe read of a VM's
 projects directory, per checkout: its worktrees, its commits and branches on no remote, the commits on a
 detached `HEAD`, the worktrees with changes not committed and its stashes; WORK says them per checkout and
 never "clean", since a checkout outside the directory, and not a worktree of one in it, is not seen. **`status_refusal(message)`** — which refusal ssh's message is, `changed` (a host key other
@@ -576,49 +576,62 @@ characters and every other field to 120.
 the VMs, the storages, the template, what each VM said over SSH, the attention items ranked "not read",
 problem, to do, and the exit code, 2, 1 or 0, from the highest. A role's own line is an item of that
 role's (`source`), drawn after its name as NEXT STEPS draws it. With `live` a value not read yet is pending, and nothing is ranked: the
-model of a frame the callback draws while the run goes on. **`status_text(model, color, reading, glyph,
-cols)`**, `tui/status.py`'s, which the callback calls and no template does, so it is no filter — the report
+model of a frame drawn while the run goes on. **`status_text(model, color, reading, glyph,
+cols)`**, `tui/status.py`'s — the report
 as text, every line within 100 columns, or within `cols` for a live frame, where
 `glyph` marks each pending value. A VM's name longer than its column - 13 characters, 11 under ATTENTION - is
 cut to end in "…" in every section, so a cut name is never read as another VM's whole one. The same functions
 draw the frames and the finished report.
 
-**The callback** is the stdout callback `just status` chooses (`ANSIBLE_STDOUT_CALLBACK`, and
-`ANSIBLE_CALLBACKS_ENABLED` naming it alone, so `ansible.cfg`'s `profile_tasks` prints nothing into the
-report). It imports the model (`lib/claude_vm/status/model.py`) and its drawing (`tui/status.py`), keeps each
-`status_found` fact as it lands, and draws the report
-live in the region every live output shares (§7.8), redrawn as each fact lands, the lines its frame leaves
-out said to be "shown when the run ends"; `tui/status.py` draws its lines with `screen.py`, as the live runs do.
-The region is taken when the callback is made, so a warning before the first frame is drawn above it, and
-spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
-printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
-since `Display` logs the text it is given; under `--json` (`STATUS_QUIET`) nothing is
-printed, not even `tools/run-logged`'s line naming the log, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
-stdout callback of one's own otherwise drops, and a task's failure on stderr only when the run ends
-without a report.
+**`status/lines.py`** — what the roles say of a VM's sign-ins: `github_login_report` and `tailscale_report`, each
+the line and whether it leaves something to do, called by the roles' own reports (`login_report.yml`, `report.yml`,
+through `filter_plugins/status.py`) and by `just status`, which works out the same state its own way
+(`status/found.py`), so NEXT STEPS and the report never say two things of one VM.
 
-**`vm_status_info`** (`playbooks/library/`), the one module status runs on a VM, as the VM user and
-never through sudo: the OS and the running and newest kernels, the reboot flag and the packages that set
-it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no lock and
-refreshes nothing) would make and how many are security ones, and the user's own claude processes (by the
-session modules' rule, §7.6) and each editor's windows, a process of the user's counted once, under the first
-editor whose `server` match in the editors list it meets: the module cannot import the core, so status hands it
-the rows' matches as its `editors` argument (`editor_servers`, §7.10), checked by Ansible's own argument spec.
-They are kept by the
-editors list's keys in `editor_windows_by` - not among the keys `just status --json` promises, which keep
-`vscode_windows` and `editor_windows`, every editor's together - so the reboot item names each editor's windows
-as the editors list names it. Every read is fixed in its code, runs in a thread of its own with
-its own time limit - one that runs out is said by name and the rest still land - and the one program it
-runs, `/usr/bin/apt-get`, by its absolute path: the VM user's PATH over SSH starts with directories the user
-owns. Its `root` option reads a fixture tree in the tests.
+**`status/engine.py`** — the run: the screen (`Screen`, the outline, then each VM as what is read of it lands, in the
+region every live output shares, §7.8, the lines its frame leaves out said to be "shown when the run ends"), the
+Proxmox GETs (`Proxmox`, eight at a time, each result in the shape a `uri` task registers, so the model reads either),
+and the order of it all. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
+settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
+finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on
+standard output and the report to the log, without even `tools/run-logged`'s line naming the log (`STATUS_QUIET`),
+since whatever reads the report reads standard error for what the run warned of.
 
-Covered by `tests/unit/test_status.py` (the filters, a hostile corpus, the 100-column limit, the callback
-driven in process with a stand-in terminal, and the playbook against the fake Proxmox) and
-`tests/unit/test_status_live.py` (the real playbook at a pseudo-terminal: a window it fits, a short one, a
-narrow one, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a warning between frames), and
-`tests/unit/test_status_vms.py` (the module on fixture trees, the reads inside stand-in VMs and that they
-change nothing there, and the host key's options and refusals), and `tests/unit/test_status_work.py`
-(`git_checkouts_info`'s `work` over real throwaway repositories, which it leaves as they were).
+**`status/settings.py`** — the settings, asked of Ansible in this process (its `VariableManager` and templar, as
+`tools/settings` asks them), or from the snapshot [§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live) describes: nothing of Ansible's precedence is written again.
+What is the same for every VM is rendered once for a placeholder host, whose name is replaced in what comes back; a
+VM with a file in `inventory/host_vars/` is rendered as itself.
+
+**`status/reach.py`** — one connection per VM: `ssh` with `status_ssh_args` first, BatchMode, the same
+ControlPersist, or `docker exec` or the local interpreter for a host of the inventory that says so. The script sent is
+the probe and the two files of `playbooks/module_utils/` it imports, held in memory under their own names. Root
+through `ansible_become_exe` by its path: `sudo -n`, and only where that is refused the VM user's password on stdin.
+The first line of what is sent after a password is a mark the bootstrap looks for, so a `sudo` that asks for none,
+leaving the password unread, never hands it to Python, whose syntax error would say the line.
+
+**The probe** (`playbooks/module_utils/status_probe.py`), the one program of status's on a VM, started as root, a
+child that has become the VM user making that user's reads: the OS and the running and newest kernels, the reboot flag
+and the packages that set it, the load, memory and uptime, the upgrades apt's simulation (`apt-get -s`, which takes no
+lock and refreshes nothing) would make and how many are security ones, the user's own claude processes (by the
+session modules' rule, §7.6) and each editor's windows, a process of the user's counted once, under the first editor
+whose `server` match in the editors list it meets: the probe cannot import the core, so the engine hands it the rows'
+matches as its `editors` (`editor_servers`, §7.10). They are kept by the editors list's keys in `editor_windows_by` -
+not among the keys `just status --json` promises, which keep `vscode_windows` and `editor_windows`, every editor's
+together - so the reboot item names each editor's windows as the editors list names it. Claude Code's state, gh's
+login and each checkout's work (`module_utils/git_checkouts.py`, the reads `git_checkouts_info` makes too); Tailscale's
+as root, the role's markers being root's. Every read runs in a thread of its own with its own time limit - one that
+runs out is said by name and the rest still land. One JSON document a line on standard output: a first line that it
+started, what it read but apt's upgrades the moment only that is left, and the whole.
+
+Covered by `tests/unit/test_status.py` (the model, a hostile corpus, the 100-column limit, the screen driven in
+process with a stand-in terminal, and the engine against the fake Proxmox) and `tests/unit/test_status_live.py` (the
+real engine at a pseudo-terminal: a window it fits, a short one, a narrow one, a resize each way, Ctrl-C, a dumb
+terminal, a pipe, and a warning of Ansible's above the frame), and `tests/unit/test_status_vms.py` (the probe on
+fixture trees and held to its reads, the reads inside stand-in VMs and that they change nothing there, the engine
+held to the roles' own tasks state by state, and the host key's options and refusals), and
+`tests/unit/test_status_work.py` (the checkouts' `work` over real throwaway repositories, which it leaves as they
+were), and `tests/unit/test_status_settings.py` (what is kept, what it may not hold, and when it is believed).
 
 ## 7.8 `lib/claude_vm/tui/live_region.py` and `screen.py` — every live output
 
@@ -984,7 +997,7 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   be handed as it is). A row's `server` (`ProcessMatch`) is how `just status` knows one of the editor's windows on
   the VM, a program named first, since a match on the arguments alone would count any of the user's programs.
   `filter_plugins/editors.py` gives Ansible `editor_open_plan` and `editor_servers`, the rows' matches as
-  `vm_status_info`'s `editors` argument (§7.7).
+  the probe's `editors` (§7.7).
 - **One filter lookup in the controller.** Both stdout callbacks look a filter up (`bool`) when the playbook
   starts, before the first worker is forked: the loader keeps the non-collection filters it found, and each worker
   inherits them rather than executing every file in `filter_plugins/` again at its first lookup, a few milliseconds

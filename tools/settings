@@ -68,7 +68,7 @@ SAFE_LOOKUPS = frozenset(
 # The files a person edits, as the report names them.
 USERS = ("hosts.yml", "vault.yml", "local.yml")
 # What the justfile passes with -e that is no setting: the names given, and init's own.
-NOT_SETTINGS = frozenset({"vm_name", "vm_project", "vm_session", "status_only", "init_given", "init_ask"})
+NOT_SETTINGS = frozenset({"vm_name", "vm_project", "vm_session", "init_given", "init_ask"})
 WIDTH = 100
 # What --value refuses in a value: an expression, which Ansible would template - run, for a lookup - and a control
 # character or a line break, which no setting of one line holds.

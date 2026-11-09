@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""just status: what every VM this project created is doing, and what needs doing next, changing nothing.
+
+    "$bin/python" tools/status [--names <a,b>] [--only <sections>] [--json] [--cache <dir>]
+                               [--vault-file <file>] [--vault-password-file <file>] [-i <inventory>] [-e <vars>]
+
+The engine (lib/claude_vm/status/engine.py) reads and draws; this says what it was given. -e and -i are ANSIBLE_ARGS'
+(or a test's), and any other of those is warned of and ignored: just status runs no playbook. Exits with the report's
+code: 0 nothing is wrong, 1 a problem, 2 something could not be read, 3 the run itself failed.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import signal
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
+from claude_vm.status import engine  # noqa: E402
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--names", default="")
+    parser.add_argument("--only", default="")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--cache", default="")
+    parser.add_argument("--vault-file", default="")
+    parser.add_argument("--vault-password-file", default="")
+    parser.add_argument("-i", "--inventory", action="append", default=[])
+    parser.add_argument("-e", "--extra-vars", dest="extra", action="append", default=[])
+    opts, ignored = parser.parse_known_args(argv)
+    if ignored:
+        print(f"just status: ignoring {' '.join(ignored)}: it runs no playbook", file=sys.stderr)
+    signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
+    os.umask(0o077)
+    return engine.run(opts)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

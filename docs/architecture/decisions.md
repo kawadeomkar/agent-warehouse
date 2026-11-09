@@ -17,7 +17,7 @@ could read the address from `inventory/hosts.yml` and the token from the vault r
 declared a second time. It is not used, because:
 
 - **Little would go.** `tasks/cluster_vms.yml` and `tasks/vm_addresses.yml` stay whatever discovery
-  does: `provision.yml`, `status.yml`, `ssh_config.yml`, `destroy.yml` and `code.yml` read the cluster at
+  does: `provision.yml`, `ssh_config.yml`, `destroy.yml` and `code.yml` read the cluster at
   moments an inventory parsed as a run starts cannot see, such as a VM provisioning has just cloned or
   one `destroy` has just started. The plugin would replace `discover.yml` alone, and its checks would
   come back as a play after it: a VM named on the command line that was not found, two VMs with one name, a
@@ -276,3 +276,23 @@ project's commands, with every command behaving as it does at a terminal.
 - **An allow list of settings, not a deny list.** `tools/settings` can set any role variable; a deny list drawn from
   the example files missed the URLs the vault's tokens are sent to and the installer every VM runs as root. What an
   agent may change is listed, and every other setting of the example is refused by name.
+
+## 15.7 `just status` runs no playbook
+
+Decided on measurements, in 190 runs of 19 versions on a homelab runner against a real Proxmox and two VMs, over a LAN
+and a 28 ms tunnel, cold SSH each time. Today's playbook drew its first VM rows after 5.0 s and finished at 21 s, using
+14.6 s of CPU; the proposal that replaced it draws rows at 0.23 s and finishes at 2.2 s, using 0.4.
+
+- **Why not a faster playbook.** Ansible spends 0.3 to 0.6 s on every task of every host, whatever the task does, and
+  the report is a few dozen small reads: at its best, one module per VM reading everything, with the fleet read in
+  parallel, a playbook ended at 7.8 s. `async` made quick reads 2.6 times slower and writes on the VM; Mitogen gained
+  nothing once the reads were one module, and third-party strategy plugins are deprecated in ansible-core; several
+  Ansible processes gave worse rows than one. The floor is `ansible-playbook`'s own start plus 25 tasks per VM.
+- **What it costs.** The roles' state is worked out a second way in `lib/claude_vm/status/found.py`, held equal to
+  the roles' own by `test_status_vms.py`, state by state, in check mode; the lines the roles say became one function
+  both call (`lib/claude_vm/status/lines.py`). The report's reads no longer pass through Ansible's `no_log`, so what
+  guards a secret is what it never reads: the probe holds a token only to say its kind, inside the VM.
+- **What was kept of Ansible.** The settings, asked of its own `VariableManager` and templar in the process, so no
+  precedence is written again, and every other recipe.
+- **Not to be built again** unless a report grows reads that need a module's guarantees (an idempotent write, a
+  `become` with a fresh password prompt); `just status` is read-only by rule, so it should not.

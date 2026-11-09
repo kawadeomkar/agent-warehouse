@@ -67,28 +67,28 @@ pytest over `tests/unit/`, file by file:
   reads - every value one line of plain text over a corpus of hostile ones, the drift between a VM and
   `local.yml`, the twelve buckets of a day at Proxmox VE 9's resolution and 8's, the ranking and exit code,
   every line within 100 columns, of a report holding every state at once, whose every `just` command the
-  justfile accepts (`test_commands.py`'s own check); `status.yml` against the fake Proxmox, on VE 9 and 8, with a refused
-  token, an API that does not answer, a name that matches nothing, and settings that differ, with every
-  request it made a GET; statically, every task it runs and every file and entry point it reaches a read
-  or the report's own write. Its callback, driven in process at a stand-in terminal, and the real playbook
-  at a pseudo-terminal of the test's own, read back through `tests/unit/vt.py`, a small terminal: a window
-  the report fits, in colour, one short and narrow, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
-  warning between frames, the screen and its scrollback ending in exactly the finished report the log
-  holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux
-  pty takes the rest of a run's output without blocking it, and the run could end before the frame it acts
-  on is read. The Ctrl-C is sent only once each running VM waits in that `ssh`: a SIGINT that lands while
-  Ansible forks a worker is lost (`CLAUDE.md`, things that have bitten this repo). Inside the VMs
-  (`test_status_vms.py`): `vm_status_info` on fixture trees, in this process, each editor's windows by the rows'
-  matches, a process under the first it meets, and the module's `editors` argument held to the core's `ProcessMatch`
-  field for field; status over stand-in VMs with discovery off, each running the three roles' `status` entry points
-  with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree, every file of each VM unchanged after
-  and the fakes' logs holding only reads; the host key, `status_ssh_args` held to `ansible.cfg`'s, the options as
-  `ssh -G` resolves them (and as they reach a stand-in `ssh`, first, in `test_status.py`'s run of the fleet), and
-  ssh's two host-key refusals each said for what it is. Every status run in a test gets that refusing stand-in `ssh`
-  (`status_root`), so none reaches a VM or this machine's ssh. WORK (`test_status_work.py`): `git_checkouts_info`'s
-  `work` over real throwaway repositories - a worktree under `.claude/worktrees/` and one outside the projects
-  directory, a branch with no upstream, a detached HEAD with commits of its own, a stash, untracked files - every file
-  of them, `.git` included, as it was after. Each editor's windows are counted under the editors list's keys,
+  justfile accepts (`test_commands.py`'s own check); the engine against the fake Proxmox, on VE 9 and 8, with a refused
+  token, an API that does not answer, a name that matches nothing, and settings that differ, with every request it
+  made a GET, and statically, what it can do held to reads. Its screen, driven in process at a stand-in terminal, and
+  the real engine at a pseudo-terminal of the test's own, read back through `tests/unit/vt.py`, a small terminal: a
+  window the report fits, in colour, one short and narrow, a resize each way, Ctrl-C, a dumb terminal, a pipe, and a
+  warning of Ansible's above the frame, the screen and its scrollback ending in exactly the finished report the log
+  holds; the resize and Ctrl-C runs hold the VMs' stand-in `ssh` until the test has acted, since a Linux pty takes the
+  rest of a run's output without blocking it, and the run could end before the frame it acts on is read. Inside the
+  VMs (`test_status_vms.py`): the probe on fixture trees, in this process, each editor's windows by the rows' matches,
+  a process under the first it meets, and its editors held to the core's `ProcessMatch` field for field; statically,
+  every program it runs one of its fixed list of reads and every file it opens opened to read; the engine over stand-in
+  VMs with discovery off, the probe run with the gh and tailscale fakes, a stand-in `systemctl` and a fixture tree,
+  every file of each VM unchanged after and the fakes' logs holding only reads; the engine against the roles' own
+  tasks and vars in check mode on the same stand-ins, state by state, the two held equal; the host key,
+  `status_ssh_args` held to `ansible.cfg`'s, the options as `ssh -G` resolves them (and as they reach a stand-in `ssh`,
+  first, in `test_status.py`'s run of the fleet), and ssh's two host-key refusals each said for what it is. Every
+  status run in a test gets that refusing stand-in `ssh` (`status_root`), so none reaches a VM or this machine's ssh,
+  and keeps nothing: the snapshot and the upgrades cache are `test_status_settings.py`'s, in a folder of its own. WORK
+  (`test_status_work.py`): the checkouts' `work` over real throwaway repositories - a worktree under
+  `.claude/worktrees/` and one outside the projects directory, a branch with no upstream, a detached HEAD with commits
+  of its own, a stash, untracked files - every file of them, `.git` included, as it was after. Each editor's windows
+  are counted under the editors list's keys,
   `vscode_windows` kept as 1.0 has it, and the ACCESS line names the editor that is set.
 - **`just settings`** (`test_settings.py`): `tools/settings` against inventories of its own, made from the
   example files with fake, low-entropy values and a vault under a throwaway password, never the checkout's
@@ -212,7 +212,7 @@ pytest over `tests/unit/`, file by file:
   them, and with nothing written the window opens whatever `editor_files_dir` names; no write leaves just code's
   directory or goes into the folders YAML writes itself; each of the registry's rules bites, alone, on a plan built to
   break it; the inputs and rows are held to their types, a row's window match naming its program first; each row's
-  match goes to `vm_status_info` as its fields alone; and both filters take Ansible's own values, through
+  match goes to just status's probe as its fields alone; and both filters take Ansible's own values, through
   `ansible-playbook`, where `tasks/editor_open.yml`'s NEXT STEPS record is the action's own line, or `''` once nothing
   is left.
 - **Processes** (`test_processes.py`): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
@@ -633,7 +633,7 @@ that no build started.
 
 | Scenario | What it proves |
 |---|---|
-| `provision` | `provision.yml`, `discover.yml` and `status.yml` end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
+| `provision` | `provision.yml`, `discover.yml` and `just status`'s engine end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
 | `configure` | `configure.yml` end to end against a container standing in for a provisioned VM; then the sign-ins, `just code`'s session handoff with the real `claude` against a stand-in Messages API - copies resumed as the VM's own, `--continue` never picking one up, the records of requests sent left unsent, a saved copy resumed by its path - and `just destroy`'s pause of Remote Control around its save, with the real systemd |
 
 Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scenario inventory, so the
@@ -671,7 +671,7 @@ That unrelated VM on a node that is down is always there (§11.4), so every flee
 Proxmox scenarios runs against a cluster with one unreachable node.
 
 `vm_name` is passed only to converge's import of `provision.yml`, not set in `group_vars`, so
-discovery and `status.yml` each run three times: once without it, as a bare `just deploy --only configure` or
+discovery and `just status`'s engine each run three times: once without it, as a bare `just deploy --only configure` or
 `just status` does, where the ownership filter is all that stands between them and every running VM;
 once with it, to prove the narrowing; and once for `netone` with `proxmox_nic: net1`. The fleet-wide
 passes assert that discovery considered exactly `alpha`, `beta`, `commas`, `netone`, `nonic` and

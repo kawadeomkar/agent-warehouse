@@ -59,21 +59,6 @@ With tailscale_login_interactive, or the answer to the question tailscale_login_
 
 Also takes, as described under `main`: `tailscale_enabled`, `tailscale_wanted`, `tailscale_off_setting`, `tailscale_login_timeout`, `tailscale_login_desktop`, `tailscale_login_server`, `tailscale_advertise_tags`, `tailscale_marker_dir`.
 
-## Entry point `status`
-
-**Say how the VM is on Tailscale, changing nothing**
-
-Reads what Tailscale is installed and whose, and its state once, without waiting for it to settle, and gives the report configure gives, keeping what just status shows in tailscale_status_found. Never installs, joins, signs in, changes a setting or removes anything.
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `tailscale_joined_before` | bool | `false` | Whether the VM joined before, so that the line never says the key will join it again. |
-| `tailscale_joined_tag` | str | `agent-warehouse-tailscale` | The tag in Proxmox that records a VM's join, which the line names. |
-| `tailscale_auth_key` | str | `""` | Only whether one is set is read, for the line that says what joins the VM. A secret: never logged. Set through `vault_tailscale_auth_key` in vault.yml. |
-| `tailscale_hostname` | str | computed | The machine name asked for, which a name taken is told by. |
-
-Also takes, as described under `main`: `tailscale_enabled`, `tailscale_wanted`, `tailscale_off_setting`, `tailscale_auth_method`, `tailscale_login_server`, `tailscale_advertise_tags`, `tailscale_marker_dir`.
-
 ## Entry point `release`
 
 **Take the VM off the tailnet before it is destroyed**
@@ -551,34 +536,6 @@ classDef rescue stroke:#665352,stroke-width:2px;
   state___Read_Tailscale_s_state_once_it_has_settled0-->|Task| state___Fail_when_the_tailscaled_this_role_started_does_not_answer1[state   fail when the tailscaled this role started<br>does not answer<br>When: **tailscale ours   bool and not ansible check mode<br>and not  tailscale check without package   bool**]:::task
   state___Fail_when_the_tailscaled_this_role_started_does_not_answer1-->|Task| state___Read_the_settings_of_a_running_node2[state   read the settings of a running node<br>When: **tailscale backend     running**]:::task
   state___Read_the_settings_of_a_running_node2-->End
-```
-
-### `status.yml` - entry point `status`
-
-| Task | Module | When |
-|---|---|---|
-| Read what is installed, and who installed it | `ansible.builtin.include_tasks` |  |
-| Read Tailscale's state | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool or tailscale_status_unmanaged &#124; bool</code> |
-| Say how this VM is on Tailscale | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
-| Keep how this VM is on Tailscale | `ansible.builtin.set_fact` |  |
-
-```mermaid
-flowchart TD
-Start
-classDef block stroke:#3498db,stroke-width:2px;
-classDef task stroke:#4b76bb,stroke-width:2px;
-classDef includeTasks stroke:#16a085,stroke-width:2px;
-classDef importTasks stroke:#34495e,stroke-width:2px;
-classDef includeRole stroke:#2980b9,stroke-width:2px;
-classDef importRole stroke:#699ba7,stroke-width:2px;
-classDef includeVars stroke:#8e44ad,stroke-width:2px;
-classDef rescue stroke:#665352,stroke-width:2px;
-
-  Start-->|Include task| status___Read_what_is_installed__and_who_installed_it_ownership_yml_0[status   read what is installed  and who installed<br>it<br>include_task: ownership yml]:::includeTasks
-  status___Read_what_is_installed__and_who_installed_it_ownership_yml_0-->|Include task| status___Read_Tailscale_s_state_state_yml_1[status   read tailscale s state<br>When: **tailscale wanted   bool or tailscale status<br>unmanaged   bool**<br>include_task: state yml]:::includeTasks
-  status___Read_Tailscale_s_state_state_yml_1-->|Include task| status___Say_how_this_VM_is_on_Tailscale_report_yml_2[status   say how this vm is on tailscale<br>When: **tailscale wanted   bool**<br>include_task: report yml]:::includeTasks
-  status___Say_how_this_VM_is_on_Tailscale_report_yml_2-->|Task| status___Keep_how_this_VM_is_on_Tailscale3[status   keep how this vm is on tailscale]:::task
-  status___Keep_how_this_VM_is_on_Tailscale3-->End
 ```
 
 ### `unmanaged.yml`

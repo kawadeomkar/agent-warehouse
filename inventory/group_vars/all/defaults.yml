@@ -63,16 +63,12 @@ proxmox_api_ca_path: "{{ lookup('ansible.builtin.env', 'REQUESTS_CA_BUNDLE') if 
 # them 10, since a report that cannot reach the API should say so soon.
 claude_vm_api_timeout: 30
 
-# just status (playbooks/status.yml): how long each of its reads of the API
-# waits, and the file the recipe reads the report's exit code from, which it
-# names in STATUS_REPORT_FILE; none for a run by hand, which writes no file.
+# just status (tools/status): how long each of its reads of the API waits.
 status_api_timeout: 10
-status_report_file: "{{ lookup('ansible.builtin.env', 'STATUS_REPORT_FILE') }}"
 # How just status reaches a VM over SSH: ansible.cfg's ssh_args, with the host key held to what this machine
 # already knows (StrictHostKeyChecking=yes) and never updated (UpdateHostKeys=no, OpenSSH's default is yes):
-# status adds and changes no host key, so a VM rebuilt or renamed is "not read", naming what takes its key. Per
-# host as ansible_ssh_args, since ssh keeps the first value it is given for an option and Ansible puts
-# ssh_args first: ansible_ssh_extra_args would come after accept-new, and lose to it.
+# status adds and changes no host key, so a VM rebuilt or renamed is "not read", naming what takes its key. First on
+# ssh's command line, since it keeps the first value it is given for an option.
 status_ssh_args: >-
   {{ (lookup('ansible.builtin.config', 'ssh_args', plugin_type='connection', plugin_name='ssh')
       | regex_replace('-o\s*StrictHostKeyChecking=\S+', '') | regex_replace('-o\s*UpdateHostKeys=\S+', '')
@@ -83,7 +79,7 @@ status_read_upgrades: true
 status_system_root: /
 
 # The proxmox_template role's defaults, repeated here because deploy.yml,
-# init_check.yml and status.yml read them outside the role, where its defaults
+# init_check.yml and just status read them outside the role, where its defaults
 # are not seen.
 proxmox_template_vmid: 9000
 proxmox_template_name: ubuntu-24.04-cloudinit
@@ -93,7 +89,7 @@ proxmox_template_rebuild: true
 # Each setting's description: local.yml.example, under VMs.
 # claude_vm_names falls back to this default name when vm_name is not given,
 # which is what provision.yml, deploy.yml and destroy.yml act on. discover.yml
-# and status.yml test `vm_name is defined` instead and, without it, cover every
+# and just status test `vm_name is defined` instead and, without it, cover every
 # tagged VM - so just status, just login and just deploy --only configure,
 # --check and --only ssh-config are fleet-wide. No VM is declared anywhere:
 # Proxmox gives each its ID, and DHCP its address.
@@ -133,7 +129,7 @@ claude_vm_tailscale_tag: "{{ claude_vm_tag | lower }}-tailscale"
 claude_vm_tailscale_tag_pattern: >-
   (?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)
 # The VMs this project owns, filtered out of the cluster's VM list. Defined
-# here, not in each playbook, so discover.yml, status.yml and destroy.yml cannot
+# here, not in each playbook, so discover.yml, just status and destroy.yml cannot
 # drift on what "ours" means. Evaluated lazily: any play that uses it must have
 # run playbooks/tasks/cluster_vms.yml, which registers claude_vm_all, and is
 # meant to fail loudly if it has not - an empty fleet and an unasked API are
@@ -189,7 +185,7 @@ claude_vm_inventory_names: >-
 claude_vm_names_chosen: >-
   {{ claude_vm_names if vm_name is defined or not claude_vm_discovery | bool else [] }}
 # The tagged VMs a fleet-wide recipe acts on: the ones named (vm_name), or all of
-# them without it. discover.yml and status.yml both narrow through this, so
+# them without it. discover.yml narrows through this, and just status the same way, so
 # `just deploy --only configure` and `just status` cannot disagree on what the names select.
 claude_vm_requested: >-
   {{ claude_vm_tagged | selectattr('name', 'defined') | selectattr('name', 'in', claude_vm_names) | list

@@ -1,18 +1,22 @@
-"""`just status` inside the VMs: what playbooks/status.yml reads over SSH, and that it changes nothing there.
+"""`just status` inside the VMs: what the probe reads over SSH (playbooks/module_utils/status_probe.py), and that it
+changes nothing there.
 
-- vm_status_info (playbooks/library/), run in this process on fixture trees: the OS, the kernels, the reboot flag,
-  the load, memory and uptime, apt's simulation, and the user's own claude processes and each editor's windows.
-- status.yml with discovery off against stand-in VMs, as the configure scenario reaches its container: each runs
-  the claude_code, github_projects and tailscale roles' status entry points and the module with the stand-ins of
-  the harness (tests/unit/harness.py), the gh and tailscale fakes (tests/molecule/), and a fixture tree. What the
-  report says of each, and that every file of each VM is as it was, but the fakes' own call logs.
+- The probe's reads, run in this process on fixture trees: the OS, the kernels, the reboot flag, the load, memory and
+  uptime, apt's simulation, and the user's own claude processes and each editor's windows.
+- tools/status with discovery off against stand-in VMs, as the configure scenario reaches its container: the probe
+  runs against the stand-ins of the harness (tests/unit/harness.py), the gh and tailscale fakes (tests/molecule/), and
+  a fixture tree. What the report says of each, and that every file of each VM is as it was, but the fakes' own logs.
+- The state the engine works out for itself (claude_vm.status.found) against the roles' own: the same stand-ins, read
+  and reported by the tasks and vars the roles run, held equal state by state.
 - The host key: status's ssh options are ansible.cfg's with StrictHostKeyChecking=yes and UpdateHostKeys=no, they
   reach ssh as given and take effect (ssh -G), and ssh's two refusals of a host key are each said for what they are.
 """
 
 from __future__ import annotations
 
+import ast
 import configparser
+import hashlib
 import json
 import re
 import shutil
@@ -21,28 +25,28 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, GETENT, REPO, _local_hosts, fake_fleet, load_module
-from test_status import PROMISED_KEYS, T, _status_run, status_root
+from harness import FAKES, GETENT, REPO, _local_hosts, _pve_vars, _run, fake_fleet, load_module
+from test_status import PROMISED_KEYS, S, T, _status_run, status_root
 from test_status_work import _commit, _git
 from test_tailscale import DPKG_QUERY, NODE, _joined
 
 from claude_vm.editors.model import ProcessMatch
 from claude_vm.editors.registry import editor_servers
 
-LIBRARY = REPO / "playbooks" / "library"
+PROBE = REPO / "playbooks" / "module_utils" / "status_probe.py"
 ROWS = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())["claude_editors"]
-# The module's editors argument as status.yml hands it over: the rows' matches, from the core.
+# The probe's editors as the engine hands them over: the rows' matches, from the core.
 EDITORS = editor_servers(ROWS)
 
 
-M = load_module(LIBRARY / "vm_status_info.py", "vm_status_info_under_test", register=False)
+M = load_module(PROBE, "status_probe_under_test", register=False)
 
 
-# ------------------------------------------------------------------------------------------- the module ----
+# -------------------------------------------------------------------------------------------- the probe ----
 
 
 def _tree(root: Path, *, running="6.8.0-85-generic", installed=("6.8.0-85-generic",), reboot=(), processes=()):
-    """A VM's files under root, as vm_status_info reads them."""
+    """A VM's files under root, as the probe reads them."""
     (root / "etc").mkdir(parents=True)
     (root / "etc" / "os-release").write_text('NAME="Ubuntu"\nPRETTY_NAME="Ubuntu 24.04.3 LTS"\nVERSION_ID="24.04"\n')
     (root / "proc" / "sys" / "kernel").mkdir(parents=True)
@@ -103,12 +107,11 @@ def test_the_system_is_read_from_the_files_the_vm_keeps(tmp_path) -> None:
 
 
 def test_the_windows_are_counted_by_the_editors_lists_keys_and_by_no_key_per_editor(tmp_path) -> None:
-    # The map's keys are the editors list's, which status.yml names them by; no editor has a key of its own beside
-    # the two 1.0 promised, in what the module says it returns or in what it returns (test_status.py holds the model).
+    # The map's keys are the editors list's; no editor has a key of its own beside the two 1.0 promised (test_status.py
+    # holds the model).
     found = M.processes(str(tmp_path), EDITORS)
     assert list(found["editor_windows_by"]) == list(ROWS)
-    for keys in (found, yaml.safe_load(M.RETURN)):
-        assert {key for key in keys if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
+    assert {key for key in found if key.endswith("_windows")} == {"vscode_windows", "editor_windows"}
 
 
 def test_a_window_is_the_first_match_s_and_a_match_names_its_program_first(tmp_path) -> None:
@@ -127,21 +130,10 @@ def test_a_window_is_the_first_match_s_and_a_match_names_its_program_first(tmp_p
         ProcessMatch(argv1="run")
 
 
-def test_the_module_takes_the_core_s_match_field_for_field() -> None:
-    # The module cannot import the core, so its argument spec, its documentation and the core's ProcessMatch are
-    # three spellings of one record: held to one another, and each row's match passes the spec as it is sent.
-    from ansible.module_utils.common.arg_spec import ArgumentSpecValidator
-
+def test_the_probe_takes_the_core_s_match_field_for_field() -> None:
+    # The probe cannot import the core: its fields and the core's ProcessMatch are two spellings of one record.
     fields = {name: getattr(ProcessMatch(), name) for name in ProcessMatch.__dataclass_fields__}
-    spec = {name: option.get("default") for name, option in M.EDITOR.items() if name != "key"}
-    assert {name: tuple(value) if type(value) is list else value for name, value in spec.items()} == fields
-    documented = yaml.safe_load(M.DOCUMENTATION)["options"]["editors"]["suboptions"]
-    assert {name: (option["type"], option.get("default")) for name, option in documented.items()} == {
-        name: (option["type"], option.get("default")) for name, option in M.EDITOR.items()
-    }
-    validator = ArgumentSpecValidator({"editors": {"type": "list", "elements": "dict", "options": M.EDITOR}})
-    checked = validator.validate({"editors": EDITORS})
-    assert not checked.error_messages and checked.validated_parameters["editors"] == EDITORS
+    assert M.EDITOR == fields
 
 
 def test_a_read_that_hangs_is_said_and_the_others_still_land() -> None:
@@ -181,13 +173,81 @@ def test_upgrades_are_apts_simulation_counted_by_pocket(tmp_path, monkeypatch) -
         M.upgrades(5)
 
 
-def test_the_module_runs_no_program_but_apt_and_that_by_path() -> None:
-    source = (LIBRARY / "vm_status_info.py").read_text()
-    assert source.count("subprocess.run(") == 1 and 'APT_GET = "/usr/bin/apt-get"' in source
-    assert "run_command" not in source and "os.system" not in source and "Popen" not in source
+def _calls(source: str, name: str) -> list[ast.Call]:
+    return [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and name in (getattr(node.func, "attr", ""), getattr(node.func, "id", ""))
+    ]
+
+
+def test_every_program_the_probe_runs_is_in_its_fixed_list_of_reads() -> None:
+    source = PROBE.read_text()
+    # run()'s first argument where it is written out; the two that are not are run's own and Commands', named below.
+    literal = []
+    built = []
+    for node in _calls(source, "run"):
+        argv = node.args[0] if node.args else None
+        if isinstance(argv, ast.List) and all(isinstance(element, ast.Constant) for element in argv.elts):
+            literal.append(tuple(ast.literal_eval(argv)))
+        elif argv is not None:
+            built.append(ast.unparse(argv))
+    allowed = {tuple(one) for one in M.ALLOWED}
+    assert literal and set(literal) <= allowed, set(literal) - allowed
+    # The one built at run time names a unit: every word but the unit is the list's. The rest are what is handed on:
+    # the apt command's own list, and run's and Commands' own arguments.
+    assert ("systemctl", "show", None, "-p", ",".join(M.UNIT_KEYS)) in allowed
+    assert set(built) == {
+        "[APT_GET, '-s', '-q', '-o', 'Debug::NoLocking=1', 'dist-upgrade']",
+        "['systemctl', 'show', name, '-p', ','.join(UNIT_KEYS)]",
+        "args",
+        "argv",
+    }, built
+    # Nothing that could change anything is in the list, and nothing runs but through it.
+    for argv in allowed:
+        assert not {"up", "down", "set", "login", "logout", "start", "stop", "restart", "install", "remove"} & set(
+            argv
+        ), argv
+    assert source.count("subprocess.run(") == 3 and "Popen" not in source and "os.system" not in source
     # Nor does what it takes from the modules' shared file: ps is the session modules' read of one pid's argv there.
     assert not re.search(r"\b(process_argv|running_claude)\b", source)
     assert '"-s"' in source and "Debug::NoLocking=1" in source
+
+
+def test_the_probe_opens_every_file_to_read() -> None:
+    source = PROBE.read_text()
+    for node in _calls(source, "open"):
+        if getattr(node.func, "attr", "") == "fdopen":
+            continue
+        modes = [arg.value for arg in node.args[1:2] if isinstance(arg, ast.Constant)] + [
+            k.value.value for k in node.keywords if k.arg == "mode"
+        ]
+        assert all(mode in ("r", "rb") for mode in modes), ast.dump(node)
+    assert ".write(" in source  # one kind of write: to its own standard output, or to the pipe from its child
+    for line in source.splitlines():
+        if ".write(" in line:
+            assert line.strip() == 'stream.write(json.dumps(value) + "\\n")', line
+    assert not re.search(r"os\.(remove|unlink|rename|replace|mkdir|makedirs|rmdir|chmod|chown)\b", source)
+
+
+def test_the_probe_runs_no_claude_and_never_says_a_token() -> None:
+    # Whether `claude auth status` can refresh a login's token, and so write, is still to be checked on a real VM.
+    assert not any("claude" in " ".join(str(word) for word in argv) for argv in M.ALLOWED)
+    source = PROBE.read_text()
+    tree = ast.parse(source)
+    returned = [n for n in ast.walk(tree) if isinstance(n, ast.Dict)]
+    assert all("token" not in str(getattr(key, "value", "")).lower() for d in returned for key in d.keys if key)
+    assert '"kind"' in source and '"marked"' in source
+
+
+def test_the_projects_directory_is_the_cores_definition() -> None:
+    # The probe cannot import the core: the one line it holds, against the function just code and the roles name it by.
+    from claude_vm.sessions import projects_dir
+
+    source = PROBE.read_text()
+    assert 'under = (str(asked.get("dir") or "") or f"{home.rstrip(\'/\')}/projects").rstrip("/") or "/"' in source
+    for given, home, want in (("", "/home/dev", "/home/dev/projects"), ("/srv/x/", "/h", "/srv/x"), ("/", "/h", "/")):
+        assert projects_dir(given, home) == want
 
 
 # --------------------------------------------------------------------------------- the stand-in VMs ----
@@ -254,7 +314,7 @@ CASES = {
         },
     },
 }
-# What a run is told beyond each host's own: become off, as every harness has it - the controller has no sudo to
+# What a run is told beyond each host's own: become off, as every harness has it - this machine has no sudo to
 # give - and Tailscale outside dpkg looked for in each host's own directory.
 EXTRA = {
     "claude_vm_discovery": False,
@@ -267,7 +327,7 @@ EXTRA = {
 
 
 def _vms(root: Path, cases: dict) -> dict:
-    """Inventory hosts, one per case, whose modules run with the stand-ins in their own HOME; returns hostvars."""
+    """Inventory hosts, one per case, whose programs run with the stand-ins in their own HOME; returns hostvars."""
     tools = {
         "systemctl": SYSTEMCTL,
         "gh": (FAKES / "fake_gh.sh").read_text(),
@@ -314,7 +374,6 @@ def _vms(root: Path, cases: dict) -> dict:
             github_projects_home=str(home),
             tailscale_marker_dir=str(home / "markers"),
             status_system_root=str(home / "system"),
-            ansible_inject_invocation=True,
         )
     return hosts
 
@@ -332,11 +391,11 @@ def _files(root: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def read(tmp_path_factory):
-    """status.yml over the stand-in VMs: its report, the model, the VMs' files before and after, and the root."""
+    """tools/status over the stand-in VMs: what it did, the model, the VMs' files before and after, and the root."""
     tmp_path = tmp_path_factory.mktemp("status-vms")
     hosts = _vms(tmp_path / "vms", CASES)
     before = _files(tmp_path / "vms")
-    extra = ("-e", json.dumps(EXTRA), "--forks", str(len(hosts)))
+    extra = ("-e", json.dumps(EXTRA))
     report, model = _status_run(tmp_path, "https://127.0.0.1:9", *extra, hosts=hosts, timeout=300)
     return report, model, before, _files(tmp_path / "vms"), tmp_path / "vms"
 
@@ -376,8 +435,7 @@ def test_a_vm_signed_in_to_everything_has_nothing_to_do(read) -> None:
     # What --json prints of a VM read inside: every key 1.x promises, down to the system's (test_status.py).
     assert PROMISED_KEYS["ssh"] - set(ssh) == set() and PROMISED_KEYS["system"] - set(ssh["system"]) == set()
     assert _items(model, "ready") == []
-    # And no token, no login link, no key reached the report, nor anything the run said: every module's arguments
-    # are in its result (ansible_inject_invocation), so a token rendered outside no_log would be here.
+    # And no token, no login link, no key reached the report, nor anything the run said.
     report = read[0]
     for case in CASES.values():
         token = case["gh"].get("fake-token")
@@ -415,7 +473,7 @@ def test_what_is_down_and_what_was_not_checked_are_said_for_what_they_are(read) 
     assert levels["gh could not check its login with GitHub"] == "unread"
     assert levels["tailscaled is not running"] == "problem"
     reboot = next(text for _, _, text, _ in items if text.startswith("waits for a reboot"))
-    # Each editor's windows named as status.yml names them from the editors list.
+    # Each editor's windows named as the settings name them from the editors list.
     assert reboot == (
         "waits for a reboot: kernel 6.8.0-87 is installed, 6.8.0-85 runs; 2 claude processes, 1 VS Code window and"
         " 2 Zed windows are open there"
@@ -423,6 +481,191 @@ def test_what_is_down_and_what_was_not_checked_are_said_for_what_they_are(read) 
     assert model["exit"] == 2
     row = next(line for line in T.status_text(model).splitlines() if line.startswith(" down") and "restarts" in line)
     assert "5 restarts" in row and "? not checked" in row
+
+
+# ------------------------------------------------------------------------------ what the roles themselves say ----
+
+# The state just status works out for itself, the roles' own way: a task file put in a copy of each role, which reads
+# and reports through the role's own tasks and vars, for the same stand-ins. In check mode, and with no wait, as
+# status.
+TAILSCALE_AS_STATUS = """---
+- ansible.builtin.include_tasks: ownership.yml
+
+- ansible.builtin.include_tasks: state.yml
+  vars:
+    tailscale_settle_seconds: 0
+  when: tailscale_wanted | bool or tailscale_status_unmanaged | bool
+
+- ansible.builtin.include_tasks: report.yml
+  vars:
+    tailscale_settle_seconds: 0
+  when: tailscale_wanted | bool
+
+- vars:
+    tailscale_settle_seconds: 0
+    read: "{{ tailscale_wanted | bool or tailscale_status_unmanaged | bool }}"
+  ansible.builtin.set_fact:
+    role_tailscale:
+      enabled: "{{ tailscale_wanted | bool }}"
+      installed: "{{ tailscale_installed | bool }}"
+      ours: "{{ tailscale_ours | bool }}"
+      daemon_up: "{{ tailscale_daemon_up | bool if read | bool else false }}"
+      backend: "{{ tailscale_backend if read | bool else '' }}"
+      case: >-
+        {{ tailscale_report_case if tailscale_wanted | bool
+           else 'unmanaged' if tailscale_status_unmanaged | bool else 'off' }}
+      dns_name: "{{ tailscale_dns_name if read | bool else '' }}"
+      ipv4: "{{ tailscale_ipv4 if read | bool else '' }}"
+      key_expiry: "{{ tailscale_self.KeyExpiry | default('') if read | bool else '' }}"
+      line: "{{ tailscale_report_result.line if tailscale_wanted | bool else '' }}"
+      left: "{{ tailscale_report_left | bool if tailscale_wanted | bool else false }}"
+"""
+GITHUB_AS_STATUS = """---
+- ansible.builtin.include_tasks: login_read.yml
+
+- ansible.builtin.include_tasks: login_report.yml
+
+- ansible.builtin.set_fact:
+    role_github:
+      installed: "{{ github_projects_gh_found | bool }}"
+      readable: "{{ github_projects_gh_found | bool and github_projects_auth_status.rc | default(1) == 0 }}"
+      signed_in: "{{ github_projects_signed_in | bool }}"
+      unchecked: "{{ github_projects_auth_unchecked | bool }}"
+      error: "{{ github_projects_auth_account.error | default('') if github_projects_auth_unchecked | bool else '' }}"
+      account: "{{ github_projects_auth_account.login | default('') if github_projects_signed_in | bool else '' }}"
+      kind: "{{ github_projects_login_kind }}"
+      managed: "{{ github_projects_auth | bool }}"
+      line: "{{ github_projects_login_report.line }}"
+      left: "{{ github_projects_login_left | bool and not (github_projects_auth_unchecked | bool) }}"
+"""
+ROLES_AS_STATUS = """---
+- name: The roles' own reads
+  hosts: claude_vms
+  gather_facts: false
+  tasks:
+    - ansible.builtin.include_role:
+        name: github_projects
+        tasks_from: as_status
+    - ansible.builtin.include_role:
+        name: tailscale
+        tasks_from: as_status
+"""
+# One VM per state the two roles' lines tell apart.
+TOKEN = "ghp_" + "2" * 36
+STATES = {
+    "ready": {"ts": _joined("ready"), "marker": NODE},
+    "ts-renamed": {"ts": _joined("ts-renamed", hostname="other", ssh="true"), "marker": NODE},
+    "ts-by-hand": {"ts": _joined("ts-by-hand"), "marker": "9" * 64},
+    "ts-taken": {"ts": {**_joined("ts-taken"), "name-taken": ""}, "marker": NODE},
+    "ts-tailnet": {"ts": {**_joined("ts-tailnet"), "tailnet": "example.github"}, "marker": NODE},
+    "ts-pending-login": {"ts": _joined("ts-pending-login"), "marker": "pending", "raw_marker": True},
+    "ts-expired": {"ts": {"expired": NODE}, "marker": NODE},
+    "ts-expired-by-hand": {"ts": {"expired": "3" * 64}, "marker": "9" * 64},
+    "ts-signed-out": {"ts": {}},
+    "ts-page": {"ts": {"state": "NeedsLogin", "authurl": "https://login.tailscale.com/a/abc"}},
+    "ts-starting": {"ts": {**_joined("ts-starting"), "starting": ""}, "marker": NODE},
+    "ts-stopped": {"ts": {**_joined("ts-stopped"), "state": "Stopped"}, "marker": NODE},
+    "ts-approval": {"ts": {**_joined("ts-approval"), "state": "NeedsMachineAuth"}, "marker": NODE},
+    "ts-daemon-down": {"ts": {"daemon-down": ""}},
+    "ts-no-package": {"ts": {}, "no_package": True},
+    "ts-not-ours": {"ts": _joined("ts-not-ours"), "no_marker": True},
+    "gh-pat-ours": {"gh": {"fake-token": TOKEN, "fake-login": "octocat"}, "gh_marker": True},
+    "gh-pat-own": {"gh": {"fake-token": TOKEN, "fake-login": "octocat"}},
+    "gh-device": {"gh": {"fake-token": "gho_" + "4" * 36, "fake-login": "octocat"}},
+    "gh-env": {"gh": {"fake-token": TOKEN, "fake-source": "GH_TOKEN"}},
+    "gh-unchecked": {"gh": {"fake-token": TOKEN, "fake-unchecked": ""}},
+    "gh-refused": {"gh": {"fake-token": TOKEN, "fake-refused": ""}},
+    "gh-too-old": {"gh": {"fake-old": ""}},
+}
+
+
+def _state_vms(root: Path) -> dict:
+    cases = {
+        name: {
+            "claude": "2.1.310",
+            "login": True,
+            "units": {"service": RUNNING},
+            "gh": {},
+            "ts": {},
+            "tree": {},
+            **state,
+        }
+        for name, state in STATES.items()
+    }
+    hosts = _vms(root, cases)
+    for name, case in cases.items():
+        home = root / name
+        if case.get("raw_marker"):
+            (home / "markers" / "tailscale-joined").write_text(f"{case['marker']}\n")
+        if case.get("no_package"):
+            (home / "dpkg-status").unlink()
+        if case.get("no_marker"):
+            (home / "markers" / "tailscale-installed").unlink()
+        if case.get("gh_marker"):
+            state = home / ".config" / "agent-warehouse"
+            state.mkdir(parents=True)
+            (state / "gh-login").write_text(hashlib.sha256(TOKEN.encode()).hexdigest() + "\n")
+    return hosts
+
+
+@pytest.fixture(scope="module")
+def said_both_ways(tmp_path_factory):
+    """Each state, read by the engine and by the roles' own tasks in check mode: {vm: (engine's, the roles')}."""
+    tmp_path = tmp_path_factory.mktemp("status-roles")
+    hosts = _state_vms(tmp_path / "vms")
+    report, model = _status_run(tmp_path, "https://127.0.0.1:9", "-e", json.dumps(EXTRA), hosts=hosts, timeout=300)
+    assert report["rc"] == 0, report["stderr"][-3000:]
+    root = tmp_path / "roles"
+    for role, tasks in (("tailscale", TAILSCALE_AS_STATUS), ("github_projects", GITHUB_AS_STATUS)):
+        shutil.copytree(REPO / "roles" / role, root / "roles" / role)
+        (root / "roles" / role / "tasks" / "as_status.yml").write_text(tasks)
+    _pve_vars(root, "https://127.0.0.1:9", {"vm_ssh_public_keys": []})
+    playbook = root / "as_status.yml"
+    playbook.write_text(ROLES_AS_STATUS)
+    env = {"ANSIBLE_ROLES_PATH": str(root / "roles")}
+    roles = _run(root, playbook, hosts, "--check", "-e", json.dumps(EXTRA), "--forks", "8", timeout=900, env=env)
+    failed = [
+        (task["task"]["name"], host, result.get("msg", ""))
+        for play in roles["plays"]
+        for task in play["tasks"]
+        for host, result in task["hosts"].items()
+        if result.get("failed") or result.get("unreachable")
+    ]
+    assert roles["rc"] == 0, (failed[:6], roles["stderr"][-3000:])
+    facts = {}
+    for play in roles["plays"]:
+        for task in play["tasks"]:
+            for host, result in task["hosts"].items():
+                facts.setdefault(host, {}).update(result.get("ansible_facts") or {})
+    return {vm["name"]: (vm["ssh"], S.status_clean(facts[vm["name"]])) for vm in model["vms"]}
+
+
+@pytest.mark.parametrize("state", sorted(STATES))
+def test_the_engine_says_of_each_state_what_the_roles_say(said_both_ways, state) -> None:
+    engine, roles = said_both_ways[state]
+    assert engine["tailscale"] == roles["role_tailscale"]
+    assert engine["github"] == roles["role_github"]
+
+
+def test_the_states_held_equal_are_as_various_as_the_lines() -> None:
+    # A table that stopped covering the lines would still pass: the cases it reaches are named.
+    source = Path(__file__).read_text()
+    for name in ("ts-page", "ts-expired", "ts-expired-by-hand", "ts-approval", "gh-device", "gh-too-old"):
+        assert f'"{name}"' in source
+
+
+def test_a_vm_s_name_makes_the_dns_label_the_role_makes() -> None:
+    from claude_vm.status import settings
+
+    defaults = (REPO / "roles" / "tailscale" / "defaults" / "main.yml").read_text()
+    assert (
+        "(inventory_hostname | lower | regex_replace('[^a-z0-9-]+', '-') | regex_replace('^-+|-+$', ''))[:63]"
+        in defaults
+    )
+    assert "| regex_replace('-+$', '')" in defaults
+    assert settings.dns_label("My_Alpha.lab") == "my-alpha-lab"
+    assert settings.dns_label("--a--") == "a"
+    assert settings.dns_label("a" * 62 + "-b") == "a" * 62
 
 
 # ------------------------------------------------------------------------------------------- host keys ----
@@ -496,7 +739,7 @@ def fleet(tmp_path_factory):
 @pytest.mark.parametrize("refusal", sorted(REFUSALS))
 def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fleet, refusal) -> None:
     said, expected = REFUSALS[refusal]
-    root, _ = status_root(tmp_path, fleet)
+    root = status_root(tmp_path, fleet)
     (root / "ssh-says").write_text(said + "\n")
     report, model = _status_run(tmp_path, fleet, "-e", json.dumps({"vm_name": "alpha"}))
     assert report["rc"] == 0, report["stderr"][-2000:]

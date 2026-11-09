@@ -47,16 +47,6 @@ Reads gh's login state on the VM and prints it, with the one command to run when
 | `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer would be nothing, which is Enter, so playbooks/github_login.yml never sets it in a run without one. |
 | `github_projects_login_role_follows` | bool | `false` | The whole role runs for this VM next, in the same run, so a vault token gh is not yet signed in with is said to be signed in by it rather than by a command to run. |
 
-## Entry point `status`
-
-**Say whether gh is signed in to GitHub, and how, changing nothing**
-
-Reads gh's login state on the VM, as the login entry point does, and gives its report, keeping what just status shows in github_projects_status_found. A check gh could not make with GitHub - no network - is kept as not checked, never as signed out. Never signs in, writes a token or clones.
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `github_projects_auth` | bool | `true` | Whether gh's login is this project's business; with it off, gh is left alone and only said. Set through `github_auth` in local.yml. |
-
 ## Entry point `release`
 
 **Sign gh out before the VM is destroyed**
@@ -71,7 +61,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 67 of the 74 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 66 of the 73 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -514,32 +504,6 @@ classDef rescue stroke:#665352,stroke-width:2px;
   release___Read_the_marker_of_the_login_this_role_s_device_flow_made__by_its_1_x_name3-->|Task| release___Sign_gh_out4[release   sign gh out<br>When: **github projects stored token   length   0**]:::task
   release___Sign_gh_out4-->|Task| release___Record_what_became_of_the_login5[release   record what became of the login]:::task
   release___Record_what_became_of_the_login5-->End
-```
-
-### `status.yml` - entry point `status`
-
-| Task | Module | When |
-|---|---|---|
-| Read gh and its login state | `ansible.builtin.include_tasks` |  |
-| Say how gh is signed in | `ansible.builtin.include_tasks` |  |
-| Keep how gh is signed in | `ansible.builtin.set_fact` |  |
-
-```mermaid
-flowchart TD
-Start
-classDef block stroke:#3498db,stroke-width:2px;
-classDef task stroke:#4b76bb,stroke-width:2px;
-classDef includeTasks stroke:#16a085,stroke-width:2px;
-classDef importTasks stroke:#34495e,stroke-width:2px;
-classDef includeRole stroke:#2980b9,stroke-width:2px;
-classDef importRole stroke:#699ba7,stroke-width:2px;
-classDef includeVars stroke:#8e44ad,stroke-width:2px;
-classDef rescue stroke:#665352,stroke-width:2px;
-
-  Start-->|Include task| status___Read_gh_and_its_login_state_login_read_yml_0[status   read gh and its login state<br>include_task: login read yml]:::includeTasks
-  status___Read_gh_and_its_login_state_login_read_yml_0-->|Include task| status___Say_how_gh_is_signed_in_login_report_yml_1[status   say how gh is signed in<br>include_task: login report yml]:::includeTasks
-  status___Say_how_gh_is_signed_in_login_report_yml_1-->|Task| status___Keep_how_gh_is_signed_in2[status   keep how gh is signed in]:::task
-  status___Keep_how_gh_is_signed_in2-->End
 ```
 
 <!-- END_GENERATED: role -->

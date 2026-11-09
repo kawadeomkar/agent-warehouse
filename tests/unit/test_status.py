@@ -1,39 +1,49 @@
-"""`just status`: read-only information that must never change anything (playbooks/status.yml).
+"""`just status`: read-only information that must never change anything (tools/status, lib/claude_vm/status/).
 
-- The filters (lib/claude_vm/status/model.py and tui/status.py, one_line in text.py, proxmox_vm_drift in
-  proxmox.py), on canned reads: every value a VM supplies is one line of plain text before anything keeps it, the
-  report ranks what it found, and every line of it fits 100 columns.
-- The playbook, run against the fake Proxmox (tests/molecule/fake_pve_api.py): what it reads, and what it says
-  when Proxmox does not answer, refuses the token, or a name matches no VM.
-- Every task status runs, and every task file and role entry point it reaches, held to a fixed set of reads: GETs
-  through uri pinned to the API's URL, the readers, add_host, set_fact, and the report's one write.
-- The callback (callback_plugins/agent_warehouse_status.py), driven in this process with canned results and a
-  stand-in terminal: what it writes, and what it never does. test_status_live.py runs it at a pseudo-terminal.
+- The model (lib/claude_vm/status/model.py and tui/status.py, one_line in text.py, proxmox_vm_drift in proxmox.py), on
+  canned reads: every value a VM supplies is one line of plain text before anything keeps it, the report ranks what
+  it found, and every line of it fits 100 columns.
+- The engine, run against the fake Proxmox (tests/molecule/fake_pve_api.py): what it reads, and what it says when
+  Proxmox does not answer, refuses the token, or a name matches no VM.
+- What the engine can do held to reads: GETs alone, the fixed programs of the probe's ALLOWED, files opened to read.
+- The screen (claude_vm.status.engine.Screen), driven in this process with a stand-in terminal: what it writes, and
+  what it never does. test_status_live.py runs the engine at a pseudo-terminal.
 """
 
 from __future__ import annotations
 
+import ast
 import inspect
 import io
 import json
 import re
 import signal
+import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
-import ansible.utils.color  # noqa: F401 - imported at a stand-in terminal, it would ask curses for its fileno
 import pytest
 import yaml
-from harness import PVE_SECRET, REPO, _executable, _pve_requests, _pve_vars, _run, fake_fleet, load_module
+from harness import (
+    PVE_SECRET,
+    REPO,
+    _env,
+    _executable,
+    _fail_if_the_desktop_was_reached,
+    _inventory,
+    _pve_requests,
+    _pve_vars,
+    fake_fleet,
+)
 
 from claude_vm import proxmox as proxmox_filters
 from claude_vm import text as text_filters
+from claude_vm.status import engine
 from claude_vm.status import model as S
 from claude_vm.tui import screen
 from claude_vm.tui import status as T
 
-STATUS = REPO / "playbooks" / "status.yml"
+STATUS = REPO / "tools" / "status"
 # The keys of `just status --json` that 1.x promises (CONTRIBUTING.md, Releasing): a release may add keys, never take
 # one away or rename it. Each is held where the report has it.
 PROMISED_KEYS = {
@@ -111,8 +121,9 @@ PROMISED_KEYS = {
     },
 }
 # In the report, never promised: how many windows each editor has, one map by the editors list's keys, promised only
-# with the contract. editor_windows, every editor's together, is the promise (vscode_windows is 1.0's).
-UNPROMISED_SYSTEM_KEYS = {"editor_windows_by"}
+# with the contract (editor_windows, every editor's together, is the promise; vscode_windows is 1.0's), and that apt's
+# simulation is still running, which only a frame drawn while it runs ever says.
+UNPROMISED_SYSTEM_KEYS = {"editor_windows_by", "upgrades_pending"}
 
 
 def test_every_key_of_a_vms_system_part_is_promised_or_named_as_not() -> None:
@@ -632,7 +643,7 @@ def test_a_live_frame_draws_a_spinner_where_a_value_is_pending_and_the_final_one
     assert T.PENDING not in final and "⠼" not in final and final.split("\n")[-1].startswith("exit ")
 
 
-# ---------------------------------------------------------------------------------- the playbook, faked ----
+# ------------------------------------------------------------------------------------- the engine, faked ----
 
 
 @pytest.fixture
@@ -658,8 +669,8 @@ exit 255
 """
 
 
-def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> tuple[Path, Path]:
-    """A run directory for status.yml against the fake at base, with settings on top: the directory and playbook."""
+def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> Path:
+    """A run directory for tools/status against the fake at base, with settings on top."""
     root = tmp_path / "run"
     _pve_vars(
         root,
@@ -670,31 +681,42 @@ def status_root(tmp_path: Path, base: str, settings: dict | None = None) -> tupl
             "claude_ssh_config_file": str(tmp_path / "ssh.conf"),
             # Never a real ssh: the stand-in refuses as an unreachable VM does.
             "ansible_ssh_executable": str(root / "ssh"),
+            "ansible_control_path_dir": str(root / "cp"),
             # apt's simulation is the VM's: this machine has none.
             "status_read_upgrades": False,
-            "status_report_file": "",
             **(settings or {}),
         },
     )
     _executable(root / "ssh", SSH)
     if not (root / "python").exists():
         (root / "python").symlink_to(sys.executable)
-    playbook = root / "status.yml"
-    playbook.write_text(STATUS.read_text().replace("tasks/", f"{REPO / 'playbooks' / 'tasks'}/"))
-    return root, playbook
+    return root
 
 
-def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180):
-    """status.yml from a run directory of its own, against the fake at base, with hosts in its inventory; returns the
-    report and its model."""
-    root, playbook = status_root(tmp_path, base, settings)
-    report = _run(root, playbook, hosts or {}, "--check", *extra, timeout=timeout)
-    model = None
-    for play in report["plays"]:
-        for task in play["tasks"]:
-            if task["task"]["name"] == "Rank what needs attention":
-                model = task["hosts"]["localhost"]["ansible_facts"]["status_report"]
-    return report, model
+def status_command(root: Path, hosts: dict | None, *extra: str) -> list[str]:
+    """tools/status for a run directory, keeping nothing: test_status_settings.py is what asks it to keep."""
+    return [sys.executable, str(STATUS), "-i", str(_inventory(root, hosts or {}, False)), *extra]
+
+
+def _status_run(tmp_path, base, *extra, settings=None, hosts=None, timeout=180, cache=""):
+    """tools/status from a run directory of its own, against the fake at base, with hosts in its inventory; returns
+    what it did and the report's model. ``rc`` is 0 for a run that gave a report, whatever the report's code."""
+    root = status_root(tmp_path, base, settings)
+    argv = [*status_command(root, hosts, "--json", *extra), *(("--cache", cache) if cache else ())]
+    done = subprocess.run(
+        argv,
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    _fail_if_the_desktop_was_reached(root)
+    report = {"rc": 0 if done.returncode in (0, 1, 2) else done.returncode, "exit": done.returncode}
+    report.update(stdout=done.stdout, stderr=done.stderr)
+    return report, json.loads(done.stdout) if report["rc"] == 0 else None
 
 
 def test_status_reads_the_aliases_of_the_managed_file_by_its_1x_name_and_moves_nothing(tmp_path, fake_pve) -> None:
@@ -828,173 +850,71 @@ def test_settings_that_differ_from_the_vm_are_a_thing_to_do(tmp_path, fake_pve) 
     assert items and "proxmox_vm_force_update" in items[0]["command"]
 
 
-# ---------------------------------------------------------------------------- every task, held to reads ----
-
-READS = {
-    "ansible.builtin.set_fact",
-    "ansible.builtin.assert",
-    "ansible.builtin.add_host",
-    "ansible.builtin.stat",
-    "ansible.builtin.slurp",
-    "ansible.builtin.getent",
-    "ansible.builtin.ping",
-    # The roles' reports, which status's callback does not show: a message, and NEXT STEPS' record.
-    "ansible.builtin.debug",
-    "ansible.builtin.set_stats",
-    "vm_status_info",
-}
-# Every command a task status reaches runs, whole: the roles' reads, and none of their writes.
-COMMANDS = {
-    ("which", "gh"),
-    ("gh", "auth", "status", "--hostname", "github.com", "--json", "hosts"),
-    ("gh", "auth", "token", "--hostname", "github.com"),
-    ("dpkg-query", "--show", "--showformat=${db:Status-Status}", "tailscale"),
-    ("tailscale", "status", "--json"),
-    ("tailscale", "debug", "prefs"),
-}
-SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml"}
-ENTRY_POINTS = {
-    ("proxmox_vm", "settings_drift"),
-    ("proxmox_template", "drift"),
-    ("claude_code", "status"),
-    ("github_projects", "status"),
-    ("tailscale", "status"),
-}
-URI_KEYS = {"url", "headers", "validate_certs", "ca_path", "timeout"}
-TASK_KEYS = {
-    "name",
-    "loop",
-    "loop_control",
-    "register",
-    "delegate_to",
-    "when",
-    "check_mode",
-    "no_log",
-    "failed_when",
-    "vars",
-    "changed_when",
-    "ignore_unreachable",
-    "become",
-    "become_user",
-    "until",
-    "retries",
-    "delay",
-}
+# ------------------------------------------------------------------------------------ what it can do ----
 
 
-def _tasks(items, base):
-    """Every task in ``items``, through blocks, imports, a role's entry point and the files it includes."""
-    for item in items:
-        if "block" in item:
-            for section in ("block", "rescue", "always"):
-                yield from _tasks(item.get(section) or [], base)
-        elif item.get("ansible.builtin.import_tasks") and item["ansible.builtin.import_tasks"] not in SHARED:
-            yield from _tasks(yaml.safe_load((base / item["ansible.builtin.import_tasks"]).read_text()), base)
-        elif "ansible.builtin.include_tasks" in item:
-            yield item
-            yield from _tasks(yaml.safe_load((base / item["ansible.builtin.include_tasks"]).read_text()), base)
-        elif "ansible.builtin.include_role" in item:
-            role = item["ansible.builtin.include_role"]
-            yield item
-            path = REPO / "roles" / role["name"] / "tasks" / f"{role['tasks_from']}.yml"
-            yield from _tasks(yaml.safe_load(path.read_text()), path.parent)
-        else:
-            yield item
+def test_the_engine_sends_nothing_but_gets_and_follows_no_redirect() -> None:
+    # The token is in the header of every request: never carried to an address a redirect names.
+    source = inspect.getsource(engine)
+    assert source.count("urllib.request.Request(") == 1 and 'method="GET"' in source
+    assert "data=" not in source
+    tree = ast.parse(source)
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "Request"]
+    assert [k.value.value for call in calls for k in call.keywords if k.arg == "method"] == ["GET"]
+    assert "_NoRedirect" in source and "def redirect_request" in source
 
 
-def _every_task():
-    for play in yaml.safe_load(STATUS.read_text()):
-        yield from _tasks(play.get("tasks") or [], STATUS.parent)
+def test_no_token_is_written_into_what_is_kept_or_said(tmp_path, fake_pve) -> None:
+    report, _ = _status_run(tmp_path, fake_pve)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert PVE_SECRET not in report["stdout"] and PVE_SECRET not in report["stderr"]
+    assert not list(tmp_path.glob("run/**/settings.json"))
 
 
-def _action(task):
-    return next(key for key in task if "." in key or key in ("vm_status_info", "git_checkouts_info"))
-
-
-def test_every_task_status_runs_is_a_read_or_the_reports_one_write() -> None:
-    seen = set()
-    for task in _every_task():
-        action = _action(task)
-        seen.add(action)
-        if action == "ansible.builtin.uri":
-            args = task[action]
-            assert set(args) <= URI_KEYS, (task["name"], set(args) - URI_KEYS)
-            assert args["url"].startswith("{{ proxmox_api_url }}/"), task["name"]
-            assert task.get("check_mode") is False and task.get("no_log") is True, task["name"]
-            assert "method" not in args and "body" not in args
-        elif action == "ansible.builtin.include_role":
-            assert (task[action]["name"], task[action]["tasks_from"]) in ENTRY_POINTS, task["name"]
-        elif action == "ansible.builtin.import_tasks":
-            assert task[action] in SHARED, task["name"]
-        elif action == "ansible.builtin.include_tasks":
-            pass  # followed, and every task in it held here
-        elif action == "ansible.builtin.command":
-            assert tuple(task[action]["argv"]) in COMMANDS, (task["name"], task[action])
-            assert set(task[action]) == {"argv"} and task.get("changed_when") is False, task["name"]
-        elif action == "git_checkouts_info":
-            # The checkouts' work and nothing else of the module's: no target, no branch, no busy.
-            assert set(task[action]) == {"under", "work"} and task[action]["work"] is True, task["name"]
-        elif action == "ansible.builtin.systemd_service":
-            # With no state, enabled or daemon_reload asked for, it only reads the unit.
-            assert set(task[action]) == {"name"}, (task["name"], task[action])
-        elif action in ("ansible.builtin.file", "ansible.builtin.copy"):
-            # The report, and its directory: the one write, into the file the recipe names.
-            assert "status_report_file" in json.dumps(task[action]), task["name"]
-        else:
-            assert action in READS, (task["name"], action)
-        assert set(task) - {action} <= TASK_KEYS, (task["name"], set(task) - {action} - TASK_KEYS)
-    # The walk reaches the roles' reads, so the allowlist holds what they run.
-    assert {"ansible.builtin.command", "ansible.builtin.systemd_service", "vm_status_info"} <= seen
-
-
-def test_the_roles_reports_are_the_ones_configure_gives() -> None:
-    # status shows the line a role's own report gives and records for NEXT STEPS, never one of its own making.
-    for role, report in (("github_projects", "login_report.yml"), ("tailscale", "report.yml")):
-        entry = yaml.safe_load((REPO / "roles" / role / "tasks" / "status.yml").read_text())
-        assert any(task.get("ansible.builtin.include_tasks") == report for task in entry), role
+def test_the_roles_lines_are_the_ones_configure_gives() -> None:
+    # status shows the line a role's own report gives and records for NEXT STEPS, one function both call, never one
+    # of its own making.
+    assert "github_projects_login_report.line" in (REPO / "roles/github_projects/tasks/login_report.yml").read_text()
+    assert "tailscale_report_result.line" in (REPO / "roles/tailscale/tasks/report.yml").read_text()
+    found = (REPO / "lib/claude_vm/status/found.py").read_text()
+    assert "github_login_report(" in found and "tailscale_report(" in found
     login = yaml.safe_load((REPO / "roles" / "github_projects" / "tasks" / "login.yml").read_text())
     assert [t.get("ansible.builtin.include_tasks") for t in login if "ansible.builtin.include_tasks" in t][-1] == (
         "login_report.yml"
     )
 
 
-def test_status_never_runs_claude() -> None:
-    # Whether `claude auth status` can refresh a login's token, and so write, is still to be checked on a real VM:
-    # until then status reads the login file's being there and the installer's link, and runs no claude at all.
-    for task in _every_task():
-        assert "claude" not in json.dumps(task.get("ansible.builtin.command", {})), task["name"]
-        assert "claude auth" not in json.dumps(task), task["name"]
-
-
 def test_every_status_run_in_a_test_writes_into_its_own_directory() -> None:
-    # Never the developer's ~/.ssh, and no report anywhere but where the test says: the unit runs go through
-    # status_root, and every import in a scenario empties status_report_file whatever the environment says.
+    # Never the developer's ~/.ssh, and no ssh of this machine's: the unit runs go through status_root, and a run
+    # with no --cache keeps nothing anywhere. Every run in a scenario goes through the one task file.
     source = inspect.getsource(status_root)
-    assert '"claude_ssh_config_file": str(tmp_path' in source and '"status_report_file": ""' in source
-    assert '"ansible_ssh_executable": str(root / "ssh")' in source
+    assert '"claude_ssh_config_file": str(tmp_path' in source
+    assert '"ansible_ssh_executable": str(root / "ssh")' in source and '"ansible_control_path_dir"' in source
+    assert "--cache" not in inspect.getsource(status_command)
     for path in (REPO / "tests" / "unit").glob("test_*.py"):
         text = path.read_text()
-        # test_ratchets.py names status.yml as a file its table counts lines of, and test_controller_writes.py as one
-        # that only reads the SSH config; neither runs anything.
-        skipped = ("test_status.py", "test_justfile.py", "test_ratchets.py", "test_controller_writes.py")
-        if path.name not in skipped and "status.yml" in text:
+        # test_ratchets.py names the file a table counts lines of, and test_controller_writes.py one that only reads the
+        # SSH config; neither runs anything. The MCP tests name it as what their stand-in python answers, in its place.
+        skipped = (
+            "test_status.py",
+            "test_justfile.py",
+            "test_ratchets.py",
+            "test_controller_writes.py",
+            "test_mcp_server.py",
+            "test_mcp_confirm.py",
+        )
+        if path.name not in skipped and "tools/status" in text:
             assert "status_root" in text, path.name
-    imports = 0
+    uses = 0
     for path in (REPO / "molecule").glob("*/*.yml"):
         for play in yaml.safe_load(path.read_text()) or []:
-            if isinstance(play, dict) and str(play.get("ansible.builtin.import_playbook", "")).endswith("status.yml"):
-                imports += 1
-                assert play.get("vars", {}).get("status_report_file") == "", path
-    assert imports == 4
+            for task in (play.get("tasks") or []) if isinstance(play, dict) else []:
+                if str(task.get("ansible.builtin.include_tasks", "")).endswith("status_report.yml"):
+                    uses += 1
+    assert uses == 4
 
 
-def test_no_play_of_status_sets_how_to_reach_a_host() -> None:
-    # A play's vars reach the tasks it delegates: how to reach a host goes on the host, through add_host.
-    for play in yaml.safe_load(STATUS.read_text()):
-        assert not any(key.startswith("ansible_") for key in play.get("vars") or {}), play["name"]
-
-
-# ----------------------------------------------------------------------------------------------- the callback ----
+# ------------------------------------------------------------------------------------------------- the screen ----
 
 
 class _Terminal(io.StringIO):
@@ -1005,70 +925,75 @@ class _Terminal(io.StringIO):
 
 
 @pytest.fixture
-def callback(monkeypatch):
-    """Makes the callback at a stand-in terminal. Called from the test itself: pytest puts its own sys.stdout back
-    between a fixture's setup and the test, and the callback writes where sys.stdout is."""
+def drawn(monkeypatch):
+    """Makes the screen at a stand-in terminal, its spinner off, and empties the terminal of the outline. Called from
+    the test itself: pytest puts its own sys.stdout back between a fixture's setup and the test, and the screen writes
+    where sys.stdout is."""
     made = []
     # The region turns the echo off on stdin when it is a terminal: under pytest -s it would be the developer's.
     monkeypatch.setattr(sys, "stdin", io.StringIO())
+    monkeypatch.setattr(engine.live.Output, "spin", lambda self: None)
     handler = signal.getsignal(signal.SIGWINCH)
 
-    def make(quiet=False):
+    def make(quiet=False, log=""):
         monkeypatch.setenv("TERM", "xterm-256color")
-        if quiet:
-            monkeypatch.setenv("STATUS_QUIET", "true")
-        else:
-            monkeypatch.delenv("STATUS_QUIET", raising=False)
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("ANSIBLE_NOCOLOR", "1")
         terminal = _Terminal()
         monkeypatch.setattr(sys, "stdout", terminal)
-        path = REPO / "callback_plugins" / "agent_warehouse_status.py"
-        module = load_module(path, "agent_warehouse_status_under_test", register=False)
-        cb = module.CallbackModule()
-        if cb._live:
-            cb._out.region._terminal_size = lambda: (100, 60)
-        # Plain, to read back: Ansible reads its colour setting once, when its constants are first imported.
-        cb._color = False
-        made.append(cb)
-        return cb, terminal
+        drew = engine.Screen(list(S.SECTIONS), quiet, log)
+        if drew.out.live:
+            drew.out.region._terminal_size = lambda: (100, 60)
+        drew.out.redraw()
+        terminal.seek(0)
+        terminal.truncate()
+        made.append(drew)
+        return drew, terminal
 
     yield make
-    for cb in made:
-        if cb._live:
-            cb._out.region._stop.set()
-        # The region's wraps of Display live on the singleton: put them back for the next test.
-        for name in ("display", "prompt_until", "do_var_prompt"):
-            vars(cb._display).pop(name, None)
+    for drew in made:
+        if drew.out.live:
+            drew.out.region._stop.set()
     signal.signal(signal.SIGWINCH, handler)
 
 
-def _ok(host, facts, action="ansible.builtin.set_fact", **result):
-    return SimpleNamespace(
-        result={"ansible_facts": facts, **result},
-        host=SimpleNamespace(get_name=lambda: host),
-        task=SimpleNamespace(get_name=lambda: "t", action=action),
-    )
+def test_the_outline_is_drawn_before_anything_has_been_read(monkeypatch) -> None:
+    # Every section's title, a spinner each, from the first frame: there is no moment with nothing on the screen.
+    monkeypatch.setattr(sys, "stdin", io.StringIO())
+    monkeypatch.setattr(engine.live.Output, "spin", lambda self: None)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    terminal = _Terminal()
+    monkeypatch.setattr(sys, "stdout", terminal)
+    handler = signal.getsignal(signal.SIGWINCH)
+    drew = engine.Screen(list(S.SECTIONS), False, "")
+    drew.out.region._terminal_size = lambda: (100, 60)
+    drew.out.redraw()
+    said = terminal.getvalue()
+    drew.out.region._stop.set()
+    signal.signal(signal.SIGWINCH, handler)
+    for title in ("VMS", "STORAGE", "CAPACITY", "ACCESS", "SIGN-INS", "SYSTEM", "WORK", "ATTENTION"):
+        assert title in said, title
+    assert "listing the VMs" in said
 
 
-def test_the_live_region_is_redrawn_in_place_and_erased_for_the_finished_report(callback) -> None:
-    cb, terminal = callback()
+def test_the_region_is_redrawn_in_place_and_erased_for_the_finished_report(drawn) -> None:
+    drew, terminal = drawn()
     fleet = _fleet()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
+    drew.land("localhost", {"fleet": fleet})
     # The tab's title first (OSC 0), what it is reading; then the region.
     title, first = re.match(r"\x1b\]0;([^\x07]*)\x07(.*)", terminal.getvalue(), re.S).groups()
     assert title == "status · reading 2 VMs"
     assert "VMS" in first and "⠋" in first and first.startswith("\x1b[?2026h")
-    cb.v2_runner_on_ok(
-        _ok("alpha", {"status_found": {"api": {"read": True, "state": "running", "root": None, "pending": []}}})
-    )
+    drew.land("alpha", {"api": {"read": True, "state": "running", "root": None, "pending": []}})
     # Moved up exactly the lines drawn before, then the whole region again, in one write.
-    drawn = first.count("\n") + 1
+    drawn_lines = first.count("\n") + 1
     assert re.sub(r"\x1b\]0;[^\x07]*\x07", "", terminal.getvalue())[len(first) :].startswith(
-        f"\x1b[?2026h\x1b[{drawn - 1}A\r"
+        f"\x1b[?2026h\x1b[{drawn_lines - 1}A\r"
     )
     model = S.status_report({"localhost": {"fleet": fleet}}, "now")
     terminal.seek(0)
     terminal.truncate()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_report": model}))
+    drew.finish(model)
     # The tab says the report is done, then the region is erased for the report.
     assert terminal.getvalue().startswith("\x1b]0;status · done\x07")
     out = re.sub(r"\x1b\]0;[^\x07]*\x07", "", terminal.getvalue())
@@ -1077,11 +1002,12 @@ def test_the_live_region_is_redrawn_in_place_and_erased_for_the_finished_report(
     assert "⠋" not in out.split("\x1b[J", 1)[1]
 
 
-def test_a_live_line_is_cut_to_the_width_and_the_region_to_the_height(callback) -> None:
-    cb, terminal = callback()
-    cb._out.region._terminal_size = lambda: (40, 8)
-    fleet = _fleet()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
+def test_a_live_line_is_cut_to_the_width_and_the_region_to_the_height(drawn) -> None:
+    drew, terminal = drawn()
+    # A window this size from the start: the outline was drawn at the fixture's, and a change of size pushes the screen.
+    drew.out.region._terminal_size = lambda: (40, 8)
+    drew.out.region._size = None
+    drew.land("localhost", {"fleet": _fleet()})
     frame = (
         re.sub(r"\x1b\]0;[^\x07]*\x07", "", terminal.getvalue()).replace("\x1b[?2026h", "").replace("\x1b[?2026l", "")
     )
@@ -1091,25 +1017,26 @@ def test_a_live_line_is_cut_to_the_width_and_the_region_to_the_height(callback) 
     assert any(line.startswith("⋮") and "more lines, shown when" in line for line in lines)
 
 
-def test_a_resize_pushes_the_screen_into_the_scrollback_and_starts_afresh(callback) -> None:
-    cb, terminal = callback()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": _fleet()}}))
+def test_a_resize_pushes_the_screen_into_the_scrollback_and_starts_afresh(drawn) -> None:
+    drew, terminal = drawn()
+    drew.land("localhost", {"fleet": _fleet()})
     terminal.seek(0)
     terminal.truncate()
-    cb._out.region._resized = True
-    cb._out.region._terminal_size = lambda: (80, 30)
-    cb._out.region.redraw()
+    drew.out.region._resized = True
+    drew.out.region._terminal_size = lambda: (80, 30)
+    drew.out.region.redraw()
     assert terminal.getvalue().startswith("\n" * 30 + "\x1b[29A\r")
 
 
-def test_the_callback_writes_no_other_escape_than_its_own(callback) -> None:
-    cb, terminal = callback()
-    cb._color = True
+def test_the_screen_writes_no_other_escape_than_its_own(drawn) -> None:
+    drew, terminal = drawn()
+    drew.color = True
+    drew.out.color = True
     fleet = _fleet()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
-    cb._out.region._resized = True
-    cb._out.region.redraw()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_report": S.status_report({"localhost": {"fleet": fleet}}, "now")}))
+    drew.land("localhost", {"fleet": fleet})
+    drew.out.region._resized = True
+    drew.out.region.redraw()
+    drew.finish(S.status_report({"localhost": {"fleet": fleet}}, "now"))
     assert "\x1b[1;36mVMS" in terminal.getvalue()
     escapes = set(re.findall(r"\x1b\[[0-9;?]*[A-Za-z]", terminal.getvalue())) - set(
         re.findall(r"\x1b\[[0-9;]*m", terminal.getvalue())
@@ -1120,39 +1047,16 @@ def test_the_callback_writes_no_other_escape_than_its_own(callback) -> None:
     }
 
 
-def test_a_report_is_drawn_only_from_the_report_play_s_own_task(callback, monkeypatch) -> None:
-    # Any module's result can carry facts, and a VM's root makes the modules there answer what it likes: a report of
-    # its own, drawn in place of the real one, could say anything at all.
-    cb, terminal = callback(quiet=True)
-    shown = []
-    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append(msg))
-    fleet = _fleet()
-    model = S.status_report({"localhost": {"fleet": fleet}}, "now")
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
-    cb.v2_runner_on_ok(_ok("alpha", {"status_report": model}, action="vm_status_info"))
-    cb.v2_runner_on_ok(_ok("alpha", {"status_report": model}))
-    cb.v2_runner_on_ok(_ok("localhost", {"status_report": model}, action="ansible.builtin.slurp"))
-    assert shown == [] and not cb._reported
-    cb.v2_runner_on_ok(_ok("localhost", {"status_report": model}))
-    assert cb._reported and len(shown) == 1 and "VMS" in shown[0], shown
-
-
-# A module's warnings are shown plain, a VM's root choosing them (a clipboard write, a title): ansible-core run for
-# real, test_attention_callback.py's test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too.
-
-
-def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(callback, monkeypatch) -> None:
+def test_under_json_nothing_is_drawn_and_the_report_goes_to_the_log_alone(drawn, tmp_path) -> None:
     # The log of a just status --json was an empty file, which read as a run that failed before it began.
-    cb, terminal = callback(quiet=True)
-    shown = []
-    monkeypatch.setattr(cb._display, "display", lambda msg, **kw: shown.append((msg, kw)))
+    log = tmp_path / "run.log"
+    drew, terminal = drawn(quiet=True, log=str(log))
     fleet = _fleet()
-    cb.v2_runner_on_ok(_ok("localhost", {"status_found": {"fleet": fleet}}))
-    cb.v2_runner_on_ok(_ok("localhost", {"status_report": S.status_report({"localhost": {"fleet": fleet}}, "now")}))
-    cb.v2_playbook_on_stats(None)
+    drew.land("localhost", {"fleet": fleet})
+    drew.finish(S.status_report({"localhost": {"fleet": fleet}}, "now"))
     assert terminal.getvalue() == ""
-    assert len(shown) == 1 and shown[0][1] == {"log_only": True}, shown
-    assert shown[0][0].startswith("agent-warehouse") and "VMS" in shown[0][0], shown[0][0]
+    said = log.read_text()
+    assert "| agent-warehouse" in said and "VMS" in said
 
 
 # ------------------------------------------------------------------------------------- every state at once ----

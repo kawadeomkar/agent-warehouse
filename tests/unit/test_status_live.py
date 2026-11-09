@@ -1,9 +1,9 @@
 """`just status` at a terminal: the live report, drawn and redrawn in place, then the finished one (lifecycle.md §4.6).
 
-Each test runs status.yml against the fake Proxmox (harness.fake_fleet) with the callback just status chooses,
-at a pseudo-terminal of its own whose size the test sets, and reads the bytes back through vt.VT, a small terminal:
-what is on the screen and in its scrollback when the run ends, and whether a frame ever wrapped. The finished report
-is the run log's, which Display writes and the live frames never reach.
+Each test runs tools/status against the fake Proxmox (harness.fake_fleet), at a pseudo-terminal of its own whose size
+the test sets, and reads the bytes back through vt.VT, a small terminal: what is on the screen and in its scrollback
+when the run ends, and whether a frame ever wrapped. The finished report is the run log's, which the engine writes and
+the live frames never reach.
 """
 
 from __future__ import annotations
@@ -17,17 +17,13 @@ from pathlib import Path
 import live_kit as kit
 import pytest
 import yaml
-from harness import ANSIBLE_PLAYBOOK, REPO, _env, fake_fleet
-from test_status import status_root
+from harness import _env, fake_fleet
+from test_status import STATUS, status_root
 from vt import VT
 
 FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-LIVE = {
-    "ANSIBLE_CALLBACK_PLUGINS": str(REPO / "callback_plugins"),
-    "ANSIBLE_STDOUT_CALLBACK": "agent_warehouse_status",
-    # UTF-8 whatever this machine's locale: the callback draws only for a terminal that takes the spinner.
-    "PYTHONUTF8": "1",
-}
+# UTF-8 whatever this machine's locale: the engine draws only for a terminal that takes the spinner.
+LIVE = {"PYTHONUTF8": "1"}
 
 
 @pytest.fixture(scope="module")
@@ -53,6 +49,10 @@ def _inventory(root: Path) -> Path:
     return inventory
 
 
+def _command(root: Path) -> list[str]:
+    return [sys.executable, str(STATUS), "-i", str(_inventory(root))]
+
+
 def _at_a_terminal(
     tmp_path: Path,
     base: str,
@@ -62,32 +62,23 @@ def _at_a_terminal(
     term="xterm-256color",
     resize=None,
     interrupt=False,
-    playbook=None,
     colour=False,
 ):
-    """Run status.yml at a pseudo-terminal of cols x rows: its rc, the VT the bytes went through, the raw bytes and
+    """Run tools/status at a pseudo-terminal of cols x rows: its rc, the VT the bytes went through, the raw bytes and
     the run log. resize, (cols, rows), changes the size once the first frame with the VMs is drawn; interrupt sends
     Ctrl-C's SIGINT to the run's process group once both running VMs (harness.fake_fleet) wait in ssh.
 
     Either holds every VM's ssh (test_status.SSH) until it is done: a Linux pty takes the rest of the run's output
     without blocking it, so the run could end before the test reads that frame. A resize lets the run go on once
-    the region has pushed the screen up at the new size; an interrupt never does. The interrupt waits for the held
-    ssh because a SIGINT that lands while Ansible forks a worker is lost: its handler then runs inside logging's
-    after-fork hook, which prints the KeyboardInterrupt as "Exception ignored" and the run goes on. Once each VM's
-    worker waits in ssh, nothing forks."""
-    root, status = status_root(tmp_path, base)
-    playbook = playbook or status
+    the region has pushed the screen up at the new size; an interrupt never does."""
+    root = status_root(tmp_path, base)
     hold = root / "ssh-holds"
     if resize or interrupt:
         hold.touch()
-    # The test's own module beside the project's, which the harness names alone.
-    library = f"{tmp_path / 'library'}{os.pathsep}{REPO / 'playbooks' / 'library'}"
     # The harness turns colour off for every run; with colour, this one is at a colour terminal, as a person's is.
-    env = kit.environment(
-        root, config="", TERM=term, ANSIBLE_LIBRARY=library, ANSIBLE_NOCOLOR="0" if colour else "1", **LIVE
-    )
+    env = kit.environment(root, config="", TERM=term, ANSIBLE_NOCOLOR="0" if colour else "1", **LIVE)
     acted = []
-    # The screen pushed up at the new size: a newline (the terminal's \r\n) for each of its rows, then up all but one.
+    # The screen pushed up at the new size: a newline (the terminal's \\r\\n) for each of its rows, then up all but one.
     pushed = re.compile(rb"(\r?\n){%d}\x1b\[%dA" % (resize[1], resize[1] - 1)) if resize else None
 
     held = root / "ssh.log"
@@ -103,14 +94,7 @@ def _at_a_terminal(
         if pushed and acted and hold.exists() and pushed.search(output, acted[0]):
             hold.unlink()
 
-    ran = kit.at_a_terminal(
-        [ANSIBLE_PLAYBOOK, "-i", _inventory(root), "--check", playbook],
-        root,
-        env,
-        cols=cols,
-        rows=rows,
-        act=resize_or_interrupt,
-    )
+    ran = kit.at_a_terminal(_command(root), root, env, cols=cols, rows=rows, act=resize_or_interrupt)
     return ran.rc, ran.screen, ran.raw, ran.log
 
 
@@ -138,7 +122,7 @@ def _shown(vt: VT) -> list[str]:
 def test_a_report_that_fits_is_redrawn_in_place_in_colour_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:
     # At a colour terminal, as a person's is: a live smoke at one found the run log full of the report's colour codes.
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, colour=True)
-    assert rc == 0, output.decode(errors="replace")
+    assert rc == 2, output.decode(errors="replace")
     assert output.count(b"\x1b[?2026h") >= 3, "the report was not drawn live"
     assert b"\x1b[1;36mVMS" in output
     report = _report(log)
@@ -154,7 +138,7 @@ def test_a_short_narrow_window_shows_its_top_never_wraps_and_says_how_much_more(
     # Shorter than the report and narrower than its lines: the frame is cut to both, and the line that says how
     # much more is left fits 60 columns.
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 60, 14)
-    assert rc == 0, output.decode(errors="replace")
+    assert rc == 2, output.decode(errors="replace")
     assert b"more lines, shown when the run ends" in output
     # Cut to the height, a frame never scrolls, and cut to the width it never wraps: nothing of it is left in the
     # scrollback.
@@ -168,7 +152,7 @@ def test_a_resize_keeps_every_frame_in_the_scrollback_and_the_finished_report_wh
     tmp_path, fleet, before, after
 ) -> None:
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, *before, resize=after)
-    assert rc == 0, output.decode(errors="replace")
+    assert rc == 2, output.decode(errors="replace")
     report = _wrapped(_report(log), after[0])
     shown = _shown(vt)
     assert shown[-len(report) :] == report
@@ -182,8 +166,8 @@ def test_a_resize_keeps_every_frame_in_the_scrollback_and_the_finished_report_wh
 
 def test_ctrl_c_erases_the_live_region_and_ends_the_run(tmp_path, fleet) -> None:
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, interrupt=True)
-    # 99 is ansible-core's for a run interrupted; any other is a run that ended on its own.
-    assert rc == 99, output.decode(errors="replace")
+    # 3 is the run's own failing; 2 would be a report, which an interrupted run never gives.
+    assert rc == 3, output.decode(errors="replace")
     shown = "\n".join(_shown(vt))
     assert not any(glyph in shown for glyph in FRAMES), shown
     assert "interrupted" in shown.lower(), shown
@@ -191,62 +175,29 @@ def test_ctrl_c_erases_the_live_region_and_ends_the_run(tmp_path, fleet) -> None
 
 def test_a_dumb_terminal_is_given_the_finished_report_only(tmp_path, fleet) -> None:
     rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 60, term="dumb")
-    assert rc == 0, output.decode(errors="replace")
+    assert rc == 2, output.decode(errors="replace")
     assert b"\x1b" not in output
     assert _shown(vt) == [line.rstrip() for line in _report(log)]
 
 
 def test_piped_the_finished_report_is_all_there_is(tmp_path, fleet) -> None:
-    root, playbook = status_root(tmp_path, fleet)
+    root = status_root(tmp_path, fleet)
     # No terminal at all, stdout and stderr one pipe: what is printed is the finished report, and nothing else.
     env = _env(root, ANSIBLE_LOG_PATH=str(root / "run.log"), TERM="xterm-256color", **LIVE)
-    ran = kit.piped(kit.playbook(_inventory(root), playbook, "--check"), root, env)
-    assert ran.rc == 0, ran.text
+    ran = kit.piped(_command(root), root, env)
+    assert ran.rc == 2, ran.text
     assert ran.text.splitlines() == _report(ran.log)
     assert "\x1b" not in ran.text
 
 
-WARNS = """\
-import time
-
-from ansible.module_utils.basic import AnsibleModule
-
-module = AnsibleModule(argument_spec={}, supports_check_mode=True)
-time.sleep(1)  # long enough for a frame first
-module.warn("the stand-in module warns")
-module.exit_json(changed=False)
-"""
-
-
-def test_a_warning_is_shown_between_frames_and_kept(tmp_path, fleet) -> None:
-    # Since ansible-core 2.19 a task's warnings travel on its result, and a stdout callback of one's own that does
-    # not show them drops them without a word.
-    (tmp_path / "library").mkdir()
-    (tmp_path / "library" / "warns.py").write_text(WARNS)
-    playbook = tmp_path / "warns.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "name": "Warn while the report is drawn",
-                    "hosts": "localhost",
-                    "gather_facts": False,
-                    "tasks": [
-                        {"name": "Warn", "warns": {}},
-                        {
-                            "name": "Report",
-                            "ansible.builtin.set_fact": {
-                                "status_report": "{{ {} | status_report('2026-10-25 12:00 UTC') }}"
-                            },
-                        },
-                    ],
-                }
-            ]
-        )
-    )
-    rc, vt, output, log = _at_a_terminal(tmp_path, fleet, 100, 40, playbook=playbook)
-    assert rc == 0, output.decode(errors="replace")
-    assert b"\x1b[?2026h" in output.split(b"the stand-in module warns")[0], "nothing was drawn before the warning"
-    shown = _shown(vt)
-    assert shown[0] == "[WARNING]: the stand-in module warns"
-    assert shown[1:] == [line.rstrip() for line in _report(log)]
+def test_what_ansible_warns_of_while_it_reads_is_shown_above_the_frame(tmp_path, fleet) -> None:
+    # The first run after a settings change asks Ansible, in this process and with the outline up: a warning of its
+    # own, written where it writes, would land inside the frame.
+    root = status_root(tmp_path, fleet)
+    (root / "group_vars" / "all" / "warns.yml").write_text("twice: 1\ntwice: 2\n")
+    env = kit.environment(root, config="", TERM="xterm-256color", ANSIBLE_NOCOLOR="1", **LIVE)
+    ran = kit.at_a_terminal(_command(root), root, env, cols=100, rows=60)
+    assert ran.rc == 2, ran.text
+    shown = _shown(ran.screen)
+    assert any("twice" in line for line in shown), shown
+    assert ran.screen.frame_wraps == 0

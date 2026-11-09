@@ -34,7 +34,6 @@ MADE_BY = {
 # A file that matches a row's pattern without writing on this machine, and why.
 NOT_HERE = {
     "roles/github_projects/tasks/clone.yml": "git's ssh on the VM, which writes the VM's own known_hosts",
-    "playbooks/status.yml": "a stat of the managed SSH config: just status reads it",
 }
 
 
