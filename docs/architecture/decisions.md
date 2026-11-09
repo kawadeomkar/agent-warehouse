@@ -232,6 +232,13 @@ such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the edit
   (`<tag>-tailscale` today), on Unraid later in the domain's metadata. A VPN says which marks to keep; it never
   calls the hypervisor's API itself.
 - **The host's OS will be the setting `os`**, the third choice, `proxmox` by default.
+- **No VPN unless one is chosen, and choosing one never removes another** (decided 9 November 2026, 2.1). A VPN
+  the user runs that routes the LAN reaches the VMs with nothing here, so `none` is the default, which `just init`
+  says before it asks, and `tools/check` warns of while unset. Taking Tailscale off a VM is by hand: through 2.0,
+  `tailscale_enabled: false` logged each VM out and removed the package, and with the default turned to none every
+  VM of a user who relied on the old default would have lost Tailscale at the next run - and the auth key is never
+  sent to such a VM again, so each would have needed the web login. `just destroy` still releases a VM's
+  Tailscale: the VM itself is going.
 - **WireGuard was built in 2.0 and removed in 2.1** (decided 9 November 2026): each VM a peer of a WireGuard server
   the user ran, its peer added by hand or written through an OPNsense router's API. A VPN that already routes the
   user's LAN - WireGuard on the router, a Tailscale subnet router, any other - reaches every VM at its LAN address

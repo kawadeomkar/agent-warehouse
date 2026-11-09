@@ -11,9 +11,11 @@
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
-#   tools/check settings <bin> <file>... no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
+#   tools/check settings <bin> [--asking] <file>...
+#                                        no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
 #                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
-#                                        read, and said
+#                                        read, and said; and no VPN chosen is said, but --asking (just init,
+#                                        which asks)
 set -eu
 # The character sets below are spelt out rather than written as ranges, so
 # no locale can widen them (a UTF-8 one may collate accented letters into
@@ -127,14 +129,20 @@ settings)
   # encrypted here, so its vm_password is checked where Ansible reads it.
   # A choice's setting (vpn) set to a value that is none of its choices is
   # refused too, naming them: its rows are literal data in the defaults. So is
-  # a setting 2.1 removed with WireGuard, and vpn: wireguard.
+  # a setting 2.1 removed with WireGuard, and vpn: wireguard. Where the files
+  # set neither vpn nor tailscale_enabled, since 2.1 no VPN is chosen: said, as
+  # a warning, but where the caller asks the question itself (--asking).
   bin=$2
   shift 2
+  asking=
+  if [ "${1:-}" = --asking ]; then asking=1; shift; fi
   any=
   for file in "$@"; do [ ! -e "$file" ] || any=1; done
   [ -n "$any" ] || exit 0
   # The checkout first, whose inventory defaults name what 1.1 renamed and
   # each choice's members.
+  ASKING=$asking
+  export ASKING
   exec "$bin/python" -I - "$(dirname "$0")/.." "$@" << 'PYTHON'
 import os
 import re
@@ -229,6 +237,7 @@ try:
         DEFAULTS = yaml.load(stream, Loader=Loader) or {}
 except (OSError, yaml.YAMLError):
     DEFAULTS = {}
+chosen = False
 for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -248,6 +257,7 @@ for path in sys.argv[2:]:
         found = True
         continue
     named = {name for name, _ in settings(data)}
+    chosen = chosen or bool(named & {"vpn", "tailscale_enabled"})
     for name, value in settings(data):
         if name in NAMED_ANEW and value not in ("", None):
             if NAMED_ANEW[name] in named:
@@ -284,6 +294,13 @@ for path in sys.argv[2:]:
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",
                   file=sys.stderr)
             found = True
+# No VPN chosen anywhere: since 2.1 that is none, where it was Tailscale. Said once, naming the file a person sets it
+# in; never by just init, which asks the question itself.
+if not chosen and not os.environ.get("ASKING") and any(os.path.exists(path) for path in sys.argv[2:]):
+    local = next((path for path in sys.argv[2:] if path.endswith("local.yml")), sys.argv[-1])
+    print(f"warning: {local} sets no vpn: since 2.1 that is none - no VM gets Tailscale, and a VM it is on keeps it,"
+          " unmanaged. Set vpn: tailscale or vpn: none to choose, or answer just init's question (docs/guides/"
+          "upgrading.md)", file=sys.stderr)
 sys.exit(1 if found else 0)
 PYTHON
   ;;

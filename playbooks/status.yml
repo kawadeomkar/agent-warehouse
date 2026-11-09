@@ -33,8 +33,8 @@
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
       # Whether Tailscale is the VPN (a promised key, from before the vpn setting), and the setting itself.
-      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(true)) | bool }}"
-      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(true) | bool else 'none') }}"
+      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(false)) | bool }}"
+      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(false) | bool else 'none') }}"
       # The setting that turned Tailscale off, as the role's messages name it: tailscale_enabled, or vpn.
       tailscale_off: >-
         {{ (tailscale_off_setting.name ~ ' is ' ~ tailscale_off_setting.value) if tailscale_off_setting is defined

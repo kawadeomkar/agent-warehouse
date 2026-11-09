@@ -109,11 +109,12 @@
   # where an include's tag would reach only the include.
   #
   # Off (vpn not tailscale: tailscale_wanted), the role runs only on a VM where it
-  # installed Tailscale, or began to - the marker install.yml writes first - to
-  # log it out and remove it, saying so; a VM without one gets this one read and
-  # nothing else of Tailscale's. The condition is the import's, so each of the
-  # role's tasks carries it, and on the task rather than the block, whose
-  # condition would be its rescue's too.
+  # installed Tailscale, or began to - the marker install.yml writes first - and
+  # only to say that it is left as it is, unmanaged: choosing a VPN never removes
+  # one, and taking Tailscale off is by hand. A VM without the marker gets this
+  # one read and nothing else of Tailscale's. The condition is the import's, so
+  # each of the role's tasks carries it, and on the task rather than the block,
+  # whose condition would be its rescue's too.
   tasks:
     - name: Install Tailscale and keep it joined
       tags: [tailscale]

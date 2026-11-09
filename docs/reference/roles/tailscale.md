@@ -11,12 +11,12 @@ Using it: [Tailscale](../../guides/tailscale.md). How it works: [§5.8](../../ar
 
 **Install Tailscale, join the tailnet and keep the VM as configured**
 
-Installs Tailscale from its apt repository, joins the tailnet with tailscale_auth_key on a first join, keeps the managed settings with tailscale set on a login this role made, and reports the VM's tailnet name and address. With tailscale_wanted false it removes what it installed. A Tailscale installed or signed in by hand is reported and left alone.
+Installs Tailscale from its apt repository, joins the tailnet with tailscale_auth_key on a first join, keeps the managed settings with tailscale set on a login this role made, and reports the VM's tailnet name and address. With tailscale_wanted false it leaves what it installed as it is, saying so. A Tailscale installed or signed in by hand is reported and left alone.
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
-| `tailscale_enabled` | bool | `true` | Install and join; false logs out and removes what this role installed. |
-| `tailscale_wanted` | bool | same as `tailscale_enabled` | Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while tailscale_enabled is true, by default); alone, the role follows tailscale_enabled. Set through `tailscale_enabled` in local.yml. |
+| `tailscale_enabled` | bool | `false` | Install and join; false leaves what this role installed as it is, unmanaged. |
+| `tailscale_wanted` | bool | same as `tailscale_enabled` | Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while tailscale_enabled is true); alone, the role follows tailscale_enabled, off by default. Set through `tailscale_enabled` in local.yml. |
 | `tailscale_off_setting` | dict | `{name: tailscale_enabled, value: 'false'}` | The setting that turned Tailscale off, as name and value, which the messages name. |
 | `tailscale_auth_key` | str | `""` | A key for the first join only (tskey-auth-..., or a tskey-client-... OAuth secret, which needs tailscale_advertise_tags). Empty leaves the VM for the web login. A secret: never logged. Set through `vault_tailscale_auth_key` in vault.yml. |
 | `tailscale_auth_method` | str | `auto` | auto joins with tailscale_auth_key when there is one and leaves the VM for the web login otherwise; key joins with the key only, and an empty one fails by name; web leaves every VM for the web login. One of `auto`, `key`, `web`. |
@@ -84,7 +84,7 @@ Also takes, as described under `main`: `tailscale_api_auth_method`, `tailscale_a
 
 ## Internal values
 
-Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 74 of the 86 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 71 of the 83 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -164,10 +164,7 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_release_installed` |  | <code>{{ tailscale_release_unit.stat.exists &#124; default(false) or (tailscale_release_status.rc &#124; default(1)) == 0 }}</code> |
 | `tailscale_release_device_left` | Whether the summary names a device to delete by hand: something left to do, for destroy's NEXT STEPS. | <code>{{ tailscale_release_installed &#124; bool and ((tailscale_release_status.rc &#124; default(1)) != 0 or (tailscale_release_joined &#124; bool and ((tailscale_release_logout.rc &#124; default(1)) != 0 or tailscale_api_credential == 'none' or not (tailscale_api_deleted &#124; bool or tailscale_api_gone_already &#124; bool)))) }}</code> |
 | `tailscale_release_summary` | One clause for destroy's report on the VM; empty where there was nothing on Tailscale to release. | <code>{{ '' if not (tailscale_release_installed &#124; bool) else ('tailscaled did not answer, so the node could not be logged out: delete its device at ' ~ tailscale_admin_page ~ ', or its login stays valid') if (tailscale_release_status.rc &#124; default(1)) != 0 else '' if not (tailscale_release_joined &#124; bool) else ('its node could not be logged out (' ~ (tailscale_release_logout.stderr &#124; default('') &#124; one_line(none) or 'no reason given') ~ '): delete its device at ' ~ tailscale_admin_page) if (tailscale_release_logout.rc &#124; default(1)) != 0 else ('logged out; its device stays in your tailnet until you delete it at ' ~ tailscale_admin_page ~ ', or a VM built again under its name joins as &lt;name>-1') if tailscale_api_credential == 'none' else 'removed from your tailnet' if tailscale_api_deleted &#124; bool else ('logged out; ' ~ tailscale_api_gone_said) if tailscale_api_gone_already &#124; bool else ('logged out, but its device was not deleted - ' ~ tailscale_api_refused_why ~ tailscale_api_by_hand) }}</code> |
-| `tailscale_absent_node` | The node's stable ID, read before its logout: what the API deletes. | <code>{{ (((tailscale_absent_status.stdout &#124; from_json).Self &#124; default({}, true)).ID &#124; default('', true)) if (tailscale_absent_status.rc &#124; default(1)) == 0 else '' }}</code> |
-| `tailscale_absent_unasked` | Whether tailscaled did not answer, so a login the node had could not be ended. | <code>{{ tailscale_package_present &#124; bool and (tailscale_absent_status.rc &#124; default(1)) != 0 }}</code> |
-| `tailscale_absent_logout_failed` | Whether tailscaled answered, and its logout failed. | <code>{{ (tailscale_logout &#124; default({'skipped': true})) is not skipped and (tailscale_logout.rc &#124; default(0)) != 0 }}</code> |
-| `tailscale_absent_login_left` | A login may be left on the node, in the state the package's removal keeps. | <code>{{ tailscale_absent_unasked &#124; bool or tailscale_absent_logout_failed &#124; bool }}</code> |
+| `tailscale_status_unmanaged` | A Tailscale this role installed, its package still there, where Tailscale is not the VPN: left as it is, and read by just status, which shows it unmanaged. | <code>{{ not (tailscale_wanted &#124; bool) and tailscale_installed_marker_found &#124; bool and tailscale_package_present &#124; bool }}</code> |
 | `tailscale_report_case` | Which of the report's lines applies: a case of its own, else the backend's state. | <code>{{ 'not-ours' if not (tailscale_ours &#124; bool) else 'check-no-package' if tailscale_check_without_package &#124; bool else 'check-daemon-down' if ansible_check_mode and not (tailscale_daemon_up &#124; bool) else 'connecting' if not (tailscale_settled &#124; bool) else 'would-join' if ansible_check_mode and tailscale_first_join &#124; bool and tailscale_key_wanted &#124; bool and not (tailscale_key_refused_locally &#124; bool) else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url &#124; length > 0 else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined &#124; bool else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted &#124; bool and not (tailscale_key_held_back &#124; bool) and (tailscale_join_ran &#124; bool or tailscale_key_refused_locally &#124; bool) else tailscale_backend }}</code> |
 | `tailscale_report_open` | The cases that leave something to do whatever else holds (NEXT STEPS). | `["check-no-package", "check-daemon-down", "connecting", "would-join", "page-pending", "expired", "refused", "NeedsMachineAuth", "Stopped"]` |
 | `tailscale_report_left` | Whether the report's line is something left to do: NEXT STEPS records it, and just status says it. | <code>{{ tailscale_report_case in tailscale_report_open or (tailscale_report_case == 'NeedsLogin' and not (tailscale_sign_in_follows &#124; bool and tailscale_auth_method != 'key')) or (tailscale_report_case == 'Running' and (tailscale_name_taken &#124; bool or tailscale_tags_missing &#124; length > 0)) }}</code> |
@@ -186,14 +183,14 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 |---|---|---|
 | Fail when tailscale_hostname is not one DNS label | `ansible.builtin.assert` | <code>tailscale_wanted &#124; bool</code> |
 | Fail when tailscale_auth_method is key and there is no key | `ansible.builtin.assert` | <code>tailscale_wanted &#124; bool and tailscale_auth_method == 'key'</code> |
-| Move this role's files from their 1.x names | `ansible.builtin.include_tasks` |  |
+| Move this role's files from their 1.x names | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
 | Read what is installed, and who installed it | `ansible.builtin.include_tasks` |  |
 | Install Tailscale where this role installed it, or nothing has | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool and tailscale_ours &#124; bool</code> |
 | Read Tailscale's state | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
 | Join the tailnet with the vault key, the first time | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
 | Keep the settings of a login this role made | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
 | Report how the VM is on Tailscale | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
-| Turn Tailscale off where this role turned it on | `ansible.builtin.include_tasks` | <code>not (tailscale_wanted &#124; bool)</code> |
+| Say that a Tailscale this role installed is left as it is | `ansible.builtin.include_tasks` | <code>not (tailscale_wanted &#124; bool)</code> |
 
 ```mermaid
 flowchart TD
@@ -209,62 +206,15 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| Fail_when_tailscale_hostname_is_not_one_DNS_label0[fail when tailscale hostname is not one dns label<br>When: **tailscale wanted   bool**]:::task
   Fail_when_tailscale_hostname_is_not_one_DNS_label0-->|Task| Fail_when_tailscale_auth_method_is_key_and_there_is_no_key1[fail when tailscale auth method is key and there<br>is no key<br>When: **tailscale wanted   bool and tailscale auth method <br>   key**]:::task
-  Fail_when_tailscale_auth_method_is_key_and_there_is_no_key1-->|Include task| Move_this_role_s_files_from_their_1_x_names_names_yml_2[move this role s files from their 1 x names<br>include_task: names yml]:::includeTasks
+  Fail_when_tailscale_auth_method_is_key_and_there_is_no_key1-->|Include task| Move_this_role_s_files_from_their_1_x_names_names_yml_2[move this role s files from their 1 x names<br>When: **tailscale wanted   bool**<br>include_task: names yml]:::includeTasks
   Move_this_role_s_files_from_their_1_x_names_names_yml_2-->|Include task| Read_what_is_installed__and_who_installed_it_ownership_yml_3[read what is installed  and who installed it<br>include_task: ownership yml]:::includeTasks
   Read_what_is_installed__and_who_installed_it_ownership_yml_3-->|Include task| Install_Tailscale_where_this_role_installed_it__or_nothing_has_install_yml_4[install tailscale where this role installed it  or<br>nothing has<br>When: **tailscale wanted   bool and tailscale ours   bool**<br>include_task: install yml]:::includeTasks
   Install_Tailscale_where_this_role_installed_it__or_nothing_has_install_yml_4-->|Include task| Read_Tailscale_s_state_state_yml_5[read tailscale s state<br>When: **tailscale wanted   bool**<br>include_task: state yml]:::includeTasks
   Read_Tailscale_s_state_state_yml_5-->|Include task| Join_the_tailnet_with_the_vault_key__the_first_time_connect_yml_6[join the tailnet with the vault key  the first<br>time<br>When: **tailscale wanted   bool**<br>include_task: connect yml]:::includeTasks
   Join_the_tailnet_with_the_vault_key__the_first_time_connect_yml_6-->|Include task| Keep_the_settings_of_a_login_this_role_made_settings_yml_7[keep the settings of a login this role made<br>When: **tailscale wanted   bool**<br>include_task: settings yml]:::includeTasks
   Keep_the_settings_of_a_login_this_role_made_settings_yml_7-->|Include task| Report_how_the_VM_is_on_Tailscale_report_yml_8[report how the vm is on tailscale<br>When: **tailscale wanted   bool**<br>include_task: report yml]:::includeTasks
-  Report_how_the_VM_is_on_Tailscale_report_yml_8-->|Include task| Turn_Tailscale_off_where_this_role_turned_it_on_absent_yml_9[turn tailscale off where this role turned it on<br>When: **not  tailscale wanted   bool**<br>include_task: absent yml]:::includeTasks
-  Turn_Tailscale_off_where_this_role_turned_it_on_absent_yml_9-->End
-```
-
-### `absent.yml`
-
-| Task | Module | When |
-|---|---|---|
-| Leave a Tailscale installed outside this project alone | `ansible.builtin.debug` | <code>tailscale_installed &#124; bool and not (tailscale_installed_marker_found &#124; bool)</code> |
-| Remove what this role installed | block | <code>tailscale_installed_marker_found &#124; bool</code> |
-| &emsp;Say that Tailscale is being removed | `ansible.builtin.debug` |  |
-| &emsp;Look for tailscaled's unit | `ansible.builtin.stat` |  |
-| &emsp;Start tailscaled, so that its login can be ended | `ansible.builtin.systemd_service` | <code>tailscale_package_present &#124; bool and tailscale_unit.stat.exists</code> |
-| &emsp;Read whether a login is there to end | `ansible.builtin.command` | <code>tailscale_package_present &#124; bool</code> |
-| &emsp;Log the node out | `ansible.builtin.command` | <code>tailscale_package_present &#124; bool and tailscale_absent_status.rc &#124; default(1) == 0 and (tailscale_absent_status.stdout &#124; from_json).HaveNodeKey &#124; default(false) &#124; bool</code> |
-| &emsp;Delete the node's device from the tailnet | `ansible.builtin.include_tasks` |  |
-| &emsp;Stop tailscaled | `ansible.builtin.systemd_service` | <code>tailscale_unit.stat.exists</code> |
-| &emsp;Remove the package | `ansible.builtin.apt` | <code>tailscale_package_present &#124; bool</code> |
-| &emsp;Remove the repository | `ansible.builtin.deb822_repository` |  |
-| &emsp;Remove the log switch and the markers | `ansible.builtin.file` |  |
-| &emsp;Say what is gone, and what stays in the tailnet | `ansible.builtin.debug` |  |
-
-```mermaid
-flowchart TD
-Start
-classDef block stroke:#3498db,stroke-width:2px;
-classDef task stroke:#4b76bb,stroke-width:2px;
-classDef includeTasks stroke:#16a085,stroke-width:2px;
-classDef importTasks stroke:#34495e,stroke-width:2px;
-classDef includeRole stroke:#2980b9,stroke-width:2px;
-classDef importRole stroke:#699ba7,stroke-width:2px;
-classDef includeVars stroke:#8e44ad,stroke-width:2px;
-classDef rescue stroke:#665352,stroke-width:2px;
-
-  Start-->|Task| absent___Leave_a_Tailscale_installed_outside_this_project_alone0[absent   leave a tailscale installed outside this<br>project alone<br>When: **tailscale installed   bool and not  tailscale<br>installed marker found   bool**]:::task
-  absent___Leave_a_Tailscale_installed_outside_this_project_alone0-->|Block Start| absent___Remove_what_this_role_installed1_block_start_0[[absent   remove what this role installed<br>When: **tailscale installed marker found   bool**]]:::block
-  absent___Remove_what_this_role_installed1_block_start_0-->|Task| absent___Say_that_Tailscale_is_being_removed0[absent   say that tailscale is being removed]:::task
-  absent___Say_that_Tailscale_is_being_removed0-->|Task| absent___Look_for_tailscaled_s_unit1[absent   look for tailscaled s unit]:::task
-  absent___Look_for_tailscaled_s_unit1-->|Task| absent___Start_tailscaled__so_that_its_login_can_be_ended2[absent   start tailscaled  so that its login can<br>be ended<br>When: **tailscale package present   bool and tailscale<br>unit stat exists**]:::task
-  absent___Start_tailscaled__so_that_its_login_can_be_ended2-->|Task| absent___Read_whether_a_login_is_there_to_end3[absent   read whether a login is there to end<br>When: **tailscale package present   bool**]:::task
-  absent___Read_whether_a_login_is_there_to_end3-->|Task| absent___Log_the_node_out4[absent   log the node out<br>When: **tailscale package present   bool and tailscale<br>absent status rc   default 1     0 and  tailscale<br>absent status stdout   from json  havenodekey  <br>default false    bool**]:::task
-  absent___Log_the_node_out4-->|Include task| absent___Delete_the_node_s_device_from_the_tailnet_api_delete_yml_5[absent   delete the node s device from the tailnet<br>include_task: api delete yml]:::includeTasks
-  absent___Delete_the_node_s_device_from_the_tailnet_api_delete_yml_5-->|Task| absent___Stop_tailscaled6[absent   stop tailscaled<br>When: **tailscale unit stat exists**]:::task
-  absent___Stop_tailscaled6-->|Task| absent___Remove_the_package7[absent   remove the package<br>When: **tailscale package present   bool**]:::task
-  absent___Remove_the_package7-->|Task| absent___Remove_the_repository8[absent   remove the repository]:::task
-  absent___Remove_the_repository8-->|Task| absent___Remove_the_log_switch_and_the_markers9[absent   remove the log switch and the markers]:::task
-  absent___Remove_the_log_switch_and_the_markers9-->|Task| absent___Say_what_is_gone__and_what_stays_in_the_tailnet10[absent   say what is gone  and what stays in the<br>tailnet]:::task
-  absent___Say_what_is_gone__and_what_stays_in_the_tailnet10-.->|End of Block| absent___Remove_what_this_role_installed1_block_start_0
-  absent___Say_what_is_gone__and_what_stays_in_the_tailnet10-->End
+  Report_how_the_VM_is_on_Tailscale_report_yml_8-->|Include task| Say_that_a_Tailscale_this_role_installed_is_left_as_it_is_unmanaged_yml_9[say that a tailscale this role installed is left<br>as it is<br>When: **not  tailscale wanted   bool**<br>include_task: unmanaged yml]:::includeTasks
+  Say_that_a_Tailscale_this_role_installed_is_left_as_it_is_unmanaged_yml_9-->End
 ```
 
 ### `api_delete.yml`
@@ -611,7 +561,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Task | Module | When |
 |---|---|---|
 | Read what is installed, and who installed it | `ansible.builtin.include_tasks` |  |
-| Read Tailscale's state | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
+| Read Tailscale's state | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool or tailscale_status_unmanaged &#124; bool</code> |
 | Say how this VM is on Tailscale | `ansible.builtin.include_tasks` | <code>tailscale_wanted &#124; bool</code> |
 | Keep how this VM is on Tailscale | `ansible.builtin.set_fact` |  |
 
@@ -628,10 +578,32 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Include task| status___Read_what_is_installed__and_who_installed_it_ownership_yml_0[status   read what is installed  and who installed<br>it<br>include_task: ownership yml]:::includeTasks
-  status___Read_what_is_installed__and_who_installed_it_ownership_yml_0-->|Include task| status___Read_Tailscale_s_state_state_yml_1[status   read tailscale s state<br>When: **tailscale wanted   bool**<br>include_task: state yml]:::includeTasks
+  status___Read_what_is_installed__and_who_installed_it_ownership_yml_0-->|Include task| status___Read_Tailscale_s_state_state_yml_1[status   read tailscale s state<br>When: **tailscale wanted   bool or tailscale status<br>unmanaged   bool**<br>include_task: state yml]:::includeTasks
   status___Read_Tailscale_s_state_state_yml_1-->|Include task| status___Say_how_this_VM_is_on_Tailscale_report_yml_2[status   say how this vm is on tailscale<br>When: **tailscale wanted   bool**<br>include_task: report yml]:::includeTasks
   status___Say_how_this_VM_is_on_Tailscale_report_yml_2-->|Task| status___Keep_how_this_VM_is_on_Tailscale3[status   keep how this vm is on tailscale]:::task
   status___Keep_how_this_VM_is_on_Tailscale3-->End
+```
+
+### `unmanaged.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Say that Tailscale is left as it is | `ansible.builtin.debug` | <code>tailscale_installed_marker_found &#124; bool</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| unmanaged___Say_that_Tailscale_is_left_as_it_is0[unmanaged   say that tailscale is left as it is<br>When: **tailscale installed marker found   bool**]:::task
+  unmanaged___Say_that_Tailscale_is_left_as_it_is0-->End
 ```
 
 ### `web_login.yml`

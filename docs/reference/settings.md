@@ -378,19 +378,19 @@ Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run on
 
 ### VPN
 
-The VPN each VM joins: tailscale or none. Every VM deployed from then on follows it, and a Tailscale this project set up is taken off a VM again when none is chosen, saying so. Unset, it follows tailscale_enabled below.
+The VPN each VM joins: tailscale or none ([docs/guides/remote-access.md](../guides/remote-access.md)). none is right for a VPN you already run that routes this LAN - WireGuard on your router, a Tailscale subnet router - which reaches the VMs at their LAN addresses. Every VM deployed from then on follows it; none never takes Tailscale off a VM it is on, which is left as it is, unmanaged. just init writes your answer here. Unset, it follows tailscale_enabled below: none.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `vpn` | computed | For example `tailscale`. |
+| `vpn` | computed | For example `none`. |
 
 ### Tailscale
 
-Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). The old form of vpn above, still read for vpn's default: true is vpn: tailscale, false is vpn: none. just init wrote your answer here. Off installs nothing of Tailscale's, takes it off again where this project installed it, saying so, and leaves a Tailscale installed by hand alone.
+Tailscale: each VM joins your tailnet ([docs/guides/tailscale.md](../guides/tailscale.md)). The old form of vpn above, still read for vpn's default: true is vpn: tailscale, false is vpn: none. just init wrote your answer here before 2.1. Off installs nothing of Tailscale's, and leaves a Tailscale already on a VM as it is.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `tailscale_enabled` | `true` | Install and join; false logs out and removes what this role installed. A variable of [`tailscale`](roles/tailscale.md). |
+| `tailscale_enabled` | `false` | Install and join; false leaves what this role installed as it is, unmanaged. A variable of [`tailscale`](roles/tailscale.md). |
 
 How a VM joins: auto is vault_tailscale_auth_key when set, else the web login; key is the key only; web is the web login only.
 
@@ -404,7 +404,7 @@ just deploy starts the web login by itself; false asks first, VM by VM.
 |---|---|---|
 | `tailscale_login_auto_start` | `true` |  |
 
-Delete a VM's device from your tailnet when just destroy deletes the VM, or Tailscale is turned off on it. auto uses whichever credential the vault holds - vault_tailscale_api_token first, else vault_tailscale_oauth_client_id and vault_tailscale_oauth_client_secret (devices:core) - and only logs the VM out with neither; none only logs it out; token and oauth use that one only. An OAuth client reaches only the devices with its tags, so it may not delete one joined by the web login.
+Delete a VM's device from your tailnet when just destroy deletes the VM. auto uses whichever credential the vault holds - vault_tailscale_api_token first, else vault_tailscale_oauth_client_id and vault_tailscale_oauth_client_secret (devices:core) - and only logs the VM out with neither; none only logs it out; token and oauth use that one only. An OAuth client reaches only the devices with its tags, so it may not delete one joined by the web login.
 
 | Setting | Default | Notes |
 |---|---|---|

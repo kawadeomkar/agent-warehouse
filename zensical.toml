@@ -43,6 +43,7 @@ nav = [
     { "VMs and fleets" = "guides/vms.md" },
     { "GitHub" = "guides/github.md" },
     { "Remote Control" = "guides/remote-control.md" },
+    { "Reaching your VMs from away" = "guides/remote-access.md" },
     { "Tailscale" = "guides/tailscale.md" },
     { "VS Code" = "guides/vscode.md" },
     { "Zed" = "guides/zed.md" },

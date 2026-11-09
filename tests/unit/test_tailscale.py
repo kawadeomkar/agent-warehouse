@@ -5,8 +5,8 @@ inventory host is the controller, over the local connection, whose modules find
 tests/molecule/fake_tailscale.sh first on their PATH as `tailscale`, with the
 host's own directory as HOME - so each host's node is its own. dpkg-query and
 getent are stand-ins too. The role's files run from ownership.yml on, as
-main.yml runs them after the install; install.yml and absent.yml need apt and
-systemd, which the role's own Molecule scenario covers.
+main.yml runs them after the install; install.yml needs apt and systemd, which
+the role's own Molecule scenario covers.
 
 What these guard:
 
@@ -228,6 +228,9 @@ def _hosts(root: Path, cases: dict) -> dict:
             **hosts[name],
             "tailscale_marker_dir": str(home / "markers"),
             "tailscale_auth_key": KEYS[case["key"]] if case.get("key") else "",
+            # Tailscale chosen, as each case is a VM of a user who chose it - the role's own default is off, as
+            # the project's is from 2.1 - but where a case turns it off itself.
+            "tailscale_enabled": True,
             # Never the developer's browser: the guard below holds every scenario to it.
             "tailscale_login_desktop": False,
             # Every module's arguments in its result, so that a key handed to a
@@ -1567,13 +1570,15 @@ def test_the_log_switch_is_a_drop_in_written_before_the_package():
     assert names.index("install | Hand tailscaled its extra flags") > package
 
 
-def test_off_never_disables_the_unit_of_a_package_it_then_removes():
-    # deb-systemd-helper remembers a disable, and a Tailscale installed again by
-    # hand afterwards came up disabled and never started.
-    absent = _every_task(yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()))
-    stop = next(task for task in absent if task.get("name") == "absent | Stop tailscaled")
-    enabled = stop["ansible.builtin.systemd_service"]["enabled"]
-    assert enabled == "{{ omit if tailscale_package_present | bool else false }}", enabled
+def test_off_only_says_it_leaves_tailscale_as_it_is():
+    # Choosing no VPN never removes one: off is a report, and nothing else - no logout, no device deleted, no package
+    # removed - which taking it off by hand, or just destroy's release, does.
+    tasks = _every_task(yaml.safe_load((ROLE / "tasks" / "unmanaged.yml").read_text()))
+    assert [next(key for key in task if "." in key) for task in tasks] == ["ansible.builtin.debug"]
+    assert not (ROLE / "tasks" / "absent.yml").exists()
+    main = yaml.safe_load((ROLE / "tasks" / "main.yml").read_text())
+    off = [task for task in main if "not (tailscale_wanted | bool)" in str(task.get("when"))]
+    assert [task.get("ansible.builtin.include_tasks") for task in off] == ["unmanaged.yml"]
 
 
 def test_the_role_has_no_handlers():
@@ -1606,8 +1611,7 @@ def switched_off(tmp_path_factory):
     The whole role runs here, main.yml and all, so nothing may reach this machine's apt, systemd or tailscaled:
     check mode, which writes nothing; no tailscaled unit; the installed VM's marker without a package, as a run
     that failed half way leaves it; and the VM that is on, a Tailscale installed by hand, which the role only reads.
-    The removal itself, apt's and systemd's, is the role's Molecule scenario's (side_effect.yml): here it is reached,
-    said, and rescued where check mode stops it.
+    Off changes nothing on a real VM either - the role's Molecule scenario holds that (side_effect.yml).
     """
     root = tmp_path_factory.mktemp("tailscale-off")
     hosts = _hosts(
@@ -1640,16 +1644,19 @@ def test_off_runs_nothing_of_the_role_where_it_never_installed_tailscale(switche
     assert _calls(root, "never") == []
 
 
-def test_off_removes_a_tailscale_the_role_installed_and_says_so_first(switched_off):
+def test_off_leaves_a_tailscale_the_role_installed_as_it_is_and_says_so(switched_off):
     root, report = switched_off
-    said = _messages(report, "absent | Say that Tailscale is being removed")
-    # Said as what would happen: the run is --check, which removes nothing.
+    said = _messages(report, "unmanaged | Say that Tailscale is left as it is")
     assert said == {
         "installed": (
-            "installed: tailscale_enabled is false, so the Tailscale this project installed here would be logged out"
-            " and removed; check mode changes nothing."
+            "installed: tailscale_enabled is false, so the Tailscale this project installed here is left as it is,"
+            ' unmanaged: no run changes it until vpn is tailscale again. Taking it off is by hand ("Turning it off"'
+            " in docs/guides/tailscale.md)."
         )
     }, said
+    # Nothing but dpkg's word read there: no tailscale command, so no logout, and no file of the role's moved.
+    assert _calls(root, "installed") == []
+    assert (root / "installed" / "markers" / "tailscale-installed").exists()
     # On, the stat is skipped and the role runs as ever.
     ran = {name for name, host, result in _results(report) if host == "on" and not result.get("skipped")}
     assert "Look for a Tailscale this project installed, now that it is off" not in ran

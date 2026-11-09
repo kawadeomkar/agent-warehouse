@@ -25,6 +25,8 @@ else is here. It reads the same in the repository and as a site with search, at
 - [GitHub](guides/github.md) - which repositories are cloned, private ones, pushing from the VM.
 - [Remote Control](guides/remote-control.md) - the VM's Claude session on claude.ai and your phone, or
   an API key instead.
+- [Reaching your VMs from away](guides/remote-access.md) - a VPN of yours that routes the LAN, or Tailscale
+  on each VM.
 - [Tailscale](guides/tailscale.md) - each VM on your tailnet, and keeping it off your other devices.
 - [VS Code](guides/vscode.md) - the default editor, and what every editor shares: the SSH alias, `just code`,
   this machine's sessions on the VM, the session notes.

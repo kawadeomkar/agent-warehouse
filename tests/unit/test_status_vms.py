@@ -259,6 +259,8 @@ CASES = {
 EXTRA = {
     "claude_vm_discovery": False,
     "ansible_become": False,
+    # Tailscale chosen: off is the default from 2.1, and these VMs are read as a fleet on Tailscale.
+    "tailscale_enabled": True,
     "tailscale_foreign_paths": ["~/foreign/tailscaled"],
     "tailscale_login_desktop": False,
 }

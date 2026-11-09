@@ -176,6 +176,22 @@ And outside the VMs:
   `vault_wireguard_hub_api_secret` taken out of the vault (`just vault`), and the `wireguard_hub` group out of
   `hosts.yml`.
 
+## A VPN only when chosen
+
+From 2.1 no VPN is chosen until one is: a `local.yml` that sets neither `vpn` nor `tailscale_enabled` is `vpn:
+none`, where through 2.0 it was Tailscale, and every command but `just init` warns of it. A VPN of yours that
+routes your LAN reaches the VMs with `none` ([Reaching your VMs from away](remote-access.md)); to keep
+Tailscale, set `vpn: tailscale`, or answer `just init`'s question, before your next `just deploy`.
+
+Nothing is taken off a VM for it: from 2.1, choosing a VPN never removes one. A VM this project installed
+Tailscale on stays on the tailnet under `none`, unmanaged - the run says so, and `just status` shows it - where
+through 2.0 `tailscale_enabled: false` logged it out and removed it. Taking it off is by hand
+([Turning it off](tailscale.md#turning-it-off)); `just destroy` still releases a VM's Tailscale, its device
+deleted with an API credential.
+
+`just init` writes its answer as `vpn: tailscale` or `vpn: none`; a `tailscale_enabled` an earlier one wrote is
+still read.
+
 ## What just code writes and says from 1.1
 
 The first `just code` (or `just deploy`) of a VM after the upgrade rewrites its workspace files and notes, and puts
@@ -301,14 +317,14 @@ anyone's.
 
 ## Tailscale on VMs configured by an earlier version
 
-From PR #24, which joins the VMs to a tailnet. Tailscale is on by default, so the next `just deploy --only configure` installs it on every VM and reports each one
-not signed in - or joins it, with `vault_tailscale_auth_key` set. Set `tailscale_enabled: false` in
-`local.yml` first to keep your VMs as they are, and `just deploy --check` beforehand says what would be installed.
-A VM where you installed Tailscale yourself is left exactly as it is either way.
+From PR #24, which joins the VMs to a tailnet. Through 2.0 Tailscale was on by default; from 2.1 it is off
+unless chosen ([A VPN only when chosen](#a-vpn-only-when-chosen)), so the next `just deploy` installs nothing of
+Tailscale's unless `local.yml` sets `vpn: tailscale`, and `just deploy --check` beforehand says what would be
+installed. A VM where you installed Tailscale yourself is left exactly as it is either way.
 
-Since `just init` asks whether to use Tailscale, the next `just init` asks it of a checkout whose `local.yml`
-does not set `tailscale_enabled`: `y` keeps your VMs as they are, `n` takes Tailscale off them at the next
-`just deploy`, which says so VM by VM, and Enter leaves it on, unanswered.
+The next `just init` asks whether to use Tailscale of a checkout whose `local.yml` sets neither `vpn` nor
+`tailscale_enabled`: `y` writes `vpn: tailscale`, `n` writes `vpn: none` - which takes Tailscale off no VM - and
+Enter leaves it unanswered, and none.
 
 ## Adopting VMs created before tagging
 

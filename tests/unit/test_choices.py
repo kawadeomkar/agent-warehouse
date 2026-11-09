@@ -115,11 +115,11 @@ def _read(tmp_path: Path, local: dict) -> dict:
 @pytest.mark.parametrize(
     ("local", "key", "off"),
     [
-        pytest.param({}, "tailscale", None, id="nothing-set"),
+        # No VPN unless one is chosen (2.1): the setting that turned Tailscale off is named as vpn, whichever form
+        # of it chose, or none did.
+        pytest.param({}, "none", {"name": "vpn", "value": "none"}, id="nothing-set"),
         pytest.param({"tailscale_enabled": True}, "tailscale", None, id="tailscale-on"),
-        pytest.param(
-            {"tailscale_enabled": False}, "none", {"name": "tailscale_enabled", "value": "false"}, id="tailscale-off"
-        ),
+        pytest.param({"tailscale_enabled": False}, "none", {"name": "vpn", "value": "none"}, id="tailscale-off"),
         pytest.param({"vpn": "none"}, "none", {"name": "vpn", "value": "none"}, id="vpn-none"),
         pytest.param({"vpn": "tailscale", "tailscale_enabled": False}, "tailscale", None, id="vpn-wins"),
         pytest.param({"vpn": ""}, "none", {"name": "vpn", "value": "none"}, id="vpn-empty"),
@@ -133,6 +133,23 @@ def test_the_vpn_setting_follows_tailscale_enabled_until_it_is_set_and_the_role_
     assert read["tailscale_wanted"] is (key == "tailscale")
     if off:
         assert read["tailscale_off_setting"] == off
+
+
+def test_tailscale_is_off_unless_chosen_wherever_the_default_is_said():
+    # Never by taking tailscale_enabled out of defaults.yml: the role's own default would then be what vpn reads
+    # while the role runs, and a fallback that said on would turn it on where the inventory is not loaded.
+    assert DEFAULTS["tailscale_enabled"] is False
+    role = REPO / "roles" / "tailscale"
+    assert yaml.safe_load((role / "defaults" / "main.yml").read_text())["tailscale_enabled"] is False
+    specs = yaml.safe_load((role / "meta" / "argument_specs.yml").read_text())["argument_specs"]
+    said = [
+        spec["options"]["tailscale_enabled"]["default"]
+        for spec in specs.values()
+        if "tailscale_enabled" in spec["options"]
+    ]
+    assert said and set(said) == {False}
+    for path in [REPO / "deploy.yml", *(REPO / "playbooks").rglob("*.yml")]:
+        assert "tailscale_enabled | default(true)" not in path.read_text(), path
 
 
 def test_the_tailscale_role_reads_what_the_vpn_setting_decided_never_tailscale_enabled():
@@ -207,9 +224,37 @@ def test_check_settings_refuses_what_2_1_removed_with_wireguard_pointing_at_the_
 
 @pytest.mark.parametrize("text", ["vpn_reach: lan\n", 'wireguard_vm_prefix: ""\n'])
 def test_check_settings_lets_a_removed_setting_that_changed_nothing_pass(tmp_path, text):
-    result = _check(tmp_path, text)
+    result = _check(tmp_path, "vpn: none\n" + text)
     assert result.returncode == 0, result.stderr
     assert ("warning:" in result.stderr) is text.startswith("vpn_reach")
+
+
+@pytest.mark.parametrize(
+    ("text", "warned"),
+    [("vm_cores: 4\n", True), ("vpn: none\n", False), ("tailscale_enabled: true\n", False), ("vpn: ''\n", False)],
+)
+def test_check_settings_says_when_no_vpn_is_chosen(tmp_path, text, warned):
+    # From 2.1 a local.yml that chooses none is vpn: none, where it was Tailscale: said, never refused.
+    result = _check(tmp_path, text)
+    assert result.returncode == 0, result.stderr
+    assert ("sets no vpn: since 2.1 that is none" in result.stderr) is warned
+    if warned:
+        assert "docs/guides/upgrading.md" in result.stderr
+
+
+def test_just_init_asks_the_question_rather_than_warn_of_it(tmp_path):
+    local = tmp_path / "local.yml"
+    local.write_text("vm_cores: 4\n")
+    result = subprocess.run(
+        [str(REPO / "tools" / "check"), "settings", str(Path(sys.executable).parent), "--asking", str(local)],
+        cwd=REPO,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0 and result.stderr == "", result.stderr
+    assert 'tools/check settings "$bin" --asking {{ SETTINGS_FILES }}' in (REPO / "justfile").read_text()
 
 
 def test_check_settings_finds_the_defaults_whatever_cdpath_says(tmp_path):

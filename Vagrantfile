@@ -67,7 +67,10 @@ Vagrant.configure("2") do |config|
       claude_code_anthropic_api_key: "{{ lookup('ansible.builtin.env', 'ANTHROPIC_API_KEY') }}",
       # The real tailscaled is installed here, and a test never reaches
       # Tailscale: logs off from its first start, and no key, so the VM is
-      # never joined - configure reports it not signed in.
+      # never joined - configure reports it not signed in. Chosen, as no VPN
+      # is from 2.1 unless one is, and with no inventory here the role reads
+      # tailscale_enabled itself.
+      tailscale_enabled: true,
       tailscale_upload_logs: false,
       tailscale_auth_key: "",
     }

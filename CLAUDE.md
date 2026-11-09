@@ -258,8 +258,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   included), a stand-in Messages API on loopback for the real `claude` the `configure` scenario resumes sessions
   with (`fake_anthropic_api.py`), a stand-in `gh` installed ahead of the real one on PATH, and a stand-in
   `tailscale` (`fake_tailscale.sh`). Extend a fake rather than reaching for the network.
-- **Tailscale's auth key joins a VM once, and the role touches only the Tailscale it installed.** Read
-  [§5.8](docs/architecture/roles.md#58-tailscale--join-the-vm-to-a-tailnet) first.
+- **Tailscale's auth key joins a VM once, the role touches only the Tailscale it installed, and choosing no VPN
+  never removes it.** Read [§5.8](docs/architecture/roles.md#58-tailscale--join-the-vm-to-a-tailnet) first.
     - The key is used from a settled `NeedsLogin` with no `HaveNodeKey` only, on a VM whose Tailscale never
       had a login, and never sent to a node that has a login: one Tailscale no longer accepts logs the node out
       (tailscale#19501).
@@ -287,11 +287,19 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       package, never a pre-created `/etc/default/tailscaled`.
     - `playbooks/configure.yml` runs the role last, through `import_role` in a block whose rescue appends to
       `claude_vm_configure_failures`; off, only where a `stat` finds the installed marker - the condition on the
-      import, never the block. The role has no handlers, since one would run outside the rescue.
+      import, never the block - and then only to say it is left as it is (`unmanaged.yml`). Off never logs a
+      node out, deletes its device or removes a package: `vpn: none`, the default unless one is chosen
+      (`tailscale_enabled: false` in the inventory, the role's defaults and every `| default(false)` fallback,
+      never taken out of `defaults.yml`, where the role's own default would be what `vpn` reads inside the role),
+      is not a removal; taking Tailscale off is by hand, and `just destroy`'s release does it for a VM it
+      deletes. `just status` reads such a VM's state and shows it unmanaged. The role has no handlers, since one
+      would run outside the rescue.
     - Tests reach no Tailscale service and never this machine's real CLI: every scenario that runs the role
       installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the Vagrantfile is keyless with logs
-      off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The template is
-      never signed in to anything.
+      off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The `configure`
+      scenario (its `defaults.yml` the project's) sets `vpn: tailscale` and the Vagrantfile `tailscale_enabled:
+      true`, or with none the default they would stop covering Tailscale without failing. The template is never
+      signed in to anything.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -467,9 +475,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its 1.x name, while that is unset; two
       different secrets under the two names are refused unsaid), read in the playbook - and `just init` refuses any
       word after its options without printing it. Tailscale is asked about while `local.yml` sets neither
-      `tailscale_enabled` nor `vpn` (which outranks it), and a `--tailscale` the `vpn` set contradicts fails the run,
-      naming both. Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`),
-      hidden, and never taken from the command line.
+      `tailscale_enabled` nor `vpn` (which outranks it), the answer written as `vpn: tailscale` or `vpn: none`,
+      and a `--tailscale` the `vpn` set contradicts fails the run, naming both. Unanswered, no VPN is chosen:
+      every other recipe's `tools/check settings` warns of it, and `just init`'s, run `--asking`, does not.
+      Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`), hidden, and
+      never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
       `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and

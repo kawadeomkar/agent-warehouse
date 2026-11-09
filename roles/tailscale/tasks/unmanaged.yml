@@ -1,0 +1,14 @@
+---
+# tailscale_wanted false (the vpn setting is not tailscale): a Tailscale this
+# role installed stays as it is - running, joined, its package and repository
+# - and no run changes it again until Tailscale is the VPN once more. Choosing
+# a VPN never removes one; taking Tailscale off a VM is by hand
+# (docs/guides/tailscale.md, "Turning it off"). Said only where this role's
+# marker is: a Tailscale installed any other way was never this role's.
+- name: unmanaged | Say that Tailscale is left as it is
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }}: {{ tailscale_off_setting.name }} is {{ tailscale_off_setting.value }}, so the
+      Tailscale this project installed here is left as it is, unmanaged: no run changes it until vpn is tailscale
+      again. Taking it off is by hand ("Turning it off" in docs/guides/tailscale.md).
+  when: tailscale_installed_marker_found | bool

@@ -218,6 +218,12 @@ def _access_lines(model):
 def _tailnet_cells(vm, model, dns_width=0):
     vpn = model["settings"].get("vpn") or ("tailscale" if model["settings"].get("tailscale_enabled") else "none")
     if vpn == "none":
+        # A Tailscale the project installed is left on the VM, unmanaged, when it is not the VPN: shown as on the
+        # tailnet while it is, so the column never says off of a VM that is there.
+        tailscale = (vm.get("ssh") or {}).get("tailscale") or {}
+        if tailscale.get("case") == "unmanaged" and tailscale.get("backend") == "Running" and tailscale.get("dns_name"):
+            shown = f"{tailscale['dns_name']:<{dns_width}}  {tailscale.get('ipv4') or ''}".rstrip()
+            return [seg(f"{shown}  unmanaged", "d")]
         # Off by the setting that turned it off: vpn, or tailscale_enabled, which decides vpn while it is not set.
         said = model["settings"].get("tailscale_off") or "vpn is none"
         return [seg(f"off: {said}", "d")]
@@ -269,6 +275,8 @@ def _github_cell(github):
 
 TAILSCALE_CELLS = {
     "off": ("○ off", "d"),
+    # Left on the VM under vpn: none, which never removes it: running, but no run keeps it.
+    "unmanaged": ("● unmanaged", "d"),
     "not-ours": ("● installed by hand", "d"),
     "Running": ("● running", "g"),
     "NeedsLogin": ("○ needs a login", "y"),
@@ -285,6 +293,8 @@ TAILSCALE_CELLS = {
 
 
 def _tailscale_cell(tailscale):
+    if tailscale.get("case") == "unmanaged":
+        return TAILSCALE_CELLS["unmanaged"]
     if not tailscale.get("enabled"):
         return TAILSCALE_CELLS["off"]
     return TAILSCALE_CELLS.get(tailscale.get("case"), (f"○ {tailscale.get('backend') or 'unknown'}", "y"))

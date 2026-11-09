@@ -113,7 +113,7 @@ The run stops for you at most three times, each at a page it opens in your brows
 2. **GitHub** - the one-time code is on your clipboard: paste it and authorise. Skipped when the vault
    has a GitHub token.
 3. **Tailscale** - sign in and connect the VM. Skipped when the vault has a Tailscale auth key, which
-   `just init` asks for after a `y` to Tailscale, or with `tailscale_enabled: false`.
+   `just init` asks for after a `y` to Tailscale, or with `vpn: none`, the default.
 
 Then your editor opens on the VM, in `~/projects`. In VS Code, the default, Claude runs in a terminal; the
 first time, VS Code asks you to trust the folder and to allow automatic tasks, both yours to answer. In Zed

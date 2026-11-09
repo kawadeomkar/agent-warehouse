@@ -194,7 +194,8 @@ def _hosts(root: Path, cases: dict, github: str | None = None) -> dict:
 
 def _extra(**more) -> str:
     """Extra vars for every run here: no discovery, and no sudo on this machine."""
-    return json.dumps({"claude_vm_discovery": False, "ansible_become": False, **more})
+    # Tailscale chosen, as off is the default from 2.1: every sign-in play is the one deploy runs with it.
+    return json.dumps({"claude_vm_discovery": False, "ansible_become": False, "tailscale_enabled": True, **more})
 
 
 SIGN_INS = ("playbooks/claude_login.yml", "playbooks/github_login.yml", "playbooks/tailscale_login.yml")

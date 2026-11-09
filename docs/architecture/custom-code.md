@@ -994,8 +994,8 @@ and `tests/unit/test_choices.py` holds the three equal.
   (`claude_vpn_key == 'tailscale'`): the role cannot be handed `tailscale_enabled` from the key, since the key's
   default reads it, and alone it follows `tailscale_enabled`, as do the playbooks run without the inventory's
   defaults. `tailscale_off_setting` names, in its messages, the setting that turned Tailscale off. Each member's role
-  runs where it is chosen, or where its installed marker says it put something there to take off again; its release
-  runs at `just destroy` whatever is chosen.
+  runs where it is chosen, or where its installed marker says it put something there - then only to say it is left
+  as it is, since choosing a VPN never removes one; its release runs at `just destroy` whatever is chosen.
 - **The VPN's members** (`vpn/`). Who is on a VPN's network is a plan, data: the marks to keep on each VM in
   Proxmox, and what is said. Each VPN family is a module of free functions with one, `plan_members(vpn, inputs)`
   (`tailscale.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of

@@ -341,19 +341,11 @@ tailscale_release_summary: >-
      else ('logged out; ' ~ tailscale_api_gone_said) if tailscale_api_gone_already | bool
      else ('logged out, but its device was not deleted - ' ~ tailscale_api_refused_why ~ tailscale_api_by_hand) }}
 
-# --- Turning it off (absent.yml) ---
-# The node's stable ID, read before its logout: what the API deletes.
-tailscale_absent_node: >-
-  {{ (((tailscale_absent_status.stdout | from_json).Self | default({}, true)).ID | default('', true))
-     if (tailscale_absent_status.rc | default(1)) == 0 else '' }}
-# Whether tailscaled did not answer, so a login the node had could not be ended.
-tailscale_absent_unasked: >-
-  {{ tailscale_package_present | bool and (tailscale_absent_status.rc | default(1)) != 0 }}
-# Whether tailscaled answered, and its logout failed.
-tailscale_absent_logout_failed: >-
-  {{ (tailscale_logout | default({'skipped': true})) is not skipped and (tailscale_logout.rc | default(0)) != 0 }}
-# A login may be left on the node, in the state the package's removal keeps.
-tailscale_absent_login_left: "{{ tailscale_absent_unasked | bool or tailscale_absent_logout_failed | bool }}"
+# --- Not the VPN (unmanaged.yml), and status (status.yml) ---
+# A Tailscale this role installed, its package still there, where Tailscale is
+# not the VPN: left as it is, and read by just status, which shows it unmanaged.
+tailscale_status_unmanaged: >-
+  {{ not (tailscale_wanted | bool) and tailscale_installed_marker_found | bool and tailscale_package_present | bool }}
 
 # --- The report (report.yml), which just status reads too (status.yml) ---
 # Which of the report's lines applies: a case of its own, else the backend's state.

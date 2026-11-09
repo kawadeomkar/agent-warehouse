@@ -748,7 +748,7 @@ plan's research record.
 
 - **Ownership.** `/var/lib/agent-warehouse/tailscale-installed` (`/var/lib/claude-on-proxmox` through 1.x, moved by
   `names.yml` before anything reads it, and read by `ownership.yml` there until then) is written before the repository: a
-  Tailscale with it, or none at all, is the role's to install, maintain and remove; a package dpkg has
+  Tailscale with it, or none at all, is the role's to install and maintain - never to remove (Off, below); a package dpkg has
   without it, or a Tailscale dpkg does not know (a `tailscaled` of Tailscale's static binaries in
   `/usr/sbin` or under `/usr/local`, the snap's `/snap/bin/tailscale`), was installed some other way and
   is left alone, on and off, and reported while on - off, `configure.yml` runs the role only where the
@@ -859,20 +859,16 @@ plan's research record.
   and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
   one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
-  is an earlier run's. Run by the off path after its logout, and by the `release` entry point, which
+  is an earlier run's. Run by the `release` entry point, which
   `destroy.yml` runs before deleting a VM: start a stopped `tailscaled`, read the node's ID, log it out,
   delete the device, and record a clause in `tailscale_release_said` - whatever Tailscale the VM has,
   since the VM itself is going.
-- **Off** (`absent.yml`), only with the installed marker - `configure.yml` runs the role at all, off, only
-  where its `stat` finds the marker ([§4.4](lifecycle.md#44-playbooksconfigureyml)) - said first, as removing
-  what this project installed: `tailscaled` started where the unit exists -
-  logging out takes the daemon, and one stopped by hand would leave the node's key valid in the tailnet -
-  then logout where it answers with a node key, stop - never disable: the package's postinst re-enables
-  tailscaled on a reinstall only while its enable link survives, so a disable kept a Tailscale installed
-  again by hand from ever starting - remove (not purge) where dpkg
-  has the package, then the repository, the drop-in and both markers. Each step only where its object exists,
-  since a failed install leaves only some of them. A daemon that does not answer, or a logout that fails
-  (the control server out of reach), is said, not failed on - failed, it would keep Tailscale on until
-  the network came back - and the joined marker stays with the login that may be left: turned on again,
-  the daemon starts on that state, and the login is still the role's. A device the API no longer has
-  (404) is said as gone already, as the release says it.
+- **Off** (`unmanaged.yml`), only with the installed marker - `configure.yml` runs the role at all, off, only
+  where its `stat` finds the marker ([§4.4](lifecycle.md#44-playbooksconfigureyml)) - says that the Tailscale
+  this project installed is left as it is, unmanaged, and changes nothing: no logout, no device deleted, no
+  package or repository removed, not even its 1.x names moved. Choosing a VPN and removing one are separate:
+  through 2.0, off logged the node out and removed what the role installed, and a `local.yml` that relied on
+  Tailscale being the default would have lost it from every VM at the first run after the default became none.
+  Taking it off is by hand (the Tailscale guide's "Turning it off"), and `just destroy`'s release does it for a
+  VM it deletes. `just status` reads such a VM's state as it does a managed one's (`tailscale_status_unmanaged`:
+  the marker and the package both there) and shows it on the tailnet, unmanaged.

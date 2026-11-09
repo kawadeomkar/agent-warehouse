@@ -124,7 +124,7 @@ roles/                            one role per concern, each with defaults/, met
                                   login_report.yml), device_flow.yml (the sign-in), status.yml (just status);
                                   library/github_repos.py, the custom module
   tailscale/                      tasks/ownership.yml, install.yml, state.yml, connect.yml (the key), settings.yml,
-                                  report.yml, absent.yml, login.yml and web_login.yml (the sign-in), status.yml (just status);
+                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in), status.yml (just status);
                                   files/tailscale.asc (the vendored signing key)
 
 lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,

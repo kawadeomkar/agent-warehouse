@@ -513,6 +513,32 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
     assert lines[5].split()[2] == "a-name-longer-than-any-…"
 
 
+def test_a_vm_left_on_the_tailnet_under_none_shows_there_unmanaged_and_one_off_shows_off() -> None:
+    # Choosing no VPN never removes one: a VM the project put on the tailnet stays there, and the column says so
+    # rather than "off" (roles/tailscale/tasks/status.yml reads it where the project's marker is).
+    def vm(name: str, tailscale: dict | None) -> dict:
+        return {
+            "name": name,
+            "address": "192.0.2.11",
+            "needs_ssh": True,
+            "state": "running",
+            "ssh": {"tailscale": tailscale} if tailscale else {},
+        }
+
+    unmanaged = {"case": "unmanaged", "backend": "Running", "dns_name": "alpha.tail0000.ts.net", "ipv4": "100.64.0.1"}
+    model = {
+        "vms": [vm("alpha", unmanaged), vm("beta", {"case": "off"})],
+        "settings": {"aliases_enabled": False, "vpn": "none", "tailscale_off": "vpn is none", "editor_name": "VS Code"},
+    }
+    lines = [screen.plain(line) for line in T._access_lines(model)]
+    assert lines[1].rstrip().endswith("alpha.tail0000.ts.net  100.64.0.1  unmanaged"), lines
+    assert lines[2].rstrip().endswith("off: vpn is none"), lines
+    assert max(len(line) for line in lines) <= T.WIDTH
+    # And SIGN-INS, whose Tailscale cell is that VM's, never "off".
+    assert T._tailscale_cell(unmanaged) == ("● unmanaged", "d")
+    assert T._tailscale_cell({"case": "off", "enabled": False}) == ("○ off", "d")
+
+
 def test_the_access_line_names_the_editor_just_code_opens() -> None:
     # Drawn from the model status_report makes, never one made by hand: status_report kept six keys of the settings,
     # and the line said VS Code whatever the editor was.

@@ -8,8 +8,10 @@
     # Logs off from the daemon's first start; userspace networking, so the real
     # tailscaled needs no TUN device, which Docker Desktop and CI's runners need
     # not provide alike - it carries no traffic here anyway.
+    # Chosen, as off is the role's default from 2.1.
     - role: tailscale
       vars:
+        tailscale_enabled: true
         tailscale_auth_key: tskey-auth-kGood0CNTRL-TestOnly000000000000000000000
         tailscale_upload_logs: false
         tailscale_daemon_flags: [--tun=userspace-networking]

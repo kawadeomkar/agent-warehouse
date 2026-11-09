@@ -4,7 +4,7 @@
 # API credential (tailscale_api_credential), its device is deleted, so it
 # leaves the admin console and its name is free for a VM built again. Whatever
 # Tailscale the VM has, however it got there: the VM itself is going. A daemon
-# stopped by hand is started for the logout, as off does (absent.yml).
+# stopped by hand is started for the logout.
 - name: release | Look for tailscaled's unit
   ansible.builtin.stat:
     path: "{{ tailscale_unit_path }}"

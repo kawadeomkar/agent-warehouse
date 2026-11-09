@@ -12,10 +12,11 @@
 # changed by one validated lineinfile on the example's own line; the vault is
 # written once, at the end, encrypted: it never reaches the disk in plaintext.
 #
-# Tailscale is optional: whether the VMs use it is asked while local.yml does
-# not say (tailscale_enabled, written y or n), and, for a y, an auth key for
-# the vault while it holds none (vault_tailscale_auth_key; Enter is the web
-# login during just deploy).
+# Tailscale is optional, and off unless chosen: whether the VMs use it is asked
+# while local.yml does not say (vpn, or tailscale_enabled, its form before
+# 2.0), written as vpn: tailscale or none, and, for a y, an auth key for the
+# vault while it holds none (vault_tailscale_auth_key; Enter is the web login
+# during just deploy).
 #
 # Before the secret is asked for, at a terminal, just init offers to make the
 # token itself (tasks/init_access.yml): it shows what tools/proxmox-access.sh
@@ -117,12 +118,13 @@
     # it back.
     init_host_writing: "{{ (init_ask | bool or init_given.host is defined) and init_answers.host is defined }}"
 
-    # --tailscale on or off, as the value tailscale_enabled takes, and as the
-    # answer to the question it stands for.
+    # --tailscale on or off, as the vpn it writes, and as the answer to the
+    # question it stands for.
     init_tailscale_given: "{{ {'on': true, 'off': false}[init_given.tailscale] if init_given.tailscale is defined else none }}"
     init_tailscale_given_answer: "{{ '' if init_tailscale_given is none else ('y' if init_tailscale_given else 'n') }}"
-    # The tailscale_enabled this run writes, from the answer, typed or given.
-    init_tailscale_value: "{{ init_answers.tailscale | default('') == 'y' }}"
+    # The vpn this run writes, from the answer, typed or given (D2 of the plan:
+    # the file says what the question says).
+    init_tailscale_value: "{{ 'tailscale' if init_answers.tailscale | default('') == 'y' else 'none' }}"
     # Tailscale on by a choice - y, --tailscale on, or true in local.yml - and
     # not by the default nobody chose: only then is the auth key asked for.
     init_tailscale_chosen: >-
@@ -132,10 +134,10 @@
                   else init_local_settings.tailscale_enabled | default(false) | bool)) }}
     # Whether Tailscale is on as local.yml has it: its vpn, where it sets one -
     # tailscale_enabled then changes nothing, and is neither asked about nor
-    # written - else tailscale_enabled, on by default.
+    # written - else tailscale_enabled, off unless set.
     init_tailscale_on: >-
       {{ (init_local_settings.vpn | default('') | string == 'tailscale') if init_local_settings.vpn is defined
-         else init_local_settings.tailscale_enabled | default(true) | bool }}
+         else init_local_settings.tailscale_enabled | default(false) | bool }}
     init_token_user: "{{ init_local_settings.proxmox_api_user | default(init_token_user_default) }}"
     init_token_name: "{{ init_local_settings.proxmox_api_token_id | default(init_token_name_default) }}"
     # The token's parts this run writes: those that differ from the defaults,
@@ -208,7 +210,7 @@
       {{ 'the secret in --token-secret-file (' ~ init_given.token_secret_file ~ ')'
          if init_given.token_secret_file is defined else init_secret_env_name }}
     init_any_given: "{{ init_given | length > 0 or init_secret_given }}"
-    # This run writes tailscale_enabled: answered or given, and not set.
+    # This run writes vpn: answered or given, and neither vpn nor tailscale_enabled set.
     init_tailscale_writes: >-
       {{ init_answers.tailscale is defined and init_local_settings.tailscale_enabled is not defined
          and init_local_settings.vpn is not defined }}
@@ -520,11 +522,12 @@
 
     # -------------------------------------------------------------- Tailscale ---
     # Whether the VMs use Tailscale, asked while local.yml does not say, and
-    # written either way: n is never asked again, and y is the setting every VM
-    # deployed from then on follows, until tailscale_enabled changes in
-    # local.yml. --tailscale on or off answers it without a terminal. Enter
-    # writes nothing, like every question here, and Tailscale stays on, the
-    # default, until it is answered.
+    # written either way as vpn: tailscale or none, the setting every VM
+    # deployed from then on follows, until it changes in local.yml. A person
+    # whose VPN already routes this LAN needs none, and the question says so
+    # first. --tailscale on or off answers it without a terminal. Enter writes
+    # nothing, like every question here, and no VM gets Tailscale until it is
+    # answered: none is the default.
     - name: Ask whether the VMs use Tailscale
       ansible.builtin.include_tasks: tasks/init_ask.yml
       vars:
@@ -535,17 +538,22 @@
         init_ask_given: "{{ init_tailscale_given_answer }}"
         init_ask_flag: --tailscale
         init_ask_text:
-          - Tailscale puts each VM on your tailnet, so ssh and your editor reach it from anywhere, not
-          - only this LAN. y needs a Tailscale account. n keeps it off the VMs, reached on the LAN as
-          - ever, and the next deploy removes it from any VM this project put it on. Enter to decide
-          - later; until then it is on. tailscale_enabled in local.yml changes it any time.
+          - A VPN you already run that routes this LAN - WireGuard on your router, a Tailscale subnet
+          - router, any other - reaches the VMs at their LAN addresses, from anywhere it reaches you:
+          - answer n, and that is all. y joins each VM to your tailnet itself, which adds
+          - "  - a name for each VM, reached from any of your devices, with no route or port of yours;"
+          - "  - each VM a device of its own: your tailnet policy can keep the VMs off your other devices;"
+          - "  - with an auth key in the vault, the join with nothing to click, and with an API"
+          - "    credential, the VM's device deleted when the VM is."
+          - y needs a Tailscale account. n puts Tailscale on no VM, and leaves a VM it is already on as
+          - it is. Enter to decide later; until then no VM gets Tailscale. vpn in local.yml changes it.
       # Never while local.yml sets vpn, which outranks tailscale_enabled: the answer would change nothing.
       when: init_local_settings.tailscale_enabled is not defined and init_local_settings.vpn is not defined
 
-    - name: Write tailscale_enabled into local.yml
+    - name: Write vpn into local.yml
       ansible.builtin.include_tasks: tasks/init_local_setting.yml
       vars:
-        init_setting_key: tailscale_enabled
+        init_setting_key: vpn
         init_setting_value: "{{ init_tailscale_value }}"
       when: (init_ask | bool or init_given.tailscale is defined) and init_tailscale_writes | bool
 
@@ -572,19 +580,6 @@
         init_ask | bool and init_vault_readable and init_tailscale_chosen | bool
         and not init_tailscale_key_set | default(false) | bool
         and init_local_settings.tailscale_auth_method | default('auto') != 'web'
-
-    # Unanswered, the default flows through defaults.yml as before, so a later
-    # change to the project's default still reaches the person.
-    - name: Say that Tailscale is on by default
-      ansible.builtin.debug:
-        msg: >-
-          NOTICE  Tailscale is on by default: each VM joins your tailnet, by
-          {{ 'vault_tailscale_auth_key' if init_tailscale_key_set | default(false) | bool
-             else "Tailscale's sign-in page during just deploy" }}. Without a Tailscale account, turn it off: answer n
-          at just init, set tailscale_enabled: false in inventory/group_vars/all/local.yml, or just init --tailscale off.
-      when: >-
-        init_local_settings.tailscale_enabled is not defined and init_local_settings.vpn is not defined
-        and init_answers.tailscale is not defined
 
     # ----------------------------------------------------------------- 2. host ---
     - name: Ask for the Proxmox host's address
@@ -820,7 +815,7 @@
             inventory/group_vars/all/local.yml   {{ key }}: {{ value | to_json }}
           {% endfor %}
           {% if init_tailscale_writes | bool %}
-            inventory/group_vars/all/local.yml   tailscale_enabled: {{ init_tailscale_value | to_json }}
+            inventory/group_vars/all/local.yml   vpn: {{ init_tailscale_value | to_json }}
           {% endif %}
           {% if init_access_made | default(false) | bool %}
             the Proxmox host                     the token {{ init_access_user }}!{{ init_access_token }}, with what it needs
