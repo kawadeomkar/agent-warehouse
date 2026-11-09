@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 import harness
@@ -38,6 +39,33 @@ ANSWERS = {
 }
 # pause's question after a Ctrl-C, which the menu raises as prompt_until does.
 GO_ON = "Press 'C' to continue the play or 'A' to abort"
+# pause, as far as the keys go: the question, raw mode, the input flushed, a read to Enter, its line cleared. The
+# first flush comes late, taking the keys typed at it; the second question comes long after the first's keys.
+PAUSE = r"""
+import json, os, sys, termios, time, tty
+
+fd = sys.stdin.fileno()
+
+
+def ask(question, late):
+    settings = termios.tcgetattr(fd)
+    os.write(1, question.encode() + b"\r\n")
+    tty.setraw(fd)
+    time.sleep(late)
+    termios.tcflush(fd, termios.TCIFLUSH)
+    line = b""
+    while not line.endswith(b"\r"):
+        line += os.read(fd, 1)
+    termios.tcsetattr(fd, termios.TCSADRAIN, settings)
+    os.write(1, b"\x1b[K\r\n")
+    return line.decode()
+
+
+first = ask("first?", 1)
+time.sleep(2.5)
+with open(sys.argv[1], "w") as record:
+    json.dump([first, ask("second?", 0)], record)
+"""
 
 
 @pytest.fixture(scope="module")
@@ -78,6 +106,15 @@ def interrupted(request, tmp_path_factory, pve):
     ran = _init(tmp_path_factory.mktemp(f"init_interrupted_{request.param}"), pve, answers=answers)
     ran.key = request.param
     return ran
+
+
+def test_keys_a_flush_took_are_typed_again_and_never_at_the_question_after(tmp_path):
+    script, record = tmp_path / "pause.py", tmp_path / "read.json"
+    script.write_text(PAUSE)
+    argv = [sys.executable, "-I", script, record]
+    ran = kit.at_a_terminal(argv, tmp_path, harness._env(tmp_path), prompts={"first?": b"one\r", "second?": b"two\r"})
+    assert ran.rc == 0, ran.text
+    assert json.loads(record.read_text()) == ["one\r", "two\r"]
 
 
 def test_init_is_one_run_its_questions_steps_and_its_checks_drawn_as_they_are_made(passed):
