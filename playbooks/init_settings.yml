@@ -14,7 +14,7 @@
 #
 # Tailscale is optional, and off unless chosen: whether the VMs use it is asked
 # while local.yml does not say (vpn, or tailscale_enabled, its form before
-# 2.0), written as vpn: tailscale or none, and, for a y, an auth key for the
+# 2.0), written as vpn: tailscale or none, and, for tailscale, an auth key for the
 # vault while it holds none (vault_tailscale_auth_key; Enter is the web login
 # during just deploy).
 #
@@ -121,14 +121,14 @@
     # --tailscale on or off, as the vpn it writes, and as the answer to the
     # question it stands for.
     init_tailscale_given: "{{ {'on': true, 'off': false}[init_given.tailscale] if init_given.tailscale is defined else none }}"
-    init_tailscale_given_answer: "{{ '' if init_tailscale_given is none else ('y' if init_tailscale_given else 'n') }}"
+    init_tailscale_given_answer: "{{ '' if init_tailscale_given is none else ('tailscale' if init_tailscale_given else 'none') }}"
     # The vpn this run writes, from the answer, typed or given (D2 of the plan:
     # the file says what the question says).
-    init_tailscale_value: "{{ 'tailscale' if init_answers.tailscale | default('') == 'y' else 'none' }}"
+    init_tailscale_value: "{{ 'tailscale' if init_answers.tailscale | default('') == 'tailscale' else 'none' }}"
     # Tailscale on by a choice - y, --tailscale on, or true in local.yml - and
     # not by the default nobody chose: only then is the auth key asked for.
     init_tailscale_chosen: >-
-      {{ init_answers.tailscale | default('') == 'y'
+      {{ init_answers.tailscale | default('') == 'tailscale'
          or (init_answers.tailscale is not defined
              and ((init_local_settings.vpn | default('') | string == 'tailscale') if init_local_settings.vpn is defined
                   else init_local_settings.tailscale_enabled | default(false) | bool)) }}
@@ -219,7 +219,7 @@
     init_vault_optional: >-
       {{ ['vault_github_token', 'vault_anthropic_api_key']
          + ([] if init_tailscale_key_answered | bool or init_tailscale_key_set | default(false) | bool
-                  or init_answers.tailscale | default('') == 'n'
+                  or init_answers.tailscale | default('') == 'none'
                   or not (init_tailscale_on | bool)
                   or init_local_settings.tailscale_auth_method | default('auto') == 'web'
             else ['vault_tailscale_auth_key']) }}
@@ -521,7 +521,8 @@
       when: init_vault_readable and init_github_set | length == 0
 
     # -------------------------------------------------------------- Tailscale ---
-    # Whether the VMs use Tailscale, asked while local.yml does not say, and
+    # Which VPN the VMs use, none or tailscale - a choice, picked with the arrow
+    # keys at a terminal that can draw - asked while local.yml does not say, and
     # written either way as vpn: tailscale or none, the setting every VM
     # deployed from then on follows, until it changes in local.yml. A person
     # whose VPN already routes this LAN needs none, and the question says so
@@ -532,21 +533,24 @@
       ansible.builtin.include_tasks: tasks/init_ask.yml
       vars:
         init_ask_name: tailscale
-        init_ask_label: Use Tailscale on the VMs? y or n
-        init_ask_kind: yes_no
+        init_ask_label: "VPN: none or tailscale"
+        init_ask_kind: choice
+        init_ask_choices: [none, tailscale]
+        init_ask_notes: ["your LAN, or a VPN of yours that routes it", "each VM joins your tailnet"]
+        init_ask_title: VPN
         init_ask_hidden: false
         init_ask_given: "{{ init_tailscale_given_answer }}"
         init_ask_flag: --tailscale
         init_ask_text:
           - A VPN you already run that routes this LAN - WireGuard on your router, a Tailscale subnet
           - router, any other - reaches the VMs at their LAN addresses, from anywhere it reaches you:
-          - answer n, and that is all. y joins each VM to your tailnet itself, which adds
+          - choose none, and that is all. tailscale joins each VM to your tailnet itself, which adds
           - "  - a name for each VM, reached from any of your devices, with no route or port of yours;"
           - "  - each VM a device of its own: your tailnet policy can keep the VMs off your other devices;"
           - "  - with an auth key in the vault, the join with nothing to click, and with an API"
           - "    credential, the VM's device deleted when the VM is."
-          - y needs a Tailscale account. n puts Tailscale on no VM, and leaves a VM it is already on as
-          - it is. Enter to decide later; until then no VM gets Tailscale. vpn in local.yml changes it.
+          - tailscale needs a Tailscale account. none puts Tailscale on no VM, and leaves a VM it is
+          - already on as it is. Left for later, it is none until answered. vpn in local.yml changes it.
       # Never while local.yml sets vpn, which outranks tailscale_enabled: the answer would change nothing.
       when: init_local_settings.tailscale_enabled is not defined and init_local_settings.vpn is not defined
 

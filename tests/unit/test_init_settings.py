@@ -65,7 +65,7 @@ HOST_PROMPT = b"Proxmox host address:"
 TOKEN_PROMPT = b"API token ID:"
 SECRET_PROMPT = b"API token secret"
 GITHUB_PROMPT = b"GitHub username:"
-TAILSCALE_PROMPT = b"Use Tailscale on the VMs? y or n:"
+TAILSCALE_PROMPT = b"VPN: none or tailscale:"
 TAILSCALE_KEY_PROMPT = b"Tailscale auth key (output is hidden):"
 ACCESS_PROMPT = b"Set it up now? y or n"
 
@@ -217,7 +217,7 @@ def _encrypt(files: dict, text: str, password: str = "a-password-of-the-persons-
 # Typed: every question, in order, each answer and Enter.
 EVERY_ANSWER = [
     (GITHUB_PROMPT, b"octocat\n"),
-    (TAILSCALE_PROMPT, b"n\n"),
+    (TAILSCALE_PROMPT, b"none\n"),
     (HOST_PROMPT, b"pve.lan\n"),
     (TOKEN_PROMPT, b"\n"),
     (SECRET_PROMPT, SECRET.encode() + b"\n"),
@@ -314,7 +314,7 @@ RULE = {
     TOKEN_PROMPT: ("user@realm!name", "API token ID"),
     SECRET_PROMPT: ("36-character secret", "API token secret"),
     GITHUB_PROMPT: ("GitHub username", "GitHub username"),
-    TAILSCALE_PROMPT: ("y or n", "Use Tailscale on the VMs? y or n"),
+    TAILSCALE_PROMPT: ("numbers or names listed", "VPN: none or tailscale"),
 }
 
 
@@ -993,7 +993,7 @@ OPTIONAL = "Optional, with just vault: vault_github_token, vault_anthropic_api_k
 
 def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"none\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
@@ -1011,7 +1011,11 @@ def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_
 
 def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), (TAILSCALE_KEY_PROMPT, TAILSCALE_KEY.encode() + b"\n")]
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"tailscale\n"),
+        (TAILSCALE_KEY_PROMPT, TAILSCALE_KEY.encode() + b"\n"),
+    ]
     rc, output, log = _init_at_a_terminal(tmp_path, files, [*steps, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
     assert 'vpn: "tailscale"\n' in Path(files["init_local_file"]).read_text()
@@ -1029,7 +1033,12 @@ def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: P
 
 def test_enter_at_the_key_is_the_web_login_and_the_next_init_asks_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), (TAILSCALE_KEY_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"tailscale\n"),
+        (TAILSCALE_KEY_PROMPT, b"\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert _decrypt(files) == _example("init_vault_file")
@@ -1044,7 +1053,7 @@ def test_enter_at_the_key_is_the_web_login_and_the_next_init_asks_again(tmp_path
 def test_a_key_that_is_not_one_is_asked_for_once_more_then_left_unsaid(tmp_path: Path) -> None:
     files = _files(tmp_path)
     wrong = (TAILSCALE_KEY_PROMPT, b"tskey a b\n")
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), wrong, wrong, *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"tailscale\n"), wrong, wrong, *THE_PROXMOX_QUESTIONS]
     rc, output, log = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert "That is not a key as Tailscale printed it" in output and "is left as it was" in output
@@ -1063,7 +1072,7 @@ def test_the_key_is_not_asked_for_where_it_has_nothing_to_do(tmp_path: Path, why
         )
     else:
         local.write_text(local.read_text() + "tailscale_auth_method: web\n")
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"tailscale\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert 'vpn: "tailscale"\n' in local.read_text()
@@ -1089,7 +1098,7 @@ def test_the_tailscale_question_says_first_that_a_vpn_routing_the_lan_needs_none
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     asked = output[: output.index(TAILSCALE_PROMPT.decode())]
-    assert "A VPN you already run that routes this LAN" in asked and "answer n, and that is all" in asked
+    assert "A VPN you already run that routes this LAN" in asked and "choose none, and that is all" in asked
     # What a key and a credential each give, said as needing them.
     assert "with an auth key in the vault" in asked and "with an API" in asked
 

@@ -7,9 +7,10 @@ and the same refusing ssh. What a person sees: the questions with no frame flash
 steps, the checks drawn as they are recorded and said whole in the summary, one NEXT STEPS at the end; and a check
 that fails drawn as the failure, the last task naming nothing of its own (docs/architecture/custom-code.md §7.8).
 
-A yes-or-no is asked as a menu (lib/claude_vm/tui/choose.py), as the live engine asks one at a terminal that can
-draw: the Tailscale question answered by its letter and Enter, never wrapped, erased once answered and said on one
-line; and Ctrl-C at it, then C to go on - the question left for later - or A to abort the run, as pause has it.
+A choice is asked as a menu (lib/claude_vm/tui/choose.py), as the live engine asks one at a terminal that can
+draw: the VPN question, none or tailscale, answered by its first letter and Enter, never wrapped, erased once
+answered and said on one line; and Ctrl-C at it, then C to go on - the question left for later - or A to abort the
+run, as pause has it.
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ import test_init_settings as tis
 
 from claude_vm.tui import choose
 
-# The questions, each typed once it has the terminal: a GitHub user, no Tailscale - a menu, its hint the sign it has
-# the terminal: n moves to no, Enter takes it - the host, the token ID as it is, the secret.
+# The questions, each typed once it has the terminal: a GitHub user, no VPN - a menu, its hint the sign it has the
+# terminal: n moves to none, Enter takes it - the host, the token ID as it is, the secret.
 ANSWERS = {
     tis.HOST_PROMPT.decode(): b"pve.lan\r",
     tis.TOKEN_PROMPT.decode(): b"\r",
@@ -111,23 +112,23 @@ def test_a_check_that_fails_is_the_failure_and_the_last_task_names_nothing_of_it
     assert re.search(r"^just init found 2 problems", steps, re.M) and re.search(r"^  !!   Proxmox at ", steps, re.M)
 
 
-def test_a_yes_or_no_is_a_menu_answered_by_its_letter_and_said_on_one_line(passed):
+def test_a_choice_is_a_menu_answered_by_its_letter_and_said_on_one_line(passed):
     assert passed.rc == 0, passed.text
     # Drawn, and never as the typed prompt: its last words and their colon are the menu's place.
     assert choose.HINT.encode() in passed.raw and tis.TAILSCALE_PROMPT not in passed.raw
     assert passed.screen.frame_wraps == 0 and b"\x1b[?25l" not in passed.raw
     screen = passed.transcript
-    assert "Use Tailscale on the VMs? no" in screen, screen
+    assert "VPN: none" in screen, screen
     assert choose.HINT not in screen, "the menu is erased once answered"
-    assert "tailscale_enabled: false" in passed.local.read_text()
+    assert 'vpn: "none"' in passed.local.read_text()
 
 
 def test_ctrl_c_at_the_menu_is_pause_s_c_goes_on_with_the_question_left_and_a_aborts(interrupted):
     assert GO_ON in interrupted.text
     if interrupted.key == "c":
         assert interrupted.rc == 0, interrupted.text
-        assert "Use Tailscale on the VMs? left for later" not in interrupted.transcript
-        assert not [line for line in interrupted.local.read_text().splitlines() if line.startswith("tailscale_enabled")]
+        assert "VPN: left for later" not in interrupted.transcript
+        assert not [line for line in interrupted.local.read_text().splitlines() if line.startswith("vpn:")]
     else:
         assert interrupted.rc != 0, interrupted.text
         assert "user requested abort!" in interrupted.text

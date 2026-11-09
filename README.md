@@ -77,7 +77,7 @@ certificate.
 
 ```bash
 git clone https://github.com/kawadeomkar/agent-warehouse.git && cd agent-warehouse
-just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
+just init            # installs the tools, asks for your GitHub username, a VPN and your Proxmox host, and offers to make the API token
 ```
 
 `just init` first makes the project's Python environment with uv - a Python uv downloads, and the locked
@@ -91,8 +91,8 @@ the vault encrypted, with its password in `.vault_pass`: keep that file.
 | File | Contents |
 |------|----------|
 | `inventory/hosts.yml` | The address of your Proxmox host, which `just init` asks for. VMs are **not** listed here |
-| `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for after a `y` to Tailscale. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
-| `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `tailscale_enabled` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
+| `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for once you choose `tailscale`. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
+| `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `vpn` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
 
 Every setting the two files take, with its default, is in the [settings reference](docs/reference/settings.md);
 `just settings --all` shows the value each has now, and `just vault` edits the vault.
@@ -113,7 +113,7 @@ The run stops for you at most three times, each at a page it opens in your brows
 2. **GitHub** - the one-time code is on your clipboard: paste it and authorise. Skipped when the vault
    has a GitHub token.
 3. **Tailscale** - sign in and connect the VM. Skipped when the vault has a Tailscale auth key, which
-   `just init` asks for after a `y` to Tailscale, or with `vpn: none`, the default.
+   `just init` asks for once you choose `tailscale` as the VPN, or with `vpn: none`, the default.
 
 Then your editor opens on the VM, in `~/projects`. In VS Code, the default, Claude runs in a terminal; the
 first time, VS Code asks you to trust the folder and to allow automatic tasks, both yours to answer. In Zed

@@ -43,7 +43,7 @@ RULES = {
         " of at least 20 letters, digits and . _ : / ? = & + -"
     ),
     "yes_no": "y or n",
-    "choice": "one of the numbers listed",
+    "choice": "one of the numbers or names listed",
 }
 
 
@@ -126,17 +126,22 @@ def init_pick(answer, candidates):
     return "" if text in ("", "n") else text
 
 
-def init_ask_menu(kind, choices=None, label="", title=""):
+def init_ask_menu(kind, choices=None, label="", title="", notes=None):
     """The menu a question of ``kind`` is asked as at a terminal that can draw (lib/claude_vm/tui/choose.py), ``{}``
-    for one typed: yes or no for ``yes_no``, each item of ``choices`` for ``choice``. Each answer's value is what the
-    typed answer would be, so init_answer takes both alike. The title its collapsed line says: ``title`` where given,
-    else the label up to its typed answers ("Use Tailscale on the VMs? y or n" is "Use Tailscale on the VMs?")."""
+    for one typed: yes or no for ``yes_no``, each item of ``choices`` for ``choice``, with the note of ``notes`` in its
+    place beside it. Each answer's value is what the typed answer would be, so init_answer takes both alike. The title
+    its collapsed line says: ``title`` where given, else the label up to its typed answers ("Use Tailscale on the VMs?
+    y or n" is "Use Tailscale on the VMs?")."""
     label = str(label or "")
     shown = str(title or "") or re.sub(r"\s+(y or n|Number)\b.*$", "", label).rstrip(",") or label
     if kind == "yes_no":
         options = [{"value": "y", "text": "yes", "note": ""}, {"value": "n", "text": "no", "note": ""}]
     elif kind == "choice" and choices:
-        options = [{"value": str(item), "text": str(item), "note": ""} for item in choices]
+        said = [str(note) for note in notes or ()]
+        options = [
+            {"value": str(item), "text": str(item), "note": said[index] if index < len(said) else ""}
+            for index, item in enumerate(choices)
+        ]
     else:
         return {}
     return {"title": shown, "label": label, "options": options, "chosen": 0}

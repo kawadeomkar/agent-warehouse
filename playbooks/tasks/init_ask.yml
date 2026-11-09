@@ -11,6 +11,8 @@
 #   init_ask_choices  for a choice: the items, which the text numbers
 #   init_ask_title    for a choice, what its answer is of, for the line a menu
 #                     leaves (Storage); a yes or no says its label
+#   init_ask_notes    for a choice, optional: a few words beside each item in
+#                     the menu, in the items' order
 #   init_ask_hidden   true for a secret: not echoed, and every task here no_log
 #   init_ask_given    the value given on just init's command line instead, or ""
 #   init_ask_flag     how it was given, for a message: --host
@@ -40,7 +42,8 @@
     echo: "{{ not (init_ask_hidden | default(false)) }}"
     menu: &init_ask_menu >-
       {{ {} if init_ask_hidden | default(false)
-         else init_ask_kind | init_ask_menu(init_ask_choices | default([]), init_ask_label, init_ask_title | default('')) }}
+         else init_ask_kind | init_ask_menu(init_ask_choices | default([]), init_ask_label, init_ask_title | default(''),
+                                            init_ask_notes | default([])) }}
   register: init_ask_typed
   no_log: "{{ init_ask_hidden | default(false) }}"
   when: init_ask | bool and init_ask_given | default('') | length == 0

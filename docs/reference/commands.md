@@ -57,7 +57,7 @@ environment where `python3` is not it.
 | &emsp;`--github-user GITHUB_USER` | The GitHub account whose repositories are cloned |
 | &emsp;`--storage STORAGE` | The storage for VM disks, for local.yml: written when the token can use it there |
 | &emsp;`--bridge BRIDGE` | The bridge the template is built on, for local.yml (before the template exists) |
-| &emsp;`--tailscale TAILSCALE` | Answers init's Tailscale question: on, each VM joins your tailnet; off, no Tailscale, for a setup without an account (tailscale_enabled in local.yml) |
+| &emsp;`--tailscale TAILSCALE` | Answers init's VPN question: on, each VM joins your tailnet; off, none - a VPN of yours that routes the LAN, or none at all (vpn in local.yml) |
 | &emsp;`--no-prompt` | Ask nothing, even at a terminal |
 | `just install` | Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own |
 | &emsp;`--lock` | Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH) |

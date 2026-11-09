@@ -486,7 +486,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `tailscale_enabled` nor `vpn` (which outranks it), the answer written as `vpn: tailscale` or `vpn: none`,
       and a `--tailscale` the `vpn` set contradicts fails the run, naming both. Unanswered, no VPN is chosen:
       every other recipe's `tools/check settings` warns of it, and `just init`'s, run `--asking`, does not.
-      Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`), hidden, and
+      The VPN's question is a choice, `none` first, then `tailscale`. Tailscale's auth key is asked only once
+      `tailscale` is chosen (or `on` given, or `vpn: tailscale` or `tailscale_enabled: true` set), hidden, and
       never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
       `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
