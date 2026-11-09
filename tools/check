@@ -153,8 +153,6 @@ RENAMED = {
 
 # Each choice's setting checked here: the defaults' list of its members, and the values that are no member.
 CHOICES = {"vpn": ("claude_vpns", ("none",))}
-# vpn_reach, held to what the VPN it is set beside offers (its row's reach): lan always.
-REACH = ("lan", "tunnel")
 
 
 class Loader(yaml.SafeLoader):
@@ -253,17 +251,6 @@ for path in sys.argv[2:]:
                     value, bool) else ""
                 print(f"error: {path} sets {name} to something that is none of its choices{why}: "
                       f"{', '.join(members)}", file=sys.stderr)
-                found = True
-        if name == "vpn_reach" and value not in ("", None, "lan") and "{{" not in str(value):
-            # The VPN beside it: this file's vpn, or what tailscale_enabled makes it while vpn is not set.
-            settings_here = dict(settings(data))
-            vpn = settings_here.get("vpn") or (
-                "tailscale" if settings_here.get("tailscale_enabled", True) not in (False, "false") else "none"
-            )
-            offers = ((DEFAULTS.get("claude_vpns") or {}).get(vpn) or {}).get("reach") or ["lan"]
-            if value not in REACH or value not in offers:
-                print(f"error: {path} sets vpn_reach to something {vpn} does not offer: {', '.join(offers)}",
-                      file=sys.stderr)
                 found = True
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]

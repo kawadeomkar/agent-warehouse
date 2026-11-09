@@ -75,8 +75,7 @@ with `force: true` (which also covers a VM restarted between the two calls) and
 `destroy_unreferenced_disks: true` (a disk that still carries the VMID but that the configuration no
 longer lists goes with the VM - these VMs are deleted often, and the tag check has already
 established the VMID is this project's), then one housekeeping
-step: remove the address from `known_hosts`, and the WireGuard address the VM's mark holds, which its alias
-connects to under `vpn_reach: tunnel`. It matters because names, DHCP leases and WireGuard addresses are reused,
+step: remove the address from `known_hosts`. It matters because names and DHCP leases are reused,
 and a stale host key produces `HOST KEY VERIFICATION FAILED` with no hint why. If no address could
 be determined, a warning says so and names the `ssh-keygen -R` fix. There are no cached facts to
 clear: the project has no fact cache ([§13](toolchain.md)).
@@ -877,38 +876,3 @@ plan's research record.
   the network came back - and the joined marker stays with the login that may be left: turned on again,
   the daemon starts on that state, and the login is still the role's. A device the API no longer has
   (404) is said as gone already, as the release says it.
-
-## 5.9 `wireguard` — each VM a peer of your WireGuard server
-
-Run with `vpn: wireguard` ([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)): the
-VM a peer of a WireGuard server the user already runs, its hub, which the project never writes. The role is the VM's
-half; who is on the network - each VM's address, the peer its server is to have - is the members' plan, made on the
-controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`).
-
-- **Ownership.** `/var/lib/agent-warehouse/wireguard-installed` (in the directory's 1.x name until a run of 2.0 moves it)
-  is written before the role's first change on a VM,
-  saying whether the role installed `wireguard-tools` there; everything else the role makes has a name of its own -
-  the key `/etc/systemd/network/claude-wg.key`, the files `50-claude-wg.netdev` and `50-claude-wg.network`, the link
-  `claude-wg` - so a WireGuard of the user's (`wg0`, `/etc/wireguard`) is never touched.
-- **The key** (`tasks_from: key`, in configure's play, before the plan). `wireguard-tools` installed, and the key
-  made once with `wg genkey` under `umask 077`, `root:systemd-network` 0640 - what systemd-networkd's
-  `PrivateKeyFile=` reads - and never read by Ansible: `wg pubkey` reads it on the VM, and only the public key is
-  printed. The public key and whether the link has shaken hands with the hub are facts the plan reads through
-  `hostvars`.
-- **The link** (`main`, in the play after the plan). Two files of systemd-networkd's, every value the plan's, held
-  by the core to its rules: the hub its one peer, its endpoint and the networks routed to it (`AllowedIPs`, the
-  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, with no prefix route
-  in the main table (`AddPrefixRoute=no`), but a `[RoutingPolicyRule]` from that address to a table of its own
-  (`wireguard_route_table`, never wg-quick's 51820) whose one route is the link - to the hub's network, or under
-  `vpn_reach: tunnel` to every address - so what reached the VM at its tunnel address is answered there, and a reply
-  from its LAN address leaves on the LAN where its request came in: in the tunnel it would carry an address the
-  hub's peer for the VM does not hold, and the hub would drop it. networkd makes no route for `AllowedIPs`, and
-  applies a netdev only when it makes the link, so a changed one deletes the link first, and the reload makes it
-  again; a changed network alone is reconfigured. The netdev carries the VM's public key in a comment, since it names
-  the key's file and networkd reads the file only then: a new key changes the netdev, and the link is made with it. An endpoint name is looked up once, when the link is made.
-- **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
-  removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
-- **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the
-  hub, read and never changed, kept in `wireguard_status_found`; a link that has never reached the hub, or not in
-  three minutes, is a line to act on.
-- **No handlers**: the role runs in blocks whose rescue records a failure, and a handler would run out of its reach.

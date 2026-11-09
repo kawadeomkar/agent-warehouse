@@ -57,10 +57,10 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   file a VM with passwordless sudo off keeps (`99-agent-warehouse-user.cfg`), the tmux settings' block, and
   `~/.config/agent-warehouse`, where the GitHub and Claude sign-ins keep their state - a login the project made is
   still known as its own. sshd is not restarted for the move. `just status` reads the 1.x names until then.
-- **The Tailscale and WireGuard markers** move from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the
-  next `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
-  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale or WireGuard the project set up stays the
-  project's, and one turned off since is still found and removed. `just status` reads the 1.x names until then.
+- **The Tailscale marker** moves from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the next
+  `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
+  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale the project set up stays the project's, and
+  one turned off since is still found and removed. `just status` reads the 1.x names until then.
 - **The ownership tag is `agent-warehouse`.** A VM 1.x made, tagged `claude-on-proxmox`, is this project's through
   2.x as before, and so are the tags 1.x made from it: `claude-on-proxmox-tailscale` keeps the vault's auth key from
   that VM as `agent-warehouse-tailscale` does, and `claude-on-proxmox-unfinished` still gets it finished. The next

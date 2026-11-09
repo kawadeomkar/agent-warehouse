@@ -839,10 +839,6 @@ def _ssh_items(vm, settings, live, now):
             )
         elif tailscale.get("left") and tailscale.get("line"):
             add("todo", tailscale["line"], source="tailscale")
-    vpn = ssh.get("vpn")
-    if vpn and vpn.get("kind") == "wireguard" and vpn.get("left") and vpn.get("line"):
-        # A hub out of reach is a problem; a peer the user has yet to add, or a link not set up, is to do.
-        add("problem" if vpn.get("case") == "stale" else "todo", vpn["line"], source="wireguard")
     return items
 
 

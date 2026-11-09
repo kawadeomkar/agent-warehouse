@@ -1,7 +1,7 @@
 ---
-# Through 1.x this role's markers - and wireguard's, in the same directory - were
-# in /var/lib/claude-on-proxmox, and tailscaled's drop-in was named after it too:
-# each moved once to its name from 2.0, before anything reads them. The drop-in's
+# Through 1.x this role's markers were in /var/lib/claude-on-proxmox, and
+# tailscaled's drop-in was named after it too: each moved once to its name from
+# 2.0, before anything reads them. The drop-in's
 # comment is rewritten as it moves, so that install.yml finds it as it writes it
 # and tailscaled is not restarted for the move; systemd is reloaded to know it by
 # its new name. Each move under one condition, read before it; never in check

@@ -73,7 +73,6 @@ from harness import (
 DESTROY = REPO / "playbooks" / "destroy.yml"
 FAKES = REPO / "tests" / "molecule"
 REPORT = "Say what became of each VM, and what is left of it"
-WIREGUARD_LEFT = "Say the WireGuard peers each deleted VM leaves on its server"
 ADMIN = "https://login.tailscale.com/admin/machines"
 
 # Canned credentials, each searched for in the whole report.
@@ -273,10 +272,8 @@ def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
 REFUSED = "can't remove VM - protection mode enabled"
 
 
-def _destroy_tail(root: Path, saved: Path | None = None, wireguard: bool = False) -> Path:
-    """destroy.yml's release play, its deletion and its report: as destroy.yml has them, proxmox_vm aside; with
-    wireguard, the play between the deletion and the report that says the peers the deleted VMs leave, with the
-    inventory's defaults.
+def _destroy_tail(root: Path, saved: Path | None = None) -> Path:
+    """destroy.yml's release play, its deletion and its report: as destroy.yml has them, proxmox_vm aside.
 
     The deletion is destroy's own play with a stand-in for the role, which deletes nothing and refuses a VM
     with destroy_test_undeletable set, so that its rescue records why. A VM with destroy_test_lost set fails
@@ -324,22 +321,12 @@ def _destroy_tail(root: Path, saved: Path | None = None, wireguard: bool = False
             "groups['claude_vm_doomed']", "groups['claude_vms']"
         )
     )
-    left = []
-    if wireguard:
-        (play,) = [play for play in plays if play.get("name") == WIREGUARD_LEFT]
-        play = json.loads(
-            json.dumps(play)
-            .replace('"tasks/', f'"{REPO / "playbooks" / "tasks"}/')
-            .replace("groups['claude_vm_doomed']", "groups['claude_vms']")
-        )
-        left = [play | {"vars_files": [str(REPO / "inventory" / "group_vars" / "all" / "defaults.yml")]}]
     playbook = root / "destroy_tail.yml"
     playbook.write_text(
         yaml.safe_dump(
             [
                 {**release, "hosts": "claude_vms"},
                 {**delete, "hosts": "claude_vms"},
-                *left,
                 {"name": "Report", "hosts": "localhost", "gather_facts": False, **on_these},
             ]
         )
@@ -872,49 +859,6 @@ def test_a_vm_whose_sudo_refuses_is_saved_and_deleted_unreleased_and_said_why(un
 
 
 # ------------------------------------------------------------- destroy.yml ---
-@pytest.fixture(scope="module")
-def wireguard_left(tmp_path_factory, fake_github, fake_tailscale):
-    # Two VMs deleted, one with a WireGuard address in Proxmox, under an OPNsense hub whose router cannot be read:
-    # there is none in the inventory. A run that fails there must still stop again what it started, forget the
-    # aliases and say what became of each VM: the report play after it runs.
-    root = tmp_path_factory.mktemp("wireguard")
-    hosts = _hosts(root, {"marked": {}, "unmarked": {}}, fake_github, fake_tailscale)
-    hosts["marked"] |= {"claude_vm_listed_id": 4013, "claude_vm_marks": ["wg-198.51.100.129-reached"]}
-    hosts["unmarked"] |= {"claude_vm_listed_id": 4014, "claude_vm_marks": []}
-    extra = {
-        "ansible_become": False,
-        "tailscale_settle_seconds": 3,
-        "wireguard_hub": "opnsense",
-        "wireguard_hub_instance": "home",
-    }
-    return _run(root, _destroy_tail(root, wireguard=True), hosts, "-e", json.dumps(extra), ordered=True)
-
-
-def test_a_hub_that_cannot_be_read_at_destroy_leaves_each_marked_vm_s_peer_said_and_the_run_going(wireguard_left):
-    report = wireguard_left
-    assert report["rc"] == 0, _failures(report)
-    items = [
-        item
-        for play in report["plays"]
-        for task in play["tasks"]
-        if task["task"]["name"] == "Say the peer each deleted VM leaves, which WireGuard's plan could not"
-        for item in task["hosts"]["localhost"].get("results", [])
-    ]
-    # Said for the VM with an address alone: the other's item is skipped, and says nothing.
-    said = {item["claude_vm_wireguard_of"]: item.get("msg") for item in items}
-    assert set(said) == {"marked", "unmarked"} and said["unmarked"] is None, items
-    line = said["marked"]
-    assert line.startswith('marked: WireGuard failed at "vpn_members | Read the hub\'s instance and its peers":')
-    assert line.endswith(
-        "Its peer, agent-warehouse-marked (AllowedIPs 198.51.100.129/32), stays on your WireGuard server until you"
-        " remove it."
-    )
-    assert _left_to_do(report)["marked"]["wireguard_peer"] == line
-    assert "wireguard_peer" not in _left_to_do(report).get("unmarked", {})
-    # The report play after it ran: a line for each VM.
-    assert set(_said(report)) == {"marked", "unmarked"}
-
-
 def _action(task: dict) -> str:
     (action,) = [key for key in task if "." in key]
     return action

@@ -123,8 +123,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 ## Invariants — do not break these
 
 - **No addresses in git.** The Proxmox host's address is the only one anyone supplies, and it lives
-  in git-ignored `inventory/hosts.yml` - but for a WireGuard server's, which `vpn: wireguard` dials
-  (`wireguard_hub_endpoint`, in git-ignored `local.yml`). VM addresses are always DHCP, read back from the QEMU guest
+  in git-ignored `inventory/hosts.yml`. VM addresses are always DHCP, read back from the QEMU guest
   agent. Never add a VM to a committed inventory, and never hardcode a VM address in a default.
 - **No secrets in git.** Secrets go in `inventory/group_vars/all/vault.yml` (ansible-vault). CI runs
   gitleaks plus `tests/check_no_local_files.sh`, which blocks `hosts.yml`, `local.yml`, `vault.yml`,
@@ -293,24 +292,6 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the Vagrantfile is keyless with logs
       off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The template is
       never signed in to anything.
-- **WireGuard's VMs are peers of the user's server, which the project never writes, and a VM's key never leaves
-  it.** Read [§5.9](docs/architecture/roles.md#59-wireguard--each-vm-a-peer-of-your-wireguard-server) first.
-    - With `vpn: wireguard` (docs/guides/wireguard.md) the `wireguard` role makes the VM's key on the VM (`wg
-      genkey` under `umask 077`, `root:systemd-network` 0640, what networkd's `PrivateKeyFile=` reads), never
-      reads it - only `wg pubkey`'s output leaves the VM - and touches only its own names (`claude-wg`,
-      `50-claude-wg.*`, `claude-wg.key`, the marker `wireguard-installed`, and `wireguard-tools` where the marker
-      says it installed it), never a `wg0` of the user's.
-    - Who is on the network is WireGuard's plan in the core (`lib/claude_vm/vpn/wireguard.py`, held by
-      `registry.py`): each VM's address from `wireguard_vm_prefix`, kept for its life as the mark
-      `<ownership tag>-wg-<address>` in Proxmox (`tasks/vm_marks.yml`, the one writer of a mark), its link's every
-      value, and the peer its server is to have - only by the name `<tag>-<vm>`, the VM's own key and its own
-      address as a /32 - which the run says (`wireguard_hub: manual`), or writes through the router's API
-      (`opnsense`: `playbooks/library/opnsense_wireguard.py`, the certificate pinned, OPNsense 26.7.2 or later,
-      every `privkey` the API answers with dropped), changing only a peer with every mark of the project's,
-      removing one only from a complete listing, and `just destroy` the one to remove. Settings that cannot work
-      are refused before anything is written.
-    - The plan runs between the role's two entry points: `key` in configure's play, the plan on localhost, `main`
-      in a play of its own, each in a block whose rescue records a failure raised at the end of the run.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.

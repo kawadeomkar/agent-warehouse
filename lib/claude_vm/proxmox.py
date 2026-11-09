@@ -67,8 +67,7 @@ def tailnet_ipv4(addresses):
 
 
 # A mark: a fact about a VM that the VM cannot change, kept as a tag beside the ownership tag, <tag>-<mark>
-# (docs/architecture/custom-code.md §7.11): tailscale, or wg-<the VM's WireGuard address>, with -reached after it
-# once the VM has reached its hub there.
+# (docs/architecture/custom-code.md §7.11): tailscale.
 MARK_RE = MARK  # the core's own pattern (lib/claude_vm/vpn/model.py), so the two never disagree
 
 
@@ -112,22 +111,6 @@ def proxmox_tags_moved(tags, tag, old):
         if each.lower() not in [m.lower() for m in moved]:
             moved.append(each)
     return moved
-
-
-def proxmox_wireguard_taken(resources, tag, but=()):
-    """Every WireGuard address a VM of the project holds in Proxmox, from the cluster's listing, but the VMs whose VM
-    IDs are given: the addresses no other VM may be given."""
-    taken, but = [], {int(vmid) for vmid in but}
-    for vm in resources or ():
-        if not isinstance(vm, dict) or vm.get("vmid") in but:
-            continue
-        if set(_owned(tag)) & set(_tag_list(vm.get("tags", ""))):
-            taken += [
-                mark[3:].removesuffix("-reached")
-                for mark in proxmox_marks(vm.get("tags", ""), tag)
-                if mark.startswith("wg-")
-            ]
-    return taken
 
 
 def guest_addresses(vms, configs, networks, nic="net0"):

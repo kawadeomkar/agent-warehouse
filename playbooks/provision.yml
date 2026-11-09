@@ -186,7 +186,7 @@
         tailscale_joined_before: >-
           {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
              | default('', true) is regex(claude_vm_tailscale_tag_pattern) }}
-        # Every mark Proxmox keeps for it, its WireGuard address among them (tasks/vm_marks.yml).
+        # Every mark Proxmox keeps for it, Tailscale's record among them (tasks/vm_marks.yml).
         claude_vm_marks: >-
           {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
              | default('', true) | proxmox_marks(claude_vm_tags_owned) }}

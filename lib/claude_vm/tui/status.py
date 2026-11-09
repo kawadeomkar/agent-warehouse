@@ -191,7 +191,7 @@ def _access_lines(model):
     # for the VPN: TAILNET for Tailscale, as 1.0 had it.
     vpn = model["settings"].get("vpn") or ("tailscale" if model["settings"].get("tailscale_enabled") else "none")
     show_tailnet = any(vm.get("needs_ssh") for vm in vms) or vpn != "tailscale"
-    column = {"tailscale": "TAILNET", "wireguard": "WIREGUARD"}.get(vpn, "VPN")
+    column = {"tailscale": "TAILNET"}.get(vpn, "VPN")
     # The alias is what ssh takes, so whole up to 24 characters, the column as wide as the longest and two spaces:
     # one padded to 12 alone ran a 12-character alias into the tailnet column.
     alias_width = min(26, max([12] + [len(vm["name"]) + 2 for vm in vms if vm.get("alias")]))
@@ -223,28 +223,12 @@ def _tailnet_cells(vm, model, dns_width=0):
         return [seg(f"off: {said}", "d")]
     if vm.get("pending_ssh"):
         return [seg(PENDING, "c")]
-    if vpn == "wireguard":
-        return _wireguard_cells((vm.get("ssh") or {}).get("vpn"))
     tailscale = (vm.get("ssh") or {}).get("tailscale")
     if not tailscale:
         return [seg("—", "d")]
     if tailscale.get("backend") == "Running" and tailscale.get("dns_name"):
         return [seg(f"{tailscale['dns_name']:<{dns_width}}  {tailscale.get('ipv4') or ''}".rstrip())]
     return [seg(_tailscale_cell(tailscale)[0][2:], "d")]
-
-
-def _wireguard_cells(wireguard):
-    if not wireguard or wireguard.get("kind") != "wireguard":
-        return [seg("—", "d")]
-    case, address = wireguard.get("case"), wireguard.get("address") or ""
-    if case == "up":
-        return [seg(f"{address}  reached {int(wireguard.get('handshake_age') or 0)} s ago")]
-    said = {
-        "no-link": "no link yet",
-        "never": f"{address}  never reached: its peer is to add",
-        "stale": f"{address}  last reached {int(wireguard.get('handshake_age') or 0) // 60} min ago",
-    }.get(case, case or "—")
-    return [seg(said, "y" if case == "stale" else "d")]
 
 
 def _claude_cell(claude):

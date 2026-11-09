@@ -378,62 +378,11 @@ Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run on
 
 ### VPN
 
-The VPN each VM joins: tailscale, wireguard (each VM a peer of a WireGuard server you already run) or none. Every VM deployed from then on follows it, and a VPN this project set up is taken off a VM again when another is chosen, saying so. Unset, it follows tailscale_enabled below.
+The VPN each VM joins: tailscale or none. Every VM deployed from then on follows it, and a Tailscale this project set up is taken off a VM again when none is chosen, saying so. Unset, it follows tailscale_enabled below.
 
 | Setting | Default | Notes |
 |---|---|---|
 | `vpn` | computed | For example `tailscale`. |
-
-Which address each VM's SSH alias uses: lan (its LAN address, as its guest agent reports it) or, for a VPN that offers it - WireGuard ([docs/guides/wireguard.md](../guides/wireguard.md)) - tunnel, its address on the VPN: one address that works at home and away.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `vpn_reach` | `lan` |  |
-
-### WireGuard
-
-With vpn: wireguard ([docs/guides/wireguard.md](../guides/wireguard.md)), each VM is a peer of a WireGuard server you already run, its hub: its key is made on the VM and never leaves it, and its address on the tunnel is given from the range below and kept for its life, recorded in Proxmox. The project never changes the server but for its VMs' own peers: each run says the peer to add there (wireguard_hub: manual), and just destroy the one to remove - or, on OPNsense 26.7.2 or later (wireguard_hub: opnsense, below), writes them through the router's API.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_hub` | `manual` |  |
-
-The server's tunnel network, which the VMs route into it: the devices you reach them from are on it.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_hub_network` | `""` | For example `198.51.100.0/24`. |
-
-The part of that network kept for the VMs, which no device of yours uses - nor the VMs of another Proxmox whose VMs join the same server: each Proxmox gives out its range's addresses knowing only its own VMs.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_vm_prefix` | `""` | For example `198.51.100.128/25`. |
-
-The server's public key (`wg show <its interface> public-key` there).
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_hub_public_key` | `""` | For example `<the server's public key>`. |
-
-What the VMs dial: the server's address or name, and its listen port. On the VMs' own LAN, its LAN address; a name is looked up once, when the link is made.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_hub_endpoint` | `""` | For example `vpn.example.net:51820`. |
-
-Seconds between the keepalives each VM sends, so a server on the internet can reach a VM behind NAT.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_keepalive` | `25` |  |
-
-On OPNsense 26.7.2 or later, its peers written through the router's API, with the hub's kind above set to opnsense: the router a host of its own in hosts.yml (group wireguard_hub), whose API answers at its ansible_host; your instance's name; the router's certificate pinned by its SHA-256 (it is self-signed); and an API user's key and secret, in the vault, with the WireGuard page's privilege alone. The instance's tunnel network is read from the router.
-
-| Setting | Default | Notes |
-|---|---|---|
-| `wireguard_hub_instance` | `""` | For example `home`. |
-| `wireguard_hub_cert_sha256` | `""` | For example `<the router's certificate's SHA-256>`. |
 
 ### Tailscale
 
@@ -569,14 +518,5 @@ Optional: what deletes a VM's device from your tailnet when just destroy deletes
 | `vault_tailscale_api_token` | Sets `tailscale_api_token` ([`tailscale`](roles/tailscale.md)): An API access token (tskey-api-...), used under tailscale_api_auth_method auto or token. |
 | `vault_tailscale_oauth_client_id` | Sets `tailscale_oauth_client_id` ([`tailscale`](roles/tailscale.md)): An OAuth client's ID, used under tailscale_api_auth_method auto or oauth. |
 | `vault_tailscale_oauth_client_secret` | Sets `tailscale_oauth_client_secret` ([`tailscale`](roles/tailscale.md)): That client's secret (tskey-client-...), used under tailscale_api_auth_method auto or oauth. |
-
-### Secrets: WireGuard
-
-Optional, with wireguard_hub: opnsense: the key and secret of an API user on your OPNsense router with the WireGuard page's privilege alone, which writes your VMs' peers on your instance and nothing else ([docs/guides/wireguard.md](../guides/wireguard.md)). Used only on this machine, never sent to a VM.
-
-| Secret, in `vault.yml` | Notes |
-|---|---|
-| `vault_wireguard_hub_api_key` |  |
-| `vault_wireguard_hub_api_secret` |  |
 
 <!-- END_GENERATED: settings -->

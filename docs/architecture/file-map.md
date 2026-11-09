@@ -67,9 +67,7 @@ playbooks/
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
-                                  load, upgrades and the user's processes, read only); opnsense_wireguard (the
-                                  OPNsense hub's peers through the router's API: the certificate pinned, the
-                                  version floor, every private key it answers with dropped)
+                                  load, upgrades and the user's processes, read only)
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude
@@ -209,8 +207,7 @@ tests/
                                   fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
-                                  fake_anthropic_api.py, the Messages API for the real claude in configure;
-                                  fake_opnsense.py, an OPNsense router's WireGuard API for the hub's peers.
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why

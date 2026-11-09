@@ -145,11 +145,11 @@ stages := 'template|provision|configure|check|ssh-config'
 # The roles configuration can be narrowed to (deploy --tags), as configure.yml
 # tags them, and the roles with a Molecule scenario of their own (test --role):
 # those, and the two that build the template and the VMs.
-configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale wireguard'
+configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale'
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools wireguard vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans

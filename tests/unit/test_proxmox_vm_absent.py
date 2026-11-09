@@ -106,17 +106,3 @@ def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
     assert "ansible_host" in defaults["claude_vm_inventory_addresses"]
     # The same list an SSH alias may never take.
     assert "claude_vm_inventory_addresses" in defaults["claude_vm_inventory_names"]
-
-
-@pytest.mark.parametrize("mark", ["agent-warehouse-wg-198.51.100.129", "agent-warehouse-wg-198.51.100.129-reached"])
-def test_the_tunnel_address_its_mark_holds_is_forgotten_too(tmp_path, mark):
-    # Under vpn_reach: tunnel the alias connects to the WireGuard address, so known_hosts holds the key there, and
-    # the next VM is soon given the address: the lowest free one.
-    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=["agent-warehouse", mark], proxmox_vm_known_hosts_domain="")
-    assert left == {"alpha.lan", "beta.lan"}
-
-
-def test_another_tag_s_wireguard_address_is_not_the_vm_s(tmp_path):
-    found = ["agent-warehouse", "someone-wg-198.51.100.129"]
-    left = _forget(tmp_path, **VM, proxmox_vm_found_tags=found, proxmox_vm_known_hosts_domain="")
-    assert left == {"alpha.lan", "beta.lan", "198.51.100.129"}

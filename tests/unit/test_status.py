@@ -824,9 +824,6 @@ COMMANDS = {
     ("dpkg-query", "--show", "--showformat=${db:Status-Status}", "tailscale"),
     ("tailscale", "status", "--json"),
     ("tailscale", "debug", "prefs"),
-    ("dpkg-query", "--show", "--showformat=${db:Status-Status}", "wireguard-tools"),
-    ("sh", "-c", 'date +%s; wg show "$1" latest-handshakes 2>/dev/null || true', "sh", "{{ wireguard_link }}"),
-    ("ip", "-4", "-o", "addr", "show", "dev", "{{ wireguard_link }}"),
 }
 SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml"}
 ENTRY_POINTS = {
@@ -835,7 +832,6 @@ ENTRY_POINTS = {
     ("claude_code", "status"),
     ("github_projects", "status"),
     ("tailscale", "status"),
-    ("wireguard", "status"),
 }
 URI_KEYS = {"url", "headers", "validate_certs", "ca_path", "timeout"}
 TASK_KEYS = {

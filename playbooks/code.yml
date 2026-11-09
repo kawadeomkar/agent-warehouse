@@ -613,11 +613,7 @@
             claude_ssh_state: present
             claude_ssh_vms:
               - name: "{{ claude_vm_addressed[0].name }}"
-                address: >-
-                  {{ claude_vm_addressed[0].address
-                     | vpn_alias_address(claude_vm_addressed[0].tags | default('') | proxmox_marks(claude_vm_tags_owned),
-                                         claude_vpn_key | default('none'), vpn_reach | default('lan'),
-                                         wireguard_vm_prefix | default('')) }}
+                address: "{{ claude_vm_addressed[0].address }}"
                 user: "{{ vm_user }}"
                 workspace: "{{ code_root }}"
                 editor_flag: "{{ code_editor_flag }}"
