@@ -347,41 +347,51 @@ tailscale_release_summary: >-
 tailscale_status_unmanaged: >-
   {{ not (tailscale_wanted | bool) and tailscale_installed_marker_found | bool and tailscale_package_present | bool }}
 
-# --- The report (report.yml), which just status reads too (status.yml) ---
-# Which of the report's lines applies: a case of its own, else the backend's state.
-tailscale_report_case: >-
-  {{ 'not-ours' if not (tailscale_ours | bool)
-     else 'check-no-package' if tailscale_check_without_package | bool
-     else 'check-daemon-down' if ansible_check_mode and not (tailscale_daemon_up | bool)
-     else 'connecting' if not (tailscale_settled | bool)
-     else 'would-join' if ansible_check_mode and tailscale_first_join | bool and tailscale_key_wanted | bool
-                          and not (tailscale_key_refused_locally | bool)
-     else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url | length > 0
-     else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined | bool
-     else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted | bool
-                       and not (tailscale_key_held_back | bool)
-                       and (tailscale_join_ran | bool or tailscale_key_refused_locally | bool)
-     else tailscale_backend }}
-# The cases that leave something to do whatever else holds (NEXT STEPS).
-tailscale_report_open:
-  - check-no-package
-  - check-daemon-down
-  - connecting
-  - would-join
-  - page-pending
-  - expired
-  - refused
-  - NeedsMachineAuth
-  - Stopped
-# Whether the report's line is something left to do: NEXT STEPS records it, and just status says it. A page
-# waiting, a login expired, a key refused, a node stopped or still connecting, an approval or a sign-in to come,
-# a name taken or tags missing; never a node that runs as it should, or a Tailscale this role leaves alone.
-tailscale_report_left: >-
-  {{ tailscale_report_case in tailscale_report_open
-     or (tailscale_report_case == 'NeedsLogin'
-         and not (tailscale_sign_in_follows | bool and tailscale_auth_method != 'key'))
-     or (tailscale_report_case == 'Running'
-         and (tailscale_name_taken | bool or tailscale_tags_missing | length > 0)) }}
+# --- The report (report.yml), the words status shows too ---
+# Which of the report's lines applies, the line itself, and whether it leaves something to do, which NEXT STEPS
+# records: the core's words (lib/claude_vm/status/lines.py), one definition for both, from the state read above.
+# Only whether there is a key, never the key.
+tailscale_report_result: >-
+  {{ {'name': inventory_hostname,
+      'hostname': tailscale_hostname,
+      'check_mode': ansible_check_mode,
+      'ours': tailscale_ours | bool,
+      'check_without_package': tailscale_check_without_package | bool,
+      'daemon_up': tailscale_daemon_up | bool,
+      'backend': tailscale_backend,
+      'joined': tailscale_joined | bool,
+      'auth_url': tailscale_auth_url,
+      'first_join': tailscale_first_join | bool,
+      'key_wanted': tailscale_key_wanted | bool,
+      'key_refused_locally': tailscale_key_refused_locally | bool,
+      'key_held_back': tailscale_key_held_back | bool,
+      'join_ran': tailscale_join_ran | bool,
+      'join_stderr': tailscale_join.stderr | default(''),
+      'refused_why': tailscale_refused_why,
+      'dns_name': tailscale_dns_name,
+      'self_name': tailscale_self.HostName | default(''),
+      'tailnet': tailscale_tailnet,
+      'login_server': tailscale_login_server,
+      'ipv4': tailscale_ipv4,
+      'joined_now': tailscale_joined_now | bool,
+      'login_ours': tailscale_login_ours | bool,
+      'name_taken': tailscale_name_taken | bool,
+      'set_changed': (tailscale_set | default({})) is changed,
+      'set_cmd': ((tailscale_set | default({})).cmd | default([], true))[1:],
+      'from_login': tailscale_report_from_login | default(false) | bool,
+      'set_flags': tailscale_set_flags,
+      'tags_missing': tailscale_tags_missing,
+      'settle_seconds': tailscale_settle_seconds,
+      'expired_elsewhere': tailscale_login_expired_elsewhere | bool,
+      'joined_tag': tailscale_joined_tag,
+      'joined_before': tailscale_joined_before | bool,
+      'sign_in_follows': tailscale_sign_in_follows | bool,
+      'auth_method': tailscale_auth_method,
+      'admin_page': tailscale_admin_page,
+      'configure_command': tailscale_configure_command,
+      'login_command': tailscale_login_command} | tailscale_report }}
+tailscale_report_case: "{{ tailscale_report_result.case }}"
+tailscale_report_left: "{{ tailscale_report_result.left }}"
 
 # --- Where to fix what the report names ---
 tailscale_admin_page: >-

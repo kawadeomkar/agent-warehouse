@@ -21,10 +21,12 @@ MODEL = (
     "status_work_read",
     "status_report",
 )
+# What the roles say of a VM's sign-ins (lib/claude_vm/status/lines.py), which just status shows too.
+LINES = ("github_too_old_said", "github_login_report", "tailscale_report")
 
 
 class FilterModule:
     def filters(self):
         from claude_vm import plugin
 
-        return plugin.filters(_LIB, "status.model", MODEL)
+        return plugin.filters(_LIB, "status.model", MODEL) | plugin.filters(_LIB, "status.lines", LINES)

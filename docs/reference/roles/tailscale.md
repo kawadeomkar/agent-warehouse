@@ -84,7 +84,7 @@ Also takes, as described under `main`: `tailscale_api_auth_method`, `tailscale_a
 
 ## Internal values
 
-Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 71 of the 83 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 72 of the 83 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -165,9 +165,9 @@ Set in `roles/tailscale/vars/main.yml`. These are not settings: Ansible ranks a 
 | `tailscale_release_device_left` | Whether the summary names a device to delete by hand: something left to do, for destroy's NEXT STEPS. | <code>{{ tailscale_release_installed &#124; bool and ((tailscale_release_status.rc &#124; default(1)) != 0 or (tailscale_release_joined &#124; bool and ((tailscale_release_logout.rc &#124; default(1)) != 0 or tailscale_api_credential == 'none' or not (tailscale_api_deleted &#124; bool or tailscale_api_gone_already &#124; bool)))) }}</code> |
 | `tailscale_release_summary` | One clause for destroy's report on the VM; empty where there was nothing on Tailscale to release. | <code>{{ '' if not (tailscale_release_installed &#124; bool) else ('tailscaled did not answer, so the node could not be logged out: delete its device at ' ~ tailscale_admin_page ~ ', or its login stays valid') if (tailscale_release_status.rc &#124; default(1)) != 0 else '' if not (tailscale_release_joined &#124; bool) else ('its node could not be logged out (' ~ (tailscale_release_logout.stderr &#124; default('') &#124; one_line(none) or 'no reason given') ~ '): delete its device at ' ~ tailscale_admin_page) if (tailscale_release_logout.rc &#124; default(1)) != 0 else ('logged out; its device stays in your tailnet until you delete it at ' ~ tailscale_admin_page ~ ', or a VM built again under its name joins as &lt;name>-1') if tailscale_api_credential == 'none' else 'removed from your tailnet' if tailscale_api_deleted &#124; bool else ('logged out; ' ~ tailscale_api_gone_said) if tailscale_api_gone_already &#124; bool else ('logged out, but its device was not deleted - ' ~ tailscale_api_refused_why ~ tailscale_api_by_hand) }}</code> |
 | `tailscale_status_unmanaged` | A Tailscale this role installed, its package still there, where Tailscale is not the VPN: left as it is, and read by just status, which shows it unmanaged. | <code>{{ not (tailscale_wanted &#124; bool) and tailscale_installed_marker_found &#124; bool and tailscale_package_present &#124; bool }}</code> |
-| `tailscale_report_case` | Which of the report's lines applies: a case of its own, else the backend's state. | <code>{{ 'not-ours' if not (tailscale_ours &#124; bool) else 'check-no-package' if tailscale_check_without_package &#124; bool else 'check-daemon-down' if ansible_check_mode and not (tailscale_daemon_up &#124; bool) else 'connecting' if not (tailscale_settled &#124; bool) else 'would-join' if ansible_check_mode and tailscale_first_join &#124; bool and tailscale_key_wanted &#124; bool and not (tailscale_key_refused_locally &#124; bool) else 'page-pending' if tailscale_backend == 'NeedsLogin' and tailscale_auth_url &#124; length > 0 else 'expired' if tailscale_backend == 'NeedsLogin' and tailscale_joined &#124; bool else 'refused' if tailscale_backend == 'NeedsLogin' and tailscale_key_wanted &#124; bool and not (tailscale_key_held_back &#124; bool) and (tailscale_join_ran &#124; bool or tailscale_key_refused_locally &#124; bool) else tailscale_backend }}</code> |
-| `tailscale_report_open` | The cases that leave something to do whatever else holds (NEXT STEPS). | `["check-no-package", "check-daemon-down", "connecting", "would-join", "page-pending", "expired", "refused", "NeedsMachineAuth", "Stopped"]` |
-| `tailscale_report_left` | Whether the report's line is something left to do: NEXT STEPS records it, and just status says it. | <code>{{ tailscale_report_case in tailscale_report_open or (tailscale_report_case == 'NeedsLogin' and not (tailscale_sign_in_follows &#124; bool and tailscale_auth_method != 'key')) or (tailscale_report_case == 'Running' and (tailscale_name_taken &#124; bool or tailscale_tags_missing &#124; length > 0)) }}</code> |
+| `tailscale_report_result` | Which of the report's lines applies, the line itself, and whether it leaves something to do, which NEXT STEPS records: the core's words (lib/claude_vm/status/lines.py), one definition for both, from the state read above. | <code>{{ {'name': inventory_hostname, 'hostname': tailscale_hostname, 'check_mode': ansible_check_mode, 'ours': tailscale_ours &#124; bool, 'check_without_package': tailscale_check_without_package &#124; bool, 'daemon_up': tailscale_daemon_up &#124; bool, 'backend': tailscale_backend, 'joined': tailscale_joined &#124; bool, 'auth_url': tailscale_auth_url, 'first_join': tailscale_first_join &#124; bool, 'key_wanted': tailscale_key_wanted &#124; bool, 'key_refused_locally': tailscale_key_refused_locally &#124; bool, 'key_held_back': tailscale_key_held_back &#124; bool, 'join_ran': tailscale_join_ran &#124; bool, 'join_stderr': tailscale_join.stderr &#124; default(''), 'refused_why': tailscale_refused_why, 'dns_name': tailscale_dns_name, 'self_name': tailscale_self.HostName &#124; default(''), 'tailnet': tailscale_tailnet, 'login_server': tailscale_login_server, 'ipv4': tailscale_ipv4, 'joined_now': tailscale_joined_now &#124; bool, 'login_ours': tailscale_login_ours &#124; bool, 'name_taken': tailscale_name_taken &#124; bool, 'set_changed': (tailscale_set &#124; default({})) is changed, 'set_cmd': ((tailscale_set &#124; default({})).cmd &#124; default([], true))[1:], 'from_login': tailscale_report_from_login &#124; default(false) &#124; bool, 'set_flags': tailscale_set_flags, 'tags_missing': tailscale_tags_missing, 'settle_seconds': tailscale_settle_seconds, 'expired_elsewhere': tailscale_login_expired_elsewhere &#124; bool, 'joined_tag': tailscale_joined_tag, 'joined_before': tailscale_joined_before &#124; bool, 'sign_in_follows': tailscale_sign_in_follows &#124; bool, 'auth_method': tailscale_auth_method, 'admin_page': tailscale_admin_page, 'configure_command': tailscale_configure_command, 'login_command': tailscale_login_command} &#124; tailscale_report }}</code> |
+| `tailscale_report_case` |  | `{{ tailscale_report_result.case }}` |
+| `tailscale_report_left` |  | `{{ tailscale_report_result.left }}` |
 | `tailscale_admin_page` |  | <code>{{ 'your control server' if tailscale_login_server &#124; length > 0 else 'https://login.tailscale.com/admin/machines' }}</code> |
 | `tailscale_configure_command` |  | `just deploy {{ inventory_hostname }} --tags tailscale` |
 | `tailscale_login_command` |  | `just login {{ inventory_hostname }} --only tailscale` |
@@ -483,9 +483,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Report how this VM is on Tailscale, and keep what is left to do | block |  |
-| &emsp;Say how this VM is on Tailscale | `ansible.builtin.debug` |  |
-| &emsp;Keep what is left to do for the end of the run | `ansible.builtin.set_stats` |  |
+| Say how this VM is on Tailscale | `ansible.builtin.debug` |  |
+| Keep what is left to do for the end of the run | `ansible.builtin.set_stats` |  |
 
 ```mermaid
 flowchart TD
@@ -499,10 +498,8 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Block Start| report___Report_how_this_VM_is_on_Tailscale__and_keep_what_is_left_to_do0_block_start_0[[report   report how this vm is on tailscale  and<br>keep what is left to do]]:::block
-  report___Report_how_this_VM_is_on_Tailscale__and_keep_what_is_left_to_do0_block_start_0-->|Task| report___Say_how_this_VM_is_on_Tailscale0[report   say how this vm is on tailscale]:::task
+  Start-->|Task| report___Say_how_this_VM_is_on_Tailscale0[report   say how this vm is on tailscale]:::task
   report___Say_how_this_VM_is_on_Tailscale0-->|Task| report___Keep_what_is_left_to_do_for_the_end_of_the_run1[report   keep what is left to do for the end of<br>the run]:::task
-  report___Keep_what_is_left_to_do_for_the_end_of_the_run1-.->|End of Block| report___Report_how_this_VM_is_on_Tailscale__and_keep_what_is_left_to_do0_block_start_0
   report___Keep_what_is_left_to_do_for_the_end_of_the_run1-->End
 ```
 
