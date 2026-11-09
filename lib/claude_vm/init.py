@@ -9,8 +9,6 @@ to the same rule before they reach a file. A refusal is a ValueError.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import ipaddress
 import json
 import re
@@ -45,10 +43,7 @@ RULES = {
         " of at least 20 letters, digits and . _ : / ? = & + -"
     ),
     "yes_no": "y or n",
-    "choice": "one of the numbers listed",
-    "ipv4_network": "an IPv4 network with its length and no host bits, such as 198.51.100.0/24",
-    "wireguard_key": "a WireGuard public key: 44 characters of base64, as wg show <interface> public-key prints it",
-    "endpoint": "an address or a host name, a colon and a port: 192.0.2.1:51820, or vpn.example.net:51820",
+    "choice": "one of the numbers or names listed",
 }
 
 
@@ -97,26 +92,11 @@ def init_answer(value, kind, choices=None):
         return text if _AUTH_KEY.fullmatch(text) else ""
     if kind == "yes_no":
         return {"y": "y", "yes": "y", "n": "n", "no": "n"}.get(text.lower(), "")
-    if kind == "ipv4_network":
-        try:
-            return str(ipaddress.IPv4Network(text)) if "/" in text else ""
-        except ValueError:
-            return ""
-    if kind == "wireguard_key":
-        try:
-            return text if len(text) == 44 and len(base64.b64decode(text, validate=True)) == 32 else ""
-        except (binascii.Error, ValueError):
-            return ""
-    if kind == "endpoint":
-        host, _, port = text.rpartition(":")
-        if not port.isdigit() or not 0 < int(port) < 65536:
-            return ""
-        host = _host(host) if host and ":" not in host else ""
-        return f"{host}:{int(port)}" if host else ""
     items = list(choices or [])
     if text.isdigit() and 1 <= int(text) <= len(items):
         return items[int(text) - 1]
-    return ""
+    # An item by its name, as typed or as the menu gives it.
+    return text if text in [str(item) for item in items] else ""
 
 
 def init_answer_rule(kind):
@@ -144,6 +124,27 @@ def init_pick(answer, candidates):
         items = list(candidates or [])
         return items[0] if items else ""
     return "" if text in ("", "n") else text
+
+
+def init_ask_menu(kind, choices=None, label="", title="", notes=None):
+    """The menu a question of ``kind`` is asked as at a terminal that can draw (lib/claude_vm/tui/choose.py), ``{}``
+    for one typed: yes or no for ``yes_no``, each item of ``choices`` for ``choice``, with the note of ``notes`` in its
+    place beside it. Each answer's value is what the typed answer would be, so init_answer takes both alike. The title
+    its collapsed line says: ``title`` where given, else the label up to its typed answers ("Use Tailscale on the VMs?
+    y or n" is "Use Tailscale on the VMs?")."""
+    label = str(label or "")
+    shown = str(title or "") or re.sub(r"\s+(y or n|Number)\b.*$", "", label).rstrip(",") or label
+    if kind == "yes_no":
+        options = [{"value": "y", "text": "yes", "note": ""}, {"value": "n", "text": "no", "note": ""}]
+    elif kind == "choice" and choices:
+        said = [str(note) for note in notes or ()]
+        options = [
+            {"value": str(item), "text": str(item), "note": said[index] if index < len(said) else ""}
+            for index, item in enumerate(choices)
+        ]
+    else:
+        return {}
+    return {"title": shown, "label": label, "options": options, "chosen": 0}
 
 
 def with_setting(text, key, value, placeholder=""):

@@ -65,10 +65,8 @@ HOST_PROMPT = b"Proxmox host address:"
 TOKEN_PROMPT = b"API token ID:"
 SECRET_PROMPT = b"API token secret"
 GITHUB_PROMPT = b"GitHub username:"
-TAILSCALE_PROMPT = b"Use Tailscale on the VMs? y or n:"
+TAILSCALE_PROMPT = b"VPN: none or tailscale:"
 TAILSCALE_KEY_PROMPT = b"Tailscale auth key (output is hidden):"
-# Asked after an n to Tailscale: each VM a peer of a WireGuard server the person already runs.
-WIREGUARD_PROMPT = b"Join the VMs to a WireGuard server you run instead? y or n:"
 ACCESS_PROMPT = b"Set it up now? y or n"
 
 
@@ -219,7 +217,7 @@ def _encrypt(files: dict, text: str, password: str = "a-password-of-the-persons-
 # Typed: every question, in order, each answer and Enter.
 EVERY_ANSWER = [
     (GITHUB_PROMPT, b"octocat\n"),
-    (TAILSCALE_PROMPT, b"n\n"),
+    (TAILSCALE_PROMPT, b"none\n"),
     (HOST_PROMPT, b"pve.lan\n"),
     (TOKEN_PROMPT, b"\n"),
     (SECRET_PROMPT, SECRET.encode() + b"\n"),
@@ -246,9 +244,7 @@ def test_every_answer_typed_writes_the_three_files_and_the_same_again_changes_no
     # At -vvv with every module's arguments in its result, as the most a run can
     # print or log: the secret typed is in neither.
     loud = {"ansible_inject_invocation": True}
-    # WireGuard's question follows the n to Tailscale, and is answered n.
-    steps = [*EVERY_ANSWER[:2], (WIREGUARD_PROMPT, b"n\n"), *EVERY_ANSWER[2:]]
-    rc, output, log = _init_at_a_terminal(tmp_path, files, steps, loud, args=["-vvv"])
+    rc, output, log = _init_at_a_terminal(tmp_path, files, EVERY_ANSWER, loud, args=["-vvv"])
     assert rc == 0, output
     # The person's accounts first, then every Proxmox question together: no other question between the
     # token's ID and its secret (the offer, here refused root SSH, asks nothing), and the ID's question
@@ -264,9 +260,9 @@ def test_every_answer_typed_writes_the_three_files_and_the_same_again_changes_no
     comment = " # IP of your Proxmox host (also used for the API)"
     assert changed == [example.index("          ansible_host: 192.0.2.10" + comment)]
     assert hosts[changed[0]] == '          ansible_host: "pve.lan"' + comment
-    # The default token ID writes nothing; n to Tailscale writes its setting.
+    # The default token ID writes nothing; n to Tailscale writes vpn: none.
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
-        "# tailscale_enabled: true\n", "tailscale_enabled: false\n"
+        "# vpn: none\n", 'vpn: "none"\n'
     )
     vault = Path(files["init_vault_file"]).read_text()
     assert vault.startswith("$ANSIBLE_VAULT;1.1;AES256")
@@ -318,7 +314,7 @@ RULE = {
     TOKEN_PROMPT: ("user@realm!name", "API token ID"),
     SECRET_PROMPT: ("36-character secret", "API token secret"),
     GITHUB_PROMPT: ("GitHub username", "GitHub username"),
-    TAILSCALE_PROMPT: ("y or n", "Use Tailscale on the VMs? y or n"),
+    TAILSCALE_PROMPT: ("numbers or names listed", "VPN: none or tailscale"),
 }
 
 
@@ -490,13 +486,12 @@ def test_every_value_given_with_no_terminal_writes_them_and_encrypts_once(tmp_pa
     seen = json.dumps(report) + log.read_text()
     assert SECRET not in seen and SECRET.upper() not in seen
     assert "can be read by others" in _said(report, "Say that others can read the secret's file")
-    # --tailscale writes its setting, which ends the notice.
+    # --tailscale writes vpn.
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
-        "# tailscale_enabled: true\n", "tailscale_enabled: false\n"
+        "# vpn: none\n", 'vpn: "none"\n'
     )
-    assert not _said(report, NOTICE_TASK)
     summary = _said(report, "Say what was written, and what is left")
-    assert "tailscale_enabled: false" in summary
+    assert 'vpn: "none"' in summary
     # Every value set: NEXT STEPS leaves nothing - what comes next is the checks' to say, and just deploy no longer
     # said here - and the summary ends with the vault's line and the optional values'.
     assert _init_next(report) == {"init_settings": ""}
@@ -987,7 +982,6 @@ def test_without_a_terminal_the_host_is_never_reached(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------- Tailscale ---
-NOTICE_TASK = "Say that Tailscale is on by default"
 # Low in entropy, as gitleaks wants a canned key: never one Tailscale issued.
 TAILSCALE_KEY = "tskey-auth-kInit0CNTRL-TestOnly000000000000000"
 UP_TO_TAILSCALE = [(GITHUB_PROMPT, b"\n")]
@@ -999,56 +993,32 @@ OPTIONAL = "Optional, with just vault: vault_github_token, vault_anthropic_api_k
 
 def test_n_at_the_tailscale_question_writes_it_off_and_is_never_asked_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    # Enter at WireGuard's question, which follows an n, decides later and writes nothing of it.
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"n\n"), (WIREGUARD_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"none\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
-        "# tailscale_enabled: true\n", "tailscale_enabled: false\n"
+        "# vpn: none\n", 'vpn: "none"\n'
     )
-    assert "inventory/group_vars/all/local.yml   tailscale_enabled: false" in output
-    # Off: no key is asked for or named, and no notice says it is on.
-    assert TAILSCALE_KEY_PROMPT.decode() not in output and "NOTICE  Tailscale is on by default" not in output
+    # The summary as the default callback prints its message: JSON, its quotes escaped.
+    assert 'inventory/group_vars/all/local.yml   vpn: \\"none\\"' in output
+    # Off: no key is asked for or named.
+    assert TAILSCALE_KEY_PROMPT.decode() not in output
     assert f"{OPTIONAL}." in output
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
     assert TAILSCALE_PROMPT.decode() not in output
 
 
-def test_y_to_wireguard_after_n_to_tailscale_writes_vpn_and_what_the_vms_need_of_the_server(tmp_path: Path) -> None:
-    files = _files(tmp_path)
-    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
-    steps = [
-        *UP_TO_TAILSCALE,
-        (TAILSCALE_PROMPT, b"n\n"),
-        (WIREGUARD_PROMPT, b"y\n"),
-        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
-        (b"The part of it kept for the VMs:", b"198.51.100.1/25\n"),  # host bits: asked again
-        (b"The part of it kept for the VMs:", b"198.51.100.128/25\n"),
-        (b"The server's public key:", key.encode() + b"\n"),
-        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
-        *THE_PROXMOX_QUESTIONS,
-    ]
-    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
-    assert rc == 0, output
-    local = Path(files["init_local_file"]).read_text()
-    for line in (
-        'vpn: "wireguard"',
-        'wireguard_hub_network: "198.51.100.0/24"',
-        'wireguard_vm_prefix: "198.51.100.128/25"',
-        f'wireguard_hub_public_key: "{key}"',
-        'wireguard_hub_endpoint: "192.0.2.1:51820"',
-        "tailscale_enabled: false",
-    ):
-        assert line in local.splitlines(), line
-
-
 def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), (TAILSCALE_KEY_PROMPT, TAILSCALE_KEY.encode() + b"\n")]
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"tailscale\n"),
+        (TAILSCALE_KEY_PROMPT, TAILSCALE_KEY.encode() + b"\n"),
+    ]
     rc, output, log = _init_at_a_terminal(tmp_path, files, [*steps, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
-    assert "tailscale_enabled: true\n" in Path(files["init_local_file"]).read_text()
+    assert 'vpn: "tailscale"\n' in Path(files["init_local_file"]).read_text()
     assert _decrypt(files) == _example("init_vault_file").replace(
         'vault_tailscale_auth_key: ""', f'vault_tailscale_auth_key: "{TAILSCALE_KEY}"'
     )
@@ -1063,7 +1033,12 @@ def test_y_writes_it_on_and_the_key_typed_goes_into_the_vault_unseen(tmp_path: P
 
 def test_enter_at_the_key_is_the_web_login_and_the_next_init_asks_again(tmp_path: Path) -> None:
     files = _files(tmp_path)
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), (TAILSCALE_KEY_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [
+        *UP_TO_TAILSCALE,
+        (TAILSCALE_PROMPT, b"tailscale\n"),
+        (TAILSCALE_KEY_PROMPT, b"\n"),
+        *THE_PROXMOX_QUESTIONS,
+    ]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert _decrypt(files) == _example("init_vault_file")
@@ -1078,7 +1053,7 @@ def test_enter_at_the_key_is_the_web_login_and_the_next_init_asks_again(tmp_path
 def test_a_key_that_is_not_one_is_asked_for_once_more_then_left_unsaid(tmp_path: Path) -> None:
     files = _files(tmp_path)
     wrong = (TAILSCALE_KEY_PROMPT, b"tskey a b\n")
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), wrong, wrong, *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"tailscale\n"), wrong, wrong, *THE_PROXMOX_QUESTIONS]
     rc, output, log = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert "That is not a key as Tailscale printed it" in output and "is left as it was" in output
@@ -1097,24 +1072,35 @@ def test_the_key_is_not_asked_for_where_it_has_nothing_to_do(tmp_path: Path, why
         )
     else:
         local.write_text(local.read_text() + "tailscale_auth_method: web\n")
-    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"y\n"), *THE_PROXMOX_QUESTIONS]
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"tailscale\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
-    assert "tailscale_enabled: true\n" in local.read_text()
+    assert 'vpn: "tailscale"\n' in local.read_text()
     assert TAILSCALE_KEY_PROMPT.decode() not in output
     assert f"{OPTIONAL}." in output
 
 
-def test_enter_at_the_tailscale_question_writes_nothing_and_says_it_stays_on(tmp_path: Path) -> None:
+def test_enter_at_the_tailscale_question_writes_nothing_and_no_vm_gets_it(tmp_path: Path) -> None:
     files = _files(tmp_path)
     steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
     assert rc == 0, output
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file")
-    # Only chosen, never by the default, does Tailscale ask for a key.
+    # Unanswered is none (2.1): no key asked for or named, and nothing said of Tailscale being on.
     assert TAILSCALE_KEY_PROMPT.decode() not in output
-    assert "NOTICE  Tailscale is on by default" in output and "answer n" in output
-    assert f"{OPTIONAL}, vault_tailscale_auth_key." in output
+    assert "on by default" not in output
+    assert f"{OPTIONAL}." in output
+
+
+def test_the_tailscale_question_says_first_that_a_vpn_routing_the_lan_needs_none(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    steps = [*UP_TO_TAILSCALE, (TAILSCALE_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
+    assert rc == 0, output
+    asked = output[: output.index(TAILSCALE_PROMPT.decode())]
+    assert "A VPN you already run that routes this LAN" in asked and "choose none, and that is all" in asked
+    # What a key and a credential each give, said as needing them.
+    assert "with an auth key in the vault" in asked and "with an API" in asked
 
 
 def test_tailscale_given_on_at_a_terminal_asks_only_for_the_key(tmp_path: Path) -> None:
@@ -1122,56 +1108,29 @@ def test_tailscale_given_on_at_a_terminal_asks_only_for_the_key(tmp_path: Path) 
     steps = [*UP_TO_TAILSCALE, (TAILSCALE_KEY_PROMPT, b"\n"), *THE_PROXMOX_QUESTIONS]
     rc, output, _ = _init_at_a_terminal(tmp_path, files, steps, {"init_given": {"tailscale": "on"}})
     assert rc == 0, output
-    assert "tailscale_enabled: true\n" in Path(files["init_local_file"]).read_text()
+    assert 'vpn: "tailscale"\n' in Path(files["init_local_file"]).read_text()
     assert TAILSCALE_PROMPT.decode() not in output
-
-
-# On a fresh checkout the notice names the sign-in page: test_next_steps_keep_each_value_still_to_set[no-terminal].
-
-
-def test_the_tailscale_notice_names_the_auth_key_the_vault_holds(tmp_path: Path) -> None:
-    files = _files(tmp_path)
-    vault = Path(files["init_vault_file"])
-    vault.write_text(
-        vault.read_text().replace('vault_tailscale_auth_key: ""', 'vault_tailscale_auth_key: "tskey-auth-x"')
-    )
-    report = _init(tmp_path, files)
-    assert report["rc"] == 0, _failures(report)
-    assert "by vault_tailscale_auth_key." in _said(report, NOTICE_TASK)
-    assert "tskey-auth-x" not in json.dumps(report)
 
 
 # --tailscale off, and the same again changing nothing:
 # test_every_value_given_with_no_terminal_writes_them_and_encrypts_once, whose second run takes the one path a second
 # --tailscale on would.
-def test_tailscale_on_given_writes_its_setting_and_ends_the_notice(tmp_path: Path) -> None:
+def test_tailscale_on_given_writes_vpn_tailscale(tmp_path: Path) -> None:
     files = _files(tmp_path)
     report = _init(tmp_path, files, {"init_given": _every_value_given(tmp_path) | {"tailscale": "on"}})
     assert report["rc"] == 0, _failures(report)
     assert Path(files["init_local_file"]).read_text() == _example("init_local_file").replace(
-        "# tailscale_enabled: true\n", "tailscale_enabled: true\n"
+        "# vpn: none\n", 'vpn: "tailscale"\n'
     )
-    assert not _said(report, NOTICE_TASK)
-    assert "tailscale_enabled: true" in _said(report, "Say what was written, and what is left")
-
-
-@pytest.mark.parametrize("setting", ["true", "false"])
-def test_the_tailscale_notice_is_gone_once_the_setting_is_there(tmp_path: Path, setting: str) -> None:
-    files = _files(tmp_path)
-    local = Path(files["init_local_file"])
-    local.write_text(local.read_text() + f"tailscale_enabled: {setting}\n")
-    report = _init(tmp_path, files)
-    assert report["rc"] == 0, _failures(report)
-    assert not _said(report, NOTICE_TASK)
+    assert 'vpn: "tailscale"' in _said(report, "Say what was written, and what is left")
 
 
 # --tailscale that differs from the setting: test_given_values_that_differ_from_set_ones_fail_and_write_nothing.
 
 
-@pytest.mark.parametrize("vpn", ["tailscale", "none", "wireguard"])
+@pytest.mark.parametrize("vpn", ["tailscale", "none"])
 def test_a_vpn_set_in_local_yml_is_never_asked_over_nor_tailscale_enabled_written(tmp_path: Path, vpn: str) -> None:
-    # vpn outranks tailscale_enabled: an answer to the Tailscale question would change nothing, and the notice that
-    # Tailscale is on by default would be untrue under none or wireguard.
+    # vpn outranks tailscale_enabled: an answer to the Tailscale question would change nothing.
     files = _files(tmp_path)
     local = Path(files["init_local_file"])
     local.write_text(local.read_text() + f"vpn: {vpn}\n")
@@ -1180,9 +1139,8 @@ def test_a_vpn_set_in_local_yml_is_never_asked_over_nor_tailscale_enabled_writte
     key = [(TAILSCALE_KEY_PROMPT, b"\n")] if vpn == "tailscale" else []
     rc, output, _ = _init_at_a_terminal(tmp_path, files, [*UP_TO_TAILSCALE, *key, *THE_PROXMOX_QUESTIONS])
     assert rc == 0, output
-    assert TAILSCALE_PROMPT.decode() not in output and WIREGUARD_PROMPT.decode() not in output
+    assert TAILSCALE_PROMPT.decode() not in output
     assert (TAILSCALE_KEY_PROMPT.decode() in output) is (vpn == "tailscale")
-    assert "NOTICE  Tailscale is on by default" not in output
     assert local.read_text() == before
 
 
@@ -1205,37 +1163,6 @@ def test_tailscale_given_that_the_vpn_set_contradicts_fails_naming_both(
         assert not [line for line in local.read_text().splitlines() if line.startswith("tailscale_enabled:")]
 
 
-def test_wireguard_s_questions_ask_only_what_is_not_set_and_write_vpn_last(tmp_path: Path) -> None:
-    files = _files(tmp_path)
-    local = Path(files["init_local_file"])
-    local.write_text(local.read_text() + 'wireguard_vm_prefix: "198.51.100.128/25"\n')
-    key = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="  # 32 bytes of 1s: no real server's
-    steps = [
-        *UP_TO_TAILSCALE,
-        (TAILSCALE_PROMPT, b"n\n"),
-        (WIREGUARD_PROMPT, b"y\n"),
-        (b"The server's tunnel network:", b"198.51.100.0/24\n"),
-        (b"The server's public key:", key.encode() + b"\n"),
-        (b"What the VMs dial:", b"192.0.2.1:51820\n"),
-        *THE_PROXMOX_QUESTIONS,
-    ]
-    rc, output, _ = _init_at_a_terminal(tmp_path, files, steps)
-    assert rc == 0, output
-    assert "The part of it kept for the VMs:" not in output
-    lines = local.read_text().splitlines()
-    assert lines.count('wireguard_vm_prefix: "198.51.100.128/25"') == 1
-    for line in (
-        'vpn: "wireguard"',
-        'wireguard_hub_network: "198.51.100.0/24"',
-        'wireguard_hub_endpoint: "192.0.2.1:51820"',
-    ):
-        assert line in lines, line
-    # Each on its example's own line, so the file's order is not the writes': vpn is written last.
-    tasks = yaml.safe_load((REPO / "playbooks" / "init_settings.yml").read_text())[0]["tasks"]
-    (write,) = [task for task in tasks if task.get("name") == "Write WireGuard's settings into local.yml"]
-    assert write["loop"][-1] == "vpn"
-
-
 # ----------------------------------------------------------------- NEXT STEPS ---
 @pytest.mark.parametrize("asking", [False, True], ids=["no-terminal", "init_ask"])
 def test_next_steps_keep_each_value_still_to_set(tmp_path: Path, asking: bool) -> None:
@@ -1254,11 +1181,9 @@ def test_next_steps_keep_each_value_still_to_set(tmp_path: Path, asking: bool) -
         assert Path(files["init_vault_file"]).read_text().startswith("$ANSIBLE_VAULT")
     else:
         # A fresh checkout and nothing given: nothing asked or written, what is
-        # missing said - and the Tailscale notice, which names the sign-in page.
+        # missing said - and nothing of Tailscale being on, which it is not.
         assert after == before
-        notice = _said(report, NOTICE_TASK)
-        assert notice.startswith("NOTICE  Tailscale is on by default") and "sign-in page during just deploy" in notice
-        assert "tailscale_enabled: false" in notice
+        assert "on by default" not in json.dumps(report)
     left = _init_next(report)
     assert list(left) == ["init_settings"]
     line = left["init_settings"]
@@ -1328,7 +1253,7 @@ def test_every_write_is_at_a_terminal_or_of_a_given_value():
             when = guards[guard.group(1)].removeprefix("{{").strip()
         # Its first condition: a terminal, or (the rest of it) a value given; or a terminal alone.
         assert re.match(r"\(?init_ask \| bool (or|and) ", when), task["name"]
-    assert len(writers) == 6, writers
+    assert len(writers) == 5, writers
     # The address, and the vault's password and text, each through its guard.
     assert sorted(named) == ["init_host_writing", "init_vault_writing", "init_vault_writing"], named
 

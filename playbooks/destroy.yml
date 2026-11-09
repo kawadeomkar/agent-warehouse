@@ -264,9 +264,6 @@
               {{ claude_vm_addressed | default([]) | selectattr('name', 'equalto', claude_vm_name_item)
                  | map(attribute='address') | first | default('', true) }}
             claude_vm_release_here: "{{ (claude_vm_release_found or '') if claude_vm_reaching | bool else '' }}"
-            claude_vm_release_listed: >-
-              {{ claude_vm_all.json.data | default([], true) | selectattr('name', 'defined')
-                 | selectattr('name', 'equalto', claude_vm_name_item) | first | default({}, true) }}
           ansible.builtin.add_host:
             name: "{{ claude_vm_name_item }}"
             groups: claude_vm_doomed
@@ -276,9 +273,6 @@
             # The VM's own Python over SSH; this machine's for a local one.
             ansible_python_interpreter: "{{ claude_vm_python if claude_vm_release_here | length > 0 else ansible_playbook_python }}"
             claude_vm_release_address: "{{ claude_vm_release_here }}"
-            # From Proxmox's listing, never the VM: what a VPN's release plan reads (tasks/vpn_members.yml).
-            claude_vm_listed_id: "{{ claude_vm_release_listed.vmid | default(0) }}"
-            claude_vm_marks: "{{ claude_vm_release_listed.tags | default('') | proxmox_marks(claude_vm_tags_owned) }}"
           changed_when: false
           loop: "{{ claude_vm_names }}"
           loop_control:
@@ -490,71 +484,6 @@
           ansible.builtin.set_fact:
             claude_vm_delete_error: "{{ claude_vm_delete_why }}"
             claude_vm_delete_failure: "{{ inventory_hostname }} was not deleted ({{ claude_vm_delete_why }})."
-
-# The peer each deleted VM leaves on its WireGuard server, which the project
-# never writes (wireguard_hub: manual): said, and kept for NEXT STEPS, from
-# WireGuard's release plan of the VMs deleted (tasks/vpn_members.yml), by the
-# address Proxmox recorded for each. Whatever the vpn setting is: a VM switched
-# away and destroyed before its next configure still left one. In a block whose
-# rescue gives the failure to each deleted VM that had an address, for its line
-# in the report: the play below must still run, to stop again what this run
-# started, forget the aliases and say what became of each VM.
-- name: Say the WireGuard peers each deleted VM leaves on its server
-  hosts: localhost
-  gather_facts: false
-
-  tasks:
-    - name: Plan and say WireGuard's release of each deleted VM
-      vars:
-        claude_vm_wireguard_gone: >-
-          {{ groups['claude_vm_doomed'] | default([]) | map('extract', hostvars)
-             | selectattr('claude_vm_deleted', 'defined') | map(attribute='inventory_hostname') | list }}
-      block:
-        - name: Plan WireGuard's release of each deleted VM
-          ansible.builtin.import_tasks: tasks/vpn_members.yml
-          vars:
-            claude_vpn_planned: wireguard
-            claude_vpn_hosts: "{{ claude_vm_wireguard_gone }}"
-            claude_vpn_phase: release
-            # destroy_release: false releases nothing: a hub with an API is then left as a manual one is, and
-            # the peer to remove said.
-            claude_vpn_hub_kind: >-
-              {{ wireguard_hub | default('manual') if destroy_release | default(true) | bool else 'manual' }}
-
-        - name: Say each peer to remove
-          ansible.builtin.import_tasks: tasks/vpn_apply.yml
-      rescue:
-        - name: Say the peer each deleted VM leaves, which WireGuard's plan could not
-          vars:
-            claude_vm_wireguard_why: "{{ ansible_failed_result.msg | default('no message', true) | one_line(none) }}"
-            claude_vm_wireguard_address: >-
-              {{ hostvars[claude_vm_wireguard_of].claude_vm_marks | default([]) | select('match', 'wg-') | first
-                 | default('') | regex_replace('^wg-([0-9.]+).*$', '\1') }}
-          ansible.builtin.debug:
-            msg: >-
-              {{ claude_vm_wireguard_of }}: WireGuard failed at "{{ ansible_failed_task.name | default('a task') }}":
-              {{ claude_vm_wireguard_why | full_stop }} Its peer, {{ claude_vm_tag | lower }}-{{ claude_vm_wireguard_of }}
-              (AllowedIPs {{ claude_vm_wireguard_address }}/32), stays on your WireGuard server until you remove it{{
-              ', or a just deploy --only configure without names removes it from ' ~ wireguard_hub_instance
-              if wireguard_hub | default('manual') == 'opnsense' and claude_vpn_key | default('none') == 'wireguard'
-              else '' }}.
-          loop: "{{ claude_vm_wireguard_gone }}"
-          loop_control:
-            loop_var: claude_vm_wireguard_of
-          when: hostvars[claude_vm_wireguard_of].claude_vm_marks | default([]) | select('match', 'wg-') | list | length > 0
-          register: claude_vm_wireguard_said
-
-        # NEXT STEPS (callback_plugins/agent_warehouse.py), under the matter the plan's own lines use.
-        - name: Keep what is left to do for the end of the run
-          ansible.builtin.set_stats:
-            data:
-              vpn_next: "{{ {claude_vm_wireguard_left.claude_vm_wireguard_of: {'wireguard_peer': claude_vm_wireguard_left.msg}} }}"
-            aggregate: true
-            per_host: false
-          loop: "{{ claude_vm_wireguard_said.results | default([]) | selectattr('msg', 'defined') | list }}"
-          loop_control:
-            loop_var: claude_vm_wireguard_left
-            label: "{{ claude_vm_wireguard_left.claude_vm_wireguard_of }}"
 
 # The alias this project keeps for each VM on this machine goes with the VM,
 # as its host key does (docs/guides/vscode.md), and only with a

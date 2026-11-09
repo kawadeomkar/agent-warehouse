@@ -69,11 +69,3 @@ vault_tailscale_auth_key: ""
 vault_tailscale_api_token: ""
 vault_tailscale_oauth_client_id: ""
 vault_tailscale_oauth_client_secret: ""
-
-# -------------------------------------------------------------- WireGuard ---
-# Optional, with wireguard_hub: opnsense: the key and secret of an API user on
-# your OPNsense router with the WireGuard page's privilege alone, which writes
-# your VMs' peers on your instance and nothing else (docs/guides/wireguard.md).
-# Used only on this machine, never sent to a VM.
-vault_wireguard_hub_api_key: ""
-vault_wireguard_hub_api_secret: ""

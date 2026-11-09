@@ -217,9 +217,9 @@ The VPN each VM joins becomes the user's choice the way the editor did, and in t
 such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the editor
 ([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)).
 
-- **One VPN at a time**, the `vpn` setting: Tailscale, WireGuard - each VM a peer of a WireGuard server the user
-  already runs - or none. Unset, it follows `tailscale_enabled`, which 1.0 promised and which stays read through 1.x; `vpn: none` is
-  a value, not a member, since there is nothing to plan for it.
+- **One VPN at a time**, the `vpn` setting: Tailscale or none. Unset, it follows `tailscale_enabled`, which 1.0
+  promised and which stays read through 1.x; `vpn: none` is a value, not a member, since there is nothing to plan for
+  it.
 - **The pattern is the editor's, in two halves.** What a VPN decides on this machine is a plan of who is on the
   network, made by a family module and held by a registry to the ownership rules; what it does on a VM stays its
   role, imported statically per member. Rejected: a class hierarchy per choice (a module cannot inherit a default,
@@ -232,15 +232,19 @@ such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the edit
   (`<tag>-tailscale` today), on Unraid later in the domain's metadata. A VPN says which marks to keep; it never
   calls the hypervisor's API itself.
 - **The host's OS will be the setting `os`**, the third choice, `proxmox` by default.
-- **WireGuard: each VM a peer of a server the user already runs, which the project never writes.** Setting the
-  server up - its interface, the user's devices, its firewall, a port open to the internet - is the user's, or another
-  provisioning's, and differs on every router; the project joins its VMs, keeps them and removes them, as it does with
-  a tailnet. One network for the devices and the VMs means one tunnel on a laptop reaches both, which matters since
-  WireGuard's app on macOS and iOS runs one tunnel at a time. A VM a server of its own (each VM listening on the
-  internet) was rejected. The first hub is `manual`: each run says the peer to add. A hub with an API for its peers
-  can write them - OPNsense's is next - only for peers with every mark of the project's: their name, an address in
-  the VMs' range, the user's instance.
-- **The VM's key is made on the VM and never leaves it**, and the link is systemd-networkd's (`PrivateKeyFile=`),
-  reloaded alone, rather than `wg-quick` or netplan, whose apply reconfigures every interface. A VM's address is
-  given once from a range the user keeps for the VMs and recorded in Proxmox as a mark, so it survives a hub that
-  lost its peers, and a `manual` hub needs nothing read back.
+- **No VPN unless one is chosen, and choosing one never removes another** (decided 9 November 2026, 2.1). A VPN
+  the user runs that routes the LAN reaches the VMs with nothing here, so `none` is the default, which `just init`
+  says before it asks, and `tools/check` warns of while unset. Taking Tailscale off a VM is by hand: through 2.0,
+  `tailscale_enabled: false` logged each VM out and removed the package, and with the default turned to none every
+  VM of a user who relied on the old default would have lost Tailscale at the next run - and the auth key is never
+  sent to such a VM again, so each would have needed the web login. `just destroy` still releases a VM's
+  Tailscale: the VM itself is going.
+- **WireGuard was built in 2.0 and removed in 2.1** (decided 9 November 2026): each VM a peer of a WireGuard server
+  the user ran, its peer added by hand or written through an OPNsense router's API. A VPN that already routes the
+  user's LAN - WireGuard on the router, a Tailscale subnet router, any other - reaches every VM at its LAN address
+  with `vpn: none`, at home and away, and every `just` command needs that route anyway, since Proxmox's API and
+  Ansible use LAN addresses. WireGuard has no control plane: joining and removing peers without the user takes an
+  adapter per server, each asking setup of the user, and by hand a peer added for every VM. Tailscale stays, since its
+  per-VM join gives what a subnet route does not - a name per VM, reach where nothing routes the LAN, the VM a device
+  of its own - for one auth key. Not to be built again unless a VM must be reached where no route to the LAN can be
+  had.

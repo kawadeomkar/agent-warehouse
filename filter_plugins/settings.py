@@ -13,6 +13,7 @@ INIT = (
     "init_answer_rule",
     "init_pick_question",
     "init_pick",
+    "init_ask_menu",
     "with_setting",
     "init_candidates",
     "init_choose_rows",

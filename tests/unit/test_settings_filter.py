@@ -48,10 +48,6 @@ ACCEPTED = {
         ("  " + "0" * 48 + " ", "0" * 48),
     ],
     "yes_no": [("y", "y"), ("YES", "y"), ("n", "n"), ("No", "n")],
-    "ipv4_network": [("198.51.100.0/24", "198.51.100.0/24"), (" 198.51.100.128/25 ", "198.51.100.128/25")],
-    # 32 bytes of 1s: a key no real peer has.
-    "wireguard_key": [("AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=")],
-    "endpoint": [("192.0.2.1:51820", "192.0.2.1:51820"), ("vpn.example.net:051820", "vpn.example.net:51820")],
 }
 
 REFUSED = {
@@ -85,17 +81,6 @@ REFUSED = {
         "a" * 513,
     ],
     "yes_no": ["maybe", "1", "yy"],
-    "ipv4_network": ["198.51.100.1/24", "198.51.100.0", "fd00::/64", "198.51.100.0/33", "x/24"],
-    "wireguard_key": ["AQEB", "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE", "!" * 44],
-    "endpoint": [
-        "vpn.example.net",
-        "vpn.example.net:0",
-        "vpn.example.net:65536",
-        "[fd00::1]:51820",
-        "192.0.2.10:51820",
-        "a\n[WireGuardPeer]:51820",
-        ":51820",
-    ],
 }
 
 

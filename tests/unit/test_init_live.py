@@ -6,12 +6,19 @@ answers, then the real init_check.yml as test_init_check.py runs it, against the
 and the same refusing ssh. What a person sees: the questions with no frame flashed between them, the settings stage's
 steps, the checks drawn as they are recorded and said whole in the summary, one NEXT STEPS at the end; and a check
 that fails drawn as the failure, the last task naming nothing of its own (docs/architecture/custom-code.md §7.8).
+
+A choice is asked as a menu (lib/claude_vm/tui/choose.py), as the live engine asks one at a terminal that can
+draw: the VPN question, none or tailscale, answered by its first letter and Enter, never wrapped, erased once
+answered and said on one line; and Ctrl-C at it, then C to go on - the question left for later - or A to abort the
+run, as pause has it.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import sys
+from pathlib import Path
 
 import harness
 import live_kit as kit
@@ -19,15 +26,46 @@ import pytest
 import test_init_check as tic
 import test_init_settings as tis
 
-# The questions, each typed once it has the terminal: a GitHub user, no Tailscale, the host, the token ID as it is,
-# the secret.
+from claude_vm.tui import choose
+
+# The questions, each typed once it has the terminal: a GitHub user, no VPN - a menu, its hint the sign it has the
+# terminal: n moves to none, Enter takes it - the host, the token ID as it is, the secret.
 ANSWERS = {
     tis.HOST_PROMPT.decode(): b"pve.lan\r",
     tis.TOKEN_PROMPT.decode(): b"\r",
     tis.GITHUB_PROMPT.decode(): b"octocat\r",
-    tis.TAILSCALE_PROMPT.decode(): b"n\r",
+    choose.HINT: b"n\r",
     tis.SECRET_PROMPT.decode(): tis.SECRET.encode() + b"\r",
 }
+# pause's question after a Ctrl-C, which the menu raises as prompt_until does.
+GO_ON = "Press 'C' to continue the play or 'A' to abort"
+# pause, as far as the keys go: the question, raw mode, the input flushed, a read to Enter, its line cleared. The
+# first flush comes late, taking the keys typed at it; the second question comes long after the first's keys.
+PAUSE = r"""
+import json, os, sys, termios, time, tty
+
+fd = sys.stdin.fileno()
+
+
+def ask(question, late):
+    settings = termios.tcgetattr(fd)
+    os.write(1, question.encode() + b"\r\n")
+    tty.setraw(fd)
+    time.sleep(late)
+    termios.tcflush(fd, termios.TCIFLUSH)
+    line = b""
+    while not line.endswith(b"\r"):
+        line += os.read(fd, 1)
+    termios.tcsetattr(fd, termios.TCSADRAIN, settings)
+    os.write(1, b"\x1b[K\r\n")
+    return line.decode()
+
+
+first = ask("first?", 1)
+time.sleep(2.5)
+with open(sys.argv[1], "w") as record:
+    json.dump([first, ask("second?", 0)], record)
+"""
 
 
 @pytest.fixture(scope="module")
@@ -35,7 +73,7 @@ def pve(tmp_path_factory):
     yield from harness._fake_pve(tmp_path_factory.mktemp("init_pve"))
 
 
-def _init(root, pve, check_settings=None):
+def _init(root, pve, check_settings=None, answers=ANSWERS):
     (root / "settings").mkdir()
     files = tis._files(root / "settings")
     paths, env = tic._inventory_of(root / "checks", pve, "ssh", check_settings, tic.VAULT_HEADER, "127.0.0.1")
@@ -46,8 +84,9 @@ def _init(root, pve, check_settings=None):
         f'"{kit.ANSIBLE_PLAYBOOK}" -i "{root / "checks" / "proxmox.yml"}" -e \'{checks}\' "{tic.PLAYBOOK}"',
     ]
     argv, environment, state = kit.recipe_in_parts(root, parts, "init", **env)
-    ran = kit.at_a_terminal(argv, root, environment, prompts=ANSWERS, timeout=240)
+    ran = kit.at_a_terminal(argv, root, environment, prompts=answers, timeout=240)
     ran.state = state
+    ran.local = Path(files["init_local_file"])
     return ran
 
 
@@ -59,6 +98,23 @@ def passed(tmp_path_factory, pve):
 @pytest.fixture(scope="module")
 def refused(tmp_path_factory, pve):
     return _init(tmp_path_factory.mktemp("init_refused"), pve, {"vault_proxmox_api_token_secret": "not-the-secret"})
+
+
+@pytest.fixture(scope="module", params=["c", "a"], ids=["go-on", "abort"])
+def interrupted(request, tmp_path_factory, pve):
+    answers = {**ANSWERS, choose.HINT: b"\x03", GO_ON: request.param.encode()}
+    ran = _init(tmp_path_factory.mktemp(f"init_interrupted_{request.param}"), pve, answers=answers)
+    ran.key = request.param
+    return ran
+
+
+def test_keys_a_flush_took_are_typed_again_and_never_at_the_question_after(tmp_path):
+    script, record = tmp_path / "pause.py", tmp_path / "read.json"
+    script.write_text(PAUSE)
+    argv = [sys.executable, "-I", script, record]
+    ran = kit.at_a_terminal(argv, tmp_path, harness._env(tmp_path), prompts={"first?": b"one\r", "second?": b"two\r"})
+    assert ran.rc == 0, ran.text
+    assert json.loads(record.read_text()) == ["one\r", "two\r"]
 
 
 def test_init_is_one_run_its_questions_steps_and_its_checks_drawn_as_they_are_made(passed):
@@ -91,3 +147,26 @@ def test_a_check_that_fails_is_the_failure_and_the_last_task_names_nothing_of_it
     # NEXT STEPS keeps the record's lines: each problem under the line that counts them, with its indent.
     steps = screen.split("##  NEXT STEPS", 1)[1]
     assert re.search(r"^just init found 2 problems", steps, re.M) and re.search(r"^  !!   Proxmox at ", steps, re.M)
+
+
+def test_a_choice_is_a_menu_answered_by_its_letter_and_said_on_one_line(passed):
+    assert passed.rc == 0, passed.text
+    # Drawn, and never as the typed prompt: its last words and their colon are the menu's place.
+    assert choose.HINT.encode() in passed.raw and tis.TAILSCALE_PROMPT not in passed.raw
+    assert passed.screen.frame_wraps == 0 and b"\x1b[?25l" not in passed.raw
+    screen = passed.transcript
+    assert "VPN: none" in screen, screen
+    assert choose.HINT not in screen, "the menu is erased once answered"
+    assert 'vpn: "none"' in passed.local.read_text()
+
+
+def test_ctrl_c_at_the_menu_is_pause_s_c_goes_on_with_the_question_left_and_a_aborts(interrupted):
+    assert GO_ON in interrupted.text
+    if interrupted.key == "c":
+        assert interrupted.rc == 0, interrupted.text
+        assert "VPN: left for later" not in interrupted.transcript
+        assert not [line for line in interrupted.local.read_text().splitlines() if line.startswith("vpn:")]
+    else:
+        assert interrupted.rc != 0, interrupted.text
+        assert "user requested abort!" in interrupted.text
+    assert choose.HINT not in interrupted.transcript

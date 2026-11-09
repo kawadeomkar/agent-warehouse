@@ -67,9 +67,9 @@ playbooks/
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
-                                  load, upgrades and the user's processes, read only); opnsense_wireguard (the
-                                  OPNsense hub's peers through the router's API: the certificate pinned, the
-                                  version floor, every private key it answers with dropped)
+                                  load, upgrades and the user's processes, read only)
+  action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
+                                  for the menu the live engine asks it as (§7.8)
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude
@@ -126,7 +126,7 @@ roles/                            one role per concern, each with defaults/, met
                                   login_report.yml), device_flow.yml (the sign-in), status.yml (just status);
                                   library/github_repos.py, the custom module
   tailscale/                      tasks/ownership.yml, install.yml, state.yml, connect.yml (the key), settings.yml,
-                                  report.yml, absent.yml, login.yml and web_login.yml (the sign-in), status.yml (just status);
+                                  report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in), status.yml (just status);
                                   files/tailscale.asc (the vendored signing key)
 
 lib/claude_vm/                    the controller's Python as one package (§7.10): records.py, every record's base,
@@ -134,7 +134,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   every adapter in filter_plugins/ shares; text.py, what a VM said made plain (§7.4);
                                   tui/live_region.py, every live output's region: drawn in place at the bottom of a
                                   terminal, all else above, and tui/screen.py, its lines: styled segments, cut,
-                                  aligned, coloured in one palette (§7.8); proc.py, the processes under one, and
+                                  aligned, coloured in one palette (§7.8); tui/choose.py, a question with a few
+                                  answers asked as a menu picked with the arrow keys, its answers carried in
+                                  built-in bytes (§7.8); proc.py, the processes under one, and
                                   their end: what a kill must reach beyond the group it was sent to - ansible-core's
                                   detached task worker, a nested run's parts (§7.8)
                                   run/recipes.py, every command drawn live, declared: its stages and steps, named
@@ -209,8 +211,7 @@ tests/
                                   fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
-                                  fake_anthropic_api.py, the Messages API for the real claude in configure;
-                                  fake_opnsense.py, an OPNsense router's WireGuard API for the hub's peers.
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why

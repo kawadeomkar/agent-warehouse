@@ -381,6 +381,8 @@ def _env(root: Path, config: str = "", **settings: str) -> dict:
         # modules too, and those import what they share.
         ANSIBLE_LIBRARY=str(REPO / "playbooks" / "library"),
         ANSIBLE_MODULE_UTILS=str(REPO / "playbooks" / "module_utils"),
+        # As ansible.cfg's action_plugins: a playbook a test writes elsewhere asks just init's questions too.
+        ANSIBLE_ACTION_PLUGINS=str(REPO / "playbooks" / "action_plugins"),
         ANSIBLE_NOCOLOR="1",
     )
     env.update(settings)

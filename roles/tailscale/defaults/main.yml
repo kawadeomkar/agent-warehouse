@@ -1,13 +1,13 @@
 ---
 # Tailscale on the VM: installed from Tailscale's apt repository, joined to the
-# tailnet, and kept as configured - or, with tailscale_wanted false, removed
-# again. Only what this role made is ever touched: a Tailscale installed or
-# signed in by hand is reported and left as it is (docs/architecture/roles.md
-# §5.8).
+# tailnet, and kept as configured - or, with tailscale_wanted false, left as it
+# is, never removed. Only what this role made is ever touched: a Tailscale
+# installed or signed in by hand is reported and left as it is
+# (docs/architecture/roles.md §5.8).
 
-# The feature. false turns it off again on a VM where this role installed it:
-# logged out, stopped, and the package and repository removed.
-tailscale_enabled: true
+# The feature, off unless chosen. false leaves a Tailscale this role installed
+# as it is, unmanaged: taking it off is by hand.
+tailscale_enabled: false
 # What the role reads: the feature as the project decides it, from the vpn
 # setting (tailscale_wanted in the inventory defaults), and the setting that
 # turned it off, as the messages name it. Alone, the role follows
@@ -42,8 +42,8 @@ tailscale_joined_before: false
 tailscale_joined_tag: agent-warehouse-tailscale
 
 # Deleting a VM's device from the tailnet through Tailscale's API, when the VM
-# is destroyed (the release entry point) or Tailscale is turned off on it, so
-# the device leaves the admin console and its name is free for a VM built
+# is destroyed (the release entry point), so the device leaves the admin
+# console and its name is free for a VM built
 # again. auto: with whichever credential is set, the API access token first;
 # with none set, as none. none: the node is only logged out, and the run names
 # the device to delete by hand. token: an API access token

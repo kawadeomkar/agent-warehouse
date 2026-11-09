@@ -25,16 +25,19 @@ import ipaddress
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 from ansible import constants as C
 from ansible import context
+from ansible.errors import AnsiblePromptInterrupt
 from ansible.utils import display as ansible_display
 
 from .. import text
 from ..refs import NAME
 from ..run import model as view
 from ..run import next_steps as steps
+from ..tui import choose
 from ..tui import run as drawn
 from . import parts as commands
 
@@ -64,6 +67,31 @@ VM_FACTS = ("proxmox_vm_resolved_id", "proxmox_vm_address", "proxmox_vm_exists")
 QUIET_SECONDS = 10.0
 # A task name's file prefix, as an included file's tasks are named: "session_read | Read the sessions".
 FILE_PREFIX = re.compile(r"^[a-z0-9_]+ \| ")
+
+
+def choosing(display, original):
+    """prompt_until, with a question whose answers ride along (tui/choose.py's marker) asked as a menu: in this
+    process, which holds the terminal, at one that can draw, and under Display's lock as prompt_until reads, so nothing
+    else is written while it waits. The question's text first, through display() as prompt_until says it; the answer
+    after, on one line, to the screen and the log. Anything else - no menu, a hidden question, a timeout, no terminal -
+    goes to Ansible's own."""
+
+    def prompt_until(msg, private=False, seconds=None, interrupt_input=None, complete_input=None):
+        menu = choose.menu_of(complete_input)
+        if menu is None or private or seconds is not None or not choose.can_choose(sys.stdin, sys.stdout):
+            return original(
+                msg, private=private, seconds=seconds, interrupt_input=interrupt_input, complete_input=complete_input
+            )
+        with display._lock:
+            display.display(choose.question(msg, menu))
+            try:
+                value = choose.ask(menu, sys.stdin, sys.stdout, color=not C.ANSIBLE_NOCOLOR)
+            except choose.Interrupted:
+                raise AnsiblePromptInterrupt("user interrupt") from None
+            display.display(choose.collapsed(menu, value))
+        return value.encode()
+
+    return prompt_until
 
 
 def from_environment(callback, playbook):
@@ -353,6 +381,8 @@ class Engine(commands.Drawn):
         first = playbook.get_plays()[:1]
         if first and Path(_file_of(first[0])).name in self.run.recipe.plan:
             self.plan_play = first[0]._uuid
+        # Under the region's own wrapper, which steps aside for every prompt: the menu is drawn while it is away.
+        self.display.prompt_until = choosing(self.display, self.display.prompt_until)
         self.out.start()
         self.out.redraw()
         self.out.spin()

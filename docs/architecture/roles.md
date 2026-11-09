@@ -75,8 +75,7 @@ with `force: true` (which also covers a VM restarted between the two calls) and
 `destroy_unreferenced_disks: true` (a disk that still carries the VMID but that the configuration no
 longer lists goes with the VM - these VMs are deleted often, and the tag check has already
 established the VMID is this project's), then one housekeeping
-step: remove the address from `known_hosts`, and the WireGuard address the VM's mark holds, which its alias
-connects to under `vpn_reach: tunnel`. It matters because names, DHCP leases and WireGuard addresses are reused,
+step: remove the address from `known_hosts`. It matters because names and DHCP leases are reused,
 and a stale host key produces `HOST KEY VERIFICATION FAILED` with no hint why. If no address could
 be determined, a warning says so and names the `ssh-keygen -R` fix. There are no cached facts to
 clear: the project has no fact cache ([§13](toolchain.md)).
@@ -749,7 +748,7 @@ plan's research record.
 
 - **Ownership.** `/var/lib/agent-warehouse/tailscale-installed` (`/var/lib/claude-on-proxmox` through 1.x, moved by
   `names.yml` before anything reads it, and read by `ownership.yml` there until then) is written before the repository: a
-  Tailscale with it, or none at all, is the role's to install, maintain and remove; a package dpkg has
+  Tailscale with it, or none at all, is the role's to install and maintain - never to remove (Off, below); a package dpkg has
   without it, or a Tailscale dpkg does not know (a `tailscaled` of Tailscale's static binaries in
   `/usr/sbin` or under `/usr/local`, the snap's `/snap/bin/tailscale`), was installed some other way and
   is left alone, on and off, and reported while on - off, `configure.yml` runs the role only where the
@@ -860,55 +859,16 @@ plan's research record.
   and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
   one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
-  is an earlier run's. Run by the off path after its logout, and by the `release` entry point, which
+  is an earlier run's. Run by the `release` entry point, which
   `destroy.yml` runs before deleting a VM: start a stopped `tailscaled`, read the node's ID, log it out,
   delete the device, and record a clause in `tailscale_release_said` - whatever Tailscale the VM has,
   since the VM itself is going.
-- **Off** (`absent.yml`), only with the installed marker - `configure.yml` runs the role at all, off, only
-  where its `stat` finds the marker ([§4.4](lifecycle.md#44-playbooksconfigureyml)) - said first, as removing
-  what this project installed: `tailscaled` started where the unit exists -
-  logging out takes the daemon, and one stopped by hand would leave the node's key valid in the tailnet -
-  then logout where it answers with a node key, stop - never disable: the package's postinst re-enables
-  tailscaled on a reinstall only while its enable link survives, so a disable kept a Tailscale installed
-  again by hand from ever starting - remove (not purge) where dpkg
-  has the package, then the repository, the drop-in and both markers. Each step only where its object exists,
-  since a failed install leaves only some of them. A daemon that does not answer, or a logout that fails
-  (the control server out of reach), is said, not failed on - failed, it would keep Tailscale on until
-  the network came back - and the joined marker stays with the login that may be left: turned on again,
-  the daemon starts on that state, and the login is still the role's. A device the API no longer has
-  (404) is said as gone already, as the release says it.
-
-## 5.9 `wireguard` — each VM a peer of your WireGuard server
-
-Run with `vpn: wireguard` ([§7.11](custom-code.md#711-the-choices-the-editor-the-vpn-and-later-the-hosts-os)): the
-VM a peer of a WireGuard server the user already runs, its hub, which the project never writes. The role is the VM's
-half; who is on the network - each VM's address, the peer its server is to have - is the members' plan, made on the
-controller between the role's two entry points (`lib/claude_vm/vpn/wireguard.py`).
-
-- **Ownership.** `/var/lib/agent-warehouse/wireguard-installed` (in the directory's 1.x name until a run of 2.0 moves it)
-  is written before the role's first change on a VM,
-  saying whether the role installed `wireguard-tools` there; everything else the role makes has a name of its own -
-  the key `/etc/systemd/network/claude-wg.key`, the files `50-claude-wg.netdev` and `50-claude-wg.network`, the link
-  `claude-wg` - so a WireGuard of the user's (`wg0`, `/etc/wireguard`) is never touched.
-- **The key** (`tasks_from: key`, in configure's play, before the plan). `wireguard-tools` installed, and the key
-  made once with `wg genkey` under `umask 077`, `root:systemd-network` 0640 - what systemd-networkd's
-  `PrivateKeyFile=` reads - and never read by Ansible: `wg pubkey` reads it on the VM, and only the public key is
-  printed. The public key and whether the link has shaken hands with the hub are facts the plan reads through
-  `hostvars`.
-- **The link** (`main`, in the play after the plan). Two files of systemd-networkd's, every value the plan's, held
-  by the core to its rules: the hub its one peer, its endpoint and the networks routed to it (`AllowedIPs`, the
-  hub's tunnel network), the keepalive; and the VM's address with the tunnel network's length, with no prefix route
-  in the main table (`AddPrefixRoute=no`), but a `[RoutingPolicyRule]` from that address to a table of its own
-  (`wireguard_route_table`, never wg-quick's 51820) whose one route is the link - to the hub's network, or under
-  `vpn_reach: tunnel` to every address - so what reached the VM at its tunnel address is answered there, and a reply
-  from its LAN address leaves on the LAN where its request came in: in the tunnel it would carry an address the
-  hub's peer for the VM does not hold, and the hub would drop it. networkd makes no route for `AllowedIPs`, and
-  applies a netdev only when it makes the link, so a changed one deletes the link first, and the reload makes it
-  again; a changed network alone is reconfigured. The netdev carries the VM's public key in a comment, since it names
-  the key's file and networkd reads the file only then: a new key changes the netdev, and the link is made with it. An endpoint name is looked up once, when the link is made.
-- **Off** (`wireguard_wanted` false, where the marker is): said first, then the link deleted, its files and the key
-  removed, `wireguard-tools` removed only where the marker says the role installed it, and the marker last.
-- **Under `just status`** (`tasks_from: status`): the marker, the link's address and its last handshake with the
-  hub, read and never changed, kept in `wireguard_status_found`; a link that has never reached the hub, or not in
-  three minutes, is a line to act on.
-- **No handlers**: the role runs in blocks whose rescue records a failure, and a handler would run out of its reach.
+- **Off** (`unmanaged.yml`), only with the installed marker - `configure.yml` runs the role at all, off, only
+  where its `stat` finds the marker ([§4.4](lifecycle.md#44-playbooksconfigureyml)) - says that the Tailscale
+  this project installed is left as it is, unmanaged, and changes nothing: no logout, no device deleted, no
+  package or repository removed, not even its 1.x names moved. Choosing a VPN and removing one are separate:
+  through 2.0, off logged the node out and removed what the role installed, and a `local.yml` that relied on
+  Tailscale being the default would have lost it from every VM at the first run after the default became none.
+  Taking it off is by hand (the Tailscale guide's "Turning it off"), and `just destroy`'s release does it for a
+  VM it deletes. `just status` reads such a VM's state as it does a managed one's (`tailscale_status_unmanaged`:
+  the marker and the package both there) and shows it on the tailnet, unmanaged.

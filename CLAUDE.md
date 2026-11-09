@@ -123,8 +123,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 ## Invariants — do not break these
 
 - **No addresses in git.** The Proxmox host's address is the only one anyone supplies, and it lives
-  in git-ignored `inventory/hosts.yml` - but for a WireGuard server's, which `vpn: wireguard` dials
-  (`wireguard_hub_endpoint`, in git-ignored `local.yml`). VM addresses are always DHCP, read back from the QEMU guest
+  in git-ignored `inventory/hosts.yml`. VM addresses are always DHCP, read back from the QEMU guest
   agent. Never add a VM to a committed inventory, and never hardcode a VM address in a default.
 - **No secrets in git.** Secrets go in `inventory/group_vars/all/vault.yml` (ansible-vault). CI runs
   gitleaks plus `tests/check_no_local_files.sh`, which blocks `hosts.yml`, `local.yml`, `vault.yml`,
@@ -259,8 +258,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   included), a stand-in Messages API on loopback for the real `claude` the `configure` scenario resumes sessions
   with (`fake_anthropic_api.py`), a stand-in `gh` installed ahead of the real one on PATH, and a stand-in
   `tailscale` (`fake_tailscale.sh`). Extend a fake rather than reaching for the network.
-- **Tailscale's auth key joins a VM once, and the role touches only the Tailscale it installed.** Read
-  [§5.8](docs/architecture/roles.md#58-tailscale--join-the-vm-to-a-tailnet) first.
+- **Tailscale's auth key joins a VM once, the role touches only the Tailscale it installed, and choosing no VPN
+  never removes it.** Read [§5.8](docs/architecture/roles.md#58-tailscale--join-the-vm-to-a-tailnet) first.
     - The key is used from a settled `NeedsLogin` with no `HaveNodeKey` only, on a VM whose Tailscale never
       had a login, and never sent to a node that has a login: one Tailscale no longer accepts logs the node out
       (tailscale#19501).
@@ -288,29 +287,19 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       package, never a pre-created `/etc/default/tailscaled`.
     - `playbooks/configure.yml` runs the role last, through `import_role` in a block whose rescue appends to
       `claude_vm_configure_failures`; off, only where a `stat` finds the installed marker - the condition on the
-      import, never the block. The role has no handlers, since one would run outside the rescue.
+      import, never the block - and then only to say it is left as it is (`unmanaged.yml`). Off never logs a
+      node out, deletes its device or removes a package: `vpn: none`, the default unless one is chosen
+      (`tailscale_enabled: false` in the inventory, the role's defaults and every `| default(false)` fallback,
+      never taken out of `defaults.yml`, where the role's own default would be what `vpn` reads inside the role),
+      is not a removal; taking Tailscale off is by hand, and `just destroy`'s release does it for a VM it
+      deletes. `just status` reads such a VM's state and shows it unmanaged. The role has no handlers, since one
+      would run outside the rescue.
     - Tests reach no Tailscale service and never this machine's real CLI: every scenario that runs the role
       installs `fake_tailscale.sh` in `prepare.yml` and turns log upload off, the Vagrantfile is keyless with logs
-      off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The template is
-      never signed in to anything.
-- **WireGuard's VMs are peers of the user's server, which the project never writes, and a VM's key never leaves
-  it.** Read [§5.9](docs/architecture/roles.md#59-wireguard--each-vm-a-peer-of-your-wireguard-server) first.
-    - With `vpn: wireguard` (docs/guides/wireguard.md) the `wireguard` role makes the VM's key on the VM (`wg
-      genkey` under `umask 077`, `root:systemd-network` 0640, what networkd's `PrivateKeyFile=` reads), never
-      reads it - only `wg pubkey`'s output leaves the VM - and touches only its own names (`claude-wg`,
-      `50-claude-wg.*`, `claude-wg.key`, the marker `wireguard-installed`, and `wireguard-tools` where the marker
-      says it installed it), never a `wg0` of the user's.
-    - Who is on the network is WireGuard's plan in the core (`lib/claude_vm/vpn/wireguard.py`, held by
-      `registry.py`): each VM's address from `wireguard_vm_prefix`, kept for its life as the mark
-      `<ownership tag>-wg-<address>` in Proxmox (`tasks/vm_marks.yml`, the one writer of a mark), its link's every
-      value, and the peer its server is to have - only by the name `<tag>-<vm>`, the VM's own key and its own
-      address as a /32 - which the run says (`wireguard_hub: manual`), or writes through the router's API
-      (`opnsense`: `playbooks/library/opnsense_wireguard.py`, the certificate pinned, OPNsense 26.7.2 or later,
-      every `privkey` the API answers with dropped), changing only a peer with every mark of the project's,
-      removing one only from a complete listing, and `just destroy` the one to remove. Settings that cannot work
-      are refused before anything is written.
-    - The plan runs between the role's two entry points: `key` in configure's play, the plan on localhost, `main`
-      in a play of its own, each in a block whose rescue records a failure raised at the end of the run.
+      off, and a guard holds each - and the role's scenario to `scenario_roles` and CI's matrix. The `configure`
+      scenario (its `defaults.yml` the project's) sets `vpn: tailscale` and the Vagrantfile `tailscale_enabled:
+      true`, or with none the default they would stop covering Tailscale without failing. The template is never
+      signed in to anything.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -448,6 +437,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
       `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
       cursor.
+    - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
+      arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
+      way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
+      `MARKER` with JSON, from `playbooks/action_plugins/ask.py`), never a class of the project's: a main process that
+      cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
+      (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
+      Ansible's own prompt; a hidden question never carries its answers.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
@@ -473,7 +469,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `playbooks/init_settings.yml` runs with its own inventory, `playbooks/inventory/init.yml` (never in
       `playbooks/` itself, where the syntax check and ansible-lint take it for a playbook), and asks through
       `tasks/init_ask.yml` only while a value is the example's or unset; an answer is held to its kind by
-      `init_answer`.
+      `init_answer`, typed or picked from the menu the live engine asks a yes or no or a choice as, whose answers
+      are what the typed ones are (`init_ask_menu`).
     - Every write is under `init_ask` (a terminal, and no `--no-prompt`) or under a value given on the command
       line (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
       `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.
@@ -486,9 +483,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `AGENT_WAREHOUSE_TOKEN_SECRET` (or `CLAUDE_ON_PROXMOX_TOKEN_SECRET`, its 1.x name, while that is unset; two
       different secrets under the two names are refused unsaid), read in the playbook - and `just init` refuses any
       word after its options without printing it. Tailscale is asked about while `local.yml` sets neither
-      `tailscale_enabled` nor `vpn` (which outranks it), and a `--tailscale` the `vpn` set contradicts fails the run,
-      naming both. Tailscale's auth key is asked only after a `y` (or `on`, or `true` set, or `vpn: tailscale`),
-      hidden, and never taken from the command line.
+      `tailscale_enabled` nor `vpn` (which outranks it), the answer written as `vpn: tailscale` or `vpn: none`,
+      and a `--tailscale` the `vpn` set contradicts fails the run, naming both. Unanswered, no VPN is chosen:
+      every other recipe's `tools/check settings` warns of it, and `just init`'s, run `--asking`, does not.
+      The VPN's question is a choice, `none` first, then `tailscale`. Tailscale's auth key is asked only once
+      `tailscale` is chosen (or `on` given, or `vpn: tailscale` or `tailscale_enabled: true` set), hidden, and
+      never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
       `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and

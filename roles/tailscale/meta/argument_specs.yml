@@ -5,18 +5,18 @@ argument_specs:
     description:
       - Installs Tailscale from its apt repository, joins the tailnet with tailscale_auth_key on a first join, keeps
         the managed settings with tailscale set on a login this role made, and reports the VM's tailnet name and
-        address. With tailscale_wanted false it removes what it installed. A Tailscale installed or signed in by hand
-        is reported and left alone.
+        address. With tailscale_wanted false it leaves what it installed as it is, saying so. A Tailscale installed
+        or signed in by hand is reported and left alone.
     options:
       tailscale_enabled:
         type: bool
-        default: true
-        description: Install and join; false logs out and removes what this role installed.
+        default: false
+        description: Install and join; false leaves what this role installed as it is, unmanaged.
       tailscale_wanted:
         type: bool
         description:
           - Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while
-            tailscale_enabled is true, by default); alone, the role follows tailscale_enabled.
+            tailscale_enabled is true); alone, the role follows tailscale_enabled, off by default.
       tailscale_off_setting:
         type: dict
         description: The setting that turned Tailscale off, as name and value, which the messages name.
@@ -143,12 +143,12 @@ argument_specs:
     options:
       tailscale_enabled:
         type: bool
-        default: true
+        default: false
       tailscale_wanted:
         type: bool
         description:
           - Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while
-            tailscale_enabled is true, by default); alone, the role follows tailscale_enabled.
+            tailscale_enabled is true); alone, the role follows tailscale_enabled, off by default.
       tailscale_off_setting:
         type: dict
         description: The setting that turned Tailscale off, as name and value, which the messages name.
@@ -202,12 +202,12 @@ argument_specs:
     options:
       tailscale_enabled:
         type: bool
-        default: true
+        default: false
       tailscale_wanted:
         type: bool
         description:
           - Whether Tailscale is the VPN; what every task reads. Wired from the vpn setting (tailscale while
-            tailscale_enabled is true, by default); alone, the role follows tailscale_enabled.
+            tailscale_enabled is true); alone, the role follows tailscale_enabled, off by default.
       tailscale_off_setting:
         type: dict
         description: The setting that turned Tailscale off, as name and value, which the messages name.

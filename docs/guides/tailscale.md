@@ -2,12 +2,14 @@
 
 You can reach a VM over [Tailscale](https://tailscale.com): it puts each VM on your tailnet - the private
 network your other devices are on - so `ssh`, your editor (VS Code's Remote - SSH, or Zed) and a dev
-server on any port reach the VM from anywhere, not only from the LAN Proxmox sits on. It is optional:
-`just init` asks whether to use it and writes your answer into `local.yml` as `tailscale_enabled`, which
-every VM deployed from then on follows, and which you can change there any time; after a `y` it asks for
-an auth key for the vault (below). Until it is answered, it is on, and `just init` says so;
-`just init --tailscale on` or `off` answers it without a terminal. Off, no VM gets anything of Tailscale's:
-configuration only looks for what this project installed earlier, to remove it.
+server on any port reach the VM from anywhere, not only from the LAN Proxmox sits on. A VPN you already
+run that routes your LAN does that too, with nothing here ([Reaching your VMs from away](remote-access.md)).
+Tailscale is optional: `just init` asks whether to use it and writes your answer into `local.yml` as `vpn:
+tailscale` or `vpn: none`, which every VM deployed from then on follows, and which you can change there any
+time; after a `y` it asks for an auth key for the vault (below). Until it is answered, no VM gets
+Tailscale: `none` is the default, and every command but `just init` warns of it. `just init --tailscale on`
+or `off` answers it without a terminal. Off, no VM gets anything of Tailscale's, and a VM it is already on
+keeps it, unmanaged ([Turning it off](#turning-it-off)).
 
 ## Joining a VM to your tailnet
 
@@ -108,7 +110,7 @@ Tailscale setting, with its default, is in [Settings](../reference/settings.md#t
 
 Only the Tailscale it installed. A Tailscale you installed on a VM yourself -
 the package, the snap or Tailscale's static binaries - is left exactly as it is,
-`tailscale_enabled: false` included, and reported while Tailscale is on; off, `just deploy` says nothing of
+and reported while Tailscale is on; off, `just deploy` says nothing of
 it. To hand one to this project, run `sudo tailscale logout` on the VM
 and remove it the way you installed it; for the package that is `sudo apt purge tailscale` - purge, so the
 next install does not start under the old login.
@@ -131,14 +133,26 @@ works as before.
 
 ## Turning it off
 
-`vpn: none` (or `tailscale_enabled: false`, its form before the `vpn` setting, still read while `vpn` is not set),
-then `just deploy --only configure`: on each VM this project installed
-Tailscale on, the run says it is removing it, then logs it out - a `tailscaled` you stopped is started for
-that - and removes `tailscaled`, the package and its repository. A VM it never installed Tailscale on gets
-one check for the marker an install leaves, and nothing else; a Tailscale you installed yourself is left
-alone. The device stays in your tailnet, expired, until you delete it in the admin console (Machines),
-unless the project can delete it for you (below). A logout that fails - Tailscale's servers out of the VM's
-reach - is said and the rest removed anyway; its login then stays valid until you delete the device.
+`vpn: none` (or `tailscale_enabled: false`, its form before the `vpn` setting, still read while `vpn` is not
+set) puts Tailscale on no VM deployed from then on, and takes it off none: choosing a VPN never removes one.
+On each VM this project installed Tailscale on, `just deploy --only configure` says it is left as it is,
+unmanaged - still running and joined, with nothing of this project's keeping its settings - and `just status`
+shows the VM on the tailnet, unmanaged. `vpn: tailscale` manages it again. A Tailscale you installed yourself
+is left alone, as ever.
+
+To take it off a VM, by hand, on the VM:
+
+```
+sudo tailscale logout
+sudo apt-get remove -y tailscale
+sudo rm -f /etc/apt/sources.list.d/tailscale.sources \
+  /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf \
+  /var/lib/agent-warehouse/tailscale-installed /var/lib/agent-warehouse/tailscale-joined
+sudo systemctl daemon-reload
+```
+
+Then delete its device in the admin console (Machines): a logged-out device stays there, and holds its name.
+`just destroy` does all of it for a VM it deletes ([Removing devices for you](#removing-devices-for-you)).
 
 The VM's `agent-warehouse-tailscale` tag in Proxmox stays: the project never takes it off, since only
 you can say the logout was yours. Turned back on, the VM is signed in by the web login under `auto`, and
@@ -149,8 +163,7 @@ Proxmox - its tags, in the VM's summary in the web UI - and keep the ownership t
 
 A logged-out device stays in the admin console until it is deleted, and
 holds its name: a VM built again as `alpha` joins as `alpha-1`, for good. With an API credential the
-project deletes the device itself, when `just destroy` deletes the VM and when `tailscale_enabled: false`
-takes Tailscale off it. Put either credential below in the vault and that is all: it is used as soon as it
+project deletes the device itself when `just destroy` deletes the VM. Put either credential below in the vault and that is all: it is used as soon as it
 is there, and every call is made from this machine, so it never reaches a VM.
 
 | Credential | In the vault | Made in the admin console |

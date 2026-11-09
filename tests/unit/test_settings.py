@@ -603,7 +603,6 @@ def test_a_role_variable_set_through_a_setting_is_written_as_the_setting(scenari
         # The VPNs a VM can be on, or none.
         ("vpn", "none", 'vpn: "none"'),
         ("vpn", "tailscale", 'vpn: "tailscale"'),
-        ("vpn", "wireguard", 'vpn: "wireguard"'),
     ],
 )
 def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, value, written) -> None:
@@ -627,7 +626,7 @@ def test_a_value_is_written_as_its_type_takes_it(scenarios, tmp_path, name, valu
         ("claude_sessions_sync", "maybe", "claude_sessions_sync takes true or false"),
         # The editors just code has files for, and no other.
         ("editor", "emacs", "editor takes one of vscode, zed: the value given is not one"),
-        ("vpn", "openvpn", "vpn takes one of tailscale, wireguard, none: the value given is not one"),
+        ("vpn", "openvpn", "vpn takes one of tailscale, none: the value given is not one"),
         ("tailscale_advertise_tags", "[unclosed", "is not YAML"),
         # A secret of the vault's, as a plain value and where a number goes: refused as the secret it is, unsaid
         # (_run holds that). Named, so that no test's ID carries the secret.

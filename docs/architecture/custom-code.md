@@ -658,6 +658,32 @@ good, and runs at exit, Ctrl-C included.
   what was drawn holds once a frame meant for the old size has wrapped. `title()` sets the tab's title (OSC
   0) when it changes, and `bell()` rings.
 
+**`choose.py`** — a question with a few answers, asked as a menu picked with the arrow keys: `just init`'s yes or no
+and its choices of a storage or a bridge. A prompt drawn with `screen.py`'s lines, palette and cut, while the region
+has stepped aside for it, so there is still one way of drawing: every line cut short of the width, one write per
+redraw in synchronized output, the cursor never hidden, the menu erased once answered and the answer said on one
+line (`collapsed`), to the screen and the log.
+
+- **The answers ride along in built-in types.** `playbooks/action_plugins/ask.py` asks as `pause` does - the same
+  text, the same `user_input`, Ctrl-C then C or A - and hands `prompt_until` a `complete_input` of Enter's two bytes
+  and one entry more: `MARKER`, two NULs about a name, and the menu as JSON (`marked`). The prompt crosses from
+  Ansible's worker to its main process by pickle, and a class of the project's would need the main process to
+  import the project's code: where it cannot - a run without the live display, the unit harness's among them -
+  Ansible's results thread, which catches only `OSError` and `EOFError` around its read, dies on the message, and
+  the worker waits for its answer for good. Where nothing hooks the prompt, Ansible compares one key at a time with
+  the list, which never equals the marked entry: the typed answer works as before. A hidden question carries no
+  menu, whatever it is handed: a menu shows its answers.
+- **The engine asks it** (`engine.choosing`, around `Display.prompt_until` under the region's own wrapper): a marked,
+  shown prompt with no timeout, at a terminal of the run's foreground that can draw (`can_choose`), is asked as a
+  menu under `Display`'s lock, as `prompt_until` reads under it; anything else - no menu, a hidden question, no
+  terminal, `TERM=dumb`, a run with `-v`, which has no engine - goes to Ansible's own prompt. A Ctrl-C at the menu
+  raises what `prompt_until` raises, so `pause`'s continue-or-abort follows.
+- **The keys**, read from stdin, never `/dev/tty`, with the terminal's echo, line editing and signal keys off and
+  set back however the menu ends: up and down in both cursor modes, Home and End, a digit for the answer it numbers,
+  an answer's first letter (`y` and `n` for a yes or no), Enter to choose, Esc to decide later. A long list scrolls
+  in a window, the hint saying where the marked answer is; the terminal's size is read at each redraw, since
+  `prompt_until` runs in Ansible's results thread, where no SIGWINCH handler can be set.
+
 **`Output`**, beside it, is what every live output does around its region, whatever it draws: whether to draw
 (`can_draw()`, unless the caller decided), whether to colour (the caller's `ANSIBLE_NOCOLOR`), the region, and the
 output's own words printed coloured to the screen and plain to the log (`print`). With `to_log`, everything
@@ -988,52 +1014,29 @@ and `tests/unit/test_choices.py` holds the three equal.
   the first as its members' plan.
 - **No choice imports another's code.** What one gives another travels through the playbook as data.
 - **The rows are literal data**, read as they are by `tools/settings` and the tests: a row names its role, its
-  family and what it offers, and no behaviour is decided from such a field alone.
+  family and whether it has a sign-in, and no behaviour is decided from such a field alone.
 - **The VPN.** `vpn: tailscale | none`. Unset, it follows `tailscale_enabled`, the setting it replaces, still read:
   `tailscale` while that is true. The Tailscale role reads `tailscale_wanted`, which the inventory sets from the key
   (`claude_vpn_key == 'tailscale'`): the role cannot be handed `tailscale_enabled` from the key, since the key's
   default reads it, and alone it follows `tailscale_enabled`, as do the playbooks run without the inventory's
   defaults. `tailscale_off_setting` names, in its messages, the setting that turned Tailscale off. Each member's role
-  runs where it is chosen, or where its installed marker says it put something there to take off again; its release
-  runs at `just destroy` whatever is chosen.
+  runs where it is chosen, or where its installed marker says it put something there - then only to say it is left
+  as it is, since choosing a VPN never removes one; its release runs at `just destroy` whatever is chosen.
 - **The VPN's members** (`vpn/`). Who is on a VPN's network is a plan, data: the marks to keep on each VM in
   Proxmox, and what is said. Each VPN family is a module of free functions with one, `plan_members(vpn, inputs)`
-  (`tailscale.py`, `wireguard.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
+  (`tailscale.py`), the seam a one-member `typing.Protocol` (`family.py`). `model.py` holds the records: a row of
   `claude_vpns`, each VM a run plans (`Member`: its name and VM ID from Proxmox, its marks, what its roles saw), the
   inputs (`MemberInputs`, which grow by fields with defaults) and the plan (`MemberPlan`). Every plan passes
   `registry.py` on every call: a refusal holds nothing else; marks only for the VMs it was given, only of the
   family's own (`common.marks_of`), never Tailscale's record taken off; NEXT STEPS only under the family's own
-  matters, for the VMs it was given. For WireGuard, besides: one tunnel per VM that stays, at a host of the VMs'
-  range no other VM of the project holds (`taken`, from a listing of the cluster the plan takes itself, and every
-  member's marks once the plan is applied), to the hub the inputs name; a peer only by the name `<tag>-<vm>` of a VM
-  it was given, with that VM's own key, used by no other peer, on the hub or in the plan, and its own address alone,
-  as a /32; a peer removed only for a VM that is leaving; nothing written on a hub with an API whose peers
-  were read only in part; the plan's `hub` the inputs' kind, which `tasks/vpn_apply.yml` writes by (never a variable
-  of the import beside it, which an import's `vars:` do not reach), and `reapply` - a peer saved as planned that the
-  hub does not run - only on such a hub read whole whose instance is on. WireGuard's family gives each VM its marked
-  address while it is a host of the range and no VM of a lower VM ID holds it, else the lowest one free - of the
-  project's VMs, and of every address the hub holds where it is read: its peers' but the members' own, and its own;
-  one key is one peer, the lower VM ID's, so a VM cloned with another's key is said and not joined; and it
-  refuses, before anything is written, settings that cannot work: a range outside the hub's network, a key that is
-  not one, an endpoint that is not a name or an address and a port. What one VM brings (a key that is none, or the
-  hub's; a network it reports that cannot be read or overlaps the tunnel's; a name whose peer name a hub would
-  refuse) leaves that VM out, said and kept for NEXT STEPS, and costs no other VM its place: a VM's root, or whoever
-  named a tagged VM on a shared Proxmox, chooses it. Tailscale's record plays run in a block whose rescue says a failure and
-  goes on, as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the roles left and refuses what
-  the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through `tasks/vm_marks.yml`, what it says, and
-  its NEXT STEPS records (`vpn_next`), a step outside the project said as it is (`NextStep.text`). Under `vpn_reach:
-  tunnel`, which only a row whose `reach` lists it may have (the registry refuses it before any family plans), each
-  tunnel routes every address to the hub and the VM answers from its tunnel address through it, and each VM's alias
-  is its tunnel address once the VM has reached its hub there - before, the address leads nowhere: the plan's, this
-  run, which the registry holds to a VM whose marks say so once applied (a VM the plan gave a tunnel and no alias
-  keeps its LAN address, never what its marks held before the plan), and `vpn_alias_address` over its marks in every
-  other alias writer (`playbooks/ssh_config.yml`, `just code`'s refresh), held to the VMs' range and to the addresses
-  `guest_ipv4` refuses, since whoever made a tagged VM writes its tags.
+  matters, for the VMs it was given. Tailscale's record plays run in a block whose rescue says a failure and goes on,
+  as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the
+  roles left and refuses what the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through
+  `tasks/vm_marks.yml`, what it says, and its NEXT STEPS records (`vpn_next`), a step outside the project said as it
+  is (`NextStep.text`).
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
-  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login, `wg-<address>`
-  for the WireGuard address it keeps (Proxmox's tag format takes the dots, and no `:`, so IPv4 alone), and
-  `wg-<address>-reached` once it has shaken hands with its hub at that address (this run, read by the role's key
-  step, or a run before). Discovery,
+  the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login; any other tag
+  under it, such as the WireGuard address 2.0 kept (`wg-<address>`), is no mark and is read as none. Discovery,
   provisioning's publish and destroy read them from the listing (`proxmox_marks`) as `claude_vm_marks`, under every
   owned tag (`claude_vm_tags_owned`: the tag, and its 1.x name while it is the default), and `proxmox_vm` keeps them
   whenever it replaces a VM's tags (`proxmox_vm_kept_tags`: a repair, `proxmox_vm_force_update`), a 1.x VM's under

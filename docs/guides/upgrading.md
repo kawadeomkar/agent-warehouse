@@ -57,10 +57,10 @@ hypervisors than Proxmox VE. For an install made by 1.x:
   file a VM with passwordless sudo off keeps (`99-agent-warehouse-user.cfg`), the tmux settings' block, and
   `~/.config/agent-warehouse`, where the GitHub and Claude sign-ins keep their state - a login the project made is
   still known as its own. sshd is not restarted for the move. `just status` reads the 1.x names until then.
-- **The Tailscale and WireGuard markers** move from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the
-  next `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
-  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale or WireGuard the project set up stays the
-  project's, and one turned off since is still found and removed. `just status` reads the 1.x names until then.
+- **The Tailscale marker** moves from `/var/lib/claude-on-proxmox` to `/var/lib/agent-warehouse` with the next
+  `just deploy` or `just login`, and tailscaled's drop-in from `10-claude-on-proxmox.conf` to
+  `10-agent-warehouse.conf`, without restarting tailscaled. A Tailscale the project set up stays the project's, and
+  one turned off since is still found and removed. `just status` reads the 1.x names until then.
 - **The ownership tag is `agent-warehouse`.** A VM 1.x made, tagged `claude-on-proxmox`, is this project's through
   2.x as before, and so are the tags 1.x made from it: `claude-on-proxmox-tailscale` keeps the vault's auth key from
   that VM as `agent-warehouse-tailscale` does, and `claude-on-proxmox-unfinished` still gets it finished. The next
@@ -146,6 +146,51 @@ Once `vpn` is set it is the one read, and `tailscale_enabled` beside it changes 
 Tailscale question, and refuses a `--tailscale` that `vpn` contradicts. `just status --json` keeps
 `settings.tailscale_enabled`, now whether Tailscale is the VPN, and adds `settings.vpn` and `settings.tailscale_off`,
 the setting that turned it off.
+
+## WireGuard, removed in 2.1
+
+`vpn: wireguard` - each VM a peer of a WireGuard server you run, by hand or through an OPNsense router's API - came
+in 2.0 and went in 2.1 ([§15.5](../architecture/decisions.md#155-the-vpn-as-a-choice-beside-the-editor)). A VPN that
+already routes your LAN - WireGuard on your router, a Tailscale subnet router, any other - reaches every VM at its
+LAN address: set `vpn: none`. Or set `vpn: tailscale` to join each VM to your tailnet ([Tailscale](tailscale.md)).
+
+Every recipe that reads the settings refuses a `local.yml` or `hosts.yml` that still sets `vpn: wireguard`,
+`vpn_reach: tunnel` or a `wireguard_*` setting, naming it: take it out. `vpn_reach: lan`, which changed nothing, is
+only warned of. Then, on each VM 2.0 set WireGuard up on:
+
+```
+sudo networkctl delete claude-wg
+sudo rm -f /etc/systemd/network/50-claude-wg.netdev /etc/systemd/network/50-claude-wg.network \
+  /etc/systemd/network/claude-wg.key
+grep -qx 'installed wireguard-tools' /var/lib/agent-warehouse/wireguard-installed && sudo apt-get remove -y wireguard-tools
+sudo networkctl reload
+sudo rm -f /var/lib/agent-warehouse/wireguard-installed
+```
+
+And outside the VMs:
+
+- each VM's peer, `agent-warehouse-<vm>`, removed from your WireGuard server;
+- if you like, each VM's `agent-warehouse-wg-<address>` tag taken off in Proxmox: nothing reads it now, and a VM
+  repaired loses it;
+- with the OPNsense hub: the router's API user deleted, `vault_wireguard_hub_api_key` and
+  `vault_wireguard_hub_api_secret` taken out of the vault (`just vault`), and the `wireguard_hub` group out of
+  `hosts.yml`.
+
+## A VPN only when chosen
+
+From 2.1 no VPN is chosen until one is: a `local.yml` that sets neither `vpn` nor `tailscale_enabled` is `vpn:
+none`, where through 2.0 it was Tailscale, and every command but `just init` warns of it. A VPN of yours that
+routes your LAN reaches the VMs with `none` ([Reaching your VMs from away](remote-access.md)); to keep
+Tailscale, set `vpn: tailscale`, or answer `just init`'s question, before your next `just deploy`.
+
+Nothing is taken off a VM for it: from 2.1, choosing a VPN never removes one. A VM this project installed
+Tailscale on stays on the tailnet under `none`, unmanaged - the run says so, and `just status` shows it - where
+through 2.0 `tailscale_enabled: false` logged it out and removed it. Taking it off is by hand
+([Turning it off](tailscale.md#turning-it-off)); `just destroy` still releases a VM's Tailscale, its device
+deleted with an API credential.
+
+`just init` writes its answer as `vpn: tailscale` or `vpn: none`; a `tailscale_enabled` an earlier one wrote is
+still read.
 
 ## What just code writes and says from 1.1
 
@@ -272,14 +317,14 @@ anyone's.
 
 ## Tailscale on VMs configured by an earlier version
 
-From PR #24, which joins the VMs to a tailnet. Tailscale is on by default, so the next `just deploy --only configure` installs it on every VM and reports each one
-not signed in - or joins it, with `vault_tailscale_auth_key` set. Set `tailscale_enabled: false` in
-`local.yml` first to keep your VMs as they are, and `just deploy --check` beforehand says what would be installed.
-A VM where you installed Tailscale yourself is left exactly as it is either way.
+From PR #24, which joins the VMs to a tailnet. Through 2.0 Tailscale was on by default; from 2.1 it is off
+unless chosen ([A VPN only when chosen](#a-vpn-only-when-chosen)), so the next `just deploy` installs nothing of
+Tailscale's unless `local.yml` sets `vpn: tailscale`, and `just deploy --check` beforehand says what would be
+installed. A VM where you installed Tailscale yourself is left exactly as it is either way.
 
-Since `just init` asks whether to use Tailscale, the next `just init` asks it of a checkout whose `local.yml`
-does not set `tailscale_enabled`: `y` keeps your VMs as they are, `n` takes Tailscale off them at the next
-`just deploy`, which says so VM by VM, and Enter leaves it on, unanswered.
+The next `just init` asks whether to use Tailscale of a checkout whose `local.yml` sets neither `vpn` nor
+`tailscale_enabled`: `y` writes `vpn: tailscale`, `n` writes `vpn: none` - which takes Tailscale off no VM - and
+Enter leaves it unanswered, and none.
 
 ## Adopting VMs created before tagging
 

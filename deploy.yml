@@ -145,7 +145,7 @@
                              and (github_auth_method | default('auto') == 'web'
                                   or github_auth_method | default('auto') == 'auto'
                                      and (github_token | default('', true) | length) == 0) else [])
-             + (['Tailscale'] if tailscale_wanted | default(tailscale_enabled | default(true)) | bool
+             + (['Tailscale'] if tailscale_wanted | default(tailscale_enabled | default(false)) | bool
                                 and (tailscale_auth_method | default('auto') == 'web'
                                      or tailscale_auth_method | default('auto') == 'auto'
                                         and (tailscale_auth_key | default('', true) | length) == 0) else [])
@@ -235,7 +235,7 @@
     claude_vm_discovery: false
     claude_vm_login_after_claude: true
     claude_vm_login_in_deploy: true
-  when: deploy_sign_in | bool and tailscale_wanted | default(tailscale_enabled | default(true)) | bool
+  when: deploy_sign_in | bool and tailscale_wanted | default(tailscale_enabled | default(false)) | bool
 
 # just code, for the one VM this run was for: an alias that follows the VM,
 # then the editor's window. A fleet is not opened

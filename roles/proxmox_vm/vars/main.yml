@@ -73,16 +73,14 @@ proxmox_vm_sent_tags: "{{ proxmox_vm_tags | map('lower') | list }}"
 # follows it has succeeded. See proxmox_vm_needs_configuration.
 proxmox_vm_unfinished_tag: "{{ proxmox_vm_sent_tags[0] }}-unfinished"
 
-# Internal: the marks configure.yml writes (tasks/vm_marks.yml), kept by every
+# Internal: the mark configure.yml writes (tasks/vm_marks.yml), kept by every
 # call below that replaces the tag list: the tag it writes once the VM has held
-# a Tailscale login of the tailscale role's (claude_vm_tailscale_tag), and the
-# WireGuard address the VM keeps for its life (<tag>-wg-<address>). A VM
-# repaired, or force-updated, would otherwise lose them: be handed the vault's
-# Tailscale key again, and its address be free for another VM.
+# a Tailscale login of the tailscale role's (claude_vm_tailscale_tag). A VM
+# repaired, or force-updated, would otherwise lose it and be handed the vault's
+# Tailscale key again.
 proxmox_vm_tailscale_tag: "{{ proxmox_vm_sent_tags[0] }}-tailscale"
 proxmox_vm_kept_tags: >-
-  {{ ([proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [])
-     + (proxmox_vm_found_tags | select('match', (proxmox_vm_sent_tags[0] ~ '-wg-') | regex_escape) | list) }}
+  {{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}
 
 # Internal: whether the VM still needs its settings applied, its disk resized
 # and a start. Existence alone is not convergence - if a run died between the
@@ -133,13 +131,5 @@ proxmox_vm_forget_address: >-
 proxmox_vm_forget_names: >-
   {{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address | length > 0 else [])
       + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain]
-         if proxmox_vm_known_hosts_domain | length > 0 else [])
-      + proxmox_vm_forget_tunnel)
+         if proxmox_vm_known_hosts_domain | length > 0 else []))
      | reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) | list }}
-
-# Internal: the WireGuard address Proxmox recorded for the VM (its mark,
-# <tag>-wg-<address>), which its SSH alias connects to under vpn_reach: tunnel.
-# Addresses are given lowest free first, so the next VM is soon given it.
-proxmox_vm_forget_tunnel: >-
-  {{ proxmox_vm_found_tags | select('match', (proxmox_vm_sent_tags[0] ~ '-wg-') | regex_escape)
-     | map('regex_replace', '^.*-wg-([0-9.]+)(-reached)?$', '\1') | list }}

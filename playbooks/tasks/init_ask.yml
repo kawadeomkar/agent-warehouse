@@ -9,13 +9,22 @@
 #   init_ask_kind     the rule the answer follows: a kind of the init_answer filter
 #                     (filter_plugins/settings.py)
 #   init_ask_choices  for a choice: the items, which the text numbers
+#   init_ask_title    for a choice, what its answer is of, for the line a menu
+#                     leaves (Storage); a yes or no says its label
+#   init_ask_notes    for a choice, optional: a few words beside each item in
+#                     the menu, in the items' order
 #   init_ask_hidden   true for a secret: not echoed, and every task here no_log
 #   init_ask_given    the value given on just init's command line instead, or ""
 #   init_ask_flag     how it was given, for a message: --host
 #
 # A given value is held to the same rule as a typed one, and one that breaks it
 # fails the run: nobody may be there to ask. Otherwise the question is asked
-# only at a terminal (init_ask). Enter decides later: nothing is kept. An answer
+# only at a terminal (init_ask). Enter decides later: nothing is kept. A yes or
+# no, or a choice, carries its answers (init_ask_menu), which the live engine
+# asks as a menu picked with the arrow keys at a terminal that can draw
+# (playbooks/action_plugins/ask.py, lib/claude_vm/tui/choose.py), Esc deciding
+# later; anywhere else it is typed as before. A hidden question never carries
+# them: a menu shows its answers. An answer
 # that breaks the rule is asked for once more, saying the rule - not by `until`,
 # whose FAILED - RETRYING line reads as an error - and a second one is left, said.
 - name: init_ask | Refuse a value given on the command line that breaks the rule
@@ -28,19 +37,24 @@
     and init_ask_given | init_answer(init_ask_kind, init_ask_choices | default([])) | length == 0
 
 - name: init_ask | Ask for {{ init_ask_label }}
-  ansible.builtin.pause:
+  ask:
     prompt: "{{ init_ask_text | banner('USER INPUT REQUIRED', topic='just init') ~ init_ask_label }}"
     echo: "{{ not (init_ask_hidden | default(false)) }}"
+    menu: &init_ask_menu >-
+      {{ {} if init_ask_hidden | default(false)
+         else init_ask_kind | init_ask_menu(init_ask_choices | default([]), init_ask_label, init_ask_title | default(''),
+                                            init_ask_notes | default([])) }}
   register: init_ask_typed
   no_log: "{{ init_ask_hidden | default(false) }}"
   when: init_ask | bool and init_ask_given | default('') | length == 0
 
 - name: init_ask | Ask once more, saying the rule
-  ansible.builtin.pause:
+  ask:
     prompt: >-
       {{ ['That is not ' ~ (init_ask_kind | init_answer_rule) ~ '.', 'Enter to decide later.']
          | banner('USER INPUT REQUIRED', topic='just init') ~ init_ask_label }}
     echo: "{{ not (init_ask_hidden | default(false)) }}"
+    menu: *init_ask_menu
   register: init_ask_retyped
   no_log: "{{ init_ask_hidden | default(false) }}"
   when: >-

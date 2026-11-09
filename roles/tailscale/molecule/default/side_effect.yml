@@ -1,13 +1,16 @@
 ---
 # After converge and idempotence, the VM the role installed and joined is taken
 # through what a fleet meets: a setting changed behind the role's back, the
-# feature turned off and on again, and a package host that cannot be reached.
-# The VM where Tailscale was installed by hand is switched off too, and must
-# come through untouched. verify.yml then checks the state the last step left.
+# feature turned off - which leaves it as it is - and on again, and, after
+# Tailscale was taken off by hand, a package host that cannot be reached. The
+# VM where Tailscale was installed by hand is switched off too, and must come
+# through untouched. verify.yml then checks the state the last step left.
 - name: Side effect on the VM the role installed
   hosts: agent-warehouse-tailscale
   become: true
   vars:
+    # Chosen, as off is the role's default from 2.1; the stages that turn it off say so themselves.
+    tailscale_enabled: true
     tailscale_auth_key: tskey-auth-kGood0CNTRL-TestOnly000000000000000000000
     tailscale_upload_logs: false
     tailscale_daemon_flags: [--tun=userspace-networking]
@@ -45,28 +48,22 @@
         fail_msg: "{{ tailscale_side_effect_calls.content | b64decode }}"
         quiet: true
 
-    # --- Off, then off again: logged out and removed once; then nothing. From
+    # --- Off: left as it is, unmanaged - running, joined, its package, its
+    # repository and its markers - and nothing but reads reach the login. From
     # here on the stand-in answers only while the package's tailscaled runs, as
-    # the real CLI does, and the daemon is stopped by hand first: logging out
-    # takes a running daemon, which the role starts for it.
+    # the real CLI does.
     - name: Have the stand-in answer only while tailscaled runs
       ansible.builtin.copy:
         content: ""
         dest: "{{ tailscale_side_effect_state }}/real-daemon"
         mode: "0644"
 
-    - name: Stop tailscaled by hand
-      ansible.builtin.systemd_service:
-        name: tailscaled
-        state: stopped
+    - name: Read what the stand-in was asked before turning it off
+      ansible.builtin.slurp:
+        src: "{{ tailscale_side_effect_state }}/calls.log"
+      register: tailscale_side_effect_before_off
 
     - name: Turn Tailscale off
-      ansible.builtin.include_role:
-        name: tailscale
-      vars:
-        tailscale_enabled: false
-
-    - name: Turn it off once more, with nothing left to do
       ansible.builtin.include_role:
         name: tailscale
       vars:
@@ -81,41 +78,39 @@
         - /var/lib/agent-warehouse/tailscale-installed
         - /var/lib/agent-warehouse/tailscale-joined
         - /lib/systemd/system/tailscaled.service
-        # The stand-in's login, which only a logout that reached it removes.
+        # The stand-in's login, which a logout would remove.
         - "{{ tailscale_side_effect_state }}/nodekey"
       register: tailscale_side_effect_off
 
-    - name: Read dpkg's word on the package, and what the stand-in was asked
+    - name: Read dpkg's word on the package, tailscaled's, and what the stand-in was asked
       ansible.builtin.command:
-        argv: [sh, -c, "dpkg-query --show --showformat='${db:Status-Status}' tailscale; echo; cat {{ tailscale_side_effect_state }}/calls.log"]
+        argv:
+          - sh
+          - -c
+          - >-
+            dpkg-query --show --showformat='${db:Status-Status}' tailscale; echo;
+            systemctl is-active tailscaled || true; cat {{ tailscale_side_effect_state }}/calls.log
       register: tailscale_side_effect_off_said
       changed_when: false
       failed_when: false
 
-    # A Tailscale installed again by hand starts as it should: the package's
-    # postinst enables tailscaled again only when the link its first install
-    # made is still there, and a disable before the removal took it away
-    # (probed against the 1.104.1 package: remove and reinstall leaves it
-    # enabled; disable, remove and reinstall leaves it disabled).
-    - name: Look for the link that has a reinstalled tailscaled start at boot
-      ansible.builtin.stat:
-        path: /etc/systemd/system/multi-user.target.wants/tailscaled.service
-        follow: false
-      register: tailscale_side_effect_wants
-
-    - name: Assert it is all gone, logged out once
+    - name: Assert it is all there and running, and only read since
+      vars:
+        tailscale_side_effect_since: >-
+          {{ tailscale_side_effect_off_said.stdout_lines[2:]
+             [(tailscale_side_effect_before_off.content | b64decode).splitlines() | length:] }}
       ansible.builtin.assert:
         that:
-          - tailscale_side_effect_off.results | selectattr('stat.exists') | list | length == 0
-          - tailscale_side_effect_off_said.stdout_lines[0] != 'installed'
-          - tailscale_side_effect_off_said.stdout_lines | select('equalto', 'logout') | list | length == 1
-          - tailscale_side_effect_wants.stat.islnk | default(false)
+          - tailscale_side_effect_off.results | rejectattr('stat.exists') | list | length == 0
+          - tailscale_side_effect_off_said.stdout_lines[0] == 'installed'
+          - tailscale_side_effect_off_said.stdout_lines[1] == 'active'
+          - tailscale_side_effect_since | reject('match', '^(status|debug) ') | list == []
         fail_msg: >-
-          {{ tailscale_side_effect_off.results | selectattr('stat.exists') | map(attribute='item') | list }}
+          {{ tailscale_side_effect_off.results | rejectattr('stat.exists') | map(attribute='item') | list }}
           {{ tailscale_side_effect_off_said.stdout }}
         quiet: true
 
-    # --- On again: installed again, and the stand-in, logged out, joins anew.
+    # --- On again: managed again, and nothing to change: it never went.
     - name: Turn Tailscale on again
       ansible.builtin.include_role:
         name: tailscale
@@ -126,14 +121,14 @@
       register: tailscale_side_effect_back
       changed_when: false
 
-    - name: Assert it rejoined
+    - name: Assert it is still joined
       ansible.builtin.assert:
         that: (tailscale_side_effect_back.stdout | from_json).BackendState == 'Running'
         quiet: true
 
-    # --- A package host that cannot be reached, on a VM from before this
-    # version: the install fails, its repository comes back out, apt still
-    # works, and turning Tailscale off removes what the failed run left.
+    # --- A package host that cannot be reached, after Tailscale was taken off
+    # by hand as the guide says ("Turning it off"): the install fails, its
+    # repository comes back out, the marker stays, and apt still works.
     # /etc/hosts is bind-mounted into the container: rename over it fails.
     - name: Make pkgs.tailscale.com unreachable
       ansible.builtin.lineinfile:
@@ -141,11 +136,18 @@
         line: 127.0.0.1 pkgs.tailscale.com
         unsafe_writes: true
 
-    - name: Take Tailscale off as on a VM from before this version
-      ansible.builtin.include_role:
-        name: tailscale
-      vars:
-        tailscale_enabled: false
+    # The guide's steps, the stand-in's login for Tailscale's own; the device
+    # has no tailnet to leave here.
+    - name: Take Tailscale off by hand, as the guide says
+      ansible.builtin.shell: |
+        set -eu
+        tailscale logout || true
+        DEBIAN_FRONTEND=noninteractive apt-get remove -y -q tailscale
+        rm -f /etc/apt/sources.list.d/tailscale.sources \
+          /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf \
+          /var/lib/agent-warehouse/tailscale-installed /var/lib/agent-warehouse/tailscale-joined
+        systemctl daemon-reload
+      changed_when: true
 
     - name: Run the role with its package host unreachable
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
@@ -177,25 +179,6 @@
           - tailscale_side_effect_failed.results[1].stat.exists
           - tailscale_side_effect_apt.rc == 0
         fail_msg: "{{ tailscale_side_effect_apt.stderr | default('') }}"
-        quiet: true
-
-    - name: Turn Tailscale off after the failed install
-      ansible.builtin.include_role:
-        name: tailscale
-      vars:
-        tailscale_enabled: false
-
-    - name: Read what turning it off left this time
-      ansible.builtin.stat:
-        path: "{{ item }}"
-      loop:
-        - /var/lib/agent-warehouse/tailscale-installed
-        - /etc/systemd/system/tailscaled.service.d/10-agent-warehouse.conf
-      register: tailscale_side_effect_left
-
-    - name: Assert the marker and the drop-in are gone
-      ansible.builtin.assert:
-        that: tailscale_side_effect_left.results | selectattr('stat.exists') | list | length == 0
         quiet: true
 
     - name: Make pkgs.tailscale.com reachable again

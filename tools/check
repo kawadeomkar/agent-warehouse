@@ -11,8 +11,11 @@
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
-#   tools/check settings <bin> <file>... no setting under a name 1.0 renamed, in local.yml or hosts.yml; a name
-#                                        1.1 gave a new one is still read, and said
+#   tools/check settings <bin> [--asking] <file>...
+#                                        no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
+#                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
+#                                        read, and said; and no VPN chosen is said, but --asking (just init,
+#                                        which asks)
 set -eu
 # The character sets below are spelt out rather than written as ranges, so
 # no locale can widen them (a UTF-8 one may collate accented letters into
@@ -125,14 +128,21 @@ settings)
   # local.yml, and in hosts.yml in every group's and host's vars. vault.yml is
   # encrypted here, so its vm_password is checked where Ansible reads it.
   # A choice's setting (vpn) set to a value that is none of its choices is
-  # refused too, naming them: its rows are literal data in the defaults.
+  # refused too, naming them: its rows are literal data in the defaults. So is
+  # a setting 2.1 removed with WireGuard, and vpn: wireguard. Where the files
+  # set neither vpn nor tailscale_enabled, since 2.1 no VPN is chosen: said, as
+  # a warning, but where the caller asks the question itself (--asking).
   bin=$2
   shift 2
+  asking=
+  if [ "${1:-}" = --asking ]; then asking=1; shift; fi
   any=
   for file in "$@"; do [ ! -e "$file" ] || any=1; done
   [ -n "$any" ] || exit 0
   # The checkout first, whose inventory defaults name what 1.1 renamed and
   # each choice's members.
+  ASKING=$asking
+  export ASKING
   exec "$bin/python" -I - "$(dirname "$0")/.." "$@" << 'PYTHON'
 import os
 import re
@@ -151,10 +161,22 @@ RENAMED = {
 }
 
 
+# Each setting 2.1 removed with WireGuard (docs/guides/upgrading.md), still set in local.yml or hosts.yml, would
+# be read by nothing, without a word. vpn_reach: lan, which changed nothing, is only warned of.
+RETIRED = (
+    "vpn_reach",
+    "wireguard_hub",
+    "wireguard_hub_network",
+    "wireguard_vm_prefix",
+    "wireguard_hub_public_key",
+    "wireguard_hub_endpoint",
+    "wireguard_keepalive",
+    "wireguard_hub_instance",
+    "wireguard_hub_cert_sha256",
+)
+
 # Each choice's setting checked here: the defaults' list of its members, and the values that are no member.
 CHOICES = {"vpn": ("claude_vpns", ("none",))}
-# vpn_reach, held to what the VPN it is set beside offers (its row's reach): lan always.
-REACH = ("lan", "tunnel")
 
 
 class Loader(yaml.SafeLoader):
@@ -215,6 +237,7 @@ try:
         DEFAULTS = yaml.load(stream, Loader=Loader) or {}
 except (OSError, yaml.YAMLError):
     DEFAULTS = {}
+chosen = False
 for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -234,6 +257,7 @@ for path in sys.argv[2:]:
         found = True
         continue
     named = {name for name, _ in settings(data)}
+    chosen = chosen or bool(named & {"vpn", "tailscale_enabled"})
     for name, value in settings(data):
         if name in NAMED_ANEW and value not in ("", None):
             if NAMED_ANEW[name] in named:
@@ -243,7 +267,11 @@ for path in sys.argv[2:]:
             else:
                 print(f"warning: {path} sets {name}, which 1.1 calls {NAMED_ANEW[name]}: it is still read, but "
                       "rename it there (docs/guides/upgrading.md)", file=sys.stderr)
-        if name in CHOICES and value not in ("", None) and not (isinstance(value, str) and "{{" in value):
+        if name == "vpn" and value == "wireguard":
+            print(f"error: {path} sets vpn to wireguard, which 2.1 removed: a VPN that routes your LAN reaches the "
+                  "VMs with vpn: none (docs/guides/upgrading.md)", file=sys.stderr)
+            found = True
+        elif name in CHOICES and value not in ("", None) and not (isinstance(value, str) and "{{" in value):
             rows, also = CHOICES[name]
             members = [*sorted(DEFAULTS.get(rows) or {}), *also]
             if not isinstance(value, str) or value not in members:
@@ -254,22 +282,25 @@ for path in sys.argv[2:]:
                 print(f"error: {path} sets {name} to something that is none of its choices{why}: "
                       f"{', '.join(members)}", file=sys.stderr)
                 found = True
-        if name == "vpn_reach" and value not in ("", None, "lan") and "{{" not in str(value):
-            # The VPN beside it: this file's vpn, or what tailscale_enabled makes it while vpn is not set.
-            settings_here = dict(settings(data))
-            vpn = settings_here.get("vpn") or (
-                "tailscale" if settings_here.get("tailscale_enabled", True) not in (False, "false") else "none"
-            )
-            offers = ((DEFAULTS.get("claude_vpns") or {}).get(vpn) or {}).get("reach") or ["lan"]
-            if value not in REACH or value not in offers:
-                print(f"error: {path} sets vpn_reach to something {vpn} does not offer: {', '.join(offers)}",
-                      file=sys.stderr)
-                found = True
+        if name == "vpn_reach" and value == "lan":
+            print(f"warning: {path} sets vpn_reach, which 2.1 removed with WireGuard: lan changed nothing, so take it "
+                  "out (docs/guides/upgrading.md)", file=sys.stderr)
+        elif name in RETIRED and value not in ("", None):
+            print(f"error: {path} sets {name}, which 2.1 removed with WireGuard: take it out "
+                  "(docs/guides/upgrading.md)", file=sys.stderr)
+            found = True
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",
                   file=sys.stderr)
             found = True
+# No VPN chosen anywhere: since 2.1 that is none, where it was Tailscale. Said once, naming the file a person sets it
+# in; never by just init, which asks the question itself.
+if not chosen and not os.environ.get("ASKING") and any(os.path.exists(path) for path in sys.argv[2:]):
+    local = next((path for path in sys.argv[2:] if path.endswith("local.yml")), sys.argv[-1])
+    print(f"warning: {local} sets no vpn: since 2.1 that is none - no VM gets Tailscale, and a VM it is on keeps it,"
+          " unmanaged. Set vpn: tailscale or vpn: none to choose, or answer just init's question (docs/guides/"
+          "upgrading.md)", file=sys.stderr)
 sys.exit(1 if found else 0)
 PYTHON
   ;;

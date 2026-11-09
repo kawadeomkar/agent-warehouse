@@ -27,23 +27,6 @@ and [the guide's policy edit](../guides/tailscale.md#keeping-an-agent-vm-off-you
 itself. How the auth key joins a VM once, and never a VM Proxmox records as having had a login, is
 [§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet); how it travels is under [Secrets](#secrets) below.
 
-## WireGuard
-
-WireGuard ([§5.9](roles.md#59-wireguard--each-vm-a-peer-of-your-wireguard-server)) makes each VM a peer of the
-user's own server, which the project never writes. A VM's private key is made on the VM and never leaves it: root
-and `systemd-network` read it, Ansible never does, and only the public key is printed. The peer the run says to add
-allows the VM its own address alone (`AllowedIPs` a /32), so cryptokey routing on the server stops a VM from claiming
-another's address, or a device's. Every value written into the VM's networkd files is the members' plan's, held by
-the core to its rules: the server's key base64, its endpoint a name or an address and a port, every address one
-Python parsed - nothing the VM reports reaches them but its public key, held to its form. The address a VM keeps is
-recorded in Proxmox, where the VM cannot change it. What the server lets a VM reach is the server's firewall's to
-decide; the guide's rules let devices reach the VMs and keep the VMs from opening connections to devices. With
-`wireguard_hub: opnsense` the project writes its VMs' peers through the router's API, as a user whose one privilege,
-"VPN: WireGuard", covers the whole of WireGuard: its module (`playbooks/library/opnsense_wireguard.py`) pins the
-router's certificate by SHA-256 before the key is sent, refuses a router below OPNsense 26.7.2, drops every private
-key the API answers with before anything is kept, and the core refuses any change to a peer without every mark of the
-project's.
-
 ## Secrets
 
 Secrets live in `inventory/group_vars/all/vault.yml`, ansible-vault encrypted. The vault check (`tools/check vault`)

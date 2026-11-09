@@ -53,6 +53,8 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         "claude_editor_key": defaults["claude_editor_key"],
         # Whether a template that differs is rebuilt, as the inventory defaults say, outside the role.
         "proxmox_template_rebuild": defaults["proxmox_template_rebuild"],
+        # Tailscale chosen, as off is the default from 2.1: the report's sign-ins name it but where a test says off.
+        "tailscale_enabled": True,
         **extra,
     }
     report = _run(tmp_path, playbook, {}, "-e", json.dumps(variables))

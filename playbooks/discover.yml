@@ -44,7 +44,7 @@
         proxmox_vm_id: "{{ claude_vm_found.vmid }}"
         # Read from Proxmox, never the VM: the vault's Tailscale key joins a VM once.
         tailscale_joined_before: "{{ claude_vm_found.tags | default('') is regex(claude_vm_tailscale_tag_pattern) }}"
-        # Every mark Proxmox keeps for it, its WireGuard address among them (tasks/vm_marks.yml).
+        # Every mark Proxmox keeps for it, Tailscale's record among them (tasks/vm_marks.yml).
         claude_vm_marks: "{{ claude_vm_found.tags | default('') | proxmox_marks(claude_vm_tags_owned) }}"
       changed_when: false
       loop: "{{ claude_vm_addressed | selectattr('address') | list }}"

@@ -171,10 +171,12 @@ def at_a_terminal(
         for prompt, keys in (prompts or {}).items():
             typed = state["typed"].get(prompt)
             if prompt.encode() in output and in_raw_mode(master):
-                # Typed again while pause has not taken them: keys in the moment before it flushed are lost.
-                if typed is None or (time.monotonic() - typed[0] > 2 and output.count(prompt.encode()) == typed[1]):
+                # Typed again while pause has not taken them: keys in the moment before it flushed are lost. Never once
+                # something has been drawn since - pause clears its line when it has them - or they would answer the
+                # question after it.
+                if typed is None or (time.monotonic() - typed[0] > 2 and b"\x1b" not in output[typed[1] :]):
                     os.write(master, keys)
-                    state["typed"][prompt] = (time.monotonic(), output.count(prompt.encode()))
+                    state["typed"][prompt] = (time.monotonic(), len(output))
         for text, keys in (answers or {}).items():
             if text not in state["answered"] and text.encode() in output:
                 state["answered"].add(text)

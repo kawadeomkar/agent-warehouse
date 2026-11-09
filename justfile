@@ -145,11 +145,11 @@ stages := 'template|provision|configure|check|ssh-config'
 # The roles configuration can be narrowed to (deploy --tags), as configure.yml
 # tags them, and the roles with a Molecule scenario of their own (test --role):
 # those, and the two that build the template and the VMs.
-configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale wireguard'
+configure_roles := 'common vscode_server dev_tools claude_code github_projects tailscale'
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools wireguard vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
@@ -201,7 +201,7 @@ help *RECIPE:
 [arg('PROMPT', long='no-prompt', value='no', help='Ask nothing, even at a terminal')]
 [arg('HOST', long='host', pattern='[A-Za-z0-9.:-]*', help="The Proxmox host's address, for inventory/hosts.yml")]
 [arg('BRIDGE', long='bridge', pattern='[A-Za-z0-9._-]*', help='The bridge the template is built on, for local.yml (before the template exists)')]
-[arg('TAILSCALE', long='tailscale', pattern='(on|off)?', help="Answers init's Tailscale question: on, each VM joins your tailnet; off, no Tailscale, for a setup without an account (tailscale_enabled in local.yml)")]
+[arg('TAILSCALE', long='tailscale', pattern='(on|off)?', help="Answers init's VPN question: on, each VM joins your tailnet; off, none - a VPN of yours that routes the LAN, or none at all (vpn in local.yml)")]
 [arg('STORAGE', long='storage', pattern='[A-Za-z0-9._-]*', help='The storage for VM disks, for local.yml: written when the token can use it there')]
 [arg('TOKEN_ID', long='token-id', pattern='[A-Za-z0-9._-]*', help="The API token's ID, the part after its user's !, when it is not ansible")]
 [arg('GITHUB_USER', long='github-user', pattern='[A-Za-z0-9-]*', help='The GitHub account whose repositories are cloned')]
@@ -276,7 +276,8 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
       test -f "$file" || { (umask 077 && cp "$file.example" "$file"); copied="$copied $file"; }
     done
     [ -z "$copied" ] || echo "Created$copied from their .example files (git-ignored)."
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    # --asking: no VPN chosen yet is this run's question, not a warning.
+    tools/check settings "$bin" --asking {{ SETTINGS_FILES }}
     # Drawn live from here, after just install, as one run in two parts - the questions, then the checks - unless it
     # is a stage of another recipe's run (live_run), or there is no state to carry the run between them (LIVE_DIR=,
     # when each playbook prints as it did): its title, which no value given goes into, the state the two playbooks

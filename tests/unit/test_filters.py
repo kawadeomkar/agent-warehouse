@@ -445,8 +445,8 @@ class TestTheTagThrough1x:
             "Keep.Me",
             "agent-warehouse-tailscale",
             "agent-warehouse-unfinished",
-            "agent-warehouse-wg-198.51.100.130-reached",
-            # Not a tag the project makes: a lookalike, someone else's.
+            # Not a tag the project makes now - WireGuard's address, which 2.0 alone wrote - nor a lookalike.
+            "claude-on-proxmox-wg-198.51.100.130-reached",
             "claude-on-proxmox-staging",
             "not-claude-on-proxmox",
         ]
@@ -457,7 +457,7 @@ class TestTheTagThrough1x:
             # Both, as on a VM someone tagged by hand: once, where the first was.
             ("claude-on-proxmox;agent-warehouse;ansible", ["agent-warehouse", "ansible"]),
             ("agent-warehouse,agent-warehouse-tailscale", ["agent-warehouse", "agent-warehouse-tailscale"]),
-            # A mark that holds no address is no mark: left as it is.
+            # A tag that is no mark: left as it is.
             ("claude-on-proxmox;claude-on-proxmox-wg-999.0.0.1", ["agent-warehouse", "claude-on-proxmox-wg-999.0.0.1"]),
             ("", []),
         ],
@@ -471,19 +471,9 @@ class TestTheTagThrough1x:
 
     def test_a_mark_under_either_tag_is_the_vm_s_once(self):
         tags = "claude-on-proxmox;claude-on-proxmox-tailscale;agent-warehouse-tailscale;agent-warehouse-wg-198.51.100.9"
-        assert proxmox_filters.proxmox_marks(tags, OWNED) == ["tailscale", "wg-198.51.100.9"]
+        assert proxmox_filters.proxmox_marks(tags, OWNED) == ["tailscale"]
         # One tag alone reads its own marks only: a reader that forgets the 1.x name misses the record.
         assert proxmox_filters.proxmox_marks("claude-on-proxmox-tailscale", "agent-warehouse") == []
-
-    def test_an_address_a_1x_vm_holds_is_taken(self):
-        listing = [
-            {"vmid": 4013, "tags": "claude-on-proxmox;claude-on-proxmox-wg-198.51.100.130"},
-            {"vmid": 4014, "tags": "agent-warehouse;agent-warehouse-wg-198.51.100.131-reached"},
-            # Its mark under the 1.x tag, but not the project's VM: no address of it is taken.
-            {"vmid": 4015, "tags": "claude-on-proxmox-wg-198.51.100.132"},
-        ]
-        assert proxmox_filters.proxmox_wireguard_taken(listing, OWNED) == ["198.51.100.130", "198.51.100.131"]
-        assert proxmox_filters.proxmox_wireguard_taken(listing, OWNED, but=[4013]) == ["198.51.100.131"]
 
 
 class TestDuplicateNames:

@@ -76,6 +76,7 @@
     init_ask_label: "{{ (init_choose_usable | init_pick_question).label }}"
     init_ask_kind: "{{ (init_choose_usable | init_pick_question).kind }}"
     init_ask_choices: "{{ init_choose_usable }}"
+    init_ask_title: "{{ init_choose_what | capitalize }}"
     init_ask_hidden: false
     init_ask_given: ""
     init_ask_flag: ""

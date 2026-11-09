@@ -8,7 +8,7 @@ the host.
 
 ```bash
 git clone https://github.com/kawadeomkar/agent-warehouse.git && cd agent-warehouse
-just init            # installs the tools, asks for your GitHub username, Tailscale and your Proxmox host, and offers to make the API token
+just init            # installs the tools, asks for your GitHub username, a VPN and your Proxmox host, and offers to make the API token
 ```
 
 You need no Python of your own. `just install`, which `just init` runs first, makes the project's
@@ -25,11 +25,13 @@ then installs into it, and removes nothing else there; a Python that is not a vi
 for each value a first deploy needs that is still the example's:
 
 1. **Your GitHub username**, whose repositories are cloned onto each VM.
-2. **Whether to use Tailscale**, which puts each VM on your tailnet, so it is reached from anywhere and not
-   only from this LAN ([Tailscale](../guides/tailscale.md)). `y` needs a Tailscale account; `n` keeps it off
-   every VM. Either is written into `local.yml` as `tailscale_enabled`, which you can change there any time,
-   and never asked again. Until you answer, it is on.
-3. **A Tailscale auth key**, after a `y`, while the vault holds none: it joins each new VM by itself during
+2. **The VPN, `none` or `tailscale`**, picked with the arrow keys. If a VPN you already run routes this LAN -
+   WireGuard on your router, a Tailscale subnet router - `none` is all you need: the VMs are reached at their
+   LAN addresses wherever it reaches you ([Reaching your VMs from away](../guides/remote-access.md)).
+   `tailscale` puts each VM on your tailnet itself ([Tailscale](../guides/tailscale.md)), and needs a Tailscale
+   account. Either is written into `local.yml` as `vpn`, which you can change there any time, and never asked
+   again. Until you answer, it is `none`.
+3. **A Tailscale auth key**, after `tailscale`, while the vault holds none: it joins each new VM by itself during
    `just deploy`. It is not shown as you type. Enter goes without one, and each VM signs in on Tailscale's
    page during `just deploy` instead; the next `just init` asks again. To always sign in on the page and
    never be asked, set `tailscale_auth_method: web` in `local.yml`.
@@ -45,6 +47,9 @@ for each value a first deploy needs that is still the example's:
    or Enter, and asks nothing when the host is set up already or root SSH fails.
 7. **The token's secret**, unless `just init` just made the token: the one `tools/proxmox-access.sh` printed,
    when you ran it yourself. It is not shown as you type.
+
+A yes or no, and a choice of a storage or a bridge, is a menu: up and down, or an answer's first letter or its
+number, then Enter; Esc leaves it for later. Where the terminal cannot draw one, you type `y`, `n` or the number.
 
 Enter at a question leaves it for the next `just init`, which asks again for what is still missing; an
 answer that cannot be right (a URL for the address, a secret that is not one) is asked for once more.
@@ -72,13 +77,13 @@ summary and one `NEXT STEPS` block.
 | File | Contents |
 |------|----------|
 | `inventory/hosts.yml` | The address of your Proxmox host, which `just init` asks for. VMs are **not** listed here |
-| `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for after a `y` to Tailscale. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
-| `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `tailscale_enabled` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
+| `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for once you choose `tailscale`. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
+| `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `vpn` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
 
 Every setting the two files take, with its default, is in the [settings reference](../reference/settings.md),
-and `just vault` opens the vault in your editor. Tailscale stays on, the default, while `local.yml` does
-not set `tailscale_enabled` - every deploy then opens Tailscale's sign-in page and waits for it - so
-`just init` says so until you answer its question; `just init --tailscale off` answers it without one.
+and `just vault` opens the vault in your editor. No VPN is chosen while `local.yml` sets no `vpn`, and every
+command but `just init` warns of it until you choose; `just init --tailscale off` (or `on`) answers it without
+a terminal.
 
 ### Without a terminal, or scripted
 
@@ -102,7 +107,7 @@ $ just init --host pve.lan --github-user octocat --token-secret-file ~/.config/p
 | `--github-user` | Your GitHub username |
 | `--storage` | The storage for VM disks: written whenever the token can use it, the default's fitting or not |
 | `--bridge` | The bridge the template is built on, before it is: clones take the template's |
-| `--tailscale` | `on` or `off`: whether to use Tailscale, written as `tailscale_enabled`. Its auth key is asked for at a terminal only; scripted, put it in the vault with `just vault` |
+| `--tailscale` | `on` or `off`: whether to use Tailscale, written as `vpn: tailscale` or `vpn: none`. Its auth key is asked for at a terminal only; scripted, put it in the vault with `just vault` |
 | `--no-prompt` | Ask nothing, even at a terminal |
 
 A value given is held to the same rules as one typed, and fills only what is still the example's: one

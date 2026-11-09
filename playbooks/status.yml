@@ -33,8 +33,8 @@
       storage: "{{ proxmox_storage }}"
       nic: "{{ proxmox_nic }}"
       # Whether Tailscale is the VPN (a promised key, from before the vpn setting), and the setting itself.
-      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(true)) | bool }}"
-      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(true) | bool else 'none') }}"
+      tailscale_enabled: "{{ tailscale_wanted | default(tailscale_enabled | default(false)) | bool }}"
+      vpn: "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(false) | bool else 'none') }}"
       # The setting that turned Tailscale off, as the role's messages name it: tailscale_enabled, or vpn.
       tailscale_off: >-
         {{ (tailscale_off_setting.name ~ ' is ' ~ tailscale_off_setting.value) if tailscale_off_setting is defined
@@ -392,23 +392,6 @@
           ansible.builtin.set_fact:
             status_unread_tailscale: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('it failed') }}"
 
-    # As root, as configure reads it: the link's handshakes are root's to read.
-    - name: Read WireGuard's state
-      ignore_unreachable: true
-      become: true
-      block:
-        - name: Read how the VM is on its WireGuard network
-          ansible.builtin.include_role:
-            name: wireguard
-            tasks_from: status
-          when:
-            - status_reachable | bool
-            - "'sign-ins' in status_sections_read or 'access' in status_sections_read"
-      rescue:
-        - name: Record that WireGuard was not read
-          ansible.builtin.set_fact:
-            status_unread_wireguard: "{{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('it failed') }}"
-
     - name: Keep what was read inside the VM
       ansible.builtin.set_fact:
         status_found: >-
@@ -426,17 +409,15 @@
                'unread': {'system': status_unread_system | default(''), 'claude': status_unread_claude | default(''),
                           'github': status_unread_github | default(''),
                           'tailscale': status_unread_tailscale | default(''),
-                          'wireguard': status_unread_wireguard | default(''),
                           'work': status_unread_work | default('')}}}) | status_clean }}
       vars:
         # The VPN the VM is on, one record whichever it is (never a key per VPN): its kind, the address it has
         # there, its state, and the line its role says while something is left.
         status_vpn: >-
-          {{ wireguard_status_found | default(none) if claude_vpn_key | default('none') == 'wireguard'
-             else {'kind': 'tailscale', 'address': tailscale_status_found.ipv4 | default(''),
-                   'case': tailscale_status_found.case | default(''), 'line': tailscale_status_found.line | default(''),
-                   'left': tailscale_status_found.left | default(false)}
-                  if claude_vpn_key | default('none') == 'tailscale' and tailscale_status_found is defined
+          {{ {'kind': 'tailscale', 'address': tailscale_status_found.ipv4 | default(''),
+              'case': tailscale_status_found.case | default(''), 'line': tailscale_status_found.line | default(''),
+              'left': tailscale_status_found.left | default(false)}
+             if claude_vpn_key | default('none') == 'tailscale' and tailscale_status_found is defined
              else none }}
       when: status_over_ssh | bool
 

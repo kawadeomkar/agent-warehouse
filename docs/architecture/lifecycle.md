@@ -168,9 +168,6 @@ hosts: claude_vms, become: true
   roles: common → vscode_server → dev_tools → claude_code → github_projects   (each tagged)
   tasks: block (tagged tailscale): import_role tailscale
          rescue: append the failure to claude_vm_configure_failures, say it
-         block (tagged wireguard): import_role wireguard tasks_from: key (vpn: wireguard),
-                                   or import_role wireguard, off, where its marker is
-         rescue: the same
 ```
 
 ```yaml
@@ -178,12 +175,6 @@ hosts: claude_vms, become: true
 hosts: localhost  (tagged tailscale)
   import tasks/vpn_members.yml  Tailscale's plan → tasks/vpn_apply.yml → tasks/vm_marks.yml
                                  → tag each VM whose Tailscale has had a login <ownership tag>-tailscale
-hosts: localhost  (tagged wireguard; vpn: wireguard)
-  block: import tasks/vpn_members.yml  the cluster listed again, WireGuard's plan → tasks/vpn_apply.yml
-                                 → each VM's address as <ownership tag>-wg-<address>, the peer to add said
-  rescue: no plan, so no link changed; the failure appended to each VM's claude_vm_configure_failures
-hosts: claude_vms  (tagged wireguard; vpn: wireguard)
-  block: import_role wireguard   → the link claude-wg, as the plan has it   rescue: as above
 hosts: localhost  (tagged always)
   collect {name, address, user, vmid, workspace} for every claude_vms host that has the fact
   import tasks/ssh_config.yml  state: present   → the connect line per VM
@@ -221,10 +212,11 @@ alias, and under `just deploy` its sign-ins and the editor's window; a fifth pla
 VM with such a failure - skipped when `claude_vm_configure_in_deploy` is set, as `deploy.yml`'s configure
 import sets it, since deploy's own last play raises the same list (§4.7). `import_role`, not
 `include_role`: a static import takes the block's tag, so `just deploy <vm> --tags tailscale` runs the role's
-tasks, where an include's tag reaches only the include. Off (`tailscale_enabled: false`), a `stat` first
-looks for the marker the role's install writes, and the import, whose condition each of the role's tasks
-carries, runs only where it is there - to log out and remove what the role installed, said first - so a VM
-it never installed Tailscale on gets that one read and nothing of the role. Tailscale is optional, which is
+tasks, where an include's tag reaches only the include. Off (`vpn` not `tailscale`, which it is not unless
+chosen), a `stat` first looks for the marker the role's install writes, and the import, whose condition each
+of the role's tasks carries, runs only where it is there - and only to say that the Tailscale it installed is
+left as it is, unmanaged: choosing a VPN never removes one - so a VM it never installed Tailscale on gets that
+one read and nothing of the role. Tailscale is optional, which is
 why only it gets this treatment: a failure in it is the VM's last, not its first
 ([§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)).
 
@@ -363,14 +355,6 @@ VM deleted and released with no GitHub token or Tailscale device left. The kept 
 recorded `''` while every VM it names has a line of its own there, which every VM still there has: it
 named each VM and its rerun a second time. The report once looped over the deleted VMs alone, so a VM
 released and then refused its deletion, or kept by its save, had no line of its own.
-
-**Between the delete play and play 3 — the WireGuard peers left (localhost).** WireGuard's release plan of the VMs deleted
-(`tasks/vpn_members.yml`, `phase: release`), whatever the `vpn` setting is: for each one Proxmox recorded a
-WireGuard address for (`claude_vm_marks`, read from the listing as each VM was added), the peer to remove from the
-user's server, said and kept for NEXT STEPS (`vpn_next`, matter `wireguard_peer`). The project never writes that
-server, and the VM's key went with it. In a block whose rescue says, for each deleted VM with an address, that its
-peer stays, and keeps that for NEXT STEPS: play 3 still runs, so a VM the run started is stopped again and every
-deleted VM's alias goes.
 
 ## 4.6 `playbooks/status.yml` — read-only, drawn live
 
@@ -532,7 +516,7 @@ browser that never came back) is left, and told so where the flow would have run
 `github_projects_login_ask`): Enter signs in one whose Claude sign-in was answered, `y` one that showed
 none (signed in already, or an API key). `tailscale_login.yml` follows the same way, by the same rule,
 with `tailscale_login_auto_start`, and `when: deploy_sign_in | bool and
-tailscale_enabled | default(true) | bool` (§4.10): a VM an auth key joined during configuration is only
+tailscale_wanted | default(false) | bool` (§4.10): a VM an auth key joined during configuration is only
 reported. A run with no terminal gets `deploy_sign_in: false` from the justfile's `no_tty_args`: sign-ins
 that start by themselves would otherwise each wait for a browser nobody watches. It gets
 `claude_vm_login_terminal: false` too, for a `deploy_sign_in` given back and for `just login`: `pause` would
@@ -1039,15 +1023,21 @@ from `ansible@pve!ansible` are written, by `tasks/init_local_setting.yml`, in pl
 example lines); and last the secret, hidden - last so that a token the offer makes has its secret written
 into the vault with no question between. Each answer is held to its kind by the `init_answer` filter
 (`lib/claude_vm/init.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
-the value for the next run. The address in effect is the first `proxmox` host's `ansible_host`, else its
-name, as `defaults.yml` reads it. Tailscale's question is whether to use it, while `local.yml` does not set
-`tailscale_enabled` (`yes_no`; `--tailscale on` or `off` answers it, as `y` or `n`), written either way by
-`tasks/init_local_setting.yml` and so never asked again; then, for a Tailscale chosen - `y`, `on`, or
-`true` in `local.yml`, never the default nobody chose - and while the vault holds no key and
-`tailscale_auth_method` is not `web`, an auth key, hidden, kept with the hidden answers and written into the
-vault with the others (`auth_key`; never from the command line). While it is unanswered a `NOTICE` says
-Tailscale is on, by the vault's auth key or the sign-in page, and how to turn it off, writing nothing, so a
-later change to the default still reaches the person.
+the value for the next run. Each is asked by `playbooks/action_plugins/ask.py`, `pause` with the answers of a yes
+or no or a choice carried along (`init_ask_menu`): at a terminal that can draw, the live engine asks such a
+question as a menu picked with the arrow keys, Enter choosing and Esc deciding later, and says the answer on one
+line; anywhere else, and for every hidden question, it is typed as before, the menu's answers being what the typed
+ones are ([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)). The address in
+effect is the first `proxmox` host's `ansible_host`, else its name, as `defaults.yml` reads it. The VPN's question
+is which to use, `none` or `tailscale`, while `local.yml` sets neither `vpn` nor `tailscale_enabled` (`choice`,
+`none` first; `--tailscale on` or `off` answers it, as `tailscale` or `none`). Its text says first that a VPN of
+the person's that routes this LAN needs none, then what Tailscale on each VM adds. The answer is written either
+way as `vpn: tailscale` or `vpn: none` by `tasks/init_local_setting.yml`, and so never asked again; then, for a
+Tailscale chosen - `tailscale`, `on`, or `tailscale` in `local.yml`, never a default - and while the vault holds no
+key and `tailscale_auth_method` is not `web`, an auth key, hidden, kept with the hidden answers and written into
+the vault with the others (`auth_key`; never from the command line). Unanswered, it is none, and no VM gets
+Tailscale: `just init` runs `tools/check settings` with `--asking`, so the warning every other command gives while
+no VPN is chosen is not said beside the question.
 
 Before the secret, at a terminal, while the vault has none and none was given, `tasks/init_access.yml`
 offers to make the token: the one change `just init` makes on Proxmox. It adds the first `proxmox` host as

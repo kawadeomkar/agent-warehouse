@@ -71,7 +71,6 @@ REPORTS = {
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",
         "Say which aliases were kept, and why",
-        "Say the peer each deleted VM leaves, which WireGuard's plan could not",
     ],
     "playbooks/init_settings.yml": ["Say what was written, and what is left"],
     "playbooks/init_check.yml": ["Say what each check found"],
@@ -491,7 +490,9 @@ def test_every_prompt_is_drawn_by_banner():
         for play in parsed if isinstance(parsed, list) else []:
             if isinstance(play, dict):
                 prompts += [entry["prompt"] for entry in play.get("vars_prompt") or []]
-        prompts += [task["ansible.builtin.pause"]["prompt"] for task in _tasks(path) if "ansible.builtin.pause" in task]
+        # pause's, and just init's (playbooks/action_plugins/ask.py: pause, its answers carried for a menu).
+        prompts += [task[action]["prompt"] for task in _tasks(path) for action in ("ansible.builtin.pause", "ask")
+                    if action in task]  # fmt: skip
     assert len(prompts) == 7
     assert all("| banner(" in prompt for prompt in prompts), prompts
 
@@ -533,7 +534,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
     records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
-    assert len(records) == sum(len(names) for names in REPORTS.values()) == 26
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 25
     for record in records:
         data = record["ansible.builtin.set_stats"]["data"]
         assert len(data) == 1, record
