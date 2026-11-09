@@ -46,6 +46,9 @@ for each value a first deploy needs that is still the example's:
 7. **The token's secret**, unless `just init` just made the token: the one `tools/proxmox-access.sh` printed,
    when you ran it yourself. It is not shown as you type.
 
+A yes or no, and a choice of a storage or a bridge, is a menu: up and down, or an answer's first letter or its
+number, then Enter; Esc leaves it for later. Where the terminal cannot draw one, you type `y`, `n` or the number.
+
 Enter at a question leaves it for the next `just init`, which asks again for what is still missing; an
 answer that cannot be right (a URL for the address, a secret that is not one) is asked for once more.
 What you answered is never asked again. The vault is written encrypted, and its password, which

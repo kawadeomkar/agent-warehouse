@@ -45,13 +45,15 @@ just init can set up the API access this project uses on pve.lan, as root over S
 It would run there, creating only what is missing:
   pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,...,SDN.Use
   ...
-Set it up now? y or n
+› yes
+  no
+↑ ↓ to move · Enter to choose · Esc to decide later
 ```
 
-On `y` it runs the script, and the token's secret goes straight into the encrypted vault: it is never on the
+On yes it runs the script, and the token's secret goes straight into the encrypted vault: it is never on the
 screen or on a command line. This is the one change `just init` makes on Proxmox, and it makes it only on that
-`y`. When the host has no `local-lvm` (an install on ZFS has `local-zfs`) or no `vmbr0`, `just init` first asks
-which of the host's own to use, and writes the answer into `local.yml`. `n`, Enter, a failed root SSH or a run
+yes. When the host has no `local-lvm` (an install on ZFS has `local-zfs`) or no `vmbr0`, `just init` first asks
+which of the host's own to use, and writes the answer into `local.yml`. No, Esc, a failed root SSH or a run
 with no terminal leave the host alone, and `just init` asks for the secret instead.
 
 ### Setting it up yourself

@@ -68,6 +68,8 @@ playbooks/
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
                                   here as plain files and folders only); vm_status_info (just status: the OS, kernel,
                                   load, upgrades and the user's processes, read only)
+  action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
+                                  for the menu the live engine asks it as (§7.8)
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude
@@ -132,7 +134,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   every adapter in filter_plugins/ shares; text.py, what a VM said made plain (§7.4);
                                   tui/live_region.py, every live output's region: drawn in place at the bottom of a
                                   terminal, all else above, and tui/screen.py, its lines: styled segments, cut,
-                                  aligned, coloured in one palette (§7.8); proc.py, the processes under one, and
+                                  aligned, coloured in one palette (§7.8); tui/choose.py, a question with a few
+                                  answers asked as a menu picked with the arrow keys, its answers carried in
+                                  built-in bytes (§7.8); proc.py, the processes under one, and
                                   their end: what a kill must reach beyond the group it was sent to - ansible-core's
                                   detached task worker, a nested run's parts (§7.8)
                                   run/recipes.py, every command drawn live, declared: its stages and steps, named

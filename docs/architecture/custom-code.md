@@ -658,6 +658,32 @@ good, and runs at exit, Ctrl-C included.
   what was drawn holds once a frame meant for the old size has wrapped. `title()` sets the tab's title (OSC
   0) when it changes, and `bell()` rings.
 
+**`choose.py`** — a question with a few answers, asked as a menu picked with the arrow keys: `just init`'s yes or no
+and its choices of a storage or a bridge. A prompt drawn with `screen.py`'s lines, palette and cut, while the region
+has stepped aside for it, so there is still one way of drawing: every line cut short of the width, one write per
+redraw in synchronized output, the cursor never hidden, the menu erased once answered and the answer said on one
+line (`collapsed`), to the screen and the log.
+
+- **The answers ride along in built-in types.** `playbooks/action_plugins/ask.py` asks as `pause` does - the same
+  text, the same `user_input`, Ctrl-C then C or A - and hands `prompt_until` a `complete_input` of Enter's two bytes
+  and one entry more: `MARKER`, two NULs about a name, and the menu as JSON (`marked`). The prompt crosses from
+  Ansible's worker to its main process by pickle, and a class of the project's would need the main process to
+  import the project's code: where it cannot - a run without the live display, the unit harness's among them -
+  Ansible's results thread, which catches only `OSError` and `EOFError` around its read, dies on the message, and
+  the worker waits for its answer for good. Where nothing hooks the prompt, Ansible compares one key at a time with
+  the list, which never equals the marked entry: the typed answer works as before. A hidden question carries no
+  menu, whatever it is handed: a menu shows its answers.
+- **The engine asks it** (`engine.choosing`, around `Display.prompt_until` under the region's own wrapper): a marked,
+  shown prompt with no timeout, at a terminal of the run's foreground that can draw (`can_choose`), is asked as a
+  menu under `Display`'s lock, as `prompt_until` reads under it; anything else - no menu, a hidden question, no
+  terminal, `TERM=dumb`, a run with `-v`, which has no engine - goes to Ansible's own prompt. A Ctrl-C at the menu
+  raises what `prompt_until` raises, so `pause`'s continue-or-abort follows.
+- **The keys**, read from stdin, never `/dev/tty`, with the terminal's echo, line editing and signal keys off and
+  set back however the menu ends: up and down in both cursor modes, Home and End, a digit for the answer it numbers,
+  an answer's first letter (`y` and `n` for a yes or no), Enter to choose, Esc to decide later. A long list scrolls
+  in a window, the hint saying where the marked answer is; the terminal's size is read at each redraw, since
+  `prompt_until` runs in Ansible's results thread, where no SIGWINCH handler can be set.
+
 **`Output`**, beside it, is what every live output does around its region, whatever it draws: whether to draw
 (`can_draw()`, unless the caller decided), whether to colour (the caller's `ANSIBLE_NOCOLOR`), the region, and the
 output's own words printed coloured to the screen and plain to the log (`print`). With `to_log`, everything

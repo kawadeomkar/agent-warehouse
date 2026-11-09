@@ -95,7 +95,8 @@ def init_answer(value, kind, choices=None):
     items = list(choices or [])
     if text.isdigit() and 1 <= int(text) <= len(items):
         return items[int(text) - 1]
-    return ""
+    # An item by its name, as typed or as the menu gives it.
+    return text if text in [str(item) for item in items] else ""
 
 
 def init_answer_rule(kind):
@@ -123,6 +124,22 @@ def init_pick(answer, candidates):
         items = list(candidates or [])
         return items[0] if items else ""
     return "" if text in ("", "n") else text
+
+
+def init_ask_menu(kind, choices=None, label="", title=""):
+    """The menu a question of ``kind`` is asked as at a terminal that can draw (lib/claude_vm/tui/choose.py), ``{}``
+    for one typed: yes or no for ``yes_no``, each item of ``choices`` for ``choice``. Each answer's value is what the
+    typed answer would be, so init_answer takes both alike. The title its collapsed line says: ``title`` where given,
+    else the label up to its typed answers ("Use Tailscale on the VMs? y or n" is "Use Tailscale on the VMs?")."""
+    label = str(label or "")
+    shown = str(title or "") or re.sub(r"\s+(y or n|Number)\b.*$", "", label).rstrip(",") or label
+    if kind == "yes_no":
+        options = [{"value": "y", "text": "yes", "note": ""}, {"value": "n", "text": "no", "note": ""}]
+    elif kind == "choice" and choices:
+        options = [{"value": str(item), "text": str(item), "note": ""} for item in choices]
+    else:
+        return {}
+    return {"title": shown, "label": label, "options": options, "chosen": 0}
 
 
 def with_setting(text, key, value, placeholder=""):

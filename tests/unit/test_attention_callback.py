@@ -490,7 +490,9 @@ def test_every_prompt_is_drawn_by_banner():
         for play in parsed if isinstance(parsed, list) else []:
             if isinstance(play, dict):
                 prompts += [entry["prompt"] for entry in play.get("vars_prompt") or []]
-        prompts += [task["ansible.builtin.pause"]["prompt"] for task in _tasks(path) if "ansible.builtin.pause" in task]
+        # pause's, and just init's (playbooks/action_plugins/ask.py: pause, its answers carried for a menu).
+        prompts += [task[action]["prompt"] for task in _tasks(path) for action in ("ansible.builtin.pause", "ask")
+                    if action in task]  # fmt: skip
     assert len(prompts) == 7
     assert all("| banner(" in prompt for prompt in prompts), prompts
 

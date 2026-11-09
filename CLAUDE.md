@@ -437,6 +437,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       wrap (`tests/unit/vt.py` counts them); steps aside for every prompt (`prompt_until`, and a `vars_prompt`'s
       `do_var_prompt`), back only half a second after it; keeps the echo off while it is up; and never hides the
       cursor.
+    - A question with a few answers - `just init`'s yes or no, a storage, a bridge - is a menu picked with the
+      arrow keys (`lib/claude_vm/tui/choose.py`), drawn with `screen.py` while the region steps aside, never a second
+      way of drawing. Its answers ride in `prompt_until`'s `complete_input` as built-in bytes (Enter's two and
+      `MARKER` with JSON, from `playbooks/action_plugins/ask.py`), never a class of the project's: a main process that
+      cannot import it kills Ansible's results thread on the prompt and hangs the run. The engine's hook
+      (`engine.choosing`) asks it under `Display`'s lock, reads stdin, never `/dev/tty`, and hands anything else to
+      Ansible's own prompt; a hidden question never carries its answers.
     - What the callbacks, engines and tools share is one package, `claude_vm` in `lib/`, imported, never loaded
       by path ([§7.10](docs/architecture/custom-code.md#710-libclaude_vm--the-controllers-python-as-one-package)),
       and every test that runs something at a terminal opens it through `harness._at_a_pseudo_terminal`.
@@ -462,7 +469,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `playbooks/init_settings.yml` runs with its own inventory, `playbooks/inventory/init.yml` (never in
       `playbooks/` itself, where the syntax check and ansible-lint take it for a playbook), and asks through
       `tasks/init_ask.yml` only while a value is the example's or unset; an answer is held to its kind by
-      `init_answer`.
+      `init_answer`, typed or picked from the menu the live engine asks a yes or no or a choice as, whose answers
+      are what the typed ones are (`init_ask_menu`).
     - Every write is under `init_ask` (a terminal, and no `--no-prompt`) or under a value given on the command
       line (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
       `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.

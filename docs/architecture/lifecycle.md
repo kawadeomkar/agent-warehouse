@@ -1023,16 +1023,21 @@ from `ansible@pve!ansible` are written, by `tasks/init_local_setting.yml`, in pl
 example lines); and last the secret, hidden - last so that a token the offer makes has its secret written
 into the vault with no question between. Each answer is held to its kind by the `init_answer` filter
 (`lib/claude_vm/init.py`); one that breaks the rule is asked for once more, saying it, and Enter leaves
-the value for the next run. The address in effect is the first `proxmox` host's `ansible_host`, else its
-name, as `defaults.yml` reads it. Tailscale's question is whether to use it, while `local.yml` sets neither
-`vpn` nor `tailscale_enabled` (`yes_no`; `--tailscale on` or `off` answers it, as `y` or `n`). Its text says
-first that a VPN of the person's that routes this LAN needs none, then what Tailscale on each VM adds. The
-answer is written either way as `vpn: tailscale` or `vpn: none` by `tasks/init_local_setting.yml`, and so never
-asked again; then, for a Tailscale chosen - `y`, `on`, or `tailscale` in `local.yml`, never a default - and
-while the vault holds no key and `tailscale_auth_method` is not `web`, an auth key, hidden, kept with the
-hidden answers and written into the vault with the others (`auth_key`; never from the command line).
-Unanswered, it is none, and no VM gets Tailscale: `just init` runs `tools/check settings` with `--asking`, so
-the warning every other command gives while no VPN is chosen is not said beside the question.
+the value for the next run. Each is asked by `playbooks/action_plugins/ask.py`, `pause` with the answers of a yes
+or no or a choice carried along (`init_ask_menu`): at a terminal that can draw, the live engine asks such a
+question as a menu picked with the arrow keys, Enter choosing and Esc deciding later, and says the answer on one
+line; anywhere else, and for every hidden question, it is typed as before, the menu's answers being what the typed
+ones are ([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)). The address in
+effect is the first `proxmox` host's `ansible_host`, else its name, as `defaults.yml` reads it. The VPN's question
+is which to use, `none` or `tailscale`, while `local.yml` sets neither `vpn` nor `tailscale_enabled` (`choice`,
+`none` first; `--tailscale on` or `off` answers it, as `tailscale` or `none`). Its text says first that a VPN of
+the person's that routes this LAN needs none, then what Tailscale on each VM adds. The answer is written either
+way as `vpn: tailscale` or `vpn: none` by `tasks/init_local_setting.yml`, and so never asked again; then, for a
+Tailscale chosen - `tailscale`, `on`, or `tailscale` in `local.yml`, never a default - and while the vault holds no
+key and `tailscale_auth_method` is not `web`, an auth key, hidden, kept with the hidden answers and written into
+the vault with the others (`auth_key`; never from the command line). Unanswered, it is none, and no VM gets
+Tailscale: `just init` runs `tools/check settings` with `--asking`, so the warning every other command gives while
+no VPN is chosen is not said beside the question.
 
 Before the secret, at a terminal, while the vault has none and none was given, `tasks/init_access.yml`
 offers to make the token: the one change `just init` makes on Proxmox. It adds the first `proxmox` host as
