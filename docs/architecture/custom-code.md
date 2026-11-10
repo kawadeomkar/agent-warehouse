@@ -1069,9 +1069,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   `--long=value` form, then its words, each one argv word. `just` holds each value to its pattern before the script's
   first line; a word that starts with `-`, which it would read as an option, is refused first.
 - **`environment.py`: a run's environment is built, never inherited.** The few variables a login needs (`USER`,
-  `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux), the `PATH`, `HOME` and `XDG_DATA_HOME` `just mcp`
-  recorded - the last two decide where `tools/env-run` finds the checkout's folder, and the collections Ansible loads
-  from it - `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
+  `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux), the `PATH`, `HOME`, `XDG_DATA_HOME` and
+  `CLAUDE_CONFIG_DIR` `just mcp` recorded - `HOME` and `XDG_DATA_HOME` decide where `tools/env-run` finds the
+  checkout's folder, and the collections Ansible loads from it; `CLAUDE_CONFIG_DIR`, where the Claude Code the server
+  is registered in keeps its sessions, which `code`'s session is looked for among and `just code` copies - `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
   nothing of Ansible's, Python's, `just`'s or Claude Code's - its messaging token among them, which an editor's
   terminals would inherit.
 - **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's
@@ -1100,7 +1101,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   `tools/check lock` reads one, in C and UTC with its spaces collapsed - and jobs are pruned after
   `LOG_RETENTION_DAYS`, as the logs are. The server and the supervisor both write `job.json`, so each write is made
   under a lock (`job.lock`). A stop is SIGINT to the run's group, as a terminal's Ctrl-C, and the whole tree ended
-  through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group. A stop that comes
+  through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group. The tree is read
+  before the SIGINT, since a run that ends at it leaves a worker under PID 1, where nothing leads to it; once the run
+  has gone, what it left is ended by each process's start, never by the run's pid, which another may have by then
+  (`proc.end_left`). A stop that comes
   before the run has a pid is recorded, and the supervisor sends it once the run has one: both write under the lock,
   so exactly one of them finds the stop and the pid. `cancel` follows the job from where its output ends, so a
   browser block an earlier call returned is not taken for the run waiting again.

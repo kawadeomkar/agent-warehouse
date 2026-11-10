@@ -587,7 +587,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A value reaches `just` as one argv word, an option as `--long=value`, never through a shell, `ANSIBLE_ARGS` or
       any setting, and a word that starts with `-` is refused. Every setting the justfile reads with `env()` goes on
       the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`,
-      `HOME` and `XDG_DATA_HOME` recorded at registration (the last two decide the collections Ansible loads):
+      `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` recorded at registration (`HOME` and `XDG_DATA_HOME` decide the
+      collections Ansible loads, `CLAUDE_CONFIG_DIR` where `code`'s session is looked for and `just code` copies from):
       nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
     - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults. One that
       changes something is a job (`jobs.py`): a supervisor in a session of its own writes `.cache/mcp/jobs/<id>/`, and
@@ -597,7 +598,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - A call returns at the run's first browser block, with the job's ID and where it ended: the person cannot see
       a backgrounded call's progress. Only a person's stop - Esc (`AbortError: user-cancel`), `x` in `/tasks`
       (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after
-      30 s; any other cancellation leaves it to `job`. The reason comes from the server's stdin
+      30 s, read before the SIGINT, which can leave a task worker under PID 1 (`proc.end_left`); any other cancellation leaves it to `job`. The reason comes from the server's stdin
       (`cancels.py`), which the SDK never hands a tool.
     - `install` carries `anthropic/requiresUserInteraction` and runs only for Claude Code 2.1.309 or later, the one
       client whose prompt for it was seen.

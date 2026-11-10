@@ -34,14 +34,16 @@ PASSED_PREFIX = "LC_"
 
 
 def run_env(config: Config, environ: dict[str, str] | None = None) -> dict[str, str]:
-    """A run's environment: PASSED from the server's, the recorded PATH, HOME and XDG_DATA_HOME, no colour, and the
-    vault password file or browser just mcp recorded."""
+    """A run's environment: PASSED from the server's, the recorded PATH, HOME, XDG_DATA_HOME and CLAUDE_CONFIG_DIR, no
+    colour, and the vault password file or browser just mcp recorded."""
     environ = dict(os.environ if environ is None else environ)
     env = {name: environ[name] for name in PASSED if name in environ}
     env |= {name: value for name, value in environ.items() if name.startswith(PASSED_PREFIX)}
     env |= {"PATH": config.path, "HOME": config.home, "TERM": "dumb", "NO_COLOR": "1"}
     if config.data_home:
         env["XDG_DATA_HOME"] = config.data_home
+    if config.claude_config_dir:
+        env["CLAUDE_CONFIG_DIR"] = config.claude_config_dir
     if config.vault_password_file:
         env["ANSIBLE_VAULT_PASSWORD_FILE"] = config.vault_password_file
     if config.browser:

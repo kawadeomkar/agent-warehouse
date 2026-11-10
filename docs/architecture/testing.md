@@ -218,7 +218,8 @@ pytest over `tests/unit/`, file by file:
 - **Processes** (`test_processes.py`): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
-  at it, never once another has it; a root exited, a zombie or reaped, its group still ended - its children moved
+  at it, never once another has it; what a root long gone left ended by each process's start, never by the root's
+  pid; a root exited, a zombie or reaped, its group still ended - its children moved
   on the moment it exited, and a zombie no longer answers for its group; a table that cannot be read said, the
   group still ended; `harness._end` on a real playbook with a task in flight, its detached worker gone with it;
   `interrupts.install` leaving a SIGHUP ignored on the way in, nohup's, as it is, and its handler raising once;
@@ -371,12 +372,13 @@ pytest over `tests/unit/`, file by file:
   setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
   moves said under the home as `~`.
 - **The run lock** (`test_run_lock.py`): a second run that changes something refused, naming the holder; one that
-  reads, or `--check`, not; a record whose process is gone, or was another, taken over; a lock taken under one time
-  zone held under another; a recipe inside the holder's takes none, and a child that outlives it holds nothing;
+  reads, or `--check`, not; a record whose process is gone, or was another, taken over, by one of the runs that
+  start together alone, and an empty one, being written, never; a lock taken under one time zone held under another; a recipe inside the holder's takes none, and a child that outlives it holds nothing;
   `just clean` refuses while it is held.
 - **The MCP server's runs** (`test_mcp_jobs.py`): a run as a job, its argv and `ATTENDED`, the call returning at a
   browser block and `job` following to the end without it, a job outliving its server, `cancel` as Ctrl-C, saying
-  the stop and no earlier block, a stop before the run has a pid sent once it has one, the server's and the
+  the stop and no earlier block, a stop before the run has a pid sent once it has one, the run's tree read before the
+  SIGINT, the session looked for under the recorded `CLAUDE_CONFIG_DIR`, the server's and the
   supervisor's writes never lost to each other, a branch and a held lock refused, `install` refused to another client;
   a person's stop told from the other cancellations.
 - **The MCP server** (`test_mcp_tools.py`, `test_mcp_server.py`, `test_mcp_register.py`): every recipe and option a

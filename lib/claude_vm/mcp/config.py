@@ -27,6 +27,9 @@ class Config:
     # collections Ansible loads among it: every run's, never the session's.
     home: str
     data_home: str = ""
+    # Its CLAUDE_CONFIG_DIR where it set one: the Claude Code whose user scope just mcp registered the server in keeps
+    # its sessions there, which the code tool's session is looked for in and just code copies.
+    claude_config_dir: str = ""
     # Whether someone is at this machine's screen for the sign-ins a run opens: "1" yes, "0" no, "" decided per session.
     attended: str = ""
     # A run on a branch other than main, or with tracked changes, allowed (just mcp --any-branch).
@@ -55,6 +58,7 @@ def parse(argv: list[str]) -> tuple[Config | None, str]:
     for name in ("checkout", "python", "just", "uv", "path", "home"):
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--data-home", default="")
+    parser.add_argument("--claude-config-dir", default="")
     parser.add_argument("--attended", choices=("", "0", "1"), default="")
     parser.add_argument("--any-branch", action="store_true")
     parser.add_argument("--vault-password-file", default="")
@@ -75,6 +79,7 @@ def parse(argv: list[str]) -> tuple[Config | None, str]:
             path=args.path,
             home=args.home,
             data_home=args.data_home,
+            claude_config_dir=args.claude_config_dir,
             attended=args.attended,
             any_branch=args.any_branch,
             vault_password_file=args.vault_password_file,

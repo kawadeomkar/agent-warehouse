@@ -152,12 +152,24 @@ lock | unheld)
       done
       busy
     fi
-    # Its process is gone: taken over, unless another run took it over first.
-    stale=$(cat "$file" 2>/dev/null || true)
+    # Its process is gone: taken over - the record removed, and written anew
+    # above - by one run at a time, mkdir being the mutex, and only while the
+    # record is still there and its process still gone. Under the mutex no
+    # other run removes it, so none can have written its own in its place
+    # between that check and the removal; an empty record is one being
+    # written, never taken over.
+    if mkdir "$file.takeover" 2>/dev/null; then
+      taken=
+      if [ -s "$file" ] && ! holder; then
+        rm -f "$file"
+        taken=yes
+      fi
+      rmdir "$file.takeover"
+      [ -z "$taken" ] || continue
+    fi
     sleep 0.1
-    [ "$(cat "$file" 2>/dev/null || true)" != "$stale" ] || rm -f "$file"
   done
-  echo "error: the run lock $file could not be taken: remove it once no just deploy, login, code, destroy, init or install runs" >&2
+  echo "error: the run lock $file could not be taken: remove it, and $file.takeover if it is there, once no just deploy, login, code, destroy, init or install runs" >&2
   exit 1
   ;;
 sections)

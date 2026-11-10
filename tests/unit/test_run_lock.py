@@ -137,6 +137,49 @@ def test_a_lock_is_held_whatever_the_zone_and_language_of_the_run_that_reads_it(
         holder.wait()
 
 
+def _gone(lock: Path) -> None:
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    _record(lock, gone.pid, "Thu Jan  1 00:00:00 1970")
+
+
+def test_a_stale_record_is_taken_over_by_one_run_alone(tmp_path):
+    # Runs that start together all find the record stale: one takes it over and the rest find it held - never two
+    # holding it, as when one removed the record another had just written in the stale one's place.
+    lock = tmp_path / "run.lock"
+    holders = [subprocess.Popen(["sleep", "60"]) for _ in range(8)]
+    try:
+        for _ in range(5):
+            _gone(lock)
+            racing = [
+                subprocess.Popen(
+                    [str(CHECK), "lock", str(lock), str(h.pid), "deploy"], stderr=subprocess.PIPE, text=True
+                )
+                for h in holders
+            ]
+            results = [(each.communicate(timeout=30)[1], each.returncode) for each in racing]
+            assert [rc for _, rc in results].count(0) == 1, results
+            assert not (tmp_path / "run.lock.takeover").exists()
+            lock.unlink()
+    finally:
+        for holder in holders:
+            holder.kill()
+            holder.wait()
+
+
+def test_a_takeover_left_half_way_is_said_and_a_record_being_written_never_taken_over(tmp_path):
+    lock = tmp_path / "run.lock"
+    _gone(lock)
+    (tmp_path / "run.lock.takeover").mkdir()
+    result = subprocess.run([str(CHECK), "lock", str(lock), str(os.getpid()), "deploy"], capture_output=True, text=True)
+    assert result.returncode != 0 and "run.lock.takeover" in result.stderr
+    # An empty record is one whose run has created it and not yet written it.
+    (tmp_path / "run.lock.takeover").rmdir()
+    lock.write_text("")
+    result = subprocess.run([str(CHECK), "lock", str(lock), str(os.getpid()), "deploy"], capture_output=True, text=True)
+    assert result.returncode != 0 and lock.read_text() == ""
+
+
 def test_a_recipe_inside_the_holder_s_takes_none_and_a_child_that_outlives_it_holds_nothing(tmp_path):
     lock = tmp_path / "run.lock"
     # The holder's own child - just init's install, run through self - finds its parent holding it.

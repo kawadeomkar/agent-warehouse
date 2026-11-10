@@ -9,19 +9,25 @@ what it was given. The run lock is the copy's own, in its .cache.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from harness import GIT_ENV
 from test_mcp_server import SERVER, _args, _copy, _env, _just, _text
 
 from claude_vm.mcp import cancels, jobs, runs, server
+from claude_vm.mcp.config import Config
+from claude_vm.mcp.environment import run_env
 
 BLOCK = [
     "#" * 80,
@@ -250,12 +256,64 @@ def test_a_session_must_be_a_transcript_of_the_calling_project_written_just_now(
     folder = tmp_path / ".claude" / "projects" / "-Users-somebody-code-x-y"
     folder.mkdir(parents=True)
     session = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
-    environ = {"CLAUDE_PROJECT_DIR": project, "HOME": str(tmp_path)}
-    assert "no conversation of this project's" in server.session_refusal(environ, session)
+    # The HOME just mcp recorded, never the session's.
+    config = Config(checkout=tmp_path, python="", just="", uv="", path="", home=str(tmp_path))
+    environ = {"CLAUDE_PROJECT_DIR": project, "HOME": "/nonexistent/evil-home"}
+    assert "no conversation of this project's" in server.session_refusal(config, environ, session)
     transcript = folder / f"{session}.jsonl"
     transcript.write_text("{}\n")
-    assert server.session_refusal(environ, session) == ""
+    assert server.session_refusal(config, environ, session) == ""
     os.utime(transcript, (time.time() - 120, time.time() - 120))
-    assert "last minute" in server.session_refusal(environ, session)
-    assert server.session_refusal(environ, "") == ""
-    assert "not a Claude Code session ID" in server.session_refusal(environ, "../../etc/passwd")
+    assert "last minute" in server.session_refusal(config, environ, session)
+    assert server.session_refusal(config, environ, "") == ""
+    assert "not a Claude Code session ID" in server.session_refusal(config, environ, "../../etc/passwd")
+    # Under the CLAUDE_CONFIG_DIR just mcp recorded: its Claude Code keeps sessions there, and just code reads them.
+    work = replace(config, claude_config_dir=str(tmp_path / "claude-work"))
+    assert "no conversation of this project's" in server.session_refusal(work, environ, session)
+    (tmp_path / "claude-work" / "projects" / folder.name).mkdir(parents=True)
+    (tmp_path / "claude-work" / "projects" / folder.name / f"{session}.jsonl").write_text("{}\n")
+    assert server.session_refusal(work, environ, session) == ""
+
+
+def test_a_run_s_claude_config_dir_is_the_recorded_one_or_none():
+    config = Config(checkout=Path("/x"), python="", just="", uv="", path="/usr/bin", home="/home/dev")
+    session = {"CLAUDE_CONFIG_DIR": "/nonexistent/evil-claude", "HOME": "/nonexistent/evil-home"}
+    assert "CLAUDE_CONFIG_DIR" not in run_env(config, session) and run_env(config, session)["HOME"] == "/home/dev"
+    work = replace(config, claude_config_dir="/home/dev/.claude-work")
+    assert run_env(work, session)["CLAUDE_CONFIG_DIR"] == "/home/dev/.claude-work"
+
+
+def test_a_stop_remembers_the_run_s_tree_before_it_signals_it(tmp_path, monkeypatch):
+    # A run that ends at the SIGINT leaves what left its group - ansible-core's task worker - under PID 1, where the end
+    # STOP_GRACE later could not find it from the run: it is read first, and handed to that end.
+    marker = tmp_path / "worker"
+    script = (
+        "import subprocess, sys, time\n"
+        "worker = subprocess.Popen(['sleep', '60'], start_new_session=True)\n"
+        "open(sys.argv[1], 'w').write(str(worker.pid))\n"
+        "time.sleep(60)\n"
+    )
+    run = subprocess.Popen([sys.executable, "-c", script, str(marker)], process_group=0)
+    worker = 0
+    try:
+        deadline = time.monotonic() + 20
+        while not (marker.exists() and marker.read_text().isdigit()):
+            assert time.monotonic() < deadline, "the worker's pid not written"
+            time.sleep(0.1)
+        worker = int(marker.read_text())
+        later: list[list[str]] = []
+        recorder = SimpleNamespace(
+            run=subprocess.run, DEVNULL=subprocess.DEVNULL, Popen=lambda argv, **_: later.append(argv)
+        )
+        monkeypatch.setattr(jobs, "subprocess", recorder)
+        jobs.interrupt({"pid": run.pid, "since": jobs.started(run.pid)})
+        monkeypatch.undo()
+        (argv,) = later
+        assert worker in {int(each) for each in json.loads(argv[-1])}
+        assert run.wait(timeout=20) != 0
+    finally:
+        run.kill()
+        run.wait()
+        if worker:
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(worker, signal.SIGKILL)

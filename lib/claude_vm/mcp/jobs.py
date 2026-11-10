@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from claude_vm import proc
 from claude_vm.desktop import PS_ENV
 from claude_vm.text import visible_text
 
@@ -192,14 +193,28 @@ def stop(job: Job, reason: str) -> None:
 
 def interrupt(record: dict) -> None:
     """SIGINT to the record's run's group, as a terminal's Ctrl-C, while it is the process of its start; the whole tree
-    ended after STOP_GRACE if it is still there - ansible-core's task workers leave the group (custom-code.md §7.10)."""
+    ended after STOP_GRACE if it is still there - ansible-core's task workers leave the group (custom-code.md §7.10) -
+    read before the SIGINT, since a run that ends at it leaves them under PID 1, where nothing leads to them."""
     pid, since = record.get("pid"), record.get("since")
     if not pid or started(pid) != since:
         return
+    try:
+        remembered = proc.snapshot(pid)
+    except proc.Blind:
+        remembered = {}
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(pid, signal.SIGINT)
     subprocess.Popen(
-        [sys.executable, "-I", "-c", _END_LATER, str(Path(__file__).resolve().parents[2]), str(pid), since],
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            _END_LATER,
+            str(Path(__file__).resolve().parents[2]),
+            str(pid),
+            since,
+            json.dumps(remembered),
+        ],
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -207,17 +222,20 @@ def interrupt(record: dict) -> None:
     )
 
 
-# Run detached by interrupt(): after STOP_GRACE, the run's whole tree, read before anything is signalled, if its root is
-# still the process of its start.
+# Run detached by interrupt(): after STOP_GRACE, the run's whole tree, read before anything is signalled, with what
+# was under it at the stop, while its root is still the process of its start; once it has ended, what it left of the
+# tree remembered, each still the process of its start, never by the root's pid.
 _END_LATER = f"""
-import signal, sys, time
+import json, signal, sys, time
 sys.path.insert(0, sys.argv[1])
 from claude_vm import proc
 from claude_vm.mcp.jobs import started
 pid, since = int(sys.argv[2]), sys.argv[3]
+remembered = {{int(each): start for each, start in json.loads(sys.argv[4]).items()}}
 for signum, wait in ((signal.SIGTERM, {STOP_GRACE}), (signal.SIGKILL, 5)):
     time.sleep(wait)
-    if started(pid) != since:
-        break
-    proc.end(pid, signum=signum)
+    if started(pid) == since:
+        proc.end(pid, remembered=remembered, signum=signum)
+    else:
+        proc.end_left(remembered, signum=signum)
 """

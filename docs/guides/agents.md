@@ -57,8 +57,8 @@ It then runs `claude mcp add --scope user agent-warehouse`, which has Claude Cod
 into `~/.claude.json`, reads it back with `claude mcp get`, and prints permission rules to paste (below). Sessions
 started from then on have the tools, as `mcp__agent-warehouse__<tool>`; `/mcp` in one shows the server. Every value the
 server needs is an argument of the command it records - this checkout, its environment's Python, `just`, `uv` and the
-`PATH`, `HOME` and `XDG_DATA_HOME` of the shell you ran `just mcp` in - never an environment variable, since a
-project's own `.claude/settings.json` can set those in every server it starts.
+`PATH`, `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` of the shell you ran `just mcp` in - never an environment
+variable, since a project's own `.claude/settings.json` can set those in every server it starts.
 
 | Option | Does |
 |---|---|
@@ -70,9 +70,9 @@ project's own `.claude/settings.json` can set those in every server it starts.
 | `--show` | prints the command, and an entry for Claude Desktop's `claude_desktop_config.json`, and registers nothing |
 | `--remove` | takes the server out again |
 
-Run `just mcp` again when this checkout, its environment, `just`, your `PATH` or your `XDG_DATA_HOME` moves. After a
-`git pull` or `just install`, a running server answers every call with "restart this server with /mcp": its tools are
-made from the justfile it read when it started.
+Run `just mcp` again when this checkout, its environment, `just`, your `PATH`, `XDG_DATA_HOME` or `CLAUDE_CONFIG_DIR`
+moves. After a `git pull` or `just install`, a running server answers every call with "restart this server with
+/mcp": its tools are made from the justfile it read when it started.
 
 ## Permission rules
 

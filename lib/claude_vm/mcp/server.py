@@ -249,16 +249,18 @@ def client_refusal(ctx: Context, tool: str, terminal: str) -> str:
     )
 
 
-def session_refusal(environ: dict[str, str], session: str) -> str:
+def session_refusal(config: Config, environ: dict[str, str], session: str) -> str:
     """Why session is not this conversation's, or nothing: a transcript in the calling project's folder of Claude Code's
-    projects, written in the last minute. Never the server's own CLAUDE_CODE_SESSION_ID, which /clear leaves stale."""
+    projects - under the CLAUDE_CONFIG_DIR just mcp recorded, else its HOME's .claude, where just code reads them -
+    written in the last minute. Never the server's own CLAUDE_CODE_SESSION_ID, which /clear leaves stale."""
     if not session:
         return ""
     if not SESSION_ID.fullmatch(session):
         return f"{session!r} is not a Claude Code session ID: `echo $CLAUDE_CODE_SESSION_ID` prints this one's."
-    project, home = environ.get("CLAUDE_PROJECT_DIR", ""), environ.get("HOME", "")
-    transcript = Path(home) / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", project) / f"{session}.jsonl"
-    if not project or not home or not transcript.is_file():
+    project = environ.get("CLAUDE_PROJECT_DIR", "")
+    claude = Path(config.claude_config_dir) if config.claude_config_dir else Path(config.home) / ".claude"
+    transcript = claude / "projects" / re.sub(r"[^A-Za-z0-9]", "-", project) / f"{session}.jsonl"
+    if not project or not transcript.is_file():
         return f"{session} is no conversation of this project's: pass the ID `echo $CLAUDE_CODE_SESSION_ID` prints."
     if time.time() - transcript.stat().st_mtime > 60:
         return f"{session} has not been written to in the last minute: pass this conversation's ID, as `echo "
@@ -341,7 +343,7 @@ def tools(server: Server) -> list[Tool]:
         session: str = "",
         wait_seconds: int | None = None,
     ) -> str:
-        refusal = session_refusal(server.environ, session)
+        refusal = session_refusal(server.check(vault=False), server.environ, session)
         if refusal:
             raise ToolError(refusal)
         arguments = {"name": name, "project": project, "editor": editor, "session": session}

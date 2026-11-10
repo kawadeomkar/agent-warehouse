@@ -129,6 +129,17 @@ def test_xdg_data_home_is_recorded_where_it_is_set(tmp_path, copy):
     assert add[-2:] == [f"--home={tmp_path}", f"--data-home={tmp_path / 'data'}"]
 
 
+def test_claude_config_dir_is_recorded_where_it_is_set(tmp_path, copy):
+    # The Claude Code whose user scope the server is registered in keeps its sessions there: the code tool's session is
+    # looked for there, and just code copies them from there.
+    run, record = _setup(tmp_path, copy)
+    run["env"]["CLAUDE_CONFIG_DIR"] = str(tmp_path / "claude-work")
+    result = _mcp(run)
+    assert result.returncode == 0, result.stderr
+    add = next(call for call in _calls(record) if call[1:3] == ["mcp", "add"])
+    assert add[-1] == f"--claude-config-dir={tmp_path / 'claude-work'}"
+
+
 def test_a_second_registration_replaces_the_first(tmp_path, copy):
     run, record = _setup(tmp_path, copy)
     assert _mcp(run).returncode == 0
