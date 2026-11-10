@@ -23,12 +23,19 @@
         suffix: uv
       register: dev_tools_uv_tmp
 
+    # GitHub's release downloads fail now and then, with a 504 or with nothing for longer than get_url's default 10 s:
+    # in one outage on 9 November 2026 two deploys in four failed here. A minute per try, and three tries more.
     - name: uv | Download release archive
       ansible.builtin.get_url:
         url: "https://github.com/astral-sh/uv/releases/download/{{ dev_tools_uv_version }}/{{ dev_tools_uv_archive }}"
         dest: "{{ dev_tools_uv_tmp.path }}/{{ dev_tools_uv_archive }}"
         checksum: "sha256:{{ dev_tools_uv_sha256[ansible_facts['architecture']] }}"
         mode: "0644"
+        timeout: 60
+      register: dev_tools_uv_download
+      until: dev_tools_uv_download is succeeded
+      retries: 3
+      delay: 10
 
     - name: uv | Extract binaries
       ansible.builtin.unarchive:

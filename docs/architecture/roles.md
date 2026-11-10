@@ -200,7 +200,9 @@ apt: { update_cache: "{{ dev_tools_docker_repo.changed }}" }        # refresh on
 **Signing keys are vendored** in `roles/dev_tools/files/`, so a swapped download endpoint cannot
 supply its own key. **uv is pinned by version and SHA-256 per architecture**, with the digests stored
 in `defaults/main.yml` rather than fetched alongside the archive, so a compromised release endpoint
-cannot swap both. Node.js is apt-pinned to NodeSource over the distro package.
+cannot swap both. Its download waits a minute and is tried three times more, since GitHub's release downloads
+fail now and then: two deploys in four did so in one outage. Node.js is apt-pinned to NodeSource over the distro
+package.
 
 **Rust, where `dev_tools_install_rust` turns it on, comes from rustup, never Ubuntu's `rustc` and
 `cargo`.** Noble's `rustup` package conflicts with
