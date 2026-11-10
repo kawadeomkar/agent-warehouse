@@ -27,6 +27,7 @@ from harness import GIT_ENV
 
 from claude_vm.mcp import checkout as checkout_state
 from claude_vm.mcp.config import Config
+from claude_vm.mcp.results import WARNINGS, json_result
 
 REPO = Path(__file__).resolve().parents[2]
 SERVER = REPO / "tools" / "mcp"
@@ -253,6 +254,52 @@ def test_settings_logs_and_log(world):
     # settings without a name says how to use it, read with no vault: the stand-in python is the real one.
     assert not usage.is_error, _text(usage)
     assert "roles" in usage.structured_content
+
+
+def test_log_reads_any_part_of_a_log_a_piece_at_a_time(world):
+    log = world["checkout"] / ".logs" / "20261106-101600-deploy.log"
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("".join(f"line {n}\n" for n in range(1, 301)))
+    talked = _talk(
+        _args(world),
+        _env(world),
+        ("log", {"file": log.name, "start": 1, "lines": 3}),
+        ("log", {"file": log.name, "start": 299, "lines": 5}),
+        ("log", {"file": log.name, "start": 400}),
+        ("log", {"file": log.name, "lines": 2}),
+    )
+    first, last, past, tail = [_text(result).splitlines() for result in talked["results"]]
+    assert first[0].endswith("lines 1-3 of 300") and first[1:4] == ["line 1", "line 2", "line 3"]
+    assert last[0].endswith("lines 299-300 of 300") and last[1:3] == ["line 299", "line 300"]
+    assert past[0].endswith("no line 400, of 300")
+    assert tail[0].endswith("lines 299-300 of 300") and tail[1:3] == ["line 299", "line 300"]
+
+
+def test_a_report_says_what_the_run_warned_of_on_standard_error(world):
+    # tools/check settings warns on standard error and goes on, so the run still makes its report.
+    local = world["checkout"] / "inventory" / "group_vars" / "all" / "local.yml"
+    local.write_text("vm_cores: 2\n")
+    try:
+        warned = _talk(_args(world), _env(world), ("status", {}))["results"][0]
+    finally:
+        local.unlink()
+    assert not warned.is_error, _text(warned)
+    assert "sets no vpn" in warned.structured_content["warnings"]
+    assert warned.structured_content["vms"] == REPORT["vms"]
+    quiet = _talk(_args(world), _env(world), ("status", {}))["results"][0]
+    assert "warnings" not in quiet.structured_content
+
+
+def test_a_warning_is_plain_short_and_survives_a_report_cut_to_fit():
+    big = {"exit": 0, "vms": ["x" * 50_000]}
+    cut = json_result(big, "on main at abc", ("exit",), "name one", "\x1b[33mwarning: no vpn\x1b[0m\n")
+    assert cut["warnings"] == "warning: no vpn" and cut["exit"] == 0 and "vms" not in cut
+    # A kept key too big to keep: the short form, with the warning still in it.
+    short = json_result(big, "on main at abc", ("vms",), "name one", "warning: no vpn")
+    assert short["warnings"] == "warning: no vpn" and "vms" not in short and "cut" in short
+    long = json_result({"exit": 0}, "on main at abc", ("exit",), "name one", "w" * 50_000)
+    assert len(long["warnings"]) <= WARNINGS and "cut from the middle" in long["warnings"]
+    assert "warnings" not in json_result({"exit": 0}, "on main at abc", ("exit",), "name one", " \n")
 
 
 def test_the_server_never_exits_early_and_answers_each_call_with_why(world, tmp_path):

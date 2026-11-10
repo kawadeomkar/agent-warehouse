@@ -127,8 +127,8 @@ class Server:
         return process.returncode or 0, out.decode(errors="replace"), err.decode(errors="replace"), seconds
 
     async def json_tool(self, tool: str, arguments: dict[str, Any], keep: tuple[str, ...], narrow: str, ok: set[int]):
-        """A recipe whose report is JSON on standard output: the report, with the head and the note in it, for an exit
-        status in ok; otherwise what the run said, as the error."""
+        """A recipe whose report is JSON on standard output: the report, with the head, the note and any warning in it,
+        for an exit status in ok; otherwise what the run said, as the error."""
         rc, out, err, seconds = await self.just(tool, arguments)
         head = self.head()
         try:
@@ -138,7 +138,7 @@ class Server:
         if not isinstance(report, dict):
             first = f"{head} · just {recipes.TOOLS[tool].recipe}: exit {rc} in {seconds:.0f} s, no report"
             raise ToolError(text_result(first, err + out))
-        result = json_result(report, head, keep, narrow)
+        result = json_result(report, head, keep, narrow, err)
         return CallToolResult(content=[TextContent(type="text", text=json.dumps(result))], structured_content=result)
 
 
@@ -178,7 +178,7 @@ def tools(server: Server) -> list[Tool]:
             raise ToolError(text_result(first, err + out))
         return text_result(first, out)
 
-    async def log(file: str, lines: int = 200) -> str:
+    async def log(file: str, lines: int = 200, start: int = 0) -> str:
         config = server.check(vault=False)
         if not LOG_NAME.match(file):
             raise ToolError(f"{file!r} is not a run log's name: logs lists them, as 20261106-101500-deploy.log")
@@ -186,10 +186,15 @@ def tools(server: Server) -> list[Tool]:
         path = config.checkout / ".logs" / file
         try:
             with open(path, encoding="utf-8", errors="replace") as stream:
-                tail = stream.read().splitlines()[-count:]
+                every = stream.read().splitlines()
         except OSError as error:
             raise ToolError(f"{file} could not be read: {error.strerror}") from error
-        return text_result(f"{server.head()} · .logs/{file}, its last {len(tail)} lines", "\n".join(tail))
+        # Without a start, the end of the log, where a run says how it went.
+        begin = start - 1 if start > 0 else max(len(every) - count, 0)
+        shown = every[begin : begin + count]
+        total = len(every)
+        where = f"lines {begin + 1}-{begin + len(shown)} of {total}" if shown else f"no line {begin + 1}, of {total}"
+        return text_result(f"{server.head()} · .logs/{file}, {where}", "\n".join(shown))
 
     described = {
         "status": "Read-only: start here. Every VM, its checkouts (the work section), and what needs doing next. "
@@ -216,8 +221,9 @@ def tools(server: Server) -> list[Tool]:
         Tool.from_function(
             log,
             name="log",
-            description="Read-only: the last lines of one run log, by its name as logs lists it, made plain text "
-            f"(lines: {LOG_LINES[0]}-{LOG_LINES[1]}, 200 by default). A log names the Proxmox host and VMs by address.",
+            description="Read-only: one run log, by its name as logs lists it, made plain text: its last lines, or "
+            f"from line start (1 is its first) to read the rest (lines: {LOG_LINES[0]}-{LOG_LINES[1]}, 200 by default; "
+            "fewer where a result says its middle was cut). A log names the Proxmox host and VMs by address.",
             annotations=READ_ONLY,
             structured_output=False,
         )

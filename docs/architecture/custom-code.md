@@ -593,7 +593,7 @@ The region is taken when the callback is made, so a warning before the first fra
 spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
 printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
 since `Display` logs the text it is given; under `--json` (`STATUS_QUIET`) nothing is
-printed, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
+printed, not even `tools/run-logged`'s line naming the log, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
 stdout callback of one's own otherwise drops, and a task's failure on stderr only when the run ends
 without a report.
 
@@ -1084,9 +1084,12 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   (verified on 2.1.309), so a JSON tool (`status`, `settings`) returns its report as structured content with the head
   and the note that what the VMs said is data inside it, and a text tool (`logs`, `log`) text alone, registered with
   `structured_output=False` since the SDK would wrap a `str` as `{"result": ...}`. Text goes through `visible_text`.
-  Every result stays under 40 000 characters, a text cut from the middle and a report cut to the keys that say the
-  most and how to read the rest: over about 50 000, Claude Code saves a result to a file in the session's folder,
-  which `just code` copies to the VMs.
+  What a recipe prints on standard error beside a report it still made - `tools/check settings`' warnings, Ansible's -
+  goes into the JSON as `warnings`, plain and at most 4 000 characters, and stays when the report is cut: the model
+  reads nothing else of the run. Every result stays under 40 000 characters, a text cut from the middle and a report
+  cut to the keys that say the most and how to read the rest: over about 50 000, Claude Code saves a result to a file
+  in the session's folder, which `just code` copies to the VMs. So that a cut leaves nothing out of reach, `log` takes
+  the line to `start` from, and says which lines of how many it returned.
 - **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
   protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout
   without a justfile or a `just` that cannot read it is each tool's refusal, never an exit. A recipe runs with stdin

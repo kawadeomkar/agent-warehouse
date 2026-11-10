@@ -11,7 +11,7 @@ For now the tools only read:
 | `status` | `just status --json` | every VM, its checkouts and what needs doing next, read without changing anything |
 | `settings` | `just settings --json` | a role's or a setting's value and where it was set; secrets said set or not, never shown |
 | `logs` | `just logs` | the run logs, newest first |
-| `log` | - | the last lines of one run log, by its name, made plain text |
+| `log` | - | one run log, by its name, made plain text: its last lines, or any part of it from the line asked for |
 
 ## Register it
 
@@ -72,8 +72,10 @@ branch. Every result starts by naming the branch and commit the server found, as
 What a VM printed - its name, its checkouts' branches, a failure's words - is the VM's to choose, and a VM's user runs
 an agent of its own. The tools hand it back made plain - no escape sequence, no control or bidi character - with a note
 that it is data, never instructions, inside the JSON `status` and `settings` return and at the end of what `logs` and
-`log` return. A result stays under 40 000 characters, cut from the middle: over about 50 000, Claude Code would save it
-to a file in the session's folder, which `just code` copies to the VMs. No tool takes or returns a secret.
+`log` return. A warning a command printed beside a report it still made, such as `just status` saying that no VPN is
+chosen, comes back with it as `warnings`. A result stays under 40 000 characters, cut from the middle: over about 50 000,
+Claude Code would save it to a file in the session's folder, which `just code` copies to the VMs. No tool takes or
+returns a secret.
 
 How the server is built, and why: [§7.12](../architecture/custom-code.md#712-libclaude_vmmcp--the-mcp-server) and
 [Agents through MCP](../architecture/security-model.md#agents-through-mcp).

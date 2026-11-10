@@ -2519,6 +2519,15 @@ def test_status_json_prints_the_report_alone(tmp_path: Path) -> None:
     assert json.loads(result.stdout) == json.loads(report)
 
 
+def test_status_json_says_nothing_of_its_log_on_stderr_which_is_for_what_it_warned_of(tmp_path: Path) -> None:
+    body = "printf '%s\\n' '{\"exit\": 0}' > \"$STATUS_REPORT_FILE\""
+    plain = _status(tmp_path / "plain", body=body)
+    assert "Logging this run" in plain.stderr, _output(plain)
+    quiet = _status(tmp_path / "quiet", "--json", body=body)
+    assert quiet.returncode == 0, _output(quiet)
+    assert "Logging this run" not in quiet.stderr, _output(quiet)
+
+
 def test_status_without_a_report_exits_3_and_says_why(tmp_path: Path) -> None:
     result = _status(tmp_path, body='rm -f "$STATUS_REPORT_FILE"')
     assert result.returncode == 3, _output(result)
