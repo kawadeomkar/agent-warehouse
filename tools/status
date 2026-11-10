@@ -45,7 +45,8 @@ def main(argv: list[str]) -> int:
         return 3
     if ignored:
         print(f"just status: ignoring {' '.join(ignored)}: it runs no playbook", file=sys.stderr)
-    signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))
+    # As a Ctrl-C, which ends every connection; never whatever SIGINT is now, which a run started with & has ignored.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     os.umask(0o077)
     return engine.run(opts)
 

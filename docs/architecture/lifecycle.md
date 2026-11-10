@@ -383,7 +383,8 @@ screen in a quarter of a second and a finished report in about two, against five
    ([below](#what-a-run-keeps)).
 3. The Proxmox API, as GETs eight at a time: the listing (§4.3, steps 1-3), the version, the storages and the nodes
    first, and each VM drawn the moment the listing lands; then every VM's config and its agent's address, so that
-   none waits behind another VM's history, then each VM's own reads, the template's config, and each of this
+   none waits behind another VM's history, then the own reads of each VM read further, so that one on a node that is down
+   holds nothing up, the template's config, and each of this
    project's storages' disks. Each read waits `status_api_timeout`, 10 s. A VM's address reaching the engine starts
    that VM's probe at once, whatever the rest of the fleet is doing. A read cut short, or an answer that is no HTTP, is that
    read failed.
@@ -431,9 +432,10 @@ VM: only which kind it is, and whether the role's marker holds its digest.
 
 **Host keys.** Status adds and changes none. Each VM is reached with `status_ssh_args`: `ansible.cfg`'s own `ssh_args`
 with `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, OpenSSH's default being yes, first on ssh's command line,
-since ssh keeps the first value it is given for an option. What else the inventory gives a VM follows them, as it did
-the hosts discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
-`ansible_ssh_private_key_file`, a VM's own `host_vars` file included. A VM whose key this machine does not hold - rebuilt,
+since ssh keeps the first value it is given for an option. What else a VM is given follows them, as it did the hosts
+discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
+`ansible_ssh_private_key_file`, a VM's own `host_vars` file included, or where the inventory says nothing, the same
+settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like). A VM whose key this machine does not hold - rebuilt,
 renamed, its address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
 as every run does, or the `ssh` that shows the fingerprint and asks.
 
@@ -441,7 +443,9 @@ as every run does, or the `ssh` that shows the fingerprint and asks.
 (`one_line`, [§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) before anything keeps it: a
 newline, a carriage return, an escape sequence, a bidi control or a zero-width character never starts a line of its
 own, and every value is capped. The text report and `--json` are both built from that cleaned model. What a VM sends
-is also held to a size and a time, and read with care for its shape: its root chooses every byte.
+is also held to a size and a time, and read with care for its shape: its root chooses every byte. A number JSON can
+say and Python cannot count (`1e999`, `NaN`) is no answer, and whatever else of a VM's answer cannot be read costs only
+that VM.
 
 **What counts.** Each item is "not read" (exit 2), a problem (exit 1) or a thing to do (exit 0), and the
 code is the highest found:

@@ -13,6 +13,7 @@ What a VM sends is held to a size, a time and a shape, and is only ever data: it
 from __future__ import annotations
 
 import json
+import math
 import os
 import shlex
 import threading
@@ -36,6 +37,21 @@ BOOTSTRAP = f"import sys; d = sys.stdin.read(); exec(d[d.index({MARK!r}):])"
 _children = set()  # the connections still open
 _children_lock = threading.Lock()
 _over = threading.Event()  # set by end_all: no connection is made after it
+
+
+def _no_number(text):
+    raise ValueError(f"{text} is not a number")
+
+
+def _finite(text):
+    value = float(text)
+    return value if math.isfinite(value) else _no_number(text)
+
+
+def loads(text):
+    """JSON from a VM, directly or through its guest agent. Python's parser takes NaN and makes 1e999 infinity, which
+    the int() of a count then raises on: a VM's root would end the whole report with one line. Neither is an answer."""
+    return json.loads(text, parse_float=_finite, parse_constant=_no_number)
 
 
 def end_all() -> None:
@@ -143,7 +159,7 @@ def _attempt(argv: list[str], stdin: str, early) -> dict:
             process.kill()
             break
         try:
-            said = json.loads(text)
+            said = loads(text)
         except (RecursionError, ValueError):
             continue
         if not isinstance(said, dict):

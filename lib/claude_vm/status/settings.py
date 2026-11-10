@@ -173,18 +173,33 @@ VM = {
         },
     },
 }
+
+
+def _ssh_option(variables: str, option: str) -> str:
+    """A setting of Ansible's ssh connection as it resolves one: the inventory's variables, then ansible.cfg or the
+    environment (ANSIBLE_PRIVATE_KEY_FILE, ANSIBLE_SSH_COMMON_ARGS and the like), then nothing."""
+    found = f"lookup('ansible.builtin.config', '{option}', plugin_type='connection', plugin_name='ssh')"
+    for variable in reversed(variables.split()):
+        found = f"{variable} | default({found})"
+    return "{{ " + found + " | default('', true) }}"
+
+
+_SSH_MORE = (
+    _ssh_option("ansible_ssh_common_args", "ssh_common_args")
+    + " "
+    + _ssh_option("ansible_ssh_extra_args", "ssh_extra_args")
+)
 # How a VM is reached. A VM of the listing: as add_host used to put it on the host, over ssh, with the host key held -
-# status_ssh_args first, since ssh keeps the first value it is given - and whatever else the inventory gives every host:
-# a jump host or other options (ansible_ssh_common_args, ansible_ssh_extra_args), a port, a key.
+# status_ssh_args first, since ssh keeps the first value it is given - and whatever else every host is given: a jump
+# host or other options, a port, a key, from the inventory or from Ansible's own configuration and environment.
 REACH = {
     "connection": "ssh",
     "user": "{{ vm_user }}",
-    "port": "{{ ansible_port | default('') }}",
-    "key": "{{ ansible_ssh_private_key_file | default(ansible_private_key_file | default('')) }}",
+    "port": _ssh_option("ansible_port ansible_ssh_port", "port"),
+    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file", "private_key_file"),
     "python": "{{ claude_vm_python }}",
-    "ssh_args": "{{ status_ssh_args }} {{ ansible_ssh_common_args | default('') }}"
-    " {{ ansible_ssh_extra_args | default('') }}",
-    "ssh_executable": "{{ ansible_ssh_executable | default('ssh') }}",
+    "ssh_args": "{{ status_ssh_args }} " + _SSH_MORE,
+    "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
     "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
     "become": "{{ ansible_become | default(true) | bool }}",
     "become_exe": "{{ ansible_become_exe | default('sudo') }}",
@@ -195,12 +210,11 @@ REACH_INVENTORY = {
     "connection": "{{ ansible_connection | default('ssh') }}",
     "host": "{{ ansible_host | default(inventory_hostname) }}",
     "user": "{{ ansible_user | default('') }}",
-    "port": "{{ ansible_port | default('') }}",
-    "key": "{{ ansible_ssh_private_key_file | default('') }}",
     "python": "{{ ansible_python_interpreter | default(claude_vm_python) }}",
-    "ssh_args": "{{ ansible_ssh_args | default(lookup('ansible.builtin.config', 'ssh_args', plugin_type='connection',"
-    " plugin_name='ssh')) }} {{ ansible_ssh_common_args | default('') }} {{ ansible_ssh_extra_args | default('') }}",
+    "ssh_args": _ssh_option("ansible_ssh_args", "ssh_args") + " " + _SSH_MORE,
 }
+# The VM user's password, for a sudo that asks for one.
+BECOME = "{{ ansible_become_password | default('') }}"
 
 
 class Stale(Exception):
@@ -244,7 +258,8 @@ def _password(path: str) -> bytes:
     import subprocess
 
     try:
-        said = subprocess.run([path], capture_output=True, check=True)
+        # Whole: given as .vault_pass, the name alone would be looked for on PATH.
+        said = subprocess.run([os.path.abspath(path)], capture_output=True, check=True)
     except subprocess.SubprocessError as error:
         raise Stale("the vault's password script failed") from error
     return said.stdout.strip(b"\r\n")
@@ -263,7 +278,11 @@ def _vault_values(opts) -> dict:
                 continue
         else:
             raise Stale("no password file opens the vault")
-    values = yaml.load(data, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
+    try:
+        values = yaml.load(data, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
+    except yaml.YAMLError as error:
+        # What Ansible alone reads, as !unsafe: it is asked instead, and no snapshot is kept.
+        raise Stale("the vault is more than plain YAML") from error
     if not isinstance(values, dict):
         raise Stale("the vault is not a mapping")
     return values
@@ -285,6 +304,7 @@ class Ansible:
         from ansible.plugins.loader import init_plugin_loader
         from ansible.template import Templar, trust_as_template
         from ansible.utils.display import Display
+        from ansible.vars.hostvars import HostVars
         from ansible.vars.manager import VariableManager
 
         if say:
@@ -313,7 +333,9 @@ class Ansible:
         self.inventory = InventoryManager(loader=self.loader, sources=opts.inventory or C.DEFAULT_HOST_LIST)
         # The extra vars come from the global context, set above, as VariableManager reads them.
         self.variables = VariableManager(loader=self.loader, inventory=self.inventory)
-        self.host_vars = {host.name: dict(host.vars) for host in self.inventory.get_hosts("all")}
+        # Each host as a play sees it, its group_vars and host_vars too: made, it hands itself to the VariableManager.
+        HostVars(inventory=self.inventory, variable_manager=self.variables, loader=self.loader)
+        self.host_names = {host.name for host in self.inventory.get_hosts("all")}
         self.inventory.add_group("status_vms")
 
     def _play(self, hosts, roles):
@@ -337,10 +359,10 @@ class Ansible:
         return self.Templar(loader=self.loader, variables=variables).template(self.trusted(value))
 
     def local(self):
-        """Every variable a task on this machine sees, with each inventory host's own vars as hostvars."""
+        """Every variable a task on this machine sees."""
         play = self._play("localhost", ["proxmox_template"])
         host = self.inventory.get_host("localhost") or self.inventory.localhost
-        return {**self.variables.get_vars(play=play, host=host), "hostvars": dict(self.host_vars)}
+        return self.variables.get_vars(play=play, host=host)
 
     def on_host(self, name, inventory_host=False):
         """Every variable a task of a VM sees, the roles' own included. The placeholder and a VM of the listing are
@@ -351,7 +373,6 @@ class Ansible:
         play = self._play("status_vms" if not inventory_host else "claude_vms", ROLES)
         variables = dict(self.variables.get_vars(play=play, host=host))
         variables.update(
-            hostvars=dict(self.host_vars),
             ansible_check_mode=True,
             # The marker's path under the VM user's home, which the probe joins to it.
             github_projects_home_dir=".",
@@ -454,7 +475,7 @@ def _from_snapshot(opts) -> dict:
     secret = str(values[TOKEN_VAR]).strip()
     config["fleet"]["headers"] = {k: v.replace(SECRET_MARK, secret) for k, v in config["fleet"]["headers"].items()}
     config["run"] = {"names": opts.names.split(",") if opts.names else [], "only": opts.only}
-    config["password"] = lambda: str(values.get(PASSWORD_VAR) or "")
+    config["password"] = lambda name="": str(values.get(PASSWORD_VAR) or "")
     return config
 
 
@@ -533,18 +554,22 @@ def _from_ansible(opts, say=None) -> dict:
     placeholder = ansible.on_host(PLACEHOLDER)
     config["vm"] = ansible.render(VM, placeholder)
     config["reach"] = ansible.render(REACH, placeholder)
-    password = str(ansible.render("{{ ansible_become_password | default('') }}", placeholder))
-    config["password"] = lambda: password
+    password = str(ansible.render(BECOME, placeholder))
+    # The VMs whose sudo password is not every VM's. Never kept: a run with one asks Ansible.
+    own = {}
+    config["password"] = lambda name="": own.get(name, password)
     # A VM with a host_vars file of its own: rendered as itself, and reached as it says.
     config["per_vm"] = {}
     host_vars = _host_vars_folder(opts)
     if host_vars is not None:
         for path in sorted(host_vars.iterdir()):
             name = path.stem if path.is_file() else path.name
-            if name not in ansible.host_vars and name != "localhost":
+            if name not in ansible.host_names and name != "localhost":
                 variables = ansible.on_host(name)
                 vm, how = ansible.render(VM, variables), ansible.render(REACH, variables)
                 config["per_vm"][name] = {"vm": vm, "reach": how}
+                if str(ansible.render(BECOME, variables)) != password:
+                    own[name] = str(ansible.render(BECOME, variables))
     # With discovery off, the inventory's claude_vms, each reached as the inventory says.
     config["inventory"] = {}
     if not fleet["settings"]["discovery"]:
@@ -554,6 +579,15 @@ def _from_ansible(opts, say=None) -> dict:
                 "vm": ansible.render(VM, variables),
                 "reach": ansible.render(REACH_INVENTORY, variables),
             }
+            if str(ansible.render(BECOME, variables)) != password:
+                own[name] = str(ansible.render(BECOME, variables))
+    elif _usable(opts) and own:
+        if say:
+            say(
+                "just status: the settings are not kept for the next run, since a VM has a sudo password of its own;"
+                " each run asks Ansible for them",
+                log_only=True,
+            )
     elif _usable(opts):
         _keep(opts, config, secret, password, say)
     return config

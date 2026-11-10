@@ -50,8 +50,13 @@ class Display:
         self._lock = threading.RLock()
         self._log = None
         if log_path:
+            try:
+                handler = logging.FileHandler(log_path, encoding="utf-8")
+            except OSError as error:
+                # As ansible-core does with a log it cannot write: said, and the run goes on.
+                print(f"[WARNING]: just status cannot write its log: {error}", file=sys.stderr)
+                return
             self._log = logging.getLogger("status")
-            handler = logging.FileHandler(log_path, encoding="utf-8")
             handler.setFormatter(
                 logging.Formatter(
                     f"%(asctime)s p=%(process)d u={getpass.getuser()} n=ansible %(levelname)s| %(message)s"
@@ -199,7 +204,11 @@ class Proxmox:
             with self.opener.open(request, timeout=self.timeout) as response:
                 one["status"], body = response.status, response.read()
         except urllib.error.HTTPError as error:
-            one["status"], one["msg"], body = error.code, f"HTTP Error {error.code}: {error.reason}", error.read()
+            one["status"], one["msg"] = error.code, f"HTTP Error {error.code}: {error.reason}"
+            try:
+                body = error.read()
+            except (OSError, http.client.HTTPException):
+                body = b""  # the answer's status is what is known of it
         except ValueError:
             # http.client's words for a header it refuses quote the header, the token in it.
             one["msg"] = "the request could not be made"
@@ -207,7 +216,7 @@ class Proxmox:
             # A connection cut short (IncompleteRead) or an answer that is no HTTP (BadStatusLine): this read failed.
             one["msg"] = f"Request failed: {str(error) or type(error).__name__}"
         try:
-            one["json"] = json.loads(body) if body else None
+            one["json"] = reach.loads(body) if body else None
         except (RecursionError, ValueError):
             one["json"] = None
         return one
@@ -221,10 +230,11 @@ def _data(result):
     return body.get("data") if isinstance(body, dict) else None
 
 
-def _second_wave(requested, template, storages):
+def _second_wave(requested, template, storages, reading):
     """Every GET that follows the listing: each VM's config, address, state and history, the template's config and each
     storage's disks. A VM's reads each say which VM's they are, and which read. Every VM's config and address come
-    first, so that no VM's probe waits behind another VM's history."""
+    first, so that no VM's probe waits behind another VM's history. Only a VM read further (``reading``, by name) has
+    reads of its own: one on a node that is down would wait out the timeout of each, holding up the fleet."""
     addresses, items = [], []
     for vm in requested:
         status = vm.get("status", "unknown")
@@ -239,6 +249,8 @@ def _second_wave(requested, template, storages):
                 "skip": status != "running",
             }
         )
+        if vm.get("name") not in reading:
+            continue
         reads = [("current", "status/current"), ("rrddata", "rrddata?timeframe=day&cf=AVERAGE"), ("pending", "pending")]
         if status == "running":
             reads += [("osinfo", "agent/get-osinfo"), ("fsinfo", "agent/get-fsinfo")]
@@ -307,15 +319,16 @@ class Run:
         self.kept: dict = {}
         self.lock = threading.Lock()
         self.password_lock = threading.Lock()
-        self.vault_password = None
+        self.passwords: dict = {}
 
     # --- a read of one VM -----------------------------------------------------------------------------------------
-    def password(self):
-        """The VM user's password, for the sudo that asks for it: read once in a run, and only if one does."""
+    def password(self, name):
+        """The VM user's password on the VM called ``name``, for the sudo that asks for it: read once in a run, and only
+        if one does."""
         with self.password_lock:
-            if self.vault_password is None:
-                self.vault_password = self.config["password"]()
-            return self.vault_password
+            if name not in self.passwords:
+                self.passwords[name] = self.config["password"](name)
+            return self.passwords[name]
 
     def asked(self, vm_settings, key):
         wanted = vm_found.parts_wanted(self.sections)
@@ -334,11 +347,18 @@ class Run:
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
             self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
 
+        def early(read):
+            try:
+                land(read)
+            except Exception:  # noqa: BLE001 - what its root sent: the whole answer, next, says so of this VM
+                return
+
         try:
-            read = reach.read(how, self.asked(vm_settings, key), land, self.password)
-        except Exception as error:  # noqa: BLE001 - one VM's failure is that VM's, said as not read
+            read = reach.read(how, self.asked(vm_settings, key), early, lambda: self.password(name))
+            land(read)
+        except Exception as error:  # noqa: BLE001 - a failure, or what its root sent, is that VM's, said as not read
             read = {"failed": True, "msg": str(error) or type(error).__name__}
-        land(read)
+            land(read)
         system = (read.get("user") or {}).get("system") if isinstance(read.get("user"), dict) else None
         if isinstance(system, dict) and isinstance(system.get("upgrades"), int) and system.get("upgrades_key"):
             with self.lock:
@@ -407,9 +427,9 @@ class Run:
         lists = [one.result() for one in first[1:]]
         template = proxmox_reads.built_template(data, self.fleet["template_name"]) or None
         storages = model.status_storages(lists, self.fleet["storage"])
-        items = _second_wave(requested, template, storages)
-        futures = [api.later(item) for item in items]
         vms = [vm for vm in early["vms"] if vm.get("read")]
+        items = _second_wave(requested, template, storages, {vm["name"] for vm in vms})
+        futures = [api.later(item) for item in items]
         pool = self.probes(len(vms))
         try:
             denied, jobs = self.reach_each(vms, requested, items, futures, pool)
@@ -566,6 +586,10 @@ def run(opts) -> int:
             screen.sections = sections = settings.sections(config["run"]["only"])
         Run(opts, screen, config).go()
         report = model.status_report(dict(screen.found), screen.now_said(), time.time())
+        screen.finish(report)
+        if opts.json:
+            sys.stdout.write(json.dumps(report, indent=4, sort_keys=True) + "\n")
+            sys.stdout.flush()
     except KeyboardInterrupt:
         _end_for_an_interrupt(screen)
     except Exception as error:  # noqa: BLE001 - said once, whatever failed, and the run's exit is the one for that
@@ -573,8 +597,4 @@ def run(opts) -> int:
         print(f"just status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
         reach.end_all()
         return 3
-    screen.finish(report)
-    if opts.json:
-        sys.stdout.write(json.dumps(report, indent=4, sort_keys=True) + "\n")
-        sys.stdout.flush()
     return report["exit"] if report["exit"] in (0, 1, 2) else 3

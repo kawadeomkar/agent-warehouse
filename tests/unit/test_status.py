@@ -782,6 +782,8 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
     assert ssh_calls, "status never called ssh"
     for argv in ssh_calls:
         options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
+        # Given none, no port and no key: ssh's own, and whatever the user's config says of the host.
+        assert "-p" not in argv and "-i" not in argv, argv
         for name, value in (
             ("stricthostkeychecking", "StrictHostKeyChecking=yes"),
             ("updatehostkeys", "UpdateHostKeys=no"),
@@ -841,6 +843,113 @@ def test_a_vm_of_the_listing_is_reached_with_the_inventory_s_ssh_options_port_an
         assert argv[argv.index("-i") + 1] == "/nonexistent/key", argv
         ports[argv[-2]] = argv[argv.index("-p") + 1]
     assert ports.pop("192.0.2.60") == "2222" and set(ports.values()) == {"2200"}, calls
+
+
+def test_what_ansible_s_configuration_or_environment_gives_every_host_reaches_the_vms(tmp_path, fake_pve) -> None:
+    # The same settings a run of any other recipe takes from there, where the inventory says nothing.
+    root = status_root(tmp_path, fake_pve)
+    env = _env(
+        root,
+        ANSIBLE_SSH_COMMON_ARGS="-o ProxyJump=jump.invalid",
+        ANSIBLE_PRIVATE_KEY_FILE="/nonexistent/key",
+        ANSIBLE_REMOTE_PORT="2222",
+    )
+    done = subprocess.run(
+        status_command(root, {}, "--json"),
+        cwd=root,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    calls = [json.loads(line) for line in (root / "ssh.log").read_text().splitlines()]
+    assert calls
+    for argv in calls:
+        options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
+        assert options.index("StrictHostKeyChecking=yes") < options.index("ProxyJump=jump.invalid"), argv
+        assert argv[argv.index("-i") + 1] == "/nonexistent/key" and argv[argv.index("-p") + 1] == "2222", argv
+
+
+def test_the_proxmox_host_s_address_may_be_in_a_host_vars_file_of_its_own(tmp_path, fake_pve) -> None:
+    # proxmox_api_host reads hostvars as a play sees them. From the inventory file's text alone, the host's bare name
+    # would be asked for instead, with the API token.
+    root = status_root(tmp_path, fake_pve)
+    fake_api = root / "group_vars" / "all" / "fake_api.yml"
+    pinned = yaml.safe_load(fake_api.read_text())
+    del pinned["proxmox_api_host"]
+    fake_api.write_text(yaml.safe_dump(pinned))
+    inventory = root / "hosts.yml"
+    inventory.write_text(
+        yaml.safe_dump({"proxmox": {"hosts": {"pve": None}}, "claude_vms": {"vars": {"vm_user": "dev"}}})
+    )
+    (root / "host_vars").mkdir()
+    (root / "host_vars" / "pve.yml").write_text("ansible_host: 127.0.0.1\n")
+    done = subprocess.run(
+        [sys.executable, str(STATUS), "-i", str(inventory), "--json"],
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    assert json.loads(done.stdout)["vms"][0]["api"]["read"]
+
+
+def test_a_log_it_cannot_write_is_said_and_the_run_goes_on(tmp_path, fake_pve) -> None:
+    # A traceback here would exit 1, which the report's codes keep for a problem found on a VM.
+    root = status_root(tmp_path, fake_pve)
+    done = subprocess.run(
+        status_command(root, {}, "--json"),
+        cwd=root,
+        env=_env(root, ANSIBLE_LOG_PATH=str(tmp_path / "no" / "such" / "folder" / "status.log")),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode in (0, 1, 2) and json.loads(done.stdout)["vms"], done.stderr[-2000:]
+    assert "just status cannot write its log" in done.stderr
+
+
+def test_sigterm_ends_a_run_whose_sigint_was_inherited_ignored(tmp_path, fake_pve) -> None:
+    # A run started with & in a script has SIGINT ignored: SIGTERM, taken as a Ctrl-C, must not be ignored with it.
+    root = status_root(tmp_path, fake_pve)
+    (root / "ssh-holds").touch()
+
+    def ignored():
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+    process = subprocess.Popen(
+        status_command(root, {}, "--json"),
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        preexec_fn=ignored,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while not (root / "ssh.log").exists():
+            assert process.poll() is None and time.monotonic() < deadline, "no probe started"
+            time.sleep(0.05)
+        process.send_signal(signal.SIGTERM)
+        _, said = process.communicate(timeout=20)
+    finally:
+        (root / "ssh-holds").unlink()
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
+    assert process.returncode == 3 and "interrupted" in said, said[-2000:]
 
 
 # Runs tools/status with the model's reading of a VM's Proxmox reads failing, as a bug or an answer nobody expected

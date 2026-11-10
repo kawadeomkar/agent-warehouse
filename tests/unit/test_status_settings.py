@@ -144,6 +144,59 @@ def test_a_snapshot_that_would_hold_a_vault_value_is_not_kept_and_the_log_says_w
     assert value not in said
 
 
+def test_a_vault_only_ansible_can_read_still_gives_a_report(tmp_path, fake_pve) -> None:
+    # !unsafe, the way to keep a password holding braces: Ansible reads it, a plain YAML reader refuses it.
+    root = status_root(tmp_path, fake_pve)
+    cache, vault = tmp_path / "cache", root / "vault.yml"
+    vault.write_text(f'vault_proxmox_api_token_secret: "{PVE_SECRET}"\nvault_vm_password: !unsafe "a{{{{b"\n')
+    done = _run_with_cache(root, cache, vault)
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    assert not (cache / "settings.json").exists()
+
+
+PASSWORDS = """
+import argparse, json, sys
+sys.path.insert(0, {lib!r})
+from claude_vm.status import settings
+opts = argparse.Namespace(
+    inventory=[sys.argv[1]], extra=[], names="", only="", cache="", vault_file="", vault_password_file=""
+)
+config = settings.load(opts)
+print(json.dumps({{name: config["password"](name) for name in ("alpha", "beta")}}))
+"""
+
+
+def test_a_vm_with_a_sudo_password_of_its_own_is_given_that_one_and_nothing_is_kept(tmp_path, fake_pve) -> None:
+    root = status_root(tmp_path, fake_pve, {"ansible_become_password": "the-fleets-own"})
+    (root / "host_vars").mkdir()
+    (root / "host_vars" / "beta.yml").write_text("ansible_become_password: betas-own\n")
+    cache, vault, log = tmp_path / "cache", _plain_vault(root), tmp_path / "status.log"
+    done = _run_with_cache(root, cache, vault, env={"ANSIBLE_LOG_PATH": str(log)})
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    assert not (cache / "settings.json").exists() and "a VM has a sudo password of its own" in log.read_text()
+    script = tmp_path / "passwords.py"
+    script.write_text(PASSWORDS.format(lib=str(REPO / "lib")))
+    said = subprocess.run(
+        [sys.executable, str(script), str(root / "hosts.yml")],
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert said.returncode == 0, said.stderr[-2000:]
+    assert json.loads(said.stdout) == {"alpha": "the-fleets-own", "beta": "betas-own"}
+
+
+def test_a_password_script_given_by_its_bare_name_is_run_from_here_not_found_on_path(tmp_path, monkeypatch) -> None:
+    _executable(tmp_path / ".vault_pass", "#!/bin/sh\necho the-password\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PATH", "/nonexistent")
+    assert settings._password(".vault_pass") == b"the-password"
+
+
 def test_a_github_username_in_the_settings_still_lets_them_be_kept(tmp_path, fake_pve) -> None:
     # A vm_user named as the GitHub account: the username is no secret, and just settings never looks for it either.
     root = status_root(tmp_path, fake_pve, {"vm_user": "octocat-dev"})
@@ -391,6 +444,7 @@ def test_a_vm_that_takes_the_connection_and_says_nothing_is_said_once_and_soon(t
     [
         ("not json\n[1,2,3]\n42\n", "exit 1"),
         ('{"started": true}\n', "exit 1"),
+        ('{"started": true}\n{"user": {"n": 1e999}}\n', "exit 1"),
     ],
 )
 def test_what_a_vm_sends_is_read_with_care_for_its_shape(tmp_path, said: str, wanted: str) -> None:
@@ -398,6 +452,54 @@ def test_what_a_vm_sends_is_read_with_care_for_its_shape(tmp_path, said: str, wa
     interpreter = _executable(tmp_path / "python", f"#!/bin/sh\nprintf '{said}'\nexit 1\n")
     read = reach.read(_how(become=False, python=str(interpreter)), {"user": "dev"}, lambda _: None, lambda: "")
     assert read.get("failed") and wanted in read["msg"], read
+
+
+@pytest.mark.parametrize("number", ["1e999", "-1e999", "NaN", "Infinity", "-Infinity"])
+def test_a_number_python_cannot_count_is_no_answer(number: str) -> None:
+    with pytest.raises(ValueError, match="is not a number"):
+        reach.loads(f'{{"n": {number}}}')
+    assert reach.loads('{"n": 1.5e3, "m": 7, "s": "1e999"}') == {"n": 1500.0, "m": 7, "s": "1e999"}
+
+
+@pytest.mark.parametrize("told_early", [False, True])
+def test_what_cannot_be_made_of_one_vm_s_answer_costs_that_vm_alone(monkeypatch, told_early: bool) -> None:
+    # Anything its root's answer makes the reading raise: never the whole report, which every other VM's is part of.
+    def read(how, asked, early, password):
+        if told_early:
+            early({"user": {}})
+        return {"user": {}, "root": {}}
+
+    monkeypatch.setattr(reach, "read", read)
+
+    def ssh_found(read, *_):
+        if not read.get("failed"):
+            raise OverflowError("cannot convert float infinity to integer")
+        return {"unread": read["msg"]}
+
+    monkeypatch.setattr(found, "ssh_found", ssh_found)
+    landed = []
+    run = engine.Run.__new__(engine.Run)
+    run.opts, run.sections, run.known, run.kept, run.lock = None, ["system"], {}, {}, threading.Lock()
+    run.screen = type(
+        "Screen", (), {"land": lambda self, name, part, merge=False: landed.append((name, part, merge))}
+    )()
+    run.password = lambda name: ""
+    vm = {"asked": {"user": "dev", "limit": 25, "system": {}}}
+    run.probe("alpha", {"host": "x"}, vm, False, "alpha/9010")
+    assert landed == [("alpha", {"ssh": {"unread": "cannot convert float infinity to integer"}}, True)]
+
+
+def test_each_vm_s_password_is_asked_for_once_and_by_its_own_name() -> None:
+    asked = []
+    run = engine.Run.__new__(engine.Run)
+    run.password_lock, run.passwords = threading.Lock(), {}
+    run.config = {"password": lambda name: asked.append(name) or f"{name}-password"}
+    assert [run.password("alpha"), run.password("beta"), run.password("alpha")] == [
+        "alpha-password",
+        "beta-password",
+        "alpha-password",
+    ]
+    assert asked == ["alpha", "beta"]
 
 
 def test_no_connection_is_made_once_the_run_has_ended(tmp_path, monkeypatch) -> None:
@@ -449,8 +551,16 @@ def test_ssh_is_told_the_host_key_options_first(tmp_path) -> None:
 def test_every_vm_s_address_is_asked_for_before_any_vm_s_history() -> None:
     # A later VM's probe starts on its own address, never behind the history of the VMs listed before it.
     vms = [{"vmid": 9000 + n, "node": "pve", "name": f"vm{n}", "status": "running"} for n in range(3)]
-    kinds = [item["kind"] for item in engine._second_wave(vms, None, [])]
+    kinds = [item["kind"] for item in engine._second_wave(vms, None, [], {"vm0", "vm1", "vm2"})]
     assert kinds[:6] == ["config", "network"] * 3 and set(kinds[6:]) == {"api"}
+
+
+def test_a_vm_not_read_further_gets_none_of_its_own_reads() -> None:
+    # On a node that is down, nameless, or one of two of a name: each read would wait out its timeout for nothing.
+    vms = [{"vmid": 9000 + n, "node": "pve", "name": f"vm{n}", "status": "running"} for n in range(3)]
+    items = engine._second_wave(vms, None, [], {"vm0"})
+    assert [item["kind"] for item in items[:6]] == ["config", "network"] * 3
+    assert {item["vmid"] for item in items if item["kind"] == "api"} == {9000}
 
 
 def test_no_more_vms_are_read_at_once_than_ansible_s_forks() -> None:
@@ -484,6 +594,17 @@ def test_a_vm_s_proxmox_and_ssh_parts_are_both_kept_whichever_lands_first() -> N
 )
 def test_a_read_cut_short_or_not_http_is_that_read_failed(answer: bytes) -> None:
     # http.client's own errors (IncompleteRead, BadStatusLine) are no OSError: each is one read failed, not the run.
+    one = _got(answer)
+    assert one["status"] == -1 and one["msg"].startswith("Request failed: ") and one["json"] is None
+
+
+def test_a_refusal_whose_body_never_arrives_is_that_read_s_status_alone() -> None:
+    one = _got(b"HTTP/1.1 500 Oops\r\nContent-Length: 100\r\n\r\nshort")
+    assert one["status"] == 500 and one["msg"] == "HTTP Error 500: Oops" and one["json"] is None
+
+
+def _got(answer: bytes) -> dict:
+    """What one GET makes of a server that answers it with these bytes and hangs up."""
     server = socket.create_server(("127.0.0.1", 0))
 
     def serve():
@@ -500,7 +621,7 @@ def test_a_read_cut_short_or_not_http_is_that_read_failed(answer: bytes) -> None
     finally:
         api.pool.shutdown()
         server.close()
-    assert one["status"] == -1 and one["msg"].startswith("Request failed: ") and one["json"] is None
+    return one
 
 
 # ---------------------------------------------------------------------------------------- apt's answer kept ----
@@ -541,7 +662,7 @@ def test_the_engine_keeps_each_vm_s_answer_by_its_name_and_id(tmp_path, monkeypa
     run = engine.Run.__new__(engine.Run)
     run.opts, run.sections, run.known, run.kept, run.lock = None, ["system"], {}, {}, __import__("threading").Lock()
     run.screen = type("Screen", (), {"land": lambda self, *_, **__: None})()
-    run.password = lambda: ""
+    run.password = lambda name: ""
     vm = {
         "asked": {"user": "dev", "limit": 25, "system": {}},
         "claude": {},
