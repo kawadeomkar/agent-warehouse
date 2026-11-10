@@ -1,13 +1,15 @@
 """What just status needs of the settings: asked of Ansible once, and kept until a file they are made from changes.
 
 Ansible's own VariableManager and templar, in this process, as tools/settings asks them, the first time and whenever
-inventory/, ansible.cfg or a role's defaults or vars have changed; never by a second reading of its precedence here.
-The answer is kept in .cache/status/settings.json (0600, git-ignored, refused by tests/check_no_local_files.sh), keyed
-by the name, size and time of every file it is made from, so a later run starts without importing Ansible at all.
+inventory/, ansible.cfg, a role's defaults or vars, the filters or ansible-core have changed; never by a second reading
+of its precedence here. The answer is kept in .cache/status/settings.json (0600, git-ignored, refused by
+tests/check_no_local_files.sh), keyed by the name, size and time of every file it is made from, so a later run starts
+without importing Ansible at all.
 
 What is kept holds no secret. The API token is a mark there, and read from the vault at each run; every secret-derived
-setting is kept only as whether it is set. A snapshot that would hold anything the vault holds is not kept. A run given
-extra vars by hand (-e) neither reads nor writes one: it asks Ansible.
+setting is kept only as whether it is set. A snapshot that would hold anything else the vault holds, but for its two
+identifiers, is not kept, and the run's log says which name held it back. A run given extra vars by hand (-e) neither
+reads nor writes one: it asks Ansible.
 
 A setting per VM - Ansible applies inventory/host_vars/<name>.yml to the VM of that name - is rendered for that VM and
 kept with the rest. Everything else is rendered once for a placeholder host, and its name replaced in what comes back.
@@ -21,6 +23,7 @@ import hmac
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 from . import model
@@ -32,6 +35,10 @@ PLACEHOLDER = "status_placeholder.vm"
 SECRET_MARK = "@@status-proxmox-token@@"
 TOKEN_VAR = "vault_proxmox_api_token_secret"
 PASSWORD_VAR = "vault_vm_password"
+# What the vault holds that is no secret, as tools/settings counts it: masked in its own row there, never looked for
+# elsewhere. A GitHub username that is also a word of the settings - a vm_user of the same name - would otherwise keep
+# every run from its snapshot.
+IDENTIFIERS = ("vault_github_username", "vault_tailscale_oauth_client_id")
 ROLES = ("proxmox_vm", "proxmox_template", "claude_code", "github_projects", "tailscale")
 
 # How the Proxmox API is reached: only asked for with discovery on, since the token behind it is not there without.
@@ -55,6 +62,8 @@ FLEET = {
     "ssh_config_legacy": "{{ claude_ssh_config_legacy_file }}",
     "hosts": "{{ claude_vm_inventory_hosts }}",
     "template_wanted": "{{ proxmox_template_wanted }}",
+    # No more VMs read at once than Ansible would reach at once.
+    "forks": "{{ lookup('ansible.builtin.config', 'DEFAULT_FORKS') }}",
     "settings": {
         "tag": "{{ claude_vm_tag }}",
         # Every tag a VM of the project's carries as its own, its 1.x name too: what the unfinished tag is read under.
@@ -164,12 +173,17 @@ VM = {
         },
     },
 }
-# How a VM is reached. A VM of the listing: as add_host used to put it on the host, over ssh, with the host key held.
+# How a VM is reached. A VM of the listing: as add_host used to put it on the host, over ssh, with the host key held -
+# status_ssh_args first, since ssh keeps the first value it is given - and whatever else the inventory gives every host:
+# a jump host or other options (ansible_ssh_common_args, ansible_ssh_extra_args), a port, a key.
 REACH = {
     "connection": "ssh",
     "user": "{{ vm_user }}",
+    "port": "{{ ansible_port | default('') }}",
+    "key": "{{ ansible_ssh_private_key_file | default(ansible_private_key_file | default('')) }}",
     "python": "{{ claude_vm_python }}",
-    "ssh_args": "{{ status_ssh_args }}",
+    "ssh_args": "{{ status_ssh_args }} {{ ansible_ssh_common_args | default('') }}"
+    " {{ ansible_ssh_extra_args | default('') }}",
     "ssh_executable": "{{ ansible_ssh_executable | default('ssh') }}",
     "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
     "become": "{{ ansible_become | default(true) | bool }}",
@@ -213,14 +227,42 @@ def _vault_open(data: bytes, password: bytes) -> bytes:
     return text[: -text[-1]]
 
 
+def _password_files(opts) -> list[str]:
+    """The vault's password files, in the order Ansible tries them: the recipe's (.vault_pass), then the one
+    ANSIBLE_VAULT_PASSWORD_FILE names. One that ansible.cfg names is Ansible's to read: no snapshot is kept then."""
+    files = [opts.vault_password_file, os.path.expanduser(os.environ.get("ANSIBLE_VAULT_PASSWORD_FILE", ""))]
+    return [one for at, one in enumerate(files) if one and one not in files[:at]]
+
+
+def _password(path: str) -> bytes:
+    """A password file's password, as Ansible reads one: an executable file is run, and says it. A vault client
+    script, which is asked for a vault ID, is left to Ansible."""
+    if not os.access(path, os.X_OK):
+        return Path(path).read_bytes().strip()
+    if Path(path).stem.endswith("-client"):
+        raise Stale("a vault password client script")
+    import subprocess
+
+    try:
+        said = subprocess.run([path], capture_output=True, check=True)
+    except subprocess.SubprocessError as error:
+        raise Stale("the vault's password script failed") from error
+    return said.stdout.strip(b"\r\n")
+
+
 def _vault_values(opts) -> dict:
     import yaml
 
     data = Path(opts.vault_file).read_bytes()
     if data.startswith(b"$ANSIBLE_VAULT"):
-        if not opts.vault_password_file:
-            raise Stale("no password for the vault")
-        data = _vault_open(data, Path(opts.vault_password_file).read_bytes().strip())
+        for path in _password_files(opts):
+            try:
+                data = _vault_open(data, _password(path))
+                break
+            except (OSError, Stale):
+                continue
+        else:
+            raise Stale("no password file opens the vault")
     values = yaml.load(data, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)) or {}
     if not isinstance(values, dict):
         raise Stale("the vault is not a mapping")
@@ -258,10 +300,16 @@ class Ansible:
         self.Templar, self.trust, self.Play = Templar, trust_as_template, Play
         self.loader = DataLoader()
         self.loader.set_basedir(str(REPO / "playbooks"))
-        if opts.vault_password_file:
-            self.loader.set_vault_secrets(
-                CLI.setup_vault_secrets(self.loader, vault_ids=[], vault_password_files=[opts.vault_password_file])
+        # The password files ansible-playbook would take: the recipe's, then ANSIBLE_VAULT_PASSWORD_FILE's or
+        # ansible.cfg's, and the vault IDs configured. Never a prompt: the screen is drawn.
+        self.loader.set_vault_secrets(
+            CLI.setup_vault_secrets(
+                self.loader,
+                vault_ids=list(C.DEFAULT_VAULT_IDENTITY_LIST),
+                vault_password_files=[opts.vault_password_file] if opts.vault_password_file else [],
+                auto_prompt=False,
             )
+        )
         self.inventory = InventoryManager(loader=self.loader, sources=opts.inventory or C.DEFAULT_HOST_LIST)
         # The extra vars come from the global context, set above, as VariableManager reads them.
         self.variables = VariableManager(loader=self.loader, inventory=self.inventory)
@@ -322,17 +370,41 @@ def _inventory_files(source: Path):
     yield from (folder / "host_vars").rglob("*")
 
 
+def _ansible_core():
+    """The installed ansible-core's metadata, whose path names its version: found, never imported."""
+    import importlib.util
+
+    spec = importlib.util.find_spec("ansible")
+    for folder in (spec.submodule_search_locations or []) if spec else []:
+        yield from Path(folder).parent.glob("ansible_core-*.dist-info/METADATA")
+
+
+def _collections():
+    """The pins, and the manifest of every collection installed where the recipe points Ansible: a pull that bumps a
+    pin, or a just install, gives another key, and the next run checks them again."""
+    yield REPO / "requirements.yml"
+    where = os.environ.get("ANSIBLE_COLLECTIONS_PATH") or os.environ.get("ANSIBLE_COLLECTIONS_PATHS", "")
+    for folder in where.split(os.pathsep):
+        if folder:
+            yield from Path(os.path.expanduser(folder)).glob("ansible_collections/*/*/MANIFEST.json")
+
+
 def _digest(opts) -> str:
-    """Every file the settings are made from, by name, size and time, and what else they read: a change to any gives
-    another key, and the settings are asked of Ansible again."""
+    """Every file the settings are made from, by name, size and time, and what else they read - the filters and the
+    package they are rendered through, ansible-core itself and the collections: a change to any gives another key, and
+    the settings are asked of Ansible again."""
     digest = hashlib.sha256()
     ssh = Path.home() / ".ssh"
     sources = opts.inventory or [str(REPO / "inventory")]
     groups = [
-        [REPO / "ansible.cfg", Path(__file__), Path(opts.vault_password_file or "/nonexistent")],
+        [REPO / "ansible.cfg", *map(Path, _password_files(opts))],
         *(_inventory_files(Path(source)) for source in sources),
         REPO.glob("roles/*/defaults/main.yml"),
         REPO.glob("roles/*/vars/main.yml"),
+        REPO.glob("filter_plugins/*.py"),
+        (REPO / "lib" / "claude_vm").rglob("*.py"),
+        _ansible_core(),
+        _collections(),
         ssh.glob("*.pub"),
     ]
     for path in sorted(str(path) for group in groups for path in group):
@@ -386,8 +458,9 @@ def _from_snapshot(opts) -> dict:
     return config
 
 
-def _keep(opts, config, secret, password) -> None:
-    """The settings, without the token, unless anything else the vault holds would be written."""
+def _keep(opts, config, secret, password, say=None) -> None:
+    """The settings, without the token, unless anything else the vault holds would be written: the run's log says
+    which of the vault's names held them back, never what it holds."""
     try:
         values = _vault_values(opts)
     except (OSError, KeyError, ValueError, Stale):
@@ -399,8 +472,24 @@ def _keep(opts, config, secret, password) -> None:
     ):
         return
     kept = {key: value for key, value in config.items() if key not in ("run", "password")}
-    text = json.dumps({"key": _digest(opts), "config": kept}, default=str).replace(secret, SECRET_MARK)
-    if any(isinstance(v, str) and len(v.strip()) >= 6 and v.strip() in text for v in values.values()):
+    # Looked for as JSON writes each: a quote or a backslash in one is escaped there.
+    text = json.dumps({"key": _digest(opts), "config": kept}, default=str)
+    text = text.replace(json.dumps(secret)[1:-1], SECRET_MARK)
+    held = sorted(
+        str(name)
+        for name, value in values.items()
+        if name not in IDENTIFIERS
+        and isinstance(value, str)
+        and len(value.strip()) >= 6
+        and json.dumps(value.strip())[1:-1] in text
+    )
+    if held:
+        if say:
+            say(
+                f"just status: the settings are not kept for the next run, since what the vault's {', '.join(held)}"
+                " holds is in them; each run asks Ansible for them",
+                log_only=True,
+            )
         return
     write_json(Path(opts.cache) / "settings.json", text)
 
@@ -408,8 +497,29 @@ def _keep(opts, config, secret, password) -> None:
 # ----------------------------------------------------------------------------------------------------- loading ----
 
 
+def _collections_pinned() -> None:
+    """tools/check collections, which every recipe that runs Ansible runs first: Ansible resolves the roles'
+    module_defaults groups from the collections installed. Run here, where Ansible is asked, and not by the recipe,
+    where it would hold back the outline: a snapshot is keyed by requirements.yml and the collections installed, so
+    one that holds was made where this passed."""
+    import subprocess
+
+    done = subprocess.run(
+        [str(REPO / "tools" / "check"), "collections", str(Path(sys.executable).parent)],
+        cwd=REPO,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0:
+        said = done.stderr.strip().removeprefix("error: ")
+        raise RuntimeError(said or "the Galaxy collections could not be checked. Run: just install")
+
+
 def _from_ansible(opts, say=None) -> dict:
-    """The settings, as Ansible gives them."""
+    """The settings, as Ansible gives them, once the collections are the ones pinned."""
+    _collections_pinned()
     ansible = Ansible(opts, say)
     local = ansible.local()
     fleet = ansible.render(FLEET, local)
@@ -425,14 +535,16 @@ def _from_ansible(opts, say=None) -> dict:
     config["reach"] = ansible.render(REACH, placeholder)
     password = str(ansible.render("{{ ansible_become_password | default('') }}", placeholder))
     config["password"] = lambda: password
-    # A VM with a host_vars file of its own: rendered as itself.
+    # A VM with a host_vars file of its own: rendered as itself, and reached as it says.
     config["per_vm"] = {}
     host_vars = _host_vars_folder(opts)
     if host_vars is not None:
         for path in sorted(host_vars.iterdir()):
             name = path.stem if path.is_file() else path.name
             if name not in ansible.host_vars and name != "localhost":
-                config["per_vm"][name] = ansible.render(VM, ansible.on_host(name))
+                variables = ansible.on_host(name)
+                vm, how = ansible.render(VM, variables), ansible.render(REACH, variables)
+                config["per_vm"][name] = {"vm": vm, "reach": how}
     # With discovery off, the inventory's claude_vms, each reached as the inventory says.
     config["inventory"] = {}
     if not fleet["settings"]["discovery"]:
@@ -443,7 +555,7 @@ def _from_ansible(opts, say=None) -> dict:
                 "reach": ansible.render(REACH_INVENTORY, variables),
             }
     elif _usable(opts):
-        _keep(opts, config, secret, password)
+        _keep(opts, config, secret, password, say)
     return config
 
 
@@ -485,8 +597,15 @@ def _named(value, name: str, label: str):
 def for_vm(config: dict, name: str) -> dict:
     """What is known of the VM called ``name``."""
     if name in config["per_vm"]:
-        return config["per_vm"][name]
+        return config["per_vm"][name]["vm"]
     return _named(config["vm"], name, dns_label(name))
+
+
+def reach_for(config: dict, name: str) -> dict:
+    """How the VM called ``name`` is reached, but for its address."""
+    if name in config["per_vm"]:
+        return config["per_vm"][name]["reach"]
+    return config["reach"]
 
 
 def sections(only) -> list[str]:

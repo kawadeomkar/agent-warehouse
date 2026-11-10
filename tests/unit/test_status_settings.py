@@ -8,10 +8,13 @@ this machine's ssh, or reads the developer's ~/.ssh.
 
 from __future__ import annotations
 
+import argparse
 import getpass
 import json
+import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -33,9 +36,11 @@ def fake_pve(tmp_path):
 # -------------------------------------------------------------------------------------------- what is kept ----
 
 
-def _run_with_cache(root: Path, cache: Path, vault: Path, *python: str) -> subprocess.CompletedProcess[str]:
-    """tools/status keeping in cache, as the recipe runs it; python's flags go to the interpreter. The inventory is
-    written once: it is one of the files what is kept is keyed by."""
+def _run_with_cache(
+    root: Path, cache: Path, vault: Path, *python: str, env: dict | None = None
+) -> subprocess.CompletedProcess[str]:
+    """tools/status keeping in cache, as the recipe runs it; python's flags go to the interpreter, env's settings to its
+    environment. The inventory is written once: it is one of the files what is kept is keyed by."""
     inventory = root / "hosts.yml"
     if not inventory.exists():
         _inventory(root, {}, False)
@@ -43,7 +48,7 @@ def _run_with_cache(root: Path, cache: Path, vault: Path, *python: str) -> subpr
     return subprocess.run(
         [sys.executable, *python, *map(str, argv)],
         cwd=root,
-        env=_env(root),
+        env=_env(root, **(env or {})),
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -120,11 +125,102 @@ def test_a_token_that_is_not_the_vaults_is_never_kept(tmp_path, fake_pve) -> Non
     assert not (cache / "settings.json").exists()
 
 
-def test_a_snapshot_that_would_hold_a_vault_value_is_not_kept(tmp_path, fake_pve) -> None:
-    root = status_root(tmp_path, fake_pve, {"vm_user": "the-vaults-own-value"})
-    cache, vault = tmp_path / "cache", _plain_vault(root, vault_something="the-vaults-own-value")
-    _run_with_cache(root, cache, vault)
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [("vm_user", "the-vaults-own-value"), ("vm_projects_dir", '/srv/the "quoted" \\ projects')],
+)
+def test_a_snapshot_that_would_hold_a_vault_value_is_not_kept_and_the_log_says_which(
+    tmp_path, fake_pve, setting: str, value: str
+) -> None:
+    # A quote or a backslash is escaped where JSON writes the value: it is looked for so.
+    root = status_root(tmp_path, fake_pve, {setting: value})
+    cache, vault = tmp_path / "cache", _plain_vault(root, vault_something=value)
+    log = tmp_path / "status.log"
+    done = _run_with_cache(root, cache, vault, env={"ANSIBLE_LOG_PATH": str(log)})
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
     assert not (cache / "settings.json").exists()
+    said = log.read_text()
+    assert "the settings are not kept for the next run, since what the vault's vault_something holds" in said
+    assert value not in said
+
+
+def test_a_github_username_in_the_settings_still_lets_them_be_kept(tmp_path, fake_pve) -> None:
+    # A vm_user named as the GitHub account: the username is no secret, and just settings never looks for it either.
+    root = status_root(tmp_path, fake_pve, {"vm_user": "octocat-dev"})
+    cache, vault = tmp_path / "cache", _plain_vault(root, vault_github_username="octocat-dev")
+    done = _run_with_cache(root, cache, vault)
+    assert done.returncode in (0, 1, 2), done.stderr[-2000:]
+    assert (cache / "settings.json").is_file()
+
+
+@pytest.mark.parametrize("kind", ["file", "script"])
+def test_the_vault_opens_with_the_password_file_ansible_s_own_setting_names(tmp_path, fake_pve, kind: str) -> None:
+    # No .vault_pass, as getting-started offers: ANSIBLE_VAULT_PASSWORD_FILE names the password, and an executable one
+    # is run for it, as ansible-playbook does. The vault is the inventory's, so Ansible must open it too.
+    root = status_root(tmp_path, fake_pve)
+    secret = VaultSecret(b"the-vault-password")
+    plain = json.dumps({"vault_proxmox_api_token_secret": PVE_SECRET}).encode()
+    vault = root / "group_vars" / "all" / "vault.yml"
+    vault.write_bytes(bytes(VaultLib(secrets=[("default", secret)]).encrypt(plain, secret)))
+    if kind == "file":
+        password = tmp_path / "vault-password"
+        password.write_text("the-vault-password\n")
+    else:
+        password = _executable(tmp_path / "vault-password.sh", "#!/bin/sh\necho the-vault-password\n")
+    cache, env = tmp_path / "cache", {"ANSIBLE_VAULT_PASSWORD_FILE": str(password)}
+    first = _run_with_cache(root, cache, vault, "-X", "importtime", env=env)
+    assert first.returncode in (0, 1, 2), first.stderr[-2000:]
+    assert _imports_ansible(first) and json.loads(first.stdout)["vms"][0]["api"]["read"]
+    second = _run_with_cache(root, cache, vault, "-X", "importtime", env=env)
+    assert second.returncode == first.returncode, second.stderr[-2000:]
+    assert not _imports_ansible(second) and json.loads(second.stdout)["vms"][0]["api"]["read"]
+
+
+def test_collections_that_differ_from_their_pins_are_refused_when_ansible_is_asked(tmp_path, fake_pve) -> None:
+    # Ansible resolves the roles' module_defaults group from the collections installed: the check every recipe that
+    # runs Ansible makes, made by the engine where it asks Ansible, since in the recipe it would hold back the outline.
+    root = status_root(tmp_path, fake_pve)
+    cache, vault = tmp_path / "cache", _plain_vault(root)
+    first = _run_with_cache(root, cache, vault)
+    assert first.returncode in (0, 1, 2), first.stderr[-2000:]
+    empty = tmp_path / "no-collections"
+    empty.mkdir()
+    # Another set of collections is another key: the snapshot made with the pinned ones does not hold.
+    done = _run_with_cache(root, cache, vault, env={"ANSIBLE_COLLECTIONS_PATH": str(empty)})
+    assert done.returncode == 3, done.stderr[-2000:]
+    assert "the installed Galaxy collections are not the ones requirements.yml pins. Run: just install" in done.stderr
+
+
+def test_the_snapshot_is_made_again_when_a_filter_ansible_core_or_a_collection_changes(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    manifest = tmp_path / "collections" / "ansible_collections" / "community" / "proxmox" / "MANIFEST.json"
+    changed = ("filter_plugins/status.py", "lib/claude_vm/editors/registry.py", "requirements.yml")
+    for path in [*(repo / name for name in changed), manifest]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("as it was\n")
+    core = tmp_path / "site" / "ansible_core-2.21.5.dist-info" / "METADATA"
+    core.parent.mkdir(parents=True)
+    core.write_text("")
+    monkeypatch.setattr(settings, "REPO", repo)
+    monkeypatch.setattr(settings, "_ansible_core", lambda: [core])
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(tmp_path / "collections"))
+    opts = argparse.Namespace(inventory=[str(repo / "inventory")], vault_password_file="")
+    keys = [settings._digest(opts)]
+    for path in [*(repo / name for name in changed), manifest]:
+        path.write_text("changed by a pull, or a just install\n")
+        keys.append(settings._digest(opts))
+    upgraded = tmp_path / "site" / "ansible_core-2.21.6.dist-info" / "METADATA"
+    core.parent.rename(upgraded.parent)
+    monkeypatch.setattr(settings, "_ansible_core", lambda: [upgraded])
+    keys.append(settings._digest(opts))
+    assert len(set(keys)) == len(keys)
+
+
+def test_the_installed_ansible_core_is_found_by_its_version_without_importing_it() -> None:
+    import ansible.release
+
+    found = [path.parent.name for path in settings._ansible_core()]
+    assert found == [f"ansible_core-{ansible.release.__version__}.dist-info"]
 
 
 def test_a_vault_is_opened_as_ansible_vault_seals_it() -> None:
@@ -138,16 +234,20 @@ def test_a_vault_is_opened_as_ansible_vault_seals_it() -> None:
 
 def test_each_vm_gets_its_own_name_in_what_is_said_of_it() -> None:
     config = {
-        "per_vm": {"special": {"marker": "kept as it was rendered"}},
+        "per_vm": {"special": {"vm": {"marker": "kept as it was rendered"}, "reach": {"port": "2200"}}},
         "vm": {
             "claude": {"login_command": f"just login {settings.PLACEHOLDER} --only claude"},
             "tailscale": {"hostname": settings.dns_label(settings.PLACEHOLDER)},
         },
+        "reach": {"port": ""},
     }
     alpha = settings.for_vm(config, "Alpha.lab")
     assert alpha["claude"]["login_command"] == "just login Alpha.lab --only claude"
     assert alpha["tailscale"]["hostname"] == "alpha-lab"
     assert settings.for_vm(config, "special") == {"marker": "kept as it was rendered"}
+    # Reached as its own host_vars file says, too.
+    assert settings.reach_for(config, "special") == {"port": "2200"}
+    assert settings.reach_for(config, "alpha") == {"port": ""}
 
 
 def test_with_discovery_off_no_token_is_asked_for(tmp_path) -> None:
@@ -169,7 +269,8 @@ def test_a_vm_is_reached_with_the_system_s_python_and_sudo_by_its_path_and_the_h
     # The VM user's PATH over SSH starts with directories the user owns: a python3 or a sudo there would run as root.
     assert settings.REACH["python"] == "{{ claude_vm_python }}"
     assert settings.REACH["become_exe"] == "{{ ansible_become_exe | default('sudo') }}"
-    assert settings.REACH["ssh_args"] == "{{ status_ssh_args }}"
+    # status's own options first, since ssh keeps the first value it is given: the inventory's cannot loosen them.
+    assert settings.REACH["ssh_args"].startswith("{{ status_ssh_args }} ")
     assert settings.REACH["connection"] == "ssh"
 
 
@@ -299,6 +400,16 @@ def test_what_a_vm_sends_is_read_with_care_for_its_shape(tmp_path, said: str, wa
     assert read.get("failed") and wanted in read["msg"], read
 
 
+def test_no_connection_is_made_once_the_run_has_ended(tmp_path, monkeypatch) -> None:
+    # A run that failed or was refused ends every probe, and a probe about to start finds the run over.
+    monkeypatch.setattr(reach, "_over", threading.Event())
+    ran = tmp_path / "ran"
+    interpreter = _executable(tmp_path / "python", f"#!/bin/sh\ntouch {ran}\n")
+    reach.end_all()
+    read = reach.read(_how(become=False, python=str(interpreter)), {"user": "dev"}, lambda _: None, lambda: "")
+    assert read == {"failed": True, "msg": "the run ended before it was reached"} and not ran.exists()
+
+
 def test_a_vm_that_sends_too_much_is_cut_off(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(reach, "LINE_BYTES", 1024)
     script = "#!/bin/sh\necho '{\"started\": true}'\nhead -c 100000 /dev/zero | tr '\\000' x\n"
@@ -330,6 +441,66 @@ def test_ssh_is_told_the_host_key_options_first(tmp_path) -> None:
     assert argv[argv.index("-p") + 1] == "2222" and argv[argv.index("-i") + 1] == "/k"
     assert argv[argv.index("-l") + 1] == "dev" and argv[-2] == "192.0.2.60"
     assert argv[-1].startswith("sudo -n -H ") and "/usr/bin/python3" not in argv[-1] or sys.executable in argv[-1]
+
+
+# ------------------------------------------------------------------------------------- the engine's waves ----
+
+
+def test_every_vm_s_address_is_asked_for_before_any_vm_s_history() -> None:
+    # A later VM's probe starts on its own address, never behind the history of the VMs listed before it.
+    vms = [{"vmid": 9000 + n, "node": "pve", "name": f"vm{n}", "status": "running"} for n in range(3)]
+    kinds = [item["kind"] for item in engine._second_wave(vms, None, [])]
+    assert kinds[:6] == ["config", "network"] * 3 and set(kinds[6:]) == {"api"}
+
+
+def test_no_more_vms_are_read_at_once_than_ansible_s_forks() -> None:
+    assert settings.FLEET["forks"] == "{{ lookup('ansible.builtin.config', 'DEFAULT_FORKS') }}"
+    run = engine.Run.__new__(engine.Run)
+    run.fleet = {"forks": "20"}
+    sizes = []
+    for count in (30, 3, 0):
+        pool = run.probes(count)
+        sizes.append(pool._max_workers)
+        pool.shutdown()
+    assert sizes == [20, 3, 1]
+
+
+def test_a_vm_s_proxmox_and_ssh_parts_are_both_kept_whichever_lands_first() -> None:
+    # Two threads land them: neither may replace the other.
+    proxmox, ssh = {"api": {"read": True}, "drift": []}, {"ssh": {"system": {}}}
+    for order in ((proxmox, ssh), (ssh, proxmox)):
+        screen = engine.Screen(["vms"], True, "")
+        for part in order:
+            screen.land("alpha", part, merge=True)
+        assert screen.found["alpha"] == {**proxmox, **ssh}
+    source = (REPO / "lib" / "claude_vm" / "status" / "engine.py").read_text()
+    assert source.count("self.screen.land(name,") == source.count("merge=True)") == 2
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [b'HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{"data"', b"NOT HTTP AT ALL\r\n\r\n"],
+    ids=["cut-short", "not-http"],
+)
+def test_a_read_cut_short_or_not_http_is_that_read_failed(answer: bytes) -> None:
+    # http.client's own errors (IncompleteRead, BadStatusLine) are no OSError: each is one read failed, not the run.
+    server = socket.create_server(("127.0.0.1", 0))
+
+    def serve():
+        connection, _ = server.accept()
+        with connection:
+            connection.recv(65536)
+            connection.sendall(answer)
+
+    threading.Thread(target=serve, daemon=True).start()
+    fleet = {"url": f"http://127.0.0.1:{server.getsockname()[1]}", "headers": {}, "timeout": 5}
+    api = engine.Proxmox({**fleet, "ca_path": "", "validate": True})
+    try:
+        one = api.get("version")
+    finally:
+        api.pool.shutdown()
+        server.close()
+    assert one["status"] == -1 and one["msg"].startswith("Request failed: ") and one["json"] is None
 
 
 # ---------------------------------------------------------------------------------------- apt's answer kept ----
@@ -369,7 +540,7 @@ def test_the_engine_keeps_each_vm_s_answer_by_its_name_and_id(tmp_path, monkeypa
     monkeypatch.setattr(reach, "read", lambda how, asked, early, password: read)
     run = engine.Run.__new__(engine.Run)
     run.opts, run.sections, run.known, run.kept, run.lock = None, ["system"], {}, {}, __import__("threading").Lock()
-    run.screen = type("Screen", (), {"land": lambda self, *_: None})()
+    run.screen = type("Screen", (), {"land": lambda self, *_, **__: None})()
     run.password = lambda: ""
     vm = {
         "asked": {"user": "dev", "limit": 25, "system": {}},
@@ -379,7 +550,7 @@ def test_the_engine_keeps_each_vm_s_answer_by_its_name_and_id(tmp_path, monkeypa
         "vpn": "none",
         "projects_dir": "",
     }
-    run.probe("alpha", {"host": "x"}, vm, False, "alpha/9010", lambda: {})
+    run.probe("alpha", {"host": "x"}, vm, False, "alpha/9010")
     assert run.kept == {"alpha/9010": {"key": "k3", "upgrades": 3, "security": 1}}
 
 

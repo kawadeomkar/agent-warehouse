@@ -603,8 +603,9 @@ since whatever reads the report reads standard error for what the run warned of.
 What is the same for every VM is rendered once for a placeholder host, whose name is replaced in what comes back; a
 VM with a file in `inventory/host_vars/` is rendered as itself.
 
-**`status/reach.py`** — one connection per VM: `ssh` with `status_ssh_args` first, BatchMode, the same
-ControlPersist, or `docker exec` or the local interpreter for a host of the inventory that says so. The script sent is
+**`status/reach.py`** — one connection per VM: `ssh` with `status_ssh_args` first, then the inventory's own ssh
+options, port and key, BatchMode, the same ControlPersist, or `docker exec` or the local interpreter for a host of the
+inventory that says so. Once a run has ended (`end_all`), every connection still open is killed and none is made. The script sent is
 the probe and the two files of `playbooks/module_utils/` it imports, held in memory under their own names. Root
 through `ansible_become_exe` by its path: `sudo -n`, and only where that is refused the VM user's password on stdin.
 The first line of what is sent after a password is a mark the bootstrap looks for, so a `sudo` that asks for none,

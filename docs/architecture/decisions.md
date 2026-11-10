@@ -80,7 +80,8 @@ How the justfile is built, and why (each tried on just 1.59.0, on macOS and in `
 - **No recipe has a dependency.** `JUST_NO_DEPS` in the environment, or `--no-deps`, skips every one,
   so a check written as one could be switched off, and its refusal would come after just had evaluated
   what the recipe uses. Every check is a line of the recipe's own script instead: the checkout guard,
-  then the recipe's rules, then `tools/env-run --bin`, `tools/check vault` and `tools/check collections` -
+  then the recipe's rules, then `tools/env-run --bin`, `tools/check vault` and `tools/check collections` (which
+  `status`'s engine runs instead, only when it asks Ansible, [§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)) -
   and `tools/check settings` where the recipe reads the settings - then the work. A recipe that includes another's work (`test` lints, `init` installs) runs it as `{{ self
   }}`, which passes on every setting, since a recursive just starts without the command line's `BIN=`.
 - **No assignment starts a program.** just evaluates every assignment a recipe uses, and the recipe's

@@ -70,9 +70,10 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 - A recipe is a bash script with no dependencies (`JUST_NO_DEPS` or `--no-deps` would skip one). Its first line
   is the checkout guard (`tools/check checkout`: just looks for a justfile upward, so started in a make-era
   worktree under `.claude/worktrees/` it would run main's, against main's inventory and vault); then its own rules
-  with their messages; then what it needs (`tools/env-run --bin`, `tools/check vault`, `tools/check collections`,
-  and where it reads the settings `tools/check settings`, which refuses a setting under a name 1.0 renamed and
-  names the new name of one 1.1 named anew); then the work, its last command `exec`'d.
+  with their messages; then what it needs (`tools/env-run --bin`, `tools/check vault`, `tools/check collections` -
+  which `status`'s engine runs instead, only where it asks Ansible - and where it reads the settings `tools/check
+  settings`, which refuses a setting under a name 1.0 renamed and names the new name of one 1.1 named anew); then
+  the work, its last command `exec`'d.
 - No assignment starts a program: just evaluates what a recipe uses before any line runs, so it would start
   before a refusal.
 - Bash, not sh: Ubuntu's dash dies of a Ctrl-C that the playbook it runs survived (Ansible's `pause`, Ctrl-C then
@@ -528,8 +529,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
       real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only, no redirect followed), not GitHub
       or Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
-      `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line - no alias, nothing in `~/.ssh`
-      or `~/.claude`.
+      `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
+      options, port and key after them - no alias, nothing in `~/.ssh` or `~/.claude`.
     - It runs no `ansible-playbook` (decided on measurements,
       [§15.7](docs/architecture/decisions.md#157-just-status-runs-no-playbook)): `tools/status`, the engine in
       `lib/claude_vm/status/`, the settings asked of Ansible in-process and kept, and one program on each VM
@@ -540,9 +541,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       test says which of the engine's to change.
     - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log.
       Two files there, each only a way to work the same thing out sooner: `settings.json`, keyed by every file the
-      settings are made from, which holds no secret (the token is a mark, read from the vault at each run; a snapshot
-      that would hold anything the vault holds is not kept), and `upgrades.json`, apt's answer for a VM against a digest
-      of its package state. `-e` in `ANSIBLE_ARGS` neither reads nor writes one.
+      settings are made from (the filters, ansible-core and the collections too), which holds no secret (the token
+      is a mark, read from the vault at each run; a snapshot that would hold anything else the vault holds but its
+      two identifiers is not kept), and `upgrades.json`, apt's answer for a VM against a digest of its package
+      state. `-e` in `ANSIBLE_ARGS` neither reads nor writes one.
     - `tests/unit/test_status_vms.py` holds the probe to its fixed `ALLOWED` list of programs, every file opened to
       read and nothing written but its own standard output; a run against the fake sends nothing but GETs.
     - `gh`'s token never leaves the VM: the probe says only which kind it is, and whether the role's marker holds its
@@ -760,7 +762,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   pinned ansible.posix 2.1.0 put it back under every other checkout, whose runs went on without a word. Each
   checkout now has its own (`tools/env-run --collections`), and every recipe that runs Ansible still runs
   `tools/check collections` first (`ansible-galaxy collection install --offline` against `requirements.yml`),
-  refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one.
+  refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one. `just
+  status` runs it from its engine, only when it asks Ansible for its settings, its snapshot keyed by
+  `requirements.yml` and the collections installed: in the recipe it would hold back the outline.
 - **ansible-galaxy's response cache turns one failed request into a failed install.** It writes an empty
   entry before each request to Galaxy, and the retry after one that failed (a 502, a timeout) reads that
   entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core 2.21), never asking

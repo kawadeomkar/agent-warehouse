@@ -20,6 +20,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -806,6 +807,84 @@ def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve)
     item = model["attention"][0]
     assert item["level"] == "unread" and item["text"].startswith("Proxmox refused the token: ")
     assert "proxmox_api_token_id" in item["command"]
+
+
+def test_a_token_refused_a_vm_s_address_names_the_privileges_and_reaches_no_vm(tmp_path, fake_pve) -> None:
+    # The fake's "noagent" token may read everything but the guest agent, as one made without its privilege.
+    report, model = _status_run(tmp_path, fake_pve, settings={"proxmox_api_token_id": "noagent"}, timeout=60)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    item = model["attention"][0]
+    assert model["exit"] == 2 and item["level"] == "unread"
+    assert item["text"].startswith('Proxmox refused the API token for VM "') and "VM.GuestAgent.Audit" in item["text"]
+    assert "privileges" in item["command"] and "proxmox_api_host" not in item["command"]
+    assert not (tmp_path / "run" / "ssh.log").exists()
+
+
+def test_a_vm_of_the_listing_is_reached_with_the_inventory_s_ssh_options_port_and_key(tmp_path, fake_pve) -> None:
+    # A jump host, a port and a key every host is given, and a VM's own host_vars file, reach the VMs as deploy's and
+    # login's runs reach them - after status's own host key options, which ssh keeps since they come first.
+    host_vars = tmp_path / "run" / "host_vars"
+    host_vars.mkdir(parents=True)
+    (host_vars / "beta.yml").write_text("ansible_port: 2200\n")
+    pinned = {
+        "ansible_ssh_common_args": "-o ProxyJump=jump.invalid",
+        "ansible_port": 2222,
+        "ansible_ssh_private_key_file": "/nonexistent/key",
+    }
+    report, _ = _status_run(tmp_path, fake_pve, settings=pinned)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    calls = [json.loads(line) for line in (tmp_path / "run" / "ssh.log").read_text().splitlines()]
+    ports = {}
+    for argv in calls:
+        options = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-o"]
+        assert options.index("StrictHostKeyChecking=yes") < options.index("ProxyJump=jump.invalid"), argv
+        assert argv[argv.index("-i") + 1] == "/nonexistent/key", argv
+        ports[argv[-2]] = argv[argv.index("-p") + 1]
+    assert ports.pop("192.0.2.60") == "2222" and set(ports.values()) == {"2200"}, calls
+
+
+# Runs tools/status with the model's reading of a VM's Proxmox reads failing, as a bug or an answer nobody expected
+# would: what the run does when it fails part way.
+FAILING = """
+import runpy, sys
+sys.path.insert(0, {lib!r})
+from claude_vm.status import model
+
+
+def failing(*args, **kwargs):
+    raise RuntimeError("a read nobody expected")
+
+
+model.status_vm_api = failing
+sys.argv = [{status!r}, *sys.argv[1:]]
+runpy.run_path({status!r}, run_name="__main__")
+"""
+
+
+def test_a_run_that_fails_part_way_ends_its_probes_and_exits_at_once(tmp_path, fake_pve) -> None:
+    root = status_root(tmp_path, fake_pve)
+    # Every probe held, as a VM still being read: the run must not wait for one.
+    (root / "ssh-holds").touch()
+    script = tmp_path / "failing.py"
+    script.write_text(FAILING.format(lib=str(REPO / "lib"), status=str(STATUS)))
+    argv = [sys.executable, str(script), *status_command(root, {}, "--json")[2:]]
+    started = time.monotonic()
+    try:
+        done = subprocess.run(
+            argv,
+            cwd=root,
+            env=_env(root),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+    finally:
+        (root / "ssh-holds").unlink()
+    assert done.returncode == 3, done.stderr[-2000:]
+    assert "the run failed: a read nobody expected" in done.stderr
+    assert time.monotonic() - started < 45
 
 
 def test_a_token_secret_ending_in_a_newline_is_sent_without_it_and_never_said(tmp_path, fake_pve) -> None:

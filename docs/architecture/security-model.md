@@ -113,7 +113,8 @@ run silently picks up the latest publish, and made the CI cache key useless sinc
 reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
 `just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
-is not. pre-commit's hook repositories are pinned to commit SHAs, not tags, because a tag can be moved; the
+is not. `just status` runs it from its engine instead, only when it asks Ansible for its settings
+([§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). pre-commit's hook repositories are pinned to commit SHAs, not tags, because a tag can be moved; the
 environments pre-commit builds for them are not. It installs each Python hook's own dependencies from PyPI
 (`ruamel.yaml` for pre-commit-hooks, and the setuptools that builds it) unpinned and unhashed, outside
 `uv.lock`, and, on a machine with no Go, downloads a Go toolchain for gitleaks with no checksum - once, when

@@ -35,11 +35,13 @@ BOOTSTRAP = f"import sys; d = sys.stdin.read(); exec(d[d.index({MARK!r}):])"
 
 _children = set()  # the connections still open
 _children_lock = threading.Lock()
+_over = threading.Event()  # set by end_all: no connection is made after it
 
 
 def end_all() -> None:
-    """Every connection still open ended: a run that is over waits for none of them."""
+    """Every connection still open ended, and none made after: a run that is over waits for none of them."""
     with _children_lock:
+        _over.set()
         for process in _children:
             if process.poll() is None:
                 process.kill()
@@ -102,11 +104,16 @@ def _attempt(argv: list[str], stdin: str, early) -> dict:
     """One connection: what it said, as {"started", "final", "rc", "errors"}."""
     import subprocess  # only where a connection is made: imported with the package, it would slow every run's start
 
+    if _over.is_set():
+        raise OSError("the run ended before it was reached")
     process = subprocess.Popen(
         argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, errors="replace"
     )
     with _children_lock:
         _children.add(process)
+        if _over.is_set():
+            # end_all ran while it started: ended here, since end_all could not see it.
+            process.kill()
     timer = threading.Timer(SECONDS, process.kill)
     timer.start()
     silent = threading.Event()

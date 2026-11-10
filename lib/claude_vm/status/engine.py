@@ -16,6 +16,7 @@ nothing is drawn.
 from __future__ import annotations
 
 import getpass
+import http.client
 import json
 import logging
 import os
@@ -26,7 +27,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -124,10 +125,12 @@ class Screen:
         self.out.title(f"status · reading {reading} VM{'' if reading == 1 else 's'}" if reading else "status")
         return text.split("\n") + [model.one_line(f"{glyph} {doing} · {elapsed}", cols - 1)]
 
-    def land(self, host, part):
+    def land(self, host, part, merge=False):
+        """What was read of a host drawn. ``merge`` adds its keys to what the host has, under the lock: a VM's Proxmox
+        part and its SSH part land in either order, from two threads, and neither replaces the other."""
         now = time.monotonic() - self.started
         with self.display._lock:
-            self.found[host] = part
+            self.found[host] = {**self.found.get(host, {}), **part} if merge else part
             if host == "localhost":
                 self.fleet_at = self.fleet_at if self.fleet_at is not None else now
             else:
@@ -200,8 +203,9 @@ class Proxmox:
         except ValueError:
             # http.client's words for a header it refuses quote the header, the token in it.
             one["msg"] = "the request could not be made"
-        except OSError as error:
-            one["msg"] = f"Request failed: {error}"
+        except (OSError, http.client.HTTPException) as error:
+            # A connection cut short (IncompleteRead) or an answer that is no HTTP (BadStatusLine): this read failed.
+            one["msg"] = f"Request failed: {str(error) or type(error).__name__}"
         try:
             one["json"] = json.loads(body) if body else None
         except (RecursionError, ValueError):
@@ -219,14 +223,15 @@ def _data(result):
 
 def _second_wave(requested, template, storages):
     """Every GET that follows the listing: each VM's config, address, state and history, the template's config and each
-    storage's disks. A VM's reads each say which VM's they are, and which read."""
-    items = []
+    storage's disks. A VM's reads each say which VM's they are, and which read. Every VM's config and address come
+    first, so that no VM's probe waits behind another VM's history."""
+    addresses, items = [], []
     for vm in requested:
         status = vm.get("status", "unknown")
         path = f"nodes/{vm.get('node')}/qemu/{vm.get('vmid')}"
         vmid = vm.get("vmid")
-        items.append({"kind": "config", "vmid": vmid, "path": f"{path}/config", "skip": status == "unknown"})
-        items.append(
+        addresses.append({"kind": "config", "vmid": vmid, "path": f"{path}/config", "skip": status == "unknown"})
+        addresses.append(
             {
                 "kind": "network",
                 "vmid": vmid,
@@ -238,6 +243,7 @@ def _second_wave(requested, template, storages):
         if status == "running":
             reads += [("osinfo", "agent/get-osinfo"), ("fsinfo", "agent/get-fsinfo")]
         items += [{"kind": "api", "vmid": vmid, "name": name, "path": f"{path}/{tail}"} for name, tail in reads]
+    items = addresses + items
     if template:
         path = f"nodes/{template.get('node')}/qemu/{template.get('vmid')}/config"
         items.append({"kind": "template", "path": path})
@@ -318,14 +324,15 @@ class Run:
             asked["system"] = {**asked["system"], "known": self.known.get(key) or {}}
         return asked
 
-    def probe(self, name, how, vm_settings, joined_before, key, base):
-        """A VM's reads: what is drawn as soon as only apt's simulation is left, then the whole of them."""
+    def probe(self, name, how, vm_settings, joined_before, key):
+        """A VM's reads: what is drawn as soon as only apt's simulation is left, then the whole of them. Merged into
+        what the VM has, beside its Proxmox part, whichever lands first."""
         host = how["host"]
         sections = self.sections
 
         def land(read):
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
-            self.screen.land(name, model.status_clean({**base(), "ssh": part}))
+            self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
 
         try:
             read = reach.read(how, self.asked(vm_settings, key), land, self.password)
@@ -341,6 +348,10 @@ class Run:
                     "security": system.get("security"),
                 }
 
+    def probes(self, count):
+        """The pool the probes run in: no more connections at once than Ansible's forks would open."""
+        return ThreadPoolExecutor(max_workers=max(1, min(count, int(self.fleet["forks"]))))
+
     # --- the fleet ------------------------------------------------------------------------------------------------
     def unread(self, unread, hint):
         fleet = model.status_fleet(
@@ -350,6 +361,13 @@ class Run:
 
     def from_listing(self):
         api = Proxmox(self.fleet)
+        try:
+            self.read_fleet(api)
+        finally:
+            # However the read ended, no GET is left to be sent.
+            api.pool.shutdown(wait=False, cancel_futures=True)
+
+    def read_fleet(self, api):
         first = [api.later(path) for path in FIRST_WAVE]
         listing = first[0].result()
         if listing["status"] != 200 or not isinstance(_data(listing), list):
@@ -367,7 +385,7 @@ class Run:
                 )
             return
         data = _data(listing)
-        pattern, joined = self.fleet["tag_pattern"], self.fleet["tailscale_tag_pattern"]
+        pattern = self.fleet["tag_pattern"]
         tagged = [
             one
             for one in data
@@ -391,77 +409,72 @@ class Run:
         storages = model.status_storages(lists, self.fleet["storage"])
         items = _second_wave(requested, template, storages)
         futures = [api.later(item) for item in items]
-        by_vm: dict = {}
-        for item, future in zip(items, futures, strict=True):
-            if item["kind"] in ("config", "network"):
-                by_vm.setdefault(item["vmid"], {})[item["kind"]] = future
-        fleet_ready = threading.Event()
-        full: dict = {}
-        parts = {vm["name"]: {"ready": threading.Event()} for vm in early["vms"] if vm.get("read")}
-        pool = ThreadPoolExecutor(max_workers=max(1, 2 * len(parts)))
-
-        def reach_vm(vm):
-            """The VM's probe, started the moment its own config and agent answer give its address."""
-            pending = by_vm.get(vm["vmid"], {})
-            if not self.over_ssh or vm.get("status") != "running" or len(pending) < 2:
-                return
-            entry = next((one for one in requested if one.get("vmid") == vm["vmid"]), vm)
-            address = proxmox_reads.guest_addresses(
-                [entry], [pending["config"].result()], [pending["network"].result()], self.fleet["nic"]
-            )[0]["address"]
-            if not address:
-                return
-            name = vm["name"]
-            vm_settings = settings.for_vm(self.config, name)
-            how = {**self.config["reach"], "host": address}
-            tags = str(entry.get("tags") or "")
-            before = bool(re.search(joined, tags))
-
-            def base():
-                parts[name]["ready"].wait()
-                return parts[name]["found"]
-
-            self.probe(name, how, vm_settings, before, f"{name}/{vm['vmid']}", base)
-
-        def proxmox_part(vm):
-            """The VM's Proxmox part, once the rest of the fleet has been worked out."""
-            name = vm["name"]
-            fleet_ready.wait()
-            if "fleet" not in full:
-                parts[name]["found"] = {}
-                parts[name]["ready"].set()
-                return
-            whole = next((one for one in full["fleet"]["vms"] if one["name"] == name), vm)
-            vmid = whole["vmid"]
-            results = [
-                one for one in full["results"] if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid
-            ]
-            part = model.status_clean(
-                {
-                    "api": model.status_vm_api(results, time.time(), whole.get("created")),
-                    "drift": proxmox_reads.proxmox_vm_drift(
-                        whole.get("config") or {}, _wanted(settings.for_vm(self.config, name), whole.get("config"))
-                    ),
-                }
-            )
-            parts[name]["found"] = part
-            parts[name]["ready"].set()
-            self.screen.land(name, {**self.screen.found.get(name, {}), **part})
-
         vms = [vm for vm in early["vms"] if vm.get("read")]
-        probes = [pool.submit(reach_vm, vm) for vm in vms]
-        fills = [pool.submit(proxmox_part, vm) for vm in vms]
-        results = [future.result() for future in futures]
-        denied = _denied(results)
-        if denied:
-            self.unread(denied, "check proxmox_api_host in inventory/hosts.yml, and that the Proxmox host is up")
-            fleet_ready.set()
+        pool = self.probes(len(vms))
+        try:
+            denied, jobs = self.reach_each(vms, requested, items, futures, pool)
+            results = [] if denied else [future.result() for future in futures]
+            denied = denied or _denied(results)
+            if denied:
+                reach.end_all()
+                self.unread(denied, "check the privileges of the token's role (docs/getting-started/proxmox-access.md)")
+                return
+            self.fill(data, tagged, requested, lists, results, vms)
+            for job in jobs:
+                job.result()
+        except BaseException:
+            # A failure, or a Ctrl-C: no probe is left running, nor started after.
             reach.end_all()
+            raise
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+    def reach_each(self, vms, requested, items, futures, pool):
+        """Each running VM's probe, started the moment its own config and agent answer give its address: (the token's
+        refusal for a VM, said, with no probe started after it, or ""; the probes)."""
+        if not self.over_ssh:
+            return "", []
+        running = [vm for vm in vms if vm.get("status") == "running"]
+        # Each running VM's config and agent answer, by the VM's place in running.
+        place = {vm["vmid"]: at for at, vm in enumerate(running)}
+        pairs: list[dict] = [{} for _ in running]
+        for item, future in zip(items, futures, strict=True):
+            at = place.get(item["vmid"]) if item["kind"] in ("config", "network") else None
+            if at is not None:
+                pairs[at][item["kind"]] = future
+        waiting = {future: at for at, pair in enumerate(pairs) for future in pair.values()}
+        left = [len(pair) for pair in pairs]
+        jobs = []
+        for future in as_completed(waiting):
+            at = waiting[future]
+            left[at] -= 1
+            if left[at] or len(pairs[at]) < 2:
+                continue
+            config, network = pairs[at]["config"].result(), pairs[at]["network"].result()
+            denied = _denied([config, network])
+            if denied:
+                return denied, jobs
+            jobs.append(pool.submit(self.reach_vm, running[at], requested, config, network))
+        return "", jobs
+
+    def reach_vm(self, vm, requested, config, network):
+        """One VM's probe, at the address its config and agent answer give."""
+        entry = next((one for one in requested if one.get("vmid") == vm["vmid"]), vm)
+        address = proxmox_reads.guest_addresses([entry], [config], [network], self.fleet["nic"])[0]["address"]
+        if not address:
             return
-        full["results"] = results
-        configs, networks = _picked(results, "config"), _picked(results, "network")
-        for one in configs:
-            one["claude_vm_item"] = {"vmid": one["item"]["vmid"]}
+        name = vm["name"]
+        how = {**settings.reach_for(self.config, name), "host": address}
+        joined = self.fleet["tailscale_tag_pattern"]
+        tags = str(entry.get("tags") or "")
+        before = bool(re.search(joined, tags))
+        self.probe(name, how, settings.for_vm(self.config, name), before, f"{name}/{vm['vmid']}")
+
+    def fill(self, data, tagged, requested, lists, results, vms):
+        """The whole fleet from every read, then each VM's Proxmox part."""
+        # Copies: a probe's thread may still be reading the same answers for its address.
+        configs = [{**one, "claude_vm_item": {"vmid": one["item"]["vmid"]}} for one in _picked(results, "config")]
+        networks = _picked(results, "network")
         template_config = (_picked(results, "template") or [{}])[0]
         contents = [
             {**one, "item": {"node": one["item"]["node"], "storage": one["item"]["storage"]}}
@@ -487,11 +500,19 @@ class Run:
                 hosts=self.fleet["hosts"],
             )
         )
-        full["fleet"] = whole
         self.screen.land("localhost", {"fleet": whole})
-        fleet_ready.set()
-        for job in [*fills, *probes]:
-            job.result()
+        for vm in vms:
+            name = vm["name"]
+            listed = next((one for one in whole["vms"] if one["name"] == name), vm)
+            vmid = listed["vmid"]
+            mine = [one for one in results if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid]
+            part = {
+                "api": model.status_vm_api(mine, time.time(), listed.get("created")),
+                "drift": proxmox_reads.proxmox_vm_drift(
+                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
+                ),
+            }
+            self.screen.land(name, model.status_clean(part), merge=True)
 
     def from_inventory(self):
         """Discovery off: no Proxmox, the inventory's claude_vms each read as it says it is reached."""
@@ -500,13 +521,19 @@ class Run:
         if not self.over_ssh:
             return
         hosts = self.config["inventory"]
-        with ThreadPoolExecutor(max_workers=max(1, len(hosts))) as pool:
+        pool = self.probes(len(hosts))
+        try:
             jobs = [
-                pool.submit(self.probe, name, one["reach"], one["vm"], False, f"{name}/inventory", lambda: {})
+                pool.submit(self.probe, name, one["reach"], one["vm"], False, f"{name}/inventory")
                 for name, one in hosts.items()
             ]
             for job in jobs:
                 job.result()
+        except BaseException:
+            reach.end_all()
+            raise
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def go(self):
         if self.fleet["settings"]["discovery"]:

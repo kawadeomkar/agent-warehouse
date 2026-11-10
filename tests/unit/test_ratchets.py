@@ -109,7 +109,7 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
-    "lib/claude_vm/status/engine.py": 17,
+    "lib/claude_vm/status/engine.py": 16,
     "lib/claude_vm/status/model.py": 18,
     "lib/claude_vm/status/settings.py": 6,
     "lib/claude_vm/tui/run.py": 3,

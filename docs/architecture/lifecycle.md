@@ -381,16 +381,21 @@ screen in a quarter of a second and a finished report in about two, against five
 1. The report's outline is drawn at once, each section with a spinner, before anything has been read.
 2. The settings: a snapshot where one holds, otherwise Ansible's own in this process
    ([below](#what-a-run-keeps)).
-3. The Proxmox API, as GETs eight at a time: the listing (§4.3, steps 1-3), the version and the storages first, and
-   each VM drawn the moment the listing lands; then each VM's config, its agent's address and its own reads, the
-   template's config, and each of this project's storages' disks. Each read waits `status_api_timeout`, 10 s.
-   A VM's address reaching the engine starts that VM's probe at once, whatever the rest of the fleet is doing.
+3. The Proxmox API, as GETs eight at a time: the listing (§4.3, steps 1-3), the version, the storages and the nodes
+   first, and each VM drawn the moment the listing lands; then every VM's config and its agent's address, so that none waits
+   behind another VM's history, then each VM's own reads, the template's config, and each of this project's
+   storages' disks. Each read waits `status_api_timeout`, 10 s. A VM's address reaching the engine starts that VM's
+   probe at once, whatever the rest of the fleet is doing. A read cut short, or an answer that is no HTTP, is that
+   read failed.
 4. Each VM over SSH, where a section asked for needs it (`access`, `sign-ins`, `system`, `work`) and the VM runs
-   and has an address: one connection, one program (the probe) doing every read at once.
+   and has an address: one connection, one program (the probe) doing every read at once, and no more VMs at once
+   than `forks` (20 in `ansible.cfg`), as Ansible would reach them.
 5. Each piece is drawn as it lands; `status_report` ranks what was found and works out the exit code.
 
 **The fleet.** A refused token is told from a host that did not answer by the listing's own status, and each says
-what to check. `status_fleet` turns the listing and the reads into the fleet: this project's VMs, other VMs as totals
+what to check; a token refused a VM's config or address names the privileges it lacks, and no VM is read over SSH
+after it, as none was when the playbook stopped there. A run that fails part way ends every connection it opened
+and starts none after, and exits 3 at once. `status_fleet` turns the listing and the reads into the fleet: this project's VMs, other VMs as totals
 only (never named, never read), the storages, the template. A VM is read further only by a name no other tagged VM
 carries, that a recipe's pattern takes, on a node that answers; the others are shown from the listing, and two VMs of
 one name are a problem. A name given that matches no tagged VM is "not read", naming any nameless VM on a node that
@@ -426,7 +431,9 @@ VM: only which kind it is, and whether the role's marker holds its digest.
 
 **Host keys.** Status adds and changes none. Each VM is reached with `status_ssh_args`: `ansible.cfg`'s own `ssh_args`
 with `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, OpenSSH's default being yes, first on ssh's command line,
-since ssh keeps the first value it is given for an option. A VM whose key this machine does not hold - rebuilt,
+since ssh keeps the first value it is given for an option. What else the inventory gives a VM follows them, as it did
+the hosts discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
+`ansible_ssh_private_key_file`, a VM's own `host_vars` file included. A VM whose key this machine does not hold - rebuilt,
 renamed, its address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
 as every run does, or the `ssh` that shows the fingerprint and asks.
 
@@ -468,11 +475,15 @@ deleted at any time:
 
 - **`settings.json`.** Asking Ansible for the settings takes most of a second, and they change only when a file
   does. The answer is kept, keyed by the name, size and time of every file it is made from: `ansible.cfg`,
-  `inventory/`, the roles' `defaults/` and `vars/`, the `~/.ssh/*.pub` the default keys come from, the vault's
-  password file, and the environment's `ANSIBLE_*`, `HOME`, `PATH` and `REQUESTS_CA_BUNDLE`. It holds no secret: the
-  API token is a mark there, read from the vault at each run, and every other secret-derived setting is kept only
-  as whether it is set. A snapshot that would hold anything else the vault holds is not kept. A run given extra
-  vars by hand (`-e`, through `ANSIBLE_ARGS`) neither reads nor writes one: it asks Ansible.
+  `inventory/`, the roles' `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
+  installed ansible-core, `requirements.yml` and the collections installed, the `~/.ssh/*.pub` the default keys come
+  from, the vault's password files, and the
+  environment's `ANSIBLE_*`, `HOME`, `PATH` and `REQUESTS_CA_BUNDLE`. It holds no secret: the API token is a mark
+  there, read from the vault at each run, and every other secret-derived setting is kept only as whether it is set.
+  A snapshot that would hold anything else the vault holds - looked for as JSON writes it, but for the GitHub
+  username and an OAuth client's ID, which `just settings` does not look for either - is not kept, and the run's log
+  names what held it back. A run given extra vars by hand (`-e`, through `ANSIBLE_ARGS`) neither reads nor writes
+  one: it asks Ansible.
 - **`upgrades.json`.** apt's simulation takes one to two seconds, the slowest read of a VM, and its answer depends
   only on dpkg's status, the package lists and apt's own configuration. Each VM's answer is kept against a digest of
   those files' names, sizes and times, which the probe works out in milliseconds, so the simulation runs only when
@@ -485,8 +496,14 @@ memory from `/cluster/resources?type=node`, which Proxmox fills in only for a to
 beside what the VMs listed on it hold, running and stopped (`status_capacity`); without the privilege, the node's
 `grant` says how to give it to the token's user (`proxmox_api_user`), on the node: the lines the section prints, and
 an agent reads in `--json`. A VM's own list of repositories is read from its notes (`own_repos`), which the report does
-not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e` and `-i`; it runs no playbook, so any
-other option is warned of and ignored.
+not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e` and `-i`; it runs no playbook, so any other option is
+warned of and ignored. The vault opens with `.vault_pass`, or the password file
+`ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one is run for the
+password, as Ansible runs it. Ansible resolves the roles' `module_defaults` group from the Galaxy collections
+installed, so the engine runs `tools/check collections` itself, the moment it asks Ansible for the settings, and
+refuses as every recipe does, naming `just install`; the recipe does not, since there it would hold back the
+outline. `settings.json` is keyed by `requirements.yml` and the collections installed, so a snapshot that holds was
+made where the check passed.
 
 ## 4.7 `deploy.yml`
 
