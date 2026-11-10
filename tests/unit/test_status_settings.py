@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -78,9 +79,11 @@ def test_a_second_run_starts_without_ansible_and_says_the_same(tmp_path, fake_pv
     second = _run_with_cache(root, cache, vault, "-X", "importtime")
     assert second.returncode == first.returncode, second.stderr[-2000:]
     assert not _imports_ansible(second)
-    keep = ("exit", "sections", "title")
+    keep = ("exit", "sections")
     one, two = json.loads(first.stdout), json.loads(second.stdout)
     assert {k: one[k] for k in keep} == {k: two[k] for k in keep}
+    # The title says the minute it was read at, and the second run may be in the next one.
+    assert re.sub(r"\d\d:\d\d", "", one["title"]) == re.sub(r"\d\d:\d\d", "", two["title"])
     assert [vm["name"] for vm in one["vms"]] == [vm["name"] for vm in two["vms"]]
     assert one["settings"] == two["settings"]
 
