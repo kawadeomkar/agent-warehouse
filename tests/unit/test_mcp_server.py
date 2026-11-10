@@ -48,7 +48,11 @@ DROPPED = {
     "HOME": "/nonexistent/evil-home",
     "XDG_DATA_HOME": "/nonexistent/evil-data",
 }
-TOOLS = {"status", "settings", "logs", "log", "deploy", "login", "code", "install", "jobs", "job", "cancel"}
+TOOLS = {"status", "settings", "logs", "log", "deploy", "login", "code", "install", "jobs", "job", "cancel"} | {
+    "destroy",
+    "settings_set",
+    "init",
+}
 READ_ONLY = {"status", "settings", "logs", "log", "jobs", "job"}
 REPORT = {
     "exit": 1,

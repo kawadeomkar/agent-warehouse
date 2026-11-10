@@ -767,7 +767,8 @@ def test_each_sign_in_runs_its_playbook_and_none_all_three(tmp_path: Path, only:
         pytest.param(["test", "lint"], NOT_MATCHED, id="lint-is-its-own"),
         # status takes its sections from --only, each one it has, and no name starts with -.
         pytest.param(["status", "--only", "x"], NOT_MATCHED, id="status-section"),
-        pytest.param(["destroy", "--project", "repo"], NOT_MATCHED, id="destroy"),
+        # destroy takes one option, --confirm, and no other.
+        pytest.param(["destroy", "--project", "repo"], "does not have option `--project`", id="destroy"),
         pytest.param(["deploy", "alpha", "TAGS=claude_code"], NOT_MATCHED, id="make-s-spelling"),
     ],
 )
@@ -1175,6 +1176,26 @@ SIGNING_IN = [["deploy", "alpha"], ["login", "alpha"], *(["login", "alpha", "--o
 def test_a_run_with_no_terminal_turns_the_desktop_steps_and_deploy_s_sign_ins_off(tmp_path: Path, args) -> None:
     run = _playbook(tmp_path, *args)
     assert run[run.index(OFF) - 1] == "-e", run
+
+
+def test_destroy_confirm_answers_the_question_for_exactly_the_vms_named(tmp_path: Path) -> None:
+    # The names as a set, hyphenated as the names given are: the MCP server passes them once the person confirmed.
+    run = _playbook(tmp_path, "destroy", "--confirm=beta,my_vm", "my_vm", "beta")
+    assert run[run.index('{"confirm_destroy": "yes"}') - 1] == "-e", run
+    for n, args in enumerate(
+        (
+            ["--confirm=alpha", "alpha", "beta"],
+            ["--confirm=alpha"],
+            ["--confirm=gamma", "alpha"],
+            ["--confirm=alpha,beta", "alpha"],
+        )
+    ):
+        result = _just("destroy", *args, settings=_recording(tmp_path / f"refused{n}"))
+        assert result.returncode != 0 and "--confirm" in result.stderr, (args, _output(result))
+        assert _runs(tmp_path / f"refused{n}", "ansible-playbook") == []
+    # Without it, the question is the playbook's, as before.
+    run = _playbook(tmp_path / "asked", "destroy", "alpha")
+    assert not any("confirm_destroy" in arg for arg in run), run
 
 
 @pytest.mark.parametrize("args", SIGNING_IN)

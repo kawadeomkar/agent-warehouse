@@ -696,23 +696,38 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
     [ -z "$reset" ] || set -- "$@" --reset=true
     exec "$bin/python" tools/settings "$@" --all="$all" --changed="$changed" --json="$json" -- ${name:+"$name"}
 
+# --confirm answers the deletion's question (CONFIRM DELETION) for the VMs it
+# names, and only when they are the VMs given: compared as a set, after the
+# same hyphenation. The MCP server passes it once the person confirmed in
+# Claude Code; a person may too, in place of ANSIBLE_ARGS='-e
+# confirm_destroy=yes', which no name bound.
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default')]
+[arg('CONFIRM', long='confirm', pattern='([A-Za-z0-9][A-Za-z0-9._,-]*)?', help='Delete without asking, these VMs only: the same names as given, comma-separated')]
 [continue]
 [doc("Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them")]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-destroy *NAMES:
+destroy CONFIRM='' *NAMES:
     {{ guard }}
+    confirm=$1
+    shift
     tools/check names "$@"
     {{ hyphenate_names }}
+    if [ -n "$confirm" ]; then
+      [ -n "$names" ] || { echo "error: --confirm answers for the VMs named beside it: just destroy --confirm=<names> <names>" >&2; exit 1; }
+      tools/check names "$confirm"
+      set_of() { printf %s "$1" | tr _ - | tr , '\n' | sort -u | tr '\n' ,; }
+      [ "$(set_of "$confirm")" = "$(set_of "$names")" ] || { echo "error: --confirm names $confirm, but the VMs given are $names: nothing was deleted" >&2; exit 1; }
+    fi
     {{ take_lock }} "destroy${names:+ $(printf %s "$names" | tr , ' ')}"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
+    [ -z "$confirm" ] || set -- "$@" -e '{"confirm_destroy": "yes"}'
     # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     AGENT_WAREHOUSE_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"

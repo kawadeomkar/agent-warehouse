@@ -164,7 +164,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   change notice; results.py, what the model reads; jobs.py, a run as a job that
                                   outlives the call, under .cache/mcp/jobs/; runs.py, a call following its job, its
                                   early return at a browser block; cancels.py, a cancellation's reason, from the
-                                  server's stdin; server.py, the tools (§7.12)
+                                  server's stdin; confirm.py, the confirmations' dialogs and code, and the settings
+                                  an agent may change; server.py, the tools (§7.12)
                                   catalogue.py, what the choices a checkout makes once share - the editor, the
                                   VPN: each a setting naming a row of a list of the defaults (§7.11)
                                   editors/: model.py, the editors' records; family.py, the seam; common.py, what

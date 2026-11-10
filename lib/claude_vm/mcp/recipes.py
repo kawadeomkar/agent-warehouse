@@ -24,6 +24,8 @@ class ToolRecipe:
     fixed: dict[str, str | bool] = field(default_factory=dict)
     # Properties of the server's own beside the recipe's (OWN).
     own: tuple[str, ...] = ()
+    # Properties a call must give: an array of them at least one item long.
+    required: tuple[str, ...] = ()
 
 
 # The tools that run a recipe, by name.
@@ -35,6 +37,11 @@ TOOLS = {
     "login": ToolRecipe("login", own=("wait_seconds",)),
     "code": ToolRecipe("code", own=("wait_seconds",)),
     "install": ToolRecipe("install", own=("wait_seconds",)),
+    # A deletion names its VMs: the default VM is never implied through an agent.
+    "destroy": ToolRecipe("destroy", own=("wait_seconds",), required=("names",)),
+    # The one setting named, written into local.yml: the settings recipe's other half.
+    "settings_set": ToolRecipe("settings", {"json": True}, required=("name",)),
+    "init": ToolRecipe("init", {"no_prompt": True}, own=("wait_seconds",)),
 }
 # The properties a run tool has beside its recipe's.
 OWN = {
@@ -50,8 +57,6 @@ OWN = {
 NO_TOOL = {
     "help": "the tools' own descriptions say what just help says",
     "vault": "the vault is edited at a terminal, by the person: no tool takes or returns a secret",
-    "destroy": "a deletion, which needs the person's own confirmation",
-    "init": "it writes the configuration, which needs the person's own confirmation",
     "lint": "a contributor's command",
     "test": "a contributor's command",
     "docs": "a contributor's command",
@@ -60,11 +65,17 @@ NO_TOOL = {
     "mcp": "it registers this server: the person's command",
 }
 
-# Options a tool's recipe has that the tool does not take, and why.
+# Options a tool's recipe has that the tool does not take, and why, by tool.
 LEFT_OUT = {
     ("install", "lock"): "it rewrites uv.lock after a pin is edited: a contributor's, at a terminal",
-    ("settings", "value"): "a write into local.yml, which needs the person's own confirmation",
-    ("settings", "reset"): "a write into local.yml, which needs the person's own confirmation",
+    ("settings", "value"): "a write into local.yml: settings_set's, after the person confirms",
+    ("settings", "reset"): "a write into local.yml: settings_set's, after the person confirms",
+    ("settings_set", "all"): "settings_set changes the one setting named",
+    ("settings_set", "changed"): "settings_set changes the one setting named",
+    ("destroy", "confirm"): "the server gives it, the names the person typed in its dialog",
+    ("init", "token_secret_file"): "a file's contents would go into the vault and to the Proxmox host as the token: "
+    "any file this user can read, an SSH key among them",
+    ("init", "extra"): "init refuses any word after its options",
 }
 
 # The settings the justfile reads with env(), each given on just's command line at the server's value: a setting on
@@ -131,7 +142,7 @@ def schema(recipe: dict, tool: str) -> dict:
     properties = {}
     for parameter in recipe["parameters"]:
         name = prop(parameter)
-        if (recipe["name"], name) in LEFT_OUT or name in TOOLS[tool].fixed:
+        if (tool, name) in LEFT_OUT or name in TOOLS[tool].fixed:
             continue
         description = parameter.get("help") or ""
         if words(parameter):
@@ -142,7 +153,12 @@ def schema(recipe: dict, tool: str) -> dict:
         else:
             properties[name] = {"type": "string", "description": description, **_pattern(parameter)}
     properties |= {name: OWN[name] for name in TOOLS[tool].own}
-    return {"type": "object", "properties": properties, "additionalProperties": False}
+    schema = {"type": "object", "properties": properties, "additionalProperties": False}
+    for name in TOOLS[tool].required:
+        schema.setdefault("required", []).append(name)
+        if properties[name]["type"] == "array":
+            properties[name]["minItems"] = 1
+    return schema
 
 
 def command(config: Config, recipe: dict, tool: str, arguments: dict, extra: dict[str, str] | None = None) -> list[str]:

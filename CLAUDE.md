@@ -602,8 +602,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after
       30 s, read before the SIGINT, which can leave a task worker under PID 1 (`proc.end_left`); any other cancellation leaves it to `job`. The reason comes from the server's stdin
       (`cancels.py`), which the SDK never hands a tool.
-    - `install` carries `anthropic/requiresUserInteraction` and runs only for Claude Code 2.1.309 or later, the one
-      client whose prompt for it was seen.
+    - `destroy`, `settings_set`, `init` and `install` carry `anthropic/requiresUserInteraction` - the human gate:
+      no hook of the calling project's answers it - and run only for Claude Code 2.1.309 or later, the one client whose
+      prompt for it was seen. `destroy` and `settings_set` then ask in a dialog (`confirm.py`, a `Resolve`'d first
+      answer: a mid-call request fails on 2026-07-28) wanting a code with the names, since a project's `Elicitation`
+      hook can answer a dialog; the body that starts `just destroy --confirm=<names>` or `just settings --value` runs
+      only with that answer in hand. `settings_set` writes only `ALLOWED`'s settings, and `REFUSED` names every other
+      one of `local.yml.example`: `test_mcp_confirm.py` fails on a setting in neither. `init` never takes
+      `--token-secret-file`.
     - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
       within 3 s to the older protocol for 7 days.
     - No tool takes or returns a secret, and none runs `vault`. What a VM printed reaches a result through

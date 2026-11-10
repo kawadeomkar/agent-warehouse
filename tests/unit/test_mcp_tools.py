@@ -45,9 +45,9 @@ def test_every_option_of_a_tool_s_recipe_is_a_property_fixed_or_left_out_for_a_r
         properties = recipes.schema(recipe, name)["properties"]
         for parameter in recipe["parameters"]:
             prop = recipes.prop(parameter)
-            taken = prop in properties, prop in tool.fixed, (tool.recipe, prop) in recipes.LEFT_OUT
+            taken = prop in properties, prop in tool.fixed, (name, prop) in recipes.LEFT_OUT
             assert sum(taken) == 1, (name, prop, taken)
-    assert {recipe for recipe, _ in recipes.LEFT_OUT} <= {tool.recipe for tool in recipes.TOOLS.values()}
+    assert {tool for tool, _ in recipes.LEFT_OUT} <= set(recipes.TOOLS)
 
 
 def test_each_schema_is_valid_its_patterns_just_s_anchored_and_its_descriptions_the_help(dumped):

@@ -1130,10 +1130,26 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   `sdk-cli` for `claude -p`, and the server reads `SSH_CONNECTION` from its own environment. `just mcp --attended`
   overrides it. A Remote Control session gives its server the same environment as a plain one, so the early return,
   not the attended decision, is what keeps a person from missing a page.
-- **The gated tools.** `install` changes the environment every run and the server use: it carries
-  `anthropic/requiresUserInteraction`, which makes Claude Code ask before every call whatever the permission rules
-  say (no hook of the calling project's answers it; `-p` and `dontAsk` deny the tool), and it runs only for Claude Code
-  2.1.309 or later, the one client whose prompt was seen - Claude Desktop most likely runs such a tool unasked.
+- **The gated tools.** `destroy`, `settings_set`, `init` and `install` carry `anthropic/requiresUserInteraction`,
+  which makes Claude Code ask before every call whatever the permission rules say (no hook of the calling project's
+  answers it; `-p` and `dontAsk` deny the tool), and run only for Claude Code 2.1.309 or later, the one client whose
+  prompt was seen - Claude Desktop most likely runs such a tool unasked.
+- **`confirm.py`: the dialog.** `destroy` and `settings_set` also ask in a form elicitation, which shows what is at
+  stake - each VM's ID, node, state and size and its work on no remote, from `just status --only=vms,work`; the
+  setting's value now and the new one, from `just settings` - and wants a code with the names. The question is the
+  tool's first answer, an SDK `Resolve` whose resolver returns `Elicit`: on the 2026-07-28 revision a request sent
+  mid-call fails, so the SDK answers the call with an input request, Claude Code shows the dialog and calls again with
+  the answer, and only then does the body run - the one place that starts `just destroy --confirm=<names>` or `just
+  settings --value`. A project's own `Elicitation` hook can answer a dialog (verified), so the prompt is the human
+  gate; the code, an HMAC of the question under a key of the server's, the same each time the SDK asks it again,
+  makes a generic accept-every-dialog hook fail. A decline, a cancel - every dialog in `claude -p` - or other words
+  run nothing, and the result is the command to run at a terminal. `destroy` takes its names as required, and says a
+  held run lock before it asks anything. `settings_set` changes only the settings on `ALLOWED`; `REFUSED` names every
+  other setting of `local.yml.example`, so a new one is a decision, and a role variable in no example is refused
+  too - an agent steered by what it read must not move `github_projects_api_url`, which the vault's token is sent
+  to, or `claude_code_installer_url`, which every VM runs as root. What `tools/settings` refuses still applies under
+  it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
+  the token, any file this user can read among them.
 - **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
   protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout
   without a justfile or a `just` that cannot read it is each tool's refusal, never an exit. A recipe runs with stdin
@@ -1147,5 +1163,7 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
 each tool's function to its schema's properties. `test_mcp_server.py` drives the server over stdio with the SDK's own
 client, against a copy of the checkout and stand-in Ansible tools; `test_mcp_jobs.py` the same for the runs - a job's
 argv and `ATTENDED`, the early return and `job`, a job outliving its server, `cancel`, the branch and the lock refused,
-`install` for no other client - and the cancellation reasons; `test_mcp_register.py` runs `just mcp` with a stand-in
-`claude`.
+`install` for no other client - and the cancellation reasons; `test_mcp_confirm.py` the confirmations - the prompt on
+every gated tool, the dialog's lines, `destroy --confirm` only for the code and the names, nothing for a decline, a
+cancel, a generic hook's answer or another client, the allow list; `test_mcp_register.py` runs `just mcp` with a
+stand-in `claude`.

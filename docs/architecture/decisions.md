@@ -270,3 +270,9 @@ project's commands, with every command behaving as it does at a terminal.
   as VS Code's CLI writes its extension.
 - **No tool for the vault, nor any secret.** The vault, the token secret, the Tailscale auth key and Claude's pasted
   code stay at the terminal, so no secret passes through the model.
+- **The person confirms a deletion and a setting, in Claude Code's own prompt.** A dialog alone could be answered by
+  a hook of the project the agent works in; `requiresUserInteraction`'s prompt cannot be, so it is the gate, and the
+  dialog shows what is at stake. A client whose prompt was never seen gets the terminal command instead.
+- **An allow list of settings, not a deny list.** `tools/settings` can set any role variable; a deny list drawn from
+  the example files missed the URLs the vault's tokens are sent to and the installer every VM runs as root. What an
+  agent may change is listed, and every other setting of the example is refused by name.

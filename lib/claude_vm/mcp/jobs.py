@@ -148,6 +148,17 @@ def start(checkout: Path, python: str, argv: list[str], env: dict[str, str], too
     return job
 
 
+def lock_holder(checkout: Path) -> str:
+    """The run holding the checkout's run lock (tools/check lock's record), said, or nothing when it is free."""
+    try:
+        pid, since, title, job = ((checkout / ".cache" / "run.lock").read_text().split("\n") + [""] * 4)[:4]
+    except OSError:
+        return ""
+    if not (pid.isdigit() and since and started(int(pid)) == since):
+        return ""
+    return f"just {title} is running (pid {pid}, started {since}{f', MCP job {job}' if job else ''})"
+
+
 def default_signals() -> None:
     """In a child, before it runs: the signals a person's Ctrl-C and a closing terminal send, at their defaults,
     whatever the parent was started with - a parent that ignored them would pass the ignore down."""

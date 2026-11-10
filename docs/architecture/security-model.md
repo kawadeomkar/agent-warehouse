@@ -297,6 +297,14 @@ and calls its commands. What that changes:
 - **A server that cannot run says so.** It never exits at its start - Claude Code pins a stdio server that dies
   within 3 s to the older protocol for 7 days - and answers each call with what is wrong instead: its command line, a
   checkout without a justfile, a vault it cannot read with no terminal to ask at.
+- **What an agent may delete or change.** `destroy`, `settings_set`, `init` and `install` carry Claude Code's
+  `requiresUserInteraction` prompt, which no hook of the calling project's can answer and which `-p` and `dontAsk`
+  deny (verified), and run only for Claude Code 2.1.309 or later. `destroy` and `settings_set` then show what is at
+  stake in a dialog that wants a code with the names: a project's `Elicitation` hook can answer a dialog, so the
+  prompt is the gate and the code keeps a generic hook from passing it. `just destroy --confirm` answers the question
+  only for the VMs it names. `settings_set` writes only an allow list's settings - never where a credential is sent,
+  what runs on every VM, what reaches this machine, or who reaches the VMs; a deny list drawn from the examples had
+  missed the URLs the vault's tokens go to.
 - **What an agent may start.** In auto mode, without an `ask` rule, Claude Code's classifier alone decides whether an
   agent deploys, signs in or opens a VM (verified), so `just mcp` prints `ask` rules for `deploy`, `login`, `code` and
   `cancel`, and for `Bash(just destroy:*)` and `Bash(just settings:*)`: an agent with Bash in another project could

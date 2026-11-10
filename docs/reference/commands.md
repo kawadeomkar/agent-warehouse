@@ -88,6 +88,7 @@ environment where `python3` is not it.
 | &emsp;`--value VALUE` | Set the one setting named to this value, in local.yml (never a secret: just vault; an empty value is none: --reset) |
 | &emsp;`<name>` | A role (tailscale) or one variable or setting (tailscale_ssh); none shows how to use this |
 | `just destroy [<name>...]` | Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them |
+| &emsp;`--confirm CONFIRM` | Delete without asking, these VMs only: the same names as given, comma-separated |
 | &emsp;`<name>` | The VMs; none means agent-warehouse-default |
 | `just logs` | List the run logs in .logs/, newest first |
 | `just mcp` | Let Claude Code sessions in any project run these commands, through an MCP server |

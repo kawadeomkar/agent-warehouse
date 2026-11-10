@@ -14,10 +14,14 @@ command of the same name, with the same options, run in this checkout: every rul
 | `login` | `just login` | signs VMs in to Claude, GitHub and Tailscale |
 | `code` | `just code` | opens a VM in your editor, with this machine's sessions copied there |
 | `install` | `just install` | syncs the environment every run and the server use; Claude Code asks you first, every time |
+| `destroy` | `just destroy --confirm` | deletes the VMs named, once you confirmed twice (below) |
+| `settings_set` | `just settings --value`, `--reset` | changes one setting of a short list, once you confirmed twice |
+| `init` | `just init --no-prompt` | sets this checkout up with the values given, never a secret; Claude Code asks you first |
 | `jobs`, `job` | - | the runs started here; one run followed to its next wait for you, or its end |
 | `cancel` | - | stops a run, as Ctrl-C at a terminal |
 
-`destroy`, `init` and changing a setting stay at the terminal for now.
+`just vault`, the token secret, the Tailscale auth key, and pasting Claude's sign-in code stay at the terminal: no
+tool takes or returns a secret.
 
 ## Runs
 
@@ -93,6 +97,23 @@ an agent that reaches for Bash to run `just destroy` or `just settings` in this 
           "mcp__agent-warehouse__cancel", "Bash(just destroy:*)", "Bash(just settings:*)"]
 }
 ```
+
+## Confirmations
+
+`destroy` and `settings_set` run only after two steps an agent cannot take for you:
+
+1. **Claude Code's own prompt**, Yes or No, before every call whatever your permission rules say. A hook of the
+   project the agent works in cannot answer it, and `claude -p` and the `dontAsk` mode refuse the tool outright, so
+   nothing headless deletes a VM or changes a setting.
+2. **The server's dialog**, which shows what is at stake - for `destroy`, each VM's ID, node, state and size, and the
+   work on it that exists nowhere else; for `settings_set`, the setting's value now and the new one - and asks you to
+   type a short code it shows, then the names. A decline, a cancel or anything else typed, and nothing runs.
+
+`init` and `install` show the prompt alone. All four run only for Claude Code 2.1.309 or later, the one client whose
+prompt was seen; another client is told the command to run at a terminal. `settings_set` changes only the VMs' size,
+the default VM's name, the editor, which repositories are cloned, a run's switches, the sign-ins' timing and starts, and
+the VMs' tools: where a credential goes, what runs on the VMs or reaches this machine, and who reaches the VMs stay
+yours, at a terminal (`just settings <name> --value <value>`).
 
 ## A VM for a repository
 
