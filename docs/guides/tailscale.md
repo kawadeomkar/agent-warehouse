@@ -17,7 +17,7 @@ There are two ways in. `tailscale_auth_method` picks: `auto` (the default) is th
 one and the web login otherwise, `key` is the key only (an empty one fails by name, and no VM is ever sent
 to a browser), and `web` is the web login only, with a key in the vault left unused.
 
-- **An auth key** (`vault_tailscale_auth_key`, which `just init` asks for after a `y`). Configuration - `just deploy`, or `just deploy --only configure` - joins each new
+- **An auth key** (`vault_tailscale_auth_key`, which `just init` asks for after `tailscale`). Configuration - `just deploy`, or `just deploy --only configure` - joins each new
   VM by itself, with nothing to click. Make the key in Tailscale's admin console (Settings, Keys):
   **reusable** for a fleet, or one-off for one VM; **pre-approved** if your tailnet has device approval
   on; and **tagged** (`tag:claude-vm`, below). Never ephemeral: Tailscale removes an ephemeral node within
