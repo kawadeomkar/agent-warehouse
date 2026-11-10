@@ -163,9 +163,11 @@ class Server:
             return "0"
         return "1" if self.environ.get("CLAUDE_CODE_ENTRYPOINT") == "cli" else "0"
 
-    async def run(self, tool: str, arguments: dict[str, Any], wait_seconds: int | None, ctx: Context) -> str:
+    async def run(
+        self, tool: str, arguments: dict[str, Any], wait_seconds: int | None, ctx: Context, vault: bool = True
+    ) -> str:
         """Start tool's recipe as a job, once every refusal of the server's own is said, and follow it."""
-        config = self.check(vault=True)
+        config = self.check(vault=vault)
         refusal = checkout.run_refusal(config, checkout.head(config, self.env()))
         if refusal:
             raise ToolError(refusal)
@@ -228,6 +230,19 @@ class Server:
 
 def tool_recipe(tool: str) -> str:
     return recipes.TOOLS[tool].recipe
+
+
+def deploy_refusal(names: list[str] | None, only: str, check: bool) -> str:
+    """Why this deploy goes no further, or nothing: without names, one that would create a VM makes the default VM, a
+    convenience of the terminal's that an agent's forgotten argument must not reach. Not the schema's to require: the
+    stages that reach every VM, or none, take no names."""
+    if names or check or only not in ("", "provision"):
+        return ""
+    return (
+        "deploy creates the VMs named, and none were: name them. The default VM is never implied through this server: "
+        f"at a terminal, just deploy{' --only provision' if only else ''} makes it. Without names, only='configure' or "
+        "'ssh-config' and check reach every VM this project created, and only='template' builds the template."
+    )
 
 
 def client_refusal(ctx: Context, tool: str, terminal: str) -> str:
@@ -327,6 +342,10 @@ def tools(server: Server) -> list[Tool]:
         start: bool = False,
         wait_seconds: int | None = None,
     ) -> str:
+        server.check(vault=True)
+        refusal = deploy_refusal(names, only, check)
+        if refusal:
+            raise ToolError(refusal)
         arguments = {"names": names or [], "only": only, "check": check, "tags": tags, "start": start}
         return await server.run("deploy", arguments, wait_seconds, ctx)
 
@@ -353,7 +372,7 @@ def tools(server: Server) -> list[Tool]:
         refusal = client_refusal(ctx, "install", "just install")
         if refusal:
             raise ToolError(refusal)
-        return await server.run("install", {}, wait_seconds, ctx)
+        return await server.run("install", {}, wait_seconds, ctx, vault=False)
 
     async def jobs_(ctx: Context) -> str:
         config = server.check(vault=False)
@@ -391,7 +410,8 @@ def tools(server: Server) -> list[Tool]:
         "A secret is said set or not set, never shown.",
         "logs": "Read-only: the run logs' names, newest first. Read one with log.",
         "deploy": "Creates, configures and signs in VMs and opens one in the user's editor: minutes, longer with a "
-        "template build. Say first that pages will open in the user's browser to approve. A VM for a repository X: "
+        "template build. Say first that pages will open in the user's browser to approve. Name every VM to create: "
+        "there is no default VM here. A VM for a repository X: "
         "status first, and if a VM's work lists X, code(name, project=X) alone; else name the VM after X (lowercase, - "
         "for _, no dots), check settings(name='github_projects') clones it (empty: every repository the user owns), "
         f"deploy(names=[name]), then code(name, project=X). {TERMINAL} {BUSY}",

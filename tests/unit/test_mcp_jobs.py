@@ -222,6 +222,38 @@ def test_a_branch_or_a_held_lock_is_refused_before_anything_runs(world):
         holder.wait()
 
 
+def test_a_deploy_that_would_create_a_vm_needs_its_names(world):
+    before = len(jobs.listed(world["checkout"]))
+    _, results = _talk(world, [("deploy", {}), ("deploy", {"only": "provision"}), ("deploy", {"start": True})])
+    for result in results:
+        assert result.is_error and "none were: name them" in _text(result)
+    assert len(jobs.listed(world["checkout"])) == before
+
+
+def test_the_stages_that_create_nothing_still_run_without_names(world):
+    _behave(world, 'echo "PLAY RECAP all ok"\n')
+    arguments = ({"only": "configure"}, {"only": "ssh-config"}, {"only": "template"}, {"check": True})
+    _, results = _talk(world, [("deploy", given) for given in arguments])
+    for result in results:
+        assert not result.is_error, _text(result)
+
+
+def test_install_reads_no_vault_so_one_it_cannot_open_does_not_stop_it(world):
+    uv = world["root"] / "uv"
+    synced = world["root"] / "uv-synced"
+    uv.write_text(f'#!/bin/sh\necho "$@" >> "{synced}"\n')
+    uv.chmod(0o755)
+    args = [*(arg for arg in _args(world) if not arg.startswith("--uv=")), f"--uv={uv}"]
+    password = world["checkout"] / ".vault_pass"
+    password.rename(password.with_suffix(".aside"))
+    try:
+        _, (result,) = _talk(world, [("install", {})], args=args)
+    finally:
+        password.with_suffix(".aside").rename(password)
+    assert not result.is_error, _text(result)
+    assert synced.read_text().startswith("sync ")
+
+
 def test_install_asks_the_user_in_claude_code_s_own_prompt_and_runs_for_no_other_client(world):
     tools, results = _talk(world, [("install", {})], client_name="claude-ai", client_version="1.0")
     assert tools["install"].meta["anthropic/requiresUserInteraction"] is True

@@ -1121,6 +1121,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   aborted.` (verified on 2.1.309 to 2.1.319) - stops the run; anything else - the wall clock's `SdkError: Request
   timed out`, a reason not on the list, the session closing - leaves it to `job`, recorded. A later Claude Code that
   words a stop otherwise errs on the safe side: `cancel` still stops it.
+- **A deploy that creates names its VMs.** One of the server's own refusals (`deploy_refusal`): `deploy` with no names,
+  or `only="provision"` with none, would make the default VM, a convenience of the terminal's that an agent's forgotten
+  argument must not reach. It is no `required` in the schema, since the stages that reach every VM, or none, take no
+  names.
 - **`ATTENDED`.** A run tool passes `ATTENDED=1` - the pages open and the sign-ins run, and nothing asks - exactly when
   the session is an interactive one on this machine: Claude Code gives its servers `CLAUDE_CODE_ENTRYPOINT=cli` then,
   `sdk-cli` for `claude -p`, and the server reads `SSH_CONNECTION` from its own environment. `just mcp --attended`

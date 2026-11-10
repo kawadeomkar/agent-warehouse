@@ -38,6 +38,9 @@ agent tells you what the page is for, then follows the run with `job` to its nex
   through the server, since two runs could take the same VM ID or race the SSH config. A second is refused with what
   holds it ([During a run](runs.md#one-run-at-a-time)); wait for it.
 - **The branch.** A run starts only from `main` with no tracked change, unless you registered with `--any-branch`.
+- **The names.** A deploy that would create a VM needs its names: `just deploy`'s default VM is the terminal's, so that
+  an agent's forgotten argument creates nothing. `only="configure"`, `only="ssh-config"`, `only="template"` and `check`
+  take no names, as at a terminal.
 
 ## Register it
 

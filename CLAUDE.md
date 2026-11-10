@@ -595,6 +595,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the job outlives the call, the server and the session; it runs only from `main` with no tracked change, unless
       `just mcp --any-branch`, and with `ATTENDED=1` exactly when the session is an interactive one here
       (`CLAUDE_CODE_ENTRYPOINT=cli`, not over SSH) or `--attended` says so.
+    - A `deploy` that would create a VM needs its names (`deploy_refusal`): the default VM is the terminal's, never
+      implied through an agent.
     - A call returns at the run's first browser block, with the job's ID and where it ended: the person cannot see
       a backgrounded call's progress. Only a person's stop - Esc (`AbortError: user-cancel`), `x` in `/tasks`
       (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after
