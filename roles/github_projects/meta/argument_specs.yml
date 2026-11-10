@@ -55,6 +55,11 @@ argument_specs:
       github_projects_depth:
         type: str
         description: Shallow clone depth. Empty clones the full history.
+      github_projects_clone_jobs:
+        type: int
+        description: >-
+          How many repositories are cloned at once, each into a partial folder renamed into place once whole. 1 clones
+          them one at a time.
       github_projects_auth:
         type: bool
         description:

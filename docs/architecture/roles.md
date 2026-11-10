@@ -616,7 +616,18 @@ under `sudo -H`, so git reads that user's `~/.gitconfig` and the helper reads th
 `hosts.yml`, with `GIT_TERMINAL_PROMPT=0` so a repository the credential cannot reach fails with
 "terminal prompts disabled" and its name instead of git's attempt to prompt. For SSH clones the
 role first fetches GitHub's published host keys from `<api_url>/meta` and seeds them into the
-user's `known_hosts`. `update_existing` defaults to **false** so a re-run never disturbs local work.
+user's `known_hosts`.
+
+**The repositories are cloned several at a time, with their submodules** (`github_projects_clone_jobs`,
+8), by the role's module `git_clone_many`: one at a time, 24 took 37-41 s, eight at a time 3.3-3.7 s, and sixteen no
+less. Each is cloned into `<name>.aw-partial` and renamed into place once git has finished, so a
+folder named for a repository is always a whole checkout: a failed clone's partial folder is removed,
+and so is one a run cut short left behind (the next run removes it first, as a link if it is one,
+never following it). A folder that exists is left as it is, whatever it holds. Every repository is
+tried, and the run fails after the last, naming each that failed with git's last line, through
+`plain_text`. Full clones only: `--filter=blob:none` measured no faster here, and would lose history
+once gh is signed out. `update_existing` defaults to **false** so a re-run never disturbs local work;
+on, the checkouts that existed before the run are pulled one at a time with `ansible.builtin.git`.
 
 ### `just login --only github`
 
