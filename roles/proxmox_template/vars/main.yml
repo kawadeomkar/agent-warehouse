@@ -8,6 +8,10 @@
 # virt-customize step, a package the role adds - and every template built before is rebuilt by the next just deploy.
 proxmox_template_build: 1
 
+# The default image and its checksum list, which is Ubuntu's own: any other URL needs a checksum given with it.
+proxmox_template_image_url_default: https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img
+proxmox_template_image_checksum_default: sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS
+
 # The image directory's default, and its name through 1.x, which the build
 # moves it from, so the pristine download is not fetched again. A directory the
 # user set has no other name.

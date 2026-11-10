@@ -34,8 +34,11 @@ definition of what a build makes, the role's `proxmox_template_wanted`, feeds bo
 comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
 `drift` entry point, on the config the API gives (`proxmox_vm_info` with `config: current`), and the role
 itself on `qm config`'s, which
-`qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
-built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new
+`qm_config` reads as the API's. A template that differs is rebuilt at the same VMID, each difference said first. One
+that keeps no record of this project's build is refused and left, never rebuilt: it may be someone's own, and a
+rebuild destroys it (`template_recorded`, in `deploy.yml` before anything is done and in the role).
+A custom `proxmox_template_image_url` needs its checksum, and `virt-cat` reads the downloaded image's `os-release`
+before anything is built of it, refusing one outside the Debian family, since configure installs with apt. The old one is removed only once the new
 image is downloaded and customised, so a download that fails leaves it; the customised copy goes either
 way. Proxmox refuses to remove a template a linked clone still uses; that refusal fails the run, naming
 `proxmox_template_rebuild: false`, which keeps a template as it is, the differences said. The build reads

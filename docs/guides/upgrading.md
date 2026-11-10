@@ -209,9 +209,10 @@ follow them.
 
 From PR #126, `just deploy` compares the template with what its settings would build, and rebuilds it when it
 differs: its CPU type, OS type, bridge or storage, and the image, packages and build steps it was made with,
-which the build now records in the template's notes. A template an earlier version built keeps no such record,
-so the first `just deploy` after upgrading says so and rebuilds it once, over SSH as root, as your first deploy
-built it: a few minutes, at the same VMID. That rebuild also brings it up to date with the two sections below.
+which the build now records in the template's notes. A template with no such record is refused and left, never
+rebuilt, since it may be one you made by hand. If it is one an earlier version of this project built, remove it
+(`qm destroy <vmid>` on the Proxmox host) and run `just deploy` again: a few minutes, at the same VMID. That rebuild
+also brings it up to date with the two sections below.
 The VMs you have are full clones, so they do not depend on it and are not touched. A linked clone
 (`proxmox_vm_full_clone: false`) does: Proxmox will not remove its template, and the run says so - set
 `proxmox_template_rebuild: false` in `local.yml` to keep the template as it is.

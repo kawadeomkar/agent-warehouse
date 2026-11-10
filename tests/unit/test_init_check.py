@@ -276,6 +276,16 @@ def test_a_template_that_differs_from_its_settings_is_said_and_root_ssh_checked(
     assert _hostname_calls(root).splitlines() == ["-s"]
 
 
+def test_a_template_with_no_record_is_a_problem_since_deploy_refuses_it(tmp_path: Path, fake_pve: str) -> None:
+    _pve(fake_pve, "PUT", "nodes/pve/qemu/9000/config", description="made by hand")
+    root = tmp_path / "run"
+    report = _check(root, fake_pve, "local", {})
+    said = _said(report)
+    assert report["rc"] != 0, said
+    assert "!!   the template ubuntu-24.04-cloudinit on pve keeps no record of its build, so just deploy" in said
+    assert "rebuilds" not in said, said
+
+
 def test_a_template_kept_as_it_is_needs_no_root_ssh(tmp_path: Path, fake_pve: str) -> None:
     root = tmp_path / "run"
     report = _check(root, fake_pve, "ssh", {**DIFFERS, "proxmox_template_rebuild": False})

@@ -380,6 +380,9 @@ _TEMPLATE_RECORD_RE = re.compile(
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
 TEMPLATE_RECORD_KEYS = ("build", "image", "packages", "sha256")
+# What proxmox_template_drift says of a template whose notes keep no record of its build, which a deploy refuses to
+# rebuild (roles/proxmox_template/tasks/main.yml).
+NO_TEMPLATE_RECORD = "no record of how it was built, so it was built by an earlier version of this project"
 # What a template is compared on, in the order its differences are said: the settings every clone inherits from it,
 # then the record. Not cores or memory, which each VM sets for itself.
 TEMPLATE_FIELDS = (
@@ -491,7 +494,7 @@ def proxmox_template_drift(config, wanted):
         raise ValueError("proxmox_template_drift expects the template's config and what is wanted, as dicts")
     record = _template_record(config)
     if record is None:
-        return ["no record of how it was built, so it was built by an earlier version of this project"]
+        return [NO_TEMPLATE_RECORD]
     has = {
         "cpu": _option(config.get("cpu"), "cputype"),
         "ostype": str(config.get("ostype") or ""),
@@ -792,3 +795,18 @@ def golden_templates(listing, node, prefix):
 def not_templates(guests):
     """The entries of a listing that are no template: one carrying the ownership tag is never a VM of the fleet."""
     return [guest for guest in guests or [] if not int(guest.get("template") or 0)]
+
+
+def template_recorded(config):
+    """Whether a template's notes keep the record this project's builds leave: one with none was not built by it, or
+    so long ago that nothing says so, and is never rebuilt, which would destroy it."""
+    return isinstance(config, dict) and _template_record(config) is not None
+
+
+def os_release_debian(text):
+    """Whether an os-release file names a Debian-family system: its ID, or an ID_LIKE word, ubuntu or debian."""
+    values = {}
+    for line in str(text or "").splitlines():
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("\"'")
+    return bool({"debian", "ubuntu"} & {values.get("ID", ""), *values.get("ID_LIKE", "").split()})

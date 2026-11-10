@@ -22,9 +22,55 @@
   become: true
 
   pre_tasks:
+    # Waited for in a block, so that a VM that cannot run Ansible at all, for
+    # want of Python, is said by name below rather than as a timeout.
     - name: Wait for the VM to accept connections
-      ansible.builtin.wait_for_connection:
-        timeout: 300
+      tags: [always]
+      block:
+        - name: Wait until Ansible can run on the VM
+          ansible.builtin.wait_for_connection:
+            timeout: 300
+      rescue:
+        - name: Keep why Ansible could not run on the VM
+          ansible.builtin.set_fact:
+            configure_no_connection: "{{ ansible_failed_result.msg | default('it did not answer') }}"
+
+    # Raw, before anything needs Python: what configure cannot do without, on a
+    # base of any origin. Only over a connection to a real guest, not this machine.
+    - name: Read what the VM's base has
+      ansible.builtin.raw: >-
+        missing="";
+        for f in /usr/bin/python3 /usr/bin/sudo; do [ -x "$f" ] || missing="$missing $f"; done;
+        for c in apt-get systemctl{{ ' cloud-init' if configure_wait_for_cloud_init | default(true) | bool else '' }}; do
+        command -v "$c" > /dev/null 2>&1 || missing="$missing $c"; done;
+        family=$(. /etc/os-release 2> /dev/null; echo " $ID $ID_LIKE ");
+        case "$family" in *" debian "* | *" ubuntu "*) ;; *) missing="$missing an-Ubuntu-or-Debian-system"; esac;
+        echo "base-missing:$missing"
+      become: false
+      register: configure_base
+      changed_when: false
+      check_mode: false
+      when: ansible_connection | default('ssh') != 'local'
+      tags: [always]
+
+    - name: Fail when the VM's base lacks what configure needs
+      vars:
+        configure_base_missing: >-
+          {{ configure_base.stdout | default('') | regex_search('base-missing:.*') | default('', true)
+             | replace('base-missing:', '') | trim | plain_text }}
+      ansible.builtin.assert:
+        that: configure_base_missing | length == 0
+        fail_msg: >-
+          {{ inventory_hostname }}'s base lacks what configuring it needs: {{ configure_base_missing }}. Build the VM
+          from an Ubuntu or Debian cloud image that has them; nothing was changed on it.
+        quiet: true
+      when: configure_base is not skipped
+      tags: [always]
+
+    - name: Fail when Ansible could not run on the VM
+      ansible.builtin.fail:
+        msg: "{{ inventory_hostname }} never accepted a connection: {{ configure_no_connection | plain_text }}"
+      when: configure_no_connection is defined
       tags: [always]
 
     # Exit code 2 means "done with recoverable errors", which is fine for us;

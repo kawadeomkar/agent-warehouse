@@ -16,7 +16,7 @@ import re
 import time
 from datetime import UTC, datetime
 
-from ..proxmox import built_template, proxmox_notes_repos, proxmox_tags, scsi0_storage
+from ..proxmox import NO_TEMPLATE_RECORD, built_template, proxmox_notes_repos, proxmox_tags, scsi0_storage
 from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
 from ..text import and_list, one_line, plural
@@ -920,6 +920,10 @@ def _template_items(template):
     drift = template.get("drift") or []
     if template.get("missing") or not drift or not template.get("rebuild", True):
         return []
+    if NO_TEMPLATE_RECORD in drift:
+        text = f"the template {template.get('name')} keeps no record of its build, so the next just deploy refuses it"
+        fix = "remove it in Proxmox if it is an old build of this project's, else set proxmox_template_rebuild to false"
+        return [_item("todo", "template", text, fix)]
     text = (
         f"the template {template.get('name')} differs from its settings ({'; '.join(drift)}), so the next just"
         " deploy rebuilds it, over root SSH"

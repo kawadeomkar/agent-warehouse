@@ -492,6 +492,15 @@ def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_li
     assert "ubuntu-24.04-cloudinit (9000) · next deploy rebuilds it" in said, said
 
 
+def test_a_template_with_no_record_is_said_to_be_refused_never_rebuilt() -> None:
+    fleet = _fleet(template_drift=[proxmox_filters.NO_TEMPLATE_RECORD])
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+    (item,) = [it for it in model["attention"] if it["vm"] == "template"]
+    assert "refuses it" in item["text"] and "proxmox_template_rebuild" in item["command"]
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
+    assert "no record, next deploy refuses it" in said and "rebuilds" not in said, said
+
+
 def test_a_template_kept_as_it_is_is_no_thing_to_do() -> None:
     settings = {**SETTINGS, "template_rebuild": False, "names": []}
     fleet = S.status_fleet(

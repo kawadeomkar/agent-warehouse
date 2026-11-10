@@ -44,6 +44,8 @@ PROXMOX = (
     "build_vm_ours",
     "read_configs",
     "not_templates",
+    "template_recorded",
+    "os_release_debian",
 )
 CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "ssh_hostname", "guest_ipv4", "sshd_match_spec")
 

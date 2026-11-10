@@ -9,6 +9,12 @@
         dest: /usr/local/bin/qm
         mode: "0755"
 
+    - name: Install fake virt-cat
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../../../../tests/molecule/fake_virt_cat.sh"
+        dest: /usr/local/bin/virt-cat
+        mode: "0755"
+
     - name: Install fake virt-customize
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../../../../tests/molecule/fake_virt_customize.sh"

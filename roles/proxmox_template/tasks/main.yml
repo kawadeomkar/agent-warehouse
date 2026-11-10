@@ -52,6 +52,34 @@
     quiet: true
   when: proxmox_template_existing.rc != 0
 
+# A template with no record of its build is no template this project can say it
+# made: its owner's by hand, or one from before records were kept. Rebuilding
+# destroys it, so it is refused, and the message says each way on.
+- name: Refuse to rebuild a template this project has no record of building
+  ansible.builtin.assert:
+    that: proxmox_template_existing.stdout | qm_config | template_recorded
+    fail_msg: >-
+      Template "{{ proxmox_template_name }}" ({{ proxmox_template_vmid }}) keeps no record of being built by this
+      project, so it is not rebuilt, which would destroy it. If it is an old build of this project's, remove it
+      (qm destroy {{ proxmox_template_vmid }}) and run again; if it is yours, choose another proxmox_template_vmid and
+      proxmox_template_name, or set proxmox_template_rebuild to false in local.yml to keep it as it is.
+    quiet: true
+  when:
+    - proxmox_template_existing.rc == 0
+    - proxmox_template_rebuild | bool
+
+# A custom image is the user's to vouch for: the default's checksum list is Ubuntu's own.
+- name: Refuse a custom image without its checksum
+  ansible.builtin.assert:
+    that: >-
+      proxmox_template_image_url == proxmox_template_image_url_default
+      or proxmox_template_image_checksum | default('', true) not in ['', proxmox_template_image_checksum_default]
+    fail_msg: >-
+      proxmox_template_image_url is set to {{ proxmox_template_image_url }}, with no
+      proxmox_template_image_checksum of its own. Give it the image's checksum (sha256:<digest>, or sha256:<URL of a checksum list>),
+      so a corrupt or swapped download is refused rather than built into every VM.
+    quiet: true
+
 # The finished template is compared with what this build would make (proxmox_template_differences, vars/main.yml):
 # the same, it is left as it is; different, it is rebuilt at the same VMID, the old one removed only once the new
 # one's image is ready, and said here first, with each difference.
@@ -153,6 +181,29 @@
             owner: root
             group: root
             mode: "0644"
+
+        # Before anything is built of it: configure installs with apt, so an
+        # image of another family could only be found out on the first VM.
+        - name: Read which system the image holds
+          ansible.builtin.command:
+            argv:
+              - "{{ proxmox_template_virt_cat }}"
+              - -a
+              - "{{ proxmox_template_image.dest }}"
+              - /etc/os-release
+          environment:
+            LIBGUESTFS_BACKEND: direct
+          register: proxmox_template_image_os
+          changed_when: false
+
+        - name: Refuse an image outside the Debian family
+          ansible.builtin.assert:
+            that: proxmox_template_image_os.stdout | os_release_debian
+            fail_msg: >-
+              {{ proxmox_template_image_url }} is no Ubuntu or Debian image: its os-release says
+              "{{ proxmox_template_image_os.stdout | regex_search('(?m)^ID=.*$') | default('nothing', true) }}".
+              A VM's configuration installs with apt, so only those can be a base. Nothing was built.
+            quiet: true
 
         # The packages the template's record names (proxmox_template_packages),
         # so the record cannot say other than what went in.

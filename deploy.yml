@@ -107,6 +107,22 @@
         proxmox_template_drift_config: "{{ claude_template.config | default({}) }}"
       when: claude_template_exists | bool
 
+    # Never rebuilt: a template with no record may be its owner's, made by hand,
+    # and a rebuild destroys it. Refused here, before anything is done.
+    - name: Refuse to rebuild a template this project has no record of building
+      ansible.builtin.assert:
+        that: claude_template.config | default({}) | template_recorded
+        fail_msg: >-
+          Template "{{ proxmox_template_name }}" keeps no record of being built by this project, so it is not rebuilt,
+          which would destroy it. If it is an old build of this project's, remove it (qm destroy
+          {{ proxmox_template_vmid }}) and run again; if it is yours, choose another
+          proxmox_template_vmid and proxmox_template_name, or set proxmox_template_rebuild to false in local.yml to
+          keep it as it is.
+        quiet: true
+      when:
+        - claude_template_exists | bool
+        - proxmox_template_rebuild | bool
+
     - name: Record whether the template is to be rebuilt
       ansible.builtin.set_fact:
         claude_template_rebuild: >-

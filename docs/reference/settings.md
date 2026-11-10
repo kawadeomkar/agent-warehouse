@@ -80,11 +80,11 @@ The template every VM is cloned from. On a cluster, build one per node with a VM
 | `proxmox_template_vmid` | `9000` | VMID the template is built under. A variable of [`proxmox_template`](roles/proxmox_template.md). |
 | `proxmox_template_name` | `ubuntu-24.04-cloudinit` | Template name. A variable of [`proxmox_template`](roles/proxmox_template.md). |
 
-just deploy rebuilds the template when it differs from what its settings would build - CPU type, OS type, bridge, storage, image, packages - or carries no record of its build, as one an earlier version built. VMs are full clones and do not depend on it. false keeps it as it is, the differences said: for a template a linked clone still uses, which Proxmox will not remove.
+just deploy rebuilds the template when it differs from what its settings would build - CPU type, OS type, bridge, storage, image, packages. VMs are full clones and do not depend on it. false keeps it as it is, the differences said: for a template a linked clone still uses, which Proxmox will not remove. A template at that ID and name with no record of this project's build is refused and left, since it may be yours.
 
 | Setting | Default | Notes |
 |---|---|---|
-| `proxmox_template_rebuild` | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build - or keeps no record of its build, as one an earlier version built does. A variable of [`proxmox_template`](roles/proxmox_template.md). |
+| `proxmox_template_rebuild` | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build. A variable of [`proxmox_template`](roles/proxmox_template.md). |
 
 Build a golden template for new VMs, with the toolchain already installed, and clone them from it: configure, which still runs every task, then finds most of its work done. A deploy that finds none clones the template above, as without this, and then builds one once its VMs are ready and its editor open, about two minutes more for the run, while just code and just login are refused here. A later deploy that finds one has its VMs ready about a minute sooner, however many it creates. A golden is used for a week. false clones the template above, and golden templates already made are deleted as they age.
 

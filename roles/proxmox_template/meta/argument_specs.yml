@@ -66,12 +66,16 @@ argument_specs:
       proxmox_template_virt_customize:
         type: path
         description: Path of virt-customize on the node. Tests point it at a stand-in.
+      proxmox_template_virt_cat:
+        type: str
+        description: Path of virt-cat on the Proxmox host, which reads a downloaded image's os-release before it is built.
       proxmox_template_rebuild:
         type: bool
         description:
           - Rebuild the template at the same VMID when it differs from what these settings would build - its CPU
-            type, OS type, bridge, storage, image, packages or this version's build - or keeps no record of its
-            build, as one an earlier version built does. VMs are full clones, which do not depend on it.
+            type, OS type, bridge, storage, image, packages or this version's build. VMs are full clones, which do
+            not depend on it. One that keeps no record of this project's build is refused, never rebuilt, as it may be
+            someone's own.
           - Off, it is kept as it is and the differences are said, for a template a linked clone still uses, which
             Proxmox will not remove, or one changed by hand on purpose.
 

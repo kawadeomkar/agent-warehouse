@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import REPO, _run
+from harness import REPO, _failures, _run
 from test_filters import BUILT
 
 LOOKUP = "Look up the template by name"
@@ -24,7 +24,7 @@ REPORT = "Report what this run will do"
 WAITS = "opens a page in your browser, and the run waits for you there."
 
 
-def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> str:
+def _report(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> dict:
     plays = yaml.safe_load((REPO / "deploy.yml").read_text())
     # The play that looks the template up: the one before it refuses a name no VM may have.
     first = next(play for play in plays if LOOKUP in [task["name"] for task in play.get("tasks", [])])
@@ -43,6 +43,7 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     variables = {
         "proxmox_template_name": "ubuntu-24.04-cloudinit",
+        "proxmox_template_vmid": defaults["proxmox_template_vmid"],
         "proxmox_node": "pve",
         "claude_vm_names": ["alpha"],
         "deploy_sign_in": True,
@@ -57,7 +58,11 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         "tailscale_enabled": True,
         **extra,
     }
-    report = _run(tmp_path, playbook, {}, "-e", json.dumps(variables))
+    return _run(tmp_path, playbook, {}, "-e", json.dumps(variables))
+
+
+def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> str:
+    report = _report(tmp_path, built, config, **extra)
     assert report["rc"] == 0, report["stderr"][-2000:]
     said = [
         host["msg"]
@@ -93,10 +98,11 @@ def _said(tmp_path: Path, built: bool, config: dict | None = None, **extra) -> s
         pytest.param(
             True,
             {k: v for k, v in BUILT.items() if k != "description"},
-            {},
+            {"proxmox_template_rebuild": False},
             'Template "ubuntu-24.04-cloudinit" differs from its settings (no record of how it was built, so it was'
-            " built by an earlier version of this project), so this run rebuilds it first",
-            id="earlier-version",
+            " built by an earlier version of this project), and is kept as it is since proxmox_template_rebuild is"
+            " false",
+            id="no-record-kept",
         ),
         pytest.param(
             True,
@@ -113,6 +119,14 @@ def test_the_template_is_said_as_the_lookup_found_it(tmp_path, built, config, ex
     # In words, never the lookup's raw answer.
     assert said.startswith(starts), said
     assert "proxmox_vms" not in said
+
+
+def test_a_template_with_no_record_of_this_project_s_build_is_refused_and_never_rebuilt(tmp_path):
+    # It may be its owner's, made by hand: a rebuild would destroy it.
+    report = _report(tmp_path, built=True, config={k: v for k, v in BUILT.items() if k != "description"})
+    assert report["rc"] != 0
+    (failure,) = _failures(report).values()
+    assert "keeps no record of being built by this project" in failure and "qm destroy" in failure, failure
 
 
 @pytest.mark.parametrize("sign_in", [True, False])

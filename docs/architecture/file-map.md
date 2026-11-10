@@ -234,7 +234,7 @@ tests/
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py)
   molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
-                                  fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
+                                  fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
                                   fake_anthropic_api.py, the Messages API for the real claude in configure.

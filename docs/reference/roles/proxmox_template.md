@@ -31,7 +31,8 @@ Runs on the PVE node over SSH. Downloads a cloud image, creates a VM with `qm`, 
 | `proxmox_template_customize_packages` | list of `str` | `[qemu-guest-agent]` | Packages installed into the image by virt-customize. |
 | `proxmox_template_manage_libguestfs` | bool | `true` | Install libguestfs-tools on the node. Disable where it is already present or faked. |
 | `proxmox_template_virt_customize` | path | `/usr/bin/virt-customize` | Path of virt-customize on the node. Tests point it at a stand-in. |
-| `proxmox_template_rebuild` | bool | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build - or keeps no record of its build, as one an earlier version built does. VMs are full clones, which do not depend on it. Off, it is kept as it is and the differences are said, for a template a linked clone still uses, which Proxmox will not remove, or one changed by hand on purpose. |
+| `proxmox_template_virt_cat` | str | `/usr/bin/virt-cat` | Path of virt-cat on the Proxmox host, which reads a downloaded image's os-release before it is built. |
+| `proxmox_template_rebuild` | bool | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build. VMs are full clones, which do not depend on it. One that keeps no record of this project's build is refused, never rebuilt, as it may be someone's own. Off, it is kept as it is and the differences are said, for a template a linked clone still uses, which Proxmox will not remove, or one changed by hand on purpose. |
 
 ## Entry point `drift`
 
@@ -125,11 +126,13 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 ## Internal values
 
-Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 9 of the 23 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 9 of the 25 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
 | `proxmox_template_build` | The build steps' own version. | `1` |
+| `proxmox_template_image_url_default` | The default image and its checksum list, which is Ubuntu's own: any other URL needs a checksum given with it. | `https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img` |
+| `proxmox_template_image_checksum_default` |  | `sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS` |
 | `proxmox_template_image_dir_default` | The image directory's default, and its name through 1.x, which the build moves it from, so the pristine download is not fetched again. | `/var/lib/vz/agent-warehouse` |
 | `proxmox_template_image_dir_1x` |  | `/var/lib/vz/claude-on-proxmox` |
 | `proxmox_template_scsihw` | The qm settings the role gives every template, which no setting changes. | `virtio-scsi-pci` |
@@ -166,6 +169,8 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Refuse to reuse VMID {{ proxmox_template_vmid }} | `ansible.builtin.assert` | <code>proxmox_template_existing.rc == 0</code> |
 | Read the cluster-wide VM list | `ansible.builtin.slurp` | <code>proxmox_template_existing.rc != 0</code> |
 | Refuse a VMID another node holds, {{ proxmox_template_vmid }} | `ansible.builtin.assert` | <code>proxmox_template_existing.rc != 0</code> |
+| Refuse to rebuild a template this project has no record of building | `ansible.builtin.assert` | <code>proxmox_template_existing.rc == 0 and proxmox_template_rebuild &#124; bool</code> |
+| Refuse a custom image without its checksum | `ansible.builtin.assert` |  |
 | Say how the template differs from its settings | `ansible.builtin.debug` | <code>proxmox_template_differences &#124; length > 0</code> |
 | Build the template | block | <code>proxmox_template_existing.rc != 0 or proxmox_template_rebuilding &#124; bool</code> |
 | &emsp;Look for the image directory by its 1.x name | `ansible.builtin.stat` | <code>proxmox_template_image_dir == proxmox_template_image_dir_default</code> |
@@ -178,6 +183,8 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | &emsp;Prepare the image for customization | block | <code>proxmox_template_install_guest_agent &#124; bool</code> |
 | &emsp;&emsp;Install libguestfs-tools | `ansible.builtin.apt` | <code>proxmox_template_manage_libguestfs &#124; bool</code> |
 | &emsp;&emsp;Copy the cloud image for customization | `ansible.builtin.copy` |  |
+| &emsp;&emsp;Read which system the image holds | `ansible.builtin.command` |  |
+| &emsp;&emsp;Refuse an image outside the Debian family | `ansible.builtin.assert` |  |
 | &emsp;&emsp;Install packages into the image with virt-customize | `ansible.builtin.command` |  |
 | &emsp;Remove the template that differs from its settings | `ansible.builtin.command` | <code>proxmox_template_existing.rc == 0</code> |
 | &emsp;Fail when Proxmox kept the template | `ansible.builtin.assert` | <code>proxmox_template_existing.rc == 0</code> |
@@ -206,9 +213,11 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Check_for_existing_VM_proxmox_template_vmid0-->|Task| Refuse_to_reuse_VMID_proxmox_template_vmid1[refuse to reuse vmid proxmox template vmid<br>When: **proxmox template existing rc    0**]:::task
   Refuse_to_reuse_VMID_proxmox_template_vmid1-->|Task| Read_the_cluster_wide_VM_list2[read the cluster wide vm list<br>When: **proxmox template existing rc    0**]:::task
   Read_the_cluster_wide_VM_list2-->|Task| Refuse_a_VMID_another_node_holds__proxmox_template_vmid3[refuse a vmid another node holds  proxmox template<br>vmid<br>When: **proxmox template existing rc    0**]:::task
-  Refuse_a_VMID_another_node_holds__proxmox_template_vmid3-->|Task| Say_how_the_template_differs_from_its_settings4[say how the template differs from its settings<br>When: **proxmox template differences   length   0**]:::task
-  Say_how_the_template_differs_from_its_settings4-->|Block Start| Build_the_template5_block_start_0[[build the template<br>When: **proxmox template existing rc    0 or proxmox<br>template rebuilding   bool**]]:::block
-  Build_the_template5_block_start_0-->|Task| Look_for_the_image_directory_by_its_1_x_name0[look for the image directory by its 1 x name<br>When: **proxmox template image dir    proxmox template<br>image dir default**]:::task
+  Refuse_a_VMID_another_node_holds__proxmox_template_vmid3-->|Task| Refuse_to_rebuild_a_template_this_project_has_no_record_of_building4[refuse to rebuild a template this project has no<br>record of building<br>When: **proxmox template existing rc    0 and proxmox<br>template rebuild   bool**]:::task
+  Refuse_to_rebuild_a_template_this_project_has_no_record_of_building4-->|Task| Refuse_a_custom_image_without_its_checksum5[refuse a custom image without its checksum]:::task
+  Refuse_a_custom_image_without_its_checksum5-->|Task| Say_how_the_template_differs_from_its_settings6[say how the template differs from its settings<br>When: **proxmox template differences   length   0**]:::task
+  Say_how_the_template_differs_from_its_settings6-->|Block Start| Build_the_template7_block_start_0[[build the template<br>When: **proxmox template existing rc    0 or proxmox<br>template rebuilding   bool**]]:::block
+  Build_the_template7_block_start_0-->|Task| Look_for_the_image_directory_by_its_1_x_name0[look for the image directory by its 1 x name<br>When: **proxmox template image dir    proxmox template<br>image dir default**]:::task
   Look_for_the_image_directory_by_its_1_x_name0-->|Task| Look_for_the_image_directory_by_its_name_from_2_01[look for the image directory by its name from 2 0<br>When: **proxmox template image dir 1x found stat isdir  <br>default false**]:::task
   Look_for_the_image_directory_by_its_name_from_2_01-->|Task| Move_the_image_directory_to_its_name_from_2_02[move the image directory to its name from 2 0<br>When: **proxmox template image dir 1x found stat isdir  <br>default false  and not  proxmox template image dir<br>1x found stat islnk   default false   and not<br>proxmox template image dir found stat exists and<br>not ansible check mode**]:::task
   Move_the_image_directory_to_its_name_from_2_02-->|Task| Ensure_image_directory_exists3[ensure image directory exists]:::task
@@ -218,9 +227,11 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Decide_which_image_to_import6-->|Block Start| Prepare_the_image_for_customization7_block_start_1[[prepare the image for customization<br>When: **proxmox template install guest agent   bool**]]:::block
   Prepare_the_image_for_customization7_block_start_1-->|Task| Install_libguestfs_tools0[install libguestfs tools<br>When: **proxmox template manage libguestfs   bool**]:::task
   Install_libguestfs_tools0-->|Task| Copy_the_cloud_image_for_customization1[copy the cloud image for customization]:::task
-  Copy_the_cloud_image_for_customization1-->|Task| Install_packages_into_the_image_with_virt_customize2[install packages into the image with virt<br>customize]:::task
-  Install_packages_into_the_image_with_virt_customize2-.->|End of Block| Prepare_the_image_for_customization7_block_start_1
-  Install_packages_into_the_image_with_virt_customize2-->|Task| Remove_the_template_that_differs_from_its_settings8[remove the template that differs from its settings<br>When: **proxmox template existing rc    0**]:::task
+  Copy_the_cloud_image_for_customization1-->|Task| Read_which_system_the_image_holds2[read which system the image holds]:::task
+  Read_which_system_the_image_holds2-->|Task| Refuse_an_image_outside_the_Debian_family3[refuse an image outside the debian family]:::task
+  Refuse_an_image_outside_the_Debian_family3-->|Task| Install_packages_into_the_image_with_virt_customize4[install packages into the image with virt<br>customize]:::task
+  Install_packages_into_the_image_with_virt_customize4-.->|End of Block| Prepare_the_image_for_customization7_block_start_1
+  Install_packages_into_the_image_with_virt_customize4-->|Task| Remove_the_template_that_differs_from_its_settings8[remove the template that differs from its settings<br>When: **proxmox template existing rc    0**]:::task
   Remove_the_template_that_differs_from_its_settings8-->|Task| Fail_when_Proxmox_kept_the_template9[fail when proxmox kept the template<br>When: **proxmox template existing rc    0**]:::task
   Fail_when_Proxmox_kept_the_template9-->|Task| Create_VM_proxmox_template_vmid10[create vm proxmox template vmid]:::task
   Create_VM_proxmox_template_vmid10-->|Task| Import_the_cloud_image_as_the_root_disk11[import the cloud image as the root disk]:::task
@@ -228,7 +239,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Add_cloud_init_drive_and_set_boot_order12-->|Task| Convert_VM_to_template13[convert vm to template]:::task
   Convert_VM_to_template13-->|Task| Read_the_template_as_it_was_built14[read the template as it was built]:::task
   Read_the_template_as_it_was_built14-->|Task| Fail_when_the_template_differs_from_its_settings_as_built15[fail when the template differs from its settings<br>as built]:::task
-  Fail_when_the_template_differs_from_its_settings_as_built15-.->|End of Block| Build_the_template5_block_start_0
+  Fail_when_the_template_differs_from_its_settings_as_built15-.->|End of Block| Build_the_template7_block_start_0
   Fail_when_the_template_differs_from_its_settings_as_built15-->End
 ```
 

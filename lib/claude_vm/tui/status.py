@@ -10,6 +10,7 @@ import re
 import textwrap
 import time
 
+from ..proxmox import NO_TEMPLATE_RECORD
 from ..status.model import fmt_gib, remote_control, short_kernel, uptime_said, work_said
 from .screen import PENDING, bar, cut, plural, render, seg, spark
 
@@ -147,7 +148,11 @@ def _storage_lines(model):
         if template.get("drift"):
             line += [
                 seg(" · "),
-                seg("next deploy rebuilds it", "y") if template.get("rebuild", True) else seg("differs, kept", "d"),
+                seg("differs, kept", "d")
+                if not template.get("rebuild", True)
+                else seg("no record, next deploy refuses it", "y")
+                if NO_TEMPLATE_RECORD in template["drift"]
+                else seg("next deploy rebuilds it", "y"),
             ]
         lines.append(line)
     goldens = model.get("goldens") or {}

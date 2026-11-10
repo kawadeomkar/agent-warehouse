@@ -92,7 +92,11 @@
     # proxmox_template_rebuild is off; it needs root SSH as a missing one does.
     init_template_rebuilt: >-
       {{ init_template_built | bool and proxmox_template_drift | default([]) | length > 0
-         and proxmox_template_rebuild | bool }}
+         and proxmox_template_rebuild | bool and not init_template_refused | bool }}
+    # One with no record of its build is refused rather than rebuilt: roles/proxmox_template's main.
+    init_template_refused: >-
+      {{ init_template_built | bool and proxmox_template_rebuild | bool and init_template_config.json.data is defined
+         and not (init_template_config.json.data | template_recorded) }}
     init_ssh_wanted: >-
       {{ init_proxmox_host | length > 0 and (not init_template_built | bool or init_template_rebuilt | bool) }}
     init_ssh_address: "{{ hostvars[init_proxmox_host].ansible_host | default(init_proxmox_host) }}"
@@ -356,7 +360,12 @@
              in init_down_nodes else '') }}
         init_template_differences: "{{ proxmox_template_drift | default([]) | join('; ') }}"
         init_template_result: >-
-          {{ {'ok': true,
+          {{ {'ok': false,
+              'text': 'the template ' ~ proxmox_template_name ~ ' on ' ~ init_template.node ~ ' keeps no record of'
+                      ~ ' its build, so just deploy refuses it: remove it (qm destroy ' ~ proxmox_template_vmid
+                      ~ ') if it is an old build of this project, or set proxmox_template_rebuild to false'}
+             if init_template_refused | bool else
+             {'ok': true,
               'text': 'the template ' ~ proxmox_template_name ~ ' on ' ~ init_template.node ~ ' differs from its'
                       ~ ' settings (' ~ init_template_differences ~ '): just deploy rebuilds it, over root SSH'}
              if init_template_rebuilt | bool else

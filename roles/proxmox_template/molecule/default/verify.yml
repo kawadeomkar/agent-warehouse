@@ -64,23 +64,23 @@
             proxmox_template_verify_conf is search('(?m)^description: Built by agent-warehouse%3A build=1;'
             ~ ' image=http%3A//127.0.0.1%3A8080/noble-server-cloudimg-amd64.img; packages=qemu-guest-agent;'
             ~ ' sha256=[0-9a-f]{64}$')
-          # converge, then side_effect's rebuild of the template that kept no record: two builds. Idempotence and
-          # the run after the rebuild found it as its settings would build it, and built nothing
-          - proxmox_template_verify_calls | select('search', '^create 9000 ') | list | length == 2
-          - proxmox_template_verify_calls | select('search', '^template 9000') | list | length == 2
-          # the rebuild removed the old template; the linked clone's refused rebuild tried, and was refused
-          - proxmox_template_verify_calls | select('search', '^destroy 9000') | list | length == 2
-          - proxmox_template_verify_calls | select('search', '^destroy ') | list | length == 2
+          # converge's one build: side_effect's template with no record is refused, and idempotence found it as its
+          # settings would build it, and built nothing
+          - proxmox_template_verify_calls | select('search', '^create 9000 ') | list | length == 1
+          - proxmox_template_verify_calls | select('search', '^template 9000') | list | length == 1
+          # only the linked clone's refused rebuild tried to remove it, and was refused
+          - proxmox_template_verify_calls | select('search', '^destroy 9000') | list | length == 1
+          - proxmox_template_verify_calls | select('search', '^destroy ') | list | length == 1
           # side_effect: the sibling node's VMID was probed, never created
           - proxmox_template_verify_calls | select('search', '^config 8000') | list | length == 1
           # side_effect: 9002 and 9003 were created by the scenario itself, once
-          # each, and the role touched neither - beside 9000's two builds, no
+          # each, and the role touched neither - beside 9000's one build, no
           # create, set or template reached any VMID
-          - proxmox_template_verify_calls | select('search', '^create ') | list | length == 4
+          - proxmox_template_verify_calls | select('search', '^create ') | list | length == 3
           - proxmox_template_verify_calls | select('search', '^create 9002 ') | list | length == 1
           - proxmox_template_verify_calls | select('search', '^create 9003 ') | list | length == 1
-          - proxmox_template_verify_calls | select('search', '^set ') | list | length == 4
-          - proxmox_template_verify_calls | select('search', '^template ') | list | length == 3
+          - proxmox_template_verify_calls | select('search', '^set ') | list | length == 2
+          - proxmox_template_verify_calls | select('search', '^template ') | list | length == 2
           - proxmox_template_verify_calls | select('search', '^template 9003') | list | length == 1
         quiet: true
 
@@ -99,7 +99,7 @@
           - "'--truncate /etc/machine-id' in proxmox_template_verify_customize"
           # the pristine download is left alone so get_url stays idempotent
           - "'--add /var/lib/vz/agent-warehouse/agent-warehouse-9000.img' in proxmox_template_verify_customize"
-          # converge, the rebuild, and the rebuild Proxmox refused, which customises before it removes the old
-          # template; the other refusals in side_effect never got this far
-          - proxmox_template_verify_customize.splitlines() | length == 3
+          # converge, and the rebuild Proxmox refused, which customises before it removes the old template; the other
+          # refusals in side_effect never got this far
+          - proxmox_template_verify_customize.splitlines() | length == 2
         quiet: true
