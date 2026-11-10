@@ -35,14 +35,20 @@ def copy(tmp_path_factory) -> Path:
     return root
 
 
-def _claude(bin_dir: Path, version: str = "2.1.319", keeps: bool = True, add_refused: bool = False) -> Path:
+def _claude(
+    bin_dir: Path, version: str = "2.1.319", keeps: bool = True, add_refused: bool = False, elsewhere: bool = False
+) -> Path:
     """A claude that records each call - its arguments, one per line, and the folder it ran in - and keeps the entry
     `mcp add` gives it until `mcp remove`: `mcp get` finds it (unless keeps is false, an add another session's save
-    lost). An add answers as Claude Code's does, with the whole command, or is refused."""
+    lost). An add answers as Claude Code's does, with the whole command, or is refused. With elsewhere, an entry in
+    another scope is there from the start: `mcp get` finds it and `mcp remove --scope` does not."""
     record = bin_dir.parent / "claude.args"
     entry = bin_dir.parent / "entry"
     claude = bin_dir / "claude"
     refused = '[ "$2" != add ] || { echo "the add was refused" >&2; exit 3; }\n' if add_refused else ""
+    remove = "exit 1" if elsewhere else f'rm -f "{entry}"'
+    if elsewhere:
+        entry.write_text("added\n")
     claude.write_text(
         "#!/bin/sh\n"
         f'{{ printf "cwd=%s\\n" "$(pwd -P)"; for arg in "$@"; do printf "%s\\n" "$arg"; done; echo --end--; }}'
@@ -50,7 +56,7 @@ def _claude(bin_dir: Path, version: str = "2.1.319", keeps: bool = True, add_ref
         f'[ "$1" != --version ] || {{ echo "{version} (Claude Code)"; exit 0; }}\n'
         f"{refused}"
         '[ "$2" != add ] || echo "Added stdio MCP server with command: the whole PATH"\n'
-        f'case "$2" in add) {"echo added > " + str(entry) if keeps else ":"} ;; remove) rm -f "{entry}" ;;'
+        f'case "$2" in add) {"echo added > " + str(entry) if keeps else ":"} ;; remove) {remove} ;;'
         f' get) [ -f "{entry}" ] || exit 1 ;; esac\n'
     )
     claude.chmod(0o755)
@@ -153,6 +159,15 @@ def test_a_second_registration_replaces_the_first(tmp_path, copy):
     assert "in place of the one registered before" in result.stdout
     add = [call for call in _calls(record) if call[1:3] == ["mcp", "add"]][-1]
     assert add[-2:] == ["--attended=1", "--any-branch"]
+
+
+def test_a_registration_in_another_scope_stays_and_is_not_said_to_be_replaced(tmp_path, copy):
+    run, _ = _setup(tmp_path, copy, elsewhere=True)
+    project = tmp_path / "project"
+    project.mkdir()
+    result = _mcp(run, f"--project-dir={project}")
+    assert result.returncode == 0, result.stderr
+    assert "in place of" not in result.stdout, result.stdout
 
 
 def test_an_add_another_session_s_save_lost_is_said(tmp_path, copy):

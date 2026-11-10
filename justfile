@@ -863,9 +863,9 @@ mcp ANY_BRANCH='' SCREEN='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_PA
       exit 0
     fi
     [ "$scope" = user ] || cd "$project_dir"
-    # A registration of this name already there, this checkout's or another's, is replaced.
-    if "$claude" mcp get "$name" > /dev/null 2>&1; then
-      "$claude" mcp remove --scope "$scope" "$name" > /dev/null 2>&1 || :
+    # A registration of this name in this scope, this checkout's or another's, is replaced. mcp get finds one in any
+    # scope and mcp remove only in the one it is told, so one in another scope stays, and is not said to be replaced.
+    if "$claude" mcp get "$name" > /dev/null 2>&1 && "$claude" mcp remove --scope "$scope" "$name" > /dev/null 2>&1; then
       replaced=yes
     fi
     # Claude Code answers with the whole command it added, every directory of the PATH among it (--show prints that):
