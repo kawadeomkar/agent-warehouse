@@ -46,7 +46,9 @@
     newid: "{{ proxmox_vm_id | default(omit, true) }}"
     name: "{{ proxmox_vm_name }}"
     full: "{{ proxmox_vm_full_clone }}"
-    storage: "{{ proxmox_vm_storage }}"
+    # Only a full clone is given a storage: a linked clone's disk lives beside its template's, and Proxmox refuses
+    # the parameter for one ("parameter 'storage' not allowed for linked clones").
+    storage: "{{ proxmox_vm_storage if proxmox_vm_full_clone | bool else omit }}"
     timeout: "{{ proxmox_vm_timeout }}"
     state: present
   register: proxmox_vm_clone

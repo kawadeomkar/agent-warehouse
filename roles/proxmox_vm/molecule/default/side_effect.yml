@@ -830,6 +830,67 @@
     - role: proxmox_vm
       proxmox_vm_state: absent
 
+# proxmox_vm_full_clone: false asks for a linked clone, which Proxmox refuses
+# when the request names a storage, as the fake does.
+- name: Register a VM to create as a linked clone
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Add a host for it
+      ansible.builtin.add_host:
+        name: linked-a
+        groups: proxmox_vm_linked
+        ansible_connection: local
+        proxmox_vm_id: 9170
+        proxmox_vm_full_clone: false
+        proxmox_vm_api_host: "{{ proxmox_vm_api_host }}"
+        proxmox_vm_api_port: "{{ proxmox_vm_api_port }}"
+        proxmox_vm_api_user: "{{ proxmox_vm_api_user }}"
+        proxmox_vm_api_token_id: "{{ proxmox_vm_api_token_id }}"
+        proxmox_vm_api_token_secret: "{{ proxmox_vm_api_token_secret }}"
+        proxmox_vm_ssh_public_keys: "{{ proxmox_vm_ssh_public_keys }}"
+        proxmox_vm_agent_delay: 1
+      changed_when: false
+
+- name: Create the VM as a linked clone
+  hosts: proxmox_vm_linked
+  gather_facts: false
+  roles:
+    - role: proxmox_vm
+
+- name: Check the linked clone
+  hosts: agent-warehouse-proxmox_vm
+  gather_facts: false
+  tasks:
+    - name: Read the requests the fake has logged
+      ansible.builtin.slurp:
+        src: /var/lib/fake-pve/calls.log
+      register: proxmox_vm_linked_log
+      become: true
+
+    - name: Assert it was cloned linked, with no storage named, and addressed
+      vars:
+        proxmox_vm_linked_clones: >-
+          {{ (proxmox_vm_linked_log.content | b64decode).splitlines() | map('from_json')
+             | selectattr('method', 'equalto', 'POST') | selectattr('path', 'search', '/clone$')
+             | selectattr('params.newid', 'defined') | selectattr('params.newid', 'equalto', '9170') | list }}
+      ansible.builtin.assert:
+        that:
+          - proxmox_vm_linked_clones | length == 1
+          - proxmox_vm_linked_clones[0].params.full == '0'
+          - "'storage' not in proxmox_vm_linked_clones[0].params"
+          - hostvars['linked-a'].proxmox_vm_resolved_id | int == 9170
+          - hostvars['linked-a'].proxmox_vm_address | default('') | length > 0
+        fail_msg: "linked clone requests: {{ proxmox_vm_linked_clones }}"
+        quiet: true
+
+- name: Remove the linked clone
+  hosts: proxmox_vm_linked
+  gather_facts: false
+  roles:
+    - role: proxmox_vm
+      proxmox_vm_state: absent
+
 # A minimum of 0 is Proxmox's "no balloon device", which would also stop the
 # VM reporting the memory it uses; one above the memory Proxmox refuses. Both
 # are refused before anything is asked of the API.

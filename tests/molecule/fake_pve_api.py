@@ -608,6 +608,9 @@ class Handler(BaseHTTPRequestHandler):
             newid = int(params["newid"])
             if newid in VMS:
                 return self._reply(500, None)
+            # As Proxmox: a linked clone shares its template's storage, and names none.
+            if str(params.get("full", "")) == "0" and "storage" in params:
+                return self._reply(400, None, "Parameter verification failed")
             VMS[newid] = {
                 "vmid": newid,
                 "name": params.get("name", f"Copy-of-VM-{vmid}"),
