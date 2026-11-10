@@ -56,7 +56,10 @@ REPORTS = {
         "auth | Say how to sign gh in",
     ],
     "roles/github_projects/tasks/login_report.yml": ["login_report | Report the login state and what to do about it"],
-    "roles/github_projects/tasks/clone.yml": ["clone | Say that an organisation gives no git identity"],
+    "roles/github_projects/tasks/clone.yml": [
+        "clone | Say that an organisation gives no git identity",
+        "clone | Name what of the VM's own list was not found",
+    ],
     "roles/tailscale/tasks/login.yml": ["login | Say why there is nothing to sign in"],
     "roles/tailscale/tasks/report.yml": ["report | Say how this VM is on Tailscale"],
     "playbooks/claude_login.yml": ["Say why"],
@@ -534,7 +537,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
     records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
-    assert len(records) == sum(len(names) for names in REPORTS.values()) == 25
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 26
     for record in records:
         data = record["ansible.builtin.set_stats"]["data"]
         assert len(data) == 1, record

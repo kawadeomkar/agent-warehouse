@@ -1688,6 +1688,7 @@ def test_init_installs_first_then_the_hook_the_config_the_questions_and_the_chec
     # The install, then the hook, then the questions (and the copies before them).
     assert order.index("uv") < order.index("ansible-playbook"), order
     assert hooked.exists() and hook.read_bytes() == HOOK.read_bytes() and os.access(hook, os.X_OK)
+    assert "Installed git's pre-commit hook." in result.stdout
     # Never pre-commit install, whose hook names this checkout's Python in the folder every worktree shares.
     assert _runs(tmp_path, "pre-commit") == []
     assert "Created" in result.stdout and (tmp_path / "hosts.yml").exists()
@@ -1731,6 +1732,9 @@ def test_init_replaces_pre_commit_s_hook_and_moves_another_tool_s_aside(
     assert hook.read_bytes() == HOOK.read_bytes()
     legacy = hook.with_name("pre-commit.legacy")
     assert (legacy.read_text() if legacy.exists() else None) == (before if aside else None)
+    # Said, since the run's summary counts its tasks alone.
+    said = "another tool's, now pre-commit.legacy, still runs first" if aside else "Updated git's pre-commit hook"
+    assert said in result.stdout, _output(result)
 
 
 def test_init_leaves_its_hook_as_it_is(tmp_path: Path) -> None:
@@ -1740,6 +1744,7 @@ def test_init_leaves_its_hook_as_it_is(tmp_path: Path) -> None:
     result, _ = _init(tmp_path)
     assert result.returncode == 0, _output(result)
     assert hook.stat().st_mtime == 1 and not hook.with_name("pre-commit.legacy").exists()
+    assert "pre-commit hook" not in result.stdout, result.stdout
 
 
 def test_init_puts_no_hook_in_a_core_hooks_path_of_yours(tmp_path: Path) -> None:

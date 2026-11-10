@@ -168,6 +168,16 @@
         - claude_vm_size_node.maxcpu is defined
         - claude_vm_size_node.maxmem is defined
 
+    # just deploy has held each name already: this is for a run by hand. A name
+    # goes into the VM's notes, and a newline would be another line of them.
+    - name: Refuse a list of repositories that is not one
+      ansible.builtin.assert:
+        that: vm_repos | default([], true) | reject('match', '[A-Za-z0-9_][A-Za-z0-9._-]{0,99}\\Z') | list | length == 0
+        fail_msg: >-
+          vm_repos names GitHub repositories: each starts with a letter, a digit or _, and has at most 100 letters,
+          digits, ., _ and -. No VM was created.
+        quiet: true
+
     - name: Add each name as a host to provision
       ansible.builtin.add_host:
         name: "{{ claude_vm_name_item }}"
@@ -190,9 +200,10 @@
   gather_facts: false
   # proxmox_vm_name defaults to inventory_hostname, which is the VM name here.
   # vm_size is this run's size for each VM it creates, from the sizes just
-  # deploy takes, as JSON on the command line.
+  # deploy takes, as JSON on the command line, and vm_repos its list of repositories.
   vars:
     proxmox_vm_size: "{{ vm_size | default({}, true) }}"
+    proxmox_vm_repos: "{{ vm_repos | default([], true) }}"
   roles:
     - role: proxmox_vm
 
@@ -231,6 +242,10 @@
         claude_vm_marks: >-
           {{ (hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).tags
              | default('', true) | proxmox_marks(claude_vm_tags_owned) }}
+        # Its own list of repositories, from the notes the lookup found in Proxmox and this run's, never the VM.
+        claude_vm_repos: >-
+          {{ ((hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).config
+              | default({}, true)).description | default('', true) | proxmox_notes_repos(vm_repos | default([], true)) }}
       changed_when: false
       when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
       loop: "{{ claude_vm_names }}"

@@ -371,6 +371,11 @@ pytest over `tests/unit/`, file by file:
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
   setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
   moves said under the home as `~`.
+- **A VM's own repositories** (`test_vm_repos.py`): `just deploy alpha --repos a,b` as JSON, refused where nothing is
+  provisioned and held to repository names by just and by `tools/check repos`; the notes read and written with every
+  other line kept; against the fake, a VM created with a list, the same list again changing nothing, a union, a VM with
+  no list refused, a repair keeping one, and both publishers carrying it. `test_github_auth.py` holds what the role then
+  clones.
 - **A VM's size** (`test_vm_size.py`): `just deploy alpha --cores 8 --memory 16G --disk 64G` as JSON, refused where nothing is
   created; against the fake, a VM created with the size and tagged sized, the same size again changing nothing,
   another refused for a VM that exists, a repair keeping a sized VM's size and, given a part, the rest of it, a VM

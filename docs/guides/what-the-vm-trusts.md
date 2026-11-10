@@ -22,6 +22,8 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   restarts or the VM does. The password is one for every VM, and the playbooks hand it to any VM whose sudo
   asks for it: root on one VM can make its sudo ask, and then holds the sudo password of every other tighter
   box. Make it one you use nowhere else.
+- A VM with a [list of repositories of its own](vms.md#repositories) holds the same GitHub login as any other: the list
+  narrows what is cloned onto it, not what `gh` there can reach.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
   does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's

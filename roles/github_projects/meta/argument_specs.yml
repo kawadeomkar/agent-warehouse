@@ -39,6 +39,12 @@ argument_specs:
         type: list
         elements: str
         description: Repository names never cloned, even when github_projects_include names them.
+      github_projects_vm_repos:
+        type: dict
+        description:
+          - This VM's own list of repositories, when it has one - own (true) and names - in place of
+            github_projects_include. A fork or an archived repository named on it is cloned.
+          - Published with the VM from its notes in Proxmox (just deploy --repos), never read from the VM.
       github_projects_clone_protocol:
         type: str
         choices: [https, ssh]

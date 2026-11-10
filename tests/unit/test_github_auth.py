@@ -256,7 +256,7 @@ def _marker(root: Path, host: str) -> Path:
 # The fake GitHub API over bare repositories of its own, which no test here reads anything back from: started again on
 # each xdist worker that runs a test needing one, rather than holding every run of this module to one worker
 # (conftest.py).
-EACH_WORKER = {"fake_github", "fake_github_dotted"}
+EACH_WORKER = {"fake_github", "fake_github_dotted", "fake_github_kinds"}
 
 
 @pytest.fixture(scope="module")
@@ -439,6 +439,66 @@ def test_a_repository_named_with_a_leading_dot_is_never_cloned_and_is_named(tmp_
     assert said.startswith("1 of 3 repositories"), said
     assert "named with a leading dot, which would make a folder of settings there: ['.claude', '.vscode']" in said
     assert sorted(path.name for path in (tmp_path / "dotted" / "projects").iterdir()) == ["pub-one"]
+
+
+def _own_list(tmp_path, api_url, names, token="", **more):
+    """The role on a VM with a list of its own: its report, and what is in its projects folder after."""
+    hosts = _hosts(tmp_path, {"own": {"token": token}}, api_url)
+    hosts["own"].update({"github_projects_vm_repos": {"own": True, "names": names}, **more})
+    (tmp_path / "own" / "projects" / "from-before").mkdir()
+    report = _role_run(tmp_path, hosts)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    return report, sorted(path.name for path in (tmp_path / "own" / "projects").iterdir())
+
+
+def test_a_vm_with_a_list_of_its_own_clones_that_and_removes_nothing(tmp_path, fake_github):
+    report, there = _own_list(tmp_path, fake_github, ["pub-two"])
+    assert there == ["from-before", "pub-two"]
+    assert _messages(report, "Name what of the VM's own list was not found") == {}
+
+
+def test_a_name_github_does_not_list_is_named_and_the_run_goes_on(tmp_path, fake_github):
+    report, there = _own_list(tmp_path, fake_github, ["pub-one", "nosuch"])
+    assert there == ["from-before", "pub-one"]
+    said = _messages(report, "Name what of the VM's own list was not found")["own"]
+    assert said.endswith("nosuch. Private repositories are not listed until gh is signed in."), said
+
+
+def test_a_private_name_waits_for_the_sign_in_and_is_cloned_once_there_is_one(tmp_path, fake_github):
+    report, there = _own_list(tmp_path / "out", fake_github, ["secret"])
+    assert there == ["from-before"] and "secret" in _messages(report, "own list was not found")["own"]
+    report, there = _own_list(tmp_path / "in", fake_github, ["secret"], token=TOKENS["vault"])
+    assert there == ["from-before", "secret"] and _messages(report, "own list was not found") == {}
+
+
+def test_a_list_with_no_name_left_on_it_clones_nothing_rather_than_the_fleet_s(tmp_path, fake_github):
+    assert _own_list(tmp_path, fake_github, [])[1] == ["from-before"]
+
+
+def test_the_exclude_list_wins_over_a_vm_s_own_list(tmp_path, fake_github):
+    there = _own_list(tmp_path, fake_github, ["pub-one", "pub-two"], github_projects_exclude=["pub-two"])[1]
+    assert there == ["from-before", "pub-one"]
+
+
+KINDS = ["pub-one", "forked:fork", "old:archived"]
+
+
+@pytest.fixture(scope="module")
+def fake_github_kinds(tmp_path_factory):
+    """The fake GitHub API listing a fork and an archived repository; yields its base URL."""
+    git_root = tmp_path_factory.mktemp("git_kinds")
+    _bare_repos(git_root, KINDS)
+    yield from _serve(FAKE_API, USERNAME, str(git_root), *KINDS)
+
+
+def test_naming_a_fork_or_an_archived_repository_asks_for_it(tmp_path, fake_github_kinds):
+    assert _own_list(tmp_path, fake_github_kinds, ["forked", "old"])[1] == ["forked", "from-before", "old"]
+
+
+def test_without_a_list_of_its_own_a_vm_still_skips_forks_and_archived_ones(tmp_path, fake_github_kinds):
+    report = _role_run(tmp_path, _hosts(tmp_path, {"fleet": {"token": ""}}, fake_github_kinds))
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert sorted(path.name for path in (tmp_path / "fleet" / "projects").iterdir()) == ["pub-one"]
 
 
 @pytest.mark.parametrize("host", sorted(CASES))

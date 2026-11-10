@@ -47,6 +47,11 @@ proxmox_vm_id: ""
 # on; one that exists is never resized, and refused when it has another.
 proxmox_vm_size: {}
 
+# This run's list of repositories for the VM, from just deploy --repos
+# (provision.yml): a line of its notes in Proxmox, added to what is there, that
+# every later run reads. Empty leaves the notes alone.
+proxmox_vm_repos: []
+
 # Hardware (taken from the vm_* host vars by default; proxmox_vm_size takes
 # their place for a VM this run creates)
 proxmox_vm_cores: "{{ vm_cores | default(2) }}"

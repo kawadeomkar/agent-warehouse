@@ -22,6 +22,22 @@
     - proxmox_vm_size_given | bool
     - not (proxmox_vm_needs_configuration | bool)
 
+# A VM that follows the github_projects setting keeps following it: given a list
+# it would quietly stop receiving the fleet's new repositories. A VM that needs
+# configuring - new, repaired, or one whose run stopped - can be given one.
+- name: present | Refuse a list of repositories for a finished VM that has none
+  ansible.builtin.assert:
+    that: proxmox_vm_found_repos.own
+    fail_msg: >-
+      {{ proxmox_vm_name }} exists and follows the github_projects setting: --repos gives a list to a VM this run
+      creates, or adds to the list a VM has. Add the repository to github_projects, or destroy the VM and deploy it
+      again with --repos.
+    quiet: true
+  when:
+    - proxmox_vm_exists
+    - proxmox_vm_repos | length > 0
+    - not (proxmox_vm_needs_configuration | bool)
+
 - name: present | Clone from template {{ proxmox_vm_template_name }}
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ proxmox_vm_node }}"
@@ -103,6 +119,38 @@
     - proxmox_vm_tags_moving | bool
     - not (proxmox_vm_needs_configuration | bool)
 
+# What the clone was given goes on beside the list: the notes hold the build
+# record. proxmox_vm_info builds its answer from /cluster/resources, which can
+# lag a clone made moments ago and then returns nothing, so retried. Only with a
+# list: a VM without one leaves its notes alone and reads them no sooner.
+- name: present | Read the notes the new VM was cloned with
+  community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
+    type: qemu
+    vmid: "{{ proxmox_vm_resolved_id }}"
+    config: current
+  register: proxmox_vm_clone_read
+  until: proxmox_vm_clone_read.proxmox_vms | default([], true) | length > 0
+  retries: "{{ proxmox_vm_lookup_retries }}"
+  delay: "{{ proxmox_vm_lookup_delay }}"
+  changed_when: false
+  when:
+    - not proxmox_vm_exists
+    - proxmox_vm_repos | length > 0
+
+# A finished VM's list, one call and only when a name is new: every update
+# reports a change. A VM that needs configuring gets it in the settings call.
+- name: present | Add to the VM's own list of repositories
+  community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+    node: "{{ proxmox_vm_found_node }}"
+    vmid: "{{ proxmox_vm_resolved_id }}"
+    name: "{{ proxmox_vm_name }}"
+    update: true
+    description: "{{ proxmox_vm_notes_sent }}"
+  when:
+    - proxmox_vm_exists
+    - not (proxmox_vm_needs_configuration | bool)
+    - proxmox_vm_repos | difference(proxmox_vm_found_repos.names) | length > 0
+
 - name: present | Apply hardware and cloud-init settings
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ proxmox_vm_found_node }}"
@@ -115,6 +163,9 @@
     balloon: "{{ omit if 'memory_mb' in proxmox_vm_kept_size else proxmox_vm_memory_min_sent }}"
     onboot: "{{ proxmox_vm_onboot }}"
     agent: enabled=1
+    # The VM's own list, before the start: a VM started but not finished is
+    # reachable by --only configure, which without it would clone the fleet's.
+    description: "{{ proxmox_vm_notes_sent if proxmox_vm_repos | length > 0 else omit }}"
     # Written with the cloud-init user, in the same call, and removed below
     # once the VM has started - see proxmox_vm_needs_configuration. A VM this
     # run sizes is tagged so only then, once it is finished.

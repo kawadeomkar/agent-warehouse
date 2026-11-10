@@ -27,6 +27,10 @@ github_projects_include_archived: false
 github_projects_include: []
 # Never clone these repository names.
 github_projects_exclude: []
+# This VM's own list, when it has one, in place of github_projects_include:
+# {own: true, names: [...]}. The play that publishes the VM reads it from the
+# VM's notes in Proxmox (just deploy --repos).
+github_projects_vm_repos: {}
 
 # https (works out of the box for public repos) or ssh (needs a key on the VM).
 github_projects_clone_protocol: https

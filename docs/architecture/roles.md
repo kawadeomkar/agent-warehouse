@@ -55,6 +55,7 @@ check and `absent.yml`, both only for a VM that exists.
 | Step | Notes |
 |---|---|
 | Refuse another size | an existing VM given a size it does not have (`proxmox_vm_size_differs`) fails before anything about it changes, but where it needs configuration (`proxmox_vm_force_update`, or a run that stopped): a VM is never resized behind the run's back |
+| Refuse a list, or add to one | `--repos` (`proxmox_vm_repos`) for a finished VM with no list of its own fails before anything changes; a finished VM's list is added to in one call, only when a name is new. A new VM's notes are read after the clone, and the settings call writes the line before the start, since a VM started but unfinished is reachable by `--only configure`, which would otherwise clone the fleet's list |
 | Clone | `throttle: 1` only when Proxmox picks the VMID; a fleet's VMIDs are pre-assigned — see [§9](failure-modes.md) |
 | Assert `clone is changed` | a VMID collision returns `changed=False` and the *template's* VMID |
 | Record VMID | `when: not proxmox_vm_exists` |
@@ -603,7 +604,10 @@ is said by the next task in the module's words, which the module masks (it strip
 the stripped form too). The filters (`exclude`, then `include` if non-empty, repositories with no branch -
 never pushed, or created and given no commit yet - dropped as `empty`, and any whose name starts with a dot, which would be a folder of settings in the projects
 folder whose Claude Code trust Remote Control accepts in advance - `.claude`, `.vscode`) are vars in
-`vars/main.yml`; a private repository is cloned only where git has a
+`vars/main.yml`. A VM with a list of its own (`github_projects_vm_repos`, `just deploy --repos`, published with the VM
+from its notes in Proxmox and never read from the VM) takes it in `include`'s place, asks the listing for forks and
+archived repositories since naming one asks for it, and has a name GitHub does not list said, never failed: a private
+one is listed only once gh is signed in, and the role runs again after the sign-in. A private repository is cloned only where git has a
 credential for it - over SSH always, over HTTPS with gh signed in and git's helper (made here, or by
 hand) - else skipped and named rather than cloned and failed. The clone runs as the user
 under `sudo -H`, so git reads that user's `~/.gitconfig` and the helper reads that user's

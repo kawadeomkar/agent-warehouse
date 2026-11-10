@@ -440,6 +440,8 @@ github_projects_user: "{{ vm_user }}"
 github_projects_username: "{{ github_username }}"
 github_projects_token: "{{ github_token }}"
 github_projects_include: "{{ github_projects }}"
+# A VM's own list, published with it from its notes in Proxmox (discover.yml, provision.yml).
+github_projects_vm_repos: "{{ claude_vm_repos | default({}) }}"
 github_projects_dir: "{{ vm_projects_dir }}"
 github_projects_auth: "{{ github_auth }}"
 github_projects_auth_method: "{{ github_auth_method }}"

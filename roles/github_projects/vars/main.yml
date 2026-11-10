@@ -260,15 +260,29 @@ github_projects_listing_token_set: "{{ github_projects_listing_token | length > 
 github_projects_dotted: >-
   {{ github_projects_listing.repos | map(attribute='name') | select('match', '[.]') | list }}
 
+# A VM's own list, when it has one (just deploy --repos): read from its notes in
+# Proxmox by the play that publishes the VM, never from the VM, whose root could
+# otherwise choose what is cloned onto it. A name is only ever compared with the
+# listing, so it reaches no URL and no path. A list with no valid name left on it
+# is still the VM's list, and clones nothing rather than the fleet's.
+github_projects_own_list: "{{ github_projects_vm_repos.own | default(false) | bool }}"
+github_projects_own_names: "{{ github_projects_vm_repos.names | default([]) }}"
+github_projects_own_missing: >-
+  {{ github_projects_own_names | reject('in', github_projects_listing.repos | map(attribute='name') | list) | list }}
+
 # The repositories after the role's own filters: empty ones out (no branch to
-# check out), the exclude list out, the include list in when there is one.
+# check out), the exclude list out, and in, the VM's own list when it has one,
+# else the include list when there is one.
+github_projects_wanted: >-
+  {{ github_projects_own_names if github_projects_own_list | bool
+     else github_projects_include if github_projects_include
+     else github_projects_listing.repos | map(attribute='name') | list }}
 github_projects_candidates: >-
   {{ github_projects_listing.repos
      | rejectattr('empty')
      | rejectattr('name', 'in', github_projects_dotted)
      | rejectattr('name', 'in', github_projects_exclude)
-     | selectattr('name', 'in', github_projects_include if github_projects_include else
-                                github_projects_listing.repos | map(attribute='name') | list)
+     | selectattr('name', 'in', github_projects_wanted)
      | list }}
 
 # Whether gh is git's credential helper for github.com already, recognised the

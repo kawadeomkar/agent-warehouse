@@ -61,7 +61,8 @@ just mcp
 - `just install` has put the MCP SDK into the environment.
 
 It then runs `claude mcp add --scope user agent-warehouse`, which has Claude Code's own CLI write the server's entry
-into `~/.claude.json`, reads it back with `claude mcp get`, and prints permission rules to paste (below). Sessions
+into `~/.claude.json`, reads it back with `claude mcp get`, and prints permission rules to paste (below); the whole
+command, `PATH` and all, is `--show`'s to print. Sessions
 started from then on have the tools, as `mcp__agent-warehouse__<tool>`; `/mcp` in one shows the server. Every value the
 server needs is an argument of the command it records - this checkout, its environment's Python, `just`, `uv` and the
 `PATH`, `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` of the shell you ran `just mcp` in - never an environment
@@ -120,8 +121,9 @@ the VMs or reaches this machine, and who reaches the VMs stay yours, at a termin
 
 "Use agent-warehouse to make a VM for this project" works from the repository's own folder: the agent reads
 `status` for a VM whose checkouts list it already, and opens that one with `code`; otherwise it names a VM after the
-repository, checks with `settings` that it will be cloned (by default every repository your GitHub account owns),
-`deploy`s it, then opens the repository with `code`.
+repository, `deploy`s it with `repos` set to that repository so that the VM clones it alone
+([Repositories](vms.md#repositories)), then opens it with `code`. `repos` takes your own account's repositories: for
+another owner's, such as an organisation's, the VM comes up with nothing cloned and the run says so.
 
 It may size the new VM - `deploy`'s `cores`, `memory` (MiB, or `16G`) and `disk` (`64G`), as `just deploy alpha --cores 8
 --memory 16G --disk 64G` takes them - after reading `status(only="capacity")`: each node's CPU threads and memory, how much

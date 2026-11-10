@@ -285,6 +285,10 @@ and calls its commands. What that changes:
 - **A value never meets a shell.** Each goes to `just` as one argv word, an option as `--long=value`, and `just` holds
   it to the option's pattern before the recipe's first line, as at a terminal; a word that starts with `-`, which
   `just` would read as an option, is refused before `just` runs.
+- **What an agent can have cloned.** `deploy`'s `repos` puts names on a VM's own list with no dialog, as its size
+  does. A name is only compared with what GitHub lists for `github_username`, so an agent can bring no other owner's
+  repository onto a VM, while changing the fleet's list is a `settings_set`, which asks twice. The list narrows what is
+  cloned, not what the VM can reach: `gh` there holds the same login as on any other VM.
 - **No secret passes through the model.** No tool takes or returns one: there is no tool for the vault, `settings`
   says a secret set or not set, and `status` carries no token by its invariant.
 - **Stdio only.** One server per session, which Claude Code starts and stops; no socket another process or a web page

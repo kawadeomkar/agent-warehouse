@@ -92,6 +92,26 @@ size)
     whole "$disk" 6 || { echo "error: --disk takes G or T, as 64G (got: [$4])" >&2; exit 1; }
   fi
   ;;
+repos)
+  # deploy's --repos: just has held it to its pattern already; this holds the
+  # JSON it goes into, as names does. GitHub repository names, comma-separated:
+  # each starts with a letter, a digit or _ (a dot would make a folder of
+  # settings on the VM) and has at most 100 characters.
+  if [ -n "$2" ]; then
+    said="error: --repos names GitHub repositories, comma-separated: each starts with a letter, a digit or _, and has at most 100 letters, digits, . _ and - (got: [$2])"
+    case ",$2," in
+    *,,* | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._,-]*)
+      echo "$said" >&2
+      exit 1
+      ;;
+    esac
+    test "${#2}" -le 2000 || { echo "error: --repos is longer than the 2000 characters it may be" >&2; exit 1; }
+    for repo in $(printf %s "$2" | tr , ' '); do
+      case "$repo" in [.-]*) echo "$said" >&2; exit 1 ;; esac
+      test "${#repo}" -le 100 || { echo "$said" >&2; exit 1; }
+    done
+  fi
+  ;;
 project)
   # A GitHub repository name: at most 100 ASCII letters, digits, ".", "-" and
   # "_". So nothing outside the projects directory and nothing nested, and not

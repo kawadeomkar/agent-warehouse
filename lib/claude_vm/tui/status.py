@@ -481,7 +481,19 @@ def _work_lines(model):
         row.append(seg(plural(windows, "window") if windows else "—"))
         lines.append(row)
         lines += [[seg(" " * (first + widths[0]) + rest, "y")] for rest in wrapped[1:]]
+        lines += _own_list_lines(vm, work, first + widths[0])
     return lines
+
+
+def _own_list_lines(vm, work, indent):
+    """A VM's own list of repositories, when it has one, and what of it has no checkout: shown, never counted."""
+    own = vm.get("own_repos")
+    if own is None:
+        return []
+    there = {repository.get("name") for repository in work.get("repositories") or []}
+    missing = [name for name in own if name not in there]
+    said = f"its own list: {', '.join(own) or 'empty'}" + (f"; no checkout of {', '.join(missing)}" if missing else "")
+    return [[seg(" " * indent + line, "d")] for line in textwrap.wrap(said, WIDTH - indent - 1, break_on_hyphens=False)]
 
 
 def _footer(model, reading):

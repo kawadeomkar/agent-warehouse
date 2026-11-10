@@ -35,19 +35,28 @@ def copy(tmp_path_factory) -> Path:
     return root
 
 
-def _claude(bin_dir: Path, version: str = "2.1.319", keeps: bool = True) -> Path:
+def _claude(
+    bin_dir: Path, version: str = "2.1.319", keeps: bool = True, add_refused: bool = False, elsewhere: bool = False
+) -> Path:
     """A claude that records each call - its arguments, one per line, and the folder it ran in - and keeps the entry
     `mcp add` gives it until `mcp remove`: `mcp get` finds it (unless keeps is false, an add another session's save
-    lost)."""
+    lost). An add answers as Claude Code's does, with the whole command, or is refused. With elsewhere, an entry in
+    another scope is there from the start: `mcp get` finds it and `mcp remove --scope` does not."""
     record = bin_dir.parent / "claude.args"
     entry = bin_dir.parent / "entry"
     claude = bin_dir / "claude"
+    refused = '[ "$2" != add ] || { echo "the add was refused" >&2; exit 3; }\n' if add_refused else ""
+    remove = "exit 1" if elsewhere else f'rm -f "{entry}"'
+    if elsewhere:
+        entry.write_text("added\n")
     claude.write_text(
         "#!/bin/sh\n"
         f'{{ printf "cwd=%s\\n" "$(pwd -P)"; for arg in "$@"; do printf "%s\\n" "$arg"; done; echo --end--; }}'
         f' >> "{record}"\n'
         f'[ "$1" != --version ] || {{ echo "{version} (Claude Code)"; exit 0; }}\n'
-        f'case "$2" in add) {"echo added > " + str(entry) if keeps else ":"} ;; remove) rm -f "{entry}" ;;'
+        f"{refused}"
+        '[ "$2" != add ] || echo "Added stdio MCP server with command: the whole PATH"\n'
+        f'case "$2" in add) {"echo added > " + str(entry) if keeps else ":"} ;; remove) {remove} ;;'
         f' get) [ -f "{entry}" ] || exit 1 ;; esac\n'
     )
     claude.chmod(0o755)
@@ -152,10 +161,35 @@ def test_a_second_registration_replaces_the_first(tmp_path, copy):
     assert add[-2:] == ["--attended=1", "--any-branch"]
 
 
+def test_a_registration_in_another_scope_stays_and_is_not_said_to_be_replaced(tmp_path, copy):
+    run, _ = _setup(tmp_path, copy, elsewhere=True)
+    project = tmp_path / "project"
+    project.mkdir()
+    result = _mcp(run, f"--project-dir={project}")
+    assert result.returncode == 0, result.stderr
+    assert "in place of" not in result.stdout, result.stdout
+
+
 def test_an_add_another_session_s_save_lost_is_said(tmp_path, copy):
     run, _ = _setup(tmp_path, copy, keeps=False)
     result = _mcp(run)
     assert result.returncode != 0 and "Run just mcp again" in result.stderr
+
+
+def test_claude_code_s_line_with_the_whole_path_is_not_said_when_the_add_works(tmp_path, copy):
+    # It names every directory of the PATH: --show prints the command, for whoever wants it.
+    run, _ = _setup(tmp_path, copy)
+    result = _mcp(run)
+    assert result.returncode == 0, result.stderr
+    assert "the whole PATH" not in result.stdout + result.stderr
+    assert result.stdout.startswith("The agent-warehouse MCP server runs "), result.stdout
+
+
+def test_what_claude_code_says_of_an_add_it_refused_is_said(tmp_path, copy):
+    run, _ = _setup(tmp_path, copy, add_refused=True)
+    result = _mcp(run)
+    assert result.returncode == 1 and "the add was refused" in result.stderr, result.stderr
+    assert "MCP server runs" not in result.stdout
 
 
 @pytest.mark.parametrize("version", ["2.1.308", "1.0.0", "garbage"])
