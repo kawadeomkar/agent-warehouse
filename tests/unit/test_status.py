@@ -58,6 +58,7 @@ PROMISED_KEYS = {
         "alias",
         "api",
         "config",
+        "own_repos",
         "cpu",
         "created",
         "created_ago",

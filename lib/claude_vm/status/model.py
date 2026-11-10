@@ -18,7 +18,7 @@ import re
 import time
 from datetime import UTC, datetime
 
-from ..proxmox import built_template, proxmox_tags, scsi0_storage
+from ..proxmox import built_template, proxmox_notes_repos, proxmox_tags, scsi0_storage
 from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
 from ..text import and_list, one_line, plural
@@ -109,6 +109,16 @@ def _pick(config):
     return {key: config[key] for key in CONFIG_KEYS if isinstance(config, dict) and key in config}
 
 
+def _found(entry, config):
+    """What reading a VM adds to its listing: its address, the config the report keeps, and its own list of
+    repositories, taken from its notes here, since the notes are a person's and stay out of that config."""
+    return {
+        "address": entry.get("address", ""),
+        "config": _pick(config),
+        "own_repos": proxmox_notes_repos(config.get("description")),
+    }
+
+
 def status_fleet(
     listing,
     tagged=None,
@@ -184,9 +194,7 @@ def status_fleet(
             if isinstance(item, dict):
                 read_configs[item.get("vmid")] = _data(result) or {}
     by_vmid = {
-        e.get("vmid"): {"address": e.get("address", ""), "config": _pick(read_configs.get(e.get("vmid")) or {})}
-        for e in addressed or []
-        if isinstance(e, dict)
+        e.get("vmid"): _found(e, read_configs.get(e.get("vmid")) or {}) for e in addressed or [] if isinstance(e, dict)
     }
     counts = {}
     for entry in requested:
@@ -240,6 +248,7 @@ def status_fleet(
                     {f"{t}-unfinished" for t in owned} & {t.lower() for t in proxmox_tags(entry.get("tags"))}
                 ),
                 "config": config,
+                "own_repos": found["own_repos"]["names"] if found.get("own_repos", {}).get("own") else None,
                 "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
                 # Read in play 2, by name: a VM that is not can only be shown from the listing.
                 "read": reason == "",
@@ -1007,6 +1016,7 @@ def status_report(found, read_at="", now=None, live=False):
                 "address": "",
                 "inventory": True,
                 "config": {},
+                "own_repos": None,
                 "created_ago": "",
                 "pending_api": False,
                 "alias": None,

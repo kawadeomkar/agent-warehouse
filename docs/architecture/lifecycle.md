@@ -478,7 +478,8 @@ which prints the report under `--json`, removes it and exits with its code. `--o
 alone and never open SSH. Capacity is each node's CPU threads and memory from `/cluster/resources?type=node`, which
 Proxmox fills in only for a token with `Sys.Audit` on the node, beside what the VMs listed on it hold, running and
 stopped (`status_capacity`); without the privilege, the node's `grant` says how to give it to the token's user
-(`proxmox_api_user`), on the node: the lines the section prints, and an agent reads in `--json`.
+(`proxmox_api_user`), on the node: the lines the section prints, and an agent reads in `--json`. A VM's own list of
+repositories is read from its notes (`own_repos`), which the report does not otherwise keep, since they are a person's.
 
 ## 4.7 `deploy.yml`
 

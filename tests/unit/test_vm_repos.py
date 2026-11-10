@@ -15,10 +15,12 @@ from pathlib import Path
 import pytest
 from harness import _failures, _pve, _results, fake_fleet
 from test_justfile import REPO, _just, _output, _playbook, _recording
+from test_status import _status_run
 from test_vm_names import FROM_THE_HOST, PLAYBOOKS
 from test_vm_names import _playbook as _run_playbook
 
 from claude_vm import proxmox
+from claude_vm.tui.status import WIDTH, status_text
 
 CHECK = REPO / "tools" / "check"
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse test"
@@ -235,3 +237,47 @@ def test_discovery_publishes_a_vm_with_the_list_in_its_notes(tmp_path: Path, fle
     task = "Add the reachable ones to the inventory"
     assert _published(report, task, "listed") == {"own": True, "names": ["one"]}
     assert _published(report, task, "plain") == {}
+
+
+# ------------------------------------------------------------------------- the report ---
+def test_just_status_says_a_vm_s_own_list_and_keeps_its_notes_out_of_the_report(tmp_path: Path, fleet: str) -> None:
+    assert _provision(tmp_path, fleet, "listed", ["one", "two"])["rc"] == 0
+    assert _provision(tmp_path, fleet, "plain")["rc"] == 0
+    listed = next(vm for vm in _pve(fleet, "GET", "cluster/resources")["data"] if vm.get("name") == "listed")
+    path = f"nodes/{listed['node']}/qemu/{listed['vmid']}/config"
+    notes = _pve(fleet, "GET", path)["data"]["description"]
+    _pve(fleet, "PUT", path, description=f"{notes}\na person's private note")
+    report, model = _status_run(tmp_path / "status", fleet, "-e", json.dumps({"status_only": "vms"}))
+    assert report["rc"] in (0, 1, 2), report["stderr"][-2000:]
+    by = {vm["name"]: vm for vm in model["vms"]}
+    assert by["listed"]["own_repos"] == ["one", "two"] and by["plain"]["own_repos"] is None
+    assert "private note" not in json.dumps(model)
+
+
+def _work_report(own: list[str] | None, there: list[str]) -> str:
+    work = {"dir": "~/projects", "checkouts": len(there), "repositories": [{"name": name} for name in there]}
+    vm = {"name": "alpha", "needs_ssh": True, "own_repos": own, "ssh": {"work": work}}
+    return status_text(
+        {
+            "title": "agent-warehouse",
+            "proxmox": {"nodes": ["pve"]},
+            "settings": {},
+            "vms": [vm],
+            "sections": ["work"],
+            "attention": [],
+            "counts": {"problem": 0, "unread": 0, "todo": 0},
+            "exit": 0,
+        }
+    )
+
+
+def test_the_work_section_says_a_vm_s_list_and_what_of_it_has_no_checkout() -> None:
+    assert "its own list: one, two; no checkout of two" in _work_report(["one", "two"], ["one"])
+    assert "its own list: one\n" in _work_report(["one"], ["one", "older"]) + "\n"
+    assert "its own list" not in _work_report(None, ["one"])
+
+
+def test_a_long_list_wraps_inside_the_report() -> None:
+    text = _work_report([f"repository-{n}" for n in range(40)], [])
+    assert all(len(line) <= WIDTH for line in text.splitlines()), text
+    assert "repository-39" in text

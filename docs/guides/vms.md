@@ -150,7 +150,7 @@ in as each value is read; piped, or in `just logs`, only the finished report app
   extra worktrees, and what of each is on no remote or not committed - commits on branches no remote has,
   commits on a detached HEAD, stashes, changes in a worktree - as of each checkout's last fetch, with the
   claude processes and every editor's windows open. It is shown, never counted: a branch kept local is often on
-  purpose.
+  purpose. A VM with a [list of its own](#repositories) shows the list here, and what on it has no checkout yet.
 - **ATTENTION** - what needs you, most pressing first, each with the command that deals with it: what
   could not be read (Proxmox did not answer or refused the token, a name that matches no VM, a node that
   is down, a running VM whose agent gives no address, a VM that did not answer SSH or whose host key this
