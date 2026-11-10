@@ -156,7 +156,7 @@ def lock_holder(checkout: Path) -> str:
         return ""
     if not (pid.isdigit() and since and started(int(pid)) == since):
         return ""
-    return f"just {title} is running (pid {pid}, started {since}{f', MCP job {job}' if job else ''})"
+    return f"just {title} is running (pid {pid}, started {since} UTC{f', MCP job {job}' if job else ''})"
 
 
 def default_signals() -> None:

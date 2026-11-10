@@ -304,7 +304,8 @@ and calls its commands. What that changes:
   prompt is the gate and the code keeps a generic hook from passing it. `just destroy --confirm` answers the question
   only for the VMs it names. `settings_set` writes only an allow list's settings - never where a credential is sent,
   what runs on every VM, what reaches this machine, or who reaches the VMs; a deny list drawn from the examples had
-  missed the URLs the vault's tokens go to.
+  missed the URLs the vault's tokens go to. Claude Code's version is `stable`, `latest` or a version: npm installs any
+  spec given as one, another package among them, as root.
 - **What an agent may start.** In auto mode, without an `ask` rule, Claude Code's classifier alone decides whether an
   agent deploys, signs in or opens a VM (verified), so `just mcp` prints `ask` rules for `deploy`, `login`, `code` and
   `cancel`, and for `Bash(just destroy:*)` and `Bash(just settings:*)`: an agent with Bash in another project could

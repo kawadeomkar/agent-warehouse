@@ -608,7 +608,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       answer: a mid-call request fails on 2026-07-28) wanting a code with the names, since a project's `Elicitation`
       hook can answer a dialog; the body that starts `just destroy --confirm=<names>` or `just settings --value` runs
       only with that answer in hand. `settings_set` writes only `ALLOWED`'s settings, and `REFUSED` names every other
-      one of `local.yml.example`: `test_mcp_confirm.py` fails on a setting in neither. `init` never takes
+      one of `local.yml.example`: `test_mcp_confirm.py` fails on a setting in neither. Where a type lets more through,
+      `VALUES` holds the value: `claude_code_version` is `stable`, `latest` or a version, since npm installs any spec
+      given as a version - another package, a repository - as root on every VM. `init` never takes
       `--token-secret-file`.
     - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
       within 3 s to the older protocol for 7 days.

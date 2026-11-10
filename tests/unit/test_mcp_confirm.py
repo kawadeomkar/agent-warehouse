@@ -191,9 +191,11 @@ def test_a_held_lock_is_said_before_anything_is_asked(world):
     holder = subprocess.Popen(["sleep", "60"])
     lock = world["checkout"] / ".cache" / "run.lock"
     try:
-        since = subprocess.run(["ps", "-o", "lstart=", "-p", str(holder.pid)], capture_output=True, text=True).stdout
+        # Taken as a terminal's run takes it, by tools/check in another zone than the server's: on macOS ps pads the
+        # start it writes, which the server once read stripped, and never matched.
         lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.write_text(f"{holder.pid}\n{since.strip()}\ndeploy beta\n\n")
+        check = [str(world["checkout"] / "tools" / "check"), "lock", str(lock), str(holder.pid), "deploy beta"]
+        subprocess.run(check, env={**os.environ, "TZ": "XYZ-5:30"}, check=True)
         _, asked, (result,) = _talk(world, [("destroy", {"names": ["alpha"]})], lambda m: ("accept", {}))
     finally:
         holder.kill()
@@ -215,6 +217,19 @@ def test_settings_set_changes_an_allowed_setting_once_confirmed_and_never_anothe
         _, asked, (result,) = _talk(world, [("settings_set", {"name": name, "value": "x"})], accept)
         assert result.is_error and asked == [] and f"just settings {name} --value=" in _text(result)
     assert _ran(world, "settings") == []
+
+
+def test_claude_code_s_version_is_a_version_and_never_another_package(world):
+    _clear(world)
+    accept = lambda m: ("accept", {"confirm": _typed(m)})  # noqa: E731
+    for value in ("npm:other-package", "github:someone/pkg", "https://example.com/pkg.tgz", "2.1.319 || x"):
+        _, asked, (result,) = _talk(world, [("settings_set", {"name": "claude_code_version", "value": value})], accept)
+        assert result.is_error and asked == [] and "a package npm installs as root" in _text(result)
+        assert value not in _text(result)
+    assert _ran(world, "settings") == []
+    for value in ("stable", "latest", "2.1.319"):
+        assert confirm.value_refusal("claude_code_version", value) == "", value
+    assert confirm.value_refusal("vm_cores", "4") == "" and confirm.value_refusal("claude_code_version", "") == ""
 
 
 def test_init_is_claude_code_s_alone_and_never_takes_a_secret(world):

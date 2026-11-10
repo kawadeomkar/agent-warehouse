@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 import secrets
 
 from claude_vm.status.model import work_said
@@ -186,6 +187,17 @@ REFUSED = frozenset(
 )
 
 
+# What an allowed setting's value may be where its type lets more through: with npm as the install method,
+# claude_code_version is the package's version for npm, which installs any spec given there - another package
+# (npm:<name>), a repository, a tarball's address - as root on every VM.
+VALUES = {
+    "claude_code_version": (
+        re.compile(r"stable|latest|[0-9]+\.[0-9]+\.[0-9]+"),
+        "stable, latest or a version as 2.1.319",
+    ),
+}
+
+
 def setting_refusal(name: str) -> str:
     if name in ALLOWED:
         return ""
@@ -193,4 +205,16 @@ def setting_refusal(name: str) -> str:
         f"{name} is not a setting an agent may change: where credentials go, what runs on the VMs or reaches this "
         f"machine, and who reaches the VMs stay the user's. Ask the user to run it at a terminal: "
         f"just settings {name} --value=<value>"
+    )
+
+
+def value_refusal(name: str, value: str) -> str:
+    """Why value is not one an agent may give the setting, or nothing - never the value said back, which may be a
+    secret typed in the wrong place."""
+    pattern, said = VALUES.get(name, (None, ""))
+    if not value or pattern is None or pattern.fullmatch(value):
+        return ""
+    return (
+        f"{name} takes {said} from an agent: any other value is a package npm installs as root on every VM. Ask the "
+        f"user to run it at a terminal: just settings {name} --value=<value>"
     )

@@ -1147,8 +1147,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   held run lock before it asks anything. `settings_set` changes only the settings on `ALLOWED`; `REFUSED` names every
   other setting of `local.yml.example`, so a new one is a decision, and a role variable in no example is refused
   too - an agent steered by what it read must not move `github_projects_api_url`, which the vault's token is sent
-  to, or `claude_code_installer_url`, which every VM runs as root. What `tools/settings` refuses still applies under
-  it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
+  to, or `claude_code_installer_url`, which every VM runs as root. Where a setting's type lets more through, `VALUES`
+  holds its value: `claude_code_version` is `stable`, `latest` or a version, since with npm as the install method it
+  is the version npm installs, and npm takes any spec there - another package, a repository - as root on every VM.
+  What `tools/settings` refuses still applies under it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
   the token, any file this user can read among them.
 - **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
   protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout

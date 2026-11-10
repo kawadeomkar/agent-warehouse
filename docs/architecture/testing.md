@@ -384,7 +384,8 @@ pytest over `tests/unit/`, file by file:
 - **The MCP server's confirmations** (`test_mcp_confirm.py`): every gated tool carries the prompt; `destroy` runs with
   `--confirm` only for the code and the names its dialog showed, with each VM's lines in it, and nothing for a decline,
   a cancel, a generic hook's answer, other words, another client, or a held lock; `settings_set` writes an allowed
-  setting once confirmed and asks nothing for another; every setting of the example allowed or refused.
+  setting once confirmed and asks nothing for another, nor for Claude Code's version as another package; every
+  setting of the example allowed or refused; the held lock taken as a terminal takes it, in another zone.
 - **The MCP server** (`test_mcp_tools.py`, `test_mcp_server.py`, `test_mcp_register.py`): every recipe and option a
   tool's or left out for a reason, each schema valid and anchored as `just` matches, every `env()` setting given on
   `just`'s command line at its default; the server driven over stdio by the SDK's client against a copy of the

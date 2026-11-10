@@ -462,7 +462,11 @@ def tools(server: Server) -> list[Tool]:
         """Before the person is asked: the client, the allow list, the value, then what the setting is now."""
         server.check(vault=True)
         terminal = f"just settings {name} --value=<value>"
-        refusal = client_refusal(ctx, "settings_set", terminal) or confirm.setting_refusal(name)
+        refusal = (
+            client_refusal(ctx, "settings_set", terminal)
+            or confirm.setting_refusal(name)
+            or confirm.value_refusal(name, value)
+        )
         if refusal:
             raise ToolError(refusal)
         if bool(value) == bool(reset):

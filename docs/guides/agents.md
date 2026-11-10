@@ -112,8 +112,9 @@ an agent that reaches for Bash to run `just destroy` or `just settings` in this 
 `init` and `install` show the prompt alone. All four run only for Claude Code 2.1.309 or later, the one client whose
 prompt was seen; another client is told the command to run at a terminal. `settings_set` changes only the VMs' size,
 the default VM's name, the editor, which repositories are cloned, a run's switches, the sign-ins' timing and starts, and
-the VMs' tools: where a credential goes, what runs on the VMs or reaches this machine, and who reaches the VMs stay
-yours, at a terminal (`just settings <name> --value <value>`).
+the VMs' tools - Claude Code's version only as `stable`, `latest` or a version: where a credential goes, what runs on
+the VMs or reaches this machine, and who reaches the VMs stay yours, at a terminal
+(`just settings <name> --value <value>`).
 
 ## A VM for a repository
 
