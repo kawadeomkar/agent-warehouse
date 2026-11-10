@@ -201,6 +201,25 @@ def test_a_remembered_pid_is_signalled_only_while_the_process_of_that_start_is_a
         bystander.wait()
 
 
+def test_what_a_root_long_gone_left_is_ended_by_its_starts_and_never_by_its_pid(tmp_path):
+    # An MCP job's stop ends its tree 30 s after the SIGINT, by when the run may have ended and its pid be another
+    # process's: only what was remembered, each still the process of its start, is ended - the orphaned grandchild, and
+    # never a bystander at a pid remembered with another start.
+    child, grandchild = _child_and_grandchild(tmp_path)
+    remembered = processes.snapshot(child.pid)
+    os.killpg(child.pid, signal.SIGKILL)
+    child.wait()
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], process_group=0)
+    try:
+        remembered[bystander.pid] = "Thu Jan  1 00:00:00 1970"
+        assert processes.end_left(remembered) == [grandchild]
+        _until(lambda: not _alive(grandchild), "the orphaned grandchild gone")
+        assert bystander.poll() is None
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
 LEAVES = (  # a child that starts a grandchild in its own group and exits, leaving it there
     "import os, subprocess, sys\n"
     "kept = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"

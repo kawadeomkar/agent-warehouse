@@ -387,7 +387,9 @@ it, or a reload - a page about the VM opens beside the Claude terminal, as a ren
   address, and the SSH alias.
 - **Reach this VM**, **Start here**, **From your machine** (each `just` command with this VM's name,
   and `--editor` on the `just code` lines after a run whose `--editor` was not the `editor` setting's, so they
-  reopen the window of the editor that run used), and **When something is off**.
+  reopen the window of the editor that run used), **Written on your machine** (everything the project writes on
+  your machine outside its checkout, what writes it and what takes it out:
+  [On the controller](../architecture/security-model.md#on-the-controller)), and **When something is off**.
 
 `just code` writes it as `alpha-session.md` in `~/projects/.agent-warehouse/session/` (0600, in a
 0700 directory: it names the accounts signed in there), never in a repository. The window's

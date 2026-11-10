@@ -21,13 +21,16 @@ from harness import REPO, _pve_cli, _pve_cli_calls, _pve_cli_state, _pve_cli_wri
 SCRIPT = REPO / "tools" / "proxmox-access.sh"
 SECRET = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 CHECKED = yaml.safe_load((REPO / "playbooks" / "init_check.yml").read_text())[0]["vars"]["init_token_privileges"]
-ROLE = [*CHECKED["vms"], "VM.GuestAgent.Audit", *CHECKED["storage"], *CHECKED["bridge"]]
+# And Sys.Audit, read only, on the node: its CPU threads and memory for just status's capacity, which init_check.yml
+# does not require.
+ROLE = [*CHECKED["vms"], "VM.GuestAgent.Audit", *CHECKED["storage"], *CHECKED["bridge"], "Sys.Audit"]
 PLAN = [
     f"pveum role add AnsibleVM --privs {','.join(ROLE)}",
     "pveum user add ansible@pve --comment agent-warehouse",
     "pveum acl modify /vms --users ansible@pve --roles AnsibleVM",
     "pveum acl modify /storage/local-lvm --users ansible@pve --roles AnsibleVM",
     "pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM",
+    "pveum acl modify /nodes/pve --users ansible@pve --roles AnsibleVM",
     "pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse",
 ]
 
@@ -66,6 +69,7 @@ def test_a_fresh_host_gets_the_role_user_grants_and_token_and_the_secret_alone_o
     assert state["roles"]["AnsibleVM"] == ROLE
     assert state["users"]["ansible@pve"] == {"comment": "agent-warehouse"}
     assert _acls(tmp_path) == [
+        ("/nodes/pve", "ansible@pve", "AnsibleVM", 1),
         ("/sdn/zones/localnetwork/vmbr0", "ansible@pve", "AnsibleVM", 1),
         ("/storage/local-lvm", "ansible@pve", "AnsibleVM", 1),
         ("/vms", "ansible@pve", "AnsibleVM", 1),
@@ -183,7 +187,7 @@ def test_a_grant_that_does_not_propagate_from_above_is_no_grant(tmp_path: Path) 
     }
     result = _access(tmp_path, state=state)
     assert result.returncode == 0, result.stderr
-    assert len([write for write in _writes(tmp_path) if write.startswith("pveum acl")]) == 3
+    assert len([write for write in _writes(tmp_path) if write.startswith("pveum acl")]) == 4
 
 
 def test_a_grant_on_vms_that_does_not_propagate_is_named_and_left(tmp_path: Path) -> None:
@@ -199,7 +203,8 @@ def test_a_grant_on_vms_that_does_not_propagate_is_named_and_left(tmp_path: Path
     assert "ansible@pve holds VM.Allocate," in result.stderr and "on /vms but not on the VMs under it" in result.stderr
     assert "pveum acl modify /vms --users ansible@pve --roles AnsibleVM --propagate 1" in result.stderr
     grants = [write for write in _writes(tmp_path) if write.startswith("pveum acl")]
-    assert [grant.split()[3] for grant in grants] == ["/storage/local-lvm", "/sdn/zones/localnetwork/vmbr0"]
+    granted = [grant.split()[3] for grant in grants]
+    assert granted == ["/storage/local-lvm", "/sdn/zones/localnetwork/vmbr0", "/nodes/pve"]
     assert ("/vms", "ansible@pve", "AnsibleVM", 0) in _acls(tmp_path)
 
 

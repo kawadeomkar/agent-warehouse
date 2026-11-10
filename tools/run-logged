@@ -42,6 +42,8 @@ if [ -n "${ANSIBLE_LOG_PATH:-}" ]; then
   fi
   # Said once a run: the second command of a run finds the file the first made.
   # On stderr: stdout is the run's own, which just status --json prints JSON on.
-  test -e "$ANSIBLE_LOG_PATH" || echo "Logging this run to $ANSIBLE_LOG_PATH" >&2
+  # Not under that --json (STATUS_QUIET): whatever reads its report reads stderr
+  # for what the run warned of, which this is not.
+  test -e "$ANSIBLE_LOG_PATH" || [ -n "${STATUS_QUIET:-}" ] || echo "Logging this run to $ANSIBLE_LOG_PATH" >&2
 fi
 exec "$@"

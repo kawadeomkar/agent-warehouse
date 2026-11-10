@@ -19,13 +19,14 @@ import time
 from datetime import UTC, datetime
 
 from ..proxmox import built_template, proxmox_tags, scsi0_storage
+from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
 from ..text import and_list, one_line, plural
 
 # The report's sections, in the order they are drawn: vms and storage read only the API, the rest the VMs over SSH
 # too - access for the tailnet column, sign-ins for the roles' reads, system for vm_status_info, work for the
 # checkouts (git_checkouts_info's work).
-SECTIONS = ("vms", "storage", "access", "sign-ins", "system", "work")
+SECTIONS = ("vms", "storage", "capacity", "access", "sign-ins", "system", "work")
 SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
 # A field a VM supplies is cut to this; a role's whole line, which carries a command, to the longer.
 FIELD_LIMIT = 120
@@ -33,7 +34,8 @@ LINE_LIMIT = 400
 LINE_KEYS = frozenset({"line"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
-# The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out.
+# The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
+# tags say whether the VM is sized, whose size proxmox_vm's settings_drift then calls no drift.
 CONFIG_KEYS = (
     "cores",
     "sockets",
@@ -48,6 +50,7 @@ CONFIG_KEYS = (
     "scsi0",
     "meta",
     "lock",
+    "tags",
 )
 
 
@@ -143,6 +146,7 @@ def status_fleet(
     read = {r["item"]: _data(r) for r in lists or [] if isinstance(r, dict) and isinstance(r.get("item"), str)}
     version = read.get("version") if isinstance(read.get("version"), dict) else {}
     storages = read.get("cluster/resources?type=storage") or []
+    nodes = read.get("cluster/resources?type=node") or []
     contents = {
         f"{r['item'].get('node')}/{r['item'].get('storage')}": _data(r) or []
         for r in contents or []
@@ -282,9 +286,56 @@ def status_fleet(
             "nodes": sorted({e.get("node") for e in others if e.get("node")}),
         },
         "storages": shown,
+        "capacity": status_capacity(
+            nodes,
+            [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
+            settings.get("api_user") or "",
+        ),
         "template": template if template else {"name": template_name, "missing": True},
         "aliases": aliases,
     }
+
+
+def status_capacity(nodes, entries, user=""):
+    """Each node's CPU threads and memory beside what the guests on it hold - every VM and container, this project's and
+    others' - for
+    the size of the next one: how much memory is in use now and free, and how much the running VMs could take of it
+    (``unallocated``, which ballooning and an idle guest can leave above what is free). A node's figures are read only
+    with Sys.Audit; without it Proxmox lists the node alone, ``read`` is false, and ``grant`` says how to give it to
+    ``user``, the API token's: the lines the report prints, and an agent reads in the JSON."""
+    shown = []
+    for node in sorted((n for n in nodes or [] if isinstance(n, dict) and n.get("node")), key=lambda n: n["node"]):
+        on = [e for e in entries if e.get("node") == node["node"] and not e.get("template")]
+        held = {
+            state: {
+                "vms": sum(1 for e in vms if e.get("type", "qemu") == "qemu"),
+                "containers": sum(1 for e in vms if e.get("type") == "lxc"),
+                "vcpus": sum(int(e.get("maxcpu") or 0) for e in vms),
+                "memory": sum(int(e.get("maxmem") or 0) for e in vms),
+            }
+            for state, vms in (
+                ("running", [e for e in on if e.get("status") == "running"]),
+                ("stopped", [e for e in on if e.get("status") != "running"]),
+            )
+        }
+        threads, memory, used = node.get("maxcpu"), node.get("maxmem"), node.get("mem")
+        read = all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (threads, memory, used))
+        shown.append(
+            {
+                "node": node["node"],
+                "status": node.get("status", ""),
+                "read": read,
+                "threads": int(threads) if read else None,
+                "cpu": node.get("cpu") if read else None,
+                "memory": int(memory) if read else None,
+                "memory_used": int(used) if read else None,
+                "memory_free": int(memory) - int(used) if read else None,
+                "unallocated": int(memory) - held["running"]["memory"] if read else None,
+                **held,
+                "grant": [] if read or node.get("status", "") not in ("online", "") else grant(node["node"], user),
+            }
+        )
+    return shown
 
 
 def status_storages(lists, storage):
@@ -1012,6 +1063,7 @@ def status_report(found, read_at="", now=None, live=False):
         "vms": vms,
         "others": fleet.get("others") or {},
         "storages": fleet.get("storages") or [],
+        "capacity": fleet.get("capacity") or [],
         "template": template,
         "attention": items,
         "counts": counts,

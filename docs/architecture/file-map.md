@@ -27,6 +27,7 @@ tools/live                        a recipe's command drawn as a part of one run,
                                   from the recipe's trap (§7.8)
 tools/status-exit                 just status's last step: the report's exit code, the report under --json, then no report
 tools/settings                    just settings: each setting's value and where it was set, from Ansible's own variables (§7.9)
+tools/mcp                         the MCP server just mcp registers with Claude Code: its tools the recipes (§7.12)
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/molecule-lanes              just test molecule --jobs 4: the scenarios that many at a time, each in a log of its own
@@ -78,6 +79,8 @@ playbooks/
                                   are (read, never written)
   vars/sign_in.yml                the rules the three sign-in plays share, written once: names given, one VM at a
                                   time, whether GitHub's and Tailscale's start or ask, a sign-in held back or left unasked
+  vars/controller_writes.yml      what the project writes on this machine outside the checkout: the one list the
+                                  session notes show and the security model renders
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
   tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the
@@ -155,6 +158,14 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  mcp/, tools/mcp's server: config.py, its registered arguments; recipes.py, the
+                                  tools' schemas from just --dump and a call's argv; environment.py, a run's
+                                  environment from an allow list; checkout.py, the head, the branch guard, the
+                                  change notice; results.py, what the model reads; jobs.py, a run as a job that
+                                  outlives the call, under .cache/mcp/jobs/; runs.py, a call following its job, its
+                                  early return at a browser block; cancels.py, a cancellation's reason, from the
+                                  server's stdin; confirm.py, the confirmations' dialogs and code, and the settings
+                                  an agent may change; server.py, the tools (§7.12)
                                   catalogue.py, what the choices a checkout makes once share - the editor, the
                                   VPN: each a setting naming a row of a list of the defaults (§7.11)
                                   editors/: model.py, the editors' records; family.py, the seam; common.py, what

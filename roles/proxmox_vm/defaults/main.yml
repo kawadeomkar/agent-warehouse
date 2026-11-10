@@ -41,7 +41,14 @@ proxmox_vm_known_hosts_kept: []
 proxmox_vm_name: "{{ inventory_hostname }}"
 proxmox_vm_id: ""
 
-# Hardware (taken from the vm_* host vars by default)
+# This run's size for a VM it creates, each part optional: {cores, memory_mb,
+# disk}, from the sizes just deploy takes (provision.yml). A VM
+# created with one is tagged proxmox_vm_sized_tag, its size its own from then
+# on; one that exists is never resized, and refused when it has another.
+proxmox_vm_size: {}
+
+# Hardware (taken from the vm_* host vars by default; proxmox_vm_size takes
+# their place for a VM this run creates)
 proxmox_vm_cores: "{{ vm_cores | default(2) }}"
 proxmox_vm_memory_mb: "{{ vm_memory_mb | default(4096) }}"
 # The least memory the host may leave the VM (Proxmox's minimum memory, the

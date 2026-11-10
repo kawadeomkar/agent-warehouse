@@ -9,8 +9,9 @@
 #
 # How every recipe runs (docs/architecture/decisions.md §15.3): a bash script
 # with no dependencies. Its first lines refuse a run started in another
-# checkout (tools/check checkout), then check its own arguments, then what it
-# needs - the environment (tools/env-run --bin), the vault, the collections,
+# checkout (tools/check checkout), then check its own arguments - and, for a
+# recipe that changes something, take the run lock (tools/check lock) - then
+# what it needs - the environment (tools/env-run --bin), the vault, the collections,
 # and where it reads the settings no name 1.0 renamed (tools/check settings) -
 # and only then does it work, its last command exec'd - but in a recipe drawn
 # in parts (lint, init, test), whose trap must still run to say the run's end
@@ -85,6 +86,14 @@ INIT_FILES := 'inventory/hosts.yml inventory/group_vars/all/local.yml ' + VAULT_
 # tools/git-hook, which the unit tests point into a folder of their own. Empty
 # is git's own place for it, the hooks folder every worktree of a clone shares.
 GIT_HOOK := ''
+# From the command line only, as BIN: someone is at this machine's screen, with no terminal - an agent's run, which
+# tools/mcp starts. 1: the sign-ins run and open their pages here, and nothing asks a question (no_tty_args). Empty,
+# a run with no terminal is taken for one nobody watches.
+ATTENDED := ''
+# One run that changes something at a time, from a terminal or an agent (tools/check lock): two deploys could take one
+# VM ID, and runs share the managed SSH config. From the command line only, as BIN; RUN_LOCK= takes none, as LOG_DIR=
+# keeps no log.
+RUN_LOCK := justfile_directory() / '.cache' / 'run.lock'
 
 # One run, one moment: every log of the run is named after it.
 stamp := datetime('%Y%m%d-%H%M%S')
@@ -96,7 +105,7 @@ live_run := ''
 # recipe that includes another's work (test lints, init installs) runs it by.
 # A recursive just would otherwise start without the command line's BIN= and
 # the rest; tests/unit/test_justfile.py holds this to every setting above.
-self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
+self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' ATTENDED=' + quote(ATTENDED) + ' RUN_LOCK=' + quote(RUN_LOCK) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
 # The first line of every recipe but help.
 guard := quote(justfile_directory() / 'tools/check') + ' checkout ' + quote(invocation_directory())
 # The names given ("$@"), joined with commas into $names. A VM name with an underscore, which Proxmox refuses in a
@@ -135,8 +144,15 @@ vm_args := vault_args + '; [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$n
 # back at once with nothing, which is Enter, so the VM is left and said instead
 # (claude_vm_login_terminal, in github_login.yml and tailscale_login.yml). Any
 # of the three given in ANSIBLE_ARGS still wins: it comes later on the command
-# line.
-no_tty_args := '[ -t 0 ] || set -- "$@" -e ' + quote('{"login_desktop":false,"deploy_sign_in":false,"claude_vm_login_terminal":false}')
+# line. With ATTENDED=1 someone is at the screen with no terminal: the pages
+# open and deploy signs in, and only the asking stays off.
+no_tty_args := '[ -t 0 ] || if [ ' + quote(ATTENDED) + ' = 1 ]; then set -- "$@" -e ' + quote('{"claude_vm_login_terminal":false}') + '; else set -- "$@" -e ' + quote('{"login_desktop":false,"deploy_sign_in":false,"claude_vm_login_terminal":false}') + '; fi'
+# The run lock (RUN_LOCK), taken by a recipe that changes something as the
+# first line after its rules, with its run's title: a record of the recipe's
+# script - its pid, which the script keeps as it execs into the run, and that
+# process's start - never an fd lock, which ssh's ControlPersist masters and an
+# editor a run starts would inherit and hold.
+take_lock := 'tools/check lock ' + quote(RUN_LOCK) + ' "$$"'
 
 # deploy's stages, which deploy asks about when one is given as a VM name
 # (below). A recipe's name is a VM name there like any other: deploy takes
@@ -245,6 +261,7 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     # false otherwise, so a run with no terminal, or the playbook run by hand,
     # asks nothing and writes only what was given.
     [ "$prompt" = no ] || ! [ -t 0 ] || set -- -e '{"init_ask":true}' "$@"
+    {{ take_lock }} init
     {{ self }} install
     {{ find_bin }}
     # The git hook names no environment (tools/git-hook), so each worktree commits through its own: pre-commit install
@@ -326,6 +343,7 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
 install LOCK='':
     {{ guard }}
     if [ -n "$1" ]; then UV_PYTHON_DOWNLOADS=never exec {{ quote(UV) }} lock; fi
+    {{ take_lock }} install
     # The checkout's folder had another name through 1.x: moved once, its collections kept. An environment in it is
     # made again, since uv wrote the folder's old path into each of its commands.
     data=$(tools/env-run --data)
@@ -398,10 +416,19 @@ vault:
 #
 # A name that is a stage is asked about first: just deploy configure could
 # mean either. just deploy test is the VM test.
+#
+# --cores, --memory and --disk size each VM this run creates in place of the
+# vm_cores, vm_memory_mb and vm_disk_size settings, and tag it as sized: its
+# size is its own from then on (roles/proxmox_vm). A VM that exists is never
+# resized; one given another size is refused. Memory is MiB, or with a suffix
+# M or G; disk G or T.
 [arg('START', long='start', value='true', help='Start a VM this run would leave stopped (proxmox_vm_start_existing)')]
 [arg('CHECK', long='check', value='check', help='Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config')]
+[arg('CORES', long='cores', pattern='([1-9][0-9]{0,2})?', help="Each new VM's vCPU cores, in place of the vm_cores setting")]
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
+[arg('DISK', long='disk', pattern='([1-9][0-9]{0,5}[GT])?', help="Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting")]
+[arg('MEMORY', long='memory', pattern='([1-9][0-9]{0,6}[MG]?)?', help="Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting")]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [continue]
 [doc('Create, configure and sign in the VM(s), then open them in your editor')]
@@ -409,11 +436,12 @@ vault:
 [no-exit-message]
 [positional-arguments]
 [script]
-deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
+deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' *NAMES:
     {{ guard }}
-    stage=$1 check=$2 roles=$3 start=$4
-    shift 4
+    stage=$1 check=$2 roles=$3 start=$4 cores=$5 memory=$6 disk=$7
+    shift 7
     tools/check names "$@"
+    tools/check size "$cores" "$memory" "$disk"
     {{ hyphenate_names }}
     # A stage typed where the names go, by habit from just test unit, would
     # create a VM so named: at a terminal deploy asks which was meant, and
@@ -433,7 +461,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
       *,*) meant='' as_vm='VMs so named, each' what='are stages of just deploy and also names VMs could have' ;;
       *) meant=$hint as_vm="a VM named $word," what='is a stage of just deploy and also a name a VM could have' ;;
       esac
-      options=${roles:+ --tags $roles}${start:+ --start}
+      options=${roles:+ --tags $roles}${start:+ --start}${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}
       if [ ! -t 0 ]; then
         echo "error: $words $what, and there is no terminal to ask which was meant: give a stage as just deploy $hint, or a VM so named beside one, as just deploy --only provision $word" >&2
         exit 1
@@ -484,12 +512,30 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
       echo "error: --start starts a VM the run would leave stopped, which only just deploy and just deploy --only provision start" >&2
       exit 1
     fi
+    sized=${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}
+    if [ -n "$sized" ] && { [ -n "$check$roles" ] || { [ -n "$stage" ] && [ "$stage" != provision ]; }; }; then
+      echo "error: --cores, --memory and --disk size a VM the run creates, which only just deploy and just deploy --only provision do" >&2
+      exit 1
+    fi
+    [ -n "$check" ] || {{ take_lock }} "deploy${stage:+ --only $stage}${roles:+ --tags $roles}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
     [ -z "$start" ] || set -- "$@" -e '{"proxmox_vm_start_existing": true}'
+    # The size as JSON, memory in MiB: just held each value to its pattern, and tools/check size again, so each sits
+    # whole in it.
+    size=
+    [ -z "$cores" ] || size="\"cores\": $cores"
+    case "$memory" in
+    '') ;;
+    *G) size="$size${size:+, }\"memory_mb\": $(( ${memory%G} * 1024 ))" ;;
+    *M) size="$size${size:+, }\"memory_mb\": ${memory%M}" ;;
+    *) size="$size${size:+, }\"memory_mb\": $memory" ;;
+    esac
+    [ -z "$disk" ] || size="$size${size:+, }\"disk\": \"$disk\""
+    [ -z "$size" ] || set -- "$@" -e "{\"vm_size\": {$size}}"
     if [ -n "$check" ]; then
       name=deploy-check playbook=playbooks/configure.yml
     elif [ -n "$stage" ]; then
@@ -503,7 +549,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     [ -z "$roles" ] || set -- "$@" --tags "$roles"
     # The live output (callback_plugins/agent_warehouse.py): set, the run is drawn rather than streamed, under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
-    AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}${names:+ $(printf %s "$names" | tr , ' ')}"
+    AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
     export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} ${check:+--check --diff} "$playbook"
 
@@ -533,6 +579,7 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     case "$names" in *,*) echo "error: code opens one VM at a time, not [$*]" >&2; exit 1 ;; esac
     tools/check project "$project"
     tools/check session "$session"
+    {{ take_lock }} "code${project:+ --project $project} $names"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
@@ -572,6 +619,7 @@ login SIGN_IN='' *NAMES:
     shift
     tools/check names "$@"
     {{ hyphenate_names }}
+    {{ take_lock }} "login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
@@ -598,7 +646,7 @@ login SIGN_IN='' *NAMES:
 # caught, since -e would end the script at it: its 2 would read as "not read".
 [arg('JSON', long='json', value='true', help='The report as JSON, alone on standard output, with the same exit code')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='Only these VMs; none reads every VM this project created')]
-[arg('ONLY', long='only', pattern='((vms|storage|access|sign-ins|system|work)(,(vms|storage|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage access sign-ins system work; vms,storage reads only the Proxmox API, never a VM')]
+[arg('ONLY', long='only', pattern='((vms|storage|capacity|access|sign-ins|system|work)(,(vms|storage|capacity|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM')]
 [doc('What every VM this project created is doing, and what needs doing next, read without changing anything')]
 [group('use')]
 [no-exit-message]
@@ -675,22 +723,38 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
     [ -z "$reset" ] || set -- "$@" --reset=true
     exec "$bin/python" tools/settings "$@" --all="$all" --changed="$changed" --json="$json" -- ${name:+"$name"}
 
+# --confirm answers the deletion's question (CONFIRM DELETION) for the VMs it
+# names, and only when they are the VMs given: compared as a set, after the
+# same hyphenation. The MCP server passes it once the person confirmed in
+# Claude Code; a person may too, in place of ANSIBLE_ARGS='-e
+# confirm_destroy=yes', which no name bound.
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default')]
+[arg('CONFIRM', long='confirm', pattern='([A-Za-z0-9][A-Za-z0-9._,-]*)?', help='Delete without asking, these VMs only: the same names as given, comma-separated')]
 [continue]
 [doc("Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them")]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-destroy *NAMES:
+destroy CONFIRM='' *NAMES:
     {{ guard }}
+    confirm=$1
+    shift
     tools/check names "$@"
     {{ hyphenate_names }}
+    if [ -n "$confirm" ]; then
+      [ -n "$names" ] || { echo "error: --confirm answers for the VMs named beside it: just destroy --confirm=<names> <names>" >&2; exit 1; }
+      tools/check names "$confirm"
+      set_of() { printf %s "$1" | tr _ - | tr , '\n' | sort -u | tr '\n' ,; }
+      [ "$(set_of "$confirm")" = "$(set_of "$names")" ] || { echo "error: --confirm names $confirm, but the VMs given are $names: nothing was deleted" >&2; exit 1; }
+    fi
+    {{ take_lock }} "destroy${names:+ $(printf %s "$names" | tr , ' ')}"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
+    [ -z "$confirm" ] || set -- "$@" -e '{"confirm_destroy": "yes"}'
     # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     AGENT_WAREHOUSE_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
@@ -710,6 +774,112 @@ logs:
     if [ -z "$dir" ]; then echo "LOG_DIR is empty: run logs are off."; exit 0; fi
     set -- "$dir"/[0-9]*-*.log
     if [ -e "$1" ]; then ls -1t "$@" | head -20; else echo "No run logs in $dir."; fi
+
+# Registers tools/mcp, the MCP server through which a Claude Code session in any
+# project runs these recipes: `claude mcp add --scope user agent-warehouse`
+# (local scope, that one project's, with --project-dir), Claude Code's own CLI
+# writing ~/.claude.json. Every value the server needs is an argument of the
+# command it records - this checkout, its environment's Python, this just and
+# uv, and this shell's PATH, HOME, XDG_DATA_HOME and CLAUDE_CONFIG_DIR - never
+# an environment variable, which a project's .claude/settings.json could set. The checks first: claude new
+# enough, main and clean (but --any-branch), a vault readable with no terminal,
+# the MCP SDK in the environment. The entry is read back with claude mcp get,
+# since before Claude Code 2.1.318 an add could be lost to another session's
+# save of the same file; --show prints the command and registers nothing.
+[arg('SHOW', long='show', value='true', help='Print the command, and an entry for Claude Desktop, and register nothing')]
+[arg('EXTRA', pattern='[^\x00-\x1f\x7f]*', help='Nothing: any word after the options is refused')]
+[arg('REMOVE', long='remove', value='true', help='Take the server out of Claude Code again')]
+[arg('SCREEN', long='attended', pattern='(0|1)?', help="Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, the server decides per session")]
+[arg('ANY_BRANCH', long='any-branch', value='true', help='Let the server run this checkout on any branch, or with tracked changes; without it, main with no tracked change only')]
+[arg('BROWSER', long='browser', pattern='[^\x00-\x1f\x7f]*', help='What opens the sign-in pages for the runs it starts, when the default does not (BROWSER)')]
+[arg('PROJECT_DIR', long='project-dir', pattern='([/~][^\x00-\x1f\x7f]*)?', help="Register it for this one project's folder only (Claude Code's local scope), not for every project")]
+[arg('VAULT_PASSWORD_FILE', long='vault-password-file', pattern='([/~][^\x00-\x1f\x7f]*)?', help="Where the vault's password is, when it is not this checkout's .vault_pass")]
+[doc('Let Claude Code sessions in any project run these commands, through an MCP server')]
+[group('use')]
+[no-exit-message]
+[positional-arguments]
+[script]
+mcp ANY_BRANCH='' SCREEN='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_PASSWORD_FILE='' *EXTRA:
+    {{ guard }}
+    any_branch=$1 attended=$2 browser=$3 project_dir=$4 remove=$5 show=$6 vault_password_file=$7
+    shift 7
+    [ "$#" -eq 0 ] || { echo "error: just mcp takes only its options (just help mcp), and nothing after them" >&2; exit 1; }
+    [ -z "$remove" ] || [ -z "$show" ] || { echo "error: --remove takes the server out and --show prints how it is added: one or the other" >&2; exit 1; }
+    case "$project_dir" in "~") project_dir=$HOME ;; "~/"*) project_dir=$HOME/${project_dir#"~/"} ;; esac
+    case "$vault_password_file" in "~") vault_password_file=$HOME ;; "~/"*) vault_password_file=$HOME/${vault_password_file#"~/"} ;; esac
+    name=agent-warehouse
+    scope=user
+    if [ -n "$project_dir" ]; then
+      [ -d "$project_dir" ] || { echo "error: --project-dir $project_dir is not a folder" >&2; exit 1; }
+      # Claude Code keeps a project's entries under its repository's root: run from below it, one before 2.1.311
+      # named another project's entry.
+      project_dir=$(git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$project_dir" && pwd -P))
+      scope=local
+    fi
+    [ -z "$vault_password_file" ] || [ -f "$vault_password_file" ] || { echo "error: --vault-password-file $vault_password_file is not a file" >&2; exit 1; }
+    claude=$(command -v claude || true)
+    [ -n "$claude" ] || [ -n "$show" ] || { echo "error: no claude on PATH: install Claude Code first, then run just mcp again" >&2; exit 1; }
+    if [ -n "$remove" ]; then
+      [ "$scope" = user ] || cd "$project_dir"
+      "$claude" mcp remove --scope "$scope" "$name"
+      exit 0
+    fi
+    {{ find_bin }}
+    python=$bin/python
+    "$python" -I -c 'import mcp.server.mcpserver' 2> /dev/null || { echo "error: the environment in $bin has no MCP SDK. Run: just install" >&2; exit 1; }
+    if [ -n "$claude" ]; then
+      version=$("$claude" --version 2> /dev/null | awk 'NR == 1 { print $1 }')
+      "$python" -I -c 'import sys; v = [int(p) for p in sys.argv[1].split(".")]; sys.exit(v < [2, 1, 309])' "$version" 2> /dev/null \
+        || { echo "error: Claude Code ${version:-of unknown version} is older than 2.1.309, the oldest this server was tried with. Run: claude update" >&2; exit 1; }
+    fi
+    if [ -z "$any_branch" ]; then
+      branch=$(git rev-parse --abbrev-ref HEAD)
+      if [ "$branch" != main ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "error: this checkout is on $branch$( [ -z "$(git status --porcelain --untracked-files=no)" ] || echo ', with tracked changes'): the server runs only main with no tracked change, since the settings and the vault are this checkout's. Switch back to main, or allow any branch: just mcp --any-branch" >&2
+        exit 1
+      fi
+    fi
+    if head -c 14 {{ quote(VAULT_FILE) }} 2> /dev/null | grep -q '^\$ANSIBLE_VAULT' && [ ! -f {{ quote(VAULT_PASS) }} ] && [ -z "$vault_password_file" ]; then
+      echo "error: the vault is encrypted and there is no {{ VAULT_PASS }}, so a run the server starts, with no terminal, could not read it. just init makes one; or name the file: just mcp --vault-password-file <file>" >&2
+      exit 1
+    fi
+    uv=$(command -v {{ quote(UV) }} || echo {{ quote(UV) }})
+    set -- "$python" -I {{ quote(justfile_directory() / 'tools/mcp') }} --checkout={{ quote(justfile_directory()) }} --python="$python" --just={{ quote(just_executable()) }} --uv="$uv" --path="$PATH" --home="$HOME"
+    [ -z "${XDG_DATA_HOME:-}" ] || set -- "$@" --data-home="$XDG_DATA_HOME"
+    [ -z "${CLAUDE_CONFIG_DIR:-}" ] || set -- "$@" --claude-config-dir="$CLAUDE_CONFIG_DIR"
+    [ -z "$attended" ] || set -- "$@" --attended="$attended"
+    [ -z "$any_branch" ] || set -- "$@" --any-branch
+    [ -z "$vault_password_file" ] || set -- "$@" --vault-password-file="$vault_password_file"
+    [ -z "$browser" ] || set -- "$@" --browser="$browser"
+    if [ -n "$show" ]; then
+      printf 'claude mcp add --scope %s --transport stdio %s --' "$scope" "$name"
+      printf ' %q' "$@"
+      printf '\n\nFor Claude Desktop, in claude_desktop_config.json (a person is at its screen, so --attended=1):\n'
+      "$python" -I -c 'import json, sys; args = sys.argv[2:]; args += [] if any(a.startswith("--attended=") for a in args) else ["--attended=1"]; print(json.dumps({"mcpServers": {"agent-warehouse": {"command": sys.argv[1], "args": args}}}, indent=2))' "$@"
+      exit 0
+    fi
+    [ "$scope" = user ] || cd "$project_dir"
+    # A registration of this name already there, this checkout's or another's, is replaced.
+    if "$claude" mcp get "$name" > /dev/null 2>&1; then
+      "$claude" mcp remove --scope "$scope" "$name" > /dev/null 2>&1 || :
+      replaced=yes
+    fi
+    "$claude" mcp add --scope "$scope" --transport stdio "$name" -- "$@"
+    "$claude" mcp get "$name" > /dev/null 2>&1 \
+      || { echo "error: claude mcp add said it added $name, but claude mcp get does not find it: another Claude Code session may have saved ~/.claude.json at the same moment. Run just mcp again." >&2; exit 1; }
+    echo
+    echo "The $name MCP server runs {{ justfile_directory() }}${replaced:+, in place of the one registered before}, for $( [ "$scope" = user ] && echo 'every project' || echo "$project_dir" ). Sessions started from now on have it; /mcp in one shows it."
+    echo
+    echo "Claude Code's permission rules decide what runs unasked: without an ask rule, auto mode alone decides whether"
+    echo "an agent deploys, signs in or opens a VM. These let the tools that only read run, ask before the rest, and ask"
+    echo "before an agent runs just destroy or just settings itself through Bash; add them to ~/.claude/settings.json:"
+    echo
+    echo '  "permissions": {'
+    echo '    "allow": ["mcp__agent-warehouse__status", "mcp__agent-warehouse__settings", "mcp__agent-warehouse__logs",'
+    echo '              "mcp__agent-warehouse__log", "mcp__agent-warehouse__jobs", "mcp__agent-warehouse__job"],'
+    echo '    "ask": ["mcp__agent-warehouse__deploy", "mcp__agent-warehouse__login", "mcp__agent-warehouse__code",'
+    echo '            "mcp__agent-warehouse__cancel", "Bash(just destroy:*)", "Bash(just settings:*)"]'
+    echo '  }'
 
 # ------------------------------------------------------------------ develop ----
 # Every linter, in the order of their speed; the hooks last, since they can
@@ -994,6 +1164,8 @@ clean *PART:
       rmdir "$dir" 2>/dev/null || true
     fi
     if [ "$part" != logs ]; then
+      # .cache holds the run lock and the MCP server's jobs: never removed under a run that holds the lock.
+      tools/check unheld {{ quote(RUN_LOCK) }}
       rm -rf .cache .pytest_cache .ruff_cache .ansible .molecule site
       find . -name __pycache__ -type d -prune -exec rm -rf {} +
     fi

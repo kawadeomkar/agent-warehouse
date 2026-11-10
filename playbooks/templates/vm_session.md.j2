@@ -92,6 +92,26 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 | `just status` · `just logs` | the fleet, and what it needs · the run logs |
 | `just destroy {{ name }}` | sign it out of everything, then delete it |
 
+{# playbooks/vars/controller_writes.yml's list, the one the security model renders too, but for a row of another
+   editor's. A row whose place a setting moves says where this run's settings put it, under the home as ~, never the
+   home's own path. #}
+{% set home = code_here_home | default('', true) %}
+## Written on your machine
+
+What the project writes on your machine outside its checkout, and what it has another program write there. Nothing else there is changed.
+
+| Where | What | Written by | When | Taken out by |
+|---|---|---|---|---|
+{% for w in code_controller_writes if w.editor is not defined or w.editor == code_editor | default(w.editor) %}
+{% set here = lookup('ansible.builtin.vars', w.setting, default='') | string if w.setting is defined else '' %}
+{% set here = '~' ~ here[home | length:] if home and here.startswith(home ~ '/') else here %}
+| {{ w.path }}{% if here and ('`' ~ here ~ '`') not in w.path %}: here `{{ here }}`{% endif %} | {{ w.what }} | {{ w.writer }} | {{ w.when }} | {{ w.removed_by }} |
+{% endfor %}
+
+{% for line in code_controller_also %}
+- {{ line }}
+{% endfor %}
+
 ## When something is off
 
 {% if window_tasks %}

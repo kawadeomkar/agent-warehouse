@@ -56,7 +56,9 @@ request is accepted except the agent's, which is refused with 403.
 
 For `just status` (playbooks/status.yml): /cluster/resources?type=storage lists
 each storage the token may audit with its fill, and ?type=node the nodes, with
-no statistics, as a token without Sys.Audit sees them. A running VM is listed
+no statistics, as a token without Sys.Audit sees them - but a node a fixture
+grants Sys.Audit on (PUT /api2/json/fake/privileges?token=&path=/nodes/<node>
+&privs=Sys.Audit), listed with NODE_STATS. A running VM is listed
 with its CPU, memory and uptime, and /nodes/<node>/qemu/<id>/status/current,
 rrddata (a day of points), pending, and the agent's get-osinfo and get-fsinfo
 answer as Proxmox VE does. memhost and the pressure figures are VE 9's: the fake
@@ -98,6 +100,9 @@ DOWN_NODE = "pve2"
 # from. While it is on, its guests are listed with their names and as
 # stopped, the way Proxmox lists guests on a node that has just come back.
 NODES_ONLINE = {DOWN_NODE: False}
+# What /cluster/resources?type=node says of an online node to a token with Sys.Audit there: 16 CPU threads, 64 GiB of
+# memory of which 24 GiB in use, 12% busy.
+NODE_STATS = {"maxcpu": 16, "maxmem": 64 * 1024**3, "mem": 24 * 1024**3, "cpu": 0.12, "uptime": 86400}
 # Whether its guests are still listed with their names while it is down, as
 # in the five minutes before the cluster drops its statistics: on with
 # PUT /api2/json/fake/nodes/pve2?status=offline&named=1.
@@ -469,11 +474,16 @@ class Handler(BaseHTTPRequestHandler):
                     )
             return self._reply(200, listed)
         if parts == ["cluster", "resources"] and params.get("type") == "node":
-            # A token without Sys.Audit sees the nodes, and no statistics of theirs.
+            # A token without Sys.Audit sees the nodes, and no statistics of theirs; with it, an online node's too.
             nodes = [(NODE, "online"), (DOWN_NODE, "online" if NODES_ONLINE[DOWN_NODE] else "offline")]
-            return self._reply(
-                200, [{"id": f"node/{n}", "type": "node", "node": n, "status": s, "level": ""} for n, s in nodes]
-            )
+            listed = []
+            for n, s in nodes:
+                entry = {"id": f"node/{n}", "type": "node", "node": n, "status": s, "level": ""}
+                audited = (token.group(2), f"/nodes/{n}") in PRIVILEGES
+                if s == "online" and audited and "Sys.Audit" in privileges(token.group(2), f"/nodes/{n}"):
+                    entry |= NODE_STATS
+                listed.append(entry)
+            return self._reply(200, listed)
         if parts[:2] == ["fake", "disk-ctime"] and method == "PUT":
             # Not a PVE endpoint: when a fixture's VM was made, as its disk's ctime says.
             VMS[int(params["vmid"])]["disk_ctime"] = int(params["ctime"])
@@ -626,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, new_task())
         if sub == ["resize"] and method == "PUT":
             disk, size = params["disk"], params["size"]
+            # As Proxmox: a disk is grown, never shrunk.
+            if not size.startswith("+") and disk_bytes({"scsi0": f"size={size}"}) < disk_bytes(
+                {"scsi0": vm["config"][disk]}
+            ):
+                return self._reply(500, None, "shrinking disks is not supported")
             opts = vm["config"][disk].split(",")
             vm["config"][disk] = ",".join(o if not o.startswith("size=") else f"size={size}" for o in opts)
             save_state()

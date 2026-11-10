@@ -98,6 +98,9 @@ MUST_BLOCK = [
     ".cache/status/20261025-143200.json",
     # A run in parts' state names every VM by address, as its reports do.
     ".cache/live/20261026-131050-init.json",
+    # The run lock names a process here; an MCP job's output, every VM by address.
+    ".cache/run.lock",
+    ".cache/mcp/jobs/3f9c0a1b2c3d4e5f/output.txt",
     # Working documents beside the wiki name the Proxmox host and the VMs,
     # whatever they are called, and so does a review's source directory.
     "docs/plan-github-auth-2026-10-08.md",

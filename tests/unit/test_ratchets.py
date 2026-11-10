@@ -78,6 +78,7 @@ VSCODE_ELSEWHERE = {
     "playbooks/tasks/session_read.yml": 1,
     "playbooks/tasks/ssh_config.yml": 1,
     "playbooks/templates/vm_session.md.j2": 6,
+    "playbooks/vars/controller_writes.yml": 9,
     "roles/github_projects/vars/main.yml": 1,
 }
 
@@ -105,6 +106,7 @@ PROXMOX_ELSEWHERE = {
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
+    "lib/claude_vm/mcp/confirm.py": 4,
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
     "lib/claude_vm/status/model.py": 18,
@@ -117,9 +119,9 @@ PROXMOX_ELSEWHERE = {
     "playbooks/discover.yml": 2,
     "playbooks/init_check.yml": 38,
     "playbooks/init_settings.yml": 16,
-    "playbooks/provision.yml": 23,
+    "playbooks/provision.yml": 26,
     "playbooks/ssh_config.yml": 2,
-    "playbooks/status.yml": 23,
+    "playbooks/status.yml": 24,
     "playbooks/tailscale_login.yml": 1,
     "playbooks/tasks/cluster_vms.yml": 17,
     "playbooks/tasks/init_choose.yml": 2,

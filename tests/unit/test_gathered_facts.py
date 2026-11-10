@@ -135,7 +135,8 @@ def test_every_run_a_test_makes_leaves_facts_out_of_the_top_level():
     elsewhere = [
         f"{path.name}:{line}"
         for path in sorted((REPO / "tests" / "unit").glob("*.py"))
-        if path.name not in {"harness.py", Path(__file__).name}
+        # test_mcp_server.py names ANSIBLE_CONFIG as a variable a run must never get from the server's environment.
+        if path.name not in {"harness.py", Path(__file__).name, "test_mcp_server.py"}
         for line in _config_spellings(path.read_text())
     ]
     assert not elsewhere, "write and name the run's ansible.cfg with harness.ansible_config: " + ", ".join(elsewhere)

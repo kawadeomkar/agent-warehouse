@@ -218,7 +218,8 @@ pytest over `tests/unit/`, file by file:
 - **Processes** (`test_processes.py`): `lib/claude_vm/proc.py` listing a grandchild in a session of its own
   and ending it with its parent, where a kill of the group left it reparented; a child of pytest's own group
   ended alone, never the group; a pid remembered by its start signalled only while the process of that start is
-  at it, never once another has it; a root exited, a zombie or reaped, its group still ended - its children moved
+  at it, never once another has it; what a root long gone left ended by each process's start, never by the root's
+  pid; a root exited, a zombie or reaped, its group still ended - its children moved
   on the moment it exited, and a zombie no longer answers for its group; a table that cannot be read said, the
   group still ended; `harness._end` on a real playbook with a task in flight, its detached worker gone with it;
   `interrupts.install` leaving a SIGHUP ignored on the way in, nohup's, as it is, and its handler raising once;
@@ -368,7 +369,41 @@ pytest over `tests/unit/`, file by file:
   from every window, and no time, template marker or token shape in it.
   In an editor whose window runs no task (Zed), the notes say what to do instead, and name the listed Claude task
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
-  setting's, in both directions.
+  setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
+  moves said under the home as `~`.
+- **A VM's size** (`test_vm_size.py`): `just deploy alpha --cores 8 --memory 16G --disk 64G` as JSON, refused where nothing is
+  created; against the fake, a VM created with the size and tagged sized, the same size again changing nothing,
+  another refused for a VM that exists, a repair keeping a sized VM's size and, given a part, the rest of it, a VM
+  whose run stopped at the resize finished by the next with its size or the settings', the settings' minimum memory
+  under a larger size, a size larger than the node refused before anything is created once the token may read the node;
+  no drift for a sized VM; `tools/check size` holding the size again; the capacity section's figures and lines, a
+  node's containers among what it holds, and `just status` reading the node.
+- **The run lock** (`test_run_lock.py`): a second run that changes something refused, naming the holder; one that
+  reads, or `--check`, not; a record whose process is gone, or was another, taken over, by one of the runs that
+  start together alone, and an empty one, being written, never; a lock taken under one time zone held under another; a recipe inside the holder's takes none, and a child that outlives it holds nothing;
+  `just clean` refuses while it is held.
+- **The MCP server's runs** (`test_mcp_jobs.py`): a run as a job, its argv and `ATTENDED`, the call returning at a
+  browser block and `job` following to the end without it, a job outliving its server, `cancel` as Ctrl-C, saying
+  the stop and no earlier block, a stop before the run has a pid sent once it has one, the run's tree read before the
+  SIGINT, the session looked for under the recorded `CLAUDE_CONFIG_DIR`, the server's and the
+  supervisor's writes never lost to each other, a branch and a held lock refused, `install` refused to another client;
+  a person's stop told from the other cancellations.
+- **The MCP server's confirmations** (`test_mcp_confirm.py`): every gated tool carries the prompt; `destroy` runs with
+  `--confirm` only for the code and the names its dialog showed, with each VM's lines in it, and nothing for a decline,
+  a cancel, a generic hook's answer, other words, another client, or a held lock; `settings_set` writes an allowed
+  setting once confirmed and asks nothing for another, nor for Claude Code's version as another package; every
+  setting of the example allowed or refused; the held lock taken as a terminal takes it, in another zone.
+- **The MCP server** (`test_mcp_tools.py`, `test_mcp_server.py`, `test_mcp_register.py`): every recipe and option a
+  tool's or left out for a reason, each schema valid and anchored as `just` matches, every `env()` setting given on
+  `just`'s command line at its default; the server driven over stdio by the SDK's client against a copy of the
+  checkout and stand-in Ansible tools - a run's environment from the allow list, no terminal, a session of its own,
+  the JSON with its note, a refusal per call and never an exit; `just mcp` with a stand-in `claude`, never the real
+  one or `~/.claude.json`.
+- **What the project writes on this machine** (`test_controller_writes.py`): every row of
+  `playbooks/vars/controller_writes.yml` says where, what, what writes it, when and what takes it out; each row's
+  write is found where it is made, by a pattern of the test's, and every file that makes one is among the row's
+  sources; each row's setting is a setting; CLAUDE.md's invariant names every row; the notes and the security model
+  read the list.
 - **`just init`'s questions** (`test_init_settings.py`, `test_settings_filter.py`):
   `init_settings.yml` against copies of the example files in the test's directory - never the checkout's,
   which a static test holds - with no terminal (nothing asked; nothing written but the values given) and at

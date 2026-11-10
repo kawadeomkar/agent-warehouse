@@ -51,12 +51,18 @@ docs = [
     "pymdown-extensions==12.3",
     "markdown-it-py==4.2.0",
 ]
+# The MCP server through which Claude Code sessions in other projects run these recipes (tools/mcp, which just mcp
+# registers): the Model Context Protocol's Python SDK, on the 2026-07-28 revision Claude Code speaks.
+mcp = [
+    "mcp==2.3.0",
+]
 
 [tool.uv]
 # Not a Python package: uv installs the dependencies and never builds this project.
 package = false
-# just install installs the docs group too: just docs and the unit tests use it.
-default-groups = ["dev", "docs"]
+# just install installs the docs and mcp groups too: just docs and the unit tests use the first, the MCP server the
+# second.
+default-groups = ["dev", "docs", "mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]
@@ -76,7 +82,7 @@ target-version = "py310"
 per-file-target-version = { "lib/**" = "py312" }
 src = [".", "lib"]
 # The tools that are Python with no .py, which ruff finds by extension only: just lint checks them as the rest.
-extend-include = ["tools/live", "tools/settings", "tools/status-exit"]
+extend-include = ["tools/live", "tools/mcp", "tools/settings", "tools/status-exit"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]

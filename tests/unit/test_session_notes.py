@@ -15,9 +15,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+import yaml
 from harness import REPO, _failures, _run
 
 TEMPLATE = REPO / "playbooks" / "templates" / "vm_session.md.j2"
+# What the project writes on this machine outside the checkout, which code.yml loads from its vars_files.
+WRITES = yaml.safe_load((REPO / "playbooks" / "vars" / "controller_writes.yml").read_text())
 START, END = "<!-- agent-warehouse:live -->", "<!-- /agent-warehouse:live -->"
 LIVE = f"{START}\n## Signed in\n\n| | as of 14:02 on 12 Oct |\n|---|---|\n| Claude Code | `dev@example.com` |\n{END}"
 VM = {
@@ -39,6 +42,7 @@ FACTS = {
     "code_notes_dir": "/home/dev/projects/.agent-warehouse/session",
     "code_remote_control_unit": "claude-remote-control",
     "code_notes_live": "",
+    **WRITES,
 }
 SECTIONS = [
     "# alpha",
@@ -47,6 +51,7 @@ SECTIONS = [
     "## Reach this VM",
     "## Start here",
     "## From your machine",
+    "## Written on your machine",
     "## When something is off",
     "## About this file",
 ]
@@ -106,6 +111,13 @@ VARIANTS = {
     "no sizes": {"claude_vm_addressed": [{key: value for key, value in VM.items() if not key.startswith("max")}]},
     # A window of one repository.
     "one project": {"code_target": "/home/dev/projects/discord-music-bot"},
+    # The settings that move a row's place: under this machine's home, said with ~; elsewhere, as set.
+    "moved": {
+        "code_here_home": "/Users/somebody",
+        "claude_ssh_config_file": "/Users/somebody/.ssh/elsewhere.conf",
+        "claude_ssh_user_config": "/Users/somebody/.ssh/config",
+        "destroy_sessions_dir": "/srv/sessions",
+    },
 }
 
 
@@ -251,3 +263,42 @@ def test_no_time_is_written_outside_the_live_section():
     # Only the window's task writes "as of": the template itself names no clock.
     source = TEMPLATE.read_text()
     assert not re.search(r"now\(|strftime|ansible_date_time|lookup\('pipe'", source)
+
+
+def _written(text: str) -> list[str]:
+    """The rows of the notes' Written on your machine table, its head left out."""
+    section = text.split("## Written on your machine", 1)[1].split("\n## ", 1)[0]
+    return [line for line in section.splitlines() if line.startswith("| ")][1:]
+
+
+def test_the_notes_list_every_write_on_this_machine(notes):
+    # One row per entry of playbooks/vars/controller_writes.yml, in its order, each with what writes it and what takes
+    # it out, then a line for each of what the tools keep for themselves.
+    rows = _written(notes["default"])
+    for row, entry in zip(rows, WRITES["code_controller_writes"], strict=True):
+        cells = (entry[key] for key in ("path", "what", "writer", "when", "removed_by"))
+        assert row == "| " + " | ".join(cells) + " |"
+    for line in WRITES["code_controller_also"]:
+        assert f"\n- {line}\n" in notes["default"]
+
+
+def test_a_moved_place_is_said_under_the_home_as_a_tilde(notes):
+    # The notes go to the VM: where the settings put a row's file is said, never this machine's home itself.
+    rows = {row.split(" | ")[0]: row for row in _written(notes["moved"])}
+    assert rows["| `~/.ssh/agent-warehouse.conf`: here `~/.ssh/elsewhere.conf`"]
+    assert rows["| `destroy_sessions_dir`: here `/srv/sessions`"]
+    # The user config is where the row already says: nothing added.
+    assert rows["| one `Include` line at the top of `~/.ssh/config`"]
+    assert "/Users/somebody" not in notes["moved"]
+    assert _written(notes["default"]) == [
+        row.replace(": here `~/.ssh/elsewhere.conf`", "").replace(": here `/srv/sessions`", "")
+        for row in _written(notes["moved"])
+    ]
+
+
+def test_another_editor_s_notes_leave_out_a_row_of_vs_code_s(notes):
+    # VS Code's extension is installed only for VS Code's windows: Zed's notes have every other row.
+    vscode = {row.split(" | ")[0] for row in _written(notes["default"])}
+    zed = {row.split(" | ")[0] for row in _written(notes["zed, no task"])}
+    assert vscode - zed == {"| VS Code's Remote - SSH extension, in `~/.vscode/extensions/`"}
+    assert zed < vscode

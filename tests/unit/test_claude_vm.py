@@ -23,8 +23,10 @@ REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "lib"
 # Loaded only inside the function that needs one: each is milliseconds a client that is not Ansible would pay.
 NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
-# What a module may load when imported all the same: the process table is what proc.py is for.
+# What a module may load when imported all the same: the process table is what proc.py is for. The MCP server's
+# modules, which tools/mcp alone imports, are a process of its own whose work is to run just, over asyncio.
 AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
+MCP_AT_IMPORT = {"asyncio", "subprocess"}
 
 
 def _python(script: str) -> str:
@@ -79,7 +81,8 @@ importlib.import_module({name!r})
 loaded = {{key.split(".")[0] for key in sys.modules}}
 print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
 """
-    assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, set())
+    allowed = MCP_AT_IMPORT if name.startswith("claude_vm.mcp.") else set()
+    assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, allowed)
 
 
 def test_importing_the_package_imports_no_module_of_it() -> None:

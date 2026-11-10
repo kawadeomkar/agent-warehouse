@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""The MCP server through which Claude Code sessions in other projects run this checkout's just recipes.
+
+    <python> -I tools/mcp --checkout=<checkout> --python=<python> --just=<just> --uv=<uv> --path=<PATH> \
+        [--attended=0|1] [--any-branch] [--vault-password-file=<file>] [--browser=<command>]
+
+just mcp registers it with Claude Code, every value an argument it records there: the server reads nothing of its
+environment that a project's settings could set. It speaks MCP over stdio, one server per session, and its code is
+lib/claude_vm/mcp/ (docs/architecture/custom-code.md §7.12). Run with -I, so that no PYTHONPATH or user site-packages
+of the session's reaches it: it puts this checkout's lib/ on sys.path itself.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
+
+from claude_vm import plugin  # noqa: E402
+
+plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
+
+from claude_vm.mcp import server  # noqa: E402
+
+if __name__ == "__main__":
+    server.main(sys.argv[1:])

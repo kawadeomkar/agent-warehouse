@@ -39,6 +39,9 @@ be set or not, and changes with `just vault`.
 
 ![just settings claude_code: each variable of the role, its value and where it was set](.github/assets/just-settings.svg)
 
+`just mcp` lets a Claude Code session in any of your projects ask the same of the fleet, through an MCP server
+([Agents in other projects](docs/guides/agents.md)).
+
 **Documentation:** [`docs/`](docs/README.md) covers every feature, setting and design decision, and
 reads as a site with search at <https://kawadeomkar.github.io/agent-warehouse/>. This page gets you to
 a first deploy.

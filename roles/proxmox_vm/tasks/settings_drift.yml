@@ -17,4 +17,5 @@
            'sshkeys': proxmox_vm_ssh_public_keys,
            'ipconfig0': proxmox_vm_ipconfig,
            'nameserver': proxmox_vm_nameservers,
-           'searchdomain': proxmox_vm_searchdomain}) }}
+           'searchdomain': proxmox_vm_searchdomain,
+           'sized': proxmox_vm_sized_tag in (proxmox_vm_drift_config.tags | default('', true) | proxmox_tags)}) }}

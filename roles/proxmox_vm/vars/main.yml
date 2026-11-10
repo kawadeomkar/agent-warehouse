@@ -80,7 +80,43 @@ proxmox_vm_unfinished_tag: "{{ proxmox_vm_sent_tags[0] }}-unfinished"
 # Tailscale key again.
 proxmox_vm_tailscale_tag: "{{ proxmox_vm_sent_tags[0] }}-tailscale"
 proxmox_vm_kept_tags: >-
-  {{ [proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [] }}
+  {{ ([proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else [])
+     + ([proxmox_vm_sized_tag] if proxmox_vm_sized_found | bool else []) }}
+
+# Internal: a VM whose size is its own, chosen when it was created (just deploy
+# alpha --cores 8 --memory 16G): the tag says so where the VM cannot change it,
+# and the fleet's size settings are then not this VM's - just status calls no
+# difference from them drift, and a repair (proxmox_vm_force_update) keeps the
+# size it has. Sized by this run, or found sized; a VM this run sizes is tagged
+# only once it is finished, so a run that stops before has sized nothing, and
+# the next finishes the VM with the size it gives, or the settings'.
+proxmox_vm_sized_tag: "{{ proxmox_vm_sent_tags[0] }}-sized"
+# Internal: what the settings call and the resize send: this run's size (proxmox_vm_size) where it gives one, else
+# the settings'. The minimum memory follows the settings': below their memory - ballooning - it stays, under the
+# size's memory; equal to it - a fixed allocation - it is the size's memory too.
+proxmox_vm_cores_sent: "{{ proxmox_vm_size.cores | default(proxmox_vm_cores) }}"
+proxmox_vm_memory_sent: "{{ proxmox_vm_size.memory_mb | default(proxmox_vm_memory_mb) }}"
+proxmox_vm_memory_min_sent: >-
+  {{ proxmox_vm_memory_min_mb if proxmox_vm_size.memory_mb is not defined
+     else ([proxmox_vm_memory_min_mb | int, proxmox_vm_memory_sent | int] | min)
+     if proxmox_vm_memory_min_mb | int < proxmox_vm_memory_mb | int
+     else proxmox_vm_memory_sent }}
+proxmox_vm_disk_size_sent: "{{ proxmox_vm_size.disk | default(proxmox_vm_disk_size) }}"
+proxmox_vm_size_given: "{{ proxmox_vm_size | length > 0 }}"
+proxmox_vm_sized_found: "{{ (proxmox_vm_exists | bool) and (proxmox_vm_sized_tag in proxmox_vm_found_tags) }}"
+proxmox_vm_sized: "{{ (proxmox_vm_size_given | bool) or (proxmox_vm_sized_found | bool) }}"
+# Internal: the parts of its size a VM found sized keeps on a repair - each one this run does not give: the settings
+# call sends none of them (cores, or memory and its minimum) and the disk is not resized, so a part given changes that
+# part alone, never the rest to the settings'. And whether an existing VM has another size than this run gives
+# (proxmox_vm_found_config, its config).
+proxmox_vm_kept_size: >-
+  {{ ['cores', 'memory_mb', 'disk'] | reject('in', proxmox_vm_size) | list if proxmox_vm_sized_found | bool else [] }}
+proxmox_vm_size_differs: >-
+  {{ (proxmox_vm_size.cores is defined and proxmox_vm_found_config.cores | default(0) | int != proxmox_vm_size.cores | int)
+     or (proxmox_vm_size.memory_mb is defined
+         and proxmox_vm_found_config.memory | default(0) | int != proxmox_vm_size.memory_mb | int)
+     or (proxmox_vm_size.disk is defined
+         and (proxmox_vm_found_config.scsi0 | default('') | proxmox_disk_bytes) < (proxmox_vm_size.disk | proxmox_disk_bytes)) }}
 
 # Internal: whether the VM still needs its settings applied, its disk resized
 # and a start. Existence alone is not convergence - if a run died between the

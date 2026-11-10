@@ -13,8 +13,9 @@
 #   the role AnsibleVM: the privileges below, and the guest agent's, which is
 #     VM.Monitor on Proxmox VE 8 and VM.GuestAgent.Audit on 9
 #   the user ansible@pve, with no password: it signs in by its token alone
-#   that role for that user on /vms, on the storage for VM disks and on the
-#     bridge, wherever the user does not hold what the role gives there yet
+#   that role for that user on /vms, on the storage for VM disks, on the
+#     bridge and on the node, wherever the user does not hold what the role
+#     gives there yet
 #   the API token ansible@pve!ansible, without privilege separation, so it
 #     has exactly the user's privileges
 #
@@ -45,6 +46,9 @@ mode=apply
 vms_privileges='VM.Allocate VM.Clone VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.Audit'
 storage_privileges='Datastore.AllocateSpace Datastore.Audit'
 bridge_privileges='SDN.Use'
+# Read only: the node's CPU threads and memory, which just status's capacity
+# and a sized just deploy weigh a VM's size against.
+node_privileges='Sys.Audit'
 
 say() { printf '%s\n' "$*" >&2; }
 die() {
@@ -156,7 +160,7 @@ run() {
 }
 
 # ------------------------------------------------------------------ the role ---
-wanted="$vms_privileges $storage_privileges $bridge_privileges"
+wanted="$vms_privileges $storage_privileges $bridge_privileges $node_privileges"
 if role_privileges=$(pvesh get "/access/roles/$role" --output-format json 2>/dev/null); then
   role_exists=1
   lacking=''
@@ -220,6 +224,7 @@ grant() {
 grant /vms "$vms_privileges"
 grant "/storage/$storage" "$storage_privileges"
 grant "/sdn/zones/localnetwork/$bridge" "$bridge_privileges"
+grant "/nodes/$node" "$node_privileges"
 
 # ----------------------------------------------------------------- the token ---
 # broad: say what a user that was there already holds on /, for every guest,

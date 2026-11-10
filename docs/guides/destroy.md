@@ -3,6 +3,7 @@
 ```bash
 just destroy                      # agent-warehouse-default
 just destroy alpha beta           # several at once; they are deleted in parallel
+just destroy --confirm=alpha alpha   # no question: --confirm names exactly the VMs given
 ```
 
 The names are given as [Naming and multiple VMs](vms.md#naming-and-multiple-vms) says.
@@ -10,7 +11,9 @@ The names are given as [Naming and multiple VMs](vms.md#naming-and-multiple-vms)
 It prompts for confirmation, then saves here the Claude Code sessions that exist only on each VM, releases
 each VM from what it signed in to, then stops it and deletes it with its disks, a disk that still carries
 its VMID but that its configuration no longer lists included.
-Without a terminal to prompt on the answer is "no", so nothing is deleted. Every name must be a VM this
+Without a terminal to prompt on the answer is "no", so nothing is deleted - but with `--confirm`, which answers it
+for the VMs it names, and only when they are the VMs given (as a set, an underscore taken as a hyphen); an agent's
+`destroy` passes it once you confirmed in Claude Code ([Agents in other projects](agents.md#confirmations)). Every name must be a VM this
 project created: a name that does not exist, or a VM without the `agent-warehouse` tag, is refused
 before anything is deleted, and the error lists the VMs it did create. So is a name two VMs share, which
 Proxmox allows: rename or remove one first. A template is never deleted. For a VM created before this

@@ -148,6 +148,53 @@ def _storage_lines(model):
     return lines
 
 
+def _guests(held):
+    """What a node's figures count: its VMs, and its containers where it has any."""
+    return "VMs and containers" if held.get("containers") else "VMs"
+
+
+def _capacity_lines(model):
+    """Each node's CPU threads and memory, and what the VMs and containers on it hold: what a new VM's size is weighed
+    against."""
+    nodes = model.get("capacity") or []
+    if not nodes:
+        return []
+    lines = [[seg("CAPACITY", "h")]]
+    for node in nodes:
+        name = f" {_short(node['node'], 10):<10} "
+        if node.get("status") not in ("online", ""):
+            lines.append([seg(name), seg(f"{node.get('status')}: nothing on it can be read", "y")])
+            continue
+        running, stopped = node["running"], node["stopped"]
+        held = f"its running {_guests(running)} hold {plural(running['vcpus'], 'vCPU')}"
+        held += f" and {fmt_gib(running['memory'])} GiB"
+        if node.get("read"):
+            used = node["memory_used"] / node["memory"] if node["memory"] else 0
+            lines.append(
+                [
+                    seg(name),
+                    seg(f"{plural(node['threads'], 'CPU thread')}, {node['cpu'] or 0:.0%} busy · memory "),
+                    *bar(used),
+                    seg(
+                        f" {fmt_gib(node['memory_used'])} / {fmt_gib(node['memory'])} GiB,"
+                        f" {fmt_gib(node['memory_free'])} free"
+                    ),
+                ]
+            )
+            share = running["memory"] / node["memory"] if node["memory"] else 0
+            held += f" ({share:.0%} of its memory)"
+        else:
+            lines.append([seg(name), seg("its CPU threads and memory are not readable with the API token", "d")])
+        lines.append([seg(f"{'':12}{held}", "d")])
+        if stopped["vms"] or stopped.get("containers"):
+            more = f"its stopped {_guests(stopped)} would take {plural(stopped['vcpus'], 'vCPU')}"
+            more += f" and {fmt_gib(stopped['memory'])} GiB more"
+            lines.append([seg(f"{'':12}{more}", "d")])
+        for said in node.get("grant") or []:
+            lines.append([seg(f"{'':12}{said}", "d")])
+    return lines
+
+
 def _ssh_vms(model):
     """The VMs a section read over SSH shows: each this project created that is read over SSH, by name."""
     return [vm for vm in model["vms"] if vm.get("name") and vm.get("needs_ssh")]
@@ -465,6 +512,7 @@ def _footer(model, reading):
 SECTION_LINES = {
     "vms": _vms_lines,
     "storage": _storage_lines,
+    "capacity": _capacity_lines,
     "access": _access_lines,
     "sign-ins": _signins_lines,
     "system": _system_lines,

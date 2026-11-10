@@ -17,6 +17,12 @@ so context goes above and below it and survives every run:
                                                                      task, with a flowchart of each task
                                                                      file, rendered by docsible with
                                                                      tools/templates/role.md.j2
+    docs/architecture/security-model.md
+                                     BEGIN_GENERATED: controller-writes
+                                                                     playbooks/vars/controller_writes.yml:
+                                                                     what the project writes on this
+                                                                     machine outside the checkout, the
+                                                                     list the session notes show too
 
 A role without a page gets one, holding only its title and the markers. Text taken from a source is
 escaped outside code spans, so a placeholder such as <name> reads as text on GitHub and on the site
@@ -397,6 +403,21 @@ def role_page(role: str, page: Path, text: str) -> str:
     return inject(page, text, "role", _role_section(role, section), source)
 
 
+# ------------------------------------------------------- controller writes ----
+
+
+def controller_writes() -> str:
+    """What the project writes on this machine outside the checkout: the list the session notes show too."""
+    data = yaml.safe_load((ROOT / "playbooks" / "vars" / "controller_writes.yml").read_text())
+    rows = ["| Where | What | Written by | When | Taken out by |", "|---|---|---|---|---|"]
+    for w in data["code_controller_writes"]:
+        setting = f"`{w['setting']}`" if w.get("setting") else ""
+        where = w["path"] + (f" ({setting})" if setting and setting not in w["path"] else "")
+        cells = (where, w["what"], w["writer"], w["when"], w["removed_by"])
+        rows.append("| " + " | ".join(cell(c) for c in cells) + " |")
+    return "\n".join(rows + [""] + [f"- {escape(line)}" for line in data["code_controller_also"]])
+
+
 # ---------------------------------------------------------------- main ----
 
 
@@ -418,6 +439,10 @@ def expected() -> dict[Path, str]:
             else f"# `{role}`\n\n<!-- BEGIN_GENERATED: role -->\n<!-- END_GENERATED: role -->\n"
         )
         pages[page] = role_page(role, page, text)
+    page = DOCS / "architecture" / "security-model.md"
+    pages[page] = inject(
+        page, page.read_text(), "controller-writes", controller_writes(), "playbooks/vars/controller_writes.yml"
+    )
     return pages
 
 

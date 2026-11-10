@@ -593,7 +593,7 @@ The region is taken when the callback is made, so a warning before the first fra
 spins from the playbook's start. When the report fact arrives, the region is erased and the finished report
 printed through `Display`, so the log has it and nothing else - in colour on the screen, plain in the log,
 since `Display` logs the text it is given; under `--json` (`STATUS_QUIET`) nothing is
-printed, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
+printed, not even `tools/run-logged`'s line naming the log, and the report goes to the log alone, which would otherwise be an empty file. It shows each task's warnings, which since ansible-core 2.19 travel on the result and which a
 stdout callback of one's own otherwise drops, and a task's failure on stderr only when the run ends
 without a report.
 
@@ -1044,3 +1044,128 @@ and `tests/unit/test_choices.py` holds the three equal.
   written back as read with the marks added under the tag or taken off under either, only on the VM of that name and
   VM ID that carries an owned tag, never in check mode, a
   VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).
+
+## 7.12 `lib/claude_vm/mcp/` — the MCP server
+
+`tools/mcp` is a stdio MCP server, built on the Model Context Protocol's Python SDK (the `mcp` group in
+`pyproject.toml`), through which a Claude Code session in any project runs this checkout's recipes. `just mcp`
+registers it with `claude mcp add`, one server per session, which Claude Code starts in the project's folder and the
+server leaves for the checkout at once ([Agents in other projects](../guides/agents.md)). It is a thin adapter over the
+justfile, not a second implementation: every rule and refusal stays the recipe's own, and the server adds only the few
+of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recipes-through-mcp).
+
+- **`config.py`: the configuration is the registered command's arguments.** The checkout, the Python `tools/env-run`
+  found there, the absolute `just` and `uv`, and the `PATH` of the shell `just mcp` ran in, with `--attended`,
+  `--any-branch`, `--vault-password-file` and `--browser`. A project's `.claude/settings.json` `env` reaches every
+  server Claude Code starts there, so nothing is read from the environment; a command line `just mcp` never writes
+  is kept as the refusal every tool answers with.
+- **`recipes.py`: the tools are the recipes.** Each tool's input schema is made from its recipe's parameters in `just
+  --dump --dump-format json`, the source `docs/reference/commands.md` is generated from too: a recipe's words are a
+  list where their name is plural, one word where it is singular; a flag is a boolean; any other option a string,
+  each with the `[arg]` help as its description and its pattern anchored as `just` matches it, whole. `TOOLS`,
+  `NO_TOOL` and `LEFT_OUT` say which recipe and option is a tool's, and why the rest are not: `vault` has no tool, so
+  no secret passes through the model. The argv is `just --justfile <checkout>/justfile`, every setting the justfile
+  reads with `env()` at the server's value (`SETTINGS`, `ANSIBLE_ARGS` empty), the recipe, its options in their
+  `--long=value` form, then its words, each one argv word. `just` holds each value to its pattern before the script's
+  first line; a word that starts with `-`, which it would read as an option, is refused first.
+- **`environment.py`: a run's environment is built, never inherited.** The few variables a login needs (`USER`,
+  `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux), the `PATH`, `HOME`, `XDG_DATA_HOME` and
+  `CLAUDE_CONFIG_DIR` `just mcp` recorded - `HOME` and `XDG_DATA_HOME` decide where `tools/env-run` finds the
+  checkout's folder, and the collections Ansible loads from it; `CLAUDE_CONFIG_DIR`, where the Claude Code the server
+  is registered in keeps its sessions, which `code`'s session is looked for among and `just code` copies - `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
+  nothing of Ansible's, Python's, `just`'s or Claude Code's - its messaging token among them, which an editor's
+  terminals would inherit.
+- **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's
+  branch and commit. `run_refusal` is the guard a run that changes something checks: `main` with no tracked change,
+  unless `--any-branch`. The justfile's digest from the server's start: once the file changes, a pull or a branch,
+  every tool answers "restart this server with /mcp" rather than run a schema that no longer matches. A recipe that
+  reads the vault is refused, before anything runs, when the vault is encrypted and there is no `.vault_pass` or
+  recorded file, since a run has no terminal to ask the password at.
+- **`results.py`: what the model reads.** Claude Code gives the model only a result's structured part when it has one
+  (verified on 2.1.309), so a JSON tool (`status`, `settings`) returns its report as structured content with the head
+  and the note that what the VMs said is data inside it, and a text tool (`logs`, `log`) text alone, registered with
+  `structured_output=False` since the SDK would wrap a `str` as `{"result": ...}`. Text goes through `visible_text`.
+  What a recipe prints on standard error beside a report it still made - `tools/check settings`' warnings, Ansible's -
+  goes into the JSON as `warnings`, plain and at most 4 000 characters, and stays when the report is cut: the model
+  reads nothing else of the run. Every result stays under 40 000 characters, a text cut from the middle and a report
+  cut to the keys that say the most and how to read the rest: over about 50 000, Claude Code saves a result to a file
+  in the session's folder, which `just code` copies to the VMs. So that a cut leaves nothing out of reach, `log` takes
+  the line to `start` from, and says which lines of how many it returned.
+- **`jobs.py`: a run that changes something is a job.** A deploy takes minutes, its sign-ins wait in the person's
+  browser, Claude Code moves a call into the background after two minutes and ends its server with the session. So
+  `deploy`, `login`, `code` and `install` start a supervisor - `tools/mcp --supervise=<folder>`, in a session of its
+  own with the signals at their defaults - which runs the recipe in a process group of its own and writes
+  `.cache/mcp/jobs/<id>/` (0700, the ID random hex): `job.json`, what ran and how it ended, and `output.txt`, what it
+  printed through `visible_text`. Any server, this session's or a later one's, follows a job there. A job is running
+  while its supervisor's pid runs the process of the start it recorded, never by pid alone - a start read as
+  `tools/check lock` reads one, in C and UTC with its spaces collapsed - and jobs are pruned after
+  `LOG_RETENTION_DAYS`, as the logs are. The server and the supervisor both write `job.json`, so each write is made
+  under a lock (`job.lock`). A stop is SIGINT to the run's group, as a terminal's Ctrl-C, and the whole tree ended
+  through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group. The tree is read
+  before the SIGINT, since a run that ends at it leaves a worker under PID 1, where nothing leads to it; once the run
+  has gone, what it left is ended by each process's start, never by the run's pid, which another may have by then
+  (`proc.end_left`). A stop that comes
+  before the run has a pid is recorded, and the supervisor sends it once the run has one: both write under the lock,
+  so exactly one of them finds the stop and the pid. `cancel` follows the job from where its output ends, so a
+  browser block an earlier call returned is not taken for the run waiting again.
+- **`runs.py`: the call follows its job.** Each line the run prints goes as `notifications/progress`, which Claude
+  Code shows the person under the running call (never the model), with a line a minute while the run is silent, which
+  also keeps Claude Code's idle limit from ending the call. The call returns at the run's end, after `wait_seconds`,
+  or the first time the run prints a browser block (`ACTION REQUIRED IN YOUR BROWSER`): by then the call is in the
+  background, where nothing the person sees says a page waits, and only the agent can tell them. It returns the
+  block, the job's ID and where the block ended; `job(id, since)` goes on from there, so no block is returned twice,
+  and a call's result holds only what the run printed since it began following.
+- **`cancels.py`: why a call was cancelled.** The SDK cancels a tool's task without the reason Claude Code gives, so
+  the server reads its stdin through a pipe a thread feeds, noting each `notifications/cancelled` before passing the
+  line on. A person's stop - Esc, `AbortError: user-cancel`; `x` in `/tasks`, `AbortError: The operation was
+  aborted.` (verified on 2.1.309 to 2.1.319) - stops the run; anything else - the wall clock's `SdkError: Request
+  timed out`, a reason not on the list, the session closing - leaves it to `job`, recorded. A later Claude Code that
+  words a stop otherwise errs on the safe side: `cancel` still stops it.
+- **A deploy that creates names its VMs.** One of the server's own refusals (`deploy_refusal`): `deploy` with no names,
+  or `only="provision"` with none, would make the default VM, a convenience of the terminal's that an agent's forgotten
+  argument must not reach. It is no `required` in the schema, since the stages that reach every VM, or none, take no
+  names.
+- **`ATTENDED`.** A run tool passes `ATTENDED=1` - the pages open and the sign-ins run, and nothing asks - exactly when
+  the session is an interactive one on this machine: Claude Code gives its servers `CLAUDE_CODE_ENTRYPOINT=cli` then,
+  `sdk-cli` for `claude -p`, and the server reads `SSH_CONNECTION` from its own environment. `just mcp --attended`
+  overrides it. A Remote Control session gives its server the same environment as a plain one, so the early return,
+  not the attended decision, is what keeps a person from missing a page.
+- **The gated tools.** `destroy`, `settings_set`, `init` and `install` carry `anthropic/requiresUserInteraction`,
+  which makes Claude Code ask before every call whatever the permission rules say (no hook of the calling project's
+  answers it; `-p` and `dontAsk` deny the tool), and run only for Claude Code 2.1.309 or later, the one client whose
+  prompt was seen - Claude Desktop most likely runs such a tool unasked.
+- **`confirm.py`: the dialog.** `destroy` and `settings_set` also ask in a form elicitation, which shows what is at
+  stake - each VM's ID, node, state and size and its work on no remote, from `just status --only=vms,work`; the
+  setting's value now and the new one, from `just settings` - and wants a code with the names. The question is the
+  tool's first answer, an SDK `Resolve` whose resolver returns `Elicit`: on the 2026-07-28 revision a request sent
+  mid-call fails, so the SDK answers the call with an input request, Claude Code shows the dialog and calls again with
+  the answer, and only then does the body run - the one place that starts `just destroy --confirm=<names>` or `just
+  settings --value`. A project's own `Elicitation` hook can answer a dialog (verified), so the prompt is the human
+  gate; the code, an HMAC of the question under a key of the server's, the same each time the SDK asks it again,
+  makes a generic accept-every-dialog hook fail. A decline, a cancel - every dialog in `claude -p` - or other words
+  run nothing, and the result is the command to run at a terminal. `destroy` takes its names as required, and says a
+  held run lock before it asks anything. `settings_set` changes only the settings on `ALLOWED`; `REFUSED` names every
+  other setting of `local.yml.example`, so a new one is a decision, and a role variable in no example is refused
+  too - an agent steered by what it read must not move `github_projects_api_url`, which the vault's token is sent
+  to, or `claude_code_installer_url`, which every VM runs as root. Where a setting's type lets more through, `VALUES`
+  holds its value: `claude_code_version` is `stable`, `latest` or a version, since with npm as the install method it
+  is the version npm installs, and npm takes any spec there - another package, a repository - as root on every VM.
+  What `tools/settings` refuses still applies under it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
+  the token, any file this user can read among them.
+- **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
+  protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout
+  without a justfile or a `just` that cannot read it is each tool's refusal, never an exit. A recipe runs with stdin
+  `/dev/null`, in a session of its own (`start_new_session`) with SIGINT, SIGTERM, SIGHUP and SIGQUIT at their
+  defaults, cwd the checkout; a call cancelled ends it and everything it started. The tools are async, so a call that
+  waits on a run never holds up another. Its instructions, which every session on the machine carries, stay a few
+  lines; what a tool needs is in its description, which tool search loads only when the agent picks the tool.
+
+`tests/unit/test_mcp_tools.py` holds every recipe and option to a tool or a reason, each schema to JSON Schema
+2020-12 and to `just`'s patterns, every `env()` setting to the server's command line at the justfile's default, and
+each tool's function to its schema's properties. `test_mcp_server.py` drives the server over stdio with the SDK's own
+client, against a copy of the checkout and stand-in Ansible tools; `test_mcp_jobs.py` the same for the runs - a job's
+argv and `ATTENDED`, the early return and `job`, a job outliving its server, `cancel`, the branch and the lock refused,
+`install` for no other client - and the cancellation reasons; `test_mcp_confirm.py` the confirmations - the prompt on
+every gated tool, the dialog's lines, `destroy --confirm` only for the code and the names, nothing for a decline, a
+cancel, a generic hook's answer or another client, the allow list; `test_mcp_register.py` runs `just mcp` with a
+stand-in `claude`.

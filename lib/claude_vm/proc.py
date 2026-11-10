@@ -69,6 +69,20 @@ def snapshot(pid: int) -> dict[int, str]:
     return {each: table[each][1] for each in descendants(pid, table)}
 
 
+def _signal(pids: list[int], groups: set[int], signum: int) -> None:
+    """Signal each of pids, their groups and groups, but this process's own group."""
+    own = os.getpgrp()
+    for each in pids:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            groups.add(os.getpgid(each))
+    for group in groups - {own}:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(group, signum)
+    for each in pids:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.kill(each, signum)
+
+
 def end(pid: int, *, remembered: dict[int, str] | None = None, signum: int = signal.SIGKILL, blind=None) -> list[int]:
     """Signal a process, every process under it and their groups other than this one's; the pids signalled.
 
@@ -88,17 +102,27 @@ def end(pid: int, *, remembered: dict[int, str] | None = None, signum: int = sig
         for each, started in (remembered or {}).items():
             if each not in pids and table.get(each, (None, None))[1] == started:
                 pids.extend(found for found in (each, *descendants(each, table)) if found not in pids)
-        own = os.getpgrp()
-        groups = {pid}
-        for each in pids:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                groups.add(os.getpgid(each))
-        for group in groups - {own}:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(group, signum)
-        for each in pids:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.kill(each, signum)
+        _signal(pids, {pid}, signum)
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, held)
+    return pids
+
+
+def end_left(remembered: dict[int, str], *, signum: int = signal.SIGKILL) -> list[int]:
+    """Signal what a snapshot remembered of a tree whose root has gone, a while after: each pid still at the start
+    remembered, every process under it and their groups other than this one's - never the root's pid or group, which
+    another process may have by then. The pids signalled; none when the table cannot be read."""
+    held = signal.pthread_sigmask(signal.SIG_BLOCK, HELD)
+    try:
+        try:
+            table = _table()
+        except Blind:
+            return []
+        pids: list[int] = []
+        for each, started in remembered.items():
+            if each not in pids and table.get(each, (None, None))[1] == started:
+                pids.extend(found for found in (each, *descendants(each, table)) if found not in pids)
+        _signal(pids, set(), signum)
     finally:
         signal.pthread_sigmask(signal.SIG_SETMASK, held)
     return pids

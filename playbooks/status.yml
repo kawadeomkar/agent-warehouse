@@ -28,6 +28,8 @@
       tag: "{{ claude_vm_tag }}"
       # Every tag a VM of the project's carries as its own, its 1.x name too: what the unfinished tag is read under.
       tags_owned: "{{ claude_vm_tags_owned }}"
+      # The API token's user, whom capacity names in how to grant it what reading a node takes.
+      api_user: "{{ proxmox_api_user }}"
       template_name: "{{ proxmox_template_name }}"
       template_rebuild: "{{ proxmox_template_rebuild | bool }}"
       storage: "{{ proxmox_storage }}"
@@ -64,8 +66,9 @@
           vars:
             claude_vm_api_timeout: "{{ status_api_timeout }}"
 
-        # The version, for the report's first line, and the storages' fill. Both read only.
-        - name: Read the Proxmox version and the storages
+        # The version, for the report's first line, the storages' fill, and the nodes' CPU threads and memory (with
+        # Sys.Audit; without it Proxmox lists each node alone). All read only.
+        - name: Read the Proxmox version, the storages and the nodes
           ansible.builtin.uri:
             url: "{{ proxmox_api_url }}/{{ item }}"
             headers: "{{ proxmox_api_headers }}"
@@ -75,6 +78,7 @@
           loop:
             - version
             - cluster/resources?type=storage
+            - cluster/resources?type=node
           register: status_proxmox_lists
           check_mode: false
           no_log: true

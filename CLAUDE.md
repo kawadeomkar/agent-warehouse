@@ -45,14 +45,16 @@ just test provision                  # one playbook scenario (integration is the
 just deploy                          # template (if missing) + provision + configure + the three sign-ins + the editor (VS Code by default), all idempotent (just deploy alpha: that VM)
 just deploy alpha --only configure   # one stage of it: template, provision, configure or ssh-config (fleet-wide also prunes); --check is the dry run
 just deploy alpha --tags claude_code # re-run one role, e.g. to push an API key (--tags beside names means --only configure)
+just deploy big --cores 8 --memory 16G --disk 128G   # a VM created with a size of its own, tagged sized; an existing VM is never resized
 just destroy alpha                   # save the VM's own Claude sessions here, release it from Claude, GitHub and Tailscale, then delete it
 just login alpha                     # Claude, GitHub, Tailscale in deploy's order, one VM after another (--only claude, github or tailscale: one)
-just status                          # read-only, live: every VM, what needs doing (--only vms,storage,access,sign-ins,system,work; --json; exit 0/1/2, 3 failed)
+just status                          # read-only, live: every VM, what needs doing (--only vms,storage,capacity,access,sign-ins,system,work; --json; exit 0/1/2, 3 failed)
 just settings tailscale              # a role's variables, each value and where it was set (a variable; --all; --changed; --json; none: usage)
 just settings vm_cores --value 4     # set one setting in local.yml, held to its type; never a secret (just vault)
 just settings vm_cores --reset       # back to its default: its line out of local.yml, its example's line back
 just code alpha [--project repo] [--session <id>]   # refresh one alias, copy recent Claude sessions, open the VM in the editor (VS Code with a Claude terminal by default; --editor zed)
 just logs                            # the run logs, newest first: read these instead of asking for terminal output
+just mcp                             # register the MCP server with Claude Code: sessions in any project run these commands
 just docs                            # regenerate the wiki's reference pages; serve previews the site, build builds it strictly
 ```
 
@@ -79,6 +81,10 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 - A recipe that includes another's work runs it as `{{ self }} <recipe>`, which passes on every setting (a
   recursive just begins without the command line's `BIN=`), and as `{{ self }} live_run=<its name> <recipe>` to
   make it a stage of its own run.
+- A recipe that changes something - `deploy` (but `--check`), `login`, `code`, `destroy`, `init`, `install` - takes
+  the run lock (`{{ take_lock }} <title>`) as the first line after its rules. `ATTENDED` (someone at the screen with
+  no terminal: `no_tty_args` then turns the asking off and nothing else) and `RUN_LOCK` are read from the command
+  line alone, as `BIN` is: a variable of the same name some other tool exports changes nothing.
 - A recipe drawn in parts (`lint`, `init`, `test`) exports its title and its state's path (`live_state`), sets
   `trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT` only when `live_run` is empty - an end that fails changes no
   exit status - and runs each command as `{{ live }} run <stage> --step <label> -- …`, or each playbook as it
@@ -301,8 +307,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       true`, or with none the default they would stop covering Tailscale without failing. The template is never
       signed in to anything.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
-  write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
+  write a fourth, and Claude Code's own CLI a fifth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
+    - `playbooks/vars/controller_writes.yml` is the one list of them, with the editor's own records of the windows it
+      opens and what the tools keep for themselves: every VM's session notes show it and the security model renders
+      it. `tests/unit/test_controller_writes.py` finds each row's write where it is made, and fails on a place its
+      row does not name.
+    - The fifth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
+      `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
     - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
       line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
       `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
@@ -556,6 +568,58 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       secrets, each with a `HOME` of its own and the collections' path pinned, and fail if any fake secret is
       printed; the recipe's run uses a stand-in `python`, since the tool in the checkout would read, and write,
       the developer's real settings.
+- **One run that changes something at a time, from a terminal or MCP.** Read
+  [One run at a time](docs/guides/runs.md#one-run-at-a-time) first.
+    - `tools/check lock` writes `.cache/run.lock` (`RUN_LOCK`) `O_EXCL`: the recipe's script by pid - which it keeps
+      as it execs into the run - and that process's start, and the run's title. It is taken over only once that pid
+      no longer runs the process of that start, never by age; a recipe whose ancestor holds it (init's `{{ self }}
+      install`) takes none. Never an `flock` a child could inherit: ssh's ControlPersist masters and an editor `just
+      code` starts would hold it.
+    - `just clean` refuses while a live run holds it. Every test of a recipe but `test_run_lock.py`'s runs with
+      `RUN_LOCK=` (test_justfile.py's `_just`): tests on several workers would otherwise take turns in this
+      checkout's `.cache`.
+- **The MCP server runs the justfile's recipes and nothing else, configured by its arguments alone.** Read
+  [§7.12](docs/architecture/custom-code.md#712-libclaude_vmmcp--the-mcp-server) and
+  [Agents through MCP](docs/architecture/security-model.md#agents-through-mcp) first.
+    - `tools/mcp` (`lib/claude_vm/mcp/`) is a stdio server that `just mcp` registers, its configuration all arguments
+      of the registered command, never environment variables: a project's `.claude/settings.json` `env` reaches every
+      server Claude Code starts there. Each tool runs one recipe, its schema from `just --dump`;
+      `test_mcp_tools.py` holds every recipe and option to a tool or to a reason in `recipes.py`.
+    - A value reaches `just` as one argv word, an option as `--long=value`, never through a shell, `ANSIBLE_ARGS` or
+      any setting, and a word that starts with `-` is refused. Every setting the justfile reads with `env()` goes on
+      the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`,
+      `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` recorded at registration (`HOME` and `XDG_DATA_HOME` decide the
+      collections Ansible loads, `CLAUDE_CONFIG_DIR` where `code`'s session is looked for and `just code` copies from):
+      nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
+    - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults. One that
+      changes something is a job (`jobs.py`): a supervisor in a session of its own writes `.cache/mcp/jobs/<id>/`, and
+      the job outlives the call, the server and the session; it runs only from `main` with no tracked change, unless
+      `just mcp --any-branch`, and with `ATTENDED=1` exactly when the session is an interactive one here
+      (`CLAUDE_CODE_ENTRYPOINT=cli`, not over SSH) or `--attended` says so.
+    - A `deploy` that would create a VM needs its names (`deploy_refusal`): the default VM is the terminal's, never
+      implied through an agent.
+    - A call returns at the run's first browser block, with the job's ID and where it ended: the person cannot see
+      a backgrounded call's progress. Only a person's stop - Esc (`AbortError: user-cancel`), `x` in `/tasks`
+      (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after
+      30 s, read before the SIGINT, which can leave a task worker under PID 1 (`proc.end_left`); any other cancellation leaves it to `job`. The reason comes from the server's stdin
+      (`cancels.py`), which the SDK never hands a tool.
+    - `destroy`, `settings_set`, `init` and `install` carry `anthropic/requiresUserInteraction` - the human gate:
+      no hook of the calling project's answers it - and run only for Claude Code 2.1.309 or later, the one client whose
+      prompt for it was seen. `destroy` and `settings_set` then ask in a dialog (`confirm.py`, a `Resolve`'d first
+      answer: a mid-call request fails on 2026-07-28) wanting a code with the names, since a project's `Elicitation`
+      hook can answer a dialog; the body that starts `just destroy --confirm=<names>` or `just settings --value` runs
+      only with that answer in hand. `settings_set` writes only `ALLOWED`'s settings, and `REFUSED` names every other
+      one of `local.yml.example`: `test_mcp_confirm.py` fails on a setting in neither. Where a type lets more through,
+      `VALUES` holds the value: `claude_code_version` is `stable`, `latest` or a version, since npm installs any spec
+      given as a version - another package, a repository - as root on every VM. `init` never takes
+      `--token-secret-file`.
+    - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
+      within 3 s to the older protocol for 7 days.
+    - No tool takes or returns a secret, and none runs `vault`. What a VM printed reaches a result through
+      `visible_text`, with the note that it is data inside the JSON the model reads, and every result stays under
+      40 000 characters.
+    - Tests never run the real `claude`, read `~/.claude.json` or reach a real Ansible: `test_mcp_server.py` runs a
+      copy of the checkout with stand-ins, `test_mcp_register.py` a stand-in `claude`.
 
 ## Architecture, and why it looks like this
 
@@ -593,6 +657,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `present.yml` sets `proxmox_vm_stopped` from the lookup's `status` and skips the agent wait, which Proxmox's
   500 for a stopped VM would stretch to its whole budget
   ([Related switches](docs/architecture/convergence.md#related-switches)).
+- **A VM's size is the one it was created with.** `just deploy alpha --cores 8 --memory 16G` (`vm_size`, the role's
+  `proxmox_vm_size`) sizes each VM the run creates, which the call that marks it finished tags
+  `<ownership tag>-sized`, never the settings call: a run that stopped before would leave a VM sized at the template's
+  disk. `just status` then calls its size no drift from the size settings (`proxmox_vm_drift`'s `sized`), and a repair
+  sends it no part of its size the repair does not give (`proxmox_vm_kept_size`), never the settings' in its place. An
+  existing VM is never resized: given another size it is refused before anything about it changes, but where it needs
+  configuration (`proxmox_vm_force_update`, or a run that stopped). A size larger than `proxmox_node` is refused in
+  provision.yml's play 1 where the token may read the node (`Sys.Audit`, read only); without it, the size is not
+  checked ([Size](docs/guides/vms.md#size)).
 - **A clone without a VMID is `throttle: 1`**, and `provision.yml`'s play 1 gives each new VM of a fleet its own
   `proxmox_vm_id`: keep both halves. On a VMID collision `proxmox_kvm` returns `changed=False` and the clone
   source's VMID, so the role asserts `is changed` rather than trusting the returned ID
@@ -754,8 +827,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       loosened by overriding it - which just holds every value to, every name of a variadic one, before anything
       runs; an option or word a recipe does not have is refused.
     - A value reaches its script only as a positional argument (`[positional-arguments]`), never as its text;
-      what goes into JSON is checked again there (`tools/check names`, `project` and `session`, `init`'s `only`)
-      and travels to Ansible as JSON. A recipe parameter never comes from the environment: an exported `TAGS` or
+      what goes into JSON is checked again there (`tools/check names`, `project`, `session` and `size`, `init`'s
+      `only`) and travels to Ansible as JSON. A recipe parameter never comes from the environment: an exported `TAGS` or
       `TYPE` changes nothing.
     - The one free-text value is `just settings --value`'s, refused by its pattern only for a control character,
       so just never says a value back, and held to the setting's type by `tools/settings`; no refusal of

@@ -8,9 +8,12 @@
 #   tools/check vault <file>           the vault exists and is encrypted
 #   tools/check collections <bin>      the Galaxy collections are requirements.yml's pins
 #   tools/check names <name>...        VM names: letters, digits and . _ - , only, from a letter or digit
+#   tools/check size <cores> <memory> <disk>   deploy's size: whole numbers, memory M or G, disk G or T
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
+#   tools/check lock <file> <pid> <title>   the run lock: one run that changes something at a time
+#   tools/check unheld <file>          no live run holds the run lock
 #   tools/check settings <bin> [--asking] <file>...
 #                                        no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
 #                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
@@ -71,6 +74,24 @@ names)
     esac
   done
   ;;
+size)
+  # deploy's --cores, --memory and --disk: just has held each to its pattern
+  # already; this holds the JSON they go into, as names does. Cores are 1 to
+  # 999, memory MiB or with M or G, a disk G or T, each a whole number.
+  whole() {
+    case "$1" in '' | 0* | *[!0123456789]*) return 1 ;; esac
+    [ "${#1}" -le "$2" ]
+  }
+  [ -z "$2" ] || whole "$2" 3 || { echo "error: --cores is a number of cores, as 8 (got: [$2])" >&2; exit 1; }
+  if [ -n "$3" ]; then
+    case "$3" in *[MG]) memory=${3%?} ;; *) memory=$3 ;; esac
+    whole "$memory" 7 || { echo "error: --memory is MiB, as 3072, or takes M or G, as 16G (got: [$3])" >&2; exit 1; }
+  fi
+  if [ -n "$4" ]; then
+    case "$4" in *[GT]) disk=${4%?} ;; *) disk= ;; esac
+    whole "$disk" 6 || { echo "error: --disk takes G or T, as 64G (got: [$4])" >&2; exit 1; }
+  fi
+  ;;
 project)
   # A GitHub repository name: at most 100 ASCII letters, digits, ".", "-" and
   # "_". So nothing outside the projects directory and nothing nested, and not
@@ -100,21 +121,91 @@ session)
     ;;
   esac
   ;;
+lock | unheld)
+  # The run lock: a record of the recipe's script that holds it - its pid,
+  # which the script keeps as it execs into the run, the start of that
+  # process, the run's title - written O_EXCL (set -C). It is the holder's
+  # while that pid still runs the process of that start, and taken over once
+  # it does not, whatever ended it, never by age; a pid reused by another
+  # process has another start. Never an fd lock: the run's children (ssh's
+  # ControlPersist masters, an editor just code starts) would inherit it and
+  # hold it. A recipe run inside the holder's (just init's install) is the
+  # holder's own, found among this process's ancestors, and takes none. An
+  # empty <file> is no lock (RUN_LOCK=).
+  file=$2
+  [ -n "$file" ] || exit 0
+  # A process's start as ps says it, in C and UTC with its spaces collapsed:
+  # read in the locale and zone of the run that reads it, or with the padding
+  # macOS's ps adds, one process's start would read as two, and a held lock
+  # as free. The MCP server reads it alike (jobs.started).
+  start_of() {
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | awk '{ $1 = $1; print }'
+  }
+  # A record's holder, when that process still runs: its pid, its start and the run's title, one per line.
+  holder() {
+    [ -f "$file" ] || return 1
+    pid=$(sed -n 1p "$file") since=$(sed -n 2p "$file") title=$(sed -n 3p "$file") job=$(sed -n 4p "$file")
+    case "$pid" in '' | *[!0123456789]*) return 1 ;; esac
+    [ -n "$since" ] && [ "$(start_of "$pid")" = "$since" ]
+  }
+  busy() {
+    echo "error: just $title is running (pid $pid, started $since UTC${job:+, MCP job $job}): one run that changes something at a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing." >&2
+    exit 1
+  }
+  if [ "$1" = unheld ]; then
+    ! holder || busy
+    exit 0
+  fi
+  me=$3 title_given=$4
+  since_given=$(start_of "$me")
+  mkdir -p "$(dirname "$file")"
+  for attempt in 1 2 3; do
+    if (set -C; printf '%s\n%s\n%s\n%s\n' "$me" "$since_given" "$title_given" "${AGENT_WAREHOUSE_JOB:-}" > "$file") 2>/dev/null; then
+      exit 0
+    fi
+    if holder; then
+      ancestor=$me
+      while [ -n "$ancestor" ] && [ "$ancestor" -gt 1 ]; do
+        [ "$ancestor" != "$pid" ] || exit 0
+        ancestor=$(ps -o ppid= -p "$ancestor" 2>/dev/null | tr -d ' ')
+      done
+      busy
+    fi
+    # Its process is gone: taken over - the record removed, and written anew
+    # above - by one run at a time, mkdir being the mutex, and only while the
+    # record is still there and its process still gone. Under the mutex no
+    # other run removes it, so none can have written its own in its place
+    # between that check and the removal; an empty record is one being
+    # written, never taken over.
+    if mkdir "$file.takeover" 2>/dev/null; then
+      taken=
+      if [ -s "$file" ] && ! holder; then
+        rm -f "$file"
+        taken=yes
+      fi
+      rmdir "$file.takeover"
+      [ -z "$taken" ] || continue
+    fi
+    sleep 0.1
+  done
+  echo "error: the run lock $file could not be taken: remove it, and $file.takeover if it is there, once no just deploy, login, code, destroy, init or install runs" >&2
+  exit 1
+  ;;
 sections)
   # The report's sections status's --only takes, comma-separated, or none for all
   # of them. just has held it to its pattern; this holds the JSON it goes into.
   case ",$2," in
   ,,) ;;
   *,,* | *[!abcdefghijklmnopqrstuvwxyz,-]*)
-    echo "error: --only takes the report's sections, comma-separated: vms storage access sign-ins system work (got: [$2])" >&2
+    echo "error: --only takes the report's sections, comma-separated: vms storage capacity access sign-ins system work (got: [$2])" >&2
     exit 1
     ;;
   esac
   for section in $(printf %s "$2" | tr , ' '); do
     case "$section" in
-    vms | storage | access | sign-ins | system | work) ;;
+    vms | storage | capacity | access | sign-ins | system | work) ;;
     *)
-      echo "error: the report has no section [$section]: its sections are vms storage access sign-ins system work" >&2
+      echo "error: the report has no section [$section]: its sections are vms storage capacity access sign-ins system work" >&2
       exit 1
       ;;
     esac
@@ -305,7 +396,7 @@ sys.exit(1 if found else 0)
 PYTHON
   ;;
 *)
-  echo "usage: tools/check checkout <directory> | vault <file> | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>..." >&2
+  echo "usage: tools/check checkout <directory> | vault <file> | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file>" >&2
   exit 2
   ;;
 esac
