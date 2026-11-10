@@ -550,7 +550,7 @@ def _drift_item(vm, drift, settings):
     name = vm["name"]
     parts = []
     if asks:
-        parts.append(f"local.yml asks for {and_list(asks)}; {name} has {and_list(has)}")
+        parts.append(f"the settings ask for {and_list(asks)}; {name} has {and_list(has)}")
     if cloud_init:
         parts.append(f"{'Its' if parts else 'its'} cloud-init {and_list(cloud_init)} differ from the settings")
     text = ". ".join(parts)

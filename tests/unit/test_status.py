@@ -236,7 +236,7 @@ def test_a_fixed_allocation_says_its_memory_once_and_force_update_says_what_else
         "cloud_init": [],
     }
     item = S._drift_item(vm, drift, {})
-    assert item["text"] == "local.yml asks for 8.0 GiB of memory; alpha has 4.0 GiB"
+    assert item["text"] == "the settings ask for 8.0 GiB of memory; alpha has 4.0 GiB"
     assert "proxmox_vm_force_update=true' deploy alpha --only provision" in item["command"]
     assert "resets alpha's tags" in item["command"] and "cloud-init" not in item["command"]
     cloud = S._drift_item(vm, {"hardware": [], "cloud_init": ["SSH keys"]}, {})
@@ -823,7 +823,7 @@ def test_proxmox_ve_8_reads_as_9_does_without_what_8_has_not(tmp_path) -> None:
 def test_settings_that_differ_from_the_vm_are_a_thing_to_do(tmp_path, fake_pve) -> None:
     report, model = _status_run(tmp_path, fake_pve, settings={"vm_cores": 4})
     assert report["rc"] == 0, report["stderr"][-2000:]
-    items = [it for it in model["attention"] if it["vm"] == "alpha" and "local.yml asks for 4 cores" in it["text"]]
+    items = [it for it in model["attention"] if it["vm"] == "alpha" and "the settings ask for 4 cores" in it["text"]]
     assert items and "proxmox_vm_force_update" in items[0]["command"]
 
 
@@ -1377,7 +1377,7 @@ def test_every_line_of_a_report_of_every_state_fits_100_columns() -> None:
         "refused this machine's SSH key",
         "SSH to 192.0.2",
         "was not read",
-        "local.yml asks for",
+        "the settings ask for",
     ):
         assert words in said, words
 

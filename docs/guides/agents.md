@@ -61,7 +61,8 @@ just mcp
 - `just install` has put the MCP SDK into the environment.
 
 It then runs `claude mcp add --scope user agent-warehouse`, which has Claude Code's own CLI write the server's entry
-into `~/.claude.json`, reads it back with `claude mcp get`, and prints permission rules to paste (below). Sessions
+into `~/.claude.json`, reads it back with `claude mcp get`, and prints permission rules to paste (below); the whole
+command, `PATH` and all, is `--show`'s to print. Sessions
 started from then on have the tools, as `mcp__agent-warehouse__<tool>`; `/mcp` in one shows the server. Every value the
 server needs is an argument of the command it records - this checkout, its environment's Python, `just`, `uv` and the
 `PATH`, `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` of the shell you ran `just mcp` in - never an environment
