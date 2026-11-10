@@ -32,6 +32,8 @@ else is here. It reads the same in the repository and as a site with search, at
   this machine's sessions on the VM, the session notes.
 - [Zed](guides/zed.md) - `just code` in Zed instead, and Claude in its terminal on the VM.
 - [During a run](guides/runs.md) - the prompts, NEXT STEPS, and the run logs.
+- [Agents in other projects](guides/agents.md) - `just mcp`: Claude Code sessions anywhere read the fleet through an
+  MCP server.
 - [Tearing down](guides/destroy.md) - `just destroy`, and what it releases first.
 - [What the VM trusts](guides/what-the-vm-trusts.md) - the defaults a development box runs with.
 - [Upgrading](guides/upgrading.md) - an install made by an earlier version of this project.

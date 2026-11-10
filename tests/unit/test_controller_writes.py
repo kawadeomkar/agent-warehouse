@@ -28,6 +28,7 @@ MADE_BY = {
     "data": r"tools/env-run --data\)",
     "vscode_extension": r"--install-extension",
     "editor_records": r"argv: \"\{\{ code_plan\.launch \}\}\"",
+    "mcp": r"mcp add --scope",
     "sessions_dir": r"(?m)^\s*claude_sessions_fetch:",
 }
 # A file that matches a row's pattern without writing on this machine, and why.

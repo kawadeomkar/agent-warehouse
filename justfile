@@ -711,6 +711,108 @@ logs:
     set -- "$dir"/[0-9]*-*.log
     if [ -e "$1" ]; then ls -1t "$@" | head -20; else echo "No run logs in $dir."; fi
 
+# Registers tools/mcp, the MCP server through which a Claude Code session in any
+# project runs these recipes: `claude mcp add --scope user agent-warehouse`
+# (local scope, that one project's, with --project-dir), Claude Code's own CLI
+# writing ~/.claude.json. Every value the server needs is an argument of the
+# command it records - this checkout, its environment's Python, this just and
+# uv, and this shell's PATH - never an environment variable, which a
+# project's .claude/settings.json could set. The checks first: claude new
+# enough, main and clean (but --any-branch), a vault readable with no terminal,
+# the MCP SDK in the environment. The entry is read back with claude mcp get,
+# since before Claude Code 2.1.318 an add could be lost to another session's
+# save of the same file; --show prints the command and registers nothing.
+[arg('SHOW', long='show', value='true', help='Print the command, and an entry for Claude Desktop, and register nothing')]
+[arg('EXTRA', pattern='[^\x00-\x1f\x7f]*', help='Nothing: any word after the options is refused')]
+[arg('REMOVE', long='remove', value='true', help='Take the server out of Claude Code again')]
+[arg('ANY_BRANCH', long='any-branch', value='true', help='Let the server run this checkout on any branch, or with tracked changes; without it, main with no tracked change only')]
+[arg('ATTENDED', long='attended', pattern='(0|1)?', help="Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, the server decides per session")]
+[arg('BROWSER', long='browser', pattern='[^\x00-\x1f\x7f]*', help='What opens the sign-in pages for the runs it starts, when the default does not (BROWSER)')]
+[arg('PROJECT_DIR', long='project-dir', pattern='([/~][^\x00-\x1f\x7f]*)?', help="Register it for this one project's folder only (Claude Code's local scope), not for every project")]
+[arg('VAULT_PASSWORD_FILE', long='vault-password-file', pattern='([/~][^\x00-\x1f\x7f]*)?', help="Where the vault's password is, when it is not this checkout's .vault_pass")]
+[doc('Let Claude Code sessions in any project run these commands, through an MCP server')]
+[group('use')]
+[no-exit-message]
+[positional-arguments]
+[script]
+mcp ANY_BRANCH='' ATTENDED='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_PASSWORD_FILE='' *EXTRA:
+    {{ guard }}
+    any_branch=$1 attended=$2 browser=$3 project_dir=$4 remove=$5 show=$6 vault_password_file=$7
+    shift 7
+    [ "$#" -eq 0 ] || { echo "error: just mcp takes only its options (just help mcp), and nothing after them" >&2; exit 1; }
+    [ -z "$remove" ] || [ -z "$show" ] || { echo "error: --remove takes the server out and --show prints how it is added: one or the other" >&2; exit 1; }
+    case "$project_dir" in "~") project_dir=$HOME ;; "~/"*) project_dir=$HOME/${project_dir#"~/"} ;; esac
+    case "$vault_password_file" in "~") vault_password_file=$HOME ;; "~/"*) vault_password_file=$HOME/${vault_password_file#"~/"} ;; esac
+    name=agent-warehouse
+    scope=user
+    if [ -n "$project_dir" ]; then
+      [ -d "$project_dir" ] || { echo "error: --project-dir $project_dir is not a folder" >&2; exit 1; }
+      # Claude Code keeps a project's entries under its repository's root: run from below it, one before 2.1.311
+      # named another project's entry.
+      project_dir=$(git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$project_dir" && pwd -P))
+      scope=local
+    fi
+    [ -z "$vault_password_file" ] || [ -f "$vault_password_file" ] || { echo "error: --vault-password-file $vault_password_file is not a file" >&2; exit 1; }
+    claude=$(command -v claude || true)
+    [ -n "$claude" ] || [ -n "$show" ] || { echo "error: no claude on PATH: install Claude Code first, then run just mcp again" >&2; exit 1; }
+    if [ -n "$remove" ]; then
+      [ "$scope" = user ] || cd "$project_dir"
+      "$claude" mcp remove --scope "$scope" "$name"
+      exit 0
+    fi
+    {{ find_bin }}
+    python=$bin/python
+    "$python" -I -c 'import mcp.server.mcpserver' 2> /dev/null || { echo "error: the environment in $bin has no MCP SDK. Run: just install" >&2; exit 1; }
+    if [ -n "$claude" ]; then
+      version=$("$claude" --version 2> /dev/null | awk 'NR == 1 { print $1 }')
+      "$python" -I -c 'import sys; v = [int(p) for p in sys.argv[1].split(".")]; sys.exit(v < [2, 1, 309])' "$version" 2> /dev/null \
+        || { echo "error: Claude Code ${version:-of unknown version} is older than 2.1.309, the oldest this server was tried with. Run: claude update" >&2; exit 1; }
+    fi
+    if [ -z "$any_branch" ]; then
+      branch=$(git rev-parse --abbrev-ref HEAD)
+      if [ "$branch" != main ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+        echo "error: this checkout is on $branch$( [ -z "$(git status --porcelain --untracked-files=no)" ] || echo ', with tracked changes'): the server runs only main with no tracked change, since the settings and the vault are this checkout's. Switch back to main, or allow any branch: just mcp --any-branch" >&2
+        exit 1
+      fi
+    fi
+    if head -c 14 {{ quote(VAULT_FILE) }} 2> /dev/null | grep -q '^\$ANSIBLE_VAULT' && [ ! -f {{ quote(VAULT_PASS) }} ] && [ -z "$vault_password_file" ]; then
+      echo "error: the vault is encrypted and there is no {{ VAULT_PASS }}, so a run the server starts, with no terminal, could not read it. just init makes one; or name the file: just mcp --vault-password-file <file>" >&2
+      exit 1
+    fi
+    uv=$(command -v {{ quote(UV) }} || echo {{ quote(UV) }})
+    set -- "$python" -I {{ quote(justfile_directory() / 'tools/mcp') }} --checkout={{ quote(justfile_directory()) }} --python="$python" --just={{ quote(just_executable()) }} --uv="$uv" --path="$PATH"
+    [ -z "$attended" ] || set -- "$@" --attended="$attended"
+    [ -z "$any_branch" ] || set -- "$@" --any-branch
+    [ -z "$vault_password_file" ] || set -- "$@" --vault-password-file="$vault_password_file"
+    [ -z "$browser" ] || set -- "$@" --browser="$browser"
+    if [ -n "$show" ]; then
+      printf 'claude mcp add --scope %s --transport stdio %s --' "$scope" "$name"
+      printf ' %q' "$@"
+      printf '\n\nFor Claude Desktop, in claude_desktop_config.json (a person is at its screen, so --attended=1):\n'
+      "$python" -I -c 'import json, sys; args = sys.argv[2:]; args += [] if any(a.startswith("--attended=") for a in args) else ["--attended=1"]; print(json.dumps({"mcpServers": {"agent-warehouse": {"command": sys.argv[1], "args": args}}}, indent=2))' "$@"
+      exit 0
+    fi
+    [ "$scope" = user ] || cd "$project_dir"
+    # A registration of this name already there, this checkout's or another's, is replaced.
+    if "$claude" mcp get "$name" > /dev/null 2>&1; then
+      "$claude" mcp remove --scope "$scope" "$name" > /dev/null 2>&1 || :
+      replaced=yes
+    fi
+    "$claude" mcp add --scope "$scope" --transport stdio "$name" -- "$@"
+    "$claude" mcp get "$name" > /dev/null 2>&1 \
+      || { echo "error: claude mcp add said it added $name, but claude mcp get does not find it: another Claude Code session may have saved ~/.claude.json at the same moment. Run just mcp again." >&2; exit 1; }
+    echo
+    echo "The $name MCP server runs {{ justfile_directory() }}${replaced:+, in place of the one registered before}, for $( [ "$scope" = user ] && echo 'every project' || echo "$project_dir" ). Sessions started from now on have it; /mcp in one shows it."
+    echo
+    echo "Claude Code's permission rules decide what runs unasked. These let the tools that only read run, and ask before"
+    echo "an agent runs just destroy or just settings itself through Bash; add them to ~/.claude/settings.json:"
+    echo
+    echo '  "permissions": {'
+    echo '    "allow": ["mcp__agent-warehouse__status", "mcp__agent-warehouse__settings", "mcp__agent-warehouse__logs",'
+    echo '              "mcp__agent-warehouse__log"],'
+    echo '    "ask": ["Bash(just destroy:*)", "Bash(just settings:*)"]'
+    echo '  }'
+
 # ------------------------------------------------------------------ develop ----
 # Every linter, in the order of their speed; the hooks last, since they can
 # fix what they find - whitespace, the wiki's generated pages - and then fail.

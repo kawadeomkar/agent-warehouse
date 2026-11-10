@@ -53,6 +53,7 @@ just settings vm_cores --value 4     # set one setting in local.yml, held to its
 just settings vm_cores --reset       # back to its default: its line out of local.yml, its example's line back
 just code alpha [--project repo] [--session <id>]   # refresh one alias, copy recent Claude sessions, open the VM in the editor (VS Code with a Claude terminal by default; --editor zed)
 just logs                            # the run logs, newest first: read these instead of asking for terminal output
+just mcp                             # register the MCP server with Claude Code: sessions in any project run these commands
 just docs                            # regenerate the wiki's reference pages; serve previews the site, build builds it strictly
 ```
 
@@ -301,12 +302,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       true`, or with none the default they would stop covering Tailscale without failing. The template is never
       signed in to anything.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
-  write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
+  write a fourth, and Claude Code's own CLI a fifth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
     - `playbooks/vars/controller_writes.yml` is the one list of them, with the editor's own records of the windows it
       opens and what the tools keep for themselves: every VM's session notes show it and the security model renders
       it. `tests/unit/test_controller_writes.py` finds each row's write where it is made, and fails on a place its
       row does not name.
+    - The fifth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
+      `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
     - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
       line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
       `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
@@ -560,6 +563,25 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       secrets, each with a `HOME` of its own and the collections' path pinned, and fail if any fake secret is
       printed; the recipe's run uses a stand-in `python`, since the tool in the checkout would read, and write,
       the developer's real settings.
+- **The MCP server runs the justfile's recipes and nothing else, configured by its arguments alone.** Read
+  [§7.12](docs/architecture/custom-code.md#712-libclaude_vmmcp--the-mcp-server) and
+  [Agents through MCP](docs/architecture/security-model.md#agents-through-mcp) first.
+    - `tools/mcp` (`lib/claude_vm/mcp/`) is a stdio server that `just mcp` registers, its configuration all arguments
+      of the registered command, never environment variables: a project's `.claude/settings.json` `env` reaches every
+      server Claude Code starts there. Each tool runs one recipe, its schema from `just --dump`;
+      `test_mcp_tools.py` holds every recipe and option to a tool or to a reason in `recipes.py`.
+    - A value reaches `just` as one argv word, an option as `--long=value`, never through a shell, `ANSIBLE_ARGS` or
+      any setting, and a word that starts with `-` is refused. Every setting the justfile reads with `env()` goes on
+      the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`
+      recorded at registration: nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
+    - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults.
+    - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
+      within 3 s to the older protocol for 7 days.
+    - No tool takes or returns a secret, and none runs `vault`. What a VM printed reaches a result through
+      `visible_text`, with the note that it is data inside the JSON the model reads, and every result stays under
+      40 000 characters.
+    - Tests never run the real `claude`, read `~/.claude.json` or reach a real Ansible: `test_mcp_server.py` runs a
+      copy of the checkout with stand-ins, `test_mcp_register.py` a stand-in `claude`.
 
 ## Architecture, and why it looks like this
 

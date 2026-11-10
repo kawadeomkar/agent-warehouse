@@ -51,12 +51,13 @@ what it stores. How each part below is enforced is the
 - **What the VM ends up trusting**: the SSH key material, the passwordless sudo rule and the docker group
   membership. Turned off, the rule goes with the one cloud-init writes and the groups that reach root
   without sudo, and sudo asks for `vault_vm_password`.
-- **What is written on the controller**: the four things
+- **What is written on the controller**: what
   [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
   the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
-  the checkout's own folder outside it (`tools/env-run --data`), and VS Code's Remote - SSH extension, which
+  the checkout's own folder outside it (`tools/env-run --data`), VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
-  extension or VS Code setting. A bug in the SSH config reaches every `ssh` on the user's machine, and the VM
+  extension or VS Code setting, and the MCP server's entry in `~/.claude.json`, which `just mcp` has Claude
+  Code's own CLI add. A bug in the SSH config reaches every `ssh` on the user's machine, and the VM
   chooses what goes in it: its address, which its own guest agent reports, and its name, which is Proxmox's;
   that section says how each is held. Inside the checkout, `.logs/` holds a copy of every Ansible run: `no_log`
   output is hidden there as on screen, but the files name hosts and addresses, so the directory is

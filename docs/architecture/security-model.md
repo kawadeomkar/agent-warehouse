@@ -184,13 +184,16 @@ there: `tools/molecule-lanes` writes each one's whole output, without colour, to
 
 ## On the controller
 
-The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth:
+The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth and
+Claude Code's own CLI a fifth:
 `~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
 checkout's own folder (`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you
 bring no virtualenv, the Python environment ([§13](toolchain.md)) - and, only where you point
 `destroy_sessions_dir` outside it, the Claude Code sessions `just destroy` saves
-([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)). The table is the one list of them, which
+([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)). The fifth is the MCP server's entry in
+`~/.claude.json`, which `just mcp` has Claude Code's CLI add ([Agents through MCP](#agents-through-mcp)). The table is
+the one list of them, which
 the session notes of every VM show too (**Written on your machine**,
 [§4.9](lifecycle.md#49-playbookscodeyml)), with what each editor keeps of the windows `just code` opens and what
 the tools keep for themselves:
@@ -206,6 +209,7 @@ the tools keep for themselves:
 | `~/.local/share/agent-warehouse/checkouts/<folder>-<checksum>` (under `$XDG_DATA_HOME` when set) | this checkout's Galaxy collections, and its Python environment when you bring no virtualenv | `just install` | always | `just clean env` |
 | VS Code's Remote - SSH extension, in `~/.vscode/extensions/` | Microsoft's extension, from VS Code's marketplace | VS Code's own CLI, when `just code` finds it missing | `editor: vscode` | VS Code |
 | your editor's own records of the window | its recent windows and its remote connections' state, in its own data folder | the editor itself, when `just code` opens a window | every window | the editor |
+| the `agent-warehouse` MCP server's entry in `~/.claude.json` | what lets Claude Code sessions in every project, or the one `--project-dir` names, run these commands | Claude Code's own CLI, when you run `just mcp` | only after `just mcp` | `just mcp --remove` |
 | `destroy_sessions_dir` | the Claude Code sessions `just destroy` saved from a VM | `just destroy` | only where you point it outside the checkout (by default `.sessions/`, inside it) | you |
 
 - Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp`, and `~/.ansible/galaxy_cache`.
@@ -257,6 +261,43 @@ no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the comman
 exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
 every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
 [SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
+
+## Agents through MCP
+
+`just mcp` registers `tools/mcp` with Claude Code ([§7.12](custom-code.md#712-libclaude_vmmcp--the-mcp-server)), so an
+agent in any of the user's projects - with whatever permissions the user gave it there - reads this project's output
+and calls its commands. What that changes:
+
+- **What a VM printed reaches another project's agent.** A VM's user is root-equivalent and runs an agent of its own,
+  which a repository cloned there can prompt, and what the VM chose - its name, its checkouts' branches, a failure's
+  words - now lands in the context of an agent that may hold Bash and edit rights elsewhere. Every value a VM supplies
+  is already made one line of plain text before `just status` keeps it ([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status));
+  the server hands text back through `visible_text` too, puts the note that it is data, never instructions, inside the
+  JSON the model reads (Claude Code gives the model only a result's structured part when it has one), and returns a
+  run log only when asked for one by name.
+- **Nothing of the calling project's environment reaches a run.** A project's `.claude/settings.json` `env` reaches
+  every MCP server Claude Code starts there (verified on 2.1.309): inherited, `ANSIBLE_CONFIG` would outrank
+  `ansible.cfg`, `PYTHONPATH` would decide what `ansible-playbook` imports with `.vault_pass` in reach, `PATH` which
+  `git`, `ssh` and `uv` run, and `ANSIBLE_ARGS` would add any `-e`. So the server's configuration is the arguments of
+  the command `just mcp` recorded, a run's environment is an allow list with the `PATH` recorded there, and every
+  setting the justfile reads with `env()` is given on `just`'s command line, where it outranks the environment.
+- **A value never meets a shell.** Each goes to `just` as one argv word, an option as `--long=value`, and `just` holds
+  it to the option's pattern before the recipe's first line, as at a terminal; a word that starts with `-`, which
+  `just` would read as an option, is refused before `just` runs.
+- **No secret passes through the model.** No tool takes or returns one: there is no tool for the vault, `settings`
+  says a secret set or not set, and `status` carries no token by its invariant.
+- **Stdio only.** One server per session, which Claude Code starts and stops; no socket another process or a web page
+  could reach. The only path the server takes from a call is a run log's name, held to the pattern
+  `tools/run-logged` names logs by and joined under `.logs/`.
+- **The checkout's branch.** The settings and the vault are one checkout's, which other sessions switch. Every result
+  names the branch and commit, and `just mcp` registers only `main` with no tracked change unless given
+  `--any-branch`. A pull or a branch changes the justfile, and every tool then answers "restart" rather than run a
+  schema that no longer matches.
+- **A server that cannot run says so.** It never exits at its start - Claude Code pins a stdio server that dies
+  within 3 s to the older protocol for 7 days - and answers each call with what is wrong instead: its command line, a
+  checkout without a justfile, a vault it cannot read with no terminal to ask at.
+- **One more write on this machine.** `just mcp` has Claude Code's own CLI write the server's entry into
+  `~/.claude.json`, the fifth row of [On the controller](#on-the-controller); the server itself writes nothing.
 
 ## In the editor
 

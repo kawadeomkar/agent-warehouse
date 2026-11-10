@@ -1044,3 +1044,58 @@ and `tests/unit/test_choices.py` holds the three equal.
   written back as read with the marks added under the tag or taken off under either, only on the VM of that name and
   VM ID that carries an owned tag, never in check mode, a
   VM Proxmox could not answer for said and kept for NEXT STEPS under its change's matter (`vpn_next`).
+
+## 7.12 `lib/claude_vm/mcp/` — the MCP server
+
+`tools/mcp` is a stdio MCP server, built on the Model Context Protocol's Python SDK (the `mcp` group in
+`pyproject.toml`), through which a Claude Code session in any project runs this checkout's recipes. `just mcp`
+registers it with `claude mcp add`, one server per session, which Claude Code starts in the project's folder and the
+server leaves for the checkout at once ([Agents in other projects](../guides/agents.md)). It is a thin adapter over the
+justfile, not a second implementation: every rule and refusal stays the recipe's own, and the server adds only the few
+of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recipes-through-mcp).
+
+- **`config.py`: the configuration is the registered command's arguments.** The checkout, the Python `tools/env-run`
+  found there, the absolute `just` and `uv`, and the `PATH` of the shell `just mcp` ran in, with `--attended`,
+  `--any-branch`, `--vault-password-file` and `--browser`. A project's `.claude/settings.json` `env` reaches every
+  server Claude Code starts there, so nothing is read from the environment; a command line `just mcp` never writes
+  is kept as the refusal every tool answers with.
+- **`recipes.py`: the tools are the recipes.** Each tool's input schema is made from its recipe's parameters in `just
+  --dump --dump-format json`, the source `docs/reference/commands.md` is generated from too: a recipe's words are a
+  list where their name is plural, one word where it is singular; a flag is a boolean; any other option a string,
+  each with the `[arg]` help as its description and its pattern anchored as `just` matches it, whole. `TOOLS`,
+  `NO_TOOL` and `LEFT_OUT` say which recipe and option is a tool's, and why the rest are not: `vault` has no tool, so
+  no secret passes through the model. The argv is `just --justfile <checkout>/justfile`, every setting the justfile
+  reads with `env()` at the server's value (`SETTINGS`, `ANSIBLE_ARGS` empty), the recipe, its options in their
+  `--long=value` form, then its words, each one argv word. `just` holds each value to its pattern before the script's
+  first line; a word that starts with `-`, which it would read as an option, is refused first.
+- **`environment.py`: a run's environment is built, never inherited.** The few variables a login needs (`HOME`,
+  `USER`, `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux, `XDG_DATA_HOME` for `tools/env-run --data`),
+  the recorded `PATH`, `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
+  nothing of Ansible's, Python's, `just`'s or Claude Code's - its messaging token among them, which an editor's
+  terminals would inherit.
+- **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's
+  branch and commit. `run_refusal` is the guard a run that changes something checks: `main` with no tracked change,
+  unless `--any-branch`. The justfile's digest from the server's start: once the file changes, a pull or a branch,
+  every tool answers "restart this server with /mcp" rather than run a schema that no longer matches. A recipe that
+  reads the vault is refused, before anything runs, when the vault is encrypted and there is no `.vault_pass` or
+  recorded file, since a run has no terminal to ask the password at.
+- **`results.py`: what the model reads.** Claude Code gives the model only a result's structured part when it has one
+  (verified on 2.1.309), so a JSON tool (`status`, `settings`) returns its report as structured content with the head
+  and the note that what the VMs said is data inside it, and a text tool (`logs`, `log`) text alone, registered with
+  `structured_output=False` since the SDK would wrap a `str` as `{"result": ...}`. Text goes through `visible_text`.
+  Every result stays under 40 000 characters, a text cut from the middle and a report cut to the keys that say the
+  most and how to read the rest: over about 50 000, Claude Code saves a result to a file in the session's folder,
+  which `just code` copies to the VMs.
+- **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
+  protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout
+  without a justfile or a `just` that cannot read it is each tool's refusal, never an exit. A recipe runs with stdin
+  `/dev/null`, in a session of its own (`start_new_session`) with SIGINT, SIGTERM, SIGHUP and SIGQUIT at their
+  defaults, cwd the checkout; a call cancelled ends it and everything it started. The tools are async, so a call that
+  waits on a run never holds up another. Its instructions, which every session on the machine carries, stay a few
+  lines; what a tool needs is in its description, which tool search loads only when the agent picks the tool.
+
+`tests/unit/test_mcp_tools.py` holds every recipe and option to a tool or a reason, each schema to JSON Schema
+2020-12 and to `just`'s patterns, every `env()` setting to the server's command line at the justfile's default, and
+each tool's function to its schema's properties. `test_mcp_server.py` drives the server over stdio with the SDK's own
+client, against a copy of the checkout and stand-in Ansible tools; `test_mcp_register.py` runs `just mcp` with a
+stand-in `claude`.

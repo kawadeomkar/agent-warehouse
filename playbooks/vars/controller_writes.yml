@@ -78,6 +78,15 @@ code_controller_writes:
     sources:
       - playbooks/tasks/editor_open.yml
     invariant: "the editor's own records of the windows it opens"
+  - id: mcp
+    path: "the `agent-warehouse` MCP server's entry in `~/.claude.json`"
+    what: what lets Claude Code sessions in every project, or the one `--project-dir` names, run these commands
+    writer: "Claude Code's own CLI, when you run `just mcp`"
+    when: "only after `just mcp`"
+    removed_by: "`just mcp --remove`"
+    sources:
+      - justfile
+    invariant: "`~/.claude.json`"
   - id: sessions_dir
     path: "`destroy_sessions_dir`"
     setting: destroy_sessions_dir

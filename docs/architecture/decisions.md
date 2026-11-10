@@ -248,3 +248,25 @@ such choices: the host's OS (Proxmox VE, and Unraid later), the VPN and the edit
   per-VM join gives what a subnet route does not - a name per VM, reach where nothing routes the LAN, the VM a device
   of its own - for one auth key. Not to be built again unless a VM must be reached where no route to the LAN can be
   had.
+
+## 15.6 Agents run the recipes through MCP
+
+The question: how an agent in another project - "use agent-warehouse to deploy a VM for this repository" - runs this
+project's commands, with every command behaving as it does at a terminal.
+
+**Decided: a stdio MCP server that is a thin adapter over the justfile** (`tools/mcp`,
+[§7.12](custom-code.md#712-libclaude_vmmcp--the-mcp-server)).
+
+- **Over the justfile, not beside it.** Each tool runs one recipe as `just` would, its schema made from the recipe's
+  own parameters, so every check, refusal and message stays in one place and a tool cannot drift from its command; a
+  test fails on a recipe or an option added with no decision. Re-implementing the recipes in Python would be a second
+  copy of every rule, and driving them at a pseudo-terminal, answering their prompts by scraping, would put a
+  model's guess where the person's answer was.
+- **Stdio, one server per session.** No socket another process, a browser page or a DNS-rebinding trick could reach,
+  and nothing to run or keep up between sessions.
+- **Registered once, for every project.** `claude mcp add --scope user` (local scope for one project with
+  `--project-dir`), every value an argument of the recorded command, since a project's settings reach a server's
+  environment. The entry in `~/.claude.json` is the one write it adds on this machine, made by Claude Code's own CLI,
+  as VS Code's CLI writes its extension.
+- **No tool for the vault, nor any secret.** The vault, the token secret, the Tailscale auth key and Claude's pasted
+  code stay at the terminal, so no secret passes through the model.

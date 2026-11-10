@@ -370,6 +370,12 @@ pytest over `tests/unit/`, file by file:
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
   setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
   moves said under the home as `~`.
+- **The MCP server** (`test_mcp_tools.py`, `test_mcp_server.py`, `test_mcp_register.py`): every recipe and option a
+  tool's or left out for a reason, each schema valid and anchored as `just` matches, every `env()` setting given on
+  `just`'s command line at its default; the server driven over stdio by the SDK's client against a copy of the
+  checkout and stand-in Ansible tools - a run's environment from the allow list, no terminal, a session of its own,
+  the JSON with its note, a refusal per call and never an exit; `just mcp` with a stand-in `claude`, never the real
+  one or `~/.claude.json`.
 - **What the project writes on this machine** (`test_controller_writes.py`): every row of
   `playbooks/vars/controller_writes.yml` says where, what, what writes it, when and what takes it out; each row's
   write is found where it is made, by a pattern of the test's, and every file that makes one is among the row's
