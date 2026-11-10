@@ -341,7 +341,7 @@ tailscale_release_summary: >-
      else ('logged out; ' ~ tailscale_api_gone_said) if tailscale_api_gone_already | bool
      else ('logged out, but its device was not deleted - ' ~ tailscale_api_refused_why ~ tailscale_api_by_hand) }}
 
-# --- Not the VPN (unmanaged.yml), and status (status.yml) ---
+# --- Not the VPN (unmanaged.yml), and what status reads ---
 # A Tailscale this role installed, its package still there, where Tailscale is
 # not the VPN: left as it is, and read by just status, which shows it unmanaged.
 tailscale_status_unmanaged: >-

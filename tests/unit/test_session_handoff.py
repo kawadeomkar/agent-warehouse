@@ -541,8 +541,8 @@ def test_a_claude_process_is_told_by_its_argv(argv, claude):
 
 
 def test_every_module_asks_the_one_rule_of_a_claude_process():
-    # The shared file's: claude_sessions_info's open sessions, git_checkouts_info's busy checkouts and vm_status_info's
-    # count, none with a rule of its own.
+    # The shared file's: claude_sessions_info's open sessions, git_checkouts_info's busy checkouts and the status
+    # probe's count, none with a rule of its own.
     for module in sorted((REPO / "playbooks" / "library").glob("*.py")):
         assert "@anthropic-ai/claude-code" not in module.read_text(), module.name
 

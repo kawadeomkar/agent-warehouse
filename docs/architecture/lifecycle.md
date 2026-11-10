@@ -382,10 +382,10 @@ screen in a quarter of a second and a finished report in about two, against five
 2. The settings: a snapshot where one holds, otherwise Ansible's own in this process
    ([below](#what-a-run-keeps)).
 3. The Proxmox API, as GETs eight at a time: the listing (§4.3, steps 1-3), the version, the storages and the nodes
-   first, and each VM drawn the moment the listing lands; then every VM's config and its agent's address, so that none waits
-   behind another VM's history, then each VM's own reads, the template's config, and each of this project's
-   storages' disks. Each read waits `status_api_timeout`, 10 s. A VM's address reaching the engine starts that VM's
-   probe at once, whatever the rest of the fleet is doing. A read cut short, or an answer that is no HTTP, is that
+   first, and each VM drawn the moment the listing lands; then every VM's config and its agent's address, so that
+   none waits behind another VM's history, then each VM's own reads, the template's config, and each of this
+   project's storages' disks. Each read waits `status_api_timeout`, 10 s. A VM's address reaching the engine starts
+   that VM's probe at once, whatever the rest of the fleet is doing. A read cut short, or an answer that is no HTTP, is that
    read failed.
 4. Each VM over SSH, where a section asked for needs it (`access`, `sign-ins`, `system`, `work`) and the VM runs
    and has an address: one connection, one program (the probe) doing every read at once, and no more VMs at once
@@ -497,8 +497,9 @@ beside what the VMs listed on it hold, running and stopped (`status_capacity`); 
 `grant` says how to give it to the token's user (`proxmox_api_user`), on the node: the lines the section prints, and
 an agent reads in `--json`. A VM's own list of repositories is read from its notes (`own_repos`), which the report does
 not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e` and `-i`; it runs no playbook, so any other option is
-warned of and ignored. The vault opens with `.vault_pass`, or the password file
-`ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one is run for the
+warned of and ignored, but for `--ask-vault-pass`, which it refuses, naming `.vault_pass` and
+`ANSIBLE_VAULT_PASSWORD_FILE`: the report is drawn at once, and nothing asks. The vault opens with `.vault_pass`, or
+the password file `ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one is run for the
 password, as Ansible runs it. Ansible resolves the roles' `module_defaults` group from the Galaxy collections
 installed, so the engine runs `tools/check collections` itself, the moment it asks Ansible for the settings, and
 refuses as every recipe does, naming `just install`; the recipe does not, since there it would hold back the

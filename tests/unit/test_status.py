@@ -355,7 +355,7 @@ SETTINGS = {
     "storage": "local-lvm",
     "sections": "",
     "tailscale_enabled": True,
-    # As status.yml resolves the editor setting's default, and names every editor of the list.
+    # As the engine's settings resolve the editor setting's default, and name every editor of the list.
     "editor": "vscode",
     "editor_name": "VS Code",
     "editor_names": {"vscode": "VS Code", "zed": "Zed"},
@@ -528,7 +528,7 @@ def test_the_access_columns_line_up_whatever_the_names() -> None:
 
 def test_a_vm_left_on_the_tailnet_under_none_shows_there_unmanaged_and_one_off_shows_off() -> None:
     # Choosing no VPN never removes one: a VM the project put on the tailnet stays there, and the column says so
-    # rather than "off" (roles/tailscale/tasks/status.yml reads it where the project's marker is).
+    # rather than "off" (the probe reads it where the project's marker is).
     def vm(name: str, tailscale: dict | None) -> dict:
         return {
             "name": name,
@@ -792,7 +792,7 @@ def test_status_reads_the_fleet_from_the_api_and_changes_nothing(tmp_path, fake_
 
 @pytest.mark.parametrize(("editor", "name"), [("zed", "Zed"), ("", "VS Code")])
 def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, name: str) -> None:
-    # The setting as local.yml holds it, through status.yml's settings and status_report's model into the text; an
+    # The setting as local.yml holds it, through the engine's settings and status_report's model into the text; an
     # empty one is the default's, as code.yml resolves it, and never "" in --json.
     report, model = _status_run(tmp_path, fake_pve, settings={"editor": editor})
     assert report["rc"] == 0, report["stderr"][-2000:]
@@ -885,6 +885,27 @@ def test_a_run_that_fails_part_way_ends_its_probes_and_exits_at_once(tmp_path, f
     assert done.returncode == 3, done.stderr[-2000:]
     assert "the run failed: a read nobody expected" in done.stderr
     assert time.monotonic() - started < 45
+
+
+@pytest.mark.parametrize("flag", ["--ask-vault-pass", "--ask-vault-password", "-J"])
+def test_asking_for_the_vault_s_password_is_refused_by_name_before_anything_runs(tmp_path, flag: str) -> None:
+    # Warned of and ignored like other options, the run would end later in Ansible's own words for a vault it cannot
+    # open. Status draws at once and asks nothing, so it says where the password goes instead.
+    root = status_root(tmp_path, "https://127.0.0.1:9")
+    done = subprocess.run(
+        status_command(root, {}, flag),
+        cwd=root,
+        env=_env(root),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert done.returncode == 3 and done.stdout == "", done.stderr[-2000:]
+    assert ".vault_pass" in done.stderr and "ANSIBLE_VAULT_PASSWORD_FILE" in done.stderr
+    assert "refused" in done.stderr and "ignoring" not in done.stderr
+    assert not (root / "ssh.log").exists()
 
 
 def test_a_token_secret_ending_in_a_newline_is_sent_without_it_and_never_said(tmp_path, fake_pve) -> None:

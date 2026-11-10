@@ -5,8 +5,9 @@
                                [--vault-file <file>] [--vault-password-file <file>] [-i <inventory>] [-e <vars>]
 
 The engine (lib/claude_vm/status/engine.py) reads and draws; this says what it was given. -e and -i are ANSIBLE_ARGS'
-(or a test's), and any other of those is warned of and ignored: just status runs no playbook. Exits with the report's
-code: 0 nothing is wrong, 1 a problem, 2 something could not be read, 3 the run itself failed.
+(or a test's), and any other of those is warned of and ignored: just status runs no playbook. --ask-vault-pass is
+refused, since it draws at once and asks nothing. Exits with the report's code: 0 nothing is wrong, 1 a problem, 2
+something could not be read, 3 the run itself failed.
 """
 
 from __future__ import annotations
@@ -32,7 +33,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--vault-password-file", default="")
     parser.add_argument("-i", "--inventory", action="append", default=[])
     parser.add_argument("-e", "--extra-vars", dest="extra", action="append", default=[])
+    parser.add_argument("-J", "--ask-vault-password", "--ask-vault-pass", dest="ask_vault", action="store_true")
     opts, ignored = parser.parse_known_args(argv)
+    if opts.ask_vault:
+        # Warned of and ignored like the rest, the run would only fail later, for want of the password.
+        print(
+            "just status: --ask-vault-pass is refused: status draws at once and asks nothing. Put the vault's password"
+            " in .vault_pass, or name a file that holds it in ANSIBLE_VAULT_PASSWORD_FILE.",
+            file=sys.stderr,
+        )
+        return 3
     if ignored:
         print(f"just status: ignoring {' '.join(ignored)}: it runs no playbook", file=sys.stderr)
     signal.signal(signal.SIGTERM, signal.getsignal(signal.SIGINT))

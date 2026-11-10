@@ -29,7 +29,7 @@ def editor_open_plan(key: object, rows: object, inputs: object) -> dict[str, Any
 
 
 def editor_servers(rows: object) -> list[dict[str, Any]]:
-    """Each editor's window as vm_status_info knows it, the module's editors argument: every row, in its order, each
+    """Each editor's window as the status probe knows it, its editors setting: every row, in its order, each
     match as the wire carries it but for the envelope, which the module's arguments do not take."""
     bare = ("format_version", "kind")
     return [

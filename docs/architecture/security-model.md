@@ -273,7 +273,7 @@ and calls its commands. What that changes:
 - **What a VM printed reaches another project's agent.** A VM's user is root-equivalent and runs an agent of its own,
   which a repository cloned there can prompt, and what the VM chose - its name, its checkouts' branches, a failure's
   words - now lands in the context of an agent that may hold Bash and edit rights elsewhere. Every value a VM supplies
-  is already made one line of plain text before `just status` keeps it ([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status));
+  is already made one line of plain text before `just status` keeps it ([§7.7](custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status));
   the server hands text back through `visible_text` too, puts the note that it is data, never instructions, inside the
   JSON the model reads (Claude Code gives the model only a result's structured part when it has one), and returns a
   run log only when asked for one by name.

@@ -1490,7 +1490,7 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
     ],
 )
 def test_the_record_s_pattern_matches_the_whole_tag_in_either_list(tag, tags, recorded):
-    # What discover.yml, provision.yml and status.yml read as tailscale_joined_before: `is regex`, a search.
+    # What discover.yml, provision.yml and just status read as tailscale_joined_before: `is regex`, a search.
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     names = ("claude_vm_tag_1x", "claude_vm_tags_owned", "claude_vm_tailscale_tag", "claude_vm_tailscale_tag_pattern")
     variables = {"claude_vm_tag": tag, **{name: trust_as_template(defaults[name]) for name in names}}

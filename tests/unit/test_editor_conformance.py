@@ -260,7 +260,7 @@ def test_inputs_and_rows_are_held_to_their_types(bad):
     "server", [{"argv1": "run"}, {"argv_has": ["--type=extensionHost"]}, {"argv0_contains": 1}, {"argv0": "zed"}]
 )
 def test_a_row_s_window_match_names_its_program_and_no_more(server):
-    # A match on the arguments alone would count any of the user's programs that takes them (vm_status_info).
+    # A match on the arguments alone would count any of the user's programs that takes them (the status probe).
     with pytest.raises((ValueError, TypeError)):
         model.editors_from({"zed": ROWS["zed"] | {"server": server}})
 
