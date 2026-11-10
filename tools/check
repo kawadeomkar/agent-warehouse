@@ -11,6 +11,8 @@
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
+#   tools/check lock <file> <pid> <title>   the run lock: one run that changes something at a time
+#   tools/check unheld <file>          no live run holds the run lock
 #   tools/check settings <bin> [--asking] <file>...
 #                                        no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
 #                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
@@ -99,6 +101,57 @@ session)
     exit 1
     ;;
   esac
+  ;;
+lock | unheld)
+  # The run lock: a record of the recipe's script that holds it - its pid,
+  # which the script keeps as it execs into the run, the start of that
+  # process, the run's title - written O_EXCL (set -C). It is the holder's
+  # while that pid still runs the process of that start, and taken over once
+  # it does not, whatever ended it, never by age; a pid reused by another
+  # process has another start. Never an fd lock: the run's children (ssh's
+  # ControlPersist masters, an editor just code starts) would inherit it and
+  # hold it. A recipe run inside the holder's (just init's install) is the
+  # holder's own, found among this process's ancestors, and takes none. An
+  # empty <file> is no lock (RUN_LOCK=).
+  file=$2
+  [ -n "$file" ] || exit 0
+  # A record's holder, when that process still runs: its pid, its start and the run's title, one per line.
+  holder() {
+    [ -f "$file" ] || return 1
+    pid=$(sed -n 1p "$file") since=$(sed -n 2p "$file") title=$(sed -n 3p "$file") job=$(sed -n 4p "$file")
+    case "$pid" in '' | *[!0123456789]*) return 1 ;; esac
+    [ -n "$since" ] && [ "$(ps -o lstart= -p "$pid" 2>/dev/null)" = "$since" ]
+  }
+  busy() {
+    echo "error: just $title is running (pid $pid, started $since${job:+, MCP job $job}): one run that changes something at a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing." >&2
+    exit 1
+  }
+  if [ "$1" = unheld ]; then
+    ! holder || busy
+    exit 0
+  fi
+  me=$3 title_given=$4
+  since_given=$(ps -o lstart= -p "$me" 2>/dev/null)
+  mkdir -p "$(dirname "$file")"
+  for attempt in 1 2 3; do
+    if (set -C; printf '%s\n%s\n%s\n%s\n' "$me" "$since_given" "$title_given" "${AGENT_WAREHOUSE_JOB:-}" > "$file") 2>/dev/null; then
+      exit 0
+    fi
+    if holder; then
+      ancestor=$me
+      while [ -n "$ancestor" ] && [ "$ancestor" -gt 1 ]; do
+        [ "$ancestor" != "$pid" ] || exit 0
+        ancestor=$(ps -o ppid= -p "$ancestor" 2>/dev/null | tr -d ' ')
+      done
+      busy
+    fi
+    # Its process is gone: taken over, unless another run took it over first.
+    stale=$(cat "$file" 2>/dev/null || true)
+    sleep 0.1
+    [ "$(cat "$file" 2>/dev/null || true)" != "$stale" ] || rm -f "$file"
+  done
+  echo "error: the run lock $file could not be taken: remove it once no just deploy, login, code, destroy, init or install runs" >&2
+  exit 1
   ;;
 sections)
   # The report's sections status's --only takes, comma-separated, or none for all
@@ -305,7 +358,7 @@ sys.exit(1 if found else 0)
 PYTHON
   ;;
 *)
-  echo "usage: tools/check checkout <directory> | vault <file> | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>..." >&2
+  echo "usage: tools/check checkout <directory> | vault <file> | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file>" >&2
   exit 2
   ;;
 esac

@@ -107,7 +107,10 @@ Code:
 
 - **`USER INPUT REQUIRED`**: a prompt to type at - the code Claude's sign-in page shows, or, with
   `github_login_auto_start` or `tailscale_login_auto_start` off, whether to sign a VM in now (a run with no
-  terminal never asks that: the VM is left, and the run names the `just login` line that signs it in). `just init`
+  terminal never asks that: the VM is left, and the run names the `just login` line that signs it in). A run with
+  no terminal opens no page either, but with `ATTENDED=1` - someone is at this machine's screen, as when an agent
+  in a Claude Code session runs it through the MCP server: the pages open and the sign-ins run, and only the
+  asking stays off. `ATTENDED` is read from the command line alone (`just ATTENDED=1 deploy alpha`). `just init`
   asks this way too, for each value a first deploy needs that is still the example's (`just init` in the
   block's title); there, Enter leaves the value for the next `just init`.
 - **`ACTION REQUIRED IN YOUR BROWSER`**: a page to approve - Claude's, GitHub's device code, Tailscale's.
@@ -127,6 +130,23 @@ The blocks come from `callback_plugins/agent_warehouse.py`, which `ansible.cfg` 
 `ANSIBLE_STDOUT_CALLBACK=default` in front of a `just` command for Ansible's own output (the prompts keep
 their blocks). The run log below holds the same blocks without colour, but never `just destroy`'s
 question, which Ansible does not log.
+
+## One run at a time
+
+`just deploy` (but `--check`), `just login`, `just code`, `just destroy`, `just init` and `just install` take one lock,
+whether you run them at a terminal or an agent runs them through the MCP server ([Agents in other
+projects](agents.md)): two deploys at once could take the same VM ID, and runs share the managed SSH config. A second
+one is refused before it does anything, naming what holds the lock:
+
+```
+error: just deploy beta is running (pid 51234, started Sun Nov  8 14:02:10 2026): one run that changes something at
+a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing.
+```
+
+The lock is a record in `.cache/run.lock` of the run that holds it, which is free again the moment that run's process
+is gone, however it ended - never after a time. `just status`, `just settings`, `just logs` and `just deploy --check`
+take none, and `just clean` keeps `.cache/` while a run holds it. `just RUN_LOCK= deploy` takes none, at your own
+risk.
 
 ## Run logs
 

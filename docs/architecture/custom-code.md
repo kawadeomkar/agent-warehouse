@@ -1090,6 +1090,37 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   cut to the keys that say the most and how to read the rest: over about 50 000, Claude Code saves a result to a file
   in the session's folder, which `just code` copies to the VMs. So that a cut leaves nothing out of reach, `log` takes
   the line to `start` from, and says which lines of how many it returned.
+- **`jobs.py`: a run that changes something is a job.** A deploy takes minutes, its sign-ins wait in the person's
+  browser, Claude Code moves a call into the background after two minutes and ends its server with the session. So
+  `deploy`, `login`, `code` and `install` start a supervisor - `tools/mcp --supervise=<folder>`, in a session of its
+  own with the signals at their defaults - which runs the recipe in a process group of its own and writes
+  `.cache/mcp/jobs/<id>/` (0700, the ID random hex): `job.json`, what ran and how it ended, and `output.txt`, what it
+  printed through `visible_text`. Any server, this session's or a later one's, follows a job there. A job is running
+  while its supervisor's pid runs the process of the start it recorded, never by pid alone, and jobs are pruned
+  after `LOG_RETENTION_DAYS`, as the logs are. A stop is SIGINT to the run's group, as a terminal's Ctrl-C, and the
+  whole tree ended through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group.
+- **`runs.py`: the call follows its job.** Each line the run prints goes as `notifications/progress`, which Claude
+  Code shows the person under the running call (never the model), with a line a minute while the run is silent, which
+  also keeps Claude Code's idle limit from ending the call. The call returns at the run's end, after `wait_seconds`,
+  or the first time the run prints a browser block (`ACTION REQUIRED IN YOUR BROWSER`): by then the call is in the
+  background, where nothing the person sees says a page waits, and only the agent can tell them. It returns the
+  block, the job's ID and where the block ended; `job(id, since)` goes on from there, so no block is returned twice,
+  and a call's result holds only what the run printed since it began following.
+- **`cancels.py`: why a call was cancelled.** The SDK cancels a tool's task without the reason Claude Code gives, so
+  the server reads its stdin through a pipe a thread feeds, noting each `notifications/cancelled` before passing the
+  line on. A person's stop - Esc, `AbortError: user-cancel`; `x` in `/tasks`, `AbortError: The operation was
+  aborted.` (verified on 2.1.309 to 2.1.319) - stops the run; anything else - the wall clock's `SdkError: Request
+  timed out`, a reason not on the list, the session closing - leaves it to `job`, recorded. A later Claude Code that
+  words a stop otherwise errs on the safe side: `cancel` still stops it.
+- **`ATTENDED`.** A run tool passes `ATTENDED=1` - the pages open and the sign-ins run, and nothing asks - exactly when
+  the session is an interactive one on this machine: Claude Code gives its servers `CLAUDE_CODE_ENTRYPOINT=cli` then,
+  `sdk-cli` for `claude -p`, and the server reads `SSH_CONNECTION` from its own environment. `just mcp --attended`
+  overrides it. A Remote Control session gives its server the same environment as a plain one, so the early return,
+  not the attended decision, is what keeps a person from missing a page.
+- **The gated tools.** `install` changes the environment every run and the server use: it carries
+  `anthropic/requiresUserInteraction`, which makes Claude Code ask before every call whatever the permission rules
+  say (no hook of the calling project's answers it; `-p` and `dontAsk` deny the tool), and it runs only for Claude Code
+  2.1.309 or later, the one client whose prompt was seen - Claude Desktop most likely runs such a tool unasked.
 - **`server.py`: it always starts.** Claude Code pins a stdio server that dies within 3 s of its start to the older
   protocol revision for 7 days (2.1.318's changelog), which would outlast the fix, so a bad command line, a checkout
   without a justfile or a `just` that cannot read it is each tool's refusal, never an exit. A recipe runs with stdin
@@ -1101,5 +1132,7 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
 `tests/unit/test_mcp_tools.py` holds every recipe and option to a tool or a reason, each schema to JSON Schema
 2020-12 and to `just`'s patterns, every `env()` setting to the server's command line at the justfile's default, and
 each tool's function to its schema's properties. `test_mcp_server.py` drives the server over stdio with the SDK's own
-client, against a copy of the checkout and stand-in Ansible tools; `test_mcp_register.py` runs `just mcp` with a
-stand-in `claude`.
+client, against a copy of the checkout and stand-in Ansible tools; `test_mcp_jobs.py` the same for the runs - a job's
+argv and `ATTENDED`, the early return and `job`, a job outliving its server, `cancel`, the branch and the lock refused,
+`install` for no other client - and the cancellation reasons; `test_mcp_register.py` runs `just mcp` with a stand-in
+`claude`.

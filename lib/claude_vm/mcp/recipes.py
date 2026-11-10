@@ -22,6 +22,8 @@ class ToolRecipe:
     recipe: str
     # Options the server always gives, by their long name: True for a flag.
     fixed: dict[str, str | bool] = field(default_factory=dict)
+    # Properties of the server's own beside the recipe's (OWN).
+    own: tuple[str, ...] = ()
 
 
 # The tools that run a recipe, by name.
@@ -29,18 +31,27 @@ TOOLS = {
     "status": ToolRecipe("status", {"json": True}),
     "settings": ToolRecipe("settings", {"json": True}),
     "logs": ToolRecipe("logs"),
+    "deploy": ToolRecipe("deploy", own=("wait_seconds",)),
+    "login": ToolRecipe("login", own=("wait_seconds",)),
+    "code": ToolRecipe("code", own=("wait_seconds",)),
+    "install": ToolRecipe("install", own=("wait_seconds",)),
+}
+# The properties a run tool has beside its recipe's.
+OWN = {
+    "wait_seconds": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Return after this many seconds with the job still running, its ID to follow with job; "
+        "none: at the run's end, or when it waits for the user in the browser",
+    },
 }
 
 # The recipes no tool runs, and why.
 NO_TOOL = {
     "help": "the tools' own descriptions say what just help says",
     "vault": "the vault is edited at a terminal, by the person: no tool takes or returns a secret",
-    "deploy": "a run that changes the VMs, which needs the run lock and a job that outlives the call",
-    "login": "a run that changes the VMs, which needs the run lock and a job that outlives the call",
-    "code": "a run that changes the VMs, which needs the run lock and a job that outlives the call",
     "destroy": "a deletion, which needs the person's own confirmation",
     "init": "it writes the configuration, which needs the person's own confirmation",
-    "install": "it changes the environment every run and this server use, which needs the person's own confirmation",
     "lint": "a contributor's command",
     "test": "a contributor's command",
     "docs": "a contributor's command",
@@ -51,6 +62,7 @@ NO_TOOL = {
 
 # Options a tool's recipe has that the tool does not take, and why.
 LEFT_OUT = {
+    ("install", "lock"): "it rewrites uv.lock after a pin is edited: a contributor's, at a terminal",
     ("settings", "value"): "a write into local.yml, which needs the person's own confirmation",
     ("settings", "reset"): "a write into local.yml, which needs the person's own confirmation",
 }
@@ -129,15 +141,17 @@ def schema(recipe: dict, tool: str) -> dict:
             properties[name] = {"type": "boolean", "description": description}
         else:
             properties[name] = {"type": "string", "description": description, **_pattern(parameter)}
+    properties |= {name: OWN[name] for name in TOOLS[tool].own}
     return {"type": "object", "properties": properties, "additionalProperties": False}
 
 
-def command(config: Config, recipe: dict, tool: str, arguments: dict) -> list[str]:
-    """just's argv for one call: the justfile, every setting at the server's value, the recipe, then its options as
-    --long=value (a flag bare), in the recipe's order, the fixed ones among them, then its words, each one word."""
+def command(config: Config, recipe: dict, tool: str, arguments: dict, extra: dict[str, str] | None = None) -> list[str]:
+    """just's argv for one call: the justfile, every setting at the server's value and then extra (ATTENDED), the
+    recipe, then its options as --long=value (a flag bare), in the recipe's order, the fixed ones among them, then its
+    words, each one word."""
     given = {**arguments, **TOOLS[tool].fixed}
     argv = [config.just, "--justfile", str(config.checkout / "justfile")]
-    argv += [f"{name}={value}" for name, value in settings(config).items()]
+    argv += [f"{name}={value}" for name, value in {**settings(config), **(extra or {})}.items()]
     argv.append(recipe["name"])
     tail: list[str] = []
     for parameter in recipe["parameters"]:

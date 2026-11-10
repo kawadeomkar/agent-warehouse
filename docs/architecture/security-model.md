@@ -297,6 +297,15 @@ and calls its commands. What that changes:
 - **A server that cannot run says so.** It never exits at its start - Claude Code pins a stdio server that dies
   within 3 s to the older protocol for 7 days - and answers each call with what is wrong instead: its command line, a
   checkout without a justfile, a vault it cannot read with no terminal to ask at.
+- **What an agent may start.** In auto mode, without an `ask` rule, Claude Code's classifier alone decides whether an
+  agent deploys, signs in or opens a VM (verified), so `just mcp` prints `ask` rules for `deploy`, `login`, `code` and
+  `cancel`, and for `Bash(just destroy:*)` and `Bash(just settings:*)`: an agent with Bash in another project could
+  `cd` to the checkout and run them itself, which MCP's own gates never see. `install` asks every time, in Claude
+  Code's own prompt, which no hook of the calling project can answer, and runs for no other client. A run takes the
+  same lock as a terminal's ([One run at a time](../guides/runs.md#one-run-at-a-time)), and starts only from `main`
+  with no tracked change.
+- **Pages open only for a person.** A run opens the sign-in pages here only with `ATTENDED=1`: an interactive session on
+  this machine, not over SSH, or `just mcp --attended`. Headless `claude -p` runs as a run with no terminal always ran.
 - **One more write on this machine.** `just mcp` has Claude Code's own CLI write the server's entry into
   `~/.claude.json`, the fifth row of [On the controller](#on-the-controller); the server itself writes nothing.
 

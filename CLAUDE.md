@@ -80,6 +80,10 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 - A recipe that includes another's work runs it as `{{ self }} <recipe>`, which passes on every setting (a
   recursive just begins without the command line's `BIN=`), and as `{{ self }} live_run=<its name> <recipe>` to
   make it a stage of its own run.
+- A recipe that changes something - `deploy` (but `--check`), `login`, `code`, `destroy`, `init`, `install` - takes
+  the run lock (`{{ take_lock }} <title>`) as the first line after its rules. `ATTENDED` (someone at the screen with
+  no terminal: `no_tty_args` then turns the asking off and nothing else) and `RUN_LOCK` are read from the command
+  line alone, as `BIN` is: a variable of the same name some other tool exports changes nothing.
 - A recipe drawn in parts (`lint`, `init`, `test`) exports its title and its state's path (`live_state`), sets
   `trap 'rc=$?; live_end "$rc"; exit "$rc"' EXIT` only when `live_run` is empty - an end that fails changes no
   exit status - and runs each command as `{{ live }} run <stage> --step <label> -- …`, or each playbook as it
@@ -563,6 +567,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       secrets, each with a `HOME` of its own and the collections' path pinned, and fail if any fake secret is
       printed; the recipe's run uses a stand-in `python`, since the tool in the checkout would read, and write,
       the developer's real settings.
+- **One run that changes something at a time, from a terminal or MCP.** Read
+  [One run at a time](docs/guides/runs.md#one-run-at-a-time) first.
+    - `tools/check lock` writes `.cache/run.lock` (`RUN_LOCK`) `O_EXCL`: the recipe's script by pid - which it keeps
+      as it execs into the run - and that process's start, and the run's title. It is taken over only once that pid
+      no longer runs the process of that start, never by age; a recipe whose ancestor holds it (init's `{{ self }}
+      install`) takes none. Never an `flock` a child could inherit: ssh's ControlPersist masters and an editor `just
+      code` starts would hold it.
+    - `just clean` refuses while a live run holds it. Every test of a recipe but `test_run_lock.py`'s runs with
+      `RUN_LOCK=` (test_justfile.py's `_just`): tests on several workers would otherwise take turns in this
+      checkout's `.cache`.
 - **The MCP server runs the justfile's recipes and nothing else, configured by its arguments alone.** Read
   [§7.12](docs/architecture/custom-code.md#712-libclaude_vmmcp--the-mcp-server) and
   [Agents through MCP](docs/architecture/security-model.md#agents-through-mcp) first.
@@ -575,7 +589,18 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`,
       `HOME` and `XDG_DATA_HOME` recorded at registration (the last two decide the collections Ansible loads):
       nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
-    - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults.
+    - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults. One that
+      changes something is a job (`jobs.py`): a supervisor in a session of its own writes `.cache/mcp/jobs/<id>/`, and
+      the job outlives the call, the server and the session; it runs only from `main` with no tracked change, unless
+      `just mcp --any-branch`, and with `ATTENDED=1` exactly when the session is an interactive one here
+      (`CLAUDE_CODE_ENTRYPOINT=cli`, not over SSH) or `--attended` says so.
+    - A call returns at the run's first browser block, with the job's ID and where it ended: the person cannot see
+      a backgrounded call's progress. Only a person's stop - Esc (`AbortError: user-cancel`), `x` in `/tasks`
+      (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after
+      30 s; any other cancellation leaves it to `job`. The reason comes from the server's stdin
+      (`cancels.py`), which the SDK never hands a tool.
+    - `install` carries `anthropic/requiresUserInteraction` and runs only for Claude Code 2.1.309 or later, the one
+      client whose prompt for it was seen.
     - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
       within 3 s to the older protocol for 7 days.
     - No tool takes or returns a secret, and none runs `vault`. What a VM printed reaches a result through

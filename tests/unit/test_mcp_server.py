@@ -48,6 +48,8 @@ DROPPED = {
     "HOME": "/nonexistent/evil-home",
     "XDG_DATA_HOME": "/nonexistent/evil-data",
 }
+TOOLS = {"status", "settings", "logs", "log", "deploy", "login", "code", "install", "jobs", "job", "cancel"}
+READ_ONLY = {"status", "settings", "logs", "log", "jobs", "job"}
 REPORT = {
     "exit": 1,
     "title": "agent-warehouse  10:00 · pve · 1 VM",
@@ -191,12 +193,12 @@ def status_call(world):
 
 def test_the_tools_are_the_recipes_with_their_schemas(world, status_call):
     tools = status_call["talk"]["tools"]
-    assert set(tools) == {"status", "settings", "logs", "log"}
+    assert set(tools) == TOOLS
     status = tools["status"].input_schema
     assert status["properties"]["names"]["items"]["pattern"] == "^(?:[A-Za-z0-9][A-Za-z0-9._,-]*)$"
     assert "json" not in status["properties"]
     assert tools["status"].description.startswith("What every VM this project created is doing")
-    assert all(tool.annotations.read_only_hint for tool in tools.values())
+    assert {name for name, tool in tools.items() if tool.annotations.read_only_hint} == READ_ONLY
 
 
 def test_status_returns_the_report_as_json_with_the_head_and_the_note_inside(status_call):
@@ -306,7 +308,7 @@ def test_the_server_never_exits_early_and_answers_each_call_with_why(world, tmp_
     # A command line just mcp never writes: the server still lists its tools, and each says what to do.
     started = time.monotonic()
     talked = _talk(["--checkout=/nonexistent"], _env(world), ("status", {}), ("logs", {}))
-    assert set(talked["tools"]) == {"status", "settings", "logs", "log"}
+    assert set(talked["tools"]) == TOOLS
     for result in talked["results"]:
         assert result.is_error and "Run just mcp again" in _text(result)
     # A checkout with no justfile: the same.

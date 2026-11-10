@@ -92,7 +92,7 @@ environment where `python3` is not it.
 | `just logs` | List the run logs in .logs/, newest first |
 | `just mcp` | Let Claude Code sessions in any project run these commands, through an MCP server |
 | &emsp;`--any-branch` | Let the server run this checkout on any branch, or with tracked changes; without it, main with no tracked change only |
-| &emsp;`--attended ATTENDED` | Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, the server decides per session |
+| &emsp;`--attended SCREEN` | Whether someone is at this machine's screen for the sign-ins: 1, as for Claude Desktop, or 0; unset, the server decides per session |
 | &emsp;`--browser BROWSER` | What opens the sign-in pages for the runs it starts, when the default does not (BROWSER) |
 | &emsp;`--project-dir PROJECT_DIR` | Register it for this one project's folder only (Claude Code's local scope), not for every project |
 | &emsp;`--remove` | Take the server out of Claude Code again |

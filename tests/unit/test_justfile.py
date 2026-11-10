@@ -120,15 +120,18 @@ def _merged(settings) -> list[str]:
 
 def _just(*args: str, settings=(), env=None, stdin=subprocess.DEVNULL, cwd=REPO) -> subprocess.CompletedProcess[str]:
     """just with its settings (NAME=value, before the recipe) and then the recipe's arguments; GIT_HOOK in a folder
-    of the module's own (_hooks_dir) unless one of them names it. Options lead the arguments, each one word
-    (--justfile=<path>), since just takes them only before a setting."""
+    of the module's own (_hooks_dir), and no run lock (RUN_LOCK=), unless one of them names it: tests running deploy at
+    once on several workers would otherwise take turns, or refuse, in this checkout's .cache (test_run_lock.py holds
+    the lock). Options lead the arguments, each one word (--justfile=<path>), since just takes them only before a
+    setting."""
     options = []
     for arg in args:
         if not arg.startswith("-"):
             break
         options.append(arg)
+    given = _merged(["RUN_LOCK=", f"GIT_HOOK={_hooks_dir()}/pre-commit", *settings])
     return subprocess.run(
-        [JUST, *options, *_merged([f"GIT_HOOK={_hooks_dir()}/pre-commit", *settings]), *args[len(options) :]],
+        [JUST, *options, *given, *args[len(options) :]],
         cwd=cwd,
         env=_env(env),
         stdin=stdin,
@@ -1175,6 +1178,18 @@ def test_a_run_with_no_terminal_turns_the_desktop_steps_and_deploy_s_sign_ins_of
 
 
 @pytest.mark.parametrize("args", SIGNING_IN)
+def test_attended_with_no_terminal_opens_the_pages_and_signs_in_but_asks_nothing(tmp_path: Path, args) -> None:
+    # ATTENDED=1, as the MCP server gives an interactive session's run: someone is at the screen, with no terminal.
+    result = _just(*args, settings=[*_recording(tmp_path), "ATTENDED=1"])
+    assert result.returncode == 0, _output(result)
+    run = _runs(tmp_path, "ansible-playbook")[0]
+    assert OFF not in run and run[run.index('{"claude_vm_login_terminal":false}') - 1] == "-e", run
+    # From the command line only: an exported ATTENDED, a name other tools may use, changes nothing.
+    run = _playbook(tmp_path / "exported", *args, env={"ATTENDED": "1"})
+    assert run[run.index(OFF) - 1] == "-e", run
+
+
+@pytest.mark.parametrize("args", SIGNING_IN)
 def test_a_run_at_a_terminal_leaves_the_desktop_steps_on(tmp_path: Path, args) -> None:
     with _terminal_stdin() as stdin:
         run = _playbook(tmp_path, *args, stdin=stdin)
@@ -1186,8 +1201,10 @@ def _interrupted(started: Path, *command: str) -> tuple[int, str]:
     exit code and output."""
     primary, secondary = pty.openpty()
     try:
+        # No run lock (_just), but for a justfile of the test's own, which has no such setting.
+        lock = [] if command and command[0].startswith("--") else ["RUN_LOCK="]
         process = subprocess.Popen(
-            [JUST, *command],
+            [JUST, *lock, *command],
             cwd=REPO,
             env=_env(),
             stdin=secondary,

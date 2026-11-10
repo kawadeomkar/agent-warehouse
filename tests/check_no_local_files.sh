@@ -50,6 +50,10 @@ patterns=(
   '(^|/)\.cache/status/'
   # The state a run drawn in parts keeps between its parts: its reports name every VM by address.
   '(^|/)\.cache/live/'
+  # The run lock, a process of this machine's, and the MCP server's jobs: what each run printed names the VMs by
+  # address.
+  '(^|/)\.cache/run\.lock$'
+  '(^|/)\.cache/mcp/'
   # Working documents beside the wiki: a plan, a review or a smoke runbook
   # names the Proxmox host and the VMs. The wiki itself is exempted below.
   '^docs/'
