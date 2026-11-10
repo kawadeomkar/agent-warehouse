@@ -121,8 +121,9 @@ the VMs or reaches this machine, and who reaches the VMs stay yours, at a termin
 
 "Use agent-warehouse to make a VM for this project" works from the repository's own folder: the agent reads
 `status` for a VM whose checkouts list it already, and opens that one with `code`; otherwise it names a VM after the
-repository, checks with `settings` that it will be cloned (by default every repository your GitHub account owns),
-`deploy`s it, then opens the repository with `code`.
+repository, `deploy`s it with `repos` set to that repository so that the VM clones it alone
+([Repositories](vms.md#repositories)), then opens it with `code`. `repos` takes your own account's repositories: for
+another owner's, such as an organisation's, the VM comes up with nothing cloned and the run says so.
 
 It may size the new VM - `deploy`'s `cores`, `memory` (MiB, or `16G`) and `disk` (`64G`), as `just deploy alpha --cores 8
 --memory 16G --disk 64G` takes them - after reading `status(only="capacity")`: each node's CPU threads and memory, how much
