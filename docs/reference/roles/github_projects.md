@@ -23,6 +23,7 @@ Using it: [GitHub](../../guides/github.md). How it works: [§5.6](../../architec
 | `github_projects_include_archived` | bool | `false` | Also clone archived repositories. |
 | `github_projects_include` | list of `str` | `[]` | Repository names to clone. Empty means every repository of the user. Set through `github_projects` in local.yml. |
 | `github_projects_exclude` | list of `str` | `[]` | Repository names never cloned, even when github_projects_include names them. |
+| `github_projects_vm_repos` | dict | `{}` | This VM's own list of repositories, when it has one - own (true) and names - in place of github_projects_include. A fork or an archived repository named on it is cloned. Published with the VM from its notes in Proxmox (just deploy --repos), never read from the VM. |
 | `github_projects_clone_protocol` | str | `https` | https clones private repositories through gh; ssh needs a key of the user's own on the VM, and trusts GitHub's published host keys. One of `https`, `ssh`. |
 | `github_projects_update_existing` | bool | `false` | Pull checkouts that already exist on every run. Off, a re-run never disturbs local work. |
 | `github_projects_depth` | str | `""` | Shallow clone depth. Empty clones the full history. |
@@ -70,7 +71,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 61 of the 68 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 65 of the 72 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -121,7 +122,11 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_token_set` | Whether there is a vault token, and a token to list with: what a message or a task var asks of them, so that only a task that hands a token on names one (tests/unit/test_github_auth.py holds every such task to no_log). | <code>{{ github_projects_token &#124; length > 0 }}</code> |
 | `github_projects_listing_token_set` |  | <code>{{ github_projects_listing_token &#124; length > 0 }}</code> |
 | `github_projects_dotted` | A repository whose name starts with a dot would land in the projects folder as a folder of settings: .claude for every Claude Code session started there, whose trust Remote Control accepts in advance, an editor's settings folder (.vscode) for the window just code opens, .agent-warehouse for just code's own folder. | <code>{{ github_projects_listing.repos &#124; map(attribute='name') &#124; select('match', '[.]') &#124; list }}</code> |
-| `github_projects_candidates` | The repositories after the role's own filters: empty ones out (no branch to check out), the exclude list out, the include list in when there is one. | <code>{{ github_projects_listing.repos &#124; rejectattr('empty') &#124; rejectattr('name', 'in', github_projects_dotted) &#124; rejectattr('name', 'in', github_projects_exclude) &#124; selectattr('name', 'in', github_projects_include if github_projects_include else github_projects_listing.repos &#124; map(attribute='name') &#124; list) &#124; list }}</code> |
+| `github_projects_own_list` | A VM's own list, when it has one (just deploy --repos): read from its notes in Proxmox by the play that publishes the VM, never from the VM, whose root could otherwise choose what is cloned onto it. | <code>{{ github_projects_vm_repos.own &#124; default(false) &#124; bool }}</code> |
+| `github_projects_own_names` |  | <code>{{ github_projects_vm_repos.names &#124; default([]) }}</code> |
+| `github_projects_own_missing` |  | <code>{{ github_projects_own_names &#124; reject('in', github_projects_listing.repos &#124; map(attribute='name') &#124; list) &#124; list }}</code> |
+| `github_projects_wanted` | The repositories after the role's own filters: empty ones out (no branch to check out), the exclude list out, and in, the VM's own list when it has one, else the include list when there is one. | <code>{{ github_projects_own_names if github_projects_own_list &#124; bool else github_projects_include if github_projects_include else github_projects_listing.repos &#124; map(attribute='name') &#124; list }}</code> |
+| `github_projects_candidates` |  | <code>{{ github_projects_listing.repos &#124; rejectattr('empty') &#124; rejectattr('name', 'in', github_projects_dotted) &#124; rejectattr('name', 'in', github_projects_exclude) &#124; selectattr('name', 'in', github_projects_wanted) &#124; list }}</code> |
 | `github_projects_gh_helper` | Whether gh is git's credential helper for github.com already, recognised the way gh recognises it, by the gh after the "!", so one installed elsewhere than /usr/bin counts too. | <code>{{ github_projects_helpers.stdout_lines &#124; default([]) &#124; select('search', '^!([^ ]*/)?gh( &#124;$)') &#124; list &#124; length > 0 }}</code> |
 | `github_projects_private_cloneable` | A private repository the listing shows but git has no credential for would fail to clone, so it is skipped and named instead. | <code>{{ github_projects_clone_protocol == 'ssh' or (github_projects_signed_in &#124; bool and (github_projects_auth_wanted &#124; bool or github_projects_gh_helper &#124; bool)) }}</code> |
 | `github_projects_private_skipped` |  | <code>{{ [] if github_projects_private_cloneable &#124; bool else github_projects_candidates &#124; selectattr('private') &#124; map(attribute='name') &#124; list }}</code> |
@@ -274,6 +279,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | List repositories of {{ github_projects_username }} | `github_repos` |  |
 | Fail when GitHub did not list the repositories | `ansible.builtin.fail` | <code>github_projects_listing.repos is not defined</code> |
 | Report selection | `ansible.builtin.debug` |  |
+| Name what of the VM's own list was not found | `ansible.builtin.debug` | <code>github_projects_own_missing &#124; length > 0</code> |
+| Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>github_projects_own_list &#124; bool</code> |
 | Set the git identity of {{ github_projects_user }} | `community.general.git_config` | <code>github_projects_auth &#124; bool</code> |
 | Say that an organisation gives no git identity | `ansible.builtin.debug` | <code>github_projects_git_identity_needed &#124; bool and (github_projects_listing.user.type &#124; default('')) == 'Organization'</code> |
 | Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>github_projects_git_identity_needed &#124; bool and (github_projects_listing.user.type &#124; default('')) == 'Organization'</code> |
@@ -297,13 +304,15 @@ classDef rescue stroke:#665352,stroke-width:2px;
   clone___Read_the_git_identity_of_github_projects_user0-->|Task| clone___List_repositories_of_github_projects_username1[clone   list repositories of github projects<br>username]:::task
   clone___List_repositories_of_github_projects_username1-->|Task| clone___Fail_when_GitHub_did_not_list_the_repositories2[clone   fail when github did not list the<br>repositories<br>When: **github projects listing repos is not defined**]:::task
   clone___Fail_when_GitHub_did_not_list_the_repositories2-->|Task| clone___Report_selection3[clone   report selection]:::task
-  clone___Report_selection3-->|Task| clone___Set_the_git_identity_of_github_projects_user4[clone   set the git identity of github projects<br>user<br>When: **github projects auth   bool**]:::task
-  clone___Set_the_git_identity_of_github_projects_user4-->|Task| clone___Say_that_an_organisation_gives_no_git_identity5[clone   say that an organisation gives no git<br>identity<br>When: **github projects git identity needed   bool and <br>github projects listing user type   default       <br>  organization**]:::task
-  clone___Say_that_an_organisation_gives_no_git_identity5-->|Task| clone___Keep_what_is_left_to_do_for_the_end_of_the_run6[clone   keep what is left to do for the end of the<br>run<br>When: **github projects git identity needed   bool and <br>github projects listing user type   default       <br>  organization**]:::task
-  clone___Keep_what_is_left_to_do_for_the_end_of_the_run6-->|Task| clone___Fetch_GitHub_s_published_SSH_host_keys7[clone   fetch github s published ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
-  clone___Fetch_GitHub_s_published_SSH_host_keys7-->|Task| clone___Trust_GitHub_s_SSH_host_keys8[clone   trust github s ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
-  clone___Trust_GitHub_s_SSH_host_keys8-->|Task| clone___Clone_repositories9[clone   clone repositories]:::task
-  clone___Clone_repositories9-->End
+  clone___Report_selection3-->|Task| clone___Name_what_of_the_VM_s_own_list_was_not_found4[clone   name what of the vm s own list was not<br>found<br>When: **github projects own missing   length   0**]:::task
+  clone___Name_what_of_the_VM_s_own_list_was_not_found4-->|Task| clone___Keep_what_is_left_to_do_for_the_end_of_the_run5[clone   keep what is left to do for the end of the<br>run<br>When: **github projects own list   bool**]:::task
+  clone___Keep_what_is_left_to_do_for_the_end_of_the_run5-->|Task| clone___Set_the_git_identity_of_github_projects_user6[clone   set the git identity of github projects<br>user<br>When: **github projects auth   bool**]:::task
+  clone___Set_the_git_identity_of_github_projects_user6-->|Task| clone___Say_that_an_organisation_gives_no_git_identity7[clone   say that an organisation gives no git<br>identity<br>When: **github projects git identity needed   bool and <br>github projects listing user type   default       <br>  organization**]:::task
+  clone___Say_that_an_organisation_gives_no_git_identity7-->|Task| clone___Keep_what_is_left_to_do_for_the_end_of_the_run8[clone   keep what is left to do for the end of the<br>run<br>When: **github projects git identity needed   bool and <br>github projects listing user type   default       <br>  organization**]:::task
+  clone___Keep_what_is_left_to_do_for_the_end_of_the_run8-->|Task| clone___Fetch_GitHub_s_published_SSH_host_keys9[clone   fetch github s published ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
+  clone___Fetch_GitHub_s_published_SSH_host_keys9-->|Task| clone___Trust_GitHub_s_SSH_host_keys10[clone   trust github s ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
+  clone___Trust_GitHub_s_SSH_host_keys10-->|Task| clone___Clone_repositories11[clone   clone repositories]:::task
+  clone___Clone_repositories11-->End
 ```
 
 ### `device_flow.yml`
