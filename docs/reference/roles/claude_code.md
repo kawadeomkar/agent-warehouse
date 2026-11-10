@@ -86,6 +86,18 @@ Starts the service, then the path unit, that release_pause stopped in the same r
 
 Also takes, as described under `main`: `claude_code_remote_control_service`.
 
+## Entry point `image`
+
+**What a golden template carries of Claude Code - the binary, by install method, and an empty ~/.claude**
+
+Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_installer_url`.
+
+## Entry point `image_options`
+
+**Record the options the image entry point is built with, for a golden template's key**
+
+Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_installer_url`.
+
 ## Internal values
 
 Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 49 of the 56 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
@@ -158,11 +170,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 
 | Task | Module | When |
 |---|---|---|
-| Look up home directory of {{ claude_code_user }} | `ansible.builtin.getent` |  |
-| Set Claude Code paths | `ansible.builtin.set_fact` |  |
-| Ensure ~/.claude exists | `ansible.builtin.file` |  |
-| Install with the native installer | `ansible.builtin.include_tasks` | <code>claude_code_install_method == 'native'</code> |
-| Install with npm | `ansible.builtin.include_tasks` | <code>claude_code_install_method == 'npm'</code> |
+| Install Claude Code | `ansible.builtin.include_tasks` |  |
 | Write user settings | `ansible.builtin.include_tasks` |  |
 | Write global CLAUDE.md | `ansible.builtin.copy` | <code>claude_code_global_instructions &#124; length > 0</code> |
 | Verify claude runs | `ansible.builtin.command` |  |
@@ -184,20 +192,16 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| Look_up_home_directory_of_claude_code_user0[look up home directory of claude code user]:::task
-  Look_up_home_directory_of_claude_code_user0-->|Task| Set_Claude_Code_paths1[set claude code paths]:::task
-  Set_Claude_Code_paths1-->|Task| Ensure____claude_exists2[ensure    claude exists]:::task
-  Ensure____claude_exists2-->|Include task| Install_with_the_native_installer_install_native_yml_3[install with the native installer<br>When: **claude code install method     native**<br>include_task: install native yml]:::includeTasks
-  Install_with_the_native_installer_install_native_yml_3-->|Include task| Install_with_npm_install_npm_yml_4[install with npm<br>When: **claude code install method     npm**<br>include_task: install npm yml]:::includeTasks
-  Install_with_npm_install_npm_yml_4-->|Include task| Write_user_settings_settings_yml_5[write user settings<br>include_task: settings yml]:::includeTasks
-  Write_user_settings_settings_yml_5-->|Task| Write_global_CLAUDE_md6[write global claude md<br>When: **claude code global instructions   length   0**]:::task
-  Write_global_CLAUDE_md6-->|Task| Verify_claude_runs7[verify claude runs]:::task
-  Verify_claude_runs7-->|Task| Show_installed_version8[show installed version]:::task
-  Show_installed_version8-->|Include task| Set_up_Remote_Control_remote_control_yml_9[set up remote control<br>When: **claude code remote control wanted   bool**<br>include_task: remote control yml]:::includeTasks
-  Set_up_Remote_Control_remote_control_yml_9-->|Task| Look_for_the_Remote_Control_units_an_earlier_run_installed10[look for the remote control units an earlier run<br>installed<br>When: **not  claude code remote control wanted   bool**]:::task
-  Look_for_the_Remote_Control_units_an_earlier_run_installed10-->|Include task| Remove_Remote_Control_unit_absent_yml_11[remove remote control<br>When: **not  claude code remote control wanted   bool**<br>include_task: unit absent yml]:::includeTasks
-  Remove_Remote_Control_unit_absent_yml_11-->|Task| Explain_why_Remote_Control_was_skipped12[explain why remote control was skipped<br>When: **claude code remote control   bool and claude code<br>anthropic api key   length   0**]:::task
-  Explain_why_Remote_Control_was_skipped12-->End
+  Start-->|Include task| Install_Claude_Code_install_yml_0[install claude code<br>include_task: install yml]:::includeTasks
+  Install_Claude_Code_install_yml_0-->|Include task| Write_user_settings_settings_yml_1[write user settings<br>include_task: settings yml]:::includeTasks
+  Write_user_settings_settings_yml_1-->|Task| Write_global_CLAUDE_md2[write global claude md<br>When: **claude code global instructions   length   0**]:::task
+  Write_global_CLAUDE_md2-->|Task| Verify_claude_runs3[verify claude runs]:::task
+  Verify_claude_runs3-->|Task| Show_installed_version4[show installed version]:::task
+  Show_installed_version4-->|Include task| Set_up_Remote_Control_remote_control_yml_5[set up remote control<br>When: **claude code remote control wanted   bool**<br>include_task: remote control yml]:::includeTasks
+  Set_up_Remote_Control_remote_control_yml_5-->|Task| Look_for_the_Remote_Control_units_an_earlier_run_installed6[look for the remote control units an earlier run<br>installed<br>When: **not  claude code remote control wanted   bool**]:::task
+  Look_for_the_Remote_Control_units_an_earlier_run_installed6-->|Include task| Remove_Remote_Control_unit_absent_yml_7[remove remote control<br>When: **not  claude code remote control wanted   bool**<br>include_task: unit absent yml]:::includeTasks
+  Remove_Remote_Control_unit_absent_yml_7-->|Task| Explain_why_Remote_Control_was_skipped8[explain why remote control was skipped<br>When: **claude code remote control   bool and claude code<br>anthropic api key   length   0**]:::task
+  Explain_why_Remote_Control_was_skipped8-->End
 ```
 
 ### `after_login.yml` - entry point `after_login`
@@ -351,6 +355,80 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| home___Look_up_home_directory_of_claude_code_user0[home   look up home directory of claude code user<br>When: **claude code home is not defined**]:::task
   home___Look_up_home_directory_of_claude_code_user0-->|Task| home___Record_where_the_user_s_files_are1[home   record where the user s files are<br>When: **claude code home is not defined**]:::task
   home___Record_where_the_user_s_files_are1-->End
+```
+
+### `image.yml` - entry point `image`
+
+| Task | Module | When |
+|---|---|---|
+| Install Claude Code | `ansible.builtin.include_tasks` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Include task| image___Install_Claude_Code_install_yml_0[image   install claude code<br>include_task: install yml]:::includeTasks
+  image___Install_Claude_Code_install_yml_0-->End
+```
+
+### `image_options.yml` - entry point `image_options`
+
+| Task | Module | When |
+|---|---|---|
+| Record what the image is built with | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| image_options___Record_what_the_image_is_built_with0[image options   record what the image is built<br>with]:::task
+  image_options___Record_what_the_image_is_built_with0-->End
+```
+
+### `install.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Look up home directory of {{ claude_code_user }} | `ansible.builtin.getent` |  |
+| Set Claude Code paths | `ansible.builtin.set_fact` |  |
+| Ensure ~/.claude exists | `ansible.builtin.file` |  |
+| Install with the native installer | `ansible.builtin.include_tasks` | <code>claude_code_install_method == 'native'</code> |
+| Install with npm | `ansible.builtin.include_tasks` | <code>claude_code_install_method == 'npm'</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| install___Look_up_home_directory_of_claude_code_user0[install   look up home directory of claude code<br>user]:::task
+  install___Look_up_home_directory_of_claude_code_user0-->|Task| install___Set_Claude_Code_paths1[install   set claude code paths]:::task
+  install___Set_Claude_Code_paths1-->|Task| install___Ensure____claude_exists2[install   ensure    claude exists]:::task
+  install___Ensure____claude_exists2-->|Include task| install___Install_with_the_native_installer_install_native_yml_3[install   install with the native installer<br>When: **claude code install method     native**<br>include_task: install native yml]:::includeTasks
+  install___Install_with_the_native_installer_install_native_yml_3-->|Include task| install___Install_with_npm_install_npm_yml_4[install   install with npm<br>When: **claude code install method     npm**<br>include_task: install npm yml]:::includeTasks
+  install___Install_with_npm_install_npm_yml_4-->End
 ```
 
 ### `install_native.yml`

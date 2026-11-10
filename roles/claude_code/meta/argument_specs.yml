@@ -12,10 +12,10 @@ argument_specs:
         description:
           - native runs the official installer, a self-updating binary in the user's ~/.local/bin; npm installs
             @anthropic-ai/claude-code globally and needs Node.js.
-      claude_code_version:
+      claude_code_version: &cc_version
         type: str
         description: stable, latest or an exact semantic version.
-      claude_code_installer_url:
+      claude_code_installer_url: &cc_installer_url
         type: str
         description: The installer script the native method downloads and runs.
       claude_code_anthropic_api_key:
@@ -176,3 +176,18 @@ argument_specs:
         could not be saved and that just destroy therefore neither releases nor deletes.
     options:
       claude_code_remote_control_service: *cc_remote_control_service
+
+  image:
+    short_description: What a golden template carries of Claude Code - the binary, by install method, and an empty ~/.claude
+    options:
+      claude_code_user: *cc_user
+      claude_code_install_method: *cc_install_method
+      claude_code_version: *cc_version
+      claude_code_installer_url: *cc_installer_url
+  image_options:
+    short_description: Record the options the image entry point is built with, for a golden template's key
+    options:
+      claude_code_user: *cc_user
+      claude_code_install_method: *cc_install_method
+      claude_code_version: *cc_version
+      claude_code_installer_url: *cc_installer_url

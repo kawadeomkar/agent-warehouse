@@ -1,0 +1,21 @@
+---
+# What the image entry point would be built with, for a golden template's key:
+# each of its options as this host resolves them, this role's defaults included.
+# Its own entry point, so a play can ask it of a host the role never configures.
+- name: image_options | Record what the image is built with
+  ansible.builtin.set_fact:
+    common_image_options:
+      common_user: "{{ common_user }}"
+      common_user_shell: "{{ common_user_shell }}"
+      common_user_groups: "{{ common_user_groups }}"
+      common_timezone: "{{ common_timezone }}"
+      common_harden_ssh: "{{ common_harden_ssh }}"
+      common_ssh_path_dirs: "{{ common_ssh_path_dirs }}"
+      common_tmux_settings: "{{ common_tmux_settings }}"
+      common_apt_upgrade: "{{ common_apt_upgrade }}"
+      common_apt_cache_valid_time: "{{ common_apt_cache_valid_time }}"
+      common_apt_lock_timeout: "{{ common_apt_lock_timeout }}"
+      common_apt_keep_downloads: "{{ common_apt_keep_downloads }}"
+      common_packages: "{{ common_packages }}"
+      common_extra_packages: "{{ common_extra_packages }}"
+      common_enabled_services: "{{ common_enabled_services }}"

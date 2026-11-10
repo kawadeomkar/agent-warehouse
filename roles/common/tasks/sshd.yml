@@ -1,0 +1,29 @@
+---
+# sshd -t needs its privilege-separation directory, which only exists once
+# sshd has started (not yet the case in a fresh container).
+- name: sshd | Ensure sshd privilege separation directory exists
+  ansible.builtin.file:
+    path: /run/sshd
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: common_harden_ssh or common_ssh_path_dirs | length > 0
+
+- name: sshd | Harden sshd
+  ansible.builtin.template:
+    src: sshd_hardening.conf.j2
+    dest: "{{ common_sshd_hardening }}"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: /usr/sbin/sshd -t -f %s
+  when: common_harden_ssh
+  notify: Restart ssh
+
+- name: sshd | Remove sshd hardening
+  ansible.builtin.file:
+    path: "{{ common_sshd_hardening }}"
+    state: absent
+  when: not common_harden_ssh
+  notify: Restart ssh

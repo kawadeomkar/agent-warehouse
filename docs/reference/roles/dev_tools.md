@@ -33,6 +33,18 @@ How it works: [§5.4](../../architecture/roles.md#54-dev_tools--developer-toolin
 | `dev_tools_rust_toolchain` | str | `stable` | Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a version such as 1.90.0 - and makes the default when no default is set. The role never updates it. |
 | `dev_tools_rust_components` | list of `str` | `[clippy, rustfmt]` | Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std), such as rust-src or rust-analyzer. One taken off the list stays installed. |
 
+## Entry point `image`
+
+**What a golden template carries of the toolchain - all of it, under the same switches**
+
+Also takes, as described under `main`: `dev_tools_user`, `dev_tools_install_node`, `dev_tools_install_docker`, `dev_tools_install_gh`, `dev_tools_install_uv`, `dev_tools_install_rust`, `dev_tools_apt_packages`, `dev_tools_node_major`, `dev_tools_npm_global_packages`, `dev_tools_docker_packages`, `dev_tools_container_virt_types`, `dev_tools_docker_manage_service`, `dev_tools_deb_arch`, `dev_tools_uv_version`, `dev_tools_uv_arch_map`, `dev_tools_uv_sha256`, `dev_tools_uv_install_dir`, `dev_tools_rust_toolchain`, `dev_tools_rust_components`.
+
+## Entry point `image_options`
+
+**Record the options the image entry point is built with, for a golden template's key**
+
+Also takes, as described under `main`: `dev_tools_user`, `dev_tools_install_node`, `dev_tools_install_docker`, `dev_tools_install_gh`, `dev_tools_install_uv`, `dev_tools_install_rust`, `dev_tools_apt_packages`, `dev_tools_node_major`, `dev_tools_npm_global_packages`, `dev_tools_docker_packages`, `dev_tools_container_virt_types`, `dev_tools_docker_manage_service`, `dev_tools_deb_arch`, `dev_tools_uv_version`, `dev_tools_uv_arch_map`, `dev_tools_uv_sha256`, `dev_tools_uv_install_dir`, `dev_tools_rust_toolchain`, `dev_tools_rust_components`.
+
 ## Tasks
 
 Every task in `roles/dev_tools/tasks/`, file by file, in the order the file lists them, with a flowchart of
@@ -124,6 +136,50 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Start-->|Task| gh___Add_GitHub_CLI_repository0[gh   add github cli repository]:::task
   gh___Add_GitHub_CLI_repository0-->|Task| gh___Install_GitHub_CLI1[gh   install github cli]:::task
   gh___Install_GitHub_CLI1-->End
+```
+
+### `image.yml` - entry point `image`
+
+| Task | Module | When |
+|---|---|---|
+| Install the toolchain | `ansible.builtin.include_tasks` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Include task| image___Install_the_toolchain_main_yml_0[image   install the toolchain<br>include_task: main yml]:::includeTasks
+  image___Install_the_toolchain_main_yml_0-->End
+```
+
+### `image_options.yml` - entry point `image_options`
+
+| Task | Module | When |
+|---|---|---|
+| Record what the image is built with | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| image_options___Record_what_the_image_is_built_with0[image options   record what the image is built<br>with]:::task
+  image_options___Record_what_the_image_is_built_with0-->End
 ```
 
 ### `node.yml`

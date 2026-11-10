@@ -3,83 +3,11 @@
 - name: Move this role's files from their 1.x names
   ansible.builtin.include_tasks: names.yml
 
-# First, so that every apt-get after it - this role's and the later roles' -
-# deletes what it downloads once it is installed. Kept, a VM just deployed held
-# 414 MB of packages, cached in its memory too. The daily clean is for
-# unattended-upgrades, which installs through python-apt rather than apt-get
-# and keeps them regardless.
-- name: Delete each package apt downloads once it is installed
-  ansible.builtin.copy:
-    content: |
-      // agent-warehouse (common_apt_keep_downloads: false)
-      APT::Keep-Downloaded-Packages "false";
-      APT::Periodic::CleanInterval "1";
-    dest: "{{ common_apt_downloads }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: not common_apt_keep_downloads
+- name: Configure apt, and bring the packages up to date
+  ansible.builtin.include_tasks: apt.yml
 
-- name: Let apt keep the packages it downloads
-  ansible.builtin.file:
-    path: "{{ common_apt_downloads }}"
-    state: absent
-  when: common_apt_keep_downloads
-
-- name: Refresh apt cache
-  ansible.builtin.apt:
-    update_cache: true
-    cache_valid_time: "{{ common_apt_cache_valid_time }}"
-    lock_timeout: "{{ common_apt_lock_timeout }}"
-
-- name: Upgrade installed packages
-  ansible.builtin.apt:
-    upgrade: safe
-    lock_timeout: "{{ common_apt_lock_timeout }}"
-  when: common_apt_upgrade
-
-- name: Install baseline packages
-  ansible.builtin.apt:
-    name: "{{ common_packages + common_extra_packages }}"
-    state: present
-    lock_timeout: "{{ common_apt_lock_timeout }}"
-
-# What a first boot's upgrade left. apt-get clean, and not a file task, for its
-# lock: unattended-upgrades can still be installing from that directory on a
-# VM just booted. After the installs, not before the refresh: the clean makes
-# apt's lock file in /var/lib/apt/lists, which dates the lists as fresh where
-# there were none, and the refresh then skipped them. The module reports a
-# change whenever it cleans, so only when a package is there.
-- name: Look for packages left in apt's download cache
-  ansible.builtin.find:
-    paths: /var/cache/apt/archives
-    patterns: "*.deb"
-  register: common_apt_downloads
-
-- name: Empty apt's download cache
-  ansible.builtin.apt:
-    clean: true
-    lock_timeout: "{{ common_apt_lock_timeout }}"
-  when:
-    - not common_apt_keep_downloads
-    - common_apt_downloads.matched > 0
-
-# Timezone is set through the files rather than community.general.timezone so
-# it also works in containers without timedatectl/dbus.
-- name: Set timezone
-  ansible.builtin.file:
-    src: "/usr/share/zoneinfo/{{ common_timezone }}"
-    dest: /etc/localtime
-    state: link
-    force: true
-
-- name: Record timezone name
-  ansible.builtin.copy:
-    content: "{{ common_timezone }}\n"
-    dest: /etc/timezone
-    owner: root
-    group: root
-    mode: "0644"
+- name: Set the timezone
+  ansible.builtin.include_tasks: timezone.yml
 
 - name: Set hostname
   ansible.builtin.hostname:
@@ -88,14 +16,8 @@
     - common_manage_hostname
     - ansible_facts['virtualization_type'] not in common_container_virt_types
 
-- name: Create user {{ common_user }}
-  ansible.builtin.user:
-    name: "{{ common_user }}"
-    shell: "{{ common_user_shell }}"
-    groups: "{{ common_user_groups }}"
-    append: true
-    create_home: true
-    state: present
+- name: Create the user
+  ansible.builtin.include_tasks: user.yml
 
 - name: Grant or take away passwordless sudo
   ansible.builtin.include_tasks: sudo.yml
@@ -116,42 +38,11 @@
   loop_control:
     label: "{{ item.split(' ')[-1] if item.count(' ') > 1 else item[:32] ~ '...' }}"
 
-# sshd -t needs its privilege-separation directory, which only exists once
-# sshd has started (not yet the case in a fresh container).
-- name: Ensure sshd privilege separation directory exists
-  ansible.builtin.file:
-    path: /run/sshd
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
-  when: common_harden_ssh or common_ssh_path_dirs | length > 0
-
-- name: Harden sshd
-  ansible.builtin.template:
-    src: sshd_hardening.conf.j2
-    dest: "{{ common_sshd_hardening }}"
-    owner: root
-    group: root
-    mode: "0644"
-    validate: /usr/sbin/sshd -t -f %s
-  when: common_harden_ssh
-  notify: Restart ssh
-
-- name: Remove sshd hardening
-  ansible.builtin.file:
-    path: "{{ common_sshd_hardening }}"
-    state: absent
-  when: not common_harden_ssh
-  notify: Restart ssh
+- name: Harden sshd, or take the hardening away
+  ansible.builtin.include_tasks: sshd.yml
 
 - name: Put ~/.local/bin on PATH for all users
-  ansible.builtin.template:
-    src: local-bin-path.sh.j2
-    dest: /etc/profile.d/local-bin-path.sh
-    owner: root
-    group: root
-    mode: "0644"
+  ansible.builtin.include_tasks: profile.yml
 
 # The same directories for what sshd starts without a login shell.
 - name: Put the per-user directories on PATH for ssh commands
