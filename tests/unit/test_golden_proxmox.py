@@ -304,3 +304,76 @@ def test_a_template_carrying_the_ownership_tag_is_no_vm_of_the_fleet():
         {"vmid": 1, "name": "a"}, {"vmid": 2, "name": "t", "template": 1}, {"vmid": 3, "name": "b", "template": "0"}
     )
     assert [guest["vmid"] for guest in proxmox.not_templates(listing)] == [1, 3]
+
+
+def _custom(config, entry=None, **kwargs):
+    entry = {"vmid": 500, "name": "mine", "template": 1, "node": "pve", "type": "qemu", **(entry or {})}
+    args = {"name": "mine", "node": "pve", "disk": "scsi0", "nic": "net0", "owned": ["agent-warehouse"], **kwargs}
+    return proxmox.custom_template_problems([entry], {"500": config}, **args)
+
+
+GOOD_TEMPLATE = {
+    "ide2": "local-lvm:vm-500-cloudinit,media=cdrom",
+    "agent": "enabled=1",
+    "net0": "virtio=AA:BB:CC:DD:EE:FF,bridge=vmbr0",
+    "scsi0": "local-lvm:base-500-disk-0,size=8G",
+    "cpu": "host",
+    "digest": "abc",
+}
+
+
+def test_a_template_with_all_a_clone_needs_passes():
+    assert _custom(GOOD_TEMPLATE) == []
+    assert _custom({**GOOD_TEMPLATE, "cpu": "x86-64-v3"}) == []
+
+
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        ({"ide2": "none,media=cdrom"}, "no cloud-init drive"),
+        ({"agent": "0"}, "guest agent is off"),
+        ({"cpu": "kvm64"}, "no AVX2"),
+        ({"cpu": "x86-64-v2-AES"}, "no AVX2"),
+        ({"ciuser": "dev"}, "cloud-init user"),
+        ({"tags": "agent-warehouse-unfinished;mine"}, "this project's tags"),
+        ({"tags": "agent-warehouse"}, "this project's tags"),
+    ],
+)
+def test_each_thing_a_template_lacks_is_said_with_its_fix(change, said):
+    (problem,) = _custom({**GOOD_TEMPLATE, **change})
+    assert said in problem
+
+
+def test_a_template_with_no_cpu_type_has_no_avx2():
+    template = {k: v for k, v in GOOD_TEMPLATE.items() if k != "cpu"}
+    assert "no AVX2" in _custom(template)[0]
+
+
+@pytest.mark.parametrize("cpu", ["kvm64", "Nehalem-IBRS", "SandyBridge", "Opteron_G5", "x86-64-v2-AES", ""])
+def test_a_template_whose_cpu_has_no_avx2_is_refused(cpu):
+    assert any("AVX2" in problem for problem in _custom({**GOOD_TEMPLATE, "cpu": cpu}))
+
+
+def test_a_vm_that_shares_the_template_s_name_is_refused():
+    listing = _listing({"vmid": 500, "name": "mine", "template": 1}, {"vmid": 501, "name": "mine"})
+    (problem,) = proxmox.custom_template_problems(
+        listing, {"500": GOOD_TEMPLATE}, "mine", "pve", "scsi0", "net0", ["agent-warehouse"]
+    )
+    assert "2 VMs and templates" in problem
+
+
+def test_a_template_with_another_boot_disk_or_nic_names_the_setting():
+    assert "proxmox_vm_disk" in _custom(GOOD_TEMPLATE, disk="virtio0")[0]
+    assert "proxmox_nic" in _custom(GOOD_TEMPLATE, nic="net1")[0]
+
+
+def test_a_tag_that_only_resembles_the_project_s_is_the_user_s():
+    assert _custom({**GOOD_TEMPLATE, "tags": "not-agent-warehouse;agent-warehousex"}) == []
+
+
+def test_a_missing_template_a_vm_of_that_name_another_node_and_two_of_a_name_are_said():
+    assert "no template named" in proxmox.custom_template_problems([], {}, "mine", "pve", "scsi0", "net0", [])[0]
+    assert "qm template 500" in _custom(GOOD_TEMPLATE, entry={"template": 0})[0]
+    assert "on node pve2" in _custom(GOOD_TEMPLATE, entry={"node": "pve2"})[0]
+    two = [{"vmid": n, "name": "mine", "template": 1, "node": "pve", "type": "qemu"} for n in (500, 501)]
+    assert "2 VMs and templates" in proxmox.custom_template_problems(two, {}, "mine", "pve", "scsi0", "net0", [])[0]

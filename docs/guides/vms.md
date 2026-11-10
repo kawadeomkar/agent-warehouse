@@ -117,7 +117,7 @@ swap has programs killed. Like the rest of a VM's hardware, it is applied when t
 ([Re-running](#re-running)); with `--memory`, the minimum is `vm_memory_min_mb` where it is below the VM's memory,
 else all of it.
 
-Each VM also has less to hold. Its template is built from Ubuntu's minimal cloud image, `common` masks the
+Each VM also has less to hold. Its template is built from Ubuntu's minimal cloud image, or [your own](base-image.md), `common` masks the
 services a headless VM has no use for (`common_masked_units`: fwupd, multipathd, ModemManager, udisks2,
 and snapd while no snap is installed), and apt deletes each package it downloads once it is installed
 (`common_apt_keep_downloads`).

@@ -96,6 +96,9 @@ argument_specs:
   golden_read:
     short_description: Read the listing and the configs golden_select chooses from, once for the run - reading only
     options: &golden_api
+      proxmox_template_custom:
+        type: str
+        description: A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed.
       proxmox_template_golden:
         type: bool
         description: >-
@@ -121,6 +124,10 @@ argument_specs:
       proxmox_template_golden_target:
         type: dict
         description: What this run would build, {key, base, disk, vms} (golden_targets); empty when nothing.
+  custom_check:
+    short_description: Hold a template you built to what a clone needs - reading only, on this machine
+    options:
+      <<: *golden_api
   golden_select:
     short_description: Choose a new VM's template - a fresh golden of its key, else the base - reading only, on this machine
     options:

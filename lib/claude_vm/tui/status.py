@@ -139,7 +139,12 @@ def _storage_lines(model):
             )
     template = model.get("template") or {}
     if template.get("missing"):
-        lines.append([seg(f" {'template':<10} {template.get('name')}: not built yet; the first just deploy builds it")])
+        said = (
+            "not on Proxmox; just deploy refuses"
+            if template.get("custom")
+            else "not built yet; the first just deploy builds it"
+        )
+        lines.append([seg(f" {'template':<10} {template.get('name')}: {said}")])
     elif template:
         built = f" · built {template['built_ago']}" if template.get("built_ago") else ""
         where = f" on {template['storage']}" if template.get("storage") else ""

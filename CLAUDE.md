@@ -166,6 +166,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       ready and the editor is open, and one that cannot be built never fails a deploy.
     - `proxmox_template_golden` stays off in every scenario, the unit harness and the Vagrantfile; only
       `tests/unit/test_golden_play.py` and the `image` scenario turn it on, and a test holds that.
+- **A template the project did not build is only read and cloned.** Read
+  [Your own base image](docs/guides/base-image.md) first.
+    - `proxmox_template_custom` names one: nothing changes, rebuilds or deletes it, and the template role builds none
+      beside it. `custom_check` holds it to what a clone needs, reading only, before anything is created.
+    - A template at `proxmox_template_vmid` with no record of this project's build is refused, never rebuilt, since a
+      rebuild destroys it; a custom image URL needs its checksum.
+    - A base outside the Debian family is refused by name: an image before it is built on (`virt-cat`), and every VM
+      first in configure, by a `raw` task that needs no Python.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a

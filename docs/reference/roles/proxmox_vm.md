@@ -31,7 +31,7 @@ All API calls are delegated to the controller.
 | `proxmox_vm_validate_certs` | bool | `false` | Verify the API's TLS certificate. Turn it on once the controller trusts the Proxmox CA. Set through `proxmox_validate_certs` in local.yml. |
 | `proxmox_vm_node` | str | `pve` | Node that holds the template, where new VMs are cloned. Set through `proxmox_node` in local.yml. |
 | `proxmox_vm_storage` | str | `local-lvm` | Storage a full clone's disks are created on. Set through `proxmox_storage` in local.yml. |
-| `proxmox_vm_template_name` | str | `ubuntu-24.04-cloudinit` | Name of the template VMs are cloned from. Set through `proxmox_template_name` in local.yml. |
+| `proxmox_vm_template_name` | str | `ubuntu-24.04-cloudinit` | Name of the template VMs are cloned from. |
 | `proxmox_vm_template_vmid` | str | `""` | The VMID of a golden template to clone, always as a full clone, in place of proxmox_vm_template_name. Empty, as when provision.yml runs on its own, clones the template by its name. |
 | `proxmox_vm_full_clone` | bool | `true` | Make a full clone, independent of the template. false makes a linked clone, which keeps depending on the template's disk. |
 | `proxmox_vm_timeout` | int | `600` | Seconds the clone, start, stop and delete calls may each take. |

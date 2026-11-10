@@ -17,3 +17,12 @@
       ansible.builtin.import_tasks: tasks/remote_tmp.yml
   roles:
     - role: proxmox_template
+      # A template you built is yours: the project builds none beside it.
+      when: proxmox_template_custom | default('', true) | length == 0
+  tasks:
+    - name: Say that a template you built is used
+      ansible.builtin.debug:
+        msg: >-
+          proxmox_template_custom names the template "{{ proxmox_template_custom }}", so no template is built: new VMs
+          clone that one.
+      when: proxmox_template_custom | default('', true) | length > 0

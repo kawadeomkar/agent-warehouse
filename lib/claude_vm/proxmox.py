@@ -810,3 +810,59 @@ def os_release_debian(text):
         key, _, value = line.partition("=")
         values[key.strip()] = value.strip().strip("\"'")
     return bool({"debian", "ubuntu"} & {values.get("ID", ""), *values.get("ID_LIKE", "").split()})
+
+
+# CPU types with no AVX2, which Claude Code's native binary spins forever without (measured). Unset is kvm64, Proxmox's
+# default where a VM names none.
+_NO_AVX2 = re.compile(
+    r"^(|kvm64|kvm32|qemu64|qemu32|486|athlon|phenom|pentium.*|coreduo|core2duo|conroe|penryn|nehalem.*|westmere.*"
+    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)$",
+    re.I,
+)
+
+
+def custom_template_problems(listing, configs, name, node, disk, nic, owned):
+    """What a template the user built lacks, as sentences naming the fix; [] when it can be cloned. listing is
+    /cluster/resources?type=vm; configs the reads golden_reads named; disk and nic, the boot disk and NIC a VM is
+    resized and addressed by; owned, the ownership tags, which a template must carry neither of nor any made from them.
+    Nothing here changes it: a template of the user's own is only read and cloned."""
+    found = [e for e in listing or [] if e.get("type") == "qemu" and e.get("name") == name]
+    templates = [e for e in found if int(e.get("template") or 0)]
+    if not found:
+        return [f'there is no template named "{name}" on Proxmox']
+    if not templates:
+        return [f'"{name}" is a VM, not a template: convert it with qm template {found[0].get("vmid")}']
+    if len(found) > 1:
+        return [f'{len(found)} VMs and templates are named "{name}": give each a name of its own']
+    template = templates[0]
+    if template.get("node") != node:
+        return [f'"{name}" is on node {template.get("node")}, and VMs are created on {node}: set proxmox_node to match']
+    config = read_configs(configs).get(str(template["vmid"]))
+    if not config:
+        return [f'the config of "{name}" could not be read']
+    vmid, problems = template["vmid"], []
+    if not any(
+        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+$", key)
+    ):
+        problems.append(f"it has no cloud-init drive: qm set {vmid} --ide2 <storage>:cloudinit")
+    if _option(config.get("agent"), "enabled") != "1":
+        problems.append(f"its guest agent is off, and a VM's address comes from it: qm set {vmid} --agent enabled=1")
+    if nic not in config:
+        problems.append(f"it has no {nic}: give it one, or set proxmox_nic to the NIC it has")
+    if disk not in config:
+        problems.append(
+            f"it has no {disk} disk, which each VM's disk is resized as: set proxmox_vm_disk to its boot disk"
+        )
+    if _NO_AVX2.match(_option(config.get("cpu"), "cputype")):
+        problems.append(f"its CPU type has no AVX2, without which Claude Code hangs: qm set {vmid} --cpu host")
+    if config.get("ciuser"):
+        problems.append(
+            f"it has a cloud-init user, which makes every clone look configured: qm set {vmid} --delete ciuser"
+        )
+    tags = proxmox_tags(config.get("tags"))
+    held = [tag for tag in tags if any(tag == each or tag.startswith(f"{each}-") for each in owned)]
+    if held:
+        problems.append(
+            f"it carries this project's tags ({', '.join(held)}), which every clone would inherit: remove them"
+        )
+    return problems

@@ -53,6 +53,14 @@
           just deploy alpha,beta
         quiet: true
 
+    # A template the user built, held to what a clone needs: --only provision
+    # comes here without deploy.yml's check.
+    - name: Check the template you built
+      ansible.builtin.include_role:
+        name: proxmox_template
+        tasks_from: custom_check
+      when: proxmox_template_custom | default('', true) | length > 0
+
     # And none that cannot be its SSH alias, before anything is created.
     - name: Refuse a VM named after a host of the inventory, or as no alias may be
       ansible.builtin.import_tasks: tasks/vm_names.yml

@@ -51,7 +51,8 @@ API = {
 FLEET = {
     "tag_pattern": "{{ claude_vm_tag_pattern }}",
     "tailscale_tag_pattern": "{{ claude_vm_tailscale_tag_pattern }}",
-    "template_name": "{{ proxmox_template_name }}",
+    # The template new VMs clone: one the user built (proxmox_template_custom), else the one the project builds.
+    "template_name": "{{ proxmox_template_base }}",
     "storage": "{{ proxmox_storage }}",
     "nic": "{{ proxmox_nic }}",
     "ssh_config": "{{ claude_ssh_config | bool }}",
@@ -67,7 +68,9 @@ FLEET = {
         "tags_owned": "{{ claude_vm_tags_owned }}",
         # The API token's user, whom capacity names in how to grant it what reading a node takes.
         "api_user": "{{ proxmox_api_user }}",
-        "template_name": "{{ proxmox_template_name }}",
+        "template_name": "{{ proxmox_template_base }}",
+        # Whether that is one the user built, which the project never builds, compares or rebuilds.
+        "template_custom": "{{ proxmox_template_custom | default('', true) | length > 0 }}",
         "template_rebuild": "{{ proxmox_template_rebuild | bool }}",
         "storage": "{{ proxmox_storage }}",
         "nic": "{{ proxmox_nic }}",

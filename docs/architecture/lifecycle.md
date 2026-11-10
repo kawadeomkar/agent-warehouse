@@ -18,7 +18,9 @@ stateDiagram-v2
 ## 4.1 `playbooks/template.yml` — built, and rebuilt when it differs
 
 `hosts: proxmox`, over SSH, because importing a disk image needs `qm` on the node. Runs
-`roles/proxmox_template`. `deploy.yml` runs it only when the template is missing or differs from what
+`roles/proxmox_template`, unless `proxmox_template_custom` names a template you built, which is only read and cloned
+([Your own base image](../guides/base-image.md)): `custom_check` holds it to what a clone needs, and no template is
+built beside it. `deploy.yml` runs it only when the template is missing or differs from what
 its settings would build, deciding that through the API, and the import-level `when:` is what keeps a
 run that does not need to build it from opening an SSH connection to the hypervisor: it skips the
 implicit fact gather along with every task ([§4.7](#47-deployyml)). The play's `gather_facts: false`

@@ -62,7 +62,7 @@
         that: configure_base_missing | length == 0
         fail_msg: >-
           {{ inventory_hostname }}'s base lacks what configuring it needs: {{ configure_base_missing }}. Build the VM
-          from an Ubuntu or Debian cloud image that has them; nothing was changed on it.
+          from an Ubuntu or Debian cloud image that has them (docs/guides/base-image.md); nothing was changed on it.
         quiet: true
       when: configure_base is not skipped
       tags: [always]

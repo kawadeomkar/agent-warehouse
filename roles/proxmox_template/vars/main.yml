@@ -63,10 +63,11 @@ proxmox_template_build_fresh: 1800
 # How long the build VM may take to report its address: tries, so many seconds apart.
 proxmox_template_build_agent_retries: 60
 proxmox_template_build_agent_delay: 5
-# The boot disk a golden's size is read from and set on.
+# The boot disk a golden's size is read from and set on, and a template you built
+# is held to.
 proxmox_template_boot_disk: "{{ proxmox_vm_disk | default('scsi0') }}"
-# The template a golden is built from.
-proxmox_template_golden_base_name: "{{ proxmox_template_name }}"
+# The template a golden is built from: the user's, when they name one.
+proxmox_template_golden_base_name: "{{ proxmox_template_custom | default('', true) or proxmox_template_name }}"
 # The names and the tag a golden and a build VM carry. The build tag is never
 # the ownership tag: no fleet command (discovery, configure, destroy, the
 # aliases) can reach a build VM, by construction.

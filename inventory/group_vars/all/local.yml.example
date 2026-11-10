@@ -36,6 +36,10 @@
 # that ID and name with no record of this project's build is refused and left,
 # since it may be yours.
 # proxmox_template_rebuild: true
+# A template you built yourself, by its name, already holding your toolchain, for
+# new VMs to clone in place of the one this project builds. Only read and cloned,
+# never changed; docs/guides/base-image.md says what it must have.
+# proxmox_template_custom: my-template
 # Build a golden template for new VMs, with the toolchain already installed, and
 # clone them from it: configure, which still runs every task, then finds most of
 # its work done. A deploy that finds none clones the template above, as without

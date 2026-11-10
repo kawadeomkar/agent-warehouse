@@ -83,6 +83,11 @@ status_system_root: /
 # are not seen.
 proxmox_template_vmid: 9000
 proxmox_template_name: ubuntu-24.04-cloudinit
+# A template you built, by its name, to clone in place of building one
+# (docs/guides/base-image.md). Empty: this project builds its own.
+proxmox_template_custom: ""
+# The template new VMs are cloned from, whichever it is.
+proxmox_template_base: "{{ proxmox_template_custom | default('', true) or proxmox_template_name }}"
 proxmox_template_rebuild: true
 
 # ------------------------------------------------------------------- VM -----
@@ -411,7 +416,7 @@ proxmox_vm_api_token_secret: "{{ proxmox_api_token_secret }}"
 proxmox_vm_validate_certs: "{{ proxmox_validate_certs }}"
 proxmox_vm_node: "{{ proxmox_node }}"
 proxmox_vm_storage: "{{ proxmox_storage }}"
-proxmox_vm_template_name: "{{ proxmox_template_name }}"
+proxmox_vm_template_name: "{{ proxmox_template_base }}"
 proxmox_vm_nic: "{{ proxmox_nic }}"
 proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"

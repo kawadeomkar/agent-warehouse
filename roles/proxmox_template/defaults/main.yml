@@ -44,6 +44,10 @@ proxmox_template_qm: /usr/sbin/qm
 proxmox_template_virt_customize: /usr/bin/virt-customize
 proxmox_template_virt_cat: /usr/bin/virt-cat
 
+# A template you built, by its name, to clone in place of the one this role
+# builds (docs/guides/base-image.md). Only read and cloned, never changed.
+proxmox_template_custom: ""
+
 # A golden template: a clone of the base template with the toolchain baked in,
 # which a new VM is cloned from when its key matches. Off until the first-boot
 # upgrade has been measured on a golden days old.

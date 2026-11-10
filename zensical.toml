@@ -41,6 +41,7 @@ nav = [
   ] },
   { "Guides" = [
     { "VMs and fleets" = "guides/vms.md" },
+    { "Your own base image" = "guides/base-image.md" },
     { "GitHub" = "guides/github.md" },
     { "Remote Control" = "guides/remote-control.md" },
     { "Reaching your VMs from away" = "guides/remote-access.md" },

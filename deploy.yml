@@ -63,7 +63,7 @@
     - name: Look up the template by name
       community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
         type: qemu
-        name: "{{ proxmox_template_name }}"
+        name: "{{ proxmox_template_base }}"
         config: current
       register: claude_deploy_template
       changed_when: false
@@ -73,9 +73,9 @@
     # there is one through hostvars, so it is a fact.
     - name: Record whether the template is already built
       ansible.builtin.set_fact:
-        claude_template: "{{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_name) }}"
+        claude_template: "{{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_base) }}"
         claude_template_exists: >-
-          {{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_name) | length > 0 }}
+          {{ claude_deploy_template.proxmox_vms | built_template(proxmox_template_base) | length > 0 }}
 
     # The clone is sent to proxmox_node, and Proxmox reads the template's
     # configuration on the node it is sent to, so a template on any other
@@ -88,13 +88,20 @@
       ansible.builtin.assert:
         that: claude_template_node == proxmox_node
         fail_msg: >-
-          Template "{{ proxmox_template_name }}" is on node {{ claude_template_node }}, but
+          Template "{{ proxmox_template_base }}" is on node {{ claude_template_node }}, but
           proxmox_node is {{ proxmox_node }}, and a VM can only be cloned on the node that
           holds its template. Set proxmox_node to {{ claude_template_node }} in local.yml, or
           build a template on {{ proxmox_node }} with its own proxmox_template_vmid and
           proxmox_template_name.
         quiet: true
       when: claude_template_exists | bool
+
+    # A template the user built is only read: held to what a clone needs, and never compared or rebuilt.
+    - name: Check the template you built
+      ansible.builtin.include_role:
+        name: proxmox_template
+        tasks_from: custom_check
+      when: proxmox_template_custom | default('', true) | length > 0
 
     # A template that differs from what its settings would build - a setting changed, this version's build, or no
     # record of its build at all - is rebuilt by the template play, which runs only then or when there is none:
@@ -105,7 +112,9 @@
         tasks_from: drift
       vars:
         proxmox_template_drift_config: "{{ claude_template.config | default({}) }}"
-      when: claude_template_exists | bool
+      when:
+        - claude_template_exists | bool
+        - proxmox_template_custom | default('', true) | length == 0
 
     # Never rebuilt: a template with no record may be its owner's, made by hand,
     # and a rebuild destroys it. Refused here, before anything is done.
@@ -122,12 +131,13 @@
       when:
         - claude_template_exists | bool
         - proxmox_template_rebuild | bool
+        - proxmox_template_custom | default('', true) | length == 0
 
     - name: Record whether the template is to be rebuilt
       ansible.builtin.set_fact:
         claude_template_rebuild: >-
           {{ claude_template_exists | bool and proxmox_template_drift | default([]) | length > 0
-             and proxmox_template_rebuild | bool }}
+             and proxmox_template_rebuild | bool and proxmox_template_custom | default('', true) | length == 0 }}
 
     # Said up front, because the run stops for the person after the minutes of
     # configuration, and a prompt left waiting long enough has a sign-in page
@@ -137,17 +147,17 @@
       vars:
         claude_deploy_root: "{{ groups['proxmox'][0] | default('the proxmox host') }}"
         claude_deploy_template_said: >-
-          {{ 'Template "' ~ proxmox_template_name ~ '" differs from its settings ('
+          {{ 'Template "' ~ proxmox_template_base ~ '" differs from its settings ('
                   ~ proxmox_template_drift | join('; ') ~ '), so this run rebuilds it first, over SSH as root@'
                   ~ claude_deploy_root ~ '.'
              if claude_template_rebuild | bool
-             else 'Template "' ~ proxmox_template_name ~ '" differs from its settings ('
+             else 'Template "' ~ proxmox_template_base ~ '" differs from its settings ('
                   ~ proxmox_template_drift | join('; ') ~ '), and is kept as it is since proxmox_template_rebuild is'
                   ~ ' false, so this run needs no SSH to the Proxmox host.'
              if claude_template_exists | bool and proxmox_template_drift | default([]) | length > 0
-             else 'Template "' ~ proxmox_template_name ~ '" is already built, so this run needs no SSH to the Proxmox host.'
+             else 'Template "' ~ proxmox_template_base ~ '" is already built, so this run needs no SSH to the Proxmox host.'
              if claude_template_exists | bool
-             else 'Template "' ~ proxmox_template_name ~ '" does not exist yet; building it first, over SSH as root@'
+             else 'Template "' ~ proxmox_template_base ~ '" does not exist yet; building it first, over SSH as root@'
                   ~ claude_deploy_root ~ '.' }}
         claude_deploy_vms: "{{ claude_vm_names | and_list }}"
         # The sign-ins that open a page in the browser, by the rules each role

@@ -44,6 +44,7 @@ def _report(tmp_path: Path, built: bool, config: dict | None = None, **extra) ->
     variables = {
         "proxmox_template_name": "ubuntu-24.04-cloudinit",
         "proxmox_template_vmid": defaults["proxmox_template_vmid"],
+        "proxmox_template_base": "ubuntu-24.04-cloudinit",
         "proxmox_node": "pve",
         "claude_vm_names": ["alpha"],
         "deploy_sign_in": True,

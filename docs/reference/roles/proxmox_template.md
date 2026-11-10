@@ -50,6 +50,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -62,6 +63,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -69,12 +71,26 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 | `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
 | `proxmox_template_golden_target` | dict |  | What this run would build, {key, base, disk, vms} (golden_targets); empty when nothing. |
 
+## Entry point `custom_check`
+
+**Hold a template you built to what a clone needs - reading only, on this machine**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+
 ## Entry point `golden_select`
 
 **Choose a new VM's template - a fresh golden of its key, else the base - reading only, on this machine**
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -91,6 +107,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -104,6 +121,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -117,6 +135,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 
 | Variable | Type | Default | Description |
 |---|---|---|---|
+| `proxmox_template_custom` | str | `""` | A template you built, by its name, to clone in place of the one this role builds. Only read and cloned, never changed. |
 | `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
 | `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
 | `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
@@ -148,8 +167,8 @@ Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible r
 | `proxmox_template_build_fresh` | A build VM another run started less than this long ago is that run's: this run clones the base. | `1800` |
 | `proxmox_template_build_agent_retries` | How long the build VM may take to report its address: tries, so many seconds apart. | `60` |
 | `proxmox_template_build_agent_delay` |  | `5` |
-| `proxmox_template_boot_disk` | The boot disk a golden's size is read from and set on. | <code>{{ proxmox_vm_disk &#124; default('scsi0') }}</code> |
-| `proxmox_template_golden_base_name` | The template a golden is built from. | `{{ proxmox_template_name }}` |
+| `proxmox_template_boot_disk` | The boot disk a golden's size is read from and set on, and a template you built is held to. | <code>{{ proxmox_vm_disk &#124; default('scsi0') }}</code> |
+| `proxmox_template_golden_base_name` | The template a golden is built from: the user's, when they name one. | <code>{{ proxmox_template_custom &#124; default('', true) or proxmox_template_name }}</code> |
 | `proxmox_template_golden_prefix` | The names and the tag a golden and a build VM carry. | <code>{{ claude_vm_tag &#124; lower }}-golden-</code> |
 | `proxmox_template_build_prefix` |  | <code>{{ claude_vm_tag &#124; lower }}-build-</code> |
 | `proxmox_template_build_tag` |  | <code>{{ claude_vm_tag &#124; lower }}-build</code> |
@@ -241,6 +260,34 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Read_the_template_as_it_was_built14-->|Task| Fail_when_the_template_differs_from_its_settings_as_built15[fail when the template differs from its settings<br>as built]:::task
   Fail_when_the_template_differs_from_its_settings_as_built15-.->|End of Block| Build_the_template7_block_start_0
   Fail_when_the_template_differs_from_its_settings_as_built15-->End
+```
+
+### `custom_check.yml` - entry point `custom_check`
+
+| Task | Module | When |
+|---|---|---|
+| Read the VMs and templates on Proxmox | `ansible.builtin.uri` |  |
+| Fail when Proxmox did not list its VMs | `ansible.builtin.assert` |  |
+| Read the template's config | `ansible.builtin.uri` |  |
+| Fail when a VM could not be cloned from it | `ansible.builtin.assert` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| custom_check___Read_the_VMs_and_templates_on_Proxmox0[custom check   read the vms and templates on<br>proxmox]:::task
+  custom_check___Read_the_VMs_and_templates_on_Proxmox0-->|Task| custom_check___Fail_when_Proxmox_did_not_list_its_VMs1[custom check   fail when proxmox did not list its<br>vms]:::task
+  custom_check___Fail_when_Proxmox_did_not_list_its_VMs1-->|Task| custom_check___Read_the_template_s_config2[custom check   read the template s config]:::task
+  custom_check___Read_the_template_s_config2-->|Task| custom_check___Fail_when_a_VM_could_not_be_cloned_from_it3[custom check   fail when a vm could not be cloned<br>from it]:::task
+  custom_check___Fail_when_a_VM_could_not_be_cloned_from_it3-->End
 ```
 
 ### `drift.yml` - entry point `drift`

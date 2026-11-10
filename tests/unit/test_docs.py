@@ -160,6 +160,7 @@ def test_every_setting_that_reaches_a_role_is_in_an_example_file():
         "claude_vm_tags_owned": "made from claude_vm_tag: it, and its 1.x name while it is the default",
         "claude_vm_inventory_addresses": "made from the inventory: each of its hosts' ansible_host",
         "claude_vm_repos": "a VM's own list, published with it from its notes in Proxmox",
+        "proxmox_template_base": "made from proxmox_template_custom and proxmox_template_name: what new VMs clone",
     }
     missing = [
         source

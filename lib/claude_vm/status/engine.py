@@ -507,7 +507,8 @@ class Run:
             for one in _picked(results, "content")
         ]
         drift = []
-        if template_config.get("status") == 200:
+        # A template the user built is compared with nothing: the project never rebuilds it.
+        if template_config.get("status") == 200 and not self.settings.get("template_custom"):
             drift = proxmox_reads.proxmox_template_drift(_data(template_config), self.fleet["template_wanted"])
         whole = model.status_clean(
             model.status_fleet(

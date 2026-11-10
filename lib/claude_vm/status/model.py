@@ -298,7 +298,9 @@ def status_fleet(
             [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
             settings.get("api_user") or "",
         ),
-        "template": template if template else {"name": template_name, "missing": True},
+        "template": template
+        if template
+        else {"name": template_name, "missing": True, "custom": bool(settings.get("template_custom"))},
         "goldens": {
             "count": len(
                 [e for e in entries if e.get("template") and str(e.get("name", "")).startswith(f"{tag}-golden-")]
