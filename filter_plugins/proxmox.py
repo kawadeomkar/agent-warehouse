@@ -28,6 +28,22 @@ PROXMOX = (
     "proxmox_tags_moved",
     "proxmox_notes_repos",
     "proxmox_notes_with_repos",
+    "golden_record",
+    "golden_read",
+    "build_record",
+    "build_read",
+    "golden_base",
+    "golden_pick",
+    "golden_collectable",
+    "build_leftovers",
+    "golden_reads",
+    "golden_choice",
+    "golden_targets",
+    "build_vms",
+    "golden_templates",
+    "build_vm_ours",
+    "read_configs",
+    "not_templates",
 )
 CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "ssh_hostname", "guest_ipv4", "sshd_match_spec")
 

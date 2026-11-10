@@ -150,6 +150,14 @@ def _storage_lines(model):
                 seg("next deploy rebuilds it", "y") if template.get("rebuild", True) else seg("differs, kept", "d"),
             ]
         lines.append(line)
+    goldens = model.get("goldens") or {}
+    if goldens.get("count"):
+        plural = "" if goldens["count"] == 1 else "s"
+        lines.append([seg(f" {'golden':<10} {goldens['count']} golden template{plural}, deleted as they age")])
+    for name in goldens.get("building") or []:
+        lines.append(
+            [seg(f" {'build VM':<10} {name}: being built, or left over; the next build deletes one left", "d")]
+        )
     return lines
 
 

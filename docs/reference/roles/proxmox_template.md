@@ -43,9 +43,89 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 |---|---|---|---|
 | `proxmox_template_drift_config` | dict |  | **Required.** The template's config, as /nodes/&lt;node&gt;/qemu/&lt;vmid&gt;/config gives it. |
 
+## Entry point `golden_read`
+
+**Read the listing and the configs golden_select chooses from, once for the run - reading only**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+
+## Entry point `golden_collect`
+
+**Delete build VMs left over and golden templates past twice the age a run selects one at**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+| `proxmox_template_golden_target` | dict |  | What this run would build, {key, base, disk, vms} (golden_targets); empty when nothing. |
+
+## Entry point `golden_select`
+
+**Choose a new VM's template - a fresh golden of its key, else the base - reading only, on this machine**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+| `proxmox_template_golden_vm` | str |  | **Required.** The VM the template is chosen for. One that exists is never cloned, so it gets none. |
+| `proxmox_template_golden_vm_disk` | str |  | **Required.** The VM's disk size. A golden built with a larger disk is no golden of it. |
+| `proxmox_template_golden_digest` | str |  | **Required.** The toolchain digest every VM's options share, from the roles a golden carries (toolchain_digest). |
+| `proxmox_template_golden_shared` | bool |  | **Required.** Whether the VM's image options are those a build sees. A VM that sets one of its own, as a host var, clones the base, since a golden built for it could not be shared. |
+
+## Entry point `golden_build`
+
+**Build the VM a golden template is made from - a full clone of the base, never ownership-tagged**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+| `proxmox_template_golden_target` | dict |  | **Required.** The key to build for, the base it is built from and the size of its disk, {key, base, disk, vms} (golden_targets). |
+
+## Entry point `golden_template`
+
+**Make the build VM a golden template - stripped, noted with its key, read back, converted**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+| `proxmox_template_build_vm` | dict |  | **Required.** The build VM, as golden_build recorded it. |
+
+## Entry point `golden_discard`
+
+**Delete the build VM a failed build left, under its own interlock, and its host key file**
+
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `proxmox_template_golden` | bool | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. false clones the base template, as before. |
+| `proxmox_template_golden_disk_size` | str | `12G` | The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template. |
+| `proxmox_template_golden_cores` | int | `2` | The cores of the VM a golden is built on. |
+| `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
+| `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
+| `proxmox_template_build_vm` | dict |  | The build VM, as golden_build recorded it, or as much of it as was made. |
+
 ## Internal values
 
-Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 3 of the 10 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 9 of the 23 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -59,6 +139,19 @@ Set in `roles/proxmox_template/vars/main.yml`. These are not settings: Ansible r
 | `proxmox_template_wanted` | What a template built now is, field by field, as proxmox_template_drift compares it. | `{"cpu": "{{ proxmox_template_cpu_type }}", "ostype": "{{ proxmox_template_ostype }}", "bridge": "{{ proxmox_template_bridge }}", "storage": "{{ proxmox_template_storage }}", "scsihw": "{{ proxmox_template_scsihw }}", "agent": "1", "serial0": "{{ proxmox_template_serial0 }}", "vga": "{{ proxmox_template_vga }}", "build": "{{ proxmox_template_build }}", "image": "{{ proxmox_template_image_url }}", "packages": "{{ proxmox_template_packages }}"}` |
 | `proxmox_template_differences` | How the template at proxmox_template_vmid differs from that, read from `qm config` (tasks/main.yml's first task): nothing when there is no template there. | <code>{{ (proxmox_template_existing.stdout &#124; qm_config) &#124; proxmox_template_drift(proxmox_template_wanted) if proxmox_template_existing.rc &#124; default(1) == 0 else [] }}</code> |
 | `proxmox_template_rebuilding` | Whether that template is rebuilt: it differs, and proxmox_template_rebuild leaves rebuilding on. | <code>{{ proxmox_template_differences &#124; length > 0 and proxmox_template_rebuild &#124; bool }}</code> |
+| `proxmox_template_golden_build` | A golden template's internals. | `1` |
+| `proxmox_template_golden_max_age` | How old a golden may be and still be cloned, and how old before it is deleted: twice that, so none a run of any checkout has just chosen is deleted under it. | `604800` |
+| `proxmox_template_golden_collect_age` |  | `1209600` |
+| `proxmox_template_build_fresh` | A build VM another run started less than this long ago is that run's: this run clones the base. | `1800` |
+| `proxmox_template_build_agent_retries` | How long the build VM may take to report its address: tries, so many seconds apart. | `60` |
+| `proxmox_template_build_agent_delay` |  | `5` |
+| `proxmox_template_boot_disk` | The boot disk a golden's size is read from and set on. | <code>{{ proxmox_vm_disk &#124; default('scsi0') }}</code> |
+| `proxmox_template_golden_base_name` | The template a golden is built from. | `{{ proxmox_template_name }}` |
+| `proxmox_template_golden_prefix` | The names and the tag a golden and a build VM carry. | <code>{{ claude_vm_tag &#124; lower }}-golden-</code> |
+| `proxmox_template_build_prefix` |  | <code>{{ claude_vm_tag &#124; lower }}-build-</code> |
+| `proxmox_template_build_tag` |  | <code>{{ claude_vm_tag &#124; lower }}-build</code> |
+| `proxmox_template_golden_stripped` | The settings a golden must not carry, which a clone would inherit: a golden with a cloud-init user would make every clone look configured. | `["ciuser", "cipassword", "sshkeys", "nameserver", "searchdomain", "tags"]` |
+| `proxmox_template_now` | Now, UTC, as the golden and build records keep it. | `{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}` |
 
 ## Tasks
 
@@ -159,6 +252,216 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| drift___Compare_the_template_with_what_this_role_would_build0[drift   compare the template with what this role<br>would build]:::task
   drift___Compare_the_template_with_what_this_role_would_build0-->End
+```
+
+### `golden_build.yml` - entry point `golden_build`
+
+| Task | Module | When |
+|---|---|---|
+| Build on the API | block |  |
+| &emsp;Read how much memory the node has free | `ansible.builtin.uri` |  |
+| &emsp;Fail when the node has no room for the build VM | `ansible.builtin.assert` | <code>proxmox_template_build_node.maxmem is defined and proxmox_template_build_node.mem is defined</code> |
+| &emsp;Ask Proxmox for a free VMID | `ansible.builtin.uri` |  |
+| &emsp;Record the build VM | `ansible.builtin.set_fact` |  |
+| &emsp;Forget the host key of any earlier build of this key | `ansible.builtin.file` |  |
+| &emsp;Clone the base template | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Fail when the clone made no new VM | `ansible.builtin.assert` |  |
+| &emsp;Set up the build VM | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Size the build VM's disk | `community.proxmox.proxmox_disk` |  |
+| &emsp;Start the build VM | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Read the build VM's NIC | `ansible.builtin.uri` |  |
+| &emsp;Wait for the build VM's guest agent to report an address | `community.proxmox.proxmox_vm_info` |  |
+| &emsp;Record where the build VM is | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Block Start| golden_build___Build_on_the_API0_block_start_0[[golden build   build on the api]]:::block
+  golden_build___Build_on_the_API0_block_start_0-->|Task| golden_build___Read_how_much_memory_the_node_has_free0[golden build   read how much memory the node has<br>free]:::task
+  golden_build___Read_how_much_memory_the_node_has_free0-->|Task| golden_build___Fail_when_the_node_has_no_room_for_the_build_VM1[golden build   fail when the node has no room for<br>the build vm<br>When: **proxmox template build node maxmem is defined and<br>proxmox template build node mem is defined**]:::task
+  golden_build___Fail_when_the_node_has_no_room_for_the_build_VM1-->|Task| golden_build___Ask_Proxmox_for_a_free_VMID2[golden build   ask proxmox for a free vmid]:::task
+  golden_build___Ask_Proxmox_for_a_free_VMID2-->|Task| golden_build___Record_the_build_VM3[golden build   record the build vm]:::task
+  golden_build___Record_the_build_VM3-->|Task| golden_build___Forget_the_host_key_of_any_earlier_build_of_this_key4[golden build   forget the host key of any earlier<br>build of this key]:::task
+  golden_build___Forget_the_host_key_of_any_earlier_build_of_this_key4-->|Task| golden_build___Clone_the_base_template5[golden build   clone the base template]:::task
+  golden_build___Clone_the_base_template5-->|Task| golden_build___Fail_when_the_clone_made_no_new_VM6[golden build   fail when the clone made no new vm]:::task
+  golden_build___Fail_when_the_clone_made_no_new_VM6-->|Task| golden_build___Set_up_the_build_VM7[golden build   set up the build vm]:::task
+  golden_build___Set_up_the_build_VM7-->|Task| golden_build___Size_the_build_VM_s_disk8[golden build   size the build vm s disk]:::task
+  golden_build___Size_the_build_VM_s_disk8-->|Task| golden_build___Start_the_build_VM9[golden build   start the build vm]:::task
+  golden_build___Start_the_build_VM9-->|Task| golden_build___Read_the_build_VM_s_NIC10[golden build   read the build vm s nic]:::task
+  golden_build___Read_the_build_VM_s_NIC10-->|Task| golden_build___Wait_for_the_build_VM_s_guest_agent_to_report_an_address11[golden build   wait for the build vm s guest agent<br>to report an address]:::task
+  golden_build___Wait_for_the_build_VM_s_guest_agent_to_report_an_address11-->|Task| golden_build___Record_where_the_build_VM_is12[golden build   record where the build vm is]:::task
+  golden_build___Record_where_the_build_VM_is12-.->|End of Block| golden_build___Build_on_the_API0_block_start_0
+  golden_build___Record_where_the_build_VM_is12-->End
+```
+
+### `golden_collect.yml` - entry point `golden_collect`
+
+| Task | Module | When |
+|---|---|---|
+| Collect on the API | block |  |
+| &emsp;Read the VMs and templates on Proxmox | `ansible.builtin.uri` |  |
+| &emsp;Read each golden's record | `ansible.builtin.uri` |  |
+| &emsp;Read each build VM's notes | `ansible.builtin.uri` |  |
+| &emsp;Stop each build VM a run cut short left | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Delete each build VM a run cut short left | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Say each build VM Proxmox would not delete | `ansible.builtin.debug` |  |
+| &emsp;Delete each golden past its age | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Say each golden Proxmox kept | `ansible.builtin.debug` |  |
+| &emsp;Record whether another run is building this key | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Block Start| golden_collect___Collect_on_the_API0_block_start_0[[golden collect   collect on the api]]:::block
+  golden_collect___Collect_on_the_API0_block_start_0-->|Task| golden_collect___Read_the_VMs_and_templates_on_Proxmox0[golden collect   read the vms and templates on<br>proxmox]:::task
+  golden_collect___Read_the_VMs_and_templates_on_Proxmox0-->|Task| golden_collect___Read_each_golden_s_record1[golden collect   read each golden s record]:::task
+  golden_collect___Read_each_golden_s_record1-->|Task| golden_collect___Read_each_build_VM_s_notes2[golden collect   read each build vm s notes]:::task
+  golden_collect___Read_each_build_VM_s_notes2-->|Task| golden_collect___Stop_each_build_VM_a_run_cut_short_left3[golden collect   stop each build vm a run cut<br>short left]:::task
+  golden_collect___Stop_each_build_VM_a_run_cut_short_left3-->|Task| golden_collect___Delete_each_build_VM_a_run_cut_short_left4[golden collect   delete each build vm a run cut<br>short left]:::task
+  golden_collect___Delete_each_build_VM_a_run_cut_short_left4-->|Task| golden_collect___Say_each_build_VM_Proxmox_would_not_delete5[golden collect   say each build vm proxmox would<br>not delete]:::task
+  golden_collect___Say_each_build_VM_Proxmox_would_not_delete5-->|Task| golden_collect___Delete_each_golden_past_its_age6[golden collect   delete each golden past its age]:::task
+  golden_collect___Delete_each_golden_past_its_age6-->|Task| golden_collect___Say_each_golden_Proxmox_kept7[golden collect   say each golden proxmox kept]:::task
+  golden_collect___Say_each_golden_Proxmox_kept7-->|Task| golden_collect___Record_whether_another_run_is_building_this_key8[golden collect   record whether another run is<br>building this key]:::task
+  golden_collect___Record_whether_another_run_is_building_this_key8-.->|End of Block| golden_collect___Collect_on_the_API0_block_start_0
+  golden_collect___Record_whether_another_run_is_building_this_key8-->End
+```
+
+### `golden_discard.yml` - entry point `golden_discard`
+
+| Task | Module | When |
+|---|---|---|
+| Delete the build VM | block | <code>(proxmox_template_build_vm &#124; default({})).id &#124; default('') &#124; string &#124; length > 0</code> |
+| &emsp;Read the build VM's config | `ansible.builtin.uri` |  |
+| &emsp;Stop the build VM | `community.proxmox.proxmox_kvm` | <code>proxmox_template_discard_ours &#124; bool</code> |
+| &emsp;Delete it | `community.proxmox.proxmox_kvm` | <code>proxmox_template_discard_ours &#124; bool</code> |
+| &emsp;Say a build VM that was not deleted | `ansible.builtin.debug` | <code>(proxmox_template_discarded is not skipped and proxmox_template_discarded is not changed) or (proxmox_template_discarded is skipped and not proxmox_template_discard_gone &#124; bool)</code> |
+| Forget the build VM's host key | `ansible.builtin.file` | <code>(proxmox_template_build_vm &#124; default({})).known_hosts &#124; default('') &#124; length > 0</code> |
+| Forget the build VM | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Block Start| golden_discard___Delete_the_build_VM0_block_start_0[[golden discard   delete the build vm<br>When: **proxmox template build vm   default      id  <br>default       string   length   0**]]:::block
+  golden_discard___Delete_the_build_VM0_block_start_0-->|Task| golden_discard___Read_the_build_VM_s_config0[golden discard   read the build vm s config]:::task
+  golden_discard___Read_the_build_VM_s_config0-->|Task| golden_discard___Stop_the_build_VM1[golden discard   stop the build vm<br>When: **proxmox template discard ours   bool**]:::task
+  golden_discard___Stop_the_build_VM1-->|Task| golden_discard___Delete_it2[golden discard   delete it<br>When: **proxmox template discard ours   bool**]:::task
+  golden_discard___Delete_it2-->|Task| golden_discard___Say_a_build_VM_that_was_not_deleted3[golden discard   say a build vm that was not<br>deleted<br>When: **proxmox template discarded is not skipped and<br>proxmox template discarded is not changed  or <br>proxmox template discarded is skipped and not<br>proxmox template discard gone   bool**]:::task
+  golden_discard___Say_a_build_VM_that_was_not_deleted3-.->|End of Block| golden_discard___Delete_the_build_VM0_block_start_0
+  golden_discard___Say_a_build_VM_that_was_not_deleted3-->|Task| golden_discard___Forget_the_build_VM_s_host_key1[golden discard   forget the build vm s host key<br>When: **proxmox template build vm   default      known<br>hosts   default       length   0**]:::task
+  golden_discard___Forget_the_build_VM_s_host_key1-->|Task| golden_discard___Forget_the_build_VM2[golden discard   forget the build vm]:::task
+  golden_discard___Forget_the_build_VM2-->End
+```
+
+### `golden_read.yml` - entry point `golden_read`
+
+| Task | Module | When |
+|---|---|---|
+| Read the VMs and templates on Proxmox | `ansible.builtin.uri` |  |
+| Read the base template's config and each golden's | `ansible.builtin.uri` | <code>proxmox_template_golden_listing.status &#124; default(0) == 200</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| golden_read___Read_the_VMs_and_templates_on_Proxmox0[golden read   read the vms and templates on<br>proxmox]:::task
+  golden_read___Read_the_VMs_and_templates_on_Proxmox0-->|Task| golden_read___Read_the_base_template_s_config_and_each_golden_s1[golden read   read the base template s config and<br>each golden s<br>When: **proxmox template golden listing status   default 0<br>    200**]:::task
+  golden_read___Read_the_base_template_s_config_and_each_golden_s1-->End
+```
+
+### `golden_select.yml` - entry point `golden_select`
+
+| Task | Module | When |
+|---|---|---|
+| Choose the template | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| golden_select___Choose_the_template0[golden select   choose the template]:::task
+  golden_select___Choose_the_template0-->End
+```
+
+### `golden_template.yml` - entry point `golden_template`
+
+| Task | Module | When |
+|---|---|---|
+| Make the golden on the API | block |  |
+| &emsp;Shut the build VM down | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Read what the build VM's config holds | `ansible.builtin.uri` |  |
+| &emsp;Delete what a clone would inherit | `community.proxmox.proxmox_kvm` | <code>proxmox_template_golden_stripped &#124; select('in', proxmox_template_golden_before.json.data) &#124; list &#124; length > 0</code> |
+| &emsp;Name and note it as a golden of its key | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Read it back as a clone would | `ansible.builtin.uri` |  |
+| &emsp;Fail when it would hand a clone a setting of its own | `ansible.builtin.assert` |  |
+| &emsp;Make it a template | `community.proxmox.proxmox_kvm` |  |
+| &emsp;Forget the build VM's host key | `ansible.builtin.file` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Block Start| golden_template___Make_the_golden_on_the_API0_block_start_0[[golden template   make the golden on the api]]:::block
+  golden_template___Make_the_golden_on_the_API0_block_start_0-->|Task| golden_template___Shut_the_build_VM_down0[golden template   shut the build vm down]:::task
+  golden_template___Shut_the_build_VM_down0-->|Task| golden_template___Read_what_the_build_VM_s_config_holds1[golden template   read what the build vm s config<br>holds]:::task
+  golden_template___Read_what_the_build_VM_s_config_holds1-->|Task| golden_template___Delete_what_a_clone_would_inherit2[golden template   delete what a clone would<br>inherit<br>When: **proxmox template golden stripped   select  in  <br>proxmox template golden before json data    list  <br>length   0**]:::task
+  golden_template___Delete_what_a_clone_would_inherit2-->|Task| golden_template___Name_and_note_it_as_a_golden_of_its_key3[golden template   name and note it as a golden of<br>its key]:::task
+  golden_template___Name_and_note_it_as_a_golden_of_its_key3-->|Task| golden_template___Read_it_back_as_a_clone_would4[golden template   read it back as a clone would]:::task
+  golden_template___Read_it_back_as_a_clone_would4-->|Task| golden_template___Fail_when_it_would_hand_a_clone_a_setting_of_its_own5[golden template   fail when it would hand a clone<br>a setting of its own]:::task
+  golden_template___Fail_when_it_would_hand_a_clone_a_setting_of_its_own5-->|Task| golden_template___Make_it_a_template6[golden template   make it a template]:::task
+  golden_template___Make_it_a_template6-->|Task| golden_template___Forget_the_build_VM_s_host_key7[golden template   forget the build vm s host key]:::task
+  golden_template___Forget_the_build_VM_s_host_key7-.->|End of Block| golden_template___Make_the_golden_on_the_API0_block_start_0
+  golden_template___Forget_the_build_VM_s_host_key7-->End
 ```
 
 <!-- END_GENERATED: role -->

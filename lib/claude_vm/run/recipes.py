@@ -214,14 +214,16 @@ RECIPES = {
     # just deploy, every form of it: the whole of deploy.yml, and each --only stage's playbook alone.
     "deploy": Recipe(
         stages=[
-            Stage("template", plays=["template.yml"], vms=False),
+            Stage("template", plays=["template.yml", "golden.yml"], vms=False),
             Stage("provision", plays=["provision.yml"], info="vm"),
             Stage("configure", plays=["configure.yml"]),
             Stage("SSH aliases", plays=["ssh_config.yml"]),
             Stage("sign in", steps=SIGN_INS),
             Stage("editor", plays=["code.yml"], steps=WINDOW),
-            # deploy.yml's last play, which raises what failed after the sign-ins once the editor has opened.
+            # The deploy.yml play that raises what failed after the sign-ins once the editor has opened.
             Stage("finish", plays=["deploy.yml:Fail each VM whose work after a sign-in failed"], quiet=True),
+            # Its build VM is no VM of the run's: it is made, imaged and made a template here, the VMs already ready.
+            Stage("golden template", plays=["golden_build.yml"], vms=False),
         ],
         plan=["deploy.yml"],
         raises={

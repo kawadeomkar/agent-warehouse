@@ -50,6 +50,11 @@ argument_specs:
       proxmox_vm_template_name:
         type: str
         description: Name of the template VMs are cloned from.
+      proxmox_vm_template_vmid:
+        type: str
+        description: >-
+          The VMID of a golden template to clone, always as a full clone, in place of proxmox_vm_template_name.
+          Empty, as when provision.yml runs on its own, clones the template by its name.
       proxmox_vm_full_clone:
         type: bool
         description: Make a full clone, independent of the template. false makes a linked clone, which keeps depending on the template's disk.

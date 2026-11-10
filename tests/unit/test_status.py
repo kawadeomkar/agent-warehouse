@@ -32,8 +32,10 @@ from harness import (
     _executable,
     _fail_if_the_desktop_was_reached,
     _inventory,
+    _pve,
     _pve_requests,
     _pve_vars,
+    _pve_vm,
     fake_fleet,
 )
 
@@ -60,6 +62,7 @@ PROMISED_KEYS = {
         "sections",
         "settings",
         "storages",
+        "goldens",
         "template",
         "title",
         "vms",
@@ -376,6 +379,22 @@ def _fleet(names=(), **kw):
     return S.status_fleet(
         LISTING, tagged=tagged, requested=requested, settings={**SETTINGS, "names": list(names)}, **kw
     )
+
+
+def test_golden_templates_and_build_vms_are_counted_from_the_listing() -> None:
+    listing = [
+        {"vmid": 150, "name": "agent-warehouse-golden-aaaa", "type": "qemu", "template": 1, "node": "pve"},
+        {
+            "vmid": 151,
+            "name": "agent-warehouse-build-bbbb",
+            "type": "qemu",
+            "tags": "agent-warehouse-build",
+            "node": "pve",
+        },
+        {"vmid": 152, "name": "agent-warehouse-build-cccc", "type": "qemu", "tags": "someones", "node": "pve"},
+    ]
+    fleet = S.status_fleet(listing, tagged=[], requested=[], settings=SETTINGS)
+    assert fleet["goldens"] == {"count": 1, "building": ["agent-warehouse-build-bbbb"]}
 
 
 def test_the_fleet_is_this_projects_vms_and_the_rest_as_totals() -> None:
@@ -800,6 +819,22 @@ def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, n
     assert report["rc"] == 0, report["stderr"][-2000:]
     assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (editor or "vscode", name)
     assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in T.status_text(model).split("\n")
+
+
+def test_a_template_carrying_the_ownership_tag_is_no_vm_of_the_report(tmp_path, fake_pve) -> None:
+    # A VM of the fleet made a template by hand, as one cloned in place of the base may be: no VM of the fleet, as
+    # claude_vm_tagged has it for every playbook.
+    _pve_vm(fake_pve, 9013, "made-a-template", tags="agent-warehouse")
+    _pve(fake_pve, "POST", "nodes/pve/qemu/9013/template")
+    report, model = _status_run(tmp_path, fake_pve, "--only", "vms")
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    # The fake's nameless VM on its node that is down comes after these three.
+    names = [vm["name"] for vm in model["vms"]]
+    assert names[:3] == ["alpha", "beta", "gamma"] and "made-a-template" not in names, names
+    # Nor read: nothing of it is asked of Proxmox after the listing.
+    calls = _pve_requests(tmp_path)
+    after = calls[[c["path"] for c in calls].index("/api2/json/cluster/resources") :]
+    assert not [c["path"] for c in after if "/qemu/9013/" in c["path"]], after
 
 
 def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve) -> None:

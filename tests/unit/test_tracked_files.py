@@ -101,6 +101,7 @@ MUST_BLOCK = [
     # The run lock names a process here; an MCP job's output, every VM by address.
     ".cache/run.lock",
     ".cache/mcp/jobs/3f9c0a1b2c3d4e5f/output.txt",
+    ".cache/golden/known_hosts-0123456789ab",
     # Working documents beside the wiki name the Proxmox host and the VMs,
     # whatever they are called, and so does a review's source directory.
     "docs/plan-github-auth-2026-10-08.md",

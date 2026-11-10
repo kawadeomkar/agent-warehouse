@@ -172,6 +172,12 @@
     not (hostvars['localhost'].claude_template_exists | default(false)) | bool
     or (hostvars['localhost'].claude_template_rebuild | default(false)) | bool
 
+# The golden template each new VM clones, when golden templates are on and one
+# of its key is fresh; otherwise the base. Reads only. The build is the last
+# thing this run does.
+- name: Choose the template each new VM clones
+  ansible.builtin.import_playbook: playbooks/golden.yml
+
 - name: Provision VMs on Proxmox
   ansible.builtin.import_playbook: playbooks/provision.yml
 
@@ -260,3 +266,9 @@
       ansible.builtin.fail:
         msg: "{{ claude_vm_configure_failures | join(' ') }}"
       when: claude_vm_configure_failures | default([]) | length > 0
+
+# Last: this run's VMs are ready and the editor is open, so no VM waits for the
+# golden template the next deploy's VMs will clone. It never fails the deploy,
+# and what earlier runs left is deleted whether golden templates are on or off.
+- name: Build the golden template the next VMs will clone
+  ansible.builtin.import_playbook: playbooks/golden_build.yml

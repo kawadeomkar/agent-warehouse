@@ -1,0 +1,55 @@
+---
+# A sign-in that survives the scrub's deletions must fail the build.
+- name: Refuse an image with something signed in
+  hosts: claude_vms
+  become: true
+  tasks:
+    # As the VM's user: made by root, a .config it cannot enter would fail configure below.
+    - name: Make gh's folder
+      ansible.builtin.file:
+        path: /home/dev/.config/gh
+        state: directory
+        mode: "0700"
+      become: true
+      become_user: "{{ vm_user }}"
+
+    - name: Plant a gh login
+      ansible.builtin.copy:
+        content: "github.com:\n  oauth_token: not-a-real-token\n"
+        dest: /home/dev/.config/gh/hosts.yml
+        mode: "0600"
+      become: true
+      become_user: "{{ vm_user }}"
+
+    - name: Try the scrub
+      block:
+        - name: Scrub with a login planted
+          ansible.builtin.import_tasks: ../../playbooks/tasks/golden_generalize.yml
+
+        - name: Fail when the scrub let it through
+          ansible.builtin.fail:
+            msg: The scrub left a gh login in the image and went on.
+          vars:
+            image_scrub_passed: true
+      rescue:
+        - name: Assert it was refused for the login, by name
+          ansible.builtin.assert:
+            that:
+              - ansible_failed_result.msg is search('/home/dev/.config/gh/hosts.yml')
+              - ansible_failed_result.msg is search('not made a golden template')
+            fail_msg: "{{ ansible_failed_result.msg | default('') }}"
+            quiet: true
+
+    - name: Take the login out again
+      ansible.builtin.file:
+        path: /home/dev/.config/gh/hosts.yml
+        state: absent
+
+    # What cloud-init does on a clone's first boot, which a container does not run.
+    - name: Make the host keys a clone's first boot would
+      ansible.builtin.command:
+        argv: [ssh-keygen, -A]
+      changed_when: true
+
+- name: Run the real configure over the image
+  ansible.builtin.import_playbook: ../../playbooks/configure.yml

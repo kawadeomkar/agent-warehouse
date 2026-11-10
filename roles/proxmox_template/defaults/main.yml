@@ -42,3 +42,19 @@ proxmox_template_rebuild: true
 # Paths on the PVE host (overridable for tests).
 proxmox_template_qm: /usr/sbin/qm
 proxmox_template_virt_customize: /usr/bin/virt-customize
+
+# A golden template: a clone of the base template with the toolchain baked in,
+# which a new VM is cloned from when its key matches. Off until the first-boot
+# upgrade has been measured on a golden days old.
+proxmox_template_golden: false
+# The least a golden's disk is built at: a base with a larger disk keeps its own,
+# and a VM with a smaller disk than the golden's clones the base.
+proxmox_template_golden_disk_size: 12G
+# The VM a golden is built on.
+proxmox_template_golden_cores: 2
+proxmox_template_golden_memory_mb: 4096
+
+# The golden entry points run on this machine, and read the inventory's own
+# connection, node and VM settings, so how the API is reached has one definition.
+# Where a build VM's host key is kept while it is built: never ~/.ssh/known_hosts.
+proxmox_template_known_hosts_dir: "{{ playbook_dir }}/../.cache/golden"

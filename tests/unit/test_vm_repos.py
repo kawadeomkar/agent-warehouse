@@ -185,6 +185,20 @@ def test_a_vm_is_created_with_its_list_beside_the_notes_it_was_cloned_with(tmp_p
     assert _published(report, PROVISION_PUBLISH, "listed") == {"own": True, "names": ["one", "two"]}
 
 
+def test_a_golden_s_clone_gets_its_list_beside_the_golden_s_record(tmp_path: Path, fleet: str) -> None:
+    # The notes a golden's clone carries are the golden's record, as a base's clone carries its build record.
+    record = proxmox.golden_record(
+        {"key": "a" * 64, "build": 1, "base": "x", "node": "pve", "built": "2026-11-10T00:00:00Z", "disk": "12G"}
+    )
+    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9200, name="agent-warehouse-golden-" + "a" * 12)
+    _pve(fleet, "PUT", "nodes/pve/qemu/9200/config", description=record)
+    _pve(fleet, "POST", "nodes/pve/qemu/9200/template")
+    report = _provision(tmp_path, fleet, "listed", ["one"], claude_vm_golden_template="9200")
+    assert report["rc"] == 0, _failures(report)
+    assert _notes(fleet, "listed").splitlines() == [record, f"{MARK} one"]
+    assert _published(report, PROVISION_PUBLISH, "listed") == {"own": True, "names": ["one"]}
+
+
 def test_the_same_list_again_changes_nothing_and_a_new_name_is_added(tmp_path: Path, fleet: str) -> None:
     assert _provision(tmp_path, fleet, "listed", ["one", "two"])["rc"] == 0
     again = _provision(tmp_path, fleet, "listed", ["two", "one"])

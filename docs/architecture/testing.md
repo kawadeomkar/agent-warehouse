@@ -561,6 +561,14 @@ pytest over `tests/unit/`, file by file:
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor
   outside its own files, file by file, against a table that a count above or below it fails.
 
+### A golden template's tests
+
+`test_golden.py` holds each `image` entry point to what it may read (a static walk of every expression it reaches, over
+the real roles), and the digest to what it hashes; `test_golden_proxmox.py` the record, the base's identity and the
+choice of template; `test_golden_play.py` runs `playbooks/golden.yml` and `golden_build.yml` against the fake Proxmox, with
+`claude_vm_golden_image: false` standing in for what reaches the VM, which is the `image` scenario's. A guard holds
+`proxmox_template_golden` off everywhere else.
+
 ## 11.2 Role scenarios — `just test role`
 
 One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting the driver from
@@ -634,6 +642,7 @@ that no build started.
 | Scenario | What it proves |
 |---|---|
 | `provision` | `provision.yml`, `discover.yml` and `just status`'s engine end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
+| `image` | a golden template's image and scrub in a container, then the real `configure.yml` over it: configure has nothing left to install but Tailscale, which is never baked, and a sign-in left in the image fails the build. Run with `configure`, under `just test integration` |
 | `configure` | `configure.yml` end to end against a container standing in for a provisioned VM; then the sign-ins, `just code`'s session handoff with the real `claude` against a stand-in Messages API - copies resumed as the VM's own, `--continue` never picking one up, the records of requests sent left unsent, a saved copy resumed by its path - and `just destroy`'s pause of Remote Control around its save, with the real systemd |
 
 Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scenario inventory, so the

@@ -86,6 +86,49 @@
       ansible.builtin.import_tasks: tasks/remote_tmp.yml
       tags: [always]
 
+    # A VM cloned from a golden template in this run: its image options, as
+    # configure resolves them, must be those the golden was built with. One set
+    # under the claude_vms group reaches configure but never the build, and a
+    # golden keeps what such an option would leave out - Docker, say - which
+    # configure cannot take away (docs/architecture/lifecycle.md §4.14).
+    - name: Check a VM cloned from a golden template against its own options
+      when: claude_vm_golden_cloned | default(false) | bool
+      tags: [always]
+      block:
+        - name: Read common's image options as configure resolves them
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: image_options
+
+        - name: Read dev_tools' image options as configure resolves them
+          ansible.builtin.include_role:
+            name: dev_tools
+            tasks_from: image_options
+
+        - name: Read claude_code's image options as configure resolves them
+          ansible.builtin.include_role:
+            name: claude_code
+            tasks_from: image_options
+
+        - name: Fail when the golden was built with other options than the VM's
+          vars:
+            configure_golden_mine:
+              common: "{{ common_image_options }}"
+              dev_tools: "{{ dev_tools_image_options }}"
+              claude_code: "{{ claude_code_image_options }}"
+            configure_golden_shared:
+              common: "{{ hostvars['localhost'].common_image_options | default({}) }}"
+              dev_tools: "{{ hostvars['localhost'].dev_tools_image_options | default({}) }}"
+              claude_code: "{{ hostvars['localhost'].claude_code_image_options | default({}) }}"
+          ansible.builtin.assert:
+            that: configure_golden_mine | option_differences(configure_golden_shared) | length == 0
+            fail_msg: >-
+              {{ inventory_hostname }} was cloned from a golden template built with other image options than its
+              own: {{ configure_golden_mine | option_differences(configure_golden_shared) | join(', ') }}. Set them
+              in local.yml or as the VM's host vars, never under the claude_vms group, which the build cannot see;
+              then just destroy {{ inventory_hostname }} and deploy it again, or set proxmox_template_golden to false.
+            quiet: true
+
   roles:
     - role: common
       tags: [common]

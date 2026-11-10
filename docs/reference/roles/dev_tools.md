@@ -43,7 +43,7 @@ Also takes, as described under `main`: `dev_tools_user`, `dev_tools_install_node
 
 **Record the options the image entry point is built with, for a golden template's key**
 
-Also takes, as described under `main`: `dev_tools_user`, `dev_tools_install_node`, `dev_tools_install_docker`, `dev_tools_install_gh`, `dev_tools_install_uv`, `dev_tools_install_rust`, `dev_tools_apt_packages`, `dev_tools_node_major`, `dev_tools_npm_global_packages`, `dev_tools_docker_packages`, `dev_tools_container_virt_types`, `dev_tools_docker_manage_service`, `dev_tools_deb_arch`, `dev_tools_uv_version`, `dev_tools_uv_arch_map`, `dev_tools_uv_sha256`, `dev_tools_uv_install_dir`, `dev_tools_rust_toolchain`, `dev_tools_rust_components`.
+Also takes, as described under `main`: `dev_tools_user`, `dev_tools_install_node`, `dev_tools_install_docker`, `dev_tools_install_gh`, `dev_tools_install_uv`, `dev_tools_install_rust`, `dev_tools_apt_packages`, `dev_tools_node_major`, `dev_tools_npm_global_packages`, `dev_tools_docker_packages`, `dev_tools_container_virt_types`, `dev_tools_uv_version`, `dev_tools_uv_arch_map`, `dev_tools_uv_sha256`, `dev_tools_uv_install_dir`, `dev_tools_rust_toolchain`, `dev_tools_rust_components`.
 
 ## Tasks
 

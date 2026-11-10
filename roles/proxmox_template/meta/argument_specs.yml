@@ -89,3 +89,76 @@ argument_specs:
         required: true
         description:
           - The template's config, as /nodes/<node>/qemu/<vmid>/config gives it.
+  golden_read:
+    short_description: Read the listing and the configs golden_select chooses from, once for the run - reading only
+    options: &golden_api
+      proxmox_template_golden:
+        type: bool
+        description: >-
+          Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure,
+          which still runs every task, finds most of its work done; where none is fresh, they clone the base and the
+          deploy ends by building one. false clones the base template, as before.
+      proxmox_template_golden_disk_size:
+        type: str
+        description: The least a golden's disk is built at; a larger base keeps its own. A VM with a smaller disk than the golden's clones the base template.
+      proxmox_template_golden_cores:
+        type: int
+        description: The cores of the VM a golden is built on.
+      proxmox_template_golden_memory_mb:
+        type: int
+        description: The memory, in MiB, of the VM a golden is built on.
+      proxmox_template_known_hosts_dir:
+        type: path
+        description: Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh.
+  golden_collect:
+    short_description: Delete build VMs left over and golden templates past twice the age a run selects one at
+    options:
+      <<: *golden_api
+      proxmox_template_golden_target:
+        type: dict
+        description: What this run would build, {key, base, disk, vms} (golden_targets); empty when nothing.
+  golden_select:
+    short_description: Choose a new VM's template - a fresh golden of its key, else the base - reading only, on this machine
+    options:
+      <<: *golden_api
+      proxmox_template_golden_vm:
+        type: str
+        required: true
+        description: The VM the template is chosen for. One that exists is never cloned, so it gets none.
+      proxmox_template_golden_vm_disk:
+        type: str
+        required: true
+        description: The VM's disk size. A golden built with a larger disk is no golden of it.
+      proxmox_template_golden_digest:
+        type: str
+        required: true
+        description: The toolchain digest every VM's options share, from the roles a golden carries (toolchain_digest).
+      proxmox_template_golden_shared:
+        type: bool
+        required: true
+        description: >-
+          Whether the VM's image options are those a build sees. A VM that sets one of its own, as a host var, clones
+          the base, since a golden built for it could not be shared.
+  golden_build:
+    short_description: Build the VM a golden template is made from - a full clone of the base, never ownership-tagged
+    options:
+      <<: *golden_api
+      proxmox_template_golden_target:
+        type: dict
+        required: true
+        description: The key to build for, the base it is built from and the size of its disk, {key, base, disk, vms} (golden_targets).
+  golden_template:
+    short_description: Make the build VM a golden template - stripped, noted with its key, read back, converted
+    options:
+      <<: *golden_api
+      proxmox_template_build_vm:
+        type: dict
+        required: true
+        description: The build VM, as golden_build recorded it.
+  golden_discard:
+    short_description: Delete the build VM a failed build left, under its own interlock, and its host key file
+    options:
+      <<: *golden_api
+      proxmox_template_build_vm:
+        type: dict
+        description: The build VM, as golden_build recorded it, or as much of it as was made.

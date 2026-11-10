@@ -1,0 +1,31 @@
+---
+# What golden_select chooses from (docs/architecture/lifecycle.md §4.14), read
+# once for the run: the listing, the base template's config and each golden's.
+# Reads only. On this machine, through the API.
+- name: golden_read | Read the VMs and templates on Proxmox
+  ansible.builtin.uri:
+    url: "{{ proxmox_api_url }}/cluster/resources?type=vm"
+    headers: "{{ proxmox_api_headers }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+  register: proxmox_template_golden_listing
+  no_log: true
+  failed_when: false
+  check_mode: false
+
+- name: golden_read | Read the base template's config and each golden's
+  ansible.builtin.uri:
+    url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+    headers: "{{ proxmox_api_headers }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+  loop: >-
+    {{ proxmox_template_golden_listing.json.data | default([], true)
+       | golden_reads(proxmox_template_golden_base_name, proxmox_node, proxmox_template_golden_prefix) }}
+  loop_control:
+    label: "{{ item.vmid }}"
+  register: proxmox_template_golden_configs
+  no_log: true
+  failed_when: false
+  check_mode: false
+  when: proxmox_template_golden_listing.status | default(0) == 200

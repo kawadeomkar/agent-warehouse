@@ -1,0 +1,22 @@
+---
+# Which template a new VM is cloned from (docs/architecture/lifecycle.md §4.14):
+# a fresh golden of its key, else the base, and whether a golden of its key is
+# wanted, from what golden_read read on this machine.
+# proxmox_template_golden_choice is set on every run, so a VM never keeps
+# another's.
+- name: golden_select | Choose the template
+  vars:
+    proxmox_template_golden_read: "{{ hostvars['localhost'] }}"
+  ansible.builtin.set_fact:
+    proxmox_template_golden_choice: >-
+      {{ (proxmox_template_golden_read.proxmox_template_golden_listing.json.data | default([], true)
+          | golden_choice(proxmox_template_golden_read.proxmox_template_golden_configs.results | default([]),
+                          proxmox_template_golden_vm, proxmox_template_golden_base_name, proxmox_node,
+                          proxmox_template_golden_prefix, proxmox_template_now, proxmox_template_golden_max_age,
+                          proxmox_template_golden_vm_disk, proxmox_template_boot_disk,
+                          proxmox_template_golden_disk_size, proxmox_template_golden_digest,
+                          proxmox_template_golden_build, proxmox_template_golden_shared | bool))
+         if proxmox_template_golden_read.proxmox_template_golden_listing.status | default(0) == 200
+         else {'exists': false, 'base': '', 'key': '', 'disk': '', 'golden': '', 'wanted': false,
+               'said': 'Proxmox did not list its VMs (' ~ (proxmox_template_golden_read.proxmox_template_golden_listing.status
+                       | default('no answer')) ~ ')'} }}

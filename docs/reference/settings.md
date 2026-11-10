@@ -86,6 +86,12 @@ just deploy rebuilds the template when it differs from what its settings would b
 |---|---|---|
 | `proxmox_template_rebuild` | `true` | Rebuild the template at the same VMID when it differs from what these settings would build - its CPU type, OS type, bridge, storage, image, packages or this version's build - or keeps no record of its build, as one an earlier version built does. A variable of [`proxmox_template`](roles/proxmox_template.md). |
 
+Build a golden template for new VMs, with the toolchain already installed, and clone them from it: configure, which still runs every task, then finds most of its work done. A deploy that finds none clones the template above, as without this, and then builds one once its VMs are ready and its editor open, about two minutes more for the run, while just code and just login are refused here. A later deploy that finds one has its VMs ready about a minute sooner, however many it creates. A golden is used for a week. false clones the template above, and golden templates already made are deleted as they age.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `proxmox_template_golden` | `false` | Clone new VMs from a golden template of their key, with the toolchain installed already, so that configure, which still runs every task, finds most of its work done; where none is fresh, they clone the base and the deploy ends by building one. A variable of [`proxmox_template`](roles/proxmox_template.md). |
+
 Which NIC of the template carries the LAN address: its MAC is how a VM's own address is told apart from bridges the guest grows later (docker0). Change it only if the template was built with something other than a single net0.
 
 | Setting | Default | Notes |

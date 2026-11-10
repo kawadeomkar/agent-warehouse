@@ -336,7 +336,7 @@ modules returned, as the callback prints them, with the log's path. The engine r
   reach it, read the sessions, the folder (here and then on the VM), alias, the editor here, the directory
   (just code's own on the VM), copy the sessions, the notes, window - the editor's two task files each a step
   from its first task, named as drawn, without its file's prefix. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
-  beta`, from `claude_vm_release_started`). A quiet stage - `finish`, deploy's last play, which only
+  beta`, from `claude_vm_release_started`). A quiet stage - `finish`, the deploy play that only
   raises again what failed after the sign-ins - is counted but never drawn, unless one of its tasks fails; a step
   whose every task was skipped reads `–`, never `✓`. A run of one stage (`--only configure`) is drawn as that
   stage's steps, with no row of its own: the footer says `step 2 of 6`, the summary's table is `STEPS`.
@@ -1200,7 +1200,9 @@ trusted, so a mistake in it can leave a VM less ready, never wrong.
 - **The toolchain digest** (`toolchain_digest`) hashes every file the three entry points reach - the task files they
   include by literal name, the templates and files those name, each role's defaults and internals, a module of its
   library - with the scrub the build runs, and the options each role's `image_options` entry point resolves, its
-  defaults included. `reached` is that walk: a pull that changes only a role's sign-in makes no new golden.
+  defaults included. `reached` is that walk: a pull that changes only a role's sign-in makes no new golden. An option
+  that holds a vault value of 4 characters or more (`secret_options`) means no golden is built or used, said by the
+  option's name and never its value.
 - **The key** (`golden_key`) is the build number, the base's identity and the digest, hashed. The base's identity is
   the provider's to give, so the digest knows no hypervisor.
 - **The static guard** (`tests/unit/test_golden.py`) holds every expression in the files an `image` entry point

@@ -204,6 +204,9 @@
   vars:
     proxmox_vm_size: "{{ vm_size | default({}, true) }}"
     proxmox_vm_repos: "{{ vm_repos | default([], true) }}"
+    # The golden template playbooks/golden.yml chose for the VM, in
+    # just deploy; empty, as when this playbook runs on its own, for the base.
+    proxmox_vm_template_vmid: "{{ claude_vm_golden_template }}"
   roles:
     - role: proxmox_vm
 
@@ -246,6 +249,9 @@
         claude_vm_repos: >-
           {{ ((hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms | default([], true) | first | default({}, true)).config
               | default({}, true)).description | default('', true) | proxmox_notes_repos(vm_repos | default([], true)) }}
+        # Whether it was cloned from a golden template in this run, which
+        # configure then holds its own image options to.
+        claude_vm_golden_cloned: "{{ hostvars[claude_vm_name_item].claude_vm_golden_template | length > 0 }}"
       changed_when: false
       when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
       loop: "{{ claude_vm_names }}"

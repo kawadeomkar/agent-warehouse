@@ -137,6 +137,26 @@ Remote Control, which needs the login, refuses to start with no obvious cause. T
 [Remote Control, step by step](roles.md#remote-control-step-by-step) says how it turns the server off for a
 key, takes the key back out when it is cleared, and catches one from elsewhere through `apiKeySource`.
 
+## A golden template's build fails, or another run has one under way
+
+Neither fails the deploy: the build is the last thing it does, its VMs are already made, and it is said once. A build
+that fails at any step deletes its VM under the build interlock, and a VM already gone is the goal reached. A build VM
+started under 30 minutes ago is another run's, so this run leaves it alone, and one of the same key means this run
+builds none; an older one was left by a run cut short, and the next deploy deletes it, whether golden templates are on
+or off. Two runs that start in the same second can both build: both are correct, selection takes the
+newest, and the other goes by age ([§4.14](lifecycle.md#414-playbooksgoldenyml--the-golden-template-new-vms-clone)).
+
+## A golden Proxmox will not delete
+
+An old golden a linked clone still uses is kept and said, never failed. Golden templates themselves are always cloned
+in full, so only a clone made by hand holds one.
+
+## An image option set under the `claude_vms` group
+
+It reaches configure and never the build, which cannot see that group. A VM cloned from a golden is held to the digest
+it was published with, and fails by name when its own differs, since a golden keeps what such an option would leave
+out. Set the option in `local.yml`, or as the VM's host var, which clones the base instead.
+
 ## There is deliberately no `LIMIT`
 
 `--limit` is applied before the plays run, and these VMs only

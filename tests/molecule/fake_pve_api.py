@@ -73,6 +73,7 @@ PUT /api2/json/fake/disk-ctime?vmid=&ctime= sets for a fixture's VM made earlier
 Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_secret>
 """
 
+import hashlib
 import json
 import re
 import ssl
@@ -194,6 +195,12 @@ AGENT_READY = {"after": AGENT_READY_AFTER}
 # change still report the old status, and per VM, that status and how many
 # listings it has left.
 LISTING_LAG = {"listings": 0}
+# Requests to fail, once each and in the order given: the next write, or request of methods (GET,PUT), to a path ending
+# with suffix. PUT /api2/json/fake/refuse?suffix=&methods=
+REFUSE_NEXT = []
+# VMs another run deletes once this one has listed them: gone from the next listing on, so that a delete finds nothing.
+# PUT /api2/json/fake/vanish?vmid=
+VANISH = {}
 STALE = {}
 # What /version reports, and each token's privileges by path where a fixture
 # set them: {(token id, path): [privilege, ...]}.
@@ -441,6 +448,17 @@ class Handler(BaseHTTPRequestHandler):
                     *others,
                 ],
             )
+        if parts[:2] == ["fake", "refuse"] and method == "PUT":
+            # Not a PVE endpoint: a fixture's one write that fails.
+            REFUSE_NEXT.append((params["suffix"], params.get("methods", "PUT,POST,DELETE").split(",")))
+            return self._reply(200, len(REFUSE_NEXT))
+        if parts[:2] == ["fake", "vanish"] and method == "PUT":
+            # Not a PVE endpoint: another run deleted this VM just after it was read.
+            VANISH[int(params["vmid"])] = False
+            return self._reply(200, sorted(VANISH))
+        if REFUSE_NEXT and method in REFUSE_NEXT[0][1] and "/".join(parts).endswith(REFUSE_NEXT[0][0]):
+            suffix, _ = REFUSE_NEXT.pop(0)
+            return self._reply(500, None, f"refused by the fixture: {suffix}")
         if parts[:2] == ["fake", "listing-lag"] and method == "PUT":
             # Not a PVE endpoint: a fixture's switch for the listing's lag.
             LISTING_LAG["listings"] = int(params.get("listings", "0"))
@@ -490,6 +508,12 @@ class Handler(BaseHTTPRequestHandler):
             save_state()
             return self._reply(200, {"vmid": int(params["vmid"]), "ctime": int(params["ctime"])})
         if parts == ["cluster", "resources"]:
+            for vmid, listed in list(VANISH.items()):
+                VANISH[vmid] = True
+                if listed:
+                    VMS.pop(vmid, None)
+                    del VANISH[vmid]
+                    save_state()
             entries = [resource(vm) for vm in VMS.values()]
             for entry in entries:
                 stale = STALE.get(entry["vmid"])
@@ -585,7 +609,9 @@ class Handler(BaseHTTPRequestHandler):
             save_state()
             return self._reply(200, new_task())
         if sub == ["config"] and method == "GET":
-            return self._reply(200, dict(vm["config"]))
+            # As Proxmox: the config's digest, which changes with any change to it.
+            digest = hashlib.sha1(json.dumps(vm["config"], sort_keys=True).encode()).hexdigest()
+            return self._reply(200, {**vm["config"], "digest": digest})
         if sub == ["config"] and method in ("PUT", "POST"):
             # PVE removes a setting through `delete`, a comma-separated list of
             # keys - not by sending it blank. parse_qs drops blank values, so a

@@ -1,0 +1,116 @@
+---
+# The template each new VM clones (docs/architecture/lifecycle.md §4.14): a fresh
+# golden of its key, else the base. Reads only, before provisioning. A VM that
+# finds no golden clones the base and is ready as soon as it would have been:
+# playbooks/golden_build.yml, the last of just deploy, builds one for the next.
+# Every play reaches Proxmox only through proxmox_template's golden entry points,
+# so no line here reads its API (tests/unit/test_ratchets.py).
+
+- name: Read what the new VMs could clone
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Read it when golden templates are on
+      when: proxmox_template_golden | default(false) | bool
+      block:
+        # The image options as every VM shares them, which is what a build sees.
+        - name: Record what common's part of a golden is built with
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: image_options
+
+        - name: Record what dev_tools' part of a golden is built with
+          ansible.builtin.include_role:
+            name: dev_tools
+            tasks_from: image_options
+
+        - name: Record what claude_code's part of a golden is built with
+          ansible.builtin.include_role:
+            name: claude_code
+            tasks_from: image_options
+
+        - name: Record the options that hold a vault value
+          ansible.builtin.set_fact:
+            claude_vm_golden_secret_options: >-
+              {{ {'common': common_image_options, 'dev_tools': dev_tools_image_options,
+                  'claude_code': claude_code_image_options}
+                 | secret_options(query('ansible.builtin.vars', *query('ansible.builtin.varnames', '^vault_'))) }}
+
+        # A golden is built with these options, and what an install leaves on
+        # its disk is on every clone's. Said by the option, never its value.
+        - name: Say why no golden template is built or used
+          ansible.builtin.debug:
+            msg: >-
+              {{ claude_vm_golden_secret_options | join(', ') }} holds a vault value, which a golden template could
+              carry onto every VM's disk, so none is built or used: set it from something that is not a secret.
+          when: claude_vm_golden_secret_options | length > 0
+
+        - name: Read the rest when no option holds one
+          when: claude_vm_golden_secret_options | length == 0
+          block:
+            - name: Record the digest of what a golden is built from
+              ansible.builtin.set_fact:
+                claude_vm_golden_digest: >-
+                  {{ {'common': common_image_options, 'dev_tools': dev_tools_image_options,
+                      'claude_code': claude_code_image_options} | toolchain_digest }}
+
+            - name: Read the templates on Proxmox
+              ansible.builtin.include_role:
+                name: proxmox_template
+                tasks_from: golden_read
+
+            - name: Add each VM to choose a template for
+              ansible.builtin.add_host:
+                name: "{{ claude_vm_golden_item }}"
+                groups: claude_vm_golden_pending
+                # Nothing connects to it under this name: the choice is made from here.
+                ansible_connection: local
+                ansible_python_interpreter: "{{ ansible_playbook_python }}"
+              changed_when: false
+              loop: "{{ claude_vm_names }}"
+              loop_control:
+                loop_var: claude_vm_golden_item
+
+- name: Choose each VM's template
+  hosts: claude_vm_golden_pending
+  gather_facts: false
+  tasks:
+    # The image options as this VM resolves them: one whose own differ (a host
+    # var) clones the base.
+    - name: Record what common's part of a golden would be for this VM
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: image_options
+
+    - name: Record what dev_tools' part of a golden would be for this VM
+      ansible.builtin.include_role:
+        name: dev_tools
+        tasks_from: image_options
+
+    - name: Record what claude_code's part of a golden would be for this VM
+      ansible.builtin.include_role:
+        name: claude_code
+        tasks_from: image_options
+
+    - name: Choose this VM's template
+      ansible.builtin.include_role:
+        name: proxmox_template
+        tasks_from: golden_select
+      vars:
+        proxmox_template_golden_vm: "{{ inventory_hostname }}"
+        proxmox_template_golden_vm_disk: "{{ (vm_size | default({}, true)).disk | default(vm_disk_size | default('32G')) }}"
+        proxmox_template_golden_digest: "{{ hostvars['localhost'].claude_vm_golden_digest }}"
+        proxmox_template_golden_shared: >-
+          {{ {'common': common_image_options, 'dev_tools': dev_tools_image_options,
+              'claude_code': claude_code_image_options}
+             | option_differences({'common': hostvars['localhost'].common_image_options,
+                                   'dev_tools': hostvars['localhost'].dev_tools_image_options,
+                                   'claude_code': hostvars['localhost'].claude_code_image_options})
+             | length == 0 }}
+
+    - name: Say why this VM clones the base template
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} clones the base template: {{ proxmox_template_golden_choice.said }}."
+      when:
+        - not proxmox_template_golden_choice.exists
+        - proxmox_template_golden_choice.said | length > 0

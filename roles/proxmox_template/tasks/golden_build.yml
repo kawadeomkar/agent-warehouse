@@ -1,0 +1,161 @@
+---
+# The VM a golden template is built on (docs/architecture/lifecycle.md §4.14): a
+# full clone of the base, tagged and named for builds and never with the
+# ownership tag, so no fleet command reaches it. Its notes say when it started,
+# since a clone's meta ctime is its template's. Sets proxmox_template_build_vm,
+# what the play adds as a host. On this machine, through the API.
+- name: golden_build | Build on the API
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+  vars:
+    proxmox_template_build_name: "{{ proxmox_template_build_prefix }}{{ proxmox_template_golden_target.key[:12] }}"
+  block:
+    # Only where the token may read it (Sys.Audit); else Proxmox's own start says.
+    - name: golden_build | Read how much memory the node has free
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/cluster/resources?type=node"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_build_nodes
+      no_log: true
+      failed_when: false
+      check_mode: false
+
+    # After this run's VMs, which may have filled it: before a clone is wasted.
+    - name: golden_build | Fail when the node has no room for the build VM
+      vars:
+        proxmox_template_build_node: >-
+          {{ proxmox_template_build_nodes.json.data | default([], true) | selectattr('node', 'equalto', proxmox_node)
+             | first | default({}, true) }}
+      ansible.builtin.assert:
+        that: >-
+          proxmox_template_build_node.maxmem | int - proxmox_template_build_node.mem | int
+          >= proxmox_template_golden_memory_mb | int * 1048576
+        fail_msg: >-
+          {{ proxmox_node }} has {{ '%.1f' | format((proxmox_template_build_node.maxmem | int
+          - proxmox_template_build_node.mem | int) / 1073741824) }} GiB free, and a golden's build VM needs
+          {{ '%.1f' | format(proxmox_template_golden_memory_mb | int / 1024) }} GiB
+        quiet: true
+      when:
+        - proxmox_template_build_node.maxmem is defined
+        - proxmox_template_build_node.mem is defined
+
+    - name: golden_build | Ask Proxmox for a free VMID
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/cluster/nextid"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_build_nextid
+      no_log: true
+
+    # Before the clone, so that one that times out with its VM half made is deleted too.
+    - name: golden_build | Record the build VM
+      ansible.builtin.set_fact:
+        proxmox_template_build_vm:
+          id: "{{ proxmox_template_build_nextid.json.data | string }}"
+          name: "{{ proxmox_template_build_name }}"
+          key: "{{ proxmox_template_golden_target.key }}"
+          base: "{{ proxmox_template_golden_target.base }}"
+          disk: "{{ proxmox_template_golden_target.disk }}"
+          known_hosts: "{{ proxmox_template_known_hosts_dir }}/known_hosts-{{ proxmox_template_golden_target.key[:12] }}"
+
+    # A VM of an earlier build may have had this address: its key is no use.
+    - name: golden_build | Forget the host key of any earlier build of this key
+      ansible.builtin.file:
+        path: "{{ proxmox_template_build_vm.known_hosts }}"
+        state: absent
+
+    # By VMID: the module clones the VMID it is given, and the name is a label.
+    - name: golden_build | Clone the base template
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_golden_target.base }}"
+        clone: "{{ proxmox_template_golden_base_name }}"
+        newid: "{{ proxmox_template_build_nextid.json.data | int }}"
+        name: "{{ proxmox_template_build_name }}"
+        full: true
+        storage: "{{ proxmox_template_storage }}"
+        timeout: 300
+      register: proxmox_template_build_clone
+
+    # On a VMID another run took in between, the module answers ok with the
+    # template's VMID: never go on to configure the template.
+    - name: golden_build | Fail when the clone made no new VM
+      ansible.builtin.assert:
+        that: proxmox_template_build_clone is changed
+        fail_msg: >-
+          Cloning the base template for a golden made no new VM: VMID {{ proxmox_template_build_nextid.json.data }}
+          was taken in between.
+        quiet: true
+
+    # No cipassword: no password hash enters the disk. The NOPASSWD rule
+    # cloud-init writes covers the build's sudo.
+    - name: golden_build | Set up the build VM
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_nextid.json.data | int }}"
+        name: "{{ proxmox_template_build_name }}"
+        update: true
+        cores: "{{ proxmox_template_golden_cores }}"
+        memory: "{{ proxmox_template_golden_memory_mb }}"
+        agent: enabled=1
+        tags: ["{{ proxmox_template_build_tag }}"]
+        description: >-
+          {{ {'key': proxmox_template_golden_target.key, 'started': proxmox_template_now} | build_record }}
+        ciuser: "{{ vm_user }}"
+        sshkeys: "{{ vm_ssh_public_keys | join('\n') }}"
+        ipconfig:
+          ipconfig0: ip=dhcp
+        nameservers: "{{ vm_nameservers | default(omit, true) }}"
+        searchdomains: "{{ vm_searchdomain | default(omit, true) }}"
+
+    # A base with a larger disk keeps it: Proxmox cannot shrink one, and given
+    # the size as the config writes it the module changes nothing.
+    - name: golden_build | Size the build VM's disk
+      community.proxmox.proxmox_disk: # noqa: args[module] - api_* come from module_defaults
+        vmid: "{{ proxmox_template_build_nextid.json.data | int }}"
+        disk: "{{ proxmox_template_boot_disk }}"
+        size: "{{ proxmox_template_golden_target.disk }}"
+        state: resized
+
+    - name: golden_build | Start the build VM
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_nextid.json.data | int }}"
+        state: started
+        timeout: 120
+
+    # The VM's own config, which no listing lags behind.
+    - name: golden_build | Read the build VM's NIC
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/nodes/{{ proxmox_node }}/qemu/{{ proxmox_template_build_nextid.json.data }}/config"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_build_config
+      no_log: true
+      check_mode: false
+
+    - name: golden_build | Wait for the build VM's guest agent to report an address
+      community.proxmox.proxmox_vm_info: # noqa: args[module] - api_* come from module_defaults
+        type: qemu
+        vmid: "{{ proxmox_template_build_nextid.json.data | int }}"
+        network: true
+      register: proxmox_template_build_net
+      until: proxmox_template_build_address | length > 0
+      retries: "{{ proxmox_template_build_agent_retries }}"
+      delay: "{{ proxmox_template_build_agent_delay }}"
+      vars:
+        proxmox_template_build_address: >-
+          {{ proxmox_template_build_net.proxmox_vms | default([], true) | map(attribute='network') | first
+             | default([], true)
+             | guest_ipv4(proxmox_template_build_config.json.data[proxmox_nic] | net_mac('')) | default('', true) }}
+
+    - name: golden_build | Record where the build VM is
+      ansible.builtin.set_fact:
+        proxmox_template_build_vm: >-
+          {{ proxmox_template_build_vm | combine({'address': proxmox_template_build_net.proxmox_vms
+             | map(attribute='network') | first
+             | guest_ipv4(proxmox_template_build_config.json.data[proxmox_nic] | net_mac(''))}) }}

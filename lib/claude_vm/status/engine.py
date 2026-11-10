@@ -406,11 +406,17 @@ class Run:
             return
         data = _data(listing)
         pattern = self.fleet["tag_pattern"]
-        tagged = [
-            one
-            for one in data
-            if isinstance(one, dict) and one.get("type") == "qemu" and "tags" in one and re.search(pattern, one["tags"])
-        ]
+        # Never a template, though it carry the ownership tag, as claude_vm_tagged has it: a VM made one by hand.
+        tagged = proxmox_reads.not_templates(
+            [
+                one
+                for one in data
+                if isinstance(one, dict)
+                and one.get("type") == "qemu"
+                and "tags" in one
+                and re.search(pattern, one["tags"])
+            ]
+        )
         requested = [one for one in tagged if "name" in one and one["name"] in self.names] if self.names else tagged
         early = model.status_clean(
             model.status_fleet(

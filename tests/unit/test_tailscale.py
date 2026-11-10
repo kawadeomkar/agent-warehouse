@@ -1722,6 +1722,9 @@ def test_every_playbook_scenario_that_runs_the_role_keeps_tailscale_off_the_netw
         assert found.get("tailscale_upload_logs") is False, (scenario.name, host)
     if platforms:
         prepare = (scenario / "prepare.yml").read_text()
+        # The image scenario prepares its container as the configure scenario does, by importing that play.
+        if "../configure/prepare.yml" in prepare:
+            prepare = (scenario.parent / "configure" / "prepare.yml").read_text()
         assert "fake_tailscale.sh" in prepare and "dest: /usr/local/bin/tailscale" in prepare, scenario.name
 
 

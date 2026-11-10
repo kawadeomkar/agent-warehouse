@@ -1,0 +1,3 @@
+---
+- name: Prepare as the configure scenario does
+  ansible.builtin.import_playbook: ../configure/prepare.yml

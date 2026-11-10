@@ -145,6 +145,7 @@ claude_vm_tagged: >-
      | selectattr('type', 'equalto', 'qemu')
      | selectattr('tags', 'defined')
      | selectattr('tags', 'regex', claude_vm_tag_pattern)
+     | not_templates
      | list }}
 claude_vm_names: >-
   {{ (vm_name | default(vm_default_name, true)) | split(',') | map('trim') | select | list }}
@@ -156,10 +157,14 @@ claude_vm_names: >-
 # this machine a VM to configure. Every host but those the runs add VMs to, so
 # it reads the same before and after they are added. playbooks/tasks/vm_names.yml
 # refuses such a name given, and discovery and just status leave out such a VM.
+# The golden template a new VM is cloned from, chosen by playbooks/golden.yml in
+# just deploy, by the number Proxmox knows it by; empty for the base template.
+claude_vm_golden_template: "{{ (proxmox_template_golden_choice | default({})).golden | default('', true) }}"
 claude_vm_inventory_hosts: >-
   {{ (groups['all'] + ['localhost'])
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
-                    + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])))
+                    + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([]))
+                    + (groups['claude_vm_golden_pending'] | default([])) + (groups['claude_vm_build'] | default([])))
      | unique | list }}
 # The address each of those hosts is reached at, its ansible_host, where it has
 # one. Deleting a VM never forgets the host key of one of them

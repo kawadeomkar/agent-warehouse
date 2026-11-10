@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from functools import cache
 from pathlib import Path
 
@@ -226,13 +227,14 @@ def test_the_guard_lets_an_option_an_os_fact_and_a_file_of_the_role_s_own_throug
 @pytest.mark.parametrize("role", golden.BAKED)
 def test_image_options_records_exactly_the_image_entry_points_options_but_those_reading_facts(role):
     specs = _specs(role)
-    assert specs["image_options"]["options"] == specs["image"]["options"]
     (task,) = _yaml(REPO / "roles" / role / "tasks" / "image_options.yml")
     recorded = task["ansible.builtin.set_fact"][f"{role}_image_options"]
     assert recorded == {name: "{{ " + name + " }}" for name in recorded}
     defaults = _yaml(REPO / "roles" / role / "defaults" / "main.yml")
     facts = {name for name in specs["image"]["options"] if "ansible_facts" in str(defaults.get(name, ""))}
     assert set(recorded) == set(specs["image"]["options"]) - facts
+    # Its spec too: Ansible validates it on a host with no facts gathered, where such a default cannot be resolved.
+    assert set(specs["image_options"]["options"]) == set(recorded)
 
 
 def test_the_vpn_and_editor_roles_are_never_baked():
@@ -311,3 +313,67 @@ def test_the_walk_refuses_an_include_it_cannot_follow(tmp_path):
     (root / "image.yml").write_text("- ansible.builtin.include_tasks: '{{ which }}.yml'\n")
     with pytest.raises(ValueError, match="templated file name"):
         golden.reached("r", repo=tmp_path)
+
+
+def test_an_option_holding_a_secret_is_named_and_a_value_too_short_to_be_one_is_not():
+    options = {**OPTIONS, "common": {"common_extra_packages": ["vim", "pkg-s3cret-vault-value"]}}
+    assert golden.secret_options(options, ["s3cret-vault-value", ""]) == ["common.common_extra_packages"]
+    # The example vault leaves its values empty, and a 3-character value would match half of any option's text.
+    assert golden.secret_options(options, ["", "vim"]) == []
+
+
+def test_golden_templates_stay_off_wherever_a_test_or_the_vagrantfile_runs_a_deploy():
+    # Off by default, and nothing but the tests that are about them turns them on: with one on, a scenario's deploy
+    # would build a golden against whatever Proxmox it is pointed at.
+    allowed = {"tests/unit/test_golden_play.py", "tests/unit/test_golden.py", "docs", "CLAUDE.md"}
+    assert (
+        yaml.safe_load((REPO / "roles" / "proxmox_template" / "defaults" / "main.yml").read_text())[
+            "proxmox_template_golden"
+        ]
+        is False
+    )
+    places = [REPO / "Vagrantfile", *REPO.glob("molecule/**/*.yml"), *REPO.glob("roles/*/molecule/**/*.yml")]
+    places += [*(REPO / "tests" / "unit").glob("*.py"), *(REPO / "tests" / "molecule").glob("*")]
+    on = [
+        str(path.relative_to(REPO))
+        for path in places
+        if path.is_file()
+        and str(path.relative_to(REPO)) not in allowed
+        and re.search(r"proxmox_template_golden\b[\"']?\s*[:=]\s*[Tt]rue", path.read_text(errors="replace"))
+    ]
+    assert on == []
+
+
+def test_the_scrub_puts_back_a_machine_id_cloud_init_deleted_and_never_replaces_one():
+    # A cloud-init older than 23.x deletes the file, and systemd will not boot a read-only root without it.
+    steps = yaml.safe_load((REPO / "playbooks" / "tasks" / "golden_generalize.yml").read_text())
+    names = [step["name"].split(" | ")[1] for step in steps]
+    (step,) = [each for each in steps if each["name"].endswith("Put back the machine-id an older cloud-init deleted")]
+    assert step["ansible.builtin.copy"]["dest"] == "/etc/machine-id" and step["ansible.builtin.copy"]["force"] is False
+    assert names.index("Make cloud-init run afresh on each clone") < names.index(step["name"].split(" | ")[1])
+    assert names[-1] == "Delete the host keys"
+
+
+@pytest.mark.parametrize(
+    ("help_text", "extra"),
+    [
+        ("usage: cloud-init clean [-h] [-l] [--machine-id] [-r] [-s]", []),
+        ("options:\n  -c {all,ssh_config,network}, --configs {all,ssh_config,network}", ["--configs", "network"]),
+    ],
+)
+def test_the_scrub_asks_of_cloud_init_only_what_its_version_takes(tmp_path, help_text, extra):
+    steps = yaml.safe_load((REPO / "playbooks" / "tasks" / "golden_generalize.yml").read_text())
+    (step,) = [each for each in steps if each["name"].endswith("Make cloud-init run afresh on each clone")]
+    recorded = tmp_path / "args"
+    stand_in = tmp_path / "cloud-init"
+    stand_in.write_text(f"""#!/bin/sh
+if [ "$2" = --help ]; then printf '%s\\n' '{help_text}'; exit 0; fi
+echo "$@" > {recorded}
+""")
+    stand_in.chmod(0o755)
+    subprocess.run(
+        ["/bin/sh", "-c", step["ansible.builtin.shell"]["cmd"]],
+        check=True,
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+    )
+    assert recorded.read_text().split() == ["clean", "--logs", "--seed", "--machine-id", *extra]

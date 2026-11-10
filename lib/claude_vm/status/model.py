@@ -299,6 +299,18 @@ def status_fleet(
             settings.get("api_user") or "",
         ),
         "template": template if template else {"name": template_name, "missing": True},
+        "goldens": {
+            "count": len(
+                [e for e in entries if e.get("template") and str(e.get("name", "")).startswith(f"{tag}-golden-")]
+            ),
+            "building": sorted(
+                str(e.get("name"))
+                for e in entries
+                if not e.get("template")
+                and str(e.get("name", "")).startswith(f"{tag}-build-")
+                and f"{tag}-build" in proxmox_tags(e.get("tags"))
+            ),
+        },
         "aliases": aliases,
         "pending": bool(pending),
     }
@@ -1079,6 +1091,7 @@ def status_report(found, read_at="", now=None, live=False):
         "storages": fleet.get("storages") or [],
         "capacity": fleet.get("capacity") or [],
         "template": template,
+        "goldens": fleet.get("goldens") or {"count": 0, "building": []},
         "attention": items,
         "counts": counts,
         "settings": {

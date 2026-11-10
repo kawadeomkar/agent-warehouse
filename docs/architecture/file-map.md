@@ -41,6 +41,8 @@ pyproject.toml, uv.lock           the pinned and locked Python tooling (§13); r
 
 playbooks/
   template.yml                    one-time: build the cloud-init template (SSH to PVE)
+  golden.yml                      the template each new VM clones: a fresh golden of its key, else the base (§4.14)
+  golden_build.yml                last of just deploy: builds a golden for the next VMs, deletes what earlier runs left (§4.14)
   provision.yml                   three plays: register → create in parallel → publish
   discover.yml                    find VMs by tag, resolve addresses via the guest agent
   claude_login.yml                sign Claude in by the browser, VM by VM, then start Remote Control; bare, report
@@ -89,6 +91,8 @@ playbooks/
                                   Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
+  tasks/golden_generalize.yml     the scrub a golden template's build VM gets: its first boot checked, every identity
+                                  deleted, nothing signed in left, cloud-init made to run afresh (§4.14)
   tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
   tasks/default_name_1x.yml       refuses a bare deploy or destroy while the default VM has its 1.x name alone (provision, destroy)
@@ -113,7 +117,9 @@ playbooks/
   tasks/init_access_choose.yml    the offer's storage or bridge, among what the host lists to root
 
 roles/                            one role per concern, each with defaults/, meta/argument_specs.yml, molecule/
-  proxmox_template/               qm + virt-customize on the PVE node
+  proxmox_template/               qm + virt-customize on the PVE node; tasks/golden_read.yml, golden_select.yml, golden_build.yml,
+                                  golden_template.yml, golden_collect.yml and golden_discard.yml, a golden template's
+                                  entry points, on this machine through the API (§4.14)
   proxmox_vm/                     the Proxmox API role (tasks/{main,present,absent}.yml, vars/main.yml)
   common/                         OS baseline, user, sudo, keys, sshd hardening, PATH for ssh commands; tasks/apt.yml,
                                   timezone.yml, user.yml, sshd.yml, profile.yml, shared by main.yml and image.yml, what

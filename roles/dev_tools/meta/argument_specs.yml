@@ -217,13 +217,6 @@ argument_specs:
         type: list
         elements: str
         description: Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there.
-      dev_tools_docker_manage_service:
-        type: bool
-        description: Defaults to true unless running inside a container.
-      dev_tools_deb_arch:
-        type: str
-        choices: [amd64, arm64]
-        description: Derived from the architecture fact by default.
       dev_tools_uv_version:
         type: str
         description: >-
