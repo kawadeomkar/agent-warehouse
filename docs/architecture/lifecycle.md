@@ -90,7 +90,9 @@ when more than one VM is new, before anything is created. A single new VM is lef
 before. With a size given (`vm_size`, from `just deploy alpha --cores 8 --memory 16G --disk 64G`), play 1 reads
 `/cluster/resources?type=node` and refuses a size larger than `proxmox_node` - more cores than its CPU threads, more
 memory than it has - before anything is created, where the token may read the node (`Sys.Audit`); play 2 hands the
-size to the role as `proxmox_vm_size`.
+size to the role as `proxmox_vm_size`. With a list of repositories given (`vm_repos`, from `just deploy alpha --repos a,b`),
+play 1 holds each to a repository name's form, play 2 hands them to the role as `proxmox_vm_repos`, and play 3
+publishes the VM with `claude_vm_repos`, from the notes the role's lookup found and this run's list.
 
 **Play 2 — create.** Runs `roles/proxmox_vm` across the placeholders so Ansible fans out over
 `forks` (20 in `ansible.cfg`; a larger fleet proceeds in waves of that size, or pass
@@ -149,7 +151,8 @@ are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
    it means configuring zero hosts and exiting 0, which looks like success. The role's agent wait reads
    the same refusal from its module's error with the `proxmox_access_denied` filter
    ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)).
-6. `add_host` each VM to which `guest_addresses` gives an address, read on the NIC `proxmox_nic` names
+6. `add_host` each VM, with the list of repositories its notes hold (`claude_vm_repos`, §4.2), to which
+   `guest_addresses` gives an address, read on the NIC `proxmox_nic` names
    ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)), with
    `ansible_python_interpreter` set to `claude_vm_python` ([§5.3](roles.md#53-common--os-baseline)), as
    provisioning's play 3 does. Without the MAC of that NIC

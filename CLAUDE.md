@@ -46,6 +46,7 @@ just deploy                          # template (if missing) + provision + confi
 just deploy alpha --only configure   # one stage of it: template, provision, configure or ssh-config (fleet-wide also prunes); --check is the dry run
 just deploy alpha --tags claude_code # re-run one role, e.g. to push an API key (--tags beside names means --only configure)
 just deploy big --cores 8 --memory 16G --disk 128G   # a VM created with a size of its own, tagged sized; an existing VM is never resized
+just deploy app --repos my-app,my-lib   # a VM with a list of repositories of its own, kept in its Proxmox notes, in place of github_projects
 just destroy alpha                   # save the VM's own Claude sessions here, release it from Claude, GitHub and Tailscale, then delete it
 just login alpha                     # Claude, GitHub, Tailscale in deploy's order, one VM after another (--only claude, github or tailscale: one)
 just status                          # read-only, live: every VM, what needs doing (--only vms,storage,capacity,access,sign-ins,system,work; --json; exit 0/1/2, 3 failed)
@@ -657,6 +658,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `present.yml` sets `proxmox_vm_stopped` from the lookup's `status` and skips the agent wait, which Proxmox's
   500 for a stopped VM would stretch to its whole budget
   ([Related switches](docs/architecture/convergence.md#related-switches)).
+- **A VM's own list of repositories is kept in Proxmox, never on the VM.** `just deploy alpha --repos a,b` (`vm_repos`,
+  the role's `proxmox_vm_repos`) writes one line of the VM's notes (`VM_REPOS_RECORD`) in the settings call, before the
+  start, since a VM started but unfinished is reachable by `--only configure`. Both publishers read it as
+  `claude_vm_repos` (`guest_addresses`' `repos`, provision.yml's play 3), the role's `github_projects_vm_repos`, in place
+  of `github_projects`; a name is only compared with GitHub's listing. A VM with no line follows the setting and is
+  refused `--repos`, another `--repos` adds, and nothing removes a checkout
+  ([Repositories](docs/guides/vms.md#repositories)).
 - **A VM's size is the one it was created with.** `just deploy alpha --cores 8 --memory 16G` (`vm_size`, the role's
   `proxmox_vm_size`) sizes each VM the run creates, which the call that marks it finished tags
   `<ownership tag>-sized`, never the settings call: a run that stopped before would leave a VM sized at the template's
@@ -827,7 +835,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       loosened by overriding it - which just holds every value to, every name of a variadic one, before anything
       runs; an option or word a recipe does not have is refused.
     - A value reaches its script only as a positional argument (`[positional-arguments]`), never as its text;
-      what goes into JSON is checked again there (`tools/check names`, `project`, `session` and `size`, `init`'s
+      what goes into JSON is checked again there (`tools/check names`, `project`, `session`, `size` and `repos`, `init`'s
       `only`) and travels to Ansible as JSON. A recipe parameter never comes from the environment: an exported `TAGS` or
       `TYPE` changes nothing.
     - The one free-text value is `just settings --value`'s, refused by its pattern only for a control character,

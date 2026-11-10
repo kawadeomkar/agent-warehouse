@@ -367,6 +367,7 @@ def tools(server: Server) -> list[Tool]:
         cores: str = "",
         memory: str = "",
         disk: str = "",
+        repos: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         server.check(vault=True)
@@ -374,7 +375,7 @@ def tools(server: Server) -> list[Tool]:
         if refusal:
             raise ToolError(refusal)
         arguments = {"names": names or [], "only": only, "check": check, "tags": tags, "start": start}
-        arguments |= {"cores": cores, "memory": memory, "disk": disk}
+        arguments |= {"cores": cores, "memory": memory, "disk": disk, "repos": repos}
         return await server.run("deploy", arguments, wait_seconds, ctx)
 
     async def login(

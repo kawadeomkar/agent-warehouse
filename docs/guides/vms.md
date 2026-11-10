@@ -75,6 +75,33 @@ beside the VMs it runs is yours to weigh: `just status --only capacity` says eac
 much is in use and free, and what its VMs and containers hold. Reading a node needs the read-only `Sys.Audit` privilege, which the
 role `just init` makes has; for a token without it, capacity says how to add it, and the size is not checked.
 
+## Repositories
+
+Every VM clones the same repositories by default: the `github_projects` setting, or all of yours while it is empty
+([Choosing repositories](github.md#choosing-repositories)). One VM can have a list of its own instead:
+
+```sh
+just deploy app --repos my-app,my-lib
+```
+
+`--repos` names repositories of `github_username`, comma-separated. `just deploy` and `just deploy --only provision`
+take it, and a stage that does not provision refuses it. The list is kept as one line of the VM's notes in Proxmox,
+`agent-warehouse repositories: my-app,my-lib`, where the VM cannot change it, so every later run of that VM clones that
+list and not the setting's: `--only configure`, `just login`, a repair.
+
+- **Another `--repos` adds to the list**, and the run clones what is new. The same names again change nothing.
+- **Nothing removes a checkout.** To stop a repository being cloned again, edit the line in the VM's Notes in Proxmox;
+  delete the whole line to have the VM follow `github_projects` again.
+- **A VM without a list follows the setting,** every VM made before `--repos` existed among them, and is refused
+  `--repos`, since a list would quietly stop it getting your new repositories. Add the repository to `github_projects`
+  instead, or destroy the VM and deploy it again with `--repos`.
+- **A name GitHub does not list** is named in the run and in NEXT STEPS, and the run goes on. A private repository is
+  listed only once `gh` is signed in on the VM, which `just deploy` does before it clones again.
+- **Only your account's repositories.** A name is compared with what GitHub lists for `github_username`, so another
+  owner's cannot be on a list. A fork or an archived repository you name is cloned; `github_projects_exclude` still wins.
+
+It narrows what is cloned, not what the VM can reach: `gh` on the VM holds the same login as on any other.
+
 ## Memory
 
 Proxmox counts a VM's memory as used unless the VM reports it free, so the disk cache Linux keeps in idle

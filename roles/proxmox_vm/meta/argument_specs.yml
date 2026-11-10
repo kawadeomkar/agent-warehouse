@@ -123,6 +123,15 @@ argument_specs:
           - A VM created with one is tagged <ownership tag>-sized, its size its own from then on - just status calls no
             difference from the size settings drift, and proxmox_vm_force_update keeps it. A VM that exists is refused
             when it has another size, but under proxmox_vm_force_update, which applies it.
+      proxmox_vm_repos:
+        type: list
+        elements: str
+        description:
+          - This run's list of repositories for the VM, in place of the github_projects setting. Set by provision.yml
+            from just deploy's --repos. Written as one line of the VM's notes, added to what is there; empty leaves the
+            notes alone.
+          - Refused for a finished VM with no list of its own, which follows the setting, but under
+            proxmox_vm_force_update.
       proxmox_vm_cores:
         type: int
         default: 2

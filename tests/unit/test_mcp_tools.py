@@ -67,6 +67,13 @@ def test_each_schema_is_valid_its_patterns_just_s_anchored_and_its_descriptions_
                 re.compile(where["pattern"])
 
 
+def test_deploy_takes_a_list_of_repositories_as_just_does(dumped):
+    validator = Draft202012Validator(recipes.schema(dumped["recipes"]["deploy"], "deploy"))
+    assert validator.is_valid({"names": ["a"], "repos": "one,two.2,three-3"})
+    for bad in ("owner/name", ".claude", "a,,b", "a b", ",a"):
+        assert not validator.is_valid({"names": ["a"], "repos": bad}), bad
+
+
 def test_no_property_offers_the_default_vm_the_server_refuses(dumped):
     for (name, prop), _ in recipes.HELP.items():
         assert prop in recipes.schema(dumped["recipes"][recipes.TOOLS[name].recipe], name)["properties"], (name, prop)

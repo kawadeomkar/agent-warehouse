@@ -148,7 +148,8 @@ def guest_addresses(vms, configs, networks, nic="net0"):
         mac = net_mac(settings.get(nic), "") if isinstance(settings, dict) else ""
         reported = interfaces.get("result") if isinstance(interfaces, dict) else None
         address = (guest_ipv4(reported, mac) or "") if mac and isinstance(reported, list) else ""
-        rows.append({**vm, "address": address})
+        repos = proxmox_notes_repos(settings.get("description")) if isinstance(settings, dict) else {"own": False}
+        rows.append({**vm, "address": address, **({"repos": repos} if repos["own"] else {})})
     return rows
 
 
@@ -394,6 +395,44 @@ TEMPLATE_FIELDS = (
     "image",
     "packages",
 )
+
+
+# What just deploy --repos records in a VM's notes: the repositories that VM clones, in place of the fleet's list. One
+# line beside the build record, found by this marker wherever it is among the notes a person may have added, and in
+# Proxmox, where the VM cannot change it: what is cloned onto a VM is never the VM's to say.
+VM_REPOS_RECORD = "agent-warehouse repositories:"
+_REPO_NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
+
+
+def _notes_repos(notes):
+    """The names on a VM's line of repositories, without any that is not a name; None when it has no such line."""
+    for line in str(notes or "").splitlines():
+        text = line.strip()
+        if text.startswith(VM_REPOS_RECORD):
+            names = (name.strip() for name in text[len(VM_REPOS_RECORD) :].split(","))
+            return [name for name in names if _REPO_NAME_RE.fullmatch(name)]
+    return None
+
+
+def proxmox_notes_repos(notes, given=()):
+    """A VM's own list of repositories, from its notes and what this run gives it: {"own": whether it has one, "names":
+    what is on it, the notes' first}. A line left with no valid name is still its list, and clones nothing rather than
+    the fleet's."""
+    recorded = _notes_repos(notes)
+    if recorded is None and not given:
+        return {"own": False, "names": []}
+    return {"own": True, "names": list(dict.fromkeys([*(recorded or []), *(given or [])]))}
+
+
+def proxmox_notes_with_repos(notes, given):
+    """``notes`` with the line of repositories holding what it held and ``given``: the line replaced where it is, or
+    added last, and every other line as it was."""
+    line = f"{VM_REPOS_RECORD} {','.join(proxmox_notes_repos(notes, given)['names'])}"
+    lines = str(notes or "").splitlines()
+    at = next((i for i, each in enumerate(lines) if each.strip().startswith(VM_REPOS_RECORD)), None)
+    if at is None:
+        return "\n".join([*lines, line])
+    return "\n".join([*lines[:at], line, *lines[at + 1 :]])
 
 
 def qm_config(text):

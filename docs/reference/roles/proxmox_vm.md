@@ -45,6 +45,7 @@ All API calls are delegated to the controller.
 | `proxmox_vm_name` | str | same as `inventory_hostname` | VM name in Proxmox. Defaults to the inventory hostname. |
 | `proxmox_vm_id` | raw | `""` | Pin the VM to a specific VMID. Left empty, Proxmox assigns the next free one. The VM is identified by name, not by ID, so this is rarely needed. Run across several hosts at once, the role clones one VM at a time unless each has a distinct VMID here, because concurrent clones that ask Proxmox for one are handed the same. provision.yml sets one for every new VM of a fleet. Declared raw so the role can validate it and report a helpful message. |
 | `proxmox_vm_size` | dict | `{}` | This run's size for a VM it creates, each part optional - cores, memory_mb, disk (as 64G) - in place of proxmox_vm_cores, proxmox_vm_memory_mb and proxmox_vm_disk_size. Set by provision.yml from just deploy's --cores, --memory and --disk. A VM created with one is tagged &lt;ownership tag&gt;-sized, its size its own from then on - just status calls no difference from the size settings drift, and proxmox_vm_force_update keeps it. A VM that exists is refused when it has another size, but under proxmox_vm_force_update, which applies it. |
+| `proxmox_vm_repos` | list of `str` | `[]` | This run's list of repositories for the VM, in place of the github_projects setting. Set by provision.yml from just deploy's --repos. Written as one line of the VM's notes, added to what is there; empty leaves the notes alone. Refused for a finished VM with no list of its own, which follows the setting, but under proxmox_vm_force_update. |
 | `proxmox_vm_cores` | int | `2` | Defaults to the vm_cores host var, else 2. proxmox_vm_size's takes its place for a VM this run creates. Set through `vm_cores` in local.yml. |
 | `proxmox_vm_memory_mb` | int | `4096` | Defaults to the vm_memory_mb host var, else 4096. proxmox_vm_size's memory_mb takes its place for a VM this run creates. Set through `vm_memory_mb` in local.yml. |
 | `proxmox_vm_memory_min_mb` | int | computed | The least memory the host may leave the VM (Proxmox's minimum memory, ballooning), from 1 to proxmox_vm_memory_mb. Below it, the host takes the difference back once its memory use passes the node's ballooning target. Defaults to the vm_memory_min_mb host var, else proxmox_vm_memory_mb, a fixed allocation. Under proxmox_vm_size's memory_mb, it stays where it is below proxmox_vm_memory_mb - and below the size's memory - and is the size's memory where it is a fixed allocation. Applied when the VM is created. Set through `vm_memory_min_mb` in local.yml. |
@@ -75,7 +76,7 @@ Compares the VM's config, as the caller read it from Proxmox, with this role's o
 
 ## Internal values
 
-Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 25 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 28 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -101,6 +102,9 @@ Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a
 | `proxmox_vm_sized` |  | <code>{{ (proxmox_vm_size_given &#124; bool) or (proxmox_vm_sized_found &#124; bool) }}</code> |
 | `proxmox_vm_kept_size` | The parts of its size a VM found sized keeps on a repair - each one this run does not give: the settings call sends none of them (cores, or memory and its minimum) and the disk is not resized, so a part given changes that part alone, never the rest to the settings'. | <code>{{ ['cores', 'memory_mb', 'disk'] &#124; reject('in', proxmox_vm_size) &#124; list if proxmox_vm_sized_found &#124; bool else [] }}</code> |
 | `proxmox_vm_size_differs` |  | <code>{{ (proxmox_vm_size.cores is defined and proxmox_vm_found_config.cores &#124; default(0) &#124; int != proxmox_vm_size.cores &#124; int) or (proxmox_vm_size.memory_mb is defined and proxmox_vm_found_config.memory &#124; default(0) &#124; int != proxmox_vm_size.memory_mb &#124; int) or (proxmox_vm_size.disk is defined and (proxmox_vm_found_config.scsi0 &#124; default('') &#124; proxmox_disk_bytes) &lt; (proxmox_vm_size.disk &#124; proxmox_disk_bytes)) }}</code> |
+| `proxmox_vm_found_notes` | The VM's own list of repositories (just deploy --repos), one line of its notes in Proxmox: the notes found - a new VM's are those its clone carries, which present.yml reads - what is on the line, and the notes this run sends. | <code>{{ ((proxmox_vm_lookup.proxmox_vms if proxmox_vm_exists &#124; bool else proxmox_vm_clone_read.proxmox_vms) &#124; default([], true) &#124; first &#124; default({}, true)).get('config', {}).description &#124; default('', true) }}</code> |
+| `proxmox_vm_found_repos` |  | <code>{{ proxmox_vm_found_notes &#124; proxmox_notes_repos }}</code> |
+| `proxmox_vm_notes_sent` |  | <code>{{ proxmox_vm_found_notes &#124; proxmox_notes_with_repos(proxmox_vm_repos) }}</code> |
 | `proxmox_vm_needs_configuration` | Whether the VM still needs its settings applied, its disk resized and a start. | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
 | `proxmox_vm_forget_address` | The address whose host key should be forgotten when the VM is deleted, as the guest agent reports it while the VM still exists. | `{{ proxmox_vm_reported_address }}` |
 | `proxmox_vm_forget_names` | Every name this machine may hold the VM's host key under - the address, and &lt;name&gt;.&lt;domain&gt; when the SSH aliases and just code connect by name (proxmox_vm_known_hosts_domain). | <code>{{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address &#124; length > 0 else []) + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain] if proxmox_vm_known_hosts_domain &#124; length > 0 else [])) &#124; reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) &#124; list }}</code> |
@@ -198,11 +202,14 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Task | Module | When |
 |---|---|---|
 | Refuse a size for a VM that exists with another | `ansible.builtin.assert` | <code>proxmox_vm_exists and proxmox_vm_size_given &#124; bool and not (proxmox_vm_needs_configuration &#124; bool)</code> |
+| Refuse a list of repositories for a finished VM that has none | `ansible.builtin.assert` | <code>proxmox_vm_exists and proxmox_vm_repos &#124; length > 0 and not (proxmox_vm_needs_configuration &#124; bool)</code> |
 | Clone from template {{ proxmox_vm_template_name }} | `community.proxmox.proxmox_kvm` | <code>not proxmox_vm_exists</code> |
 | Fail when the clone did not create a new VM | `ansible.builtin.assert` | <code>not proxmox_vm_exists</code> |
 | Record the VMID | `ansible.builtin.set_fact` | <code>not proxmox_vm_exists</code> |
 | Tag the new VM as created by this project | `community.proxmox.proxmox_kvm` | <code>not proxmox_vm_exists</code> |
 | Move the VM's tags to their names from 2.0 | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists and proxmox_vm_tags_moving &#124; bool and not (proxmox_vm_needs_configuration &#124; bool)</code> |
+| Read the notes the new VM was cloned with | `community.proxmox.proxmox_vm_info` | <code>not proxmox_vm_exists and proxmox_vm_repos &#124; length > 0</code> |
+| Add to the VM's own list of repositories | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists and not (proxmox_vm_needs_configuration &#124; bool) and proxmox_vm_repos &#124; difference(proxmox_vm_found_repos.names) &#124; length > 0</code> |
 | Apply hardware and cloud-init settings | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_needs_configuration &#124; bool</code> |
 | Resize the root disk to {{ proxmox_vm_disk_size_sent }} | `community.proxmox.proxmox_disk` | <code>proxmox_vm_needs_configuration &#124; bool and 'disk' not in proxmox_vm_kept_size</code> |
 | Start the VM | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_needs_configuration &#124; bool or proxmox_vm_start_existing &#124; bool</code> |
@@ -228,23 +235,26 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| present___Refuse_a_size_for_a_VM_that_exists_with_another0[present   refuse a size for a vm that exists with<br>another<br>When: **proxmox vm exists and proxmox vm size given   bool<br>and not  proxmox vm needs configuration   bool**]:::task
-  present___Refuse_a_size_for_a_VM_that_exists_with_another0-->|Task| present___Clone_from_template_proxmox_vm_template_name1[present   clone from template proxmox vm template<br>name<br>When: **not proxmox vm exists**]:::task
-  present___Clone_from_template_proxmox_vm_template_name1-->|Task| present___Fail_when_the_clone_did_not_create_a_new_VM2[present   fail when the clone did not create a new<br>vm<br>When: **not proxmox vm exists**]:::task
-  present___Fail_when_the_clone_did_not_create_a_new_VM2-->|Task| present___Record_the_VMID3[present   record the vmid<br>When: **not proxmox vm exists**]:::task
-  present___Record_the_VMID3-->|Task| present___Tag_the_new_VM_as_created_by_this_project4[present   tag the new vm as created by this<br>project<br>When: **not proxmox vm exists**]:::task
-  present___Tag_the_new_VM_as_created_by_this_project4-->|Task| present___Move_the_VM_s_tags_to_their_names_from_2_05[present   move the vm s tags to their names from 2<br>0<br>When: **proxmox vm exists and proxmox vm tags moving  <br>bool and not  proxmox vm needs configuration  <br>bool**]:::task
-  present___Move_the_VM_s_tags_to_their_names_from_2_05-->|Task| present___Apply_hardware_and_cloud_init_settings6[present   apply hardware and cloud init settings<br>When: **proxmox vm needs configuration   bool**]:::task
-  present___Apply_hardware_and_cloud_init_settings6-->|Task| present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent7[present   resize the root disk to proxmox vm disk<br>size sent<br>When: **proxmox vm needs configuration   bool and  disk <br>not in proxmox vm kept size**]:::task
-  present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent7-->|Task| present___Start_the_VM8[present   start the vm<br>When: **proxmox vm needs configuration   bool or proxmox<br>vm start existing   bool**]:::task
-  present___Start_the_VM8-->|Task| present___Mark_the_VM_as_finished9[present   mark the vm as finished<br>When: **proxmox vm needs configuration   bool**]:::task
-  present___Mark_the_VM_as_finished9-->|Task| present___Record_whether_the_VM_is_being_left_stopped10[present   record whether the vm is being left<br>stopped]:::task
-  present___Record_whether_the_VM_is_being_left_stopped10-->|Task| present___Read_the_new_VM_s_network_configuration11[present   read the new vm s network configuration<br>When: **not proxmox vm exists**]:::task
-  present___Read_the_new_VM_s_network_configuration11-->|Task| present___Fail_when_the_VM_s_NIC_could_not_be_read12[present   fail when the vm s nic could not be read<br>When: **not  proxmox vm stopped   bool**]:::task
-  present___Fail_when_the_VM_s_NIC_could_not_be_read12-->|Task| present___Wait_for_the_guest_agent_to_report_an_address13[present   wait for the guest agent to report an<br>address<br>When: **not  proxmox vm stopped   bool**]:::task
-  present___Wait_for_the_guest_agent_to_report_an_address13-->|Task| present___Record_the_VM_s_address14[present   record the vm s address]:::task
-  present___Record_the_VM_s_address14-->|Task| present___Fail_when_no_address_was_reported15[present   fail when no address was reported<br>When: **not  proxmox vm stopped   bool**]:::task
-  present___Fail_when_no_address_was_reported15-->|Task| present___Report_that_the_VM_was_left_stopped16[present   report that the vm was left stopped<br>When: **proxmox vm stopped   bool**]:::task
-  present___Report_that_the_VM_was_left_stopped16-->End
+  present___Refuse_a_size_for_a_VM_that_exists_with_another0-->|Task| present___Refuse_a_list_of_repositories_for_a_finished_VM_that_has_none1[present   refuse a list of repositories for a<br>finished vm that has none<br>When: **proxmox vm exists and proxmox vm repos   length  <br>0 and not  proxmox vm needs configuration   bool**]:::task
+  present___Refuse_a_list_of_repositories_for_a_finished_VM_that_has_none1-->|Task| present___Clone_from_template_proxmox_vm_template_name2[present   clone from template proxmox vm template<br>name<br>When: **not proxmox vm exists**]:::task
+  present___Clone_from_template_proxmox_vm_template_name2-->|Task| present___Fail_when_the_clone_did_not_create_a_new_VM3[present   fail when the clone did not create a new<br>vm<br>When: **not proxmox vm exists**]:::task
+  present___Fail_when_the_clone_did_not_create_a_new_VM3-->|Task| present___Record_the_VMID4[present   record the vmid<br>When: **not proxmox vm exists**]:::task
+  present___Record_the_VMID4-->|Task| present___Tag_the_new_VM_as_created_by_this_project5[present   tag the new vm as created by this<br>project<br>When: **not proxmox vm exists**]:::task
+  present___Tag_the_new_VM_as_created_by_this_project5-->|Task| present___Move_the_VM_s_tags_to_their_names_from_2_06[present   move the vm s tags to their names from 2<br>0<br>When: **proxmox vm exists and proxmox vm tags moving  <br>bool and not  proxmox vm needs configuration  <br>bool**]:::task
+  present___Move_the_VM_s_tags_to_their_names_from_2_06-->|Task| present___Read_the_notes_the_new_VM_was_cloned_with7[present   read the notes the new vm was cloned<br>with<br>When: **not proxmox vm exists and proxmox vm repos  <br>length   0**]:::task
+  present___Read_the_notes_the_new_VM_was_cloned_with7-->|Task| present___Add_to_the_VM_s_own_list_of_repositories8[present   add to the vm s own list of repositories<br>When: **proxmox vm exists and not  proxmox vm needs<br>configuration   bool  and proxmox vm repos  <br>difference proxmox vm found repos names    length <br> 0**]:::task
+  present___Add_to_the_VM_s_own_list_of_repositories8-->|Task| present___Apply_hardware_and_cloud_init_settings9[present   apply hardware and cloud init settings<br>When: **proxmox vm needs configuration   bool**]:::task
+  present___Apply_hardware_and_cloud_init_settings9-->|Task| present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent10[present   resize the root disk to proxmox vm disk<br>size sent<br>When: **proxmox vm needs configuration   bool and  disk <br>not in proxmox vm kept size**]:::task
+  present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent10-->|Task| present___Start_the_VM11[present   start the vm<br>When: **proxmox vm needs configuration   bool or proxmox<br>vm start existing   bool**]:::task
+  present___Start_the_VM11-->|Task| present___Mark_the_VM_as_finished12[present   mark the vm as finished<br>When: **proxmox vm needs configuration   bool**]:::task
+  present___Mark_the_VM_as_finished12-->|Task| present___Record_whether_the_VM_is_being_left_stopped13[present   record whether the vm is being left<br>stopped]:::task
+  present___Record_whether_the_VM_is_being_left_stopped13-->|Task| present___Read_the_new_VM_s_network_configuration14[present   read the new vm s network configuration<br>When: **not proxmox vm exists**]:::task
+  present___Read_the_new_VM_s_network_configuration14-->|Task| present___Fail_when_the_VM_s_NIC_could_not_be_read15[present   fail when the vm s nic could not be read<br>When: **not  proxmox vm stopped   bool**]:::task
+  present___Fail_when_the_VM_s_NIC_could_not_be_read15-->|Task| present___Wait_for_the_guest_agent_to_report_an_address16[present   wait for the guest agent to report an<br>address<br>When: **not  proxmox vm stopped   bool**]:::task
+  present___Wait_for_the_guest_agent_to_report_an_address16-->|Task| present___Record_the_VM_s_address17[present   record the vm s address]:::task
+  present___Record_the_VM_s_address17-->|Task| present___Fail_when_no_address_was_reported18[present   fail when no address was reported<br>When: **not  proxmox vm stopped   bool**]:::task
+  present___Fail_when_no_address_was_reported18-->|Task| present___Report_that_the_VM_was_left_stopped19[present   report that the vm was left stopped<br>When: **proxmox vm stopped   bool**]:::task
+  present___Report_that_the_VM_was_left_stopped19-->End
 ```
 
 ### `settings_drift.yml` - entry point `settings_drift`
