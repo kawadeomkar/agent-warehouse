@@ -78,6 +78,8 @@ playbooks/
                                   are (read, never written)
   vars/sign_in.yml                the rules the three sign-in plays share, written once: names given, one VM at a
                                   time, whether GitHub's and Tailscale's start or ask, a sign-in held back or left unasked
+  vars/controller_writes.yml      what the project writes on this machine outside the checkout: the one list the
+                                  session notes show and the security model renders
   tasks/vscode_check.yml          just code's VS Code on this machine: code on PATH, the Remote - SSH extension
   tasks/zed_check.yml             just code's Zed on this machine: the zeditor or zed on PATH that says it is Zed
   tasks/editor_open.yml           every editor's window, its plan applied: the directories, helpers and files on the

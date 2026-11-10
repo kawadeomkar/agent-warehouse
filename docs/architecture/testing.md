@@ -368,7 +368,13 @@ pytest over `tests/unit/`, file by file:
   from every window, and no time, template marker or token shape in it.
   In an editor whose window runs no task (Zed), the notes say what to do instead, and name the listed Claude task
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
-  setting's, in both directions.
+  setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
+  moves said under the home as `~`.
+- **What the project writes on this machine** (`test_controller_writes.py`): every row of
+  `playbooks/vars/controller_writes.yml` says where, what, what writes it, when and what takes it out; each row's
+  write is found where it is made, by a pattern of the test's, and every file that makes one is among the row's
+  sources; each row's setting is a setting; CLAUDE.md's invariant names every row; the notes and the security model
+  read the list.
 - **`just init`'s questions** (`test_init_settings.py`, `test_settings_filter.py`):
   `init_settings.yml` against copies of the example files in the test's directory - never the checkout's,
   which a static test holds - with no terminal (nothing asked; nothing written but the values given) and at

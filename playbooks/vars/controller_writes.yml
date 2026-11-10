@@ -1,0 +1,104 @@
+---
+# Everything the project writes on this machine outside the repository, and
+# what it has another program write there: one list, which the session notes
+# (templates/vm_session.md.j2, through code.yml's vars_files), the security
+# model's "On the controller" (tools/docs.py) and
+# tests/unit/test_controller_writes.py read, so the three cannot drift.
+# Literal values only. A path is said as the home sees it, `~/...`, never
+# expanded: the notes go to the VM. Each entry:
+#   id          the test's name for it
+#   path        where it is, a code span
+#   setting     the setting that moves it, whose value the notes show instead
+#   editor      the one editor whose windows make it: the notes of another's
+#               leave it out
+#   what        what it is
+#   writer      what writes it
+#   when        when
+#   removed_by  what takes it out
+#   sources     the files that make the write, which the test holds to the code
+#   invariant   the words CLAUDE.md's invariant names it by
+code_controller_writes:
+  - id: known_hosts
+    path: "`~/.ssh/known_hosts`"
+    what: each VM's SSH host key, and the Proxmox host's
+    writer: ssh, on first contact (`StrictHostKeyChecking=accept-new`)
+    when: every run that reaches a VM or the Proxmox host
+    removed_by: "`just destroy`: the VM's lines, never the Proxmox host's"
+    sources:
+      - ansible.cfg
+      - roles/claude_code/vars/main.yml
+      - playbooks/library/claude_sessions_fetch.py
+      - roles/proxmox_vm/tasks/absent.yml
+    invariant: "`~/.ssh/known_hosts`"
+  - id: ssh_config
+    path: "`~/.ssh/agent-warehouse.conf`"
+    setting: claude_ssh_config_file
+    what: "one `Host` block per VM, so `ssh <vm>` reaches it"
+    writer: "`just deploy`, `just code` (`playbooks/tasks/ssh_config.yml`)"
+    when: "`claude_ssh_config` on (the default)"
+    removed_by: "`just deploy --only ssh-config` prunes a VM that is gone; `just destroy` the VM's"
+    sources:
+      - playbooks/tasks/ssh_config.yml
+    invariant: "`~/.ssh/agent-warehouse.conf`"
+  - id: ssh_include
+    path: "one `Include` line at the top of `~/.ssh/config`"
+    setting: claude_ssh_user_config
+    what: makes ssh read the file above
+    writer: the same, once
+    when: "`claude_ssh_config_include` on, while ssh does not reach the file yet"
+    removed_by: "nothing: it is yours to remove"
+    sources:
+      - playbooks/tasks/ssh_config.yml
+    invariant: "`Include`"
+  - id: data
+    path: "`~/.local/share/agent-warehouse/checkouts/<folder>-<checksum>` (under `$XDG_DATA_HOME` when set)"
+    what: this checkout's Galaxy collections, and its Python environment when you bring no virtualenv
+    writer: "`just install`"
+    when: always
+    removed_by: "`just clean env`"
+    sources:
+      - justfile
+    invariant: "`${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`"
+  - id: vscode_extension
+    path: "VS Code's Remote - SSH extension, in `~/.vscode/extensions/`"
+    what: Microsoft's extension, from VS Code's marketplace
+    writer: "VS Code's own CLI, when `just code` finds it missing"
+    when: "`editor: vscode`"
+    removed_by: VS Code
+    editor: vscode
+    sources:
+      - playbooks/tasks/vscode_check.yml
+    invariant: "`code --install-extension ms-vscode-remote.remote-ssh`"
+  - id: editor_records
+    path: your editor's own records of the window
+    what: its recent windows and its remote connections' state, in its own data folder
+    writer: "the editor itself, when `just code` opens a window"
+    when: every window
+    removed_by: the editor
+    sources:
+      - playbooks/tasks/editor_open.yml
+    invariant: "the editor's own records of the windows it opens"
+  - id: sessions_dir
+    path: "`destroy_sessions_dir`"
+    setting: destroy_sessions_dir
+    what: "the Claude Code sessions `just destroy` saved from a VM"
+    writer: "`just destroy`"
+    when: "only where you point it outside the checkout (by default `.sessions/`, inside it)"
+    removed_by: you
+    sources:
+      - playbooks/tasks/session_save.yml
+      - playbooks/library/claude_sessions_fetch.py
+    invariant: "`destroy_sessions_dir`"
+
+# What the project's tools keep for themselves, and what is not a file: said
+# in a line each, so nothing is left out.
+code_controller_also:
+  - "Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp`, and `~/.ansible/galaxy_cache`."
+  - >-
+    uv's cache, `~/.cache/uv`, and the Python it downloads for the checkout's
+    own environment, in `~/.local/share/uv/python`.
+  - >-
+    For contributors: pre-commit's `~/.cache/pre-commit`, ansible-lint's
+    `~/.cache/ansible-compat`, Molecule's `~/.cache/molecule`, and the Docker
+    images the scenarios build.
+  - "Not files: the sign-in pages opened in your browser, and GitHub's device code put on the clipboard."

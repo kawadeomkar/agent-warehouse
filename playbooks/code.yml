@@ -65,9 +65,12 @@
   hosts: localhost
   gather_facts: false
   # VS Code's own variables, in a file of its own: its check file, the
-  # plan's inputs and the apply's helper copy read them.
+  # plan's inputs and the apply's helper copy read them. And the list of
+  # what the project writes on this machine outside the checkout, which the
+  # session notes show (the security model's page renders it too).
   vars_files:
     - vars/vscode.yml
+    - vars/controller_writes.yml
   vars:
     # The editor whose plan opens the window: the editor setting, or
     # --editor for one run (vm_editor), among the editors the inventory

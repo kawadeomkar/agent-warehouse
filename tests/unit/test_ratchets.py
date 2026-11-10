@@ -78,6 +78,7 @@ VSCODE_ELSEWHERE = {
     "playbooks/tasks/session_read.yml": 1,
     "playbooks/tasks/ssh_config.yml": 1,
     "playbooks/templates/vm_session.md.j2": 6,
+    "playbooks/vars/controller_writes.yml": 9,
     "roles/github_projects/vars/main.yml": 1,
 }
 

@@ -303,6 +303,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
+    - `playbooks/vars/controller_writes.yml` is the one list of them, with the editor's own records of the windows it
+      opens and what the tools keep for themselves: every VM's session notes show it and the security model renders
+      it. `tests/unit/test_controller_writes.py` finds each row's write where it is made, and fails on a place its
+      row does not name.
     - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
       line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
       `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
