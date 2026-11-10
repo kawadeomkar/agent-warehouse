@@ -1062,7 +1062,8 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
 - **`recipes.py`: the tools are the recipes.** Each tool's input schema is made from its recipe's parameters in `just
   --dump --dump-format json`, the source `docs/reference/commands.md` is generated from too: a recipe's words are a
   list where their name is plural, one word where it is singular; a flag is a boolean; any other option a string,
-  each with the `[arg]` help as its description and its pattern anchored as `just` matches it, whole. `TOOLS`,
+  each with the `[arg]` help as its description (`HELP`'s words instead for `deploy`'s and `destroy`'s `names`, whose
+  help offers the default VM the server refuses) and its pattern anchored as `just` matches it, whole. `TOOLS`,
   `NO_TOOL` and `LEFT_OUT` say which recipe and option is a tool's, and why the rest are not: `vault` has no tool, so
   no secret passes through the model. The argv is `just --justfile <checkout>/justfile`, every setting the justfile
   reads with `env()` at the server's value (`SETTINGS`, `ANSIBLE_ARGS` empty), the recipe, its options in their

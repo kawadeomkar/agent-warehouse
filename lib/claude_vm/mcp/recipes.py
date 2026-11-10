@@ -53,6 +53,14 @@ OWN = {
     },
 }
 
+# A parameter's help says what the terminal does. Where the server refuses what that help offers, its own words: the
+# default VM is never implied through an agent.
+HELP = {
+    ("deploy", "names"): "The VMs; a deploy that would create one must name it, since no default VM is implied here. "
+    "Without names, only='configure' or 'ssh-config' and check reach every VM this project created",
+    ("destroy", "names"): "The VMs to delete: at least one",
+}
+
 # The recipes no tool runs, and why.
 NO_TOOL = {
     "help": "the tools' own descriptions say what just help says",
@@ -144,7 +152,7 @@ def schema(recipe: dict, tool: str) -> dict:
         name = prop(parameter)
         if (tool, name) in LEFT_OUT or name in TOOLS[tool].fixed:
             continue
-        description = parameter.get("help") or ""
+        description = HELP.get((tool, name)) or parameter.get("help") or ""
         if words(parameter):
             item = {"type": "string", **_pattern(parameter)}
             properties[name] = {"type": "array", "items": item, "description": description}
