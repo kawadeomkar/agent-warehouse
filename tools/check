@@ -8,6 +8,7 @@
 #   tools/check vault <file>           the vault exists and is encrypted
 #   tools/check collections <bin>      the Galaxy collections are requirements.yml's pins
 #   tools/check names <name>...        VM names: letters, digits and . _ - , only, from a letter or digit
+#   tools/check size <cores> <memory> <disk>   deploy's size: whole numbers, memory M or G, disk G or T
 #   tools/check project <name>         one repository folder's name
 #   tools/check session <id>           one Claude Code session ID, or none
 #   tools/check sections <list>        just status's sections, comma-separated, or none
@@ -72,6 +73,24 @@ names)
       ;;
     esac
   done
+  ;;
+size)
+  # deploy's --cores, --memory and --disk: just has held each to its pattern
+  # already; this holds the JSON they go into, as names does. Cores are 1 to
+  # 999, memory MiB or with M or G, a disk G or T, each a whole number.
+  whole() {
+    case "$1" in '' | 0* | *[!0123456789]*) return 1 ;; esac
+    [ "${#1}" -le "$2" ]
+  }
+  [ -z "$2" ] || whole "$2" 3 || { echo "error: --cores is a number of cores, as 8 (got: [$2])" >&2; exit 1; }
+  if [ -n "$3" ]; then
+    case "$3" in *[MG]) memory=${3%?} ;; *) memory=$3 ;; esac
+    whole "$memory" 7 || { echo "error: --memory is MiB, as 3072, or takes M or G, as 16G (got: [$3])" >&2; exit 1; }
+  fi
+  if [ -n "$4" ]; then
+    case "$4" in *[GT]) disk=${4%?} ;; *) disk= ;; esac
+    whole "$disk" 6 || { echo "error: --disk takes G or T, as 64G (got: [$4])" >&2; exit 1; }
+  fi
   ;;
 project)
   # A GitHub repository name: at most 100 ASCII letters, digits, ".", "-" and

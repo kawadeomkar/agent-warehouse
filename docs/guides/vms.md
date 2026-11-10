@@ -72,7 +72,7 @@ in Proxmox (the VM's Hardware, then a restart), or destroy it and deploy it agai
 A size larger than the node it is created on - more cores than the node has CPU threads, more memory than it has -
 is refused before anything is created, where the API token may read the node. Whether the node has that much free
 beside the VMs it runs is yours to weigh: `just status --only capacity` says each node's threads and memory, how
-much is in use and free, and what its VMs hold. Reading a node needs the read-only `Sys.Audit` privilege, which the
+much is in use and free, and what its VMs and containers hold. Reading a node needs the read-only `Sys.Audit` privilege, which the
 role `just init` makes has; for a token without it, capacity says how to add it, and the size is not checked.
 
 ## Memory

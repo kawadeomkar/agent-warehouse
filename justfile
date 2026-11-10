@@ -441,6 +441,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' *NAMES:
     stage=$1 check=$2 roles=$3 start=$4 cores=$5 memory=$6 disk=$7
     shift 7
     tools/check names "$@"
+    tools/check size "$cores" "$memory" "$disk"
     {{ hyphenate_names }}
     # A stage typed where the names go, by habit from just test unit, would
     # create a VM so named: at a terminal deploy asks which was meant, and
@@ -523,7 +524,8 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' *NAMES:
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
     [ -z "$start" ] || set -- "$@" -e '{"proxmox_vm_start_existing": true}'
-    # The size as JSON, memory in MiB: each value is held to its pattern above, so each sits whole in it.
+    # The size as JSON, memory in MiB: just held each value to its pattern, and tools/check size again, so each sits
+    # whole in it.
     size=
     [ -z "$cores" ] || size="\"cores\": $cores"
     case "$memory" in

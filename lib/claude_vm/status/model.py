@@ -286,14 +286,19 @@ def status_fleet(
             "nodes": sorted({e.get("node") for e in others if e.get("node")}),
         },
         "storages": shown,
-        "capacity": status_capacity(nodes, entries, settings.get("api_user") or ""),
+        "capacity": status_capacity(
+            nodes,
+            [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
+            settings.get("api_user") or "",
+        ),
         "template": template if template else {"name": template_name, "missing": True},
         "aliases": aliases,
     }
 
 
 def status_capacity(nodes, entries, user=""):
-    """Each node's CPU threads and memory beside what the VMs on it hold - every VM, this project's and others' - for
+    """Each node's CPU threads and memory beside what the guests on it hold - every VM and container, this project's and
+    others' - for
     the size of the next one: how much memory is in use now and free, and how much the running VMs could take of it
     (``unallocated``, which ballooning and an idle guest can leave above what is free). A node's figures are read only
     with Sys.Audit; without it Proxmox lists the node alone, ``read`` is false, and ``grant`` says how to give it to
@@ -303,7 +308,8 @@ def status_capacity(nodes, entries, user=""):
         on = [e for e in entries if e.get("node") == node["node"] and not e.get("template")]
         held = {
             state: {
-                "vms": len(vms),
+                "vms": sum(1 for e in vms if e.get("type", "qemu") == "qemu"),
+                "containers": sum(1 for e in vms if e.get("type") == "lxc"),
                 "vcpus": sum(int(e.get("maxcpu") or 0) for e in vms),
                 "memory": sum(int(e.get("maxmem") or 0) for e in vms),
             }

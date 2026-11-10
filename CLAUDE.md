@@ -827,8 +827,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       loosened by overriding it - which just holds every value to, every name of a variadic one, before anything
       runs; an option or word a recipe does not have is refused.
     - A value reaches its script only as a positional argument (`[positional-arguments]`), never as its text;
-      what goes into JSON is checked again there (`tools/check names`, `project` and `session`, `init`'s `only`)
-      and travels to Ansible as JSON. A recipe parameter never comes from the environment: an exported `TAGS` or
+      what goes into JSON is checked again there (`tools/check names`, `project`, `session` and `size`, `init`'s
+      `only`) and travels to Ansible as JSON. A recipe parameter never comes from the environment: an exported `TAGS` or
       `TYPE` changes nothing.
     - The one free-text value is `just settings --value`'s, refused by its pattern only for a control character,
       so just never says a value back, and held to the setting's type by `tools/settings`; no refusal of

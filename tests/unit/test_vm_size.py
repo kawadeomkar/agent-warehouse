@@ -12,11 +12,12 @@ hold. The runs go against the fake Proxmox (tests/molecule/fake_pve_api.py), as 
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
 from harness import PVE_SECRET, _failures, _pve, _results, fake_fleet
-from test_justfile import _just, _output, _playbook, _recording
+from test_justfile import REPO, _just, _output, _playbook, _recording
 from test_status import _status_run
 from test_vm_names import FROM_THE_HOST, PLAYBOOKS
 from test_vm_names import _playbook as _run_playbook
@@ -25,6 +26,7 @@ from claude_vm import proxmox
 from claude_vm.status import model as S
 from claude_vm.tui.status import WIDTH, status_text
 
+CHECK = REPO / "tools" / "check"
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse test"
 REFUSED = "present | Refuse a size for a VM that exists with another"
 SETTINGS = "present | Apply hardware and cloud-init settings"
@@ -69,6 +71,29 @@ def test_a_size_is_refused_where_no_vm_is_created(tmp_path: Path, args: list[str
 def test_a_size_just_refuses_by_its_pattern(tmp_path: Path, args: list[str]) -> None:
     result = _just("deploy", "alpha", *args, settings=_recording(tmp_path))
     assert result.returncode != 0, _output(result)
+
+
+@pytest.mark.parametrize(
+    ("size", "ok"),
+    [
+        (("8", "16G", "64G"), True),
+        (("", "3072", ""), True),
+        (("999", "512M", "1T"), True),
+        (("", "", ""), True),
+        (("0", "", ""), False),
+        (("1000", "", ""), False),
+        (('8, "x": 1', "", ""), False),
+        (("", "8T", ""), False),
+        (("", "12345678", ""), False),
+        (("", "", "64"), False),
+        (("", "", "064G"), False),
+        (("", "", "1234567G"), False),
+    ],
+)
+def test_tools_check_holds_the_size_again_before_it_goes_into_json(size: tuple[str, str, str], ok: bool) -> None:
+    # just holds each to its pattern first; this is what deploy's script runs before the JSON, as names has.
+    result = subprocess.run([str(CHECK), "size", *size], capture_output=True, text=True)
+    assert (result.returncode == 0) == ok, result.stderr
 
 
 # ------------------------------------------------------------ the role, on the fake ---
@@ -202,6 +227,8 @@ NODES = [
 ]
 VMS = [
     {"vmid": 101, "node": "pve", "status": "running", "maxcpu": 4, "maxmem": 8 * GIB},
+    # A container: what the node holds, as a VM is.
+    {"vmid": 301, "type": "lxc", "node": "pve", "status": "running", "maxcpu": 2, "maxmem": 4 * GIB},
     {"vmid": 102, "node": "pve", "status": "running", "maxcpu": 2, "maxmem": 4 * GIB},
     {"vmid": 103, "node": "pve", "status": "stopped", "maxcpu": 2, "maxmem": 2 * GIB},
     {"vmid": 9000, "node": "pve", "status": "stopped", "maxcpu": 2, "maxmem": 2 * GIB, "template": 1},
@@ -212,8 +239,9 @@ VMS = [
 def test_capacity_is_each_node_s_threads_and_memory_beside_what_its_vms_hold() -> None:
     pve, pve2, pve3 = S.status_capacity(NODES, VMS)
     assert pve["read"] and (pve["threads"], pve["memory"], pve["memory_free"]) == (16, 64 * GIB, 40 * GIB)
-    assert pve["running"] == {"vms": 2, "vcpus": 6, "memory": 12 * GIB} and pve["unallocated"] == 52 * GIB
-    assert pve["stopped"] == {"vms": 1, "vcpus": 2, "memory": 2 * GIB}
+    assert pve["running"] == {"vms": 2, "containers": 1, "vcpus": 8, "memory": 16 * GIB}
+    assert pve["unallocated"] == 48 * GIB
+    assert pve["stopped"] == {"vms": 1, "containers": 0, "vcpus": 2, "memory": 2 * GIB}
     assert not pve2["read"] and pve2["threads"] is None and pve2["running"]["vcpus"] == 8
     assert pve3["status"] == "offline"
     # How to read a node it cannot, for the token's user - in the JSON an agent reads, too - and on the node: the role
@@ -241,7 +269,8 @@ def test_the_capacity_section_fits_the_report_and_says_how_to_read_a_node_it_can
     text = status_text(model)
     assert all(len(line) <= WIDTH for line in text.splitlines()), text
     assert "16 CPU threads, 12% busy · memory" in text and "24 / 64 GiB, 40 free" in text
-    assert "its running VMs hold 6 vCPUs and 12 GiB (19% of its memory)" in text
+    assert "its running VMs and containers hold 8 vCPUs and 16 GiB (25% of its memory)" in text
+    assert "its stopped VMs would take 2 vCPUs" in text
     assert "pveum role modify AnsibleVM --append 1 --privs Sys.Audit" in text
     assert "pveum acl modify /nodes/pve2 --users ansible@pve --roles AnsibleVM" in text
     assert "offline: nothing on it can be read" in text

@@ -538,7 +538,8 @@ def tools(server: Server) -> list[Tool]:
         "for _, no dots), check settings(name='github_projects') clones it (empty: every repository the user owns), "
         f"deploy(names=[name]), then code(name, project=X). Size a new VM with cores, memory (MiB, or 16G) and disk "
         "(64G) in place of the settings - read status(only='capacity') first for the node's CPU threads and memory and "
-        "what its VMs already hold - and never ask for one the node lacks; a VM that exists is never resized. "
+        "what its VMs and containers already hold - and never ask for one the node lacks; a VM that exists is never "
+        "resized. "
         f"{TERMINAL} {BUSY}",
         "login": "Signs VMs in to Claude, GitHub and Tailscale: say first that pages will open in the user's browser "
         f"to approve. {TERMINAL} {BUSY}",

@@ -148,8 +148,14 @@ def _storage_lines(model):
     return lines
 
 
+def _guests(held):
+    """What a node's figures count: its VMs, and its containers where it has any."""
+    return "VMs and containers" if held.get("containers") else "VMs"
+
+
 def _capacity_lines(model):
-    """Each node's CPU threads and memory, and what the VMs on it hold: what a new VM's size is weighed against."""
+    """Each node's CPU threads and memory, and what the VMs and containers on it hold: what a new VM's size is weighed
+    against."""
     nodes = model.get("capacity") or []
     if not nodes:
         return []
@@ -160,6 +166,8 @@ def _capacity_lines(model):
             lines.append([seg(name), seg(f"{node.get('status')}: nothing on it can be read", "y")])
             continue
         running, stopped = node["running"], node["stopped"]
+        held = f"its running {_guests(running)} hold {plural(running['vcpus'], 'vCPU')}"
+        held += f" and {fmt_gib(running['memory'])} GiB"
         if node.get("read"):
             used = node["memory_used"] / node["memory"] if node["memory"] else 0
             lines.append(
@@ -174,14 +182,12 @@ def _capacity_lines(model):
                 ]
             )
             share = running["memory"] / node["memory"] if node["memory"] else 0
-            held = f"its running VMs hold {plural(running['vcpus'], 'vCPU')} and {fmt_gib(running['memory'])} GiB"
             held += f" ({share:.0%} of its memory)"
         else:
             lines.append([seg(name), seg("its CPU threads and memory are not readable with the API token", "d")])
-            held = f"its running VMs hold {plural(running['vcpus'], 'vCPU')} and {fmt_gib(running['memory'])} GiB"
         lines.append([seg(f"{'':12}{held}", "d")])
-        if stopped["vms"]:
-            more = f"its stopped VMs would take {plural(stopped['vcpus'], 'vCPU')}"
+        if stopped["vms"] or stopped.get("containers"):
+            more = f"its stopped {_guests(stopped)} would take {plural(stopped['vcpus'], 'vCPU')}"
             more += f" and {fmt_gib(stopped['memory'])} GiB more"
             lines.append([seg(f"{'':12}{more}", "d")])
         for said in node.get("grant") or []:
