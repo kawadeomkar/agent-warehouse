@@ -167,6 +167,25 @@ jobs:
       - name: Molecule test
         run: just test --role ${{ matrix.role }}
 
+  # The VPN's and the editors' roles stand on their own on Debian as well as on
+  # Ubuntu: each one's own scenario, on Debian 12's image pinned by digest, as
+  # the Ubuntu image is. The other roles run on Ubuntu alone.
+  debian:
+    name: Molecule on Debian (${{ matrix.role }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        role: [tailscale, vscode_server]
+    env:
+      MOLECULE_IMAGE: geerlingguy/docker-debian12-ansible@sha256:fc679fe5eb029c5ceeed3beb9c8a7ee116de371e7f62e3341d5a4dba79853004
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Molecule test
+        run: just test --role ${{ matrix.role }}
+
   # Not part of the gate: this runs only on the weekly schedule (or on demand)
   # and tests the roles against the *unpinned* image, so an upstream Ubuntu
   # change surfaces on a Monday instead of at the next digest bump. It is
@@ -237,7 +256,7 @@ jobs:
   # the canary, which may fail on purpose. A cancelled or failed job fails it.
   result:
     name: CI result
-    needs: [lint, unit, dependency-review, molecule, playbooks]
+    needs: [lint, unit, dependency-review, molecule, debian, playbooks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10

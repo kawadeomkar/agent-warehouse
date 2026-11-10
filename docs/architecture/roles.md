@@ -788,7 +788,11 @@ plan's research record.
   first start. Never a pre-created `/etc/default/tailscaled` - a conffile, which dpkg keeps when it exists,
   without `PORT`, and `--port=${PORT}` would fail the daemon. The legacy `tailscale.list` goes (beside a
   deb822 source with another keyring it breaks every apt update), the deb822 source carries the vendored
-  key, the package is `present`, not `latest` (an upgrade restarts tailscaled). A failed install takes the
+  key, under the distribution's own name (`/stable/ubuntu`, `/stable/debian`: Tailscale keeps each apart),
+  and the package is `present`, not `latest` (an upgrade restarts tailscaled). `python3-debian`, which the
+  source needs, is installed with apt's lists refreshed when they are over an hour old, so the role needs no
+  refresh made before it: run alone on Ubuntu 24.04 and Debian 12 and 13, with only the lists a cloud image's
+  first boot leaves, it passed. A failed install takes the
   repository back out before it fails: a source whose host cannot be reached fails every apt refresh on
   the VM, `common`'s first. `tailscale_daemon_flags` edit `FLAGS` after the package; restarts are tasks
   gated on a change, never handlers, which would run outside `configure.yml`'s rescue. In check mode on a

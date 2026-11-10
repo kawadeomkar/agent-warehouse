@@ -67,11 +67,15 @@
 
 # deb822_repository needs python3-debian on the VM. The common role installs
 # it on every VM before this one runs; named here too, so the role stands on
-# its own.
+# its own - and with apt's lists refreshed when they are older than an hour,
+# since on a machine whose lists nothing has refreshed yet apt finds no such
+# package (common, and a cloud image's first boot, refresh them).
 - name: install | Install what managing an apt repository needs
   ansible.builtin.apt:
     name: python3-debian
     state: present
+    update_cache: true
+    cache_valid_time: 3600
 
 - name: install | Install Tailscale from its repository
   block:
@@ -79,7 +83,9 @@
       ansible.builtin.deb822_repository:
         name: tailscale
         types: deb
-        uris: https://pkgs.tailscale.com/stable/ubuntu
+        # Tailscale publishes each distribution under its own name: Debian's
+        # releases are not in its Ubuntu tree ("does not have a Release file").
+        uris: "https://pkgs.tailscale.com/stable/{{ ansible_facts.distribution | lower }}"
         suites: "{{ ansible_facts.distribution_release }}"
         components: main
         architectures: "{{ tailscale_deb_arch }}"

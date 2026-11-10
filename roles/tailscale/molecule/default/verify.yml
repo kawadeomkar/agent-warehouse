@@ -38,7 +38,8 @@
       ansible.builtin.assert:
         that:
           # The deb822 source, signed by the vendored key; no legacy list.
-          - "tailscale_verify_text[0] is search('URIs: https://pkgs.tailscale.com/stable/ubuntu')"
+          # Under the distribution's own name, which Tailscale publishes each in.
+          - "('URIs: https://pkgs.tailscale.com/stable/' ~ ansible_facts.distribution | lower) in tailscale_verify_text[0]"
           - tailscale_verify_text[0] is search('BEGIN PGP PUBLIC KEY BLOCK')
           - not tailscale_verify_legacy.stat.exists
           # The log switch as a drop-in, in effect for the running daemon.
