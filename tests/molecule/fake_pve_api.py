@@ -636,6 +636,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._reply(200, new_task())
         if sub == ["resize"] and method == "PUT":
             disk, size = params["disk"], params["size"]
+            # As Proxmox: a disk is grown, never shrunk.
+            if not size.startswith("+") and disk_bytes({"scsi0": f"size={size}"}) < disk_bytes(
+                {"scsi0": vm["config"][disk]}
+            ):
+                return self._reply(500, None, "shrinking disks is not supported")
             opts = vm["config"][disk].split(",")
             vm["config"][disk] = ",".join(o if not o.startswith("size=") else f"size={size}" for o in opts)
             save_state()

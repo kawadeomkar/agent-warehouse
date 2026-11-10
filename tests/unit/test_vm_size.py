@@ -121,6 +121,37 @@ def test_a_repair_keeps_a_sized_vm_s_size(tmp_path: Path, fleet: str) -> None:
     assert "agent-warehouse-sized" in vm["tags"].split(";")
 
 
+def test_a_repair_given_part_of_a_size_keeps_the_rest_of_the_vm_s_own(tmp_path: Path, fleet: str) -> None:
+    assert _provision(tmp_path / "made", fleet, "partial", {"cores": 6, "memory_mb": 6144, "disk": "40G"})["rc"] == 0
+    report = _provision(tmp_path / "repaired", fleet, "partial", {"cores": 8}, proxmox_vm_force_update=True)
+    assert report["rc"] == 0, _failures(report)
+    vm = _vm(fleet, "partial")
+    # Never the settings' 4096 MiB and 32G: the VM's own, but for the cores given.
+    assert (int(vm["cores"]), int(vm["memory"]), int(vm["balloon"])) == (8, 6144, 6144) and "size=40G" in vm["scsi0"]
+
+
+def test_a_vm_whose_run_stopped_before_it_was_finished_is_finished_with_the_next_run_s_size(
+    tmp_path: Path, fleet: str
+) -> None:
+    # Proxmox never shrinks a disk: a size below the template's 3584M fails at the resize, after the settings call.
+    for name in ("halted", "resumed"):
+        assert _provision(tmp_path / f"{name}-1", fleet, name, {"cores": 6, "disk": "1G"})["rc"] != 0
+        tags = _vm(fleet, name)["tags"].split(";")
+        assert "agent-warehouse-unfinished" in tags and "agent-warehouse-sized" not in tags, tags
+    # Given no size, the settings': its disk resized, and not sized - nothing says the size of a run that stopped.
+    report = _provision(tmp_path / "halted-2", fleet, "halted")
+    assert report["rc"] == 0, _failures(report)
+    vm = _vm(fleet, "halted")
+    assert (int(vm["cores"]), int(vm["memory"])) == (2, 4096) and "size=32G" in vm["scsi0"]
+    assert not {"agent-warehouse-sized", "agent-warehouse-unfinished"} & set(vm["tags"].split(";"))
+    # Given a size, that size, and sized.
+    report = _provision(tmp_path / "resumed-2", fleet, "resumed", {"cores": 6, "disk": "40G"})
+    assert report["rc"] == 0, _failures(report)
+    vm = _vm(fleet, "resumed")
+    assert int(vm["cores"]) == 6 and "size=40G" in vm["scsi0"]
+    assert "agent-warehouse-sized" in vm["tags"].split(";") and "agent-warehouse-unfinished" not in vm["tags"]
+
+
 def test_the_settings_minimum_memory_stays_below_a_larger_size(tmp_path: Path, fleet: str) -> None:
     report = _provision(tmp_path, fleet, "ballooned", {"memory_mb": 8192}, settings={"vm_memory_min_mb": 2048})
     assert report["rc"] == 0, _failures(report)

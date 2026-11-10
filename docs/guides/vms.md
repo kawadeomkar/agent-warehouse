@@ -59,8 +59,11 @@ just deploy big --cores 8 --memory 16G --disk 128G
 
 `--memory` is MiB, or takes `M` or `G`; `--disk` takes `G` or `T`. Each sizes every VM that run creates, and
 only one it creates: `just deploy` and `just deploy --only provision` take them, and a stage that creates nothing
-refuses them. A VM made that way is tagged `agent-warehouse-sized` in Proxmox, and its size is its own from then on:
-`just status` does not call it a difference from your settings, and a repair keeps it.
+refuses them. A VM made that way is tagged `agent-warehouse-sized` in Proxmox once it is finished, and its size is
+its own from then on: `just status` does not call it a difference from your settings, and a repair keeps it - each part
+of it the repair does not give. A run that stopped before the VM was finished - a disk Proxmox refused, a start the
+node had no memory for, Ctrl-C - sized nothing: run `just deploy` for it again with its size, or without one for your
+settings' size.
 
 A VM that exists is never resized. Given a size it does not have, the run refuses it, before anything about it
 changes, and goes on with the others; given the size it has, or none, it is left as it is. To resize one, change it

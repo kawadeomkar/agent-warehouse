@@ -373,8 +373,9 @@ pytest over `tests/unit/`, file by file:
   moves said under the home as `~`.
 - **A VM's size** (`test_vm_size.py`): `just deploy alpha --cores 8 --memory 16G --disk 64G` as JSON, refused where nothing is
   created; against the fake, a VM created with the size and tagged sized, the same size again changing nothing,
-  another refused for a VM that exists, a repair keeping a sized VM's size, the settings' minimum memory under a
-  larger size, a size larger than the node refused before anything is created once the token may read the node;
+  another refused for a VM that exists, a repair keeping a sized VM's size and, given a part, the rest of it, a VM
+  whose run stopped at the resize finished by the next with its size or the settings', the settings' minimum memory
+  under a larger size, a size larger than the node refused before anything is created once the token may read the node;
   no drift for a sized VM; the capacity section's figures and lines, and `just status` reading the node.
 - **The run lock** (`test_run_lock.py`): a second run that changes something refused, naming the holder; one that
   reads, or `--check`, not; a record whose process is gone, or was another, taken over, by one of the runs that

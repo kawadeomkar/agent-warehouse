@@ -658,12 +658,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   500 for a stopped VM would stretch to its whole budget
   ([Related switches](docs/architecture/convergence.md#related-switches)).
 - **A VM's size is the one it was created with.** `just deploy alpha --cores 8 --memory 16G` (`vm_size`, the role's
-  `proxmox_vm_size`) sizes each VM the run creates, which the settings call tags `<ownership tag>-sized`: `just status`
-  then calls its size no drift from the size settings (`proxmox_vm_drift`'s `sized`), and a repair sends it no size
-  (`proxmox_vm_keep_size`). An existing VM is never resized: given another size it is refused before anything about
-  it changes, but under `proxmox_vm_force_update`. A size larger than `proxmox_node` is refused in provision.yml's
-  play 1 where the token may read the node (`Sys.Audit`, read only); without it, the size is not checked
-  ([Size](docs/guides/vms.md#size)).
+  `proxmox_vm_size`) sizes each VM the run creates, which the call that marks it finished tags
+  `<ownership tag>-sized`, never the settings call: a run that stopped before would leave a VM sized at the template's
+  disk. `just status` then calls its size no drift from the size settings (`proxmox_vm_drift`'s `sized`), and a repair
+  sends it no part of its size the repair does not give (`proxmox_vm_kept_size`), never the settings' in its place. An
+  existing VM is never resized: given another size it is refused before anything about it changes, but where it needs
+  configuration (`proxmox_vm_force_update`, or a run that stopped). A size larger than `proxmox_node` is refused in
+  provision.yml's play 1 where the token may read the node (`Sys.Audit`, read only); without it, the size is not
+  checked ([Size](docs/guides/vms.md#size)).
 - **A clone without a VMID is `throttle: 1`**, and `provision.yml`'s play 1 gives each new VM of a fleet its own
   `proxmox_vm_id`: keep both halves. On a VMID collision `proxmox_kvm` returns `changed=False` and the clone
   source's VMID, so the role asserts `is changed` rather than trusting the returned ID

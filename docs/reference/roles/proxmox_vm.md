@@ -75,7 +75,7 @@ Compares the VM's config, as the caller read it from Proxmox, with this role's o
 
 ## Internal values
 
-Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 24 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 25 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -90,15 +90,16 @@ Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a
 | `proxmox_vm_sent_tags` | The tags this role writes - proxmox_vm_tags, lowercased the way Proxmox stores them, so that what is sent is what the lookup finds again even on a datacenter whose tag style keeps case. | <code>{{ proxmox_vm_tags &#124; map('lower') &#124; list }}</code> |
 | `proxmox_vm_unfinished_tag` | The tag a VM carries from the settings call until the start that follows it has succeeded. | `{{ proxmox_vm_sent_tags[0] }}-unfinished` |
 | `proxmox_vm_tailscale_tag` | The mark configure.yml writes (tasks/vm_marks.yml), kept by every call below that replaces the tag list: the tag it writes once the VM has held a Tailscale login of the tailscale role's (claude_vm_tailscale_tag). | `{{ proxmox_vm_sent_tags[0] }}-tailscale` |
-| `proxmox_vm_kept_tags` |  | <code>{{ ([proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else []) + ([proxmox_vm_sized_tag] if proxmox_vm_sized &#124; bool else []) }}</code> |
+| `proxmox_vm_kept_tags` |  | <code>{{ ([proxmox_vm_tailscale_tag] if proxmox_vm_tailscale_tag in proxmox_vm_found_tags else []) + ([proxmox_vm_sized_tag] if proxmox_vm_sized_found &#124; bool else []) }}</code> |
 | `proxmox_vm_sized_tag` | A VM whose size is its own, chosen when it was created (just deploy alpha --cores 8 --memory 16G): the tag says so where the VM cannot change it, and the fleet's size settings are then not this VM's - just status calls no difference from them drift, and a repair (proxmox_vm_force_update) keeps the size it has. | `{{ proxmox_vm_sent_tags[0] }}-sized` |
 | `proxmox_vm_cores_sent` | What the settings call and the resize send: this run's size (proxmox_vm_size) where it gives one, else the settings'. | <code>{{ proxmox_vm_size.cores &#124; default(proxmox_vm_cores) }}</code> |
 | `proxmox_vm_memory_sent` |  | <code>{{ proxmox_vm_size.memory_mb &#124; default(proxmox_vm_memory_mb) }}</code> |
 | `proxmox_vm_memory_min_sent` |  | <code>{{ proxmox_vm_memory_min_mb if proxmox_vm_size.memory_mb is not defined else ([proxmox_vm_memory_min_mb &#124; int, proxmox_vm_memory_sent &#124; int] &#124; min) if proxmox_vm_memory_min_mb &#124; int &lt; proxmox_vm_memory_mb &#124; int else proxmox_vm_memory_sent }}</code> |
 | `proxmox_vm_disk_size_sent` |  | <code>{{ proxmox_vm_size.disk &#124; default(proxmox_vm_disk_size) }}</code> |
 | `proxmox_vm_size_given` |  | <code>{{ proxmox_vm_size &#124; length > 0 }}</code> |
-| `proxmox_vm_sized` |  | <code>{{ (proxmox_vm_size_given &#124; bool) or (proxmox_vm_sized_tag in proxmox_vm_found_tags) }}</code> |
-| `proxmox_vm_keep_size` | Whether the settings call keeps the VM's own size (a sized VM repaired with no size given), sending no cores or memory and resizing no disk; and whether an existing VM has another size than this run gives (proxmox_vm_found_config, its config). | <code>{{ (proxmox_vm_exists &#124; bool) and (proxmox_vm_sized_tag in proxmox_vm_found_tags) and not (proxmox_vm_size_given &#124; bool) }}</code> |
+| `proxmox_vm_sized_found` |  | <code>{{ (proxmox_vm_exists &#124; bool) and (proxmox_vm_sized_tag in proxmox_vm_found_tags) }}</code> |
+| `proxmox_vm_sized` |  | <code>{{ (proxmox_vm_size_given &#124; bool) or (proxmox_vm_sized_found &#124; bool) }}</code> |
+| `proxmox_vm_kept_size` | The parts of its size a VM found sized keeps on a repair - each one this run does not give: the settings call sends none of them (cores, or memory and its minimum) and the disk is not resized, so a part given changes that part alone, never the rest to the settings'. | <code>{{ ['cores', 'memory_mb', 'disk'] &#124; reject('in', proxmox_vm_size) &#124; list if proxmox_vm_sized_found &#124; bool else [] }}</code> |
 | `proxmox_vm_size_differs` |  | <code>{{ (proxmox_vm_size.cores is defined and proxmox_vm_found_config.cores &#124; default(0) &#124; int != proxmox_vm_size.cores &#124; int) or (proxmox_vm_size.memory_mb is defined and proxmox_vm_found_config.memory &#124; default(0) &#124; int != proxmox_vm_size.memory_mb &#124; int) or (proxmox_vm_size.disk is defined and (proxmox_vm_found_config.scsi0 &#124; default('') &#124; proxmox_disk_bytes) &lt; (proxmox_vm_size.disk &#124; proxmox_disk_bytes)) }}</code> |
 | `proxmox_vm_needs_configuration` | Whether the VM still needs its settings applied, its disk resized and a start. | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
 | `proxmox_vm_forget_address` | The address whose host key should be forgotten when the VM is deleted, as the guest agent reports it while the VM still exists. | `{{ proxmox_vm_reported_address }}` |
@@ -203,7 +204,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Tag the new VM as created by this project | `community.proxmox.proxmox_kvm` | <code>not proxmox_vm_exists</code> |
 | Move the VM's tags to their names from 2.0 | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_exists and proxmox_vm_tags_moving &#124; bool and not (proxmox_vm_needs_configuration &#124; bool)</code> |
 | Apply hardware and cloud-init settings | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_needs_configuration &#124; bool</code> |
-| Resize the root disk to {{ proxmox_vm_disk_size_sent }} | `community.proxmox.proxmox_disk` | <code>proxmox_vm_needs_configuration &#124; bool and not (proxmox_vm_keep_size &#124; bool)</code> |
+| Resize the root disk to {{ proxmox_vm_disk_size_sent }} | `community.proxmox.proxmox_disk` | <code>proxmox_vm_needs_configuration &#124; bool and 'disk' not in proxmox_vm_kept_size</code> |
 | Start the VM | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_needs_configuration &#124; bool or proxmox_vm_start_existing &#124; bool</code> |
 | Mark the VM as finished | `community.proxmox.proxmox_kvm` | <code>proxmox_vm_needs_configuration &#124; bool</code> |
 | Record whether the VM is being left stopped | `ansible.builtin.set_fact` |  |
@@ -233,7 +234,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   present___Record_the_VMID3-->|Task| present___Tag_the_new_VM_as_created_by_this_project4[present   tag the new vm as created by this<br>project<br>When: **not proxmox vm exists**]:::task
   present___Tag_the_new_VM_as_created_by_this_project4-->|Task| present___Move_the_VM_s_tags_to_their_names_from_2_05[present   move the vm s tags to their names from 2<br>0<br>When: **proxmox vm exists and proxmox vm tags moving  <br>bool and not  proxmox vm needs configuration  <br>bool**]:::task
   present___Move_the_VM_s_tags_to_their_names_from_2_05-->|Task| present___Apply_hardware_and_cloud_init_settings6[present   apply hardware and cloud init settings<br>When: **proxmox vm needs configuration   bool**]:::task
-  present___Apply_hardware_and_cloud_init_settings6-->|Task| present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent7[present   resize the root disk to proxmox vm disk<br>size sent<br>When: **proxmox vm needs configuration   bool and not <br>proxmox vm keep size   bool**]:::task
+  present___Apply_hardware_and_cloud_init_settings6-->|Task| present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent7[present   resize the root disk to proxmox vm disk<br>size sent<br>When: **proxmox vm needs configuration   bool and  disk <br>not in proxmox vm kept size**]:::task
   present___Resize_the_root_disk_to_proxmox_vm_disk_size_sent7-->|Task| present___Start_the_VM8[present   start the vm<br>When: **proxmox vm needs configuration   bool or proxmox<br>vm start existing   bool**]:::task
   present___Start_the_VM8-->|Task| present___Mark_the_VM_as_finished9[present   mark the vm as finished<br>When: **proxmox vm needs configuration   bool**]:::task
   present___Mark_the_VM_as_finished9-->|Task| present___Record_whether_the_VM_is_being_left_stopped10[present   record whether the vm is being left<br>stopped]:::task
