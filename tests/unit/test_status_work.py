@@ -124,3 +124,10 @@ def test_every_git_the_work_runs_is_a_read() -> None:
     commands = sorted(set(re.findall(r'_git\(\s*module,\s*[^,]+,\s*"([a-z-]+)"', body)))
     assert commands == ["for-each-ref", "rev-list", "stash", "status", "worktree"], commands
     assert '"stash", "list"' in body and '"worktree", "list", "--porcelain"' in body
+
+
+def test_git_runs_no_maintenance_of_its_own_in_a_test_s_repository(tmp_path: Path) -> None:
+    # After a commit git may start its automatic maintenance detached, and its lock in .git/objects came and went
+    # while test_status_vms.py read every file of the repository it had made: GIT_ENV turns it off.
+    _git(tmp_path, "init", "-q", "-b", "main")
+    assert _git(tmp_path, "config", "--get", "maintenance.auto") == "false"

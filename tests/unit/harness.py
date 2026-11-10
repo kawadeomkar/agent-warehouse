@@ -947,10 +947,15 @@ def _version(text: str) -> tuple[int, ...]:
 
 # ---------------------------------------------------------------------- git ---
 # git as a test runs it: none of this machine's config, global or system - an insteadOf, a hook or
-# status.showUntrackedFiles there changes what git says and does - and an identity of its own to commit as.
+# status.showUntrackedFiles there changes what git says and does - and an identity of its own to commit as. And no
+# automatic maintenance: after a commit git may run it detached, and its lock in .git/objects came and went while
+# test_status_vms.py read every file of the repository it had just made.
 GIT_ENV = {
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "maintenance.auto",
+    "GIT_CONFIG_VALUE_0": "false",
     "GIT_AUTHOR_NAME": "molecule",
     "GIT_AUTHOR_EMAIL": "molecule@example.com",
     "GIT_COMMITTER_NAME": "molecule",
