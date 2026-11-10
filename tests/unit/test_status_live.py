@@ -8,6 +8,7 @@ the live frames never reach.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
@@ -17,7 +18,8 @@ from pathlib import Path
 import live_kit as kit
 import pytest
 import yaml
-from harness import _env, fake_fleet
+from ansible.parsing.vault import VaultLib, VaultSecret
+from harness import PVE_SECRET, _env, _executable, fake_fleet
 from test_status import STATUS, status_root
 from vt import VT
 
@@ -117,6 +119,33 @@ def _wrapped(lines: list[str], cols: int) -> list[str]:
 
 def _shown(vt: VT) -> list[str]:
     return [line.rstrip() for line in vt.transcript()]
+
+
+def test_a_password_script_that_asks_is_answered_before_anything_is_drawn_and_asked_once(tmp_path, fleet) -> None:
+    root = status_root(tmp_path, fleet)
+    secret = VaultSecret(b"the-vault-password")
+    plain = json.dumps({"vault_proxmox_api_token_secret": PVE_SECRET}).encode()
+    (root / "group_vars" / "all" / "vault.yml").write_bytes(
+        bytes(VaultLib(secrets=[("default", secret)]).encrypt(plain, secret))
+    )
+    asked = root / "asked"
+    script = _executable(
+        root / "vault-password.sh",
+        f'#!/bin/sh\necho asked >> "{asked}"\nprintf "Vault password: " >&2\nread answer\n'
+        '[ "$answer" = open ] && echo the-vault-password\n',
+    )
+    env = kit.environment(root, config="", TERM="xterm-256color", ANSIBLE_VAULT_PASSWORD_FILE=str(script), **LIVE)
+    prompted = []
+
+    def answer(chunk, output, master, process, vt):
+        if not prompted and b"Vault password: " in output:
+            prompted.append(len(output))
+            os.write(master, b"open\n")
+
+    ran = kit.at_a_terminal(_command(root), root, env, cols=100, rows=60, act=answer)
+    assert ran.rc == 2 and prompted, ran.raw.decode(errors="replace")[-2000:]
+    assert b"VMS" not in ran.raw[: prompted[0]] and b"VMS" in ran.raw[prompted[0] :]
+    assert asked.read_text() == "asked\n"
 
 
 def test_a_report_that_fits_is_redrawn_in_place_in_colour_and_leaves_only_the_finished_one(tmp_path, fleet) -> None:

@@ -411,8 +411,7 @@ class Settings:
         return any(options.get(name, {}).get("no_log") for options in self.specs.values())
 
     def identifier(self, vault_name: str) -> bool:
-        fed = wiring.set_by(vault_name, self.feeds, self.specs)
-        return bool(fed) and not any(self.no_log(name) for name in fed)
+        return wiring.identifier(vault_name, self.feeds, self.specs)
 
     def by_person(self, where: str, name: str, raw) -> bool:
         """Set in a file a person edits, and in the vault to more than nothing or the example's placeholder."""

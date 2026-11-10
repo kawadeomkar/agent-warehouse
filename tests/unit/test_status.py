@@ -873,6 +873,30 @@ def test_what_ansible_s_configuration_or_environment_gives_every_host_reaches_th
         assert argv[argv.index("-i") + 1] == "/nonexistent/key" and argv[argv.index("-p") + 1] == "2222", argv
 
 
+def test_a_key_given_on_the_command_line_reaches_the_vms_as_ansible_ranks_it(tmp_path, fake_pve) -> None:
+    # Over ansible.cfg's and the environment's, as ansible-playbook takes it; under the inventory's own.
+    root = status_root(tmp_path, fake_pve)
+    done = subprocess.run(
+        status_command(root, {}, "--json", "--private-key", "/nonexistent/given"),
+        cwd=root,
+        env=_env(root, ANSIBLE_PRIVATE_KEY_FILE="/nonexistent/environment"),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert done.returncode in (0, 1, 2) and "ignoring" not in done.stderr, done.stderr[-2000:]
+    calls = [json.loads(line) for line in (root / "ssh.log").read_text().splitlines()]
+    assert calls and {argv[argv.index("-i") + 1] for argv in calls} == {"/nonexistent/given"}
+    pinned = {"ansible_ssh_private_key_file": "/nonexistent/inventory"}
+    other = tmp_path / "inventory-names-one"
+    report, _ = _status_run(other, fake_pve, "--private-key", "/nonexistent/given", settings=pinned)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    calls = [json.loads(line) for line in (other / "run" / "ssh.log").read_text().splitlines()]
+    assert calls and {argv[argv.index("-i") + 1] for argv in calls} == {"/nonexistent/inventory"}
+
+
 def test_the_proxmox_host_s_address_may_be_in_a_host_vars_file_of_its_own(tmp_path, fake_pve) -> None:
     # proxmox_api_host reads hostvars as a play sees them. From the inventory file's text alone, the host's bare name
     # would be asked for instead, with the API token.

@@ -566,7 +566,8 @@ class Run:
 
 def _end_for_an_interrupt(screen):
     reach.end_all()
-    screen.out.finish()
+    if screen:
+        screen.out.finish()
     print("just status: interrupted", file=sys.stderr)
     sys.stdout.flush()
     os._exit(3)
@@ -579,9 +580,15 @@ def run(opts) -> int:
     except ValueError as error:
         print(f"just status: {error}", file=sys.stderr)
         return 3
-    screen = Screen(sections, opts.json, os.environ.get("ANSIBLE_LOG_PATH", ""))
+
+    def drawn():
+        return Screen(sections, opts.json, os.environ.get("ANSIBLE_LOG_PATH", ""))
+
+    # A password script may ask at the terminal: the outline waits for its answer rather than being drawn over it.
+    screen = None if settings.may_ask(opts) else drawn()
     try:
-        config = settings.load(opts, screen.display.display)
+        config = settings.load(opts, screen.display.display if screen else None)
+        screen = screen or drawn()
         if config["run"].get("only") and not opts.only:
             screen.sections = sections = settings.sections(config["run"]["only"])
         Run(opts, screen, config).go()
@@ -593,7 +600,8 @@ def run(opts) -> int:
     except KeyboardInterrupt:
         _end_for_an_interrupt(screen)
     except Exception as error:  # noqa: BLE001 - said once, whatever failed, and the run's exit is the one for that
-        screen.out.finish()
+        if screen:
+            screen.out.finish()
         print(f"just status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
         reach.end_all()
         return 3

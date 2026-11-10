@@ -500,11 +500,13 @@ memory from `/cluster/resources?type=node`, which Proxmox fills in only for a to
 beside what the VMs listed on it hold, running and stopped (`status_capacity`); without the privilege, the node's
 `grant` says how to give it to the token's user (`proxmox_api_user`), on the node: the lines the section prints, and
 an agent reads in `--json`. A VM's own list of repositories is read from its notes (`own_repos`), which the report does
-not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e` and `-i`; it runs no playbook, so any other option is
-warned of and ignored, but for `--ask-vault-pass`, which it refuses, naming `.vault_pass` and
+not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e`, `-i` and `--private-key` (under the inventory's own key,
+over `ansible.cfg`'s and the environment's, as Ansible ranks it); it runs no playbook, so any other option is warned of
+and ignored, but for `--ask-vault-pass`, which it refuses, naming `.vault_pass` and
 `ANSIBLE_VAULT_PASSWORD_FILE`: the report is drawn at once, and nothing asks. The vault opens with `.vault_pass`, or
-the password file `ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one is run for the
-password, as Ansible runs it. Ansible resolves the roles' `module_defaults` group from the Galaxy collections
+the password file `ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one
+is run for the password, as Ansible runs it, once in a run and before anything is drawn, since it may ask at the
+terminal: only then does the outline wait. Ansible resolves the roles' `module_defaults` group from the Galaxy collections
 installed, so the engine runs `tools/check collections` itself, the moment it asks Ansible for the settings, and
 refuses as every recipe does, naming `just install`; the recipe does not, since there it would hold back the
 outline. `settings.json` is keyed by `requirements.yml` and the collections installed, so a snapshot that holds was

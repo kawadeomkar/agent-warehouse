@@ -26,6 +26,7 @@ import re
 import sys
 from pathlib import Path
 
+from .. import wiring
 from . import model
 
 REPO = Path(__file__).resolve().parents[3]
@@ -35,10 +36,6 @@ PLACEHOLDER = "status_placeholder.vm"
 SECRET_MARK = "@@status-proxmox-token@@"
 TOKEN_VAR = "vault_proxmox_api_token_secret"
 PASSWORD_VAR = "vault_vm_password"
-# What the vault holds that is no secret, as tools/settings counts it: masked in its own row there, never looked for
-# elsewhere. A GitHub username that is also a word of the settings - a vm_user of the same name - would otherwise keep
-# every run from its snapshot.
-IDENTIFIERS = ("vault_github_username", "vault_tailscale_oauth_client_id")
 ROLES = ("proxmox_vm", "proxmox_template", "claude_code", "github_projects", "tailscale")
 
 # How the Proxmox API is reached: only asked for with discovery on, since the token behind it is not there without.
@@ -196,7 +193,7 @@ REACH = {
     "connection": "ssh",
     "user": "{{ vm_user }}",
     "port": _ssh_option("ansible_port ansible_ssh_port", "port"),
-    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file", "private_key_file"),
+    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file status_private_key", "private_key_file"),
     "python": "{{ claude_vm_python }}",
     "ssh_args": "{{ status_ssh_args }} " + _SSH_MORE,
     "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
@@ -248,21 +245,53 @@ def _password_files(opts) -> list[str]:
     return [one for at, one in enumerate(files) if one and one not in files[:at]]
 
 
+def _is_script(path: str) -> bool:
+    return os.access(path, os.X_OK) and not os.path.isdir(path)
+
+
+def _is_client(path: str) -> bool:
+    return Path(path).stem.endswith("-client")
+
+
+def _named_by_ansible_cfg() -> list[str]:
+    """The password file ansible.cfg names, if it names one: Ansible's to read, looked at to see whether it may ask."""
+    config = Path(os.environ.get("ANSIBLE_CONFIG") or REPO / "ansible.cfg")
+    try:
+        found = re.search(r"(?m)^\s*vault_password_file\s*=\s*(\S.*?)\s*$", config.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [str(config.parent / os.path.expanduser(found.group(1)))] if found else []
+
+
+def may_ask(opts) -> bool:
+    """Whether a password script may ask at the terminal. Nothing is drawn until it has answered, or it would ask under
+    the live region; a run with a plain password file, the usual one, draws at once."""
+    return any(_is_script(path) for path in [*_password_files(opts), *_named_by_ansible_cfg()])
+
+
+# What each password script said in this run: it may have had to ask a person, who is asked once.
+_answers: dict[str, bytes] = {}
+
+
 def _password(path: str) -> bytes:
     """A password file's password, as Ansible reads one: an executable file is run, and says it. A vault client
     script, which is asked for a vault ID, is left to Ansible."""
-    if not os.access(path, os.X_OK):
+    if not _is_script(path):
         return Path(path).read_bytes().strip()
-    if Path(path).stem.endswith("-client"):
+    if _is_client(path):
         raise Stale("a vault password client script")
-    import subprocess
+    # Whole: given as .vault_pass, the name alone would be looked for on PATH.
+    whole = os.path.abspath(path)
+    if whole not in _answers:
+        import subprocess
 
-    try:
-        # Whole: given as .vault_pass, the name alone would be looked for on PATH.
-        said = subprocess.run([os.path.abspath(path)], capture_output=True, check=True)
-    except subprocess.SubprocessError as error:
-        raise Stale("the vault's password script failed") from error
-    return said.stdout.strip(b"\r\n")
+        try:
+            # Its standard input and error are left to it, as Ansible leaves them, so that it can ask.
+            said = subprocess.run([whole], stdout=subprocess.PIPE, check=True)
+        except subprocess.SubprocessError as error:
+            raise Stale("the vault's password script failed") from error
+        _answers[whole] = said.stdout.strip(b"\r\n")
+    return _answers[whole]
 
 
 def _vault_values(opts) -> dict:
@@ -300,6 +329,7 @@ class Ansible:
         from ansible.cli import CLI
         from ansible.inventory.manager import InventoryManager
         from ansible.parsing.dataloader import DataLoader
+        from ansible.parsing.vault import VaultSecret
         from ansible.playbook.play import Play
         from ansible.plugins.loader import init_plugin_loader
         from ansible.template import Templar, trust_as_template
@@ -320,16 +350,26 @@ class Ansible:
         self.Templar, self.trust, self.Play = Templar, trust_as_template, Play
         self.loader = DataLoader()
         self.loader.set_basedir(str(REPO / "playbooks"))
-        # The password files ansible-playbook would take: the recipe's, then ANSIBLE_VAULT_PASSWORD_FILE's or
-        # ansible.cfg's, and the vault IDs configured. Never a prompt: the screen is drawn.
+        # What a password script already said is given to Ansible, which would run it again and have it ask again.
+        scripts = [path for path in _password_files(opts) if _is_script(path) and not _is_client(path)]
+        said = [(C.DEFAULT_VAULT_IDENTITY, VaultSecret(_password(path))) for path in scripts]
+        named = C.DEFAULT_VAULT_PASSWORD_FILE
+        if named and os.path.abspath(named) in map(os.path.abspath, scripts):
+            C.DEFAULT_VAULT_PASSWORD_FILE = None
+        # The other password files ansible-playbook would take: the recipe's, then ANSIBLE_VAULT_PASSWORD_FILE's or
+        # ansible.cfg's, and the vault IDs configured. Never a prompt of Ansible's own.
         self.loader.set_vault_secrets(
-            CLI.setup_vault_secrets(
+            said
+            + CLI.setup_vault_secrets(
                 self.loader,
                 vault_ids=list(C.DEFAULT_VAULT_IDENTITY_LIST),
-                vault_password_files=[opts.vault_password_file] if opts.vault_password_file else [],
+                vault_password_files=[opts.vault_password_file]
+                if opts.vault_password_file and opts.vault_password_file not in scripts
+                else [],
                 auto_prompt=False,
             )
         )
+        self.private_key = opts.private_key
         self.inventory = InventoryManager(loader=self.loader, sources=opts.inventory or C.DEFAULT_HOST_LIST)
         # The extra vars come from the global context, set above, as VariableManager reads them.
         self.variables = VariableManager(loader=self.loader, inventory=self.inventory)
@@ -377,6 +417,9 @@ class Ansible:
             # The marker's path under the VM user's home, which the probe joins to it.
             github_projects_home_dir=".",
         )
+        if self.private_key:
+            # --private-key: under the inventory's own, over ansible.cfg's and the environment's, as Ansible ranks it.
+            variables["status_private_key"] = self.private_key
         return variables
 
 
@@ -439,6 +482,7 @@ def _digest(opts) -> str:
     seen += tuple(sorted(k for k in os.environ if k.startswith("ANSIBLE_") and k != "ANSIBLE_LOG_PATH"))
     for name in seen:
         digest.update(f"{name}={os.environ.get(name, '')}\n".encode())
+    digest.update(f"--private-key={opts.private_key}\n".encode())
     return digest.hexdigest()
 
 
@@ -499,11 +543,12 @@ def _keep(opts, config, secret, password, say=None) -> None:
     held = sorted(
         str(name)
         for name, value in values.items()
-        if name not in IDENTIFIERS
-        and isinstance(value, str)
-        and len(value.strip()) >= 6
-        and json.dumps(value.strip())[1:-1] in text
+        if isinstance(value, str) and len(value.strip()) >= 6 and json.dumps(value.strip())[1:-1] in text
     )
+    if held:
+        # Read only now: the roles' specs, for a run that found something, and just settings' own rule.
+        specs, (_, feeds) = wiring.specs(), wiring.wiring()
+        held = [name for name in held if not wiring.identifier(name, feeds, specs)]
     if held:
         if say:
             say(

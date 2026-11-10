@@ -18,10 +18,12 @@ import threading
 from pathlib import Path
 
 import pytest
+import yaml
 from ansible.parsing.vault import VaultLib, VaultSecret
-from harness import PVE_SECRET, REPO, _env, _executable, _inventory, fake_fleet, load_module
+from harness import PVE_SECRET, REPO, _env, _executable, _inventory, ansible_config, fake_fleet, load_module
 from test_status import STATUS, status_command, status_root
 
+from claude_vm import wiring
 from claude_vm.status import engine, found, reach, settings
 from claude_vm.status import model as S
 
@@ -159,7 +161,14 @@ import argparse, json, sys
 sys.path.insert(0, {lib!r})
 from claude_vm.status import settings
 opts = argparse.Namespace(
-    inventory=[sys.argv[1]], extra=[], names="", only="", cache="", vault_file="", vault_password_file=""
+    inventory=[sys.argv[1]],
+    extra=[],
+    names="",
+    only="",
+    cache="",
+    vault_file="",
+    vault_password_file="",
+    private_key="",
 )
 config = settings.load(opts)
 print(json.dumps({{name: config["password"](name) for name in ("alpha", "beta")}}))
@@ -219,14 +228,45 @@ def test_the_vault_opens_with_the_password_file_ansible_s_own_setting_names(tmp_
         password = tmp_path / "vault-password"
         password.write_text("the-vault-password\n")
     else:
-        password = _executable(tmp_path / "vault-password.sh", "#!/bin/sh\necho the-vault-password\n")
+        asked = f'echo asked >> "{tmp_path / "asked"}"\n'
+        password = _executable(tmp_path / "vault-password.sh", f"#!/bin/sh\n{asked}echo the-vault-password\n")
     cache, env = tmp_path / "cache", {"ANSIBLE_VAULT_PASSWORD_FILE": str(password)}
     first = _run_with_cache(root, cache, vault, "-X", "importtime", env=env)
     assert first.returncode in (0, 1, 2), first.stderr[-2000:]
     assert _imports_ansible(first) and json.loads(first.stdout)["vms"][0]["api"]["read"]
+    # Once in a run, whichever of Ansible, the snapshot and the token's own read needs it: it may have had to ask.
+    assert kind == "file" or (tmp_path / "asked").read_text() == "asked\n"
     second = _run_with_cache(root, cache, vault, "-X", "importtime", env=env)
     assert second.returncode == first.returncode, second.stderr[-2000:]
     assert not _imports_ansible(second) and json.loads(second.stdout)["vms"][0]["api"]["read"]
+    assert kind == "file" or (tmp_path / "asked").read_text() == "asked\nasked\n"
+
+
+def test_a_password_file_that_can_ask_holds_the_outline_back_wherever_it_is_named(tmp_path, monkeypatch) -> None:
+    script = _executable(tmp_path / "asks.sh", "#!/bin/sh\n")
+    plain = tmp_path / "password"
+    plain.write_text("a-password\n")
+    environ = {}
+    monkeypatch.setattr(settings.os, "environ", environ)
+    opts = argparse.Namespace(vault_password_file=str(plain))
+    assert not settings.may_ask(opts)
+    assert settings.may_ask(argparse.Namespace(vault_password_file=str(script)))
+    environ["ANSIBLE_VAULT_PASSWORD_FILE"] = str(script)
+    assert settings.may_ask(opts)
+    del environ["ANSIBLE_VAULT_PASSWORD_FILE"]
+    environ["ANSIBLE_CONFIG"] = ansible_config(tmp_path, f"vault_password_file = {script}\n")
+    assert settings.may_ask(opts)
+
+
+def test_what_the_vault_holds_that_is_no_secret_is_one_rule_for_settings_and_status() -> None:
+    specs, (_, feeds) = wiring.specs(), wiring.wiring()
+    names = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "vault.yml.example").read_text())
+    identifiers = {name for name in names if wiring.identifier(name, feeds, specs)}
+    assert identifiers == {"vault_github_username", "vault_tailscale_oauth_client_id"}
+    assert "wiring.identifier(vault_name, self.feeds, self.specs)" in (REPO / "tools" / "settings").read_text()
+    assert (
+        "wiring.identifier(name, feeds, specs)" in (REPO / "lib" / "claude_vm" / "status" / "settings.py").read_text()
+    )
 
 
 def test_collections_that_differ_from_their_pins_are_refused_when_ansible_is_asked(tmp_path, fake_pve) -> None:
@@ -257,8 +297,9 @@ def test_the_snapshot_is_made_again_when_a_filter_ansible_core_or_a_collection_c
     monkeypatch.setattr(settings, "REPO", repo)
     monkeypatch.setattr(settings, "_ansible_core", lambda: [core])
     monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(tmp_path / "collections"))
-    opts = argparse.Namespace(inventory=[str(repo / "inventory")], vault_password_file="")
+    opts = argparse.Namespace(inventory=[str(repo / "inventory")], vault_password_file="", private_key="")
     keys = [settings._digest(opts)]
+    keys.append(settings._digest(argparse.Namespace(**{**vars(opts), "private_key": "/a/key/given"})))
     for path in [*(repo / name for name in changed), manifest]:
         path.write_text("changed by a pull, or a just install\n")
         keys.append(settings._digest(opts))
