@@ -23,6 +23,10 @@ class Config:
     uv: str
     # The PATH of the shell just mcp ran in: every run's, never the session's.
     path: str
+    # Its HOME, and its XDG_DATA_HOME where it set one - where tools/env-run finds the checkout's own folder, the
+    # collections Ansible loads among it: every run's, never the session's.
+    home: str
+    data_home: str = ""
     # Whether someone is at this machine's screen for the sign-ins a run opens: "1" yes, "0" no, "" decided per session.
     attended: str = ""
     # A run on a branch other than main, or with tracked changes, allowed (just mcp --any-branch).
@@ -48,8 +52,9 @@ class _Parser(argparse.ArgumentParser):
 def parse(argv: list[str]) -> tuple[Config | None, str]:
     """The configuration, or None and what is wrong with the command line, said as how to fix it."""
     parser = _Parser(prog="tools/mcp", add_help=False, allow_abbrev=False)
-    for name in ("checkout", "python", "just", "uv", "path"):
+    for name in ("checkout", "python", "just", "uv", "path", "home"):
         parser.add_argument(f"--{name}", required=True)
+    parser.add_argument("--data-home", default="")
     parser.add_argument("--attended", choices=("", "0", "1"), default="")
     parser.add_argument("--any-branch", action="store_true")
     parser.add_argument("--vault-password-file", default="")
@@ -68,6 +73,8 @@ def parse(argv: list[str]) -> tuple[Config | None, str]:
             just=args.just,
             uv=args.uv,
             path=args.path,
+            home=args.home,
+            data_home=args.data_home,
             attended=args.attended,
             any_branch=args.any_branch,
             vault_password_file=args.vault_password_file,

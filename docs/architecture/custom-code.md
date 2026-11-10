@@ -1068,9 +1068,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   reads with `env()` at the server's value (`SETTINGS`, `ANSIBLE_ARGS` empty), the recipe, its options in their
   `--long=value` form, then its words, each one argv word. `just` holds each value to its pattern before the script's
   first line; a word that starts with `-`, which it would read as an option, is refused first.
-- **`environment.py`: a run's environment is built, never inherited.** The few variables a login needs (`HOME`,
-  `USER`, `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux, `XDG_DATA_HOME` for `tools/env-run --data`),
-  the recorded `PATH`, `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
+- **`environment.py`: a run's environment is built, never inherited.** The few variables a login needs (`USER`,
+  `SSH_AUTH_SOCK`, the locale, what `xdg-open` needs on Linux), the `PATH`, `HOME` and `XDG_DATA_HOME` `just mcp`
+  recorded - the last two decide where `tools/env-run` finds the checkout's folder, and the collections Ansible loads
+  from it - `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
   nothing of Ansible's, Python's, `just`'s or Claude Code's - its messaging token among them, which an editor's
   terminals would inherit.
 - **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's

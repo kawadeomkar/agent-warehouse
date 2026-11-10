@@ -43,6 +43,9 @@ DROPPED = {
     "CLAUDECODE": "1",
     "CLAUDE_PROJECT_DIR": "/nonexistent/project",
     "CLAUDE_CODE_MESSAGING_TOKEN": "canned-messaging-token",
+    # Where tools/env-run would find another checkout's folder, and its collections: just mcp records both.
+    "HOME": "/nonexistent/evil-home",
+    "XDG_DATA_HOME": "/nonexistent/evil-data",
 }
 REPORT = {
     "exit": 1,
@@ -137,6 +140,7 @@ def _args(world: dict, **extra: str) -> list[str]:
         f"--just={world['just']}",
         "--uv=uv",
         f"--path={world['path']}",
+        f"--home={world['home']}",
     ]
     return args + [f"--{name.replace('_', '-')}={value}" for name, value in extra.items()]
 
@@ -299,7 +303,7 @@ def test_a_changed_justfile_makes_every_tool_say_restart(world):
 
 
 def _config(path: Path, **extra) -> Config:
-    return Config(checkout=path, python=sys.executable, just=JUST, uv="uv", path=os.environ["PATH"], **extra)
+    return Config(checkout=path, python=sys.executable, just=JUST, uv="uv", path=os.environ["PATH"], home="/", **extra)
 
 
 def test_the_branch_guard_allows_main_with_no_tracked_change_or_any_branch_when_registered(world):

@@ -279,7 +279,8 @@ and calls its commands. What that changes:
   every MCP server Claude Code starts there (verified on 2.1.309): inherited, `ANSIBLE_CONFIG` would outrank
   `ansible.cfg`, `PYTHONPATH` would decide what `ansible-playbook` imports with `.vault_pass` in reach, `PATH` which
   `git`, `ssh` and `uv` run, and `ANSIBLE_ARGS` would add any `-e`. So the server's configuration is the arguments of
-  the command `just mcp` recorded, a run's environment is an allow list with the `PATH` recorded there, and every
+  the command `just mcp` recorded, a run's environment is an allow list with the `PATH`, `HOME` and `XDG_DATA_HOME`
+  recorded there - the last two decide which collections Ansible loads - and every
   setting the justfile reads with `env()` is given on `just`'s command line, where it outranks the environment.
 - **A value never meets a shell.** Each goes to `just` as one argv word, an option as `--long=value`, and `just` holds
   it to the option's pattern before the recipe's first line, as at a terminal; a word that starts with `-`, which

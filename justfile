@@ -716,8 +716,8 @@ logs:
 # (local scope, that one project's, with --project-dir), Claude Code's own CLI
 # writing ~/.claude.json. Every value the server needs is an argument of the
 # command it records - this checkout, its environment's Python, this just and
-# uv, and this shell's PATH - never an environment variable, which a
-# project's .claude/settings.json could set. The checks first: claude new
+# uv, and this shell's PATH, HOME and XDG_DATA_HOME - never an environment
+# variable, which a project's .claude/settings.json could set. The checks first: claude new
 # enough, main and clean (but --any-branch), a vault readable with no terminal,
 # the MCP SDK in the environment. The entry is read back with claude mcp get,
 # since before Claude Code 2.1.318 an add could be lost to another session's
@@ -780,7 +780,8 @@ mcp ANY_BRANCH='' ATTENDED='' BROWSER='' PROJECT_DIR='' REMOVE='' SHOW='' VAULT_
       exit 1
     fi
     uv=$(command -v {{ quote(UV) }} || echo {{ quote(UV) }})
-    set -- "$python" -I {{ quote(justfile_directory() / 'tools/mcp') }} --checkout={{ quote(justfile_directory()) }} --python="$python" --just={{ quote(just_executable()) }} --uv="$uv" --path="$PATH"
+    set -- "$python" -I {{ quote(justfile_directory() / 'tools/mcp') }} --checkout={{ quote(justfile_directory()) }} --python="$python" --just={{ quote(just_executable()) }} --uv="$uv" --path="$PATH" --home="$HOME"
+    [ -z "${XDG_DATA_HOME:-}" ] || set -- "$@" --data-home="$XDG_DATA_HOME"
     [ -z "$attended" ] || set -- "$@" --attended="$attended"
     [ -z "$any_branch" ] || set -- "$@" --any-branch
     [ -z "$vault_password_file" ] || set -- "$@" --vault-password-file="$vault_password_file"

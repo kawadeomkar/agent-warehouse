@@ -572,8 +572,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `test_mcp_tools.py` holds every recipe and option to a tool or to a reason in `recipes.py`.
     - A value reaches `just` as one argv word, an option as `--long=value`, never through a shell, `ANSIBLE_ARGS` or
       any setting, and a word that starts with `-` is refused. Every setting the justfile reads with `env()` goes on
-      the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`
-      recorded at registration: nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
+      the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`,
+      `HOME` and `XDG_DATA_HOME` recorded at registration (the last two decide the collections Ansible loads):
+      nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
     - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults.
     - The server never exits at its start, and refuses per call instead: Claude Code pins a stdio server that dies
       within 3 s to the older protocol for 7 days.

@@ -112,9 +112,21 @@ def test_it_registers_every_value_as_an_argument_reads_it_back_and_prints_the_ru
         f"--just={JUST}",
         f"--uv={shutil.which('uv', path=run['env']['PATH']) or 'uv'}",
         f"--path={run['env']['PATH']}",
+        f"--home={tmp_path}",
     ]
     assert calls[-1][1:4] == ["mcp", "get", "agent-warehouse"]
     assert '"mcp__agent-warehouse__status"' in result.stdout and '"Bash(just destroy:*)"' in result.stdout
+
+
+def test_xdg_data_home_is_recorded_where_it_is_set(tmp_path, copy):
+    # tools/env-run finds the checkout's folder, and the collections Ansible loads, under it: a run takes it from the
+    # registration, never from the session, whose project could set it.
+    run, record = _setup(tmp_path, copy)
+    run["env"]["XDG_DATA_HOME"] = str(tmp_path / "data")
+    result = _mcp(run)
+    assert result.returncode == 0, result.stderr
+    add = next(call for call in _calls(record) if call[1:3] == ["mcp", "add"])
+    assert add[-2:] == [f"--home={tmp_path}", f"--data-home={tmp_path / 'data'}"]
 
 
 def test_a_second_registration_replaces_the_first(tmp_path, copy):

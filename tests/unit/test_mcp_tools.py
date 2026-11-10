@@ -24,7 +24,7 @@ from claude_vm.mcp.config import Config, parse
 
 REPO = Path(__file__).resolve().parents[2]
 JUST = shutil.which("just")
-CONFIG = Config(checkout=REPO, python=sys.executable, just=JUST, uv="uv", path="/usr/bin:/bin")
+CONFIG = Config(checkout=REPO, python=sys.executable, just=JUST, uv="uv", path="/usr/bin:/bin", home="/")
 
 
 @pytest.fixture(scope="module")
@@ -139,10 +139,10 @@ def test_a_command_line_just_mcp_never_writes_is_a_refusal_not_an_exit():
     for argv in ([], ["--checkout=/x"], ["--help"], [f"--checkout={REPO}", "--unknown=1"]):
         config, refusal = parse(argv)
         assert config is None and refusal
-    config, refusal = parse(
-        [f"--checkout={REPO}", f"--python={sys.executable}", f"--just={JUST}", "--uv=uv", "--path=/usr/bin"]
-    )
-    assert refusal == "" and config.checkout == REPO and config.attended == ""
+    given = [f"--checkout={REPO}", f"--python={sys.executable}", f"--just={JUST}", "--uv=uv", "--path=/usr/bin"]
+    assert parse(given)[0] is None
+    config, refusal = parse([*given, "--home=/home/dev"])
+    assert refusal == "" and config.checkout == REPO and config.attended == "" and config.data_home == ""
 
 
 def test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list():
