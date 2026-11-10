@@ -54,12 +54,13 @@ check and `absent.yml`, both only for a VM that exists.
 
 | Step | Notes |
 |---|---|
+| Refuse another size | an existing VM given a size it does not have (`proxmox_vm_size_differs`) fails before anything about it changes, but under `proxmox_vm_force_update`: a VM is never resized behind the run's back |
 | Clone | `throttle: 1` only when Proxmox picks the VMID; a fleet's VMIDs are pre-assigned — see [§9](failure-modes.md) |
 | Assert `clone is changed` | a VMID collision returns `changed=False` and the *template's* VMID |
 | Record VMID | `when: not proxmox_vm_exists` |
 | Tag the new VM | its own call, straight after the clone — see [§8](convergence.md) |
-| Apply hardware + cloud-init | cores, memory and its minimum (`balloon`, from `proxmox_vm_memory_min_mb`, equal to the memory unless set: Proxmox reads 0 as no balloon device, which would also stop the VM reporting its memory use); `when: proxmox_vm_needs_configuration`; to `proxmox_vm_found_node`, the node the lookup found the VM on, as is every call after the clone — a migrated VM is no longer on `proxmox_vm_node` |
-| Resize root disk | same condition; `proxmox_disk` no-ops when already the right size |
+| Apply hardware + cloud-init | cores, memory and its minimum (`balloon`, from `proxmox_vm_memory_min_mb`, equal to the memory unless set: Proxmox reads 0 as no balloon device, which would also stop the VM reporting its memory use), `proxmox_vm_size`'s where the run gives one, tagging the VM `agent-warehouse-sized`; none for a sized VM repaired with no size given (`proxmox_vm_keep_size`), which keeps its own; `when: proxmox_vm_needs_configuration`; to `proxmox_vm_found_node`, the node the lookup found the VM on, as is every call after the clone — a migrated VM is no longer on `proxmox_vm_node` |
+| Resize root disk | same condition, but not for a sized VM keeping its size; `proxmox_disk` no-ops when already the right size |
 | Start | `when: needs_configuration or proxmox_vm_start_existing` |
 | Mark finished | removes `agent-warehouse-unfinished`, which the settings call added — see [§8](convergence.md) |
 | Read NIC config | only for a VM this run cloned: `until` non-empty, `retries`/`delay`, `failed_when: false`; an existing VM's config is the one the lookup fetched (`proxmox_vm_found_config`); then a dedicated assert |

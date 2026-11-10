@@ -13,6 +13,7 @@ PROXMOX = (
     "proxmox_template_record",
     "proxmox_template_drift",
     "proxmox_vm_drift",
+    "proxmox_disk_bytes",
     "ssh_config_blocks",
     "ssh_config_prune",
     "vms_not_named",

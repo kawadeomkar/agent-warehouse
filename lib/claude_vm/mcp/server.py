@@ -316,7 +316,7 @@ def tools(server: Server) -> list[Tool]:
         return await server.json_tool(
             "status",
             {"names": names or [], "only": only},
-            keep=("exit", "title", "vms", "attention", "counts"),
+            keep=("exit", "title", "vms", "capacity", "attention", "counts"),
             narrow="give names, or only (vms, work, ...), to read the rest",
             ok={0, 1, 2},
         )
@@ -364,6 +364,9 @@ def tools(server: Server) -> list[Tool]:
         check: bool = False,
         tags: str = "",
         start: bool = False,
+        cores: str = "",
+        memory: str = "",
+        disk: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         server.check(vault=True)
@@ -371,6 +374,7 @@ def tools(server: Server) -> list[Tool]:
         if refusal:
             raise ToolError(refusal)
         arguments = {"names": names or [], "only": only, "check": check, "tags": tags, "start": start}
+        arguments |= {"cores": cores, "memory": memory, "disk": disk}
         return await server.run("deploy", arguments, wait_seconds, ctx)
 
     async def login(
@@ -532,7 +536,10 @@ def tools(server: Server) -> list[Tool]:
         "there is no default VM here. A VM for a repository X: "
         "status first, and if a VM's work lists X, code(name, project=X) alone; else name the VM after X (lowercase, - "
         "for _, no dots), check settings(name='github_projects') clones it (empty: every repository the user owns), "
-        f"deploy(names=[name]), then code(name, project=X). {TERMINAL} {BUSY}",
+        f"deploy(names=[name]), then code(name, project=X). Size a new VM with cores, memory (MiB, or 16G) and disk "
+        "(64G) in place of the settings - read status(only='capacity') first for the node's CPU threads and memory and "
+        "what its VMs already hold - and never ask for one the node lacks; a VM that exists is never resized. "
+        f"{TERMINAL} {BUSY}",
         "login": "Signs VMs in to Claude, GitHub and Tailscale: say first that pages will open in the user's browser "
         f"to approve. {TERMINAL} {BUSY}",
         "code": "Opens one VM in the user's editor on this machine. To move this conversation there: session = the ID "

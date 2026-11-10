@@ -121,7 +121,13 @@ the VMs or reaches this machine, and who reaches the VMs stay yours, at a termin
 "Use agent-warehouse to make a VM for this project" works from the repository's own folder: the agent reads
 `status` for a VM whose checkouts list it already, and opens that one with `code`; otherwise it names a VM after the
 repository, checks with `settings` that it will be cloned (by default every repository your GitHub account owns),
-`deploy`s it, then opens the repository with `code`. To carry the conversation over, it passes its own session's ID
+`deploy`s it, then opens the repository with `code`.
+
+It may size the new VM - `deploy`'s `cores`, `memory` (MiB, or `16G`) and `disk` (`64G`), as `just deploy alpha --cores 8
+--memory 16G --disk 64G` takes them - after reading `status(only="capacity")`: each node's CPU threads and memory, how much
+is in use and free, and what its VMs already hold ([Size](vms.md#size)); for a node the token may not read,
+its `grant` holds the two `pveum` commands that let it, for you to run on the host. A size larger than the node is refused before
+anything is created, and a VM that exists is never resized. To carry the conversation over, it passes its own session's ID
 to `code` - the ID of a conversation of that folder, written in the last minute - and stops working where it was.
 
 ## The branch it runs

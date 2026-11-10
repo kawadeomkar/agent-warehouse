@@ -416,10 +416,19 @@ vault:
 #
 # A name that is a stage is asked about first: just deploy configure could
 # mean either. just deploy test is the VM test.
+#
+# --cores, --memory and --disk size each VM this run creates in place of the
+# vm_cores, vm_memory_mb and vm_disk_size settings, and tag it as sized: its
+# size is its own from then on (roles/proxmox_vm). A VM that exists is never
+# resized; one given another size is refused. Memory is MiB, or with a suffix
+# M or G; disk G or T.
 [arg('START', long='start', value='true', help='Start a VM this run would leave stopped (proxmox_vm_start_existing)')]
 [arg('CHECK', long='check', value='check', help='Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config')]
+[arg('CORES', long='cores', pattern='([1-9][0-9]{0,2})?', help="Each new VM's vCPU cores, in place of the vm_cores setting")]
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
+[arg('DISK', long='disk', pattern='([1-9][0-9]{0,5}[GT])?', help="Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting")]
+[arg('MEMORY', long='memory', pattern='([1-9][0-9]{0,6}[MG]?)?', help="Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting")]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [continue]
 [doc('Create, configure and sign in the VM(s), then open them in your editor')]
@@ -427,10 +436,10 @@ vault:
 [no-exit-message]
 [positional-arguments]
 [script]
-deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
+deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' *NAMES:
     {{ guard }}
-    stage=$1 check=$2 roles=$3 start=$4
-    shift 4
+    stage=$1 check=$2 roles=$3 start=$4 cores=$5 memory=$6 disk=$7
+    shift 7
     tools/check names "$@"
     {{ hyphenate_names }}
     # A stage typed where the names go, by habit from just test unit, would
@@ -451,7 +460,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
       *,*) meant='' as_vm='VMs so named, each' what='are stages of just deploy and also names VMs could have' ;;
       *) meant=$hint as_vm="a VM named $word," what='is a stage of just deploy and also a name a VM could have' ;;
       esac
-      options=${roles:+ --tags $roles}${start:+ --start}
+      options=${roles:+ --tags $roles}${start:+ --start}${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}
       if [ ! -t 0 ]; then
         echo "error: $words $what, and there is no terminal to ask which was meant: give a stage as just deploy $hint, or a VM so named beside one, as just deploy --only provision $word" >&2
         exit 1
@@ -502,13 +511,29 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
       echo "error: --start starts a VM the run would leave stopped, which only just deploy and just deploy --only provision start" >&2
       exit 1
     fi
-    [ -n "$check" ] || {{ take_lock }} "deploy${stage:+ --only $stage}${roles:+ --tags $roles}${names:+ $(printf %s "$names" | tr , ' ')}"
+    sized=${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}
+    if [ -n "$sized" ] && { [ -n "$check$roles" ] || { [ -n "$stage" ] && [ "$stage" != provision ]; }; }; then
+      echo "error: --cores, --memory and --disk size a VM the run creates, which only just deploy and just deploy --only provision do" >&2
+      exit 1
+    fi
+    [ -n "$check" ] || {{ take_lock }} "deploy${stage:+ --only $stage}${roles:+ --tags $roles}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
     {{ find_bin }}
     tools/check vault {{ quote(VAULT_FILE) }}
     tools/check collections "$bin"
     tools/check settings "$bin" {{ SETTINGS_FILES }}
     {{ vm_args }}
     [ -z "$start" ] || set -- "$@" -e '{"proxmox_vm_start_existing": true}'
+    # The size as JSON, memory in MiB: each value is held to its pattern above, so each sits whole in it.
+    size=
+    [ -z "$cores" ] || size="\"cores\": $cores"
+    case "$memory" in
+    '') ;;
+    *G) size="$size${size:+, }\"memory_mb\": $(( ${memory%G} * 1024 ))" ;;
+    *M) size="$size${size:+, }\"memory_mb\": ${memory%M}" ;;
+    *) size="$size${size:+, }\"memory_mb\": $memory" ;;
+    esac
+    [ -z "$disk" ] || size="$size${size:+, }\"disk\": \"$disk\""
+    [ -z "$size" ] || set -- "$@" -e "{\"vm_size\": {$size}}"
     if [ -n "$check" ]; then
       name=deploy-check playbook=playbooks/configure.yml
     elif [ -n "$stage" ]; then
@@ -522,7 +547,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' *NAMES:
     [ -z "$roles" ] || set -- "$@" --tags "$roles"
     # The live output (callback_plugins/agent_warehouse.py): set, the run is drawn rather than streamed, under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
-    AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}${names:+ $(printf %s "$names" | tr , ' ')}"
+    AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
     export AGENT_WAREHOUSE_LIVE
     exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} ${check:+--check --diff} "$playbook"
 
@@ -619,7 +644,7 @@ login SIGN_IN='' *NAMES:
 # caught, since -e would end the script at it: its 2 would read as "not read".
 [arg('JSON', long='json', value='true', help='The report as JSON, alone on standard output, with the same exit code')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='Only these VMs; none reads every VM this project created')]
-[arg('ONLY', long='only', pattern='((vms|storage|access|sign-ins|system|work)(,(vms|storage|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage access sign-ins system work; vms,storage reads only the Proxmox API, never a VM')]
+[arg('ONLY', long='only', pattern='((vms|storage|capacity|access|sign-ins|system|work)(,(vms|storage|capacity|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM')]
 [doc('What every VM this project created is doing, and what needs doing next, read without changing anything')]
 [group('use')]
 [no-exit-message]

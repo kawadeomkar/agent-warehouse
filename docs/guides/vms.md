@@ -48,6 +48,30 @@ already serves your network assigns the address, exactly as it would for a lapto
 guest agent - baked into the template by `just deploy --only template` - reports that address back so Ansible can
 reach the VM and print it for you. The only address you ever type is your Proxmox host's.
 
+## Size
+
+Every VM is made the size the settings say - `vm_cores`, `vm_memory_mb` and `vm_disk_size` in `local.yml`, 2 cores,
+4 GiB and 32 GiB unless you change them - or the size you give it when it is created:
+
+```bash
+just deploy big --cores 8 --memory 16G --disk 128G
+```
+
+`--memory` is MiB, or takes `M` or `G`; `--disk` takes `G` or `T`. Each sizes every VM that run creates, and
+only one it creates: `just deploy` and `just deploy --only provision` take them, and a stage that creates nothing
+refuses them. A VM made that way is tagged `agent-warehouse-sized` in Proxmox, and its size is its own from then on:
+`just status` does not call it a difference from your settings, and a repair keeps it.
+
+A VM that exists is never resized. Given a size it does not have, the run refuses it, before anything about it
+changes, and goes on with the others; given the size it has, or none, it is left as it is. To resize one, change it
+in Proxmox (the VM's Hardware, then a restart), or destroy it and deploy it again.
+
+A size larger than the node it is created on - more cores than the node has CPU threads, more memory than it has -
+is refused before anything is created, where the API token may read the node. Whether the node has that much free
+beside the VMs it runs is yours to weigh: `just status --only capacity` says each node's threads and memory, how
+much is in use and free, and what its VMs hold. Reading a node needs the read-only `Sys.Audit` privilege, which the
+role `just init` makes has; for a token without it, capacity says how to add it, and the size is not checked.
+
 ## Memory
 
 Proxmox counts a VM's memory as used unless the VM reports it free, so the disk cache Linux keeps in idle
@@ -60,7 +84,8 @@ back - the VM's cache first - once the host's memory use passes its ballooning t
 runs the host changed it, and gives it back as that use falls. The target is a setting of the host, which
 this project never changes. Keep the minimum above what the VM runs at its busiest: past it, a VM with no
 swap has programs killed. Like the rest of a VM's hardware, it is applied when the VM is created
-([Re-running](#re-running)).
+([Re-running](#re-running)); with `--memory`, the minimum is `vm_memory_min_mb` where it is below the VM's memory,
+else all of it.
 
 Each VM also has less to hold. Its template is built from Ubuntu's minimal cloud image, `common` masks the
 services a headless VM has no use for (`common_masked_units`: fwupd, multipathd, ModemManager, udisks2,
@@ -82,6 +107,9 @@ in as each value is read; piped, or in `just logs`, only the finished report app
 - **STORAGE** - the storage your VMs' disks are on, how full it is and this project's share of it, and
   the template and when it was built, or that the next `just deploy` rebuilds it: it differs from what its
   settings would build, each difference said under ATTENTION.
+- **CAPACITY** - each node's CPU threads, how busy it is, and its memory in use and free; then what the VMs on it
+  hold, every VM's and not only this project's: the running ones' vCPUs and memory, and what the stopped ones would
+  take started. What a new VM's size is weighed against ([Size](#size)); without `Sys.Audit`, how to grant it.
 - **ACCESS** - each VM's LAN address, whether it has its SSH alias, and its tailnet name and address, then the
   `just code` line, named for the editor you set (`editor`).
 - **SIGN-INS** - Claude Code's version and whether it is signed in, Remote Control, gh's GitHub account,
@@ -108,9 +136,9 @@ renamed since is "not read", and status never takes its new key - `just deploy <
 does. It never runs `claude` there, so a stored login shows as signed in, without its plan.
 
 It exits 0 when nothing is wrong (things to do included), 1 for a problem, 2 when something could not be
-read, and 3 when the run itself failed. `--only` takes `vms`, `storage`, `access`, `sign-ins`, `system` and
-`work`, comma-separated; `--only vms,storage` asks Proxmox alone and never connects to a VM, the quick form for a
-scheduled check. `--json` prints the report as JSON, with the same values the text shows, for a script.
+read, and 3 when the run itself failed. `--only` takes `vms`, `storage`, `capacity`, `access`, `sign-ins`, `system`
+and `work`, comma-separated; `vms`, `storage` and `capacity` ask Proxmox alone and never connect to a VM, the quick
+form for a scheduled check. `--json` prints the report as JSON, with the same values the text shows, for a script.
 
 ## Re-running
 

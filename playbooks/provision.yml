@@ -131,6 +131,43 @@
         quiet: true
       when: claude_vm_nextid is not skipped
 
+    # A size this run gives (just deploy alpha --cores 8 --memory 16G) is held to the node the VMs are created on, where the
+    # token may read the node's CPU threads and memory (Sys.Audit, which just init's role has): a VM larger than its
+    # node could never start, and would be found out only once created. Whether the node has that much free beside
+    # the VMs it runs is the person's to weigh - just status --only capacity says what it holds - and a node the
+    # token cannot read is not checked here. Read only: a GET, its token in the header, so no_log.
+    - name: Read the node the VMs are created on, for this run's size
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/cluster/resources?type=node"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: claude_vm_size_node_read
+      no_log: true
+      failed_when: false
+      when: (vm_size | default({}, true)).cores is defined or (vm_size | default({}, true)).memory_mb is defined
+
+    - name: Refuse a size larger than the node
+      vars:
+        claude_vm_size_node: >-
+          {{ claude_vm_size_node_read.json.data | default([], true) | selectattr('node', 'equalto', proxmox_node)
+             | first | default({}, true) }}
+      ansible.builtin.assert:
+        that:
+          - vm_size.cores | default(0) | int <= claude_vm_size_node.maxcpu | int
+          - vm_size.memory_mb | default(0) | int * 1048576 <= claude_vm_size_node.maxmem | int
+        fail_msg: >-
+          {{ proxmox_node }} has {{ claude_vm_size_node.maxcpu }} CPU threads and
+          {{ '%.1f' | format(claude_vm_size_node.maxmem | int / 1073741824) }} GiB of memory: a VM of
+          {{ vm_size.cores | default(vm_cores | default(2)) }} cores and
+          {{ '%.1f' | format((vm_size.memory_mb | default(vm_memory_mb | default(4096)) | int) / 1024) }} GiB could
+          never start there, and none was created. just status --only capacity says what it holds and what is free.
+        quiet: true
+      when:
+        - claude_vm_size_node_read is not skipped
+        - claude_vm_size_node.maxcpu is defined
+        - claude_vm_size_node.maxmem is defined
+
     - name: Add each name as a host to provision
       ansible.builtin.add_host:
         name: "{{ claude_vm_name_item }}"
@@ -152,6 +189,10 @@
   hosts: claude_vm_pending
   gather_facts: false
   # proxmox_vm_name defaults to inventory_hostname, which is the VM name here.
+  # vm_size is this run's size for each VM it creates, from the sizes just
+  # deploy takes, as JSON on the command line.
+  vars:
+    proxmox_vm_size: "{{ vm_size | default({}, true) }}"
   roles:
     - role: proxmox_vm
 

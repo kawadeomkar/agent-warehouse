@@ -371,6 +371,11 @@ pytest over `tests/unit/`, file by file:
   only where just code wrote it. Their `just code` lines carry `--editor` where the run's editor is not the
   setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
   moves said under the home as `~`.
+- **A VM's size** (`test_vm_size.py`): `just deploy alpha --cores 8 --memory 16G --disk 64G` as JSON, refused where nothing is
+  created; against the fake, a VM created with the size and tagged sized, the same size again changing nothing,
+  another refused for a VM that exists, a repair keeping a sized VM's size, the settings' minimum memory under a
+  larger size, a size larger than the node refused before anything is created once the token may read the node;
+  no drift for a sized VM; the capacity section's figures and lines, and `just status` reading the node.
 - **The run lock** (`test_run_lock.py`): a second run that changes something refused, naming the holder; one that
   reads, or `--check`, not; a record whose process is gone, or was another, taken over, by one of the runs that
   start together alone, and an empty one, being written, never; a lock taken under one time zone held under another; a recipe inside the holder's takes none, and a child that outlives it holds nothing;

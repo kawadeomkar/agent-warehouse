@@ -43,7 +43,7 @@ over root SSH, lists what it has, and shows what the script would run there befo
 ```text
 just init can set up the API access this project uses on pve.lan, as root over SSH.
 It would run there, creating only what is missing:
-  pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,...,SDN.Use
+  pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,...,SDN.Use,Sys.Audit
   ...
 › yes
   no
@@ -78,13 +78,20 @@ ssh root@<proxmox-host> sh -s < tools/proxmox-access.sh                # run it
 On a fresh Proxmox VE 9 host with the defaults, it runs:
 
 ```text
-pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.PowerMgmt,VM.Audit,VM.GuestAgent.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use
+pveum role add AnsibleVM --privs VM.Allocate,VM.Clone,VM.Config.CPU,VM.Config.Cloudinit,VM.Config.Disk,VM.Config.Memory,VM.Config.Network,VM.Config.Options,VM.PowerMgmt,VM.Audit,VM.GuestAgent.Audit,Datastore.AllocateSpace,Datastore.Audit,SDN.Use,Sys.Audit
 pveum user add ansible@pve --comment agent-warehouse
 pveum acl modify /vms --users ansible@pve --roles AnsibleVM
 pveum acl modify /storage/local-lvm --users ansible@pve --roles AnsibleVM
 pveum acl modify /sdn/zones/localnetwork/vmbr0 --users ansible@pve --roles AnsibleVM
+pveum acl modify /nodes/pve --users ansible@pve --roles AnsibleVM
 pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse
 ```
+
+`Sys.Audit` on the node is read only: the node's CPU threads and memory, which `just status --only capacity` shows
+and a sized `just deploy` checks a VM's size against ([Size](../guides/vms.md#size)). Nothing else needs it, and a
+token without it works as before. A role made before it was added gets it with
+`pveum role modify AnsibleVM --append 1 --privs Sys.Audit` and `pveum acl modify /nodes/<node> --users ansible@pve
+--roles AnsibleVM`.
 
 It prints the token's secret last, once: give it to `just init`, which asks for it (or to
 `--token-secret-file`, [Your first deploy](first-deploy.md#without-a-terminal-or-scripted)).
@@ -103,7 +110,7 @@ Until tokens can be scoped to a Proxmox pool of each person's own, which a later
 
 - give each person a tag of their own, `claude_vm_tag: <tag>` in their `local.yml`, before their first deploy
   (VMs made under one tag are not found under another, and [User Tag Access](#user-tag-access) must allow the
-  tag and its `-unfinished` and `-tailscale` forms);
+  tag and its `-unfinished`, `-tailscale` and `-sized` forms);
 - name the VMs a run is for rather than running fleet-wide.
 
 That keeps each person's runs off the others' VMs by accident, but it does not stop someone who copies your tag
@@ -129,10 +136,12 @@ One datacenter setting can also block provisioning: if **Datacenter → Options 
 (a separate option from Tag Style) is set to `list` or `existing` rather than the default `free`, a
 non-root token cannot apply the `agent-warehouse` tag. Since that tag is how this project recognises its own
 VMs, provisioning fails or the VMs are created untagged and `just deploy --only configure` then finds nothing.
-Either leave the setting at `free`, or add `agent-warehouse`, `agent-warehouse-unfinished` and
-`agent-warehouse-tailscale` to the allowed list. The second marks a VM whose first run has not
-finished yet, and is removed once it has started. The third records that a VM has joined Tailscale, so
-the vault's auth key is never sent to it again; without it, configure says it could not write the record.
+Either leave the setting at `free`, or add `agent-warehouse`, `agent-warehouse-unfinished`,
+`agent-warehouse-tailscale` and `agent-warehouse-sized` to the allowed list. The second marks a VM whose first run
+has not finished yet, and is removed once it has started. The third records that a VM has joined Tailscale, so
+the vault's auth key is never sent to it again; without it, configure says it could not write the record. The fourth
+marks a VM created with a size of its own (`just deploy alpha --cores 8 --memory 16G`); without it, such a run
+fails at its settings call.
 
 ### What `just init` checks
 

@@ -306,6 +306,13 @@ def _disk_size(scsi0):
     return _size_bytes(match.group(1)) if match else None
 
 
+def proxmox_disk_bytes(value):
+    """A disk's size in bytes, from its property string (``local-lvm:vm-105-disk-0,size=32G``) or a size (``64G``);
+    0 when it says none."""
+    text = str(value or "")
+    return (_disk_size(text) if "size=" in text else _size_bytes(text)) or 0
+
+
 def proxmox_vm_drift(config, wanted):
     """How a VM's settings differ from what roles/proxmox_vm would send it: ``{hardware: [...], cloud_init: [...]}``.
 
@@ -314,10 +321,13 @@ def proxmox_vm_drift(config, wanted):
     proxmox_vm_force_update, so an edited vm_cores never reaches an existing VM by itself: this is how `just status`
     sees it. Hardware differences are ``{setting, wanted, has}``, the disk's size in bytes and only when it is
     smaller than asked, since the role grows a disk and never shrinks one; the cloud-init settings that differ are
-    named. A config not read gives no difference at all.
+    named. A config not read gives no difference at all. A VM sized when it was created (``wanted["sized"]``, its
+    tag) has a size of its own: its cores, memory and disk are no difference from the fleet's settings.
     """
     if not isinstance(config, dict) or not config or not isinstance(wanted, dict):
         return {"hardware": [], "cloud_init": []}
+    if wanted.get("sized"):
+        wanted = {key: value for key, value in wanted.items() if key not in ("cores", "memory", "balloon", "disk")}
     hardware = []
 
     def number(value):
@@ -458,4 +468,19 @@ def proxmox_template_drift(config, wanted):
         f"{field} {has[field] or 'unset'} → {wanted.get(field) or 'unset'}"
         for field in TEMPLATE_FIELDS
         if str(has[field]) != str(wanted.get(field) or "")
+    ]
+
+
+# The role just init's offer makes for the API token's user (tools/proxmox-access.sh).
+ACCESS_ROLE = "AnsibleVM"
+
+
+def proxmox_read_grant(node, user):
+    """How the API token comes to read a node's CPU threads and memory: Sys.Audit, read only, in the role just init's
+    offer makes, granted on the node, where Proxmox looks for it - the role alone is not enough where it is granted
+    elsewhere. The lines just status prints under the node, and an agent reads in its JSON."""
+    return [
+        f"to read them, give the token's role Sys.Audit, read-only (just init's is {ACCESS_ROLE}):",
+        f"pveum role modify {ACCESS_ROLE} --append 1 --privs Sys.Audit",
+        f"pveum acl modify /nodes/{node} --users {user or 'ansible@pve'} --roles {ACCESS_ROLE}",
     ]

@@ -113,21 +113,34 @@ argument_specs:
             ask Proxmox for one are handed the same. provision.yml sets one for
             every new VM of a fleet.
           - Declared raw so the role can validate it and report a helpful message.
+      proxmox_vm_size:
+        type: dict
+        default: {}
+        description:
+          - This run's size for a VM it creates, each part optional - cores, memory_mb, disk (as 64G) - in place of
+            proxmox_vm_cores, proxmox_vm_memory_mb and proxmox_vm_disk_size. Set by provision.yml from just deploy's
+            --cores, --memory and --disk.
+          - A VM created with one is tagged <ownership tag>-sized, its size its own from then on - just status calls no
+            difference from the size settings drift, and proxmox_vm_force_update keeps it. A VM that exists is refused
+            when it has another size, but under proxmox_vm_force_update, which applies it.
       proxmox_vm_cores:
         type: int
         default: 2
-        description: Defaults to the vm_cores host var, else 2.
+        description: Defaults to the vm_cores host var, else 2. proxmox_vm_size's takes its place for a VM this run creates.
       proxmox_vm_memory_mb:
         type: int
         default: 4096
-        description: Defaults to the vm_memory_mb host var, else 4096.
+        description:
+          - Defaults to the vm_memory_mb host var, else 4096. proxmox_vm_size's memory_mb takes its place for a VM this
+            run creates.
       proxmox_vm_memory_min_mb:
         type: int
         description:
           - The least memory the host may leave the VM (Proxmox's minimum memory, ballooning), from 1 to
             proxmox_vm_memory_mb. Below it, the host takes the difference back once its memory use passes the node's
             ballooning target. Defaults to the vm_memory_min_mb host var, else proxmox_vm_memory_mb, a fixed
-            allocation. Applied when the VM is created.
+            allocation. Under proxmox_vm_size's memory_mb, it stays where it is below proxmox_vm_memory_mb - and below
+            the size's memory - and is the size's memory where it is a fixed allocation. Applied when the VM is created.
       proxmox_vm_disk:
         type: str
         description: The root disk, as the template names it, resized to proxmox_vm_disk_size.
@@ -137,7 +150,8 @@ argument_specs:
         description:
           - Absolute root disk size with unit suffix (K, M, G, T). Applied when the VM is created or an unfinished one is
             repaired, and with proxmox_vm_force_update. Proxmox cannot shrink a disk, so a size below the current one
-            fails. Defaults to the vm_disk_size host var, else 32G.
+            fails. Defaults to the vm_disk_size host var, else 32G. proxmox_vm_size's disk takes its place for a VM this
+            run creates.
       proxmox_vm_onboot:
         type: bool
         description: Start the VM when its Proxmox node boots.

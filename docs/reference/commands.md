@@ -67,6 +67,9 @@ environment where `python3` is not it.
 | &emsp;`--check` | Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named) |
 | &emsp;`-t, --tags ROLES` | Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code) |
 | &emsp;`--start` | Start a VM this run would leave stopped (proxmox_vm_start_existing) |
+| &emsp;`--cores CORES` | Each new VM's vCPU cores, in place of the vm_cores setting |
+| &emsp;`--memory MEMORY` | Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting |
+| &emsp;`--disk DISK` | Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting |
 | &emsp;`<name>` | The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config |
 | `just code <name>` | Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
@@ -77,7 +80,7 @@ environment where `python3` is not it.
 | &emsp;`--only SIGN_IN` | One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private repositories) or tailscale (its web login) |
 | &emsp;`<name>` | The VMs to sign in, one after another; none reports every VM this project created |
 | `just status [<name>...]` | What every VM this project created is doing, and what needs doing next, read without changing anything |
-| &emsp;`--only ONLY` | Only these sections, comma-separated: vms storage access sign-ins system work; vms,storage reads only the Proxmox API, never a VM |
+| &emsp;`--only ONLY` | Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM |
 | &emsp;`--json` | The report as JSON, alone on standard output, with the same exit code |
 | &emsp;`<name>` | Only these VMs; none reads every VM this project created |
 | `just settings [<name>]` | Each setting's value and where it was set, for a role, a variable or all of them; --value sets one in local.yml, --reset puts it back |

@@ -87,7 +87,10 @@ and fails if one is offline. The header and CA path they send are `proxmox_api_h
 that header, so those tasks are `no_log`, and an assert after each reports a failed listing or
 VMID read by status and reason, without it. A `proxmox_vm_id` set for the whole run is refused here
 when more than one VM is new, before anything is created. A single new VM is left to Proxmox, as
-before.
+before. With a size given (`vm_size`, from `just deploy alpha --cores 8 --memory 16G --disk 64G`), play 1 reads
+`/cluster/resources?type=node` and refuses a size larger than `proxmox_node` - more cores than its CPU threads, more
+memory than it has - before anything is created, where the token may read the node (`Sys.Audit`); play 2 hands the
+size to the role as `proxmox_vm_size`.
 
 **Play 2 — create.** Runs `roles/proxmox_vm` across the placeholders so Ansible fans out over
 `forks` (20 in `ansible.cfg`; a larger fleet proceeds in waves of that size, or pass
@@ -468,8 +471,11 @@ root makes the modules there return what it likes; their warnings are printed th
 `tools/run-logged` with a report path of its own run in `STATUS_DIR` (`.cache/status/`, git-ignored and
 refused by `tests/check_no_local_files.sh`, since the report holds addresses), then `tools/status-exit`,
 which prints the report under `--json`, removes it and exits with its code. `--only` takes `vms`,
-`storage`, `access`, `sign-ins`, `system` and `work`; `--only vms,storage` reads the API alone and never
-opens SSH.
+`storage`, `capacity`, `access`, `sign-ins`, `system` and `work`; `vms`, `storage` and `capacity` read the API
+alone and never open SSH. Capacity is each node's CPU threads and memory from `/cluster/resources?type=node`, which
+Proxmox fills in only for a token with `Sys.Audit` on the node, beside what the VMs listed on it hold, running and
+stopped (`status_capacity`); without the privilege, the node's `grant` says how to give it to the token's user
+(`proxmox_api_user`), on the node: the lines the section prints, and an agent reads in `--json`.
 
 ## 4.7 `deploy.yml`
 

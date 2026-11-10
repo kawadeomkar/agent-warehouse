@@ -1,5 +1,27 @@
 ---
 # API connection parameters come from module_defaults in main.yml.
+
+# A VM that exists keeps its size: this run's (just deploy alpha --cores 8
+# --memory 16G) sizes a VM it creates, and one that exists with another is refused
+# before anything about it changes - never resized behind the run's back, and
+# never left as it was without a word. One that differs only by a larger disk
+# is the size asked for. A repair (proxmox_vm_force_update) applies it.
+- name: present | Refuse a size for a VM that exists with another
+  ansible.builtin.assert:
+    that: not (proxmox_vm_size_differs | bool)
+    fail_msg: >-
+      {{ proxmox_vm_name }} exists, with {{ proxmox_vm_found_config.cores | default('?') }} cores,
+      {{ proxmox_vm_found_config.memory | default('?') }} MiB of memory and a
+      {{ '%g' | format(((proxmox_vm_found_config.scsi0 | default('') | proxmox_disk_bytes) / 1073741824) | round(1)) }}
+      GiB disk. --cores, --memory and --disk size a VM this run creates, and change none that exists: give it the size
+      it has, or none. To resize it, change it in Proxmox (the VM's Hardware) and restart it, or destroy it and
+      deploy it again.
+    quiet: true
+  when:
+    - proxmox_vm_exists
+    - proxmox_vm_size_given | bool
+    - not (proxmox_vm_needs_configuration | bool)
+
 - name: present | Clone from template {{ proxmox_vm_template_name }}
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ proxmox_vm_node }}"
@@ -87,13 +109,15 @@
     vmid: "{{ proxmox_vm_resolved_id }}"
     name: "{{ proxmox_vm_name }}"
     update: true
-    cores: "{{ proxmox_vm_cores }}"
-    memory: "{{ proxmox_vm_memory_mb }}"
-    balloon: "{{ proxmox_vm_memory_min_mb }}"
+    # None for a sized VM repaired with no size given: it keeps the size it has (proxmox_vm_keep_size).
+    cores: "{{ omit if proxmox_vm_keep_size | bool else proxmox_vm_cores_sent }}"
+    memory: "{{ omit if proxmox_vm_keep_size | bool else proxmox_vm_memory_sent }}"
+    balloon: "{{ omit if proxmox_vm_keep_size | bool else proxmox_vm_memory_min_sent }}"
     onboot: "{{ proxmox_vm_onboot }}"
     agent: enabled=1
     # Written with the cloud-init user, in the same call, and removed below
-    # once the VM has started - see proxmox_vm_needs_configuration.
+    # once the VM has started - see proxmox_vm_needs_configuration. A VM sized
+    # by this run is tagged so here, with the size it is given.
     tags: "{{ proxmox_vm_sent_tags + proxmox_vm_kept_tags + [proxmox_vm_unfinished_tag] }}"
     ciuser: "{{ proxmox_vm_user }}"
     cipassword: "{{ proxmox_vm_password | default(omit, true) }}"
@@ -104,19 +128,22 @@
     searchdomains: "{{ proxmox_vm_searchdomain | default(omit, true) }}"
   when: proxmox_vm_needs_configuration | bool
 
-- name: present | Resize the root disk to {{ proxmox_vm_disk_size }}
+- name: present | Resize the root disk to {{ proxmox_vm_disk_size_sent }}
   community.proxmox.proxmox_disk: # noqa: args[module] - api_* come from module_defaults
     vmid: "{{ proxmox_vm_resolved_id }}"
     disk: "{{ proxmox_vm_disk }}"
-    size: "{{ proxmox_vm_disk_size }}"
+    size: "{{ proxmox_vm_disk_size_sent }}"
     state: resized
   # Same condition as the settings above, which includes a VM whose run died
   # at this resize or at the start below. Not on every run: proxmox_disk only
   # compares the size strings, so a size Proxmox writes back in other units
   # (1024G is stored as 1T) would resize, and report a change, every time, and
   # a disk someone has since grown by hand would fail every run, because
-  # Proxmox cannot shrink one.
-  when: proxmox_vm_needs_configuration | bool
+  # Proxmox cannot shrink one. A sized VM repaired with no size given keeps
+  # the disk it has.
+  when:
+    - proxmox_vm_needs_configuration | bool
+    - not (proxmox_vm_keep_size | bool)
 
 # Only start a VM this run created or repaired. Re-running provision against
 # a fleet should not boot a VM someone deliberately shut down.

@@ -791,7 +791,7 @@ SET_UP = {
     "users": {"root@pam": {}, "ansible@pve": {}},
     "acls": [
         {"path": path, "ugid": "ansible@pve", "roleid": "AnsibleVM", "propagate": 1, "type": "user"}
-        for path in ("/vms", "/storage/local-lvm", "/sdn/zones/localnetwork/vmbr0")
+        for path in ("/vms", "/storage/local-lvm", "/sdn/zones/localnetwork/vmbr0", "/nodes/pve")
     ],
     "tokens": {"ansible@pve!ansible": {"privsep": 0}},
 }
@@ -808,7 +808,7 @@ def test_y_sets_up_the_access_and_the_vault_takes_the_tokens_secret(tmp_path: Pa
     assert "pveum user token add ansible@pve ansible --privsep 0 --comment agent-warehouse" in output
     state = _pve_cli_state(host)
     assert state["roles"]["AnsibleVM"] == ROLE and state["tokens"]["ansible@pve!ansible"]["privsep"] == 0
-    assert len(_pve_cli_writes(host)) == 6
+    assert len(_pve_cli_writes(host)) == 7
     # The secret it made is the vault's, never asked for, said or logged.
     assert SECRET_PROMPT.decode() not in output
     assert _decrypt(files) == _example("init_vault_file").replace(
