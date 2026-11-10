@@ -322,9 +322,9 @@ unless chosen ([A VPN only when chosen](#a-vpn-only-when-chosen)), so the next `
 Tailscale's unless `local.yml` sets `vpn: tailscale`, and `just deploy --check` beforehand says what would be
 installed. A VM where you installed Tailscale yourself is left exactly as it is either way.
 
-The next `just init` asks whether to use Tailscale of a checkout whose `local.yml` sets neither `vpn` nor
-`tailscale_enabled`: `y` writes `vpn: tailscale`, `n` writes `vpn: none` - which takes Tailscale off no VM - and
-Enter leaves it unanswered, and none.
+The next `just init` asks which VPN, `none` or `tailscale`, of a checkout whose `local.yml` sets neither `vpn` nor
+`tailscale_enabled`, and writes the answer as `vpn` - `none` takes Tailscale off no VM. Left unanswered (Esc at the
+menu, Enter when typed), it is none.
 
 ## Adopting VMs created before tagging
 
