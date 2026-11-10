@@ -1096,9 +1096,14 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   own with the signals at their defaults - which runs the recipe in a process group of its own and writes
   `.cache/mcp/jobs/<id>/` (0700, the ID random hex): `job.json`, what ran and how it ended, and `output.txt`, what it
   printed through `visible_text`. Any server, this session's or a later one's, follows a job there. A job is running
-  while its supervisor's pid runs the process of the start it recorded, never by pid alone, and jobs are pruned
-  after `LOG_RETENTION_DAYS`, as the logs are. A stop is SIGINT to the run's group, as a terminal's Ctrl-C, and the
-  whole tree ended through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group.
+  while its supervisor's pid runs the process of the start it recorded, never by pid alone - a start read as
+  `tools/check lock` reads one, in C and UTC with its spaces collapsed - and jobs are pruned after
+  `LOG_RETENTION_DAYS`, as the logs are. The server and the supervisor both write `job.json`, so each write is made
+  under a lock (`job.lock`). A stop is SIGINT to the run's group, as a terminal's Ctrl-C, and the whole tree ended
+  through `proc.py` 30 s later if it is still there: ansible-core's task workers leave the group. A stop that comes
+  before the run has a pid is recorded, and the supervisor sends it once the run has one: both write under the lock,
+  so exactly one of them finds the stop and the pid. `cancel` follows the job from where its output ends, so a
+  browser block an earlier call returned is not taken for the run waiting again.
 - **`runs.py`: the call follows its job.** Each line the run prints goes as `notifications/progress`, which Claude
   Code shows the person under the running call (never the model), with a line a minute while the run is silent, which
   also keeps Claude Code's idle limit from ending the call. The call returns at the run's end, after `wait_seconds`,

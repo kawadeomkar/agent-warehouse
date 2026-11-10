@@ -146,17 +146,50 @@ def test_the_call_returns_at_a_wait_for_the_user_and_job_follows_the_run_to_its_
 
 
 def test_a_job_outlives_its_server_and_cancel_stops_it_as_ctrl_c(world):
-    _behave(world, "trap 'echo interrupted; exit 130' INT\necho started\nwhile :; do sleep 0.2; done\n")
-    _, (running,) = _talk(world, [("deploy", {"names": ["alpha"], "wait_seconds": 2})])
-    assert "still running" in _text(running)
-    job_id = _text(running).split("job ")[1].split()[0]
+    block = "\n".join(f'echo "{line}"' for line in BLOCK)
+    _behave(world, f"trap 'echo interrupted; exit 130' INT\necho started\n{block}\necho\nwhile :; do sleep 0.2; done\n")
+    _, (waiting,) = _talk(world, [("deploy", {"names": ["alpha"], "wait_seconds": 30})])
+    assert "waiting for the user in the browser" in _text(waiting)
+    job_id = _job_id(waiting)
     time.sleep(1)
     # The first server is gone with its connection; the job is not.
     found = jobs.find(world["checkout"], job_id)
     assert found.state() == "running"
     _, (listed, stopped) = _talk(world, [("jobs", {}), ("cancel", {"id": job_id})])
     assert job_id in _text(listed) and "running" in _text(listed)
-    assert "interrupted" in _text(stopped) and found.state() == "stopped"
+    # The stop's result: what the run printed as it stopped, never the browser block an earlier call returned.
+    text = _text(stopped)
+    assert "interrupted" in text and found.state() == "stopped", text
+    assert "waiting for the user" not in text and BLOCK[3] not in text and "started" not in text
+
+
+def test_a_stop_before_the_run_has_a_pid_is_sent_once_it_has_one(tmp_path):
+    # The supervisor loads the server before it starts the run: a person's Esc in that second found no pid to signal.
+    job = jobs.Job(tmp_path / "job")
+    job.folder.mkdir()
+    job.output.touch()
+    job.write({"id": "job", "argv": ["sleep", "60"], "started": time.time()})
+    jobs.stop(job, "user-cancel")
+    assert "pid" not in job.read()
+    subprocess.run(
+        [sys.executable, "-I", str(SERVER), f"--supervise={job.folder}"], cwd=tmp_path, timeout=30, check=True
+    )
+    assert job.state() == "stopped" and job.read()["exit"] != 0
+
+
+def test_the_server_s_and_the_supervisor_s_writes_are_never_lost_to_each_other(tmp_path):
+    job = jobs.Job(tmp_path / "job")
+    job.folder.mkdir()
+    job.write({})
+    writer = (
+        "import sys; from pathlib import Path; from claude_vm.mcp.jobs import Job\n"
+        "job = Job(Path(sys.argv[1]))\n"
+        "for i in range(100): job.update(**{f'{sys.argv[2]}{i}': i})\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(Path(jobs.__file__).resolve().parents[2])}
+    writers = [subprocess.Popen([sys.executable, "-c", writer, str(job.folder), name], env=env) for name in "ab"]
+    assert [each.wait(timeout=60) for each in writers] == [0, 0]
+    assert set(job.read()) == {f"{name}{i}" for name in "ab" for i in range(100)}
 
 
 def test_a_branch_or_a_held_lock_is_refused_before_anything_runs(world):
@@ -170,10 +203,11 @@ def test_a_branch_or_a_held_lock_is_refused_before_anything_runs(world):
     assert refused.is_error and "just mcp --any-branch" in _text(refused)
     holder = subprocess.Popen(["sleep", "60"])
     try:
-        since = jobs.started(holder.pid)
+        # Taken as a terminal's run takes it, in another zone than the server's.
         lock = co / ".cache" / "run.lock"
         lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.write_text(f"{holder.pid}\n{since}\ndeploy beta\n\n")
+        check = [str(co / "tools" / "check"), "lock", str(lock), str(holder.pid), "deploy beta"]
+        subprocess.run(check, env={**os.environ, "TZ": "XYZ-5:30"}, check=True)
         _behave(world, "echo ran\n")
         _, (busy,) = _talk(world, [("login", {"names": ["alpha"]})])
         assert busy.is_error and "just deploy beta is running" in _text(busy)

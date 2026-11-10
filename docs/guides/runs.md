@@ -139,12 +139,13 @@ projects](agents.md)): two deploys at once could take the same VM ID, and runs s
 one is refused before it does anything, naming what holds the lock:
 
 ```
-error: just deploy beta is running (pid 51234, started Sun Nov  8 14:02:10 2026): one run that changes something at
-a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing.
+error: just deploy beta is running (pid 51234, started Sun Nov 8 14:02:10 2026 UTC): one run that changes something
+at a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing.
 ```
 
-The lock is a record in `.cache/run.lock` of the run that holds it, which is free again the moment that run's process
-is gone, however it ended - never after a time. `just status`, `just settings`, `just logs` and `just deploy --check`
+The lock is a record in `.cache/run.lock` of the run that holds it - its process, and that process's start as `ps`
+says it in UTC, so a terminal and an agent in other time zones or languages read one run alike - which is free again
+the moment that run's process is gone, however it ended - never after a time. `just status`, `just settings`, `just logs` and `just deploy --check`
 take none, and `just clean` keeps `.cache/` while a run holds it. `just RUN_LOCK= deploy` takes none, at your own
 risk.
 

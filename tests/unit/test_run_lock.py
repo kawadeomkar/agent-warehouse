@@ -2,9 +2,9 @@
 
 deploy (but --check), login, code, destroy, init and install take it, as the first line after their rules, through
 tools/check lock: a record of the recipe's script - its pid, which the script keeps as it execs into the run, that
-process's start and the run's title - written O_EXCL. It is the holder's while that pid runs the process of that start,
-and taken over once it does not, never by age; a recipe run inside the holder's takes none; nothing is an fd lock a
-child could inherit. just clean refuses while a live run holds it.
+process's start, in C and UTC, and the run's title - written O_EXCL. It is the holder's while that pid runs the process
+of that start, and taken over once it does not, never by age; a recipe run inside the holder's takes none; nothing is an
+fd lock a child could inherit. just clean refuses while a live run holds it.
 
 These run the real just against test_justfile.py's stand-ins, the lock in tmp_path (RUN_LOCK=); the lock is off in
 every other test of a recipe, which would otherwise take turns in this checkout's .cache.
@@ -84,7 +84,11 @@ def _record(path: Path, pid: int, since: str, title: str = "deploy gamma") -> No
 
 
 def _started(pid: int) -> str:
-    return subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    """A start as tools/check lock writes it: in C and UTC, its spaces collapsed."""
+    env = {**os.environ, "LC_ALL": "C", "TZ": "UTC0"}
+    return " ".join(
+        subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, env=env).stdout.split()
+    )
 
 
 def test_a_record_whose_process_is_gone_or_was_another_is_taken_over(tmp_path):
@@ -108,6 +112,29 @@ def test_a_record_whose_process_is_gone_or_was_another_is_taken_over(tmp_path):
     finally:
         other.kill()
         other.wait()
+
+
+def test_a_lock_is_held_whatever_the_zone_and_language_of_the_run_that_reads_it(tmp_path):
+    # ps says a start in local time and the locale's words, which a terminal and an agent's run need not share: the MCP
+    # server passes the session's LANG on, and no TZ. Read as they read it, a held lock was free to the other.
+    lock = tmp_path / "run.lock"
+    holder = subprocess.Popen(["sleep", "60"])
+    try:
+        taken = subprocess.run(
+            [str(CHECK), "lock", str(lock), str(holder.pid), "deploy"],
+            env={**os.environ, "TZ": "XYZ-5:30", "LC_ALL": "C"},
+            capture_output=True,
+            text=True,
+        )
+        assert taken.returncode == 0, taken.stderr
+        assert lock.read_text().splitlines()[1] == _started(holder.pid)
+        for zone in ("UTC0", "ABC+11"):
+            env = {**os.environ, "TZ": zone, "LANG": "C.UTF-8"}
+            unheld = subprocess.run([str(CHECK), "unheld", str(lock)], env=env, capture_output=True, text=True)
+            assert unheld.returncode != 0 and "just deploy is running" in unheld.stderr, unheld.stderr
+    finally:
+        holder.kill()
+        holder.wait()
 
 
 def test_a_recipe_inside_the_holder_s_takes_none_and_a_child_that_outlives_it_holds_nothing(tmp_path):

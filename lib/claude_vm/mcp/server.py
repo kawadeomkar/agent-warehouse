@@ -376,8 +376,11 @@ def tools(server: Server) -> list[Tool]:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
         if found.state() != "running":
             return text_result(f"{server.head()} · job {id}", f"It is not running: {found.state()}.")
+        # Followed from where its output ends now: what it printed before - a browser block among it - is the earlier
+        # calls' to say.
+        _, end = found.text(0)
         jobs.stop(found, "cancel")
-        return await server.follow(found, 0, 45, ctx)
+        return await server.follow(found, end, 45, ctx)
 
     described = {
         "status": "Read-only: start here. Every VM, its checkouts (the work section), and what needs doing next. "

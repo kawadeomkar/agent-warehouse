@@ -10,6 +10,7 @@ there. A job is running while its supervisor's pid still runs the process of the
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import json
 import os
 import secrets
@@ -21,6 +22,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from claude_vm.desktop import PS_ENV
 from claude_vm.text import visible_text
 
 ID_HEX = 16
@@ -33,9 +35,14 @@ def jobs_dir(checkout: Path) -> Path:
 
 
 def started(pid: int) -> str:
-    """A process's start as ps says it, or "" when there is none: with its pid, what tells it from a later one."""
-    out = subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, check=False)
-    return out.stdout.strip()
+    """A process's start as ps says it, or "" when there is none: with its pid, what tells it from a later one. Read in
+    C and UTC, its spaces collapsed, as tools/check lock writes it: in the reader's locale and zone, or with the padding
+    macOS's ps adds, one process's start would read as two (desktop.PS_ENV). ps gets nothing else of the environment,
+    which the server reads only through environment.py; it is found on the default path."""
+    out = subprocess.run(
+        ["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, check=False, env=PS_ENV
+    )
+    return " ".join(out.stdout.split())
 
 
 @dataclass
@@ -57,12 +64,19 @@ class Job:
             return {}
 
     def write(self, record: dict) -> None:
-        scratch = self.folder / "job.json.tmp"
+        # A scratch file of this process's own: two writers never replace each other's.
+        scratch = self.folder / f"job.json.{os.getpid()}.tmp"
         scratch.write_text(json.dumps(record))
         os.replace(scratch, self.folder / "job.json")
 
-    def update(self, **fields) -> None:
-        self.write(self.read() | fields)
+    def update(self, **fields) -> dict:
+        """fields written into the record, and the record as written. Under a lock: the server and the supervisor both
+        write it, and a write between another's read and its write would be lost."""
+        with open(self.folder / "job.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            record = self.read() | fields
+            self.write(record)
+        return record
 
     def state(self) -> str:
         """running, ok, failed, stopped, or gone: a supervisor that ended without saying how the run did."""
@@ -156,7 +170,10 @@ def supervise(folder: Path) -> int:
         process_group=0,
         preexec_fn=default_signals,
     )
-    job.update(pid=run.pid, since=started(run.pid))
+    record = job.update(pid=run.pid, since=started(run.pid))
+    # A stop that came before the run had a pid had nothing to signal, and left it to this (stop()).
+    if record.get("stopped"):
+        interrupt(record)
     with open(job.output, "a", encoding="utf-8") as out:
         assert run.stdout is not None
         for raw in run.stdout:
@@ -168,10 +185,14 @@ def supervise(folder: Path) -> int:
 
 
 def stop(job: Job, reason: str) -> None:
-    """A person's stop: SIGINT to the run's group, as a terminal's Ctrl-C; the whole tree ended after STOP_GRACE if it
-    is still there - ansible-core's task workers leave the group (custom-code.md §7.10)."""
-    record = job.read()
-    job.update(stopped=reason)
+    """A person's stop, recorded, and sent to the run when it has a pid; before then, the supervisor sends it once it
+    has one. Both write the record under its lock, so exactly one of the two finds both the stop and the pid."""
+    interrupt(job.update(stopped=reason))
+
+
+def interrupt(record: dict) -> None:
+    """SIGINT to the record's run's group, as a terminal's Ctrl-C, while it is the process of its start; the whole tree
+    ended after STOP_GRACE if it is still there - ansible-core's task workers leave the group (custom-code.md §7.10)."""
     pid, since = record.get("pid"), record.get("since")
     if not pid or started(pid) != since:
         return
@@ -186,7 +207,7 @@ def stop(job: Job, reason: str) -> None:
     )
 
 
-# Run detached by stop(): after STOP_GRACE, the run's whole tree, read before anything is signalled, if its root is
+# Run detached by interrupt(): after STOP_GRACE, the run's whole tree, read before anything is signalled, if its root is
 # still the process of its start.
 _END_LATER = f"""
 import signal, sys, time

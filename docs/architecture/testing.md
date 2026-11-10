@@ -371,11 +371,14 @@ pytest over `tests/unit/`, file by file:
   setting's, in both directions. They list every row of `playbooks/vars/controller_writes.yml`, a place a setting
   moves said under the home as `~`.
 - **The run lock** (`test_run_lock.py`): a second run that changes something refused, naming the holder; one that
-  reads, or `--check`, not; a record whose process is gone, or was another, taken over; a recipe inside the holder's
-  takes none, and a child that outlives it holds nothing; `just clean` refuses while it is held.
+  reads, or `--check`, not; a record whose process is gone, or was another, taken over; a lock taken under one time
+  zone held under another; a recipe inside the holder's takes none, and a child that outlives it holds nothing;
+  `just clean` refuses while it is held.
 - **The MCP server's runs** (`test_mcp_jobs.py`): a run as a job, its argv and `ATTENDED`, the call returning at a
-  browser block and `job` following to the end without it, a job outliving its server, `cancel` as Ctrl-C, a branch
-  and a held lock refused, `install` refused to another client; a person's stop told from the other cancellations.
+  browser block and `job` following to the end without it, a job outliving its server, `cancel` as Ctrl-C, saying
+  the stop and no earlier block, a stop before the run has a pid sent once it has one, the server's and the
+  supervisor's writes never lost to each other, a branch and a held lock refused, `install` refused to another client;
+  a person's stop told from the other cancellations.
 - **The MCP server** (`test_mcp_tools.py`, `test_mcp_server.py`, `test_mcp_register.py`): every recipe and option a
   tool's or left out for a reason, each schema valid and anchored as `just` matches, every `env()` setting given on
   `just`'s command line at its default; the server driven over stdio by the SDK's client against a copy of the

@@ -115,15 +115,22 @@ lock | unheld)
   # empty <file> is no lock (RUN_LOCK=).
   file=$2
   [ -n "$file" ] || exit 0
+  # A process's start as ps says it, in C and UTC with its spaces collapsed:
+  # read in the locale and zone of the run that reads it, or with the padding
+  # macOS's ps adds, one process's start would read as two, and a held lock
+  # as free. The MCP server reads it alike (jobs.started).
+  start_of() {
+    LC_ALL=C TZ=UTC0 ps -o lstart= -p "$1" 2>/dev/null | awk '{ $1 = $1; print }'
+  }
   # A record's holder, when that process still runs: its pid, its start and the run's title, one per line.
   holder() {
     [ -f "$file" ] || return 1
     pid=$(sed -n 1p "$file") since=$(sed -n 2p "$file") title=$(sed -n 3p "$file") job=$(sed -n 4p "$file")
     case "$pid" in '' | *[!0123456789]*) return 1 ;; esac
-    [ -n "$since" ] && [ "$(ps -o lstart= -p "$pid" 2>/dev/null)" = "$since" ]
+    [ -n "$since" ] && [ "$(start_of "$pid")" = "$since" ]
   }
   busy() {
-    echo "error: just $title is running (pid $pid, started $since${job:+, MCP job $job}): one run that changes something at a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing." >&2
+    echo "error: just $title is running (pid $pid, started $since UTC${job:+, MCP job $job}): one run that changes something at a time, from a terminal or an agent. Wait for it to end; just status says what the VMs are doing." >&2
     exit 1
   }
   if [ "$1" = unheld ]; then
@@ -131,7 +138,7 @@ lock | unheld)
     exit 0
   fi
   me=$3 title_given=$4
-  since_given=$(ps -o lstart= -p "$me" 2>/dev/null)
+  since_given=$(start_of "$me")
   mkdir -p "$(dirname "$file")"
   for attempt in 1 2 3; do
     if (set -C; printf '%s\n%s\n%s\n%s\n' "$me" "$since_given" "$title_given" "${AGENT_WAREHOUSE_JOB:-}" > "$file") 2>/dev/null; then
