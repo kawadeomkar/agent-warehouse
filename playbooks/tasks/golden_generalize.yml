@@ -1,0 +1,141 @@
+---
+# The build VM made a VM of no one, before it becomes a golden template
+# (docs/architecture/lifecycle.md §4.14): its first-boot upgrade checked, every
+# identity it holds deleted, nothing signed in left, and cloud-init made to run
+# afresh on each clone. In the toolchain digest (lib/claude_vm/golden.py), so a
+# scrub made safer makes a new golden. Run as root on the build VM.
+
+# What every clone's first boot runs (Proxmox's ciupgrade: apt update, upgrade
+# and snap refresh). A baked change that breaks it - as masked snapd units did -
+# fails the build here, not every deploy from the golden.
+- name: golden_generalize | Run what a clone's first boot will
+  ansible.builtin.command:
+    argv: [cloud-init, single, --name, package_update_upgrade_install, --frequency, always]
+  changed_when: true
+  when: claude_vm_golden_container is not defined
+
+- name: golden_generalize | Stop what holds an identity
+  ansible.builtin.systemd_service:
+    name: "{{ golden_generalize_unit }}"
+    state: stopped
+  loop: [tailscaled, docker.socket, docker, containerd]
+  loop_control:
+    loop_var: golden_generalize_unit
+  failed_when: false
+  when: claude_vm_golden_container is not defined
+
+- name: golden_generalize | Read the VM user's home
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ vm_user }}"
+
+# Not this task's own module, which Ansible unpacks in /tmp as ansible_* and
+# which removes it as it ends: deleted under it, the task fails.
+- name: golden_generalize | Delete each identity and trace
+  ansible.builtin.shell:
+    cmd: >-
+      rm -rf /var/lib/tailscale/* /var/lib/docker/engine-id /etc/docker/key.json /var/lib/systemd/random-seed
+      "$HOME_DIR/.claude.json" "$HOME_DIR/.claude" "$HOME_DIR/.cache" "$HOME_DIR/.ssh/authorized_keys"
+      "$HOME_DIR/.bash_history" /root/.bash_history /root/.ssh/authorized_keys /var/lib/apt/lists/*;
+      find /tmp /var/tmp -mindepth 1 -maxdepth 1 ! -name 'ansible_*' -exec rm -rf {} +;
+      if [ -f /var/lib/dbus/machine-id ] && [ ! -L /var/lib/dbus/machine-id ]; then rm -f /var/lib/dbus/machine-id; fi
+  environment:
+    HOME_DIR: "{{ ansible_facts.getent_passwd[vm_user][4] }}"
+  changed_when: true
+
+- name: golden_generalize | Empty apt's download cache
+  ansible.builtin.apt:
+    clean: true
+
+- name: golden_generalize | Empty the journal
+  ansible.builtin.command:
+    argv: [journalctl, --rotate, --vacuum-time=1s]
+  changed_when: true
+  failed_when: false
+
+- name: golden_generalize | Empty the logs
+  ansible.builtin.command:
+    argv: [find, /var/log, -type, f, -name, "*.log", -exec, truncate, -s, "0", "{}", +]
+  changed_when: true
+
+- name: golden_generalize | Look for anything signed in
+  ansible.builtin.find:
+    paths:
+      - "{{ ansible_facts.getent_passwd[vm_user][4] }}"
+      - "{{ ansible_facts.getent_passwd[vm_user][4] }}/.ssh"
+      - /root
+      - /root/.ssh
+      - "{{ ansible_facts.getent_passwd[vm_user][4] }}/.config/gh"
+      - "{{ ansible_facts.getent_passwd[vm_user][4] }}/.claude"
+      - "{{ ansible_facts.getent_passwd[vm_user][4] }}/.config/agent-warehouse"
+      - /var/lib/agent-warehouse
+      - /var/lib/tailscale
+      - /etc/systemd/system
+    patterns: ["*"]
+    file_type: any
+    hidden: true
+    recurse: false
+  register: golden_generalize_found
+
+# A sign-in, a joined node or a Remote Control unit in an image would be every
+# clone's. The keys and history are looked for too: the play ignores an unreachable
+# VM, so a deletion lost to a dropped connection is only seen by what it left.
+- name: golden_generalize | Fail when anything signed in is left
+  vars:
+    golden_generalize_signed_in:
+      - /\.ssh/authorized_keys$
+      - /\.bash_history$
+      - /\.claude\.json$
+      - /\.config/gh/hosts\.yml$
+      - /\.claude/\.credentials\.json$
+      - /\.claude/settings\.json$
+      - /\.config/agent-warehouse/gh-login$
+      - ^/var/lib/agent-warehouse/tailscale-joined$
+      - ^/etc/systemd/system/[^/]*claude[^/]*remote
+      - ^/var/lib/tailscale/
+    golden_generalize_left: >-
+      {{ golden_generalize_found.files | map(attribute='path')
+         | select('search', golden_generalize_signed_in | join('|')) | list }}
+  ansible.builtin.assert:
+    that: golden_generalize_left | length == 0
+    fail_msg: "The image still holds {{ golden_generalize_left | join(', ') }}: it is not made a golden template."
+    quiet: true
+
+# The disk is discard=on: a golden's unused blocks would be copied by every full
+# clone. Not in a container, whose / is overlayfs.
+- name: golden_generalize | Hand the free blocks back
+  ansible.builtin.command:
+    argv: [fstrim, -v, /]
+  changed_when: true
+  failed_when: false
+  when: claude_vm_golden_container is not defined
+
+# Each clone is a new instance, which makes its own host keys and network
+# config. --configs is newer than Debian 12's cloud-init (22.4.2), which refuses
+# it; what that one leaves, a clone's first boot writes over.
+- name: golden_generalize | Make cloud-init run afresh on each clone
+  ansible.builtin.shell:
+    cmd: >-
+      case "$(cloud-init clean --help)" in *--configs*) set -- --configs network;; esac;
+      cloud-init clean --logs --seed --machine-id "$@"
+  changed_when: true
+  when: claude_vm_golden_container is not defined
+
+# Debian 12's cloud-init deletes the file where newer ones reset it, and systemd
+# will not boot a read-only root without one. Only where it is gone.
+- name: golden_generalize | Put back the machine-id an older cloud-init deleted
+  ansible.builtin.copy:
+    content: "uninitialized\n"
+    dest: /etc/machine-id
+    owner: root
+    group: root
+    mode: "0444"
+    force: false
+  when: claude_vm_golden_container is not defined
+
+# Last: once the host keys are gone no new SSH session opens.
+- name: golden_generalize | Delete the host keys
+  ansible.builtin.shell:
+    cmd: rm -f /etc/ssh/ssh_host_*
+  register: golden_generalize_done
+  changed_when: true

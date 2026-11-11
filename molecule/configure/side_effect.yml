@@ -74,7 +74,7 @@
           - not side_effect_status_ssh.github.signed_in
           - not side_effect_status_ssh.github.unchecked
           - side_effect_status_ssh.tailscale.case == 'Running'
-          - side_effect_status_ssh.system.os is match('^Ubuntu 24[.]04')
+          - side_effect_status_ssh.system.os is match('^(Ubuntu 24[.]04|Debian GNU/Linux 12)')
           - side_effect_status_ssh.system.upgrades is number
           - side_effect_status_ssh.unread.values() | select | list == []
           # The two sign-ins to make, in the roles' own words, and nothing else wrong.

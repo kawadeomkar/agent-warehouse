@@ -462,7 +462,8 @@ def test_a_clone_failure_after_the_device_flow_names_the_repository_and_how_to_r
     assert report["rc"] != 0
     message = _standing(report)["delta"]
     assert message.startswith("Fail where the work after the sign-in failed: "), message
-    assert 'configuring its GitHub repositories failed at "clone | Clone repositories"' in message, message
+    failed_at = 'configuring its GitHub repositories failed at "clone | Fail when a repository could not be cloned"'
+    assert failed_at in message, message
     assert f"{USERNAME}/gone" in message and f"{USERNAME}/pub" not in message, message
     assert "just deploy delta --tags github_projects" in message, message
 

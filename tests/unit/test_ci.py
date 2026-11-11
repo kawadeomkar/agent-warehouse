@@ -98,6 +98,13 @@ def test_every_scenario_runs_the_one_image_pinned_by_digest():
     assert IMAGE.fullmatch(image), image
 
 
+def test_the_debian_job_runs_the_vpn_and_editor_roles_on_debian_pinned_by_digest():
+    debian = JOBS["debian"]
+    assert re.fullmatch(r"geerlingguy/docker-debian12-ansible@sha256:[0-9a-f]{64}", debian["env"]["MOLECULE_IMAGE"])
+    assert debian["strategy"]["matrix"]["role"] == ["tailscale", "vscode_server"]
+    assert [step["run"] for step in debian["steps"] if "run" in step] == ["just test --role ${{ matrix.role }}"]
+
+
 def test_the_canary_runs_the_pinned_image_unpinned():
     (image,) = {image for each in _molecule_images().values() for image in each}
     assert JOBS["canary"]["env"]["MOLECULE_IMAGE"] == IMAGE.fullmatch(image)["repository"] + ":latest"

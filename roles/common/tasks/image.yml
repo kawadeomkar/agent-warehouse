@@ -1,0 +1,31 @@
+---
+# What a golden template carries of this role: what is the same on every VM of
+# one key, and nothing a VM is told apart by. Left to configure, which runs every
+# task on a VM cloned from the image all the same: the hostname, the keys, sudo,
+# the PATH drop-in for ssh commands (it reads the connection's address), and the
+# masked units - baked in, the masked snapd failed every clone's first-boot
+# upgrade at `snap refresh`, and configure then refused each one.
+- name: image | Move this role's files from their 1.x names
+  ansible.builtin.include_tasks: names.yml
+
+- name: image | Configure apt, and bring the packages up to date
+  ansible.builtin.include_tasks: apt.yml
+
+- name: image | Set the timezone
+  ansible.builtin.include_tasks: timezone.yml
+
+- name: image | Create the user
+  ansible.builtin.include_tasks: user.yml
+
+- name: image | Harden sshd, or take the hardening away
+  ansible.builtin.include_tasks: sshd.yml
+
+- name: image | Put ~/.local/bin on PATH for all users
+  ansible.builtin.include_tasks: profile.yml
+
+- name: image | Write the tmux settings
+  ansible.builtin.include_tasks: tmux.yml
+
+- name: image | Enable and start services
+  ansible.builtin.include_tasks: services.yml
+  when: ansible_facts['service_mgr'] == 'systemd'

@@ -1,0 +1,17 @@
+---
+# Timezone is set through the files rather than community.general.timezone so
+# it also works in containers without timedatectl/dbus.
+- name: timezone | Set timezone
+  ansible.builtin.file:
+    src: "/usr/share/zoneinfo/{{ common_timezone }}"
+    dest: /etc/localtime
+    state: link
+    force: true
+
+- name: timezone | Record timezone name
+  ansible.builtin.copy:
+    content: "{{ common_timezone }}\n"
+    dest: /etc/timezone
+    owner: root
+    group: root
+    mode: "0644"

@@ -200,7 +200,9 @@ apt: { update_cache: "{{ dev_tools_docker_repo.changed }}" }        # refresh on
 **Signing keys are vendored** in `roles/dev_tools/files/`, so a swapped download endpoint cannot
 supply its own key. **uv is pinned by version and SHA-256 per architecture**, with the digests stored
 in `defaults/main.yml` rather than fetched alongside the archive, so a compromised release endpoint
-cannot swap both. Node.js is apt-pinned to NodeSource over the distro package.
+cannot swap both. Its download waits a minute and is tried three times more, since GitHub's release downloads
+fail now and then: two deploys in four did so in one outage. Node.js is apt-pinned to NodeSource over the distro
+package.
 
 **Rust, where `dev_tools_install_rust` turns it on, comes from rustup, never Ubuntu's `rustc` and
 `cargo`.** Noble's `rustup` package conflicts with
@@ -614,7 +616,18 @@ under `sudo -H`, so git reads that user's `~/.gitconfig` and the helper reads th
 `hosts.yml`, with `GIT_TERMINAL_PROMPT=0` so a repository the credential cannot reach fails with
 "terminal prompts disabled" and its name instead of git's attempt to prompt. For SSH clones the
 role first fetches GitHub's published host keys from `<api_url>/meta` and seeds them into the
-user's `known_hosts`. `update_existing` defaults to **false** so a re-run never disturbs local work.
+user's `known_hosts`.
+
+**The repositories are cloned several at a time, with their submodules** (`github_projects_clone_jobs`,
+8), by the role's module `git_clone_many`: one at a time, 24 took 37-41 s, eight at a time 3.3-3.7 s, and sixteen no
+less. Each is cloned into `<name>.aw-partial` and renamed into place once git has finished, so a
+folder named for a repository is always a whole checkout: a failed clone's partial folder is removed,
+and so is one a run cut short left behind (the next run removes it first, as a link if it is one,
+never following it). A folder that exists is left as it is, whatever it holds. Every repository is
+tried, and the run fails after the last, naming each that failed with git's last line, through
+`plain_text`. Full clones only: `--filter=blob:none` measured no faster here, and would lose history
+once gh is signed out. `update_existing` defaults to **false** so a re-run never disturbs local work;
+on, the checkouts that existed before the run are pulled one at a time with `ansible.builtin.git`.
 
 ### `just login --only github`
 
@@ -775,7 +788,11 @@ plan's research record.
   first start. Never a pre-created `/etc/default/tailscaled` - a conffile, which dpkg keeps when it exists,
   without `PORT`, and `--port=${PORT}` would fail the daemon. The legacy `tailscale.list` goes (beside a
   deb822 source with another keyring it breaks every apt update), the deb822 source carries the vendored
-  key, the package is `present`, not `latest` (an upgrade restarts tailscaled). A failed install takes the
+  key, under the distribution's own name (`/stable/ubuntu`, `/stable/debian`: Tailscale keeps each apart),
+  and the package is `present`, not `latest` (an upgrade restarts tailscaled). `python3-debian`, which the
+  source needs, is installed with apt's lists refreshed when they are over an hour old, so the role needs no
+  refresh made before it: run alone on Ubuntu 24.04 and Debian 12 and 13, with only the lists a cloud image's
+  first boot leaves, it passed. A failed install takes the
   repository back out before it fails: a source whose host cannot be reached fails every apt refresh on
   the VM, `common`'s first. `tailscale_daemon_flags` edit `FLAGS` after the package; restarts are tasks
   gated on a change, never handlers, which would run outside `configure.yml`'s rescue. In check mode on a

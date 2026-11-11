@@ -1,0 +1,89 @@
+---
+# The build VM made a golden template (docs/architecture/lifecycle.md §4.14):
+# stopped, every cloud-init setting and tag a clone would inherit deleted, named
+# and noted as a golden of its key, read back, and only then converted. A golden
+# with a cloud-init user would make every clone look configured, so one is
+# never made. On this machine, through the API.
+- name: golden_template | Make the golden on the API
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+  vars:
+    proxmox_template_golden_name: "{{ proxmox_template_golden_prefix }}{{ proxmox_template_build_vm.key[:12] }}"
+    proxmox_template_golden_config_url: >-
+      {{ proxmox_api_url }}/nodes/{{ proxmox_node }}/qemu/{{ proxmox_template_build_vm.id }}/config
+  block:
+    # A guest shutdown, waited for by the module, which reads the VM's own
+    # status, never the cluster listing, which lags a change by seconds.
+    - name: golden_template | Shut the build VM down
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        state: stopped
+        timeout: 300
+
+    - name: golden_template | Read what the build VM's config holds
+      ansible.builtin.uri:
+        url: "{{ proxmox_template_golden_config_url }}"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_golden_before
+      no_log: true
+
+    # Only the settings it has: Proxmox names each unset one it is asked to delete.
+    - name: golden_template | Delete what a clone would inherit
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        delete: "{{ proxmox_template_golden_stripped | select('in', proxmox_template_golden_before.json.data) | join(',') }}"
+      when: proxmox_template_golden_stripped | select('in', proxmox_template_golden_before.json.data) | list | length > 0
+
+    # The notes replaced whole: the base's record the clone inherited goes, so
+    # nothing reads a golden as a base template.
+    - name: golden_template | Name and note it as a golden of its key
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        name: "{{ proxmox_template_golden_name }}"
+        update: true
+        description: >-
+          {{ {'key': proxmox_template_build_vm.key, 'build': proxmox_template_golden_build,
+              'base': proxmox_template_build_vm.base, 'node': proxmox_node, 'built': proxmox_template_now,
+              'disk': proxmox_template_build_vm.disk} | golden_record }}
+
+    - name: golden_template | Read it back as a clone would
+      ansible.builtin.uri:
+        url: "{{ proxmox_template_golden_config_url }}"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_golden_after
+      no_log: true
+
+    - name: golden_template | Fail when it would hand a clone a setting of its own
+      vars:
+        proxmox_template_golden_kept: >-
+          {{ proxmox_template_golden_stripped | select('in', proxmox_template_golden_after.json.data) | list }}
+        proxmox_template_golden_notes: "{{ proxmox_template_golden_after.json.data.description | default('') }}"
+      ansible.builtin.assert:
+        that:
+          - proxmox_template_golden_kept | length == 0
+          - (proxmox_template_golden_after.json.data | golden_read).key | default('') == proxmox_template_build_vm.key
+          - proxmox_template_golden_notes.splitlines() | length == 1
+        fail_msg: >-
+          The golden template {{ proxmox_template_golden_name }} still holds
+          {{ (proxmox_template_golden_kept + ([] if proxmox_template_golden_notes.splitlines() | length == 1
+              else ['notes besides its record'])) | join(', ') }}, which every clone would inherit. It is not made a
+          template, and is deleted.
+        quiet: true
+
+    - name: golden_template | Make it a template
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        state: template
+
+    - name: golden_template | Forget the build VM's host key
+      ansible.builtin.file:
+        path: "{{ proxmox_template_build_vm.known_hosts }}"
+        state: absent

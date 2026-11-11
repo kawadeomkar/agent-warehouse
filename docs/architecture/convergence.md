@@ -3,6 +3,12 @@
 Idempotence is enforced mechanically: Molecule's idempotence stage re-runs converge and fails on any
 task reporting `changed`.
 
+## A golden template is a head start
+
+A VM cloned from a golden template ([§4.14](lifecycle.md#414-playbooksgoldenyml--the-golden-template-new-vms-clone))
+converges as any other: configure runs every task, nothing skips on the image's say-so, and what the image already holds
+reports `ok`. A mistake in an image can leave a VM less ready, never wrong.
+
 ## Existence is not convergence
 
 A run that dies between the clone and the settings call leaves a VM

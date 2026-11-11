@@ -1118,7 +1118,7 @@ def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
                 if isinstance(added, dict) and "ansible_host" in added:
                     publishing.setdefault(path.stem, []).append(task["name"])
                     assert "claude_vm_python" in str(added.get("ansible_python_interpreter", "")), (path.stem, task)
-    assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
+    assert sorted(publishing) == ["code", "destroy", "discover", "golden_build", "provision"], publishing
 
 
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])

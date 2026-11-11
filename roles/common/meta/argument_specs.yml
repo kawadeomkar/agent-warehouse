@@ -105,3 +105,133 @@ argument_specs:
         description:
           - Units masked and stopped where systemd runs, of those the VM has; snapd's only while no snap is installed.
             [] masks none, and a unit taken off the list stays masked.
+  image:
+    short_description: What a golden template carries of the OS baseline - apt, packages, timezone, the user, sshd hardening, PATH, tmux and services
+    options:
+      common_user:
+        type: str
+        description: Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys.
+      common_user_shell:
+        type: str
+        description: Login shell of common_user.
+      common_user_groups:
+        type: list
+        elements: str
+        description: Groups common_user is added to. Groups it already has are kept.
+      common_timezone:
+        type: str
+        description: Timezone name from /usr/share/zoneinfo, such as Europe/Berlin, linked to /etc/localtime.
+      common_harden_ssh:
+        type: bool
+        description: Write an sshd drop-in that turns password logins off, root's included, even where cloud-init was given a password. false removes it.
+      common_ssh_path_dirs:
+        type: list
+        elements: str
+        description:
+          - Directories in common_user's home put first on PATH for every session sshd starts for that user, `ssh vm <command>`
+            included, which reads no profile. Written as an sshd drop-in (Match User, SetEnv) holding the whole PATH, the
+            rest being /etc/environment's, and checked with sshd -T. Login shells get ~/.local/bin from /etc/profile.d,
+            and ~/.cargo/bin there too where dev_tools installs Rust. [] removes the drop-in.
+      common_tmux_settings:
+        type: list
+        elements: str
+        description:
+          - tmux commands written as one block of /etc/tmux.conf, which tmux reads before ~/.tmux.conf, so a setting of the
+            user's own wins; lines of the file outside the block are left as they are. The default is what Claude Code's
+            terminal documentation asks for inside tmux - notifications and the progress bar passed through to the outer
+            terminal, Shift+Enter told from Enter. allow-passthrough lets a program in a pane write escape sequences to
+            the terminal you attach from, as it could without tmux. [] takes the block out.
+      common_apt_upgrade:
+        type: bool
+        description: Upgrade the installed packages (apt safe upgrade) on every run.
+      common_apt_cache_valid_time:
+        type: int
+        description: Seconds the apt cache counts as fresh. An older one is refreshed at the start of the role.
+      common_apt_lock_timeout:
+        type: int
+        description: Seconds each apt task waits for the apt lock, which unattended-upgrades holds on a fresh cloud image after first boot.
+      common_apt_keep_downloads:
+        type: bool
+        description:
+          - false deletes each package apt downloads once it is installed, empties apt's download cache daily, and
+            empties it once of what was left there. true keeps them, as apt-get does by default.
+      common_packages:
+        type: list
+        elements: str
+        description: Baseline packages every VM gets. Setting it replaces the baseline; add packages with common_extra_packages instead.
+      common_extra_packages:
+        type: list
+        elements: str
+        default: []
+        description: More packages to install on top of common_packages.
+      common_enabled_services:
+        type: list
+        elements: str
+        description: >-
+          Services enabled at boot and started, where systemd runs. qemu-guest-agent is started only where the VM has its port,
+          /dev/virtio-ports/org.qemu.guest_agent.0, which Proxmox adds while the VM's agent is enabled.
+  image_options:
+    short_description: Record the options the image entry point is built with, for a golden template's key
+    options:
+      common_user:
+        type: str
+        description: Login user, normally created by cloud-init, that the role gives its shell, groups, sudo rule and keys.
+      common_user_shell:
+        type: str
+        description: Login shell of common_user.
+      common_user_groups:
+        type: list
+        elements: str
+        description: Groups common_user is added to. Groups it already has are kept.
+      common_timezone:
+        type: str
+        description: Timezone name from /usr/share/zoneinfo, such as Europe/Berlin, linked to /etc/localtime.
+      common_harden_ssh:
+        type: bool
+        description: Write an sshd drop-in that turns password logins off, root's included, even where cloud-init was given a password. false removes it.
+      common_ssh_path_dirs:
+        type: list
+        elements: str
+        description:
+          - Directories in common_user's home put first on PATH for every session sshd starts for that user, `ssh vm <command>`
+            included, which reads no profile. Written as an sshd drop-in (Match User, SetEnv) holding the whole PATH, the
+            rest being /etc/environment's, and checked with sshd -T. Login shells get ~/.local/bin from /etc/profile.d,
+            and ~/.cargo/bin there too where dev_tools installs Rust. [] removes the drop-in.
+      common_tmux_settings:
+        type: list
+        elements: str
+        description:
+          - tmux commands written as one block of /etc/tmux.conf, which tmux reads before ~/.tmux.conf, so a setting of the
+            user's own wins; lines of the file outside the block are left as they are. The default is what Claude Code's
+            terminal documentation asks for inside tmux - notifications and the progress bar passed through to the outer
+            terminal, Shift+Enter told from Enter. allow-passthrough lets a program in a pane write escape sequences to
+            the terminal you attach from, as it could without tmux. [] takes the block out.
+      common_apt_upgrade:
+        type: bool
+        description: Upgrade the installed packages (apt safe upgrade) on every run.
+      common_apt_cache_valid_time:
+        type: int
+        description: Seconds the apt cache counts as fresh. An older one is refreshed at the start of the role.
+      common_apt_lock_timeout:
+        type: int
+        description: Seconds each apt task waits for the apt lock, which unattended-upgrades holds on a fresh cloud image after first boot.
+      common_apt_keep_downloads:
+        type: bool
+        description:
+          - false deletes each package apt downloads once it is installed, empties apt's download cache daily, and
+            empties it once of what was left there. true keeps them, as apt-get does by default.
+      common_packages:
+        type: list
+        elements: str
+        description: Baseline packages every VM gets. Setting it replaces the baseline; add packages with common_extra_packages instead.
+      common_extra_packages:
+        type: list
+        elements: str
+        default: []
+        description: More packages to install on top of common_packages.
+      common_enabled_services:
+        type: list
+        elements: str
+        description: >-
+          Services enabled at boot and started, where systemd runs. qemu-guest-agent is started only where the VM has its port,
+          /dev/virtio-ports/org.qemu.guest_agent.0, which Proxmox adds while the VM's agent is enabled.

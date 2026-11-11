@@ -78,3 +78,19 @@
       register: github_projects_verify_log
       changed_when: false
       failed_when: "'init' not in github_projects_verify_log.stdout"
+
+    # Cloned several at a time, each into a partial folder renamed into place:
+    # none may be left once the run is over.
+    - name: Look for a partial clone left behind
+      ansible.builtin.find:
+        paths: [/home/dev/projects, /home/dev/selected]
+        patterns: ["*.aw-partial"]
+        file_type: any
+        hidden: true
+      register: github_projects_verify_partial
+
+    - name: Assert no partial clone is left
+      ansible.builtin.assert:
+        that: github_projects_verify_partial.matched == 0
+        fail_msg: "partial clones left: {{ github_projects_verify_partial.files | map(attribute='path') | list }}"
+        quiet: true

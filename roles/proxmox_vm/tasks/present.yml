@@ -42,11 +42,16 @@
   community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
     node: "{{ proxmox_vm_node }}"
     clone: "{{ proxmox_vm_template_name }}"
+    # A golden template of the VM's key, when one was chosen (playbooks/golden.yml): cloned by its VMID, the name
+    # then only a label. Always a full clone, which a golden's collection by age needs.
+    vmid: "{{ proxmox_vm_template_vmid | default(omit, true) }}"
     # Omitted, Proxmox assigns the next free VMID and the module returns it.
     newid: "{{ proxmox_vm_id | default(omit, true) }}"
     name: "{{ proxmox_vm_name }}"
-    full: "{{ proxmox_vm_full_clone }}"
-    storage: "{{ proxmox_vm_storage }}"
+    full: "{{ (proxmox_vm_template_vmid | string | length > 0) or proxmox_vm_full_clone | bool }}"
+    # Only a full clone is given a storage: a linked clone's disk lives beside its template's, and Proxmox refuses
+    # the parameter for one ("parameter 'storage' not allowed for linked clones").
+    storage: "{{ proxmox_vm_storage if (proxmox_vm_template_vmid | string | length > 0) or proxmox_vm_full_clone | bool else omit }}"
     timeout: "{{ proxmox_vm_timeout }}"
     state: present
   register: proxmox_vm_clone

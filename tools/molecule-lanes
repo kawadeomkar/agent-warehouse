@@ -32,7 +32,7 @@ if [ "${1:-}" = --one ]; then
     log=$(mktemp)
   fi
   case "$scenario" in
-  configure | provision) where=. args="test -s $scenario" ;;
+  configure | image | provision) where=. args="test -s $scenario" ;;
   *) where="roles/$scenario" args=test ;;
   esac
   start=$(date +%s)

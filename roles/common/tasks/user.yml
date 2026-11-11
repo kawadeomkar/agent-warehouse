@@ -1,0 +1,9 @@
+---
+- name: user | Create user {{ common_user }}
+  ansible.builtin.user:
+    name: "{{ common_user }}"
+    shell: "{{ common_user_shell }}"
+    groups: "{{ common_user_groups }}"
+    append: true
+    create_home: true
+    state: present

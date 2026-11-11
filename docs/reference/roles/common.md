@@ -36,6 +36,18 @@ What those defaults mean for the VM: [What the VM trusts](../../guides/what-the-
 | `common_enabled_services` | list of `str` | `[qemu-guest-agent]` | Services enabled at boot and started, where systemd runs. qemu-guest-agent is started only where the VM has its port, /dev/virtio-ports/org.qemu.guest_agent.0, which Proxmox adds while the VM's agent is enabled. |
 | `common_masked_units` | list of `str` | `[fwupd.service, fwupd-refresh.timer, multipathd.service, multipathd.socket, ModemManager.service, udisks2.service, snapd.service, snapd.socket, snapd.seeded.service]` | Units masked and stopped where systemd runs, of those the VM has; snapd's only while no snap is installed. [] masks none, and a unit taken off the list stays masked. |
 
+## Entry point `image`
+
+**What a golden template carries of the OS baseline - apt, packages, timezone, the user, sshd hardening, PATH, tmux and services**
+
+Also takes, as described under `main`: `common_user`, `common_user_shell`, `common_user_groups`, `common_timezone`, `common_harden_ssh`, `common_ssh_path_dirs`, `common_tmux_settings`, `common_apt_upgrade`, `common_apt_cache_valid_time`, `common_apt_lock_timeout`, `common_apt_keep_downloads`, `common_packages`, `common_extra_packages`, `common_enabled_services`.
+
+## Entry point `image_options`
+
+**Record the options the image entry point is built with, for a golden template's key**
+
+Also takes, as described under `main`: `common_user`, `common_user_shell`, `common_user_groups`, `common_timezone`, `common_harden_ssh`, `common_ssh_path_dirs`, `common_tmux_settings`, `common_apt_upgrade`, `common_apt_cache_valid_time`, `common_apt_lock_timeout`, `common_apt_keep_downloads`, `common_packages`, `common_extra_packages`, `common_enabled_services`.
+
 ## Internal values
 
 Set in `roles/common/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 2 of the 9 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
@@ -62,23 +74,14 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Task | Module | When |
 |---|---|---|
 | Move this role's files from their 1.x names | `ansible.builtin.include_tasks` |  |
-| Delete each package apt downloads once it is installed | `ansible.builtin.copy` | <code>not common_apt_keep_downloads</code> |
-| Let apt keep the packages it downloads | `ansible.builtin.file` | <code>common_apt_keep_downloads</code> |
-| Refresh apt cache | `ansible.builtin.apt` |  |
-| Upgrade installed packages | `ansible.builtin.apt` | <code>common_apt_upgrade</code> |
-| Install baseline packages | `ansible.builtin.apt` |  |
-| Look for packages left in apt's download cache | `ansible.builtin.find` |  |
-| Empty apt's download cache | `ansible.builtin.apt` | <code>not common_apt_keep_downloads and common_apt_downloads.matched > 0</code> |
-| Set timezone | `ansible.builtin.file` |  |
-| Record timezone name | `ansible.builtin.copy` |  |
+| Configure apt, and bring the packages up to date | `ansible.builtin.include_tasks` |  |
+| Set the timezone | `ansible.builtin.include_tasks` |  |
 | Set hostname | `ansible.builtin.hostname` | <code>common_manage_hostname and ansible_facts['virtualization_type'] not in common_container_virt_types</code> |
-| Create user {{ common_user }} | `ansible.builtin.user` |  |
+| Create the user | `ansible.builtin.include_tasks` |  |
 | Grant or take away passwordless sudo | `ansible.builtin.include_tasks` |  |
 | Authorise SSH keys | `ansible.posix.authorized_key` |  |
-| Ensure sshd privilege separation directory exists | `ansible.builtin.file` | <code>common_harden_ssh or common_ssh_path_dirs &#124; length > 0</code> |
-| Harden sshd | `ansible.builtin.template` | <code>common_harden_ssh</code> |
-| Remove sshd hardening | `ansible.builtin.file` | <code>not common_harden_ssh</code> |
-| Put ~/.local/bin on PATH for all users | `ansible.builtin.template` |  |
+| Harden sshd, or take the hardening away | `ansible.builtin.include_tasks` |  |
+| Put ~/.local/bin on PATH for all users | `ansible.builtin.include_tasks` |  |
 | Put the per-user directories on PATH for ssh commands | `ansible.builtin.include_tasks` |  |
 | Write the tmux settings | `ansible.builtin.include_tasks` |  |
 | Enable and start services | `ansible.builtin.include_tasks` | <code>ansible_facts['service_mgr'] == 'systemd'</code> |
@@ -97,28 +100,111 @@ classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Include task| Move_this_role_s_files_from_their_1_x_names_names_yml_0[move this role s files from their 1 x names<br>include_task: names yml]:::includeTasks
-  Move_this_role_s_files_from_their_1_x_names_names_yml_0-->|Task| Delete_each_package_apt_downloads_once_it_is_installed1[delete each package apt downloads once it is<br>installed<br>When: **not common apt keep downloads**]:::task
-  Delete_each_package_apt_downloads_once_it_is_installed1-->|Task| Let_apt_keep_the_packages_it_downloads2[let apt keep the packages it downloads<br>When: **common apt keep downloads**]:::task
-  Let_apt_keep_the_packages_it_downloads2-->|Task| Refresh_apt_cache3[refresh apt cache]:::task
-  Refresh_apt_cache3-->|Task| Upgrade_installed_packages4[upgrade installed packages<br>When: **common apt upgrade**]:::task
-  Upgrade_installed_packages4-->|Task| Install_baseline_packages5[install baseline packages]:::task
-  Install_baseline_packages5-->|Task| Look_for_packages_left_in_apt_s_download_cache6[look for packages left in apt s download cache]:::task
-  Look_for_packages_left_in_apt_s_download_cache6-->|Task| Empty_apt_s_download_cache7[empty apt s download cache<br>When: **not common apt keep downloads and common apt<br>downloads matched   0**]:::task
-  Empty_apt_s_download_cache7-->|Task| Set_timezone8[set timezone]:::task
-  Set_timezone8-->|Task| Record_timezone_name9[record timezone name]:::task
-  Record_timezone_name9-->|Task| Set_hostname10[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
-  Set_hostname10-->|Task| Create_user_common_user11[create user common user]:::task
-  Create_user_common_user11-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_12[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
-  Grant_or_take_away_passwordless_sudo_sudo_yml_12-->|Task| Authorise_SSH_keys13[authorise ssh keys]:::task
-  Authorise_SSH_keys13-->|Task| Ensure_sshd_privilege_separation_directory_exists14[ensure sshd privilege separation directory exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
-  Ensure_sshd_privilege_separation_directory_exists14-->|Task| Harden_sshd15[harden sshd<br>When: **common harden ssh**]:::task
-  Harden_sshd15-->|Task| Remove_sshd_hardening16[remove sshd hardening<br>When: **not common harden ssh**]:::task
-  Remove_sshd_hardening16-->|Task| Put____local_bin_on_PATH_for_all_users17[put    local bin on path for all users]:::task
-  Put____local_bin_on_PATH_for_all_users17-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
-  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_18-->|Include task| Write_the_tmux_settings_tmux_yml_19[write the tmux settings<br>include_task: tmux yml]:::includeTasks
-  Write_the_tmux_settings_tmux_yml_19-->|Include task| Enable_and_start_services_services_yml_20[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
-  Enable_and_start_services_services_yml_20-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
-  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_21-->End
+  Move_this_role_s_files_from_their_1_x_names_names_yml_0-->|Include task| Configure_apt__and_bring_the_packages_up_to_date_apt_yml_1[configure apt  and bring the packages up to date<br>include_task: apt yml]:::includeTasks
+  Configure_apt__and_bring_the_packages_up_to_date_apt_yml_1-->|Include task| Set_the_timezone_timezone_yml_2[set the timezone<br>include_task: timezone yml]:::includeTasks
+  Set_the_timezone_timezone_yml_2-->|Task| Set_hostname3[set hostname<br>When: **common manage hostname and ansible facts <br>virtualization type   not in common container virt<br>types**]:::task
+  Set_hostname3-->|Include task| Create_the_user_user_yml_4[create the user<br>include_task: user yml]:::includeTasks
+  Create_the_user_user_yml_4-->|Include task| Grant_or_take_away_passwordless_sudo_sudo_yml_5[grant or take away passwordless sudo<br>include_task: sudo yml]:::includeTasks
+  Grant_or_take_away_passwordless_sudo_sudo_yml_5-->|Task| Authorise_SSH_keys6[authorise ssh keys]:::task
+  Authorise_SSH_keys6-->|Include task| Harden_sshd__or_take_the_hardening_away_sshd_yml_7[harden sshd  or take the hardening away<br>include_task: sshd yml]:::includeTasks
+  Harden_sshd__or_take_the_hardening_away_sshd_yml_7-->|Include task| Put____local_bin_on_PATH_for_all_users_profile_yml_8[put    local bin on path for all users<br>include_task: profile yml]:::includeTasks
+  Put____local_bin_on_PATH_for_all_users_profile_yml_8-->|Include task| Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_9[put the per user directories on path for ssh<br>commands<br>include_task: ssh path yml]:::includeTasks
+  Put_the_per_user_directories_on_PATH_for_ssh_commands_ssh_path_yml_9-->|Include task| Write_the_tmux_settings_tmux_yml_10[write the tmux settings<br>include_task: tmux yml]:::includeTasks
+  Write_the_tmux_settings_tmux_yml_10-->|Include task| Enable_and_start_services_services_yml_11[enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
+  Enable_and_start_services_services_yml_11-->|Include task| Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_12[mask the services a headless vm has no use for<br>When: **ansible facts  service mgr       systemd  and<br>common masked units   length   0**<br>include_task: masked units yml]:::includeTasks
+  Mask_the_services_a_headless_VM_has_no_use_for_masked_units_yml_12-->End
+```
+
+### `apt.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Delete each package apt downloads once it is installed | `ansible.builtin.copy` | <code>not common_apt_keep_downloads</code> |
+| Let apt keep the packages it downloads | `ansible.builtin.file` | <code>common_apt_keep_downloads</code> |
+| Refresh apt cache | `ansible.builtin.apt` |  |
+| Upgrade installed packages | `ansible.builtin.apt` | <code>common_apt_upgrade</code> |
+| Install baseline packages | `ansible.builtin.apt` |  |
+| Look for packages left in apt's download cache | `ansible.builtin.find` |  |
+| Empty apt's download cache | `ansible.builtin.apt` | <code>not common_apt_keep_downloads and common_apt_downloads.matched > 0</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| apt___Delete_each_package_apt_downloads_once_it_is_installed0[apt   delete each package apt downloads once it is<br>installed<br>When: **not common apt keep downloads**]:::task
+  apt___Delete_each_package_apt_downloads_once_it_is_installed0-->|Task| apt___Let_apt_keep_the_packages_it_downloads1[apt   let apt keep the packages it downloads<br>When: **common apt keep downloads**]:::task
+  apt___Let_apt_keep_the_packages_it_downloads1-->|Task| apt___Refresh_apt_cache2[apt   refresh apt cache]:::task
+  apt___Refresh_apt_cache2-->|Task| apt___Upgrade_installed_packages3[apt   upgrade installed packages<br>When: **common apt upgrade**]:::task
+  apt___Upgrade_installed_packages3-->|Task| apt___Install_baseline_packages4[apt   install baseline packages]:::task
+  apt___Install_baseline_packages4-->|Task| apt___Look_for_packages_left_in_apt_s_download_cache5[apt   look for packages left in apt s download<br>cache]:::task
+  apt___Look_for_packages_left_in_apt_s_download_cache5-->|Task| apt___Empty_apt_s_download_cache6[apt   empty apt s download cache<br>When: **not common apt keep downloads and common apt<br>downloads matched   0**]:::task
+  apt___Empty_apt_s_download_cache6-->End
+```
+
+### `image.yml` - entry point `image`
+
+| Task | Module | When |
+|---|---|---|
+| Move this role's files from their 1.x names | `ansible.builtin.include_tasks` |  |
+| Configure apt, and bring the packages up to date | `ansible.builtin.include_tasks` |  |
+| Set the timezone | `ansible.builtin.include_tasks` |  |
+| Create the user | `ansible.builtin.include_tasks` |  |
+| Harden sshd, or take the hardening away | `ansible.builtin.include_tasks` |  |
+| Put ~/.local/bin on PATH for all users | `ansible.builtin.include_tasks` |  |
+| Write the tmux settings | `ansible.builtin.include_tasks` |  |
+| Enable and start services | `ansible.builtin.include_tasks` | <code>ansible_facts['service_mgr'] == 'systemd'</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Include task| image___Move_this_role_s_files_from_their_1_x_names_names_yml_0[image   move this role s files from their 1 x<br>names<br>include_task: names yml]:::includeTasks
+  image___Move_this_role_s_files_from_their_1_x_names_names_yml_0-->|Include task| image___Configure_apt__and_bring_the_packages_up_to_date_apt_yml_1[image   configure apt  and bring the packages up<br>to date<br>include_task: apt yml]:::includeTasks
+  image___Configure_apt__and_bring_the_packages_up_to_date_apt_yml_1-->|Include task| image___Set_the_timezone_timezone_yml_2[image   set the timezone<br>include_task: timezone yml]:::includeTasks
+  image___Set_the_timezone_timezone_yml_2-->|Include task| image___Create_the_user_user_yml_3[image   create the user<br>include_task: user yml]:::includeTasks
+  image___Create_the_user_user_yml_3-->|Include task| image___Harden_sshd__or_take_the_hardening_away_sshd_yml_4[image   harden sshd  or take the hardening away<br>include_task: sshd yml]:::includeTasks
+  image___Harden_sshd__or_take_the_hardening_away_sshd_yml_4-->|Include task| image___Put____local_bin_on_PATH_for_all_users_profile_yml_5[image   put    local bin on path for all users<br>include_task: profile yml]:::includeTasks
+  image___Put____local_bin_on_PATH_for_all_users_profile_yml_5-->|Include task| image___Write_the_tmux_settings_tmux_yml_6[image   write the tmux settings<br>include_task: tmux yml]:::includeTasks
+  image___Write_the_tmux_settings_tmux_yml_6-->|Include task| image___Enable_and_start_services_services_yml_7[image   enable and start services<br>When: **ansible facts  service mgr       systemd**<br>include_task: services yml]:::includeTasks
+  image___Enable_and_start_services_services_yml_7-->End
+```
+
+### `image_options.yml` - entry point `image_options`
+
+| Task | Module | When |
+|---|---|---|
+| Record what the image is built with | `ansible.builtin.set_fact` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| image_options___Record_what_the_image_is_built_with0[image options   record what the image is built<br>with]:::task
+  image_options___Record_what_the_image_is_built_with0-->End
 ```
 
 ### `masked_units.yml`
@@ -176,6 +262,28 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| names___Move_each_file_to_its_name_from_2_00[names   move each file to its name from 2 0]:::task
   names___Move_each_file_to_its_name_from_2_00-->End
+```
+
+### `profile.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Put ~/.local/bin on PATH for all users | `ansible.builtin.template` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| profile___Put____local_bin_on_PATH_for_all_users0[profile   put    local bin on path for all users]:::task
+  profile___Put____local_bin_on_PATH_for_all_users0-->End
 ```
 
 ### `services.yml`
@@ -243,6 +351,32 @@ classDef rescue stroke:#665352,stroke-width:2px;
   ssh_path___Remove_the_PATH_for_ssh_commands1-->End
 ```
 
+### `sshd.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Ensure sshd privilege separation directory exists | `ansible.builtin.file` | <code>common_harden_ssh or common_ssh_path_dirs &#124; length > 0</code> |
+| Harden sshd | `ansible.builtin.template` | <code>common_harden_ssh</code> |
+| Remove sshd hardening | `ansible.builtin.file` | <code>not common_harden_ssh</code> |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| sshd___Ensure_sshd_privilege_separation_directory_exists0[sshd   ensure sshd privilege separation directory<br>exists<br>When: **common harden ssh or common ssh path dirs   length<br>  0**]:::task
+  sshd___Ensure_sshd_privilege_separation_directory_exists0-->|Task| sshd___Harden_sshd1[sshd   harden sshd<br>When: **common harden ssh**]:::task
+  sshd___Harden_sshd1-->|Task| sshd___Remove_sshd_hardening2[sshd   remove sshd hardening<br>When: **not common harden ssh**]:::task
+  sshd___Remove_sshd_hardening2-->End
+```
+
 ### `sudo.yml`
 
 | Task | Module | When |
@@ -296,6 +430,30 @@ classDef rescue stroke:#665352,stroke-width:2px;
   sudo___Fail_on_any_rule_that_still_runs_without_a_password12-->End
 ```
 
+### `timezone.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Set timezone | `ansible.builtin.file` |  |
+| Record timezone name | `ansible.builtin.copy` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| timezone___Set_timezone0[timezone   set timezone]:::task
+  timezone___Set_timezone0-->|Task| timezone___Record_timezone_name1[timezone   record timezone name]:::task
+  timezone___Record_timezone_name1-->End
+```
+
 ### `tmux.yml`
 
 | Task | Module | When |
@@ -322,6 +480,28 @@ classDef rescue stroke:#665352,stroke-width:2px;
   tmux___Take_the_settings__block_by_its_1_x_marker_out_of__etc_tmux_conf1-->|Task| tmux___Write_the_settings_into__etc_tmux_conf2[tmux   write the settings into  etc tmux conf<br>When: **common tmux settings   length   0**]:::task
   tmux___Write_the_settings_into__etc_tmux_conf2-->|Task| tmux___Take_the_settings_out_of__etc_tmux_conf3[tmux   take the settings out of  etc tmux conf<br>When: **common tmux settings   length    0 and common tmux<br>conf stat exists**]:::task
   tmux___Take_the_settings_out_of__etc_tmux_conf3-->End
+```
+
+### `user.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Create user {{ common_user }} | `ansible.builtin.user` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| user___Create_user_common_user0[user   create user common user]:::task
+  user___Create_user_common_user0-->End
 ```
 
 <!-- END_GENERATED: role -->

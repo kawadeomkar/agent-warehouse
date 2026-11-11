@@ -169,6 +169,26 @@ root's sessions and sudo's `secure_path` are untouched. Ansible runs its modules
 (`claude_vm_python`), never a Python it finds on that PATH, so `become` never runs one the user put
 there as root.
 
+## A golden template
+
+A golden template is cloned into every new VM of its key, so nothing that belongs to one VM, or one person, may reach
+it ([§4.14](lifecycle.md#414-playbooksgoldenyml--the-golden-template-new-vms-clone)).
+
+- **No secret enters it.** The build VM gets no password, and the vault's become password is never sent to it. No
+  `image` entry point renders a secret or signs anything in: `tests/unit/test_golden.py` holds what each may read. An
+  image option that holds a vault value means no golden is built or used, said by the option's name and never its value.
+- **The build VM is outside the fleet.** It carries `<tag>-build` and never the ownership tag, so no command that finds
+  VMs by that tag can reach it or sign it in.
+- **Nothing signed in survives the scrub.** Each identity is deleted (Docker's, tailscaled's state, SSH host keys, the
+  user's `authorized_keys` and root's, `~/.claude`), and the build fails if any of those keys or a shell history, a gh
+  login, a Claude credential or settings file, a joined Tailscale or a Remote Control unit is still there.
+- **What is accepted.** The guest shutdown before templating writes `/var/lib/systemd/random-seed` back, so clones start
+  from the same seed. Each mixes it with fresh entropy at boot and systemd does not credit it to the kernel, so it adds
+  nothing an attacker can use, and deleting it would need the disk mounted on the Proxmox host, which the project never
+  touches.
+- **The key is not secret, and holds none.** It sits in the golden's notes, where anyone who can read the VM's config
+  can see it, which is why no option that feeds it may hold a secret.
+
 ## Run logs
 
 Every recipe that runs Ansible runs it through `tools/run-logged`, which exports `ANSIBLE_LOG_PATH` as

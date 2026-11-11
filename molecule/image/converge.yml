@@ -1,0 +1,28 @@
+---
+- name: Build a golden template's image in the container
+  hosts: claude_vms
+  become: true
+  tasks:
+    - name: Make root's Ansible temporary directory
+      ansible.builtin.import_tasks: ../../playbooks/tasks/remote_tmp.yml
+
+    - name: Put common's part of the image on it
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: image
+
+    - name: Put dev_tools' part of the image on it
+      ansible.builtin.include_role:
+        name: dev_tools
+        tasks_from: image
+
+    - name: Put claude_code's part of the image on it
+      ansible.builtin.include_role:
+        name: claude_code
+        tasks_from: image
+
+    - name: Restart what the image's changes need
+      ansible.builtin.meta: flush_handlers
+
+    - name: Make it a VM of no one
+      ansible.builtin.import_tasks: ../../playbooks/tasks/golden_generalize.yml

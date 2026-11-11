@@ -22,6 +22,7 @@ else is here. It reads the same in the repository and as a site with search, at
 ## Guides
 
 - [VMs and fleets](guides/vms.md) - naming, several VMs at once, re-running, one role at a time.
+- [Your own base image](guides/base-image.md) - an Ubuntu or Debian image or a Proxmox template of yours, already holding your toolchain.
 - [GitHub](guides/github.md) - which repositories are cloned, private ones, pushing from the VM.
 - [Remote Control](guides/remote-control.md) - the VM's Claude session on claude.ai and your phone, or
   an API key instead.

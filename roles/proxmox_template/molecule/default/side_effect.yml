@@ -82,31 +82,73 @@
         (proxmox_template_other_template.content | b64decode).splitlines()
         != ['name: other-template', 'template: 1']
 
-# A template is compared with what its settings would build, and rebuilt at the same VMID when it differs. One an
-# earlier version built keeps no record of its build in its notes, so it is rebuilt once, and keeps one after.
-- name: Rebuild a template that keeps no record of its build
+# A template with no record of this project's build may be its owner's: it is
+# refused and left, never rebuilt, which would destroy it.
+- name: Refuse to rebuild a template that keeps no record of its build
   hosts: all
   become: true
   tasks:
-    - name: Take the record out of 9000's notes, as an earlier version built it
+    - name: Keep 9000's notes for after
+      ansible.builtin.slurp:
+        src: /var/lib/fake-qm/9000.conf
+      register: proxmox_template_recorded_conf
+
+    - name: Take the record out of 9000's notes
       ansible.builtin.lineinfile:
         path: /var/lib/fake-qm/9000.conf
         regexp: "^description: "
         state: absent
 
-    - name: Run the role with the settings it was built with
-      ansible.builtin.include_role:
-        name: proxmox_template
+    - name: Run the role where it must refuse
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_template
+        refused_because: [no record of being built by this project, qm destroy 9000, proxmox_template_rebuild to false]
+        refused_unless: proxmox_template rebuilt a template with no record, which may be someone's own.
 
-    - name: Read 9000 as rebuilt
-      ansible.builtin.slurp:
-        src: /var/lib/fake-qm/9000.conf
-      register: proxmox_template_rebuilt_conf
-      # As Proxmox keeps a description, and the fake qm too: a colon as %3A.
-      failed_when: >-
-        (proxmox_template_rebuilt_conf.content | b64decode) is not search(
-          '(?m)^description: Built by agent-warehouse%3A build=1; image=http%3A//127.0.0.1%3A8080/noble-server-cloudimg-amd64.img;'
-          ~ ' packages=qemu-guest-agent; sha256=[0-9a-f]{64}$')
+    - name: Assert 9000 is as it was
+      ansible.builtin.command:
+        argv: [grep, -c, "^template: 1", /var/lib/fake-qm/9000.conf]
+      changed_when: false
+
+    - name: Put 9000's notes back
+      ansible.builtin.copy:
+        content: "{{ proxmox_template_recorded_conf.content | b64decode }}"
+        dest: /var/lib/fake-qm/9000.conf
+        mode: "0644"
+
+- name: Refuse a custom image without its checksum, and one of another family
+  hosts: all
+  become: true
+  tasks:
+    - name: Run the role with a custom image and no checksum
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+      vars:
+        refused_role: proxmox_template
+        proxmox_template_image_checksum: sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS
+        refused_because: [with no proxmox_template_image_checksum]
+        refused_unless: proxmox_template took a custom image with no checksum.
+
+    - name: Say the image holds Fedora
+      ansible.builtin.copy:
+        content: "ID=fedora\nID_LIKE=\"rhel\"\n"
+        dest: /var/lib/fake-virt-cat-os-release
+        mode: "0644"
+
+    - name: Try to rebuild from it, on another bridge
+      block:
+        - name: Run the role where it must refuse
+          ansible.builtin.include_tasks: "{{ playbook_dir }}/../../../../tests/molecule/refused.yml"
+          vars:
+            refused_role: proxmox_template
+            proxmox_template_bridge: vmbr2
+            refused_because: [no Ubuntu or Debian image, ID=fedora]
+            refused_unless: proxmox_template built a template from a Fedora image.
+      always:
+        - name: Say the image holds Ubuntu again
+          ansible.builtin.file:
+            path: /var/lib/fake-virt-cat-os-release
+            state: absent
 
 # Proxmox keeps a template a linked clone still uses. A rebuild it refuses fails with the setting that keeps the
 # template as it is, and leaves it, and no customised image, behind.

@@ -1,34 +1,6 @@
 ---
-- name: Look up home directory of {{ claude_code_user }}
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ claude_code_user }}"
-
-- name: Set Claude Code paths
-  ansible.builtin.set_fact:
-    claude_code_home: "{{ ansible_facts.getent_passwd[claude_code_user][4] }}"
-    claude_code_bin: "{{ ansible_facts.getent_passwd[claude_code_user][4] }}/.local/bin/claude"
-
-# Everything under the user's home is made as the user, never as root: the
-# user controls those paths, and root following a symlink planted there would
-# change or overwrite a file the user cannot.
-- name: Ensure ~/.claude exists
-  ansible.builtin.file:
-    path: "{{ claude_code_home }}/.claude"
-    state: directory
-    owner: "{{ claude_code_user }}"
-    group: "{{ claude_code_user }}"
-    mode: "0700"
-  become: true
-  become_user: "{{ claude_code_user }}"
-
-- name: Install with the native installer
-  ansible.builtin.include_tasks: install_native.yml
-  when: claude_code_install_method == 'native'
-
-- name: Install with npm
-  ansible.builtin.include_tasks: install_npm.yml
-  when: claude_code_install_method == 'npm'
+- name: Install Claude Code
+  ansible.builtin.include_tasks: install.yml
 
 - name: Write user settings
   ansible.builtin.include_tasks: settings.yml

@@ -1,0 +1,6 @@
+---
+# What a golden template carries of this role: all of it, under the same
+# switches, which are the image's options, so a VM with one set otherwise has
+# another key and clones the base template. Nothing here is per VM.
+- name: image | Install the toolchain
+  ansible.builtin.include_tasks: main.yml

@@ -1,0 +1,202 @@
+---
+# The golden template the next deploy's VMs will clone
+# (docs/architecture/lifecycle.md §4.14). Last in just deploy: this run's VMs are
+# ready and the editor is open, so no VM waits for it. What earlier runs left
+# is deleted whether golden templates are on or off. Every play reaches Proxmox
+# only through proxmox_template's golden entry points, so no line here reads its
+# API (tests/unit/test_ratchets.py). A build that fails, or one another run has
+# under way, is said once and never fails the deploy.
+
+- name: Build the golden template the next VMs will clone
+  hosts: localhost
+  gather_facts: false
+  vars:
+    claude_vm_golden_pending_vms: "{{ groups['claude_vm_golden_pending'] | default([]) }}"
+    # What to build: one key, as the VMs that want a golden share their options
+    # and their base.
+    claude_vm_golden_target: >-
+      {{ dict(claude_vm_golden_pending_vms
+              | zip(claude_vm_golden_pending_vms | map('extract', hostvars, 'proxmox_template_golden_choice')
+                    | map('default', {})))
+         | golden_targets }}
+    claude_vm_golden_wanted: >-
+      {{ proxmox_template_golden | default(false) | bool and claude_vm_golden_target | length > 0
+         and not ansible_check_mode }}
+  tasks:
+    - name: Delete what earlier runs left
+      ansible.builtin.include_role:
+        name: proxmox_template
+        tasks_from: golden_collect
+      vars:
+        proxmox_template_golden_target: "{{ claude_vm_golden_target }}"
+      when: not ansible_check_mode
+
+    - name: Say that another run is building it
+      ansible.builtin.debug:
+        msg: >-
+          Another run is building the golden template these VMs would use ({{ claude_vm_golden_target.vms
+          | join(', ') }}), so this one builds none.
+      when:
+        - claude_vm_golden_wanted | bool
+        - proxmox_template_build_busy | default(false) | bool
+
+    - name: Build the golden template
+      block:
+        - name: Build its VM
+          ansible.builtin.include_role:
+            name: proxmox_template
+            tasks_from: golden_build
+          vars:
+            proxmox_template_golden_target: "{{ claude_vm_golden_target }}"
+          when:
+            - claude_vm_golden_wanted | bool
+            - not (proxmox_template_build_busy | default(false) | bool)
+
+        - name: Make the folder a build VM's host key is kept in
+          ansible.builtin.file:
+            path: "{{ proxmox_template_build_vm.known_hosts | dirname }}"
+            state: directory
+            mode: "0700"
+          when: (proxmox_template_build_vm | default({})).name is defined
+
+        # How to reach it goes on the host, never on a play (CLAUDE.md). An
+        # empty become password: cloud-init's own rule covers the build, and the
+        # vault's password is never sent to it.
+        - name: Add the build VM as a host
+          ansible.builtin.add_host:
+            name: "{{ proxmox_template_build_vm.name }}"
+            groups: claude_vm_build
+            ansible_host: "{{ proxmox_template_build_vm.address }}"
+            ansible_user: "{{ vm_user }}"
+            ansible_python_interpreter: "{{ claude_vm_python }}"
+            ansible_become_password: ""
+            ansible_ssh_extra_args: >-
+              -o UserKnownHostsFile={{ proxmox_template_build_vm.known_hosts }} -o StrictHostKeyChecking=accept-new
+          changed_when: false
+          when: (proxmox_template_build_vm | default({})).name is defined
+      rescue:
+        - name: Delete what the build made
+          ansible.builtin.include_role:
+            name: proxmox_template
+            tasks_from: golden_discard
+
+        - name: Say the build failed
+          ansible.builtin.debug:
+            msg: >-
+              The golden template could not be built ({{ ansible_failed_task.name | default('') }}:
+              {{ ansible_failed_result.msg | default('no reason') | plain_text }}). The VMs are not affected.
+
+- name: Set up the golden template's build VM
+  hosts: claude_vm_build
+  gather_facts: false
+  become: true
+  # A build VM that stops answering is the build failed, never the deploy.
+  ignore_unreachable: true
+  tasks:
+    # claude_vm_golden_image false, for the tests alone, skips what reaches
+    # the VM, so the plays around it can be run against the fake Proxmox
+    # (tests/unit/test_golden_play.py); the image is the image scenario's.
+    - name: Set up the build VM
+      when: claude_vm_golden_image | default(true) | bool
+      block:
+        - name: Wait for the build VM to accept connections
+          ansible.builtin.wait_for_connection:
+            timeout: 300
+
+        - name: Wait for the build VM's first boot to finish
+          ansible.builtin.command:
+            cmd: cloud-init status --wait
+          register: claude_vm_golden_first_boot
+          changed_when: false
+          failed_when: claude_vm_golden_first_boot.rc not in [0, 2]
+
+        - name: Read the build VM's facts
+          ansible.builtin.setup:
+
+        - name: Make root's Ansible temporary directory
+          ansible.builtin.import_tasks: tasks/remote_tmp.yml
+
+        - name: Put common's part of the image on it
+          ansible.builtin.include_role:
+            name: common
+            tasks_from: image
+
+        - name: Put dev_tools' part of the image on it
+          ansible.builtin.include_role:
+            name: dev_tools
+            tasks_from: image
+
+        - name: Put claude_code's part of the image on it
+          ansible.builtin.include_role:
+            name: claude_code
+            tasks_from: image
+
+        # Before the scrub: it deletes the host keys, after which sshd cannot start.
+        - name: Restart what the image's changes need
+          ansible.builtin.meta: flush_handlers
+
+        - name: Make the build VM a VM of no one
+          ansible.builtin.import_tasks: tasks/golden_generalize.yml
+      rescue:
+        - name: Record why the image was not built
+          ansible.builtin.set_fact:
+            claude_vm_golden_failure: >-
+              {{ ansible_failed_task.name | default('') }}: {{ ansible_failed_result.msg | default('no reason') | plain_text }}
+
+    # Built only once the scrub's last step ran: ignore_unreachable keeps a VM
+    # that stopped answering in the play, and its rescue never sees that.
+    - name: Record the image as built
+      ansible.builtin.set_fact:
+        claude_vm_golden_built: >-
+          {{ claude_vm_golden_failure is not defined
+             and (not (claude_vm_golden_image | default(true) | bool)
+                  or (golden_generalize_done is defined and golden_generalize_done is succeeded
+                      and not (golden_generalize_done.unreachable | default(false) | bool))) }}
+
+- name: Make the build VM a golden template
+  hosts: localhost
+  gather_facts: false
+  vars:
+    claude_vm_golden_build_host: "{{ (proxmox_template_build_vm | default({})).name | default('') }}"
+    claude_vm_golden_image_built: >-
+      {{ claude_vm_golden_build_host | length > 0
+         and hostvars[claude_vm_golden_build_host].claude_vm_golden_built | default(false) | bool }}
+  tasks:
+    # The condition on the task, never the block: a block's when is its rescue's
+    # too, and the rescue's discard forgets the build VM that when reads.
+    - name: Make it a template
+      block:
+        - name: Make the golden template
+          ansible.builtin.include_role:
+            name: proxmox_template
+            tasks_from: golden_template
+          when: claude_vm_golden_image_built | bool
+      rescue:
+        - name: Delete the build VM the template step failed on
+          ansible.builtin.include_role:
+            name: proxmox_template
+            tasks_from: golden_discard
+
+        - name: Say the golden template could not be made
+          ansible.builtin.debug:
+            msg: >-
+              The golden template could not be made ({{ ansible_failed_task.name | default('') }}:
+              {{ ansible_failed_result.msg | default('no reason') | plain_text }}). The VMs are not affected.
+
+    - name: Say the image could not be built
+      ansible.builtin.debug:
+        msg: >-
+          The golden template's image could not be built
+          ({{ hostvars[claude_vm_golden_build_host].claude_vm_golden_failure
+              | default('the build VM stopped answering') }}). The VMs are not affected.
+      when:
+        - claude_vm_golden_build_host | length > 0
+        - not (claude_vm_golden_image_built | bool)
+
+    - name: Delete the build VM whose image failed
+      ansible.builtin.include_role:
+        name: proxmox_template
+        tasks_from: golden_discard
+      when:
+        - claude_vm_golden_build_host | length > 0
+        - not (claude_vm_golden_image_built | bool)

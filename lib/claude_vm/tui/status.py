@@ -10,6 +10,7 @@ import re
 import textwrap
 import time
 
+from ..proxmox import NO_TEMPLATE_RECORD
 from ..status.model import fmt_gib, remote_control, short_kernel, uptime_said, work_said
 from .screen import PENDING, bar, cut, plural, render, seg, spark
 
@@ -138,7 +139,12 @@ def _storage_lines(model):
             )
     template = model.get("template") or {}
     if template.get("missing"):
-        lines.append([seg(f" {'template':<10} {template.get('name')}: not built yet; the first just deploy builds it")])
+        said = (
+            "not on Proxmox; just deploy refuses"
+            if template.get("custom")
+            else "not built yet; the first just deploy builds it"
+        )
+        lines.append([seg(f" {'template':<10} {template.get('name')}: {said}")])
     elif template:
         built = f" · built {template['built_ago']}" if template.get("built_ago") else ""
         where = f" on {template['storage']}" if template.get("storage") else ""
@@ -147,9 +153,21 @@ def _storage_lines(model):
         if template.get("drift"):
             line += [
                 seg(" · "),
-                seg("next deploy rebuilds it", "y") if template.get("rebuild", True) else seg("differs, kept", "d"),
+                seg("differs, kept", "d")
+                if not template.get("rebuild", True)
+                else seg("no record, next deploy refuses it", "y")
+                if NO_TEMPLATE_RECORD in template["drift"]
+                else seg("next deploy rebuilds it", "y"),
             ]
         lines.append(line)
+    goldens = model.get("goldens") or {}
+    if goldens.get("count"):
+        plural = "" if goldens["count"] == 1 else "s"
+        lines.append([seg(f" {'golden':<10} {goldens['count']} golden template{plural}, deleted as they age")])
+    for name in goldens.get("building") or []:
+        lines.append(
+            [seg(f" {'build VM':<10} {name}: being built, or left over; the next build deletes one left", "d")]
+        )
     return lines
 
 

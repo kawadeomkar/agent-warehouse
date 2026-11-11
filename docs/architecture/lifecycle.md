@@ -18,7 +18,9 @@ stateDiagram-v2
 ## 4.1 `playbooks/template.yml` — built, and rebuilt when it differs
 
 `hosts: proxmox`, over SSH, because importing a disk image needs `qm` on the node. Runs
-`roles/proxmox_template`. `deploy.yml` runs it only when the template is missing or differs from what
+`roles/proxmox_template`, unless `proxmox_template_custom` names a template you built, which is only read and cloned
+([Your own base image](../guides/base-image.md)): `custom_check` holds it to what a clone needs, and no template is
+built beside it. `deploy.yml` runs it only when the template is missing or differs from what
 its settings would build, deciding that through the API, and the import-level `when:` is what keeps a
 run that does not need to build it from opening an SSH connection to the hypervisor: it skips the
 implicit fact gather along with every task ([§4.7](#47-deployyml)). The play's `gather_facts: false`
@@ -34,8 +36,11 @@ definition of what a build makes, the role's `proxmox_template_wanted`, feeds bo
 comparison (`proxmox_template_drift` in `lib/claude_vm/proxmox.py`): `deploy.yml` through the role's
 `drift` entry point, on the config the API gives (`proxmox_vm_info` with `config: current`), and the role
 itself on `qm config`'s, which
-`qm_config` reads as the API's. A template that differs, or keeps no record, as one an earlier version
-built, is rebuilt at the same VMID, each difference said first. The old one is removed only once the new
+`qm_config` reads as the API's. A template that differs is rebuilt at the same VMID, each difference said first. One
+that keeps no record of this project's build is refused and left, never rebuilt: it may be someone's own, and a
+rebuild destroys it (`template_recorded`, in `deploy.yml` before anything is done and in the role).
+A custom `proxmox_template_image_url` needs its checksum, and `virt-cat` reads the downloaded image's `os-release`
+before anything is built of it, refusing one outside the Debian family, since configure installs with apt. The old one is removed only once the new
 image is downloaded and customised, so a download that fails leaves it; the customised copy goes either
 way. Proxmox refuses to remove a template a linked clone still uses; that refusal fails the run, naming
 `proxmox_template_rebuild: false`, which keeps a template as it is, the differences said. The build reads
@@ -1202,3 +1207,74 @@ each `!!` line with its fix; with none, what could not be checked; with neither,
 the report's last line says too - unless the GitHub username is still the example's, which the questions'
 NEXT STEPS names. A run that ended at step 1 records nothing. It writes `local.yml` alone, through
 `tasks/init_local_setting.yml`, and only at a terminal or for a value given; without either, it reports.
+
+## 4.14 `playbooks/golden.yml` — the golden template new VMs clone
+
+`deploy.yml` imports it between `template.yml` and `provision.yml` to choose what each new VM clones, and
+`playbooks/golden_build.yml` as its last play to build a golden for the next deploy. Both are off until
+`proxmox_template_golden` is set, and `just deploy --only provision` runs neither: a VM then clones the base template,
+as it always did.
+
+A **golden template** is a clone of the base template with the toolchain already installed. A new VM is cloned from
+it, configure still runs every task on that VM, and finds most of them done: measured on the homelab, a whole
+`just deploy` of a new VM took 94-118 s from a golden against 179 s without one, or 294 s while Ubuntu's archive was
+slow, and the build itself two to three minutes the first time a key is seen. The build is last so
+that no VM waits for it: a deploy that finds no golden clones the base, its VMs are ready as soon as they would have
+been, and it ends about two minutes later, the editor long open. Until then the run holds this checkout's run lock, so
+`just code` and `just login` here are refused, and NEXT STEPS comes at the end. A later deploy that finds one has its VMs ready about
+a minute sooner; VMs of one deploy are configured side by side, so a fleet saves no more time than one VM does. The
+image is a head start and never trusted, so a mistake in it can leave a VM less ready, never wrong. What goes into one, and the digest of it, are
+[§7.13](custom-code.md#713-libclaude_vmgoldenpy--what-a-golden-template-is-built-from).
+
+**Every play reaches Proxmox only through `proxmox_template`'s entry points**, so the playbook names none of its API
+(`tests/unit/test_ratchets.py`), and a second hypervisor would bring entry points of its own. They run on this machine
+through the API, where the role's `main` runs on the Proxmox host over root SSH. The VPN's and the editors' roles have
+no part in it.
+
+| Play | On | Does |
+|---|---|---|
+| `golden.yml`: Read what the new VMs could clone | localhost | the image options every VM shares and their digest; `golden_read`, once for the run; each name added to `claude_vm_golden_pending` |
+| `golden.yml`: Choose each VM's template | those hosts | whether its own options are those; `golden_select`: its key, and a fresh golden of it, or that one is wanted |
+| `golden_build.yml`: Build the golden template | localhost | `golden_collect`, always; `golden_build` for the key the VMs that want a golden share; adds the build VM as a host, which a role never does |
+| `golden_build.yml`: Set up the build VM | `claude_vm_build` | configure's first steps, the three `image` entry points, `tasks/golden_generalize.yml` |
+| `golden_build.yml`: Make it a template | localhost | `golden_template`, or `golden_discard` for a build that failed |
+
+**The key** is the build number, the base's identity and the toolchain digest. The base's identity is its VMID, the
+image its record names and its config's `digest`, so a base rebuilt for a new bridge or CPU type makes a new key, and
+never leaves the VMs on the old one. A golden is taken only with that key, on the VM's node, under 7 days old, its disk
+no larger than the VM's; `provision.yml` clones it by VMID, always as a full clone
+(`proxmox_vm_template_vmid`, from `claude_vm_golden_template`).
+
+**A VM's own options.** The key's options are those every VM shares, each role's defaults resolved by its
+`image_options` entry point, and the build sees the same. Each VM's are resolved too: one whose host vars change an
+image option clones the base, said once. An option that holds a vault value means no golden is built or used, said by
+the option's name and never its value. An option under the `claude_vms` group reaches configure but neither of these, so
+configure holds a VM cloned from a golden in this run to the options the build saw and fails it by name where they
+differ: a golden keeps what such an option would leave out, which configure cannot take away.
+
+**The build VM** is a full clone of the base, its VMID from `/cluster/nextid`, named `<tag>-build-<key>`, and tagged
+`<tag>-build` and nothing else. The ownership tag is matched whole, so no fleet command - discovery, configure,
+destroy, the aliases, the VPN's plans - can reach it, by construction: it is the one VM this project makes without
+that tag, with an interlock of its own (named for a build, never a template, and read from its own config). Its notes say when it started, since a
+clone's `meta: ctime` is its template's. It gets no password, its become password is empty (cloud-init's own rule
+covers the build, and the vault's is never sent to it), and its host key goes into `.cache/golden/`, never
+`~/.ssh/known_hosts`.
+
+**The scrub** (`tasks/golden_generalize.yml`, in the digest) first runs what a clone's first boot will, so a baked
+change that breaks it - as masked snapd units did - fails the build and not every deploy from the golden. It stops
+what holds an identity, deletes each one, fails if anything signed in is left, runs `cloud-init clean` (with
+`--configs network` where that cloud-init has the option, which Debian 12's does not), puts back the machine-id that
+older cloud-init deletes, without which systemd will not boot a read-only root, and last deletes the host keys,
+since no new SSH session opens after that.
+
+**Made a template** (`golden_template`): stopped, every setting a clone would inherit deleted (`ciuser`, keys, DNS,
+tags), its notes replaced whole by one line under a marker of its own, so nothing reads it as a base template, read
+back, and only then converted. A template with a `ciuser` would make every clone look configured
+([Existence is not convergence](convergence.md#existence-is-not-convergence)), so one is never made.
+
+**Nothing here fails a deploy.** A build that fails, at any step, deletes its VM, said once. A build of the same key
+another run started under 30 minutes ago means this run builds none, and one of another key started as recently, or
+one whose notes could not be read, is left alone; an older one is left over and deleted, whether golden templates are
+on or off, so a run stopped during its build leaves nothing for long. **Old goldens** go by age only: past 14 days, twice the age one is selected at, so
+none can be in use by a run of any checkout. Proxmox keeps one a linked clone still uses, which is said.
+Both ages are internals, since a checkout with a shorter one could delete another's choice.

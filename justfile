@@ -166,7 +166,7 @@ configure_roles := 'common vscode_server dev_tools claude_code github_projects t
 scenario_roles := configure_roles + ' proxmox_template proxmox_vm'
 # Every Molecule scenario, the longest first, as test --jobs starts them, so that the short ones fill in beside it:
 # their order of time on CI's runners (2026-11). test_justfile.py holds it to the scenarios.
-molecule_order := 'provision configure tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
+molecule_order := 'provision configure image tailscale claude_code proxmox_vm common dev_tools vscode_server github_projects proxmox_template'
 # Hooks lint already runs itself, so its hooks part skips them, the
 # production-profile ansible-lint and ruff never running a second time
 # (ruff-format even rewriting files). gitleaks is in it because its hook scans
@@ -1024,7 +1024,7 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
       [ -z "$roles" ] || chosen=$(printf %s "$roles" | tr , ' ')
       for scenario in {{ molecule_order }}; do
         case "$scenario" in
-        configure) part=integration ;;
+        configure | image) part=integration ;;
         provision) part=provision ;;
         *) part=role; case " $chosen " in *" $scenario "*) ;; *) continue ;; esac ;;
         esac
@@ -1083,6 +1083,7 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     fi
     if runs integration; then
       part integration --step configure --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s configure
+      part integration --step image --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s image
     fi
     if runs provision; then
       part provision --step provision --read molecule -- env PATH="$absbin:$PATH" "$absbin/molecule" test -s provision

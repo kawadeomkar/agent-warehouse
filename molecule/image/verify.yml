@@ -1,0 +1,40 @@
+---
+- name: Verify the image and configure make what configure alone does
+  hosts: claude_vms
+  become: true
+  tasks:
+    - name: Read what apt did since the scrub emptied its log
+      ansible.builtin.slurp:
+        src: /var/log/apt/history.log
+      register: image_verify_history
+
+    # The image holds everything but what is never baked: the VPN's package.
+    - name: Assert configure had nothing left to install but Tailscale
+      vars:
+        image_verify_installs: >-
+          {{ (image_verify_history.content | b64decode).splitlines() | select('match', '^Install: ') | list }}
+        image_verify_others: "{{ image_verify_installs | reject('search', 'tailscale') | list }}"
+      ansible.builtin.assert:
+        that: image_verify_others | length == 0
+        fail_msg: "configure installed what the image should hold: {{ image_verify_others }}"
+        quiet: true
+
+    - name: Look for what each role left
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /usr/bin/node
+        - /usr/bin/gh
+        - /usr/local/bin/uv
+        - /home/dev/.local/bin/claude
+        - /etc/ssh/sshd_config.d/10-agent-warehouse.conf
+        - /etc/ssh/sshd_config.d/20-vscode-server.conf
+        - /etc/ssh/ssh_host_ed25519_key
+        - /home/dev/.ssh/authorized_keys
+      register: image_verify_left
+
+    - name: Assert the VM has them all
+      ansible.builtin.assert:
+        that: image_verify_left.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: "missing: {{ image_verify_left.results | rejectattr('stat.exists') | map(attribute='item') | list }}"
+        quiet: true

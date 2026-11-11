@@ -380,6 +380,9 @@ _TEMPLATE_RECORD_RE = re.compile(
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
 TEMPLATE_RECORD_KEYS = ("build", "image", "packages", "sha256")
+# What proxmox_template_drift says of a template whose notes keep no record of its build, which a deploy refuses to
+# rebuild (roles/proxmox_template/tasks/main.yml).
+NO_TEMPLATE_RECORD = "no record of how it was built, so it was built by an earlier version of this project"
 # What a template is compared on, in the order its differences are said: the settings every clone inherits from it,
 # then the record. Not cores or memory, which each VM sets for itself.
 TEMPLATE_FIELDS = (
@@ -491,7 +494,7 @@ def proxmox_template_drift(config, wanted):
         raise ValueError("proxmox_template_drift expects the template's config and what is wanted, as dicts")
     record = _template_record(config)
     if record is None:
-        return ["no record of how it was built, so it was built by an earlier version of this project"]
+        return [NO_TEMPLATE_RECORD]
     has = {
         "cpu": _option(config.get("cpu"), "cputype"),
         "ostype": str(config.get("ostype") or ""),
@@ -523,3 +526,343 @@ def proxmox_read_grant(node, user):
         f"pveum role modify {ACCESS_ROLE} --append 1 --privs Sys.Audit",
         f"pveum acl modify /nodes/{node} --users {user or 'ansible@pve'} --roles {ACCESS_ROLE}",
     ]
+
+
+# A golden template's notes: one line under a marker of its own, never TEMPLATE_RECORD's, so _template_record and
+# built_template never take a golden for a base. It replaces the notes the build VM inherited from its base whole
+# (docs/architecture/lifecycle.md §4.14). Its key, its build number, its base's identity, the node it is on, when it
+# was built (UTC, ISO 8601) and the size its disk was built at.
+GOLDEN_RECORD = "Golden by agent-warehouse:"
+GOLDEN_RECORD_KEYS = ("key", "build", "base", "node", "built", "disk")
+# A build VM's notes while it is built: the key and when it started. A clone's `meta: ctime` is its template's (Proxmox
+# VE 9.2), so a build VM's age is read from here, never from its config's meta.
+BUILD_RECORD = "Building by agent-warehouse:"
+BUILD_RECORD_KEYS = ("key", "started")
+
+
+def _record(values, marker, keys):
+    return marker + " " + "; ".join(f"{key}={values.get(key, '')}" for key in keys)
+
+
+def _marked(config, marker):
+    """The key=value pairs of the line under marker in a config's notes; None when there is none."""
+    notes = config.get("description") if isinstance(config, dict) else config
+    for line in str(notes or "").splitlines():
+        if line.startswith(marker):
+            return dict(part.split("=", 1) for part in line[len(marker) :].strip().split("; ") if "=" in part)
+    return None
+
+
+def golden_record(values):
+    """A golden template's notes, from values with GOLDEN_RECORD_KEYS."""
+    return _record(values, GOLDEN_RECORD, GOLDEN_RECORD_KEYS)
+
+
+def build_record(values):
+    """A build VM's notes, from values with BUILD_RECORD_KEYS."""
+    return _record(values, BUILD_RECORD, BUILD_RECORD_KEYS)
+
+
+def golden_read(config):
+    """A golden template's record, from its config or its notes; None when it carries none."""
+    return _marked(config, GOLDEN_RECORD)
+
+
+def build_read(config):
+    """A build VM's record, from its config or its notes; None when it carries none."""
+    return _marked(config, BUILD_RECORD)
+
+
+def golden_base(config, vmid):
+    """A base template's identity, for a golden template's key: its VMID, the image its record names, and its config's
+    digest, which Proxmox changes with any change to the config - and a template built again gets a new vmgenid and
+    smbios1 UUID - so a base rebuilt for a new bridge or CPU type makes a new key, not the old golden."""
+    if not isinstance(config, dict) or not config.get("digest"):
+        return ""
+    record = _template_record(config) or {}
+    return f"{vmid}:{record.get('sha256', '')}:{config['digest']}"
+
+
+def _seconds(stamp):
+    """Seconds since the epoch of a UTC ISO 8601 stamp (2026-11-09T12:00:00Z); None for one that is not."""
+    from datetime import UTC, datetime
+
+    try:
+        return datetime.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        return None
+
+
+def golden_pick(goldens, key, node, now, max_age, disk):
+    """The VMID of the golden template a VM of this key clones: the newest of goldens (each {vmid, node, config}) with
+    this key in its record, on the VM's node, built less than max_age seconds before now (UTC ISO 8601), its disk no
+    larger than the VM's (disk, a size such as 32G); "" when none is."""
+    now_s, wanted = _seconds(now), _size_bytes(str(disk)) or 0
+    found = []
+    for golden in goldens or []:
+        record = golden_read(golden.get("config") or {}) or {}
+        built = _seconds(record.get("built"))
+        if (
+            record.get("key") == key
+            and golden.get("node") == node == record.get("node")
+            and built is not None
+            and now_s is not None
+            and 0 <= now_s - built < max_age
+            and (_size_bytes(record.get("disk", "")) or 0) <= wanted
+        ):
+            found.append((built, int(golden["vmid"])))
+    return str(max(found)[1]) if found else ""
+
+
+def golden_collectable(goldens, now, age, configs=None):
+    """The VMIDs of goldens (each {vmid, config}, or {vmid} with configs, the reads of them) built more than age
+    seconds before now: no run selects one older than the maximum age, half of this, so none of these can be in use by
+    another run.
+    """
+    now_s, read = _seconds(now), read_configs(configs or {})
+    out = []
+    for golden in goldens or []:
+        built = _seconds((golden_read(golden.get("config") or read.get(str(golden["vmid"])) or {}) or {}).get("built"))
+        if built is not None and now_s is not None and now_s - built > age:
+            out.append(str(golden["vmid"]))
+    return sorted(out, key=int)
+
+
+def build_leftovers(builds, key, now, fresh, prefix, golden_prefix, tag, configs=None):
+    """Of the VMs that may be build VMs (each {vmid, config}, or {vmid} with configs, the reads of them): busy, whether
+    one of this key started less than fresh seconds before now - another run building it - and stale, the VMIDs of those
+    a run cut short left. Everything is read from the VM's own config, which the listing lags behind. One named for a
+    build counts where it carries tag or a build's notes; one renamed as a golden but never converted where it carries a
+    golden's notes; a template never. One of them that started recently is another run's, and is not stale, nor is one
+    whose config could not be read. Carrying tag with no record of its start, nothing says another run is at work on it.
+    """
+    now_s, read = _seconds(now), read_configs(configs or {})
+    busy, stale = False, []
+    for build in builds or []:
+        config = build.get("config") or read.get(str(build["vmid"]))
+        if config is None or int(config.get("template") or 0):
+            continue
+        name = str(config.get("name", ""))
+        if name.startswith(golden_prefix):
+            record = golden_read(config)
+            started = (record or {}).get("built")
+        elif name.startswith(prefix) and (build_read(config) is not None or tag in proxmox_tags(config.get("tags"))):
+            record = build_read(config) or {}
+            started = record.get("started")
+        else:
+            continue
+        if record is None:
+            continue
+        started_s = _seconds(started)
+        if started_s is None or now_s is None or not 0 <= now_s - started_s < fresh:
+            stale.append(str(build["vmid"]))
+        elif record.get("key") == key:
+            busy = True
+    return {"busy": busy, "stale": sorted(stale, key=int)}
+
+
+def _templates(listing, node, prefix=None, name=None):
+    return [
+        entry
+        for entry in listing or []
+        if entry.get("type") == "qemu"
+        and int(entry.get("template") or 0) == 1
+        and entry.get("node") == node
+        and (prefix is None or str(entry.get("name", "")).startswith(prefix))
+        and (name is None or entry.get("name") == name)
+    ]
+
+
+def golden_reads(listing, base, node, prefix):
+    """What golden_choice needs read beyond the listing: the configs of the base template, by its name, and of each
+    golden on the node, as [{node, vmid}]."""
+    return [
+        {"node": entry["node"], "vmid": str(entry["vmid"])}
+        for entry in _templates(listing, node, name=base) + _templates(listing, node, prefix=prefix)
+    ]
+
+
+def read_configs(reads):
+    """The configs a loop of reads registered - each {item: {vmid}, json: {data: config}} - by VMID, as {vmid: config};
+    one that failed is left out. A dict is taken as it is."""
+    if isinstance(reads, dict):
+        return {str(vmid): config for vmid, config in reads.items()}
+    return {
+        str(read["item"]["vmid"]): read["json"]["data"]
+        for read in reads or []
+        if isinstance(read, dict) and isinstance((read.get("json") or {}).get("data"), dict) and "item" in read
+    }
+
+
+def golden_size(boot_disk, least):
+    """The size a golden built on a base with this boot disk (its property string) has: least, or the disk's own size,
+    as the config writes it, where that is no smaller, since Proxmox cannot shrink a disk."""
+    return _option(boot_disk, "size") if proxmox_disk_bytes(boot_disk) >= (_size_bytes(least) or 0) else str(least)
+
+
+def golden_choice(
+    listing, configs, vm, base, node, prefix, now, max_age, disk, boot_disk, least, digest, build, shared=True
+):
+    """Which template a VM is cloned from, as {exists, base, key, disk, golden, wanted, said}: golden, the VMID of a
+    fresh one of its key ("" for the base template); wanted, whether a golden of its key should be built for it; key,
+    the key, base, the base template's VMID, and disk, the size a golden built now has ("" when they are unknown); said,
+    why not a golden, for the run to say. listing is /cluster/resources?type=vm; configs each config golden_reads named,
+    by VMID; disk the VM's size; boot_disk the base's boot disk, by its name in the config; least the smallest a golden
+    is built at. A VM that exists keeps its disk: it is never cloned. A VM whose own options differ from the ones a
+    build would see (shared false) clones the base, since a golden built for it could not be shared, and so does one
+    whose disk a golden's would be too large for, since Proxmox cannot shrink it.
+    """
+    from .golden import golden_key
+
+    configs = read_configs(configs)
+    out = {"exists": False, "base": "", "key": "", "disk": "", "golden": "", "wanted": False, "said": ""}
+    if any(e.get("type") == "qemu" and e.get("name") == vm and not int(e.get("template") or 0) for e in listing or []):
+        return {**out, "exists": True, "said": f"{vm} exists"}
+    bases = _templates(listing, node, name=base)
+    if len(bases) != 1:
+        return {**out, "said": f"the base template {base} is not on {node} once"}
+    base_vmid = str(bases[0]["vmid"])
+    base_config = configs.get(base_vmid) or {}
+    identity = golden_base(base_config, base_vmid)
+    if not identity:
+        return {**out, "said": f"the base template {base}'s config could not be read"}
+    out.update(
+        base=base_vmid, key=golden_key(build, identity, digest), disk=golden_size(base_config.get(boot_disk), least)
+    )
+    if not shared:
+        return {**out, "said": f"{vm} sets an image option of its own (a host var), so a golden could not be shared"}
+    goldens = [
+        {**e, "vmid": str(e["vmid"]), "config": configs.get(str(e["vmid"]), {})}
+        for e in _templates(listing, node, prefix=prefix)
+    ]
+    picked = golden_pick(goldens, out["key"], node, now, max_age, disk)
+    if picked:
+        return {**out, "golden": picked}
+    if (_size_bytes(str(disk)) or 0) < (_size_bytes(out["disk"]) or 0):
+        return {**out, "said": f"{vm}'s disk is smaller than a golden template's, {out['disk']}"}
+    return {**out, "wanted": True}
+
+
+def golden_targets(choices):
+    """Of the choices of a run's VMs, {vm: choice}, what to build a golden for, as {key, base, disk, vms}: the first VM
+    that wants one names it, as a VM wants one only with the options and the base the others share; {} when none does.
+    """
+    wanting = [(vm, choice) for vm, choice in (choices or {}).items() if choice.get("wanted")]
+    if not wanting:
+        return {}
+    first = wanting[0][1]
+    return {
+        "key": first["key"],
+        "base": first["base"],
+        "disk": first["disk"],
+        "vms": [vm for vm, choice in wanting if choice["key"] == first["key"]],
+    }
+
+
+def build_vms(listing, node, prefixes):
+    """The VMs that may be left over from a build, by their names in the listing: on the node, named with one of
+    prefixes, never a template. build_leftovers then holds each to its own config, and nothing else here deletes one."""
+    return [
+        {"node": entry["node"], "vmid": str(entry["vmid"]), "name": entry.get("name", "")}
+        for entry in listing or []
+        if entry.get("type") == "qemu"
+        and not int(entry.get("template") or 0)
+        and entry.get("node") == node
+        and str(entry.get("name", "")).startswith(tuple(prefixes))
+    ]
+
+
+def build_vm_ours(config, prefixes):
+    """Whether the VM a run cloned for a build is one its rescue may delete, from the VM's own config: never a template,
+    and named with one of prefixes, for a build or, once golden_template has renamed it, as a golden. Its tag cannot
+    say: the clone has none yet, and golden_template deletes it."""
+    return (
+        isinstance(config, dict)
+        and not int(config.get("template") or 0)
+        and str(config.get("name", "")).startswith(tuple(prefixes))
+    )
+
+
+def golden_templates(listing, node, prefix):
+    """The goldens on the node, by name prefix, as [{node, vmid, name}]: golden_collectable then holds each to its
+    record."""
+    return [
+        {"node": e["node"], "vmid": str(e["vmid"]), "name": e.get("name", "")}
+        for e in _templates(listing, node, prefix=prefix)
+    ]
+
+
+def not_templates(guests):
+    """The entries of a listing that are no template: one carrying the ownership tag is never a VM of the fleet."""
+    return [guest for guest in guests or [] if not int(guest.get("template") or 0)]
+
+
+def template_recorded(config):
+    """Whether a template's notes keep the record this project's builds leave: one with none was not built by it, or
+    so long ago that nothing says so, and is never rebuilt, which would destroy it."""
+    return isinstance(config, dict) and _template_record(config) is not None
+
+
+def os_release_debian(text):
+    """Whether an os-release file names a Debian-family system: its ID, or an ID_LIKE word, ubuntu or debian."""
+    values = {}
+    for line in str(text or "").splitlines():
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("\"'")
+    return bool({"debian", "ubuntu"} & {values.get("ID", ""), *values.get("ID_LIKE", "").split()})
+
+
+# CPU types with no AVX2, which Claude Code's native binary spins forever without (measured). Unset is kvm64, Proxmox's
+# default where a VM names none.
+_NO_AVX2 = re.compile(
+    r"^(|kvm64|kvm32|qemu64|qemu32|486|athlon|phenom|pentium.*|coreduo|core2duo|conroe|penryn|nehalem.*|westmere.*"
+    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)$",
+    re.I,
+)
+
+
+def custom_template_problems(listing, configs, name, node, disk, nic, owned):
+    """What a template the user built lacks, as sentences naming the fix; [] when it can be cloned. listing is
+    /cluster/resources?type=vm; configs the reads golden_reads named; disk and nic, the boot disk and NIC a VM is
+    resized and addressed by; owned, the ownership tags, which a template must carry neither of nor any made from them.
+    Nothing here changes it: a template of the user's own is only read and cloned."""
+    found = [e for e in listing or [] if e.get("type") == "qemu" and e.get("name") == name]
+    templates = [e for e in found if int(e.get("template") or 0)]
+    if not found:
+        return [f'there is no template named "{name}" on Proxmox']
+    if not templates:
+        return [f'"{name}" is a VM, not a template: convert it with qm template {found[0].get("vmid")}']
+    if len(found) > 1:
+        return [f'{len(found)} VMs and templates are named "{name}": give each a name of its own']
+    template = templates[0]
+    if template.get("node") != node:
+        return [f'"{name}" is on node {template.get("node")}, and VMs are created on {node}: set proxmox_node to match']
+    config = read_configs(configs).get(str(template["vmid"]))
+    if not config:
+        return [f'the config of "{name}" could not be read']
+    vmid, problems = template["vmid"], []
+    if not any(
+        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+$", key)
+    ):
+        problems.append(f"it has no cloud-init drive: qm set {vmid} --ide2 <storage>:cloudinit")
+    if _option(config.get("agent"), "enabled") != "1":
+        problems.append(f"its guest agent is off, and a VM's address comes from it: qm set {vmid} --agent enabled=1")
+    if nic not in config:
+        problems.append(f"it has no {nic}: give it one, or set proxmox_nic to the NIC it has")
+    if disk not in config:
+        problems.append(
+            f"it has no {disk} disk, which each VM's disk is resized as: set proxmox_vm_disk to its boot disk"
+        )
+    if _NO_AVX2.match(_option(config.get("cpu"), "cputype")):
+        problems.append(f"its CPU type has no AVX2, without which Claude Code hangs: qm set {vmid} --cpu host")
+    if config.get("ciuser"):
+        problems.append(
+            f"it has a cloud-init user, which makes every clone look configured: qm set {vmid} --delete ciuser"
+        )
+    tags = proxmox_tags(config.get("tags"))
+    held = [tag for tag in tags if any(tag == each or tag.startswith(f"{each}-") for each in owned)]
+    if held:
+        problems.append(
+            f"it carries this project's tags ({', '.join(held)}), which every clone would inherit: remove them"
+        )
+    return problems

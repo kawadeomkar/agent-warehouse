@@ -1,0 +1,74 @@
+---
+# Every rescue's: the build VM a failed build left, deleted under its own
+# interlock - the VM this run cloned, read from its own config, since the
+# listing lags a rename and a tag this run just changed: never a template, and
+# named as this run's build or, once golden_template has renamed it, as its
+# golden - and its host key file. A VM already gone is the goal reached, and a deletion Proxmox refuses
+# is said, never failed (docs/architecture/lifecycle.md §4.14).
+- name: golden_discard | Delete the build VM
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+  vars:
+    proxmox_template_discard_ours: >-
+      {{ proxmox_template_discard_config.json.data | default({}, true)
+         | build_vm_ours([proxmox_template_build_vm.name,
+                          proxmox_template_golden_prefix ~ proxmox_template_build_vm.key[:12]]) }}
+    proxmox_template_discard_gone: "{{ proxmox_template_discard_config.msg | default('') is search('does not exist') }}"
+  when: (proxmox_template_build_vm | default({})).id | default('') | string | length > 0
+  block:
+    - name: golden_discard | Read the build VM's config
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/nodes/{{ proxmox_node }}/qemu/{{ proxmox_template_build_vm.id }}/config"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_discard_config
+      no_log: true
+      failed_when: false
+      check_mode: false
+
+    - name: golden_discard | Stop the build VM
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        state: stopped
+        force: true
+        timeout: 60
+      failed_when: false
+      when: proxmox_template_discard_ours | bool
+
+    - name: golden_discard | Delete it
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ proxmox_template_build_vm.id | int }}"
+        state: absent
+        timeout: 60
+      register: proxmox_template_discarded
+      failed_when: false
+      when: proxmox_template_discard_ours | bool
+
+    - name: golden_discard | Say a build VM that was not deleted
+      vars:
+        proxmox_template_discard_why: >-
+          {{ proxmox_template_discarded.msg | default('no reason') | plain_text
+             if proxmox_template_discarded is not skipped else
+             ('its config could not be read' if proxmox_template_discard_config.status | default(0) != 200
+              else 'it is no longer named for a build') }}
+      ansible.builtin.debug:
+        msg: >-
+          The build VM {{ proxmox_template_build_vm.name | default('') }} ({{ proxmox_template_build_vm.id }}) was not
+          deleted: {{ proxmox_template_discard_why }}. Delete it in Proxmox if it is still there after the next deploy.
+      when: >-
+        (proxmox_template_discarded is not skipped and proxmox_template_discarded is not changed)
+        or (proxmox_template_discarded is skipped and not proxmox_template_discard_gone | bool)
+
+- name: golden_discard | Forget the build VM's host key
+  ansible.builtin.file:
+    path: "{{ proxmox_template_build_vm.known_hosts }}"
+    state: absent
+  when: (proxmox_template_build_vm | default({})).known_hosts | default('') | length > 0
+
+# Nothing left to delete, and nothing for a later play to take for a build VM.
+- name: golden_discard | Forget the build VM
+  ansible.builtin.set_fact:
+    proxmox_template_build_vm: {}

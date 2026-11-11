@@ -1,0 +1,8 @@
+---
+- name: profile | Put ~/.local/bin on PATH for all users
+  ansible.builtin.template:
+    src: local-bin-path.sh.j2
+    dest: /etc/profile.d/local-bin-path.sh
+    owner: root
+    group: root
+    mode: "0644"

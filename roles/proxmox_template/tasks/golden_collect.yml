@@ -1,0 +1,124 @@
+---
+# What earlier runs left, deleted (docs/architecture/lifecycle.md §4.14): build
+# VMs a run cut short left, and golden templates past the collection age, twice
+# the age a run selects one at, so none can be in use by a run of any checkout.
+# Only a template on the node, named as a golden, whose record says when it was
+# built, and only a VM named for a build or as a golden whose own config says it
+# is one; never the base, never a VM of the fleet. Runs whether golden templates are on or off, so turning them off
+# leaves none, and never fails a deploy. Sets proxmox_template_build_busy, whether
+# another run is building this run's key.
+- name: golden_collect | Collect on the API
+  module_defaults:
+    group/community.proxmox.proxmox: "{{ proxmox_api_module_defaults }}"
+  vars:
+    proxmox_template_collect_goldens: >-
+      {{ proxmox_template_collect_listing.json.data | default([], true)
+         | golden_templates(proxmox_node, proxmox_template_golden_prefix) }}
+    proxmox_template_collect_builds: >-
+      {{ proxmox_template_collect_listing.json.data | default([], true)
+         | build_vms(proxmox_node, [proxmox_template_build_prefix, proxmox_template_golden_prefix]) }}
+    proxmox_template_collect_old: >-
+      {{ proxmox_template_collect_goldens
+         | golden_collectable(proxmox_template_now, proxmox_template_golden_collect_age,
+                              proxmox_template_collect_configs.results | default([])) }}
+    proxmox_template_collect_left: >-
+      {{ proxmox_template_collect_builds
+         | build_leftovers(proxmox_template_golden_target.key | default(''), proxmox_template_now,
+                           proxmox_template_build_fresh, proxmox_template_build_prefix, proxmox_template_golden_prefix,
+                           proxmox_template_build_tag, proxmox_template_collect_notes.results | default([])) }}
+  block:
+    - name: golden_collect | Read the VMs and templates on Proxmox
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/cluster/resources?type=vm"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      register: proxmox_template_collect_listing
+      no_log: true
+      failed_when: false
+      check_mode: false
+
+    - name: golden_collect | Read each golden's record
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      loop: "{{ proxmox_template_collect_goldens }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: proxmox_template_collect_configs
+      no_log: true
+      failed_when: false
+      check_mode: false
+
+    - name: golden_collect | Read each build VM's notes
+      ansible.builtin.uri:
+        url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+        headers: "{{ proxmox_api_headers }}"
+        validate_certs: "{{ proxmox_validate_certs }}"
+        ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+      loop: "{{ proxmox_template_collect_builds }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: proxmox_template_collect_notes
+      no_log: true
+      failed_when: false
+      check_mode: false
+
+    # Stopped first, as Proxmox refuses to delete a running VM.
+    - name: golden_collect | Stop each build VM a run cut short left
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item }}"
+        state: stopped
+        force: true
+        timeout: 60
+      loop: "{{ proxmox_template_collect_left.stale }}"
+      failed_when: false
+
+    - name: golden_collect | Delete each build VM a run cut short left
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item }}"
+        state: absent
+        timeout: 60
+      loop: "{{ proxmox_template_collect_left.stale }}"
+      register: proxmox_template_collect_deleted
+      failed_when: false
+
+    - name: golden_collect | Say each build VM Proxmox would not delete
+      ansible.builtin.debug:
+        msg: >-
+          Proxmox would not delete {{ item.item }}, a build VM a run left: {{ item.msg | plain_text }}. The next deploy
+          tries again.
+      loop: >-
+        {{ proxmox_template_collect_deleted.results | default([]) | rejectattr('changed') | selectattr('msg', 'defined')
+           | rejectattr('msg', 'search', 'does not exist') | list }}
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: golden_collect | Delete each golden past its age
+      community.proxmox.proxmox_kvm: # noqa: args[module] - api_* come from module_defaults
+        node: "{{ proxmox_node }}"
+        vmid: "{{ item }}"
+        state: absent
+        timeout: 60
+      loop: "{{ proxmox_template_collect_old }}"
+      register: proxmox_template_collected
+      failed_when: false
+
+    - name: golden_collect | Say each golden Proxmox kept
+      ansible.builtin.debug:
+        msg: >-
+          Proxmox kept the old golden template {{ item.item }}: {{ item.msg | default('no reason') | plain_text }}. A
+          linked clone keeps its template; it is deleted once none does.
+      loop: >-
+        {{ proxmox_template_collected.results | default([]) | rejectattr('changed') | selectattr('msg', 'defined')
+           | rejectattr('msg', 'search', 'does not exist') | list }}
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: golden_collect | Record whether another run is building this key
+      ansible.builtin.set_fact:
+        proxmox_template_build_busy: "{{ proxmox_template_collect_left.busy }}"

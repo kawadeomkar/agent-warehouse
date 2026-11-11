@@ -27,6 +27,7 @@ Using it: [GitHub](../../guides/github.md). How it works: [§5.6](../../architec
 | `github_projects_clone_protocol` | str | `https` | https clones private repositories through gh; ssh needs a key of the user's own on the VM, and trusts GitHub's published host keys. One of `https`, `ssh`. |
 | `github_projects_update_existing` | bool | `false` | Pull checkouts that already exist on every run. Off, a re-run never disturbs local work. |
 | `github_projects_depth` | str | `""` | Shallow clone depth. Empty clones the full history. |
+| `github_projects_clone_jobs` | int | `8` | How many repositories are cloned at once, each into a partial folder renamed into place once whole. 1 clones them one at a time. |
 | `github_projects_auth` | bool | `true` | Sign gh in (from the token, or by a device-flow login the user makes once) and make it git's credential helper. Set through `github_auth` in local.yml. |
 | `github_projects_auth_method` | str | `auto` | auto takes the token when set, else the device flow; web is the device flow always; token is the token only, put over any login gh holds. One of `auto`, `web`, `token`. Set through `github_auth_method` in local.yml. |
 | `github_projects_login_scopes` | list of `str` | `[workflow]` | Scopes the device flow asks for on top of gh's own (repo, read:org, gist). Set through `github_login_scopes` in local.yml. |
@@ -277,7 +278,9 @@ classDef rescue stroke:#665352,stroke-width:2px;
 | Keep what is left to do for the end of the run | `ansible.builtin.set_stats` | <code>github_projects_git_identity_needed &#124; bool and (github_projects_listing.user.type &#124; default('')) == 'Organization'</code> |
 | Fetch GitHub's published SSH host keys | `ansible.builtin.uri` | <code>github_projects_clone_protocol == 'ssh'</code> |
 | Trust GitHub's SSH host keys | `ansible.builtin.known_hosts` | <code>github_projects_clone_protocol == 'ssh'</code> |
-| Clone repositories | `ansible.builtin.git` |  |
+| Clone repositories | `git_clone_many` |  |
+| Fail when a repository could not be cloned | `ansible.builtin.fail` | <code>github_projects_clones.cloned is not defined or github_projects_clones.not_cloned &#124; default([]) &#124; length > 0</code> |
+| Pull the checkouts that already existed | `ansible.builtin.git` | <code>github_projects_update_existing &#124; bool</code> |
 
 ```mermaid
 flowchart TD
@@ -303,7 +306,9 @@ classDef rescue stroke:#665352,stroke-width:2px;
   clone___Keep_what_is_left_to_do_for_the_end_of_the_run8-->|Task| clone___Fetch_GitHub_s_published_SSH_host_keys9[clone   fetch github s published ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
   clone___Fetch_GitHub_s_published_SSH_host_keys9-->|Task| clone___Trust_GitHub_s_SSH_host_keys10[clone   trust github s ssh host keys<br>When: **github projects clone protocol     ssh**]:::task
   clone___Trust_GitHub_s_SSH_host_keys10-->|Task| clone___Clone_repositories11[clone   clone repositories]:::task
-  clone___Clone_repositories11-->End
+  clone___Clone_repositories11-->|Task| clone___Fail_when_a_repository_could_not_be_cloned12[clone   fail when a repository could not be cloned<br>When: **github projects clones cloned is not defined or<br>github projects clones not cloned   default      <br>length   0**]:::task
+  clone___Fail_when_a_repository_could_not_be_cloned12-->|Task| clone___Pull_the_checkouts_that_already_existed13[clone   pull the checkouts that already existed<br>When: **github projects update existing   bool**]:::task
+  clone___Pull_the_checkouts_that_already_existed13-->End
 ```
 
 ### `device_flow.yml`

@@ -1,0 +1,6 @@
+---
+# What a golden template carries of this role: the binary, by install method,
+# and an empty ~/.claude. Left to configure: the settings (they can carry the
+# API key), the global CLAUDE.md, Remote Control and every sign-in.
+- name: image | Install Claude Code
+  ansible.builtin.include_tasks: install.yml

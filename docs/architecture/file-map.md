@@ -41,6 +41,8 @@ pyproject.toml, uv.lock           the pinned and locked Python tooling (§13); r
 
 playbooks/
   template.yml                    one-time: build the cloud-init template (SSH to PVE)
+  golden.yml                      the template each new VM clones: a fresh golden of its key, else the base (§4.14)
+  golden_build.yml                last of just deploy: builds a golden for the next VMs, deletes what earlier runs left (§4.14)
   provision.yml                   three plays: register → create in parallel → publish
   discover.yml                    find VMs by tag, resolve addresses via the guest agent
   claude_login.yml                sign Claude in by the browser, VM by VM, then start Remote Control; bare, report
@@ -89,6 +91,8 @@ playbooks/
                                   Claude task's terminal, never a second claude on one conversation)
   tasks/cluster_vms.yml           one /cluster/resources listing, shared by the playbooks above
   tasks/vm_addresses.yml          each VM's config and agent reply, two requests to its own node
+  tasks/golden_generalize.yml     the scrub a golden template's build VM gets: its first boot checked, every identity
+                                  deleted, nothing signed in left, cloud-init made to run afresh (§4.14)
   tasks/vm_stop.yml               stops again a VM destroy started for its release and then is not deleting
   tasks/vm_names.yml              refuses a VM name given that is a host of the inventory (pve, localhost) or cannot be its alias
   tasks/default_name_1x.yml       refuses a bare deploy or destroy while the default VM has its 1.x name alone (provision, destroy)
@@ -113,19 +117,27 @@ playbooks/
   tasks/init_access_choose.yml    the offer's storage or bridge, among what the host lists to root
 
 roles/                            one role per concern, each with defaults/, meta/argument_specs.yml, molecule/
-  proxmox_template/               qm + virt-customize on the PVE node
+  proxmox_template/               qm + virt-customize on the PVE node; tasks/golden_read.yml, golden_select.yml, golden_build.yml,
+                                  golden_template.yml, golden_collect.yml and golden_discard.yml, a golden template's
+                                  entry points, on this machine through the API (§4.14)
   proxmox_vm/                     the Proxmox API role (tasks/{main,present,absent}.yml, vars/main.yml)
-  common/                         OS baseline, user, sudo, keys, sshd hardening, PATH for ssh commands
+  common/                         OS baseline, user, sudo, keys, sshd hardening, PATH for ssh commands; tasks/apt.yml,
+                                  timezone.yml, user.yml, sshd.yml, profile.yml, shared by main.yml and image.yml, what
+                                  a golden template carries, and image_options.yml, the options it is built with (§7.13)
   vscode_server/                  sshd forwarding drop-in checked with sshd -T, inotify limit
-  dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys)
+  dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys); tasks/image.yml
+                                  and image_options.yml, what a golden template carries and is built with (§7.13)
   claude_code/                    native or npm install, settings.json, Remote Control and the path unit that
                                   starts it when a login lands; tasks/login.yml, browser_login.yml (the sign-in),
                                   after_login.yml, home.yml (the user's home, for login and status),
                                   unit_absent.yml; release.yml, and release_pause.yml and
-                                  release_resume.yml around destroy's save of the VM's sessions
+                                  release_resume.yml around destroy's save of the VM's sessions;
+                                  install.yml, the binary, which image.yml bakes into a golden template, and
+                                  image_options.yml, the options it is built with (§7.13)
   github_projects/                tasks/auth.yml (gh sign-in, credential helper), clone.yml, login.yml (login_read.yml,
                                   login_report.yml), device_flow.yml (the sign-in);
-                                  library/github_repos.py, the custom module
+                                  library/github_repos.py, the listing, and git_clone_many.py, the clones, several at
+                                  a time, each whole or not at all (§5.6)
   tailscale/                      tasks/ownership.yml, install.yml, state.yml, connect.yml (the key), settings.yml,
                                   report.yml, unmanaged.yml (off), login.yml and web_login.yml (the sign-in);
                                   files/tailscale.asc (the vendored signing key)
@@ -144,6 +156,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   by its title (§7.8); run/model.py, a live run as stages, steps and tasks (just
                                   deploy's first), and tui/run.py, it drawn: its frame, a line per step, the summary
                                   (§7.5)
+                                  golden.py, a golden template's toolchain digest and key, and the walk of the files a
+                                  role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
                                   as the callback and a run in parts say them (§7.5)
                                   ansible/parts.py, a run in parts: the driver every drawn run shares, a command drawn
@@ -178,6 +192,8 @@ filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and ch
                                   ssh_alias_refusal; vms_not_named, the listing without a VM named like an inventory host;
                                   built_template, the template of that name in a listing; duplicate_names, the names
                                   two VMs of it carry; proxmox_tags, a VM's tags as a list
+filter_plugins/golden.py          the adapter of lib/claude_vm/golden.py: toolchain_digest, what a golden template is
+                                  built from, hashed, and golden_key, its key with a base's identity (§7.13)
 filter_plugins/editors.py         the adapter of lib/claude_vm/editors/registry.py: editor_open_plan, just code's
                                   window as a plan, and editor_servers, each editor's window as just status's probe
                                   knows it (§7.10)
@@ -218,7 +234,7 @@ tests/
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
                                   and the wiki (test_docs.py)
   molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
-                                  fake_qm.sh and fake_virt_customize.sh, the template's tools; fake_pve_cli.py,
+                                  fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
                                   fake_anthropic_api.py, the Messages API for the real claude in configure.

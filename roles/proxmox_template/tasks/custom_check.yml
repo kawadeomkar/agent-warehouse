@@ -1,0 +1,53 @@
+---
+# A template the user built, held to what a clone needs (docs/guides/base-image.md).
+# Reads only: this project never changes, rebuilds or deletes a template it did
+# not build. Each thing it lacks is said with what fixes it, and nothing is made.
+- name: custom_check | Read the VMs and templates on Proxmox
+  ansible.builtin.uri:
+    url: "{{ proxmox_api_url }}/cluster/resources?type=vm"
+    headers: "{{ proxmox_api_headers }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+  register: proxmox_template_custom_listing
+  no_log: true
+  failed_when: false
+  check_mode: false
+
+- name: custom_check | Fail when Proxmox did not list its VMs
+  ansible.builtin.assert:
+    that: proxmox_template_custom_listing.status | default(0) == 200
+    fail_msg: >-
+      Proxmox did not list its VMs, so the template {{ proxmox_template_custom }} could not be checked
+      ({{ proxmox_template_custom_listing.status | default('no answer') }}).
+    quiet: true
+
+- name: custom_check | Read the template's config
+  ansible.builtin.uri:
+    url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
+    headers: "{{ proxmox_api_headers }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
+  loop: >-
+    {{ proxmox_template_custom_listing.json.data | default([], true)
+       | golden_reads(proxmox_template_custom, proxmox_node, proxmox_template_golden_prefix) }}
+  loop_control:
+    label: "{{ item.vmid }}"
+  register: proxmox_template_custom_config
+  no_log: true
+  failed_when: false
+  check_mode: false
+
+- name: custom_check | Fail when a VM could not be cloned from it
+  vars:
+    proxmox_template_custom_problems: >-
+      {{ proxmox_template_custom_listing.json.data | default([], true)
+         | custom_template_problems(proxmox_template_custom_config.results | default([]), proxmox_template_custom,
+                                    proxmox_node, proxmox_template_boot_disk, proxmox_nic,
+                                    [claude_vm_tag | lower] + (claude_vm_tags_owned | default([]))) }}
+  ansible.builtin.assert:
+    that: proxmox_template_custom_problems | length == 0
+    fail_msg: >-
+      The template "{{ proxmox_template_custom }}" (proxmox_template_custom) cannot be cloned:
+      {{ proxmox_template_custom_problems | join('; ') }}. Nothing was created
+      (docs/guides/base-image.md).
+    quiet: true

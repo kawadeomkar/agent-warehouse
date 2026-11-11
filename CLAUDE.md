@@ -145,6 +145,35 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   from the ownership tag - `-tailscale` above all, which keeps the vault's key from a VM - is read
   under either; only provisioning writes them under the new tag (`proxmox_vm_tags_1x`), so a reader
   that takes one prefix alone hands the key to a VM 1.x recorded.
+- **A golden template holds nothing of one VM's, and is never trusted.** Read
+  [§4.14](docs/architecture/lifecycle.md#414-playbooksgoldenyml--the-golden-template-new-vms-clone) and
+  [§7.13](docs/architecture/custom-code.md#713-libclaude_vmgoldenpy--what-a-golden-template-is-built-from) first.
+    - Configure runs every task on a VM cloned from one: nothing skips on an image's say-so, so a mistake in an image
+      can leave a VM less ready, never wrong.
+    - Its build VM is the one VM this project makes without the ownership tag: it carries `<tag>-build`, so no fleet
+      command can reach it or sign it in, with an interlock of its own (named for a build, never a template, read from
+      its own config).
+    - A golden carries only `common`, `dev_tools` and `claude_code`. The VPN's and the editors' roles have no `image`
+      entry point and the digest reads none of their files, so they stay independent of it.
+    - No `image` entry point reads `inventory_hostname`, a vault name, a `no_log` variable or any lookup but a file of the
+      role's own `files/`. `tests/unit/test_golden.py` holds it over the real roles.
+    - All of its Proxmox work is `proxmox_template`'s `golden_*` entry points: `playbooks/golden.yml` and
+      `golden_build.yml` only import them and name none of Proxmox's API, so `tests/unit/test_ratchets.py` does not grow. Never `.vmid` in that playbook,
+      which the ratchet counts: the records they read call it `golden` and `id`.
+    - A golden is selected only by an equal key on the VM's node, cloned by VMID and always in full, and deleted only by
+      age, behind its interlock. It never carries a `ciuser`, which would make every clone look configured.
+    - A new VM clones only a golden that already exists. The build is the last play of `just deploy`, once the VMs are
+      ready and the editor is open, and one that cannot be built never fails a deploy.
+    - `proxmox_template_golden` stays off in every scenario, the unit harness and the Vagrantfile; only
+      `tests/unit/test_golden_play.py` and the `image` scenario turn it on, and a test holds that.
+- **A template the project did not build is only read and cloned.** Read
+  [Your own base image](docs/guides/base-image.md) first.
+    - `proxmox_template_custom` names one: nothing changes, rebuilds or deletes it, and the template role builds none
+      beside it. `custom_check` holds it to what a clone needs, reading only, before anything is created.
+    - A template at `proxmox_template_vmid` with no record of this project's build is refused, never rebuilt, since a
+      rebuild destroys it; a custom image URL needs its checksum.
+    - A base outside the Debian family is refused by name: an image before it is built on (`virt-cat`), and every VM
+      first in configure, by a `raw` task that needs no Python.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -220,7 +249,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The rescue re-raises `pause`'s abort (Ctrl-C, then A), which ends the run.
     - The work after a sign-in - Remote Control's start, the github_projects role - runs in a follow-on play
       after the last prompt; its failure is recorded in `claude_vm_configure_failures` and raised even under
-      `just deploy`, by deploy's last play, since the VM is not done.
+      `just deploy`, by the deploy play that raises them, since the VM is not done.
     - `just deploy --only configure` never prompts.
     - `tests/unit/test_sign_in_plays.py` runs both playbooks, and deploy's sign-ins as deploy.yml has them,
       against stand-ins, a VM whose ssh exits 255 among them; `claude_login.yml` run alone with such a VM is

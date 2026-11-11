@@ -1,0 +1,10 @@
+---
+# What the image entry point would be built with, for a golden template's key:
+# each of its options as this host resolves them, this role's defaults included.
+- name: image_options | Record what the image is built with
+  ansible.builtin.set_fact:
+    claude_code_image_options:
+      claude_code_user: "{{ claude_code_user }}"
+      claude_code_install_method: "{{ claude_code_install_method }}"
+      claude_code_version: "{{ claude_code_version }}"
+      claude_code_installer_url: "{{ claude_code_installer_url }}"

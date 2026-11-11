@@ -336,7 +336,7 @@ modules returned, as the callback prints them, with the log's path. The engine r
   reach it, read the sessions, the folder (here and then on the VM), alias, the editor here, the directory
   (just code's own on the VM), copy the sessions, the notes, window - the editor's two task files each a step
   from its first task, named as drawn, without its file's prefix. A stage's row may say the VMs a fact of the run names (`Info`: destroy's check, `started
-  beta`, from `claude_vm_release_started`). A quiet stage - `finish`, deploy's last play, which only
+  beta`, from `claude_vm_release_started`). A quiet stage - `finish`, the deploy play that only
   raises again what failed after the sign-ins - is counted but never drawn, unless one of its tasks fails; a step
   whose every task was skipped reads `–`, never `✓`. A run of one stage (`--only configure`) is drawn as that
   stage's steps, with no row of its own: the footer says `step 2 of 6`, the summary's table is `STEPS`.
@@ -1184,3 +1184,30 @@ argv and `ATTENDED`, the early return and `job`, a job outliving its server, `ca
 every gated tool, the dialog's lines, `destroy --confirm` only for the code and the names, nothing for a decline, a
 cancel, a generic hook's answer or another client, the allow list; `test_mcp_register.py` runs `just mcp` with a
 stand-in `claude`.
+
+## 7.13 `lib/claude_vm/golden.py` — what a golden template is built from
+
+A golden template is a VM template with the toolchain already installed, cloned in place of the base template so that
+configure finds most of its work done. Configure still runs every task on such a VM: the image is a head start, never
+trusted, so a mistake in it can leave a VM less ready, never wrong.
+
+- **What it carries.** The `image` entry point of `common`, `dev_tools` and `claude_code` (`BAKED`), each doing less
+  than its role's `main`, never more: `common`'s apt, packages, timezone, user, sshd hardening, PATH, tmux and
+  services, without the hostname, the keys, sudo, the PATH drop-in for ssh commands or the masked units, which baked
+  in failed every clone's first-boot upgrade; all of `dev_tools`, under its switches; `claude_code`'s binary and an
+  empty `~/.claude`, without settings, Remote Control or a sign-in. The VPN's and the editors' roles have no `image`
+  entry point: a golden never carries them, so they stay independent of it.
+- **The toolchain digest** (`toolchain_digest`) hashes every file the three entry points reach - the task files they
+  include by literal name, the templates and files those name, each role's defaults and internals, a module of its
+  library - with the scrub the build runs, and the options each role's `image_options` entry point resolves, its
+  defaults included. `reached` is that walk: a pull that changes only a role's sign-in makes no new golden. An option
+  that holds a vault value of 4 characters or more (`secret_options`) means no golden is built or used, said by the
+  option's name and never its value.
+- **The key** (`golden_key`) is the build number, the base's identity and the digest, hashed. The base's identity is
+  the provider's to give, so the digest knows no hypervisor.
+- **The static guard** (`tests/unit/test_golden.py`) holds every expression in the files an `image` entry point
+  reaches to that entry point's options, the role's internals that read only those, values the entry point makes
+  itself (registers, facts it sets, loop variables), and the OS facts. It fails on `inventory_hostname`, `hostvars`,
+  `groups`, a vault name, a `no_log` option, and any lookup but a literal `ansible.builtin.file` of the role's own
+  `files/`, which the digest hashes. No `image` option is `no_log`, and each role's `image_options` records exactly its
+  `image` entry point's options, but those that read the VM's facts.

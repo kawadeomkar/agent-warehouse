@@ -32,8 +32,10 @@ from harness import (
     _executable,
     _fail_if_the_desktop_was_reached,
     _inventory,
+    _pve,
     _pve_requests,
     _pve_vars,
+    _pve_vm,
     fake_fleet,
 )
 
@@ -60,6 +62,7 @@ PROMISED_KEYS = {
         "sections",
         "settings",
         "storages",
+        "goldens",
         "template",
         "title",
         "vms",
@@ -378,6 +381,22 @@ def _fleet(names=(), **kw):
     )
 
 
+def test_golden_templates_and_build_vms_are_counted_from_the_listing() -> None:
+    listing = [
+        {"vmid": 150, "name": "agent-warehouse-golden-aaaa", "type": "qemu", "template": 1, "node": "pve"},
+        {
+            "vmid": 151,
+            "name": "agent-warehouse-build-bbbb",
+            "type": "qemu",
+            "tags": "agent-warehouse-build",
+            "node": "pve",
+        },
+        {"vmid": 152, "name": "agent-warehouse-build-cccc", "type": "qemu", "tags": "someones", "node": "pve"},
+    ]
+    fleet = S.status_fleet(listing, tagged=[], requested=[], settings=SETTINGS)
+    assert fleet["goldens"] == {"count": 1, "building": ["agent-warehouse-build-bbbb"]}
+
+
 def test_the_fleet_is_this_projects_vms_and_the_rest_as_totals() -> None:
     fleet = _fleet()
     assert [vm["vmid"] for vm in fleet["vms"]] == [100, 101, 102, 103, 104]
@@ -471,6 +490,23 @@ def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_li
     )
     said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
     assert "ubuntu-24.04-cloudinit (9000) · next deploy rebuilds it" in said, said
+
+
+def test_a_template_with_no_record_is_said_to_be_refused_never_rebuilt() -> None:
+    fleet = _fleet(template_drift=[proxmox_filters.NO_TEMPLATE_RECORD])
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+    (item,) = [it for it in model["attention"] if it["vm"] == "template"]
+    assert "refuses it" in item["text"] and "proxmox_template_rebuild" in item["command"]
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
+    assert "no record, next deploy refuses it" in said and "rebuilds" not in said, said
+
+
+def test_a_missing_template_of_your_own_is_not_promised_a_build() -> None:
+    fleet = _fleet()
+    fleet["template"] = {"name": "mine", "missing": True, "custom": True}
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+    said = "\n".join(screen.plain(line) for line in T._storage_lines(model))
+    assert "mine: not on Proxmox; just deploy refuses" in said and "builds it" not in said, said
 
 
 def test_a_template_kept_as_it_is_is_no_thing_to_do() -> None:
@@ -800,6 +836,33 @@ def test_the_access_line_names_the_editor_set(tmp_path, fake_pve, editor: str, n
     assert report["rc"] == 0, report["stderr"][-2000:]
     assert (model["settings"]["editor"], model["settings"]["editor_name"]) == (editor or "vscode", name)
     assert f" {name}: just code <name> [--project <repo>] [--session <id>]" in T.status_text(model).split("\n")
+
+
+def test_a_template_carrying_the_ownership_tag_is_no_vm_of_the_report(tmp_path, fake_pve) -> None:
+    # A VM of the fleet made a template by hand, as one cloned in place of the base may be: no VM of the fleet, as
+    # claude_vm_tagged has it for every playbook.
+    _pve_vm(fake_pve, 9013, "made-a-template", tags="agent-warehouse")
+    _pve(fake_pve, "POST", "nodes/pve/qemu/9013/template")
+    report, model = _status_run(tmp_path, fake_pve, "--only", "vms")
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    # The fake's nameless VM on its node that is down comes after these three.
+    names = [vm["name"] for vm in model["vms"]]
+    assert names[:3] == ["alpha", "beta", "gamma"] and "made-a-template" not in names, names
+    # Nor read: nothing of it is asked of Proxmox after the listing.
+    calls = _pve_requests(tmp_path)
+    after = calls[[c["path"] for c in calls].index("/api2/json/cluster/resources") :]
+    assert not [c["path"] for c in after if "/qemu/9013/" in c["path"]], after
+
+
+@pytest.mark.parametrize("custom", ["", "ubuntu-24.04-cloudinit"])
+def test_a_template_of_your_own_is_compared_with_nothing(tmp_path, fake_pve, custom: str) -> None:
+    # The fake's template is on vmbr0, which the settings no longer ask for: the project's own is to be rebuilt, and
+    # one named as yours (proxmox_template_custom) is left as it is, as deploy leaves it.
+    settings = {"proxmox_bridge": "vmbr9", "proxmox_template_custom": custom}
+    report, model = _status_run(tmp_path, fake_pve, "--only", "storage", settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert model["template"]["name"] == "ubuntu-24.04-cloudinit" and model["template"].get("vmid") == 9000
+    assert bool(model["template"]["drift"]) == (not custom), model["template"]
 
 
 def test_a_proxmox_that_refuses_the_token_is_said_not_failed(tmp_path, fake_pve) -> None:

@@ -54,6 +54,8 @@ patterns=(
   # address.
   '(^|/)\.cache/run\.lock$'
   '(^|/)\.cache/mcp/'
+  # A build VM's host key, by its address, while a golden template is built.
+  '(^|/)\.cache/golden/'
   # Working documents beside the wiki: a plan, a review or a smoke runbook
   # names the Proxmox host and the VMs. The wiki itself is exempted below.
   '^docs/'

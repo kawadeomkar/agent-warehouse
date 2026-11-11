@@ -406,11 +406,17 @@ class Run:
             return
         data = _data(listing)
         pattern = self.fleet["tag_pattern"]
-        tagged = [
-            one
-            for one in data
-            if isinstance(one, dict) and one.get("type") == "qemu" and "tags" in one and re.search(pattern, one["tags"])
-        ]
+        # Never a template, though it carry the ownership tag, as claude_vm_tagged has it: a VM made one by hand.
+        tagged = proxmox_reads.not_templates(
+            [
+                one
+                for one in data
+                if isinstance(one, dict)
+                and one.get("type") == "qemu"
+                and "tags" in one
+                and re.search(pattern, one["tags"])
+            ]
+        )
         requested = [one for one in tagged if "name" in one and one["name"] in self.names] if self.names else tagged
         early = model.status_clean(
             model.status_fleet(
@@ -501,7 +507,8 @@ class Run:
             for one in _picked(results, "content")
         ]
         drift = []
-        if template_config.get("status") == 200:
+        # A template the user built is compared with nothing: the project never rebuilds it.
+        if template_config.get("status") == 200 and not self.settings.get("template_custom"):
             drift = proxmox_reads.proxmox_template_drift(_data(template_config), self.fleet["template_wanted"])
         whole = model.status_clean(
             model.status_fleet(

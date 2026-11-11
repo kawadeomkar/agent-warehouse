@@ -156,8 +156,8 @@ VALUES = [
 # (file, the line as it is there, stripped): where the name is a task's argument, a play's variable, code or text.
 LINES = [
     # On a VM: common's and vscode_server's files, the latter VS Code's name on any editor's VM through 1.x.
-    ("roles/common/tasks/main.yml", 'dest: "{{ common_sshd_hardening }}"'),
-    ("roles/common/tasks/main.yml", 'dest: "{{ common_apt_downloads }}"'),
+    ("roles/common/tasks/sshd.yml", 'dest: "{{ common_sshd_hardening }}"'),
+    ("roles/common/tasks/apt.yml", 'dest: "{{ common_apt_downloads }}"'),
     ("roles/vscode_server/tasks/main.yml", "dest: /etc/ssh/sshd_config.d/20-vscode-server.conf"),
     ("roles/vscode_server/tasks/main.yml", "sysctl_file: /etc/sysctl.d/60-vscode-server.conf"),
     # The settings' block in /etc/tmux.conf, written and taken out by its marker: under a new one, blockinfile would

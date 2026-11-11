@@ -14,6 +14,8 @@ proxmox_vm_validate_certs: false
 proxmox_vm_node: pve
 proxmox_vm_storage: local-lvm
 proxmox_vm_template_name: ubuntu-24.04-cloudinit
+# A golden template's VMID to clone instead, when playbooks/golden.yml chose one; empty clones the template above.
+proxmox_vm_template_vmid: ""
 proxmox_vm_full_clone: true
 proxmox_vm_timeout: 600
 

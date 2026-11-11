@@ -561,6 +561,14 @@ pytest over `tests/unit/`, file by file:
   a new name that contains the old one fails too; and how many lines of the code name one editor or one hypervisor
   outside its own files, file by file, against a table that a count above or below it fails.
 
+### A golden template's tests
+
+`test_golden.py` holds each `image` entry point to what it may read (a static walk of every expression it reaches, over
+the real roles), and the digest to what it hashes; `test_golden_proxmox.py` the record, the base's identity and the
+choice of template; `test_golden_play.py` runs `playbooks/golden.yml` and `golden_build.yml` against the fake Proxmox, with
+`claude_vm_golden_image: false` standing in for what reaches the VM, which is the `image` scenario's. A guard holds
+`proxmox_template_golden` off everywhere else.
+
 ## 11.2 Role scenarios — `just test role`
 
 One Molecule scenario per role at `roles/<name>/molecule/default/`, inheriting the driver from
@@ -634,6 +642,7 @@ that no build started.
 | Scenario | What it proves |
 |---|---|
 | `provision` | `provision.yml`, `discover.yml` and `just status`'s engine end to end against the fake API, for a two-VM fleet, plus `destroy.yml` and `deploy.yml`'s template check as child runs; discovery runs in a stage of its own, finding the VMs by their tag, so a later `just deploy --only configure` needs nothing stored locally |
+| `image` | a golden template's image and scrub in a container, then the real `configure.yml` over it: configure has nothing left to install but Tailscale, which is never baked, and a sign-in left in the image fails the build. Run with `configure`, under `just test integration` |
 | `configure` | `configure.yml` end to end against a container standing in for a provisioned VM; then the sign-ins, `just code`'s session handoff with the real `claude` against a stand-in Messages API - copies resumed as the VM's own, `--continue` never picking one up, the records of requests sent left unsent, a saved copy resumed by its path - and `just destroy`'s pause of Remote Control around its save, with the real systemd |
 
 Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scenario inventory, so the
@@ -737,6 +746,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 | `fake_qm.sh` | `qm` on the PVE node | stateful, one config file per VMID, logs every invocation |
 | `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - compact JSON, a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue |
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
+| `fake_virt_cat.sh` | `virt-cat` | the image's `os-release`, Ubuntu's unless a test says otherwise |
 | `fake_github_api.py` | the GitHub REST API | serves local bare repositories, in paginated responses; `/user` and `/user/repos` answer a token, private repositories included; each repository's branches, none for a never-pushed one or a fresh one - listed as GitHub lists a repository created with no commit, with a push time and a size of 0, and served as a bare repository with no commit; `POST /credentials/revoke` takes credentials unauthenticated and refuses an authenticated call, as GitHub does, and `/fake/revoked` lists what it took, so a test can hold that nothing reaches it |
 | `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went |
 | `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's, and `fake-quit` end unapproved right after naming it |

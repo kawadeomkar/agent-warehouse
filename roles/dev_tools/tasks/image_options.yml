@@ -1,0 +1,26 @@
+---
+# What the image entry point would be built with, for a golden template's key:
+# each of its options as this host resolves them, this role's defaults included.
+# Not dev_tools_deb_arch or dev_tools_docker_manage_service, which read the
+# VM's facts: the base template's identity in the key covers its architecture,
+# and a golden is only ever built on a VM.
+- name: image_options | Record what the image is built with
+  ansible.builtin.set_fact:
+    dev_tools_image_options:
+      dev_tools_user: "{{ dev_tools_user }}"
+      dev_tools_install_node: "{{ dev_tools_install_node }}"
+      dev_tools_install_docker: "{{ dev_tools_install_docker }}"
+      dev_tools_install_gh: "{{ dev_tools_install_gh }}"
+      dev_tools_install_uv: "{{ dev_tools_install_uv }}"
+      dev_tools_install_rust: "{{ dev_tools_install_rust }}"
+      dev_tools_apt_packages: "{{ dev_tools_apt_packages }}"
+      dev_tools_node_major: "{{ dev_tools_node_major }}"
+      dev_tools_npm_global_packages: "{{ dev_tools_npm_global_packages }}"
+      dev_tools_docker_packages: "{{ dev_tools_docker_packages }}"
+      dev_tools_container_virt_types: "{{ dev_tools_container_virt_types }}"
+      dev_tools_uv_version: "{{ dev_tools_uv_version }}"
+      dev_tools_uv_arch_map: "{{ dev_tools_uv_arch_map }}"
+      dev_tools_uv_sha256: "{{ dev_tools_uv_sha256 }}"
+      dev_tools_uv_install_dir: "{{ dev_tools_uv_install_dir }}"
+      dev_tools_rust_toolchain: "{{ dev_tools_rust_toolchain }}"
+      dev_tools_rust_components: "{{ dev_tools_rust_components }}"

@@ -16,7 +16,7 @@ import re
 import time
 from datetime import UTC, datetime
 
-from ..proxmox import built_template, proxmox_notes_repos, proxmox_tags, scsi0_storage
+from ..proxmox import NO_TEMPLATE_RECORD, built_template, proxmox_notes_repos, proxmox_tags, scsi0_storage
 from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
 from ..text import and_list, one_line, plural
@@ -298,7 +298,21 @@ def status_fleet(
             [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
             settings.get("api_user") or "",
         ),
-        "template": template if template else {"name": template_name, "missing": True},
+        "template": template
+        if template
+        else {"name": template_name, "missing": True, "custom": bool(settings.get("template_custom"))},
+        "goldens": {
+            "count": len(
+                [e for e in entries if e.get("template") and str(e.get("name", "")).startswith(f"{tag}-golden-")]
+            ),
+            "building": sorted(
+                str(e.get("name"))
+                for e in entries
+                if not e.get("template")
+                and str(e.get("name", "")).startswith(f"{tag}-build-")
+                and f"{tag}-build" in proxmox_tags(e.get("tags"))
+            ),
+        },
         "aliases": aliases,
         "pending": bool(pending),
     }
@@ -908,6 +922,10 @@ def _template_items(template):
     drift = template.get("drift") or []
     if template.get("missing") or not drift or not template.get("rebuild", True):
         return []
+    if NO_TEMPLATE_RECORD in drift:
+        text = f"the template {template.get('name')} keeps no record of its build, so the next just deploy refuses it"
+        fix = "remove it in Proxmox if it is an old build of this project's, else set proxmox_template_rebuild to false"
+        return [_item("todo", "template", text, fix)]
     text = (
         f"the template {template.get('name')} differs from its settings ({'; '.join(drift)}), so the next just"
         " deploy rebuilds it, over root SSH"
@@ -1079,6 +1097,7 @@ def status_report(found, read_at="", now=None, live=False):
         "storages": fleet.get("storages") or [],
         "capacity": fleet.get("capacity") or [],
         "template": template,
+        "goldens": fleet.get("goldens") or {"count": 0, "building": []},
         "attention": items,
         "counts": counts,
         "settings": {

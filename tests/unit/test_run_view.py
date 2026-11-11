@@ -141,7 +141,7 @@ def test_the_stage_table_names_every_playbook_deploy_runs_in_the_order_it_runs_t
     files = _play_files(REPO / "deploy.yml")
     stages = _stages_of([str(f) for f in files])
     order = [stage for index, (stage, _) in enumerate(stages) if index == 0 or stages[index - 1][0] != stage]
-    assert order == ["template", "provision", "configure", "sign in", "editor"]
+    assert order == ["template", "provision", "configure", "sign in", "editor", "golden template"]
     sign_ins = [
         step for index, (stage, step) in enumerate(stages) if stage == "sign in" and step != stages[index - 1][1]
     ]

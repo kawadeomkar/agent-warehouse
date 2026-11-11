@@ -83,3 +83,162 @@ argument_specs:
         description:
           - Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std),
             such as rust-src or rust-analyzer. One taken off the list stays installed.
+  image:
+    short_description: What a golden template carries of the toolchain - all of it, under the same switches
+    options:
+      dev_tools_user:
+        type: str
+        description: User added to the docker group.
+      dev_tools_install_node:
+        type: bool
+        description: Install Node.js from NodeSource, and the packages in dev_tools_npm_global_packages. false skips it and removes nothing.
+      dev_tools_install_docker:
+        type: bool
+        description:
+          - Install Docker Engine from Docker's repository and add dev_tools_user to the docker group.
+          - false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run
+            put it in, since that group is root.
+      dev_tools_install_gh:
+        type: bool
+        description:
+          - Install the GitHub CLI from its repository; github_projects signs in and clones private repositories through
+            it. false skips it and removes nothing.
+      dev_tools_install_uv:
+        type: bool
+        description:
+          - Install uv and uvx, a pinned release checked against dev_tools_uv_sha256, into dev_tools_uv_install_dir.
+            false skips it and removes nothing.
+      dev_tools_install_rust:
+        type: bool
+        description:
+          - Install rustup from Ubuntu's archive and, for dev_tools_user, the dev_tools_rust_toolchain toolchain with
+            dev_tools_rust_components. Off by default; false skips it and removes nothing.
+      dev_tools_apt_packages:
+        type: list
+        elements: str
+        description:
+          - Development packages installed from Ubuntu's archive. Keep python3-debian, which the role adds the Node.js,
+            Docker and GitHub CLI repositories with.
+      dev_tools_node_major:
+        type: int
+        description: Node.js major version, which picks the NodeSource repository.
+      dev_tools_npm_global_packages:
+        type: list
+        elements: str
+        description: Packages npm installs globally, with dev_tools_install_node.
+      dev_tools_docker_packages:
+        type: list
+        elements: str
+        description: Packages installed from Docker's repository.
+      dev_tools_container_virt_types:
+        type: list
+        elements: str
+        description: Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there.
+      dev_tools_docker_manage_service:
+        type: bool
+        description: Defaults to true unless running inside a container.
+      dev_tools_deb_arch:
+        type: str
+        choices: [amd64, arm64]
+        description: Derived from the architecture fact by default.
+      dev_tools_uv_version:
+        type: str
+        description: >-
+          uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is
+          never older than the uv pyproject.toml pins for the controller.
+      dev_tools_uv_arch_map:
+        type: dict
+        description: uv's release target for each value of the architecture fact, which names the archive downloaded.
+      dev_tools_uv_sha256:
+        type: dict
+        description: SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map.
+      dev_tools_uv_install_dir:
+        type: path
+        description: Directory uv and uvx are installed into.
+      dev_tools_rust_toolchain:
+        type: str
+        description:
+          - Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a
+            version such as 1.90.0 - and makes the default when no default is set. The role never updates it.
+      dev_tools_rust_components:
+        type: list
+        elements: str
+        description:
+          - Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std),
+            such as rust-src or rust-analyzer. One taken off the list stays installed.
+  image_options:
+    short_description: Record the options the image entry point is built with, for a golden template's key
+    options:
+      dev_tools_user:
+        type: str
+        description: User added to the docker group.
+      dev_tools_install_node:
+        type: bool
+        description: Install Node.js from NodeSource, and the packages in dev_tools_npm_global_packages. false skips it and removes nothing.
+      dev_tools_install_docker:
+        type: bool
+        description:
+          - Install Docker Engine from Docker's repository and add dev_tools_user to the docker group.
+          - false installs nothing and removes no package, but takes dev_tools_user out of the docker group an earlier run
+            put it in, since that group is root.
+      dev_tools_install_gh:
+        type: bool
+        description:
+          - Install the GitHub CLI from its repository; github_projects signs in and clones private repositories through
+            it. false skips it and removes nothing.
+      dev_tools_install_uv:
+        type: bool
+        description:
+          - Install uv and uvx, a pinned release checked against dev_tools_uv_sha256, into dev_tools_uv_install_dir.
+            false skips it and removes nothing.
+      dev_tools_install_rust:
+        type: bool
+        description:
+          - Install rustup from Ubuntu's archive and, for dev_tools_user, the dev_tools_rust_toolchain toolchain with
+            dev_tools_rust_components. Off by default; false skips it and removes nothing.
+      dev_tools_apt_packages:
+        type: list
+        elements: str
+        description:
+          - Development packages installed from Ubuntu's archive. Keep python3-debian, which the role adds the Node.js,
+            Docker and GitHub CLI repositories with.
+      dev_tools_node_major:
+        type: int
+        description: Node.js major version, which picks the NodeSource repository.
+      dev_tools_npm_global_packages:
+        type: list
+        elements: str
+        description: Packages npm installs globally, with dev_tools_install_node.
+      dev_tools_docker_packages:
+        type: list
+        elements: str
+        description: Packages installed from Docker's repository.
+      dev_tools_container_virt_types:
+        type: list
+        elements: str
+        description: Virtualisation types under which Docker is installed but its service neither enabled nor started, since the daemon cannot run there.
+      dev_tools_uv_version:
+        type: str
+        description: >-
+          uv release to install. Changing it needs the new release's digests in dev_tools_uv_sha256. The default is
+          never older than the uv pyproject.toml pins for the controller.
+      dev_tools_uv_arch_map:
+        type: dict
+        description: uv's release target for each value of the architecture fact, which names the archive downloaded.
+      dev_tools_uv_sha256:
+        type: dict
+        description: SHA256 of the uv release archive per architecture key of dev_tools_uv_arch_map.
+      dev_tools_uv_install_dir:
+        type: path
+        description: Directory uv and uvx are installed into.
+      dev_tools_rust_toolchain:
+        type: str
+        description:
+          - Toolchain rustup installs for dev_tools_user when it is missing - a channel (stable, beta, nightly) or a
+            version such as 1.90.0 - and makes the default when no default is set. The role never updates it.
+      dev_tools_rust_components:
+        type: list
+        elements: str
+        description:
+          - Components added to dev_tools_rust_toolchain on top of rustup's minimal profile (rustc, cargo, rust-std),
+            such as rust-src or rust-analyzer. One taken off the list stays installed.

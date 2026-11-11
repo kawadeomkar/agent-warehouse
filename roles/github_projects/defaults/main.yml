@@ -38,6 +38,8 @@ github_projects_clone_protocol: https
 github_projects_update_existing: false
 # Shallow clone depth; leave empty for full history.
 github_projects_depth: ""
+# How many repositories are cloned at once. Measured on 24: 4 at a time took 4.7-5.0 s, 8 took 3.3-3.7 s, 16 no less.
+github_projects_clone_jobs: 8
 
 # Sign gh in on the VM as github_projects_user and make it git's credential
 # helper for github.com, so private repositories clone, `git push` works, and
