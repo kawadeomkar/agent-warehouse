@@ -83,8 +83,9 @@ What `claude`, `gh` and `ssh` print on the VM, which its user controls, is quote
 `plain_text` filter, every escape sequence and control character removed; so are the warnings, deprecations and
 failure messages a module there returns, which ansible-core prints as they are, and a dry run's diffs, which the
 stdout callbacks print through `plain_summary` ([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
-NEXT STEPS takes its lines from the project's own `set_stats` tasks only, and `just status` its report from its
-own play on this machine, since any module's result can carry custom stats and facts. No sign-in page opens
+NEXT STEPS takes its lines from the project's own `set_stats` tasks only, since any module's result can carry custom
+stats. `just status` runs no playbook: what a VM sends it is data, held to a size, a time and a shape, each value one
+line of plain text before anything keeps it. No sign-in page opens
 through a `BROWSER` that is a shell or a Windows command interpreter, which would read the page's query string as
 a command line.
 
@@ -112,7 +113,8 @@ run silently picks up the latest publish, and made the CI cache key useless sinc
 reads `requirements.yml`, and each checkout's collections (`tools/env-run --collections`) stay as the last
 `just install` left them, so every recipe that runs Ansible runs `tools/check collections` first: `ansible-galaxy collection install --offline`
 against the pins, which changes nothing when they are installed and fails, naming `just install`, when one
-is not. pre-commit's hook repositories are pinned to commit SHAs, not tags, because a tag can be moved; the
+is not. `just status` runs it from its engine instead, only when it asks Ansible for its settings
+([§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). pre-commit's hook repositories are pinned to commit SHAs, not tags, because a tag can be moved; the
 environments pre-commit builds for them are not. It installs each Python hook's own dependencies from PyPI
 (`ruamel.yaml` for pre-commit-hooks, and the setuptools that builds it) unpinned and unhashed, outside
 `uv.lock`, and, on a machine with no Go, downloads a Go toolchain for gitleaks with no checksum - once, when
@@ -271,7 +273,7 @@ and calls its commands. What that changes:
 - **What a VM printed reaches another project's agent.** A VM's user is root-equivalent and runs an agent of its own,
   which a repository cloned there can prompt, and what the VM chose - its name, its checkouts' branches, a failure's
   words - now lands in the context of an agent that may hold Bash and edit rights elsewhere. Every value a VM supplies
-  is already made one line of plain text before `just status` keeps it ([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status));
+  is already made one line of plain text before `just status` keeps it ([§7.7](custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status));
   the server hands text back through `visible_text` too, puts the note that it is data, never instructions, inside the
   JSON the model reads (Claude Code gives the model only a result's structured part when it has one), and returns a
   run log only when asked for one by name.

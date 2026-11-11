@@ -1,5 +1,5 @@
 ---
-# gh on this VM and its login state, read for auth.yml, for login.yml and for just status (status.yml): the
+# gh on this VM and its login state, read for auth.yml and for login.yml: the
 # home the marker sits under, whether gh is there, and what it says of its login (auth_status.yml). The home is
 # looked up only where github_projects_home does not give it; main.yml resolves the projects directory from it too.
 - name: login_read | Look up home directory of {{ github_projects_user }}

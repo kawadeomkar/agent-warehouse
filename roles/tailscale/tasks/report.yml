@@ -1,122 +1,20 @@
 ---
-# One line per VM: how it is on Tailscale, and the command that does the next
-# thing where there is one. Built in vars, one line of Jinja per piece: a more
-# indented line in a folded scalar would keep its line break. Everything the
-# VM reports - its name, its tailnet, what tailscale printed - goes through
-# plain_text, since the VM's user chooses it. A block, so that the record for
-# NEXT STEPS after the message reads the same vars.
-- name: report | Report how this VM is on Tailscale, and keep what is left to do
-  vars:
-    tailscale_report_name: "{{ (tailscale_dns_name or tailscale_self.HostName | default('') or tailscale_hostname) | plain_text }}"
-    # The tailnet, so that a login someone else approved first - into their own
-    # tailnet - shows by a name the user knows. Not under a control server of the
-    # user's own, where only its admin approves a login, and Headscale sends its
-    # own constant ("headscale").
-    tailscale_report_tailnet: >-
-      {{ ('in the tailnet ' ~ (tailscale_tailnet | plain_text) ~ ' ')
-         if tailscale_tailnet | length > 0 and tailscale_login_server | length == 0 else '' }}
-    tailscale_report_as: >-
-      {{ tailscale_report_tailnet ~ 'as ' ~ tailscale_report_name ~ ' (' ~ (tailscale_ipv4 or 'no IPv4 address yet') ~ ')' }}
-    tailscale_report_running:
-      - >-
-        {{ ('joined Tailscale ' if tailscale_joined_now | bool else 'on Tailscale ') ~ tailscale_report_as
-           ~ ('; signed in outside this project, so its settings are left as they are.'
-              if not (tailscale_login_ours | bool) else '.') }}
-      - >-
-        {{ ('A device named ' ~ tailscale_hostname ~ ' is already in your tailnet, likely the VM this one replaced:'
-            ~ ' delete it at ' ~ tailscale_admin_page ~ ', then rename this one to ' ~ tailscale_hostname ~ ' there.')
-           if tailscale_name_taken | bool else '' }}
-      - >-
-        {{ ('Changed: tailscale ' ~ (tailscale_set.cmd[1:] | join(' ')) ~ '.')
-           if (tailscale_set | default({})) is changed and not (tailscale_report_from_login | default(false) | bool)
-           else ('Check mode: tailscale set ' ~ (tailscale_set_flags | join(' ')) ~ ' would run.')
-           if ansible_check_mode and tailscale_login_ours | bool and tailscale_set_flags | length > 0 else '' }}
-      - >-
-        {{ ('It lacks ' ~ (tailscale_tags_missing | join(', ')) ~ ', which tailscale_advertise_tags asks for: set its'
-            ~ ' tags in the admin console (Machines, ' ~ (tailscale_report_name.split('.')[0]) ~ ', Edit ACL tags).')
-           if tailscale_tags_missing | length > 0 else '' }}
-    tailscale_report_or_browser: >-
-      {{ (', or sign in by the browser: ' ~ tailscale_login_command) if tailscale_auth_method != 'key' else '' }}
-    tailscale_report_refused: >-
-      {{ ('Tailscale refused vault_tailscale_auth_key (' ~ tailscale_refused_why ~ '): an OAuth client secret needs the'
-          ~ ' tags it may apply in tailscale_advertise_tags. Set them and run ' ~ tailscale_configure_command)
-         if tailscale_key_refused_locally | bool
-         else ('Tailscale refused vault_tailscale_auth_key (' ~ tailscale_refused_why ~ ') - it has expired, been used'
-               ~ ' up or been revoked. Put a new one in the vault (reusable, pre-approved, tagged) and run '
-               ~ tailscale_configure_command ~ tailscale_report_or_browser)
-         if tailscale_refused_why | length > 0
-         else ('Tailscale did not join with vault_tailscale_auth_key ('
-               ~ (tailscale_join.stderr | default('') | one_line(none) or 'no reason given')
-               ~ '). ' ~ tailscale_configure_command ~ ' tries again' ~ tailscale_report_or_browser) }}
-    tailscale_report_said:
-      check-no-package: >-
-        Tailscale is not installed, and check mode installs nothing; just deploy {{ inventory_hostname }} --only configure
-        installs it.
-      check-daemon-down: >-
-        tailscaled is not running, and check mode starts nothing; just deploy {{ inventory_hostname }} --only configure
-        starts it.
-      not-ours: >-
-        {{ ('on Tailscale ' ~ tailscale_report_as ~ '; installed') if tailscale_backend == 'Running'
-           else ('Tailscale is installed (' ~ (tailscale_backend if tailscale_daemon_up | bool else 'its daemon is not running')
-                 ~ ')') }} outside this project, so it is left as it is.
-      connecting: >-
-        Tailscale is still connecting ({{ tailscale_backend }}) after {{ tailscale_settle_seconds }} seconds, so nothing
-        was changed. {{ tailscale_configure_command }} reads it again.
-      Running: "{{ tailscale_report_running | select | join(' ') }}"
-      NeedsMachineAuth: >-
-        signed in to Tailscale and waiting for an admin to approve it at {{ tailscale_admin_page }}; it connects by
-        itself once approved.
-      Stopped: Tailscale is down (tailscale down on the VM). sudo tailscale up there brings it back.
-      expired: >-
-        {{ ('signed out of Tailscale (its key expired). It was signed in outside this project, so it is left as it'
-            ~ ' is: sign it in again on the VM, the way it was signed in.')
-           if tailscale_login_expired_elsewhere | bool
-           else ('signed out of Tailscale (its key expired). ' ~ tailscale_login_command ~ ' signs it in again.')
-           if tailscale_auth_method != 'key'
-           else ('signed out of Tailscale (its key expired), and tailscale_auth_method key never signs a VM in by the'
-                 ~ ' browser nor sends the key to a node that had a login: run sudo tailscale logout on it'
-                 ~ (', remove its ' ~ tailscale_joined_tag
-                    ~ ' tag in Proxmox' if tailscale_joined_before | bool else '')
-                 ~ ', then ' ~ tailscale_configure_command ~ ' joins it with the key.') }}
-      refused: "{{ tailscale_report_refused }}"
-      would-join: >-
-        Tailscale would join with vault_tailscale_auth_key; check mode sends nothing. {{ tailscale_configure_command }}
-        joins it.
-      # Before an expired key and a refused one: a page still waiting is what to
-      # act on, and a fresh one would end it.
-      page-pending: >-
-        not signed in to Tailscale yet - the page stays valid for 7 days and {{ inventory_hostname }} joins by itself
-        once you approve it; {{ tailscale_login_command }} gives a fresh page.
-      # A VM that joined through this project before and has no login now was
-      # logged out from inside it: the key is not sent to it again (connect.yml).
-      NeedsLogin: >-
-        {{ 'Tailscale is installed; just deploy signs it in next, in this run.'
-           if tailscale_sign_in_follows | bool and tailscale_auth_method != 'key'
-           else ('Tailscale is installed but not signed in, and vault_tailscale_auth_key is not sent again to a VM'
-                 ~ ' that joined before; with tailscale_auth_method auto, ' ~ tailscale_login_command
-                 ~ ' signs it in from your browser.') if tailscale_auth_method == 'key' and tailscale_key_held_back | bool
-           else ('Tailscale is installed but not signed in. ' ~ tailscale_configure_command ~ ' joins it with'
-                 ~ ' vault_tailscale_auth_key (tailscale_auth_method: key).') if tailscale_auth_method == 'key'
-           else 'Tailscale is installed but not signed in. ' ~ tailscale_login_command ~ ' signs it in from your'
-                ~ ' browser' ~ ('; vault_tailscale_auth_key is not sent again to a VM that joined before.'
-                               if tailscale_key_held_back | bool
-                               else '; vault_tailscale_auth_key joins it on the next just deploy --only configure.'
-                               if tailscale_auth_method == 'auto' else '.') }}
-  block:
-    - name: report | Say how this VM is on Tailscale
-      ansible.builtin.debug:
-        msg: "{{ inventory_hostname }}: {{ tailscale_report_said[tailscale_report_case] | default('Tailscale is ' ~ tailscale_backend ~ '.') }}"
-      register: tailscale_report_reported
+# One line per VM: how it is on Tailscale, and the command that does the next thing where there is one
+# (tailscale_report_result, the core's words, which just status says too).
+- name: report | Say how this VM is on Tailscale
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }}: {{ tailscale_report_result.line }}"
+  register: tailscale_report_reported
 
-    # NEXT STEPS (callback_plugins/agent_warehouse.py): the line above while
-    # something is left to do - a page waiting, a login expired, a key refused,
-    # a node stopped or still connecting, an approval or a sign-in to come, a
-    # name taken or tags missing - and nothing once it runs as it should, or
-    # for a Tailscale this role leaves alone. A later record of the VM wins.
-    - name: report | Keep what is left to do for the end of the run
-      ansible.builtin.set_stats:
-        data:
-          tailscale_next: >-
-            {{ {inventory_hostname: {'tailscale': tailscale_report_reported.msg if tailscale_report_left | bool else ''}} }}
-        aggregate: true
-        per_host: false
+# NEXT STEPS (callback_plugins/agent_warehouse.py): the line above while
+# something is left to do - a page waiting, a login expired, a key refused,
+# a node stopped or still connecting, an approval or a sign-in to come, a
+# name taken or tags missing - and nothing once it runs as it should, or
+# for a Tailscale this role leaves alone. A later record of the VM wins.
+- name: report | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      tailscale_next: >-
+        {{ {inventory_hostname: {'tailscale': tailscale_report_reported.msg if tailscale_report_left | bool else ''}} }}
+    aggregate: true
+    per_host: false

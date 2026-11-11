@@ -503,12 +503,12 @@ organisation that disabled Remote Control - leaves no path unit behind to start 
 
 ### Under `just status`
 
-The `status` entry point (`tasks/status.yml`) reads, and never runs `claude`: whether `claude auth status`
+`just status` reads, and never runs `claude`: whether `claude auth status`
 can refresh a login's token, and so write, is still to be checked on a real VM, and `just status` changes
-nothing ([§4.6](lifecycle.md#46-playbooksstatusyml--read-only-drawn-live)). It reads where the native
+nothing ([§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). It reads where the native
 installer's `~/.local/bin/claude` link points - its version, the target's name - whether
 `~/.claude/.credentials.json` is there (the file's being there, never what it holds), and Remote Control's
-service and path unit with `systemd_service`, no state asked for. `just status` then says the login as
+service and path unit with `systemctl show`, which reads a unit and starts nothing. `just status` then says the login as
 stored or not, and Remote Control as running, down (failed or restarting, with its restarts), waiting for
 the login, stopped, not set up, or off on purpose.
 
@@ -634,8 +634,8 @@ signed in just now.
 device flow, both on `github_projects_login_due` (gh the role's, signed out, and the device flow its way
 in: a fact, which `github_login.yml` reads after the role to say, for a VM whose Claude sign-in nobody
 answered, why the flow was not started), and `login_report.yml` (the report, and its NEXT STEPS record,
-decided by `github_projects_login_left`). The `status` entry point, which `just status` runs, is the first and the
-last of them and nothing between, so it says what `just login --only github` would and signs nothing in.
+decided by `github_projects_login_left`, from the core's words, `github_projects_login_report`). `just status` reads
+gh's login the same way and says the same line, so it says what `just login --only github` would and signs nothing in.
 A check gh could not make with GitHub - no network - is `github_projects_auth_unchecked`: gh says both it
 and a refused token as state `error`, and only a refusal carries GitHub's `HTTP 401` or `403`, so status
 says "not checked", never "not signed in".
@@ -838,14 +838,13 @@ plan's research record.
   (`tailscale_login_expired_elsewhere`): `up --reset` over one made by hand would replace its settings and
   make it the role's, so that one is reported, to be signed in again the way it was made. `just deploy`'s sign-in play still holds its configure play's join, so
   without that order a refusal from earlier in the run hid the page.
-- **The report.** One line per VM, built in `vars:`, everything the VM reports through `plain_text`, and
+- **The report.** One line per VM, the core's words (`lib/claude_vm/status/lines.py`, `tailscale_report_result`), everything the VM reports through `plain_text`, and
   the tailnet named (`CurrentTailnet.Name`), so a login someone else approved into their tailnet shows -
   but not under `tailscale_login_server`, where Headscale sends a constant. Which line applies
   (`tailscale_report_case`) and whether it leaves something to do (`tailscale_report_left`, NEXT STEPS'
-  record) are in `vars/main.yml`, read by `just status` too.
-- **Under `just status`** (`status.yml`, the `status` entry point): `ownership.yml`, `state.yml` read once
-  (`tailscale_settle_seconds: 0`: "connecting" is said, not waited out) and `report.yml`, and nothing else -
-  no install, join, setting or sign-in. Run under `--check`, as status runs, the report's check-mode cases
+  record) come from the same call, and `just status` makes it too.
+- **Under `just status`**: what `ownership.yml` and `state.yml` read, once (`connecting` is said, not waited out), and
+  the report's own line, and nothing else - no install, join, setting or sign-in. The report's check-mode cases
   say what a configure would do, which status words as what is missing.
 - **The join method** (`tailscale_auth_method`): `auto` joins with the key when there is one and leaves the
   VM for the web login otherwise; `key` is the key only - an empty one fails at the role's first task by

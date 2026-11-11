@@ -61,7 +61,6 @@ PLAYBOOK_RECIPES = {
     "deploy": "deploy.yml",
     "code": "playbooks/code.yml",
     "login": "playbooks/login.yml",
-    "status": "playbooks/status.yml",
     "destroy": "playbooks/destroy.yml",
 }
 NAMES_PATTERN = "[A-Za-z0-9][A-Za-z0-9._,-]*"
@@ -150,9 +149,6 @@ def _stand_in(bin_dir: Path, name: str, body: str = "", rc: int = 0) -> Path:
     """A tool in bin_dir that appends its arguments, one per line and then --end--, to <tmp>/<name>.args, and its
     name to <tmp>/order; then runs body and exits rc. Returns the record."""
     bin_dir.mkdir(parents=True, exist_ok=True)
-    if name == "ansible-playbook":
-        # just status reads its exit code from the report the run writes: a run that works writes one.
-        body = '[ -z "${STATUS_REPORT_FILE:-}" ] || printf \'{"exit": 0}\\n\' > "$STATUS_REPORT_FILE"\n' + body
     record = bin_dir.parent / f"{name}.args"
     order = bin_dir.parent / "order"
     tool = bin_dir / name
@@ -186,12 +182,29 @@ def _settings_files(tmp_path: Path) -> str:
     return f"SETTINGS_FILES={tmp_path / 'hosts.yml'} {tmp_path / 'local.yml'}"
 
 
+def _python(tmp_path: Path) -> None:
+    """The environment's Python, which tools/check settings reads YAML with, and which runs just status's engine: that
+    alone a stand-in, recording its arguments and exiting with what status-rc says, since the tool in the checkout would
+    read the developer's real settings and write in their .cache."""
+    python = tmp_path / "bin" / "python"
+    python.parent.mkdir(parents=True, exist_ok=True)
+    if python.exists():
+        return
+    record = tmp_path / "python.args"
+    python.write_text(
+        '#!/bin/sh\nif [ "$1" = tools/status ]; then\n'
+        f'  {{ for arg in "$@"; do printf "%s\\n" "$arg"; done; echo --end--; }} >> "{record}"\n'
+        '  echo "stub ANSIBLE_LOG_PATH=[$ANSIBLE_LOG_PATH]"\n'
+        f'  exit "$(cat "{tmp_path / "status-rc"}" 2>/dev/null || echo 0)"\n'
+        f'fi\nexec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+
+
 def _safe(tmp_path: Path, galaxy_rc: int = 0) -> list[str]:
     """A run nothing can harm: tools with no ansible-playbook among them, a vault stub, logs in tmp_path."""
     _stand_in(tmp_path / "bin", "ansible-galaxy", rc=galaxy_rc)
-    # The environment's Python, which just status's last step reads the report with (tools/status-exit).
-    if not (tmp_path / "bin" / "python").exists():
-        (tmp_path / "bin" / "python").symlink_to(sys.executable)
+    _python(tmp_path)
     return [
         f"BIN={tmp_path / 'bin'}",
         f"VAULT_FILE={_vault(tmp_path)}",
@@ -338,7 +351,7 @@ def test_the_vault_check_refuses_a_plaintext_vault(tmp_path: Path) -> None:
 
 
 def test_the_collections_check_asks_galaxy_offline_whether_the_pins_are_installed(tmp_path: Path) -> None:
-    _playbook(tmp_path, "status")
+    _playbook(tmp_path, "login")
     assert _runs(tmp_path, "ansible-galaxy") == [["collection", "install", "-r", "requirements.yml", "--offline"]]
 
 
@@ -348,7 +361,6 @@ def test_the_collections_check_asks_galaxy_offline_whether_the_pins_are_installe
         ["deploy"],
         ["code", "alpha"],
         ["login"],
-        ["status"],
         ["destroy"],
         ["test", "unit"],
         ["settings", "tailscale"],
@@ -382,7 +394,7 @@ def test_lint_s_parts_that_load_no_playbook_need_no_collections(tmp_path: Path, 
 
 def test_a_recipe_without_the_tools_says_just_install(tmp_path: Path) -> None:
     result = _just(
-        "status", settings=[f"BIN={tmp_path / 'empty'}", f"VAULT_FILE={_vault(tmp_path)}", _settings_files(tmp_path)]
+        "login", settings=[f"BIN={tmp_path / 'empty'}", f"VAULT_FILE={_vault(tmp_path)}", _settings_files(tmp_path)]
     )
     assert result.returncode != 0
     assert f"no ansible-galaxy in [{tmp_path / 'empty'}]" in _output(result)
@@ -532,7 +544,7 @@ def test_the_names_check_holds_the_json_whatever_reaches_it() -> None:
     assert subprocess.run([str(REPO / "tools" / "check"), "names", "alpha", "b-2.c-d,e"], check=False).returncode == 0
 
 
-@pytest.mark.parametrize("recipe", ["deploy", "status", "login", "destroy", "code"])
+@pytest.mark.parametrize("recipe", ["deploy", "login", "destroy", "code"])
 def test_an_underscore_in_a_vm_name_is_taken_as_a_hyphen_and_said(tmp_path: Path, recipe: str) -> None:
     # Proxmox names a VM as it does a host and refuses an underscore: duscope_1 would have failed at provisioning.
     result = _just(recipe, "duscope_1", *(["beta"] if recipe != "code" else []), settings=_recording(tmp_path))
@@ -730,7 +742,6 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
         (["code", "alpha"], "code alpha"),
         (["code", "alpha", "--project", "demo"], "code --project demo alpha"),
         (["code", "alpha", "--session", "0a608ad8-1b2c-4d3e-8f90-123456789abc"], "code alpha"),
-        (["status"], "unset"),
     ],
 )
 def test_each_recipe_drawn_live_is_drawn_under_what_was_run(tmp_path: Path, args: list[str], title: str) -> None:
@@ -1438,17 +1449,16 @@ def test_recipes_run_the_tools_of_python_s_environment(tmp_path: Path) -> None:
     python.write_text(f'#!/bin/sh\necho "{tmp_path / "env" / "bin"}"\n')
     python.chmod(0o755)
     result = _just(
-        "status",
+        "login",
         settings=[
             f"PYTHON={python}",
             f"VAULT_FILE={_vault(tmp_path)}",
             _settings_files(tmp_path),
             f"LOG_DIR={tmp_path / 'logs'}",
-            f"STATUS_DIR={tmp_path / 'status'}",
         ],
     )
     assert result.returncode == 0, _output(result)
-    assert _runs(tmp_path / "env", "ansible-playbook")[0][-1] == "playbooks/status.yml"
+    assert _runs(tmp_path / "env", "ansible-playbook")[0][-1] == "playbooks/login.yml"
 
 
 def test_a_bin_in_the_environment_is_not_the_tools(tmp_path: Path) -> None:
@@ -2153,7 +2163,7 @@ def test_install_moves_this_checkout_s_folder_from_its_1x_name_and_makes_its_env
 
 def test_every_recipe_points_ansible_at_this_checkout_s_collections(tmp_path: Path) -> None:
     seen = tmp_path / "collections"
-    result = _just("status", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
+    result = _just("login", settings=_recording(tmp_path, f'printf %s "$ANSIBLE_COLLECTIONS_PATH" > "{seen}"'))
     assert result.returncode == 0, _output(result)
     assert seen.read_text() == _env_run("--collections", python=sys.executable).stdout.strip()
 
@@ -2540,82 +2550,56 @@ def test_docs_regenerates_the_pages_or_serves_or_builds_the_site(tmp_path: Path,
 # ---------------------------------------------------------------- just status ----
 
 
-def _status(tmp_path: Path, *args: str, body: str = "", rc: int = 0) -> subprocess.CompletedProcess[str]:
-    """just status against a stand-in ansible-playbook that runs body (after writing an exit-0 report) and exits rc."""
-    _stand_in(tmp_path / "bin", "ansible-playbook", body, rc=rc)
-    return _just("status", *args, settings=_safe(tmp_path))
+def _status(
+    tmp_path: Path, *args: str, rc: int = 0, settings: list[str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """just status against the stand-in for its engine (_python), which exits rc."""
+    (tmp_path / "status-rc").parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "status-rc").write_text(str(rc))
+    return _just("status", *args, settings=[*_safe(tmp_path), *(settings or [])])
 
 
-@pytest.mark.parametrize("code", [0, 1, 2])
-def test_status_exits_with_the_reports_own_code_and_removes_it(tmp_path: Path, code: int) -> None:
-    result = _status(tmp_path, body=f'printf \'{{"exit": {code}}}\\n\' > "$STATUS_REPORT_FILE"')
-    assert result.returncode == code, _output(result)
-    # Printed only under --json; the run's own scratch, removed once read.
-    assert result.stdout == ""
-    assert list((tmp_path / "status").glob("*")) == []
+def _engine_runs(tmp_path: Path) -> list[list[str]]:
+    return _runs(tmp_path, "python")
 
 
-def test_status_json_prints_the_report_alone(tmp_path: Path) -> None:
-    report = '{"exit": 1, "vms": [], "attention": []}'
-    result = _status(tmp_path, "--json", body=f"printf '%s\\n' '{report}' > \"$STATUS_REPORT_FILE\"")
-    assert result.returncode == 1, _output(result)
-    assert json.loads(result.stdout) == json.loads(report)
+def test_status_runs_the_engine_and_exits_with_its_code(tmp_path: Path) -> None:
+    for code in (0, 1, 2, 3):
+        result = _status(tmp_path, rc=code)
+        assert result.returncode == code, _output(result)
+    assert len(_engine_runs(tmp_path)) == 4
+    assert not (tmp_path / "ansible-playbook.args").exists()
 
 
 def test_status_json_says_nothing_of_its_log_on_stderr_which_is_for_what_it_warned_of(tmp_path: Path) -> None:
-    body = "printf '%s\\n' '{\"exit\": 0}' > \"$STATUS_REPORT_FILE\""
-    plain = _status(tmp_path / "plain", body=body)
+    plain = _status(tmp_path / "plain")
     assert "Logging this run" in plain.stderr, _output(plain)
-    quiet = _status(tmp_path / "quiet", "--json", body=body)
+    quiet = _status(tmp_path / "quiet", "--json")
     assert quiet.returncode == 0, _output(quiet)
     assert "Logging this run" not in quiet.stderr, _output(quiet)
 
 
-def test_status_without_a_report_exits_3_and_says_why(tmp_path: Path) -> None:
-    result = _status(tmp_path, body='rm -f "$STATUS_REPORT_FILE"')
-    assert result.returncode == 3, _output(result)
-    assert "wrote no report" in result.stderr
-
-
-def test_status_exits_3_when_ansible_fails_never_with_ansibles_own_code(tmp_path: Path) -> None:
-    # ansible-playbook's 2 is a failed task, status's 2 "something could not be read": never passed on.
-    result = _status(tmp_path, rc=2)
-    assert result.returncode == 3, _output(result)
-    assert "ansible-playbook exited 2" in result.stderr
-    assert list((tmp_path / "status").glob("*")) == []
-
-
-def test_status_runs_as_a_dry_run_with_its_own_callback_alone(tmp_path: Path) -> None:
-    seen = tmp_path / "seen"
-    result = _status(
-        tmp_path,
-        "--json",
-        body='printf "%s\\n" "$ANSIBLE_STDOUT_CALLBACK" "$ANSIBLE_CALLBACKS_ENABLED" "$STATUS_QUIET"'
-        f' "$STATUS_REPORT_FILE" "$ANSIBLE_HOST_PATTERN_MISMATCH" > "{seen}"',
-    )
+def test_status_says_what_it_was_given_as_options_of_its_own(tmp_path: Path) -> None:
+    result = _status(tmp_path, "--json", "--only", "vms,storage", "alpha", "be_ta")
     assert result.returncode == 0, _output(result)
-    callback, enabled, quiet, report, mismatch = seen.read_text().splitlines()
-    # profile_tasks, which ansible.cfg enables, would print on stdout: naming the stdout callback loads nothing more.
-    assert callback == enabled == "agent_warehouse_status"
-    assert quiet == "true"
-    # A fleet with no VM to read leaves play 2's group empty: the report says so, never Ansible's warning above it.
-    assert mismatch == "ignore"
-    assert re.fullmatch(rf"{re.escape(str(tmp_path / 'status'))}/\d{{8}}-\d{{6}}-\d+\.json", report), report
-    run = _runs(tmp_path, "ansible-playbook")[0]
-    assert "--check" in run and run[-1] == "playbooks/status.yml", run
+    run = _engine_runs(tmp_path)[0]
+    assert run[run.index("--names") + 1] == "alpha,be-ta"
+    assert run[run.index("--only") + 1] == "vms,storage"
+    assert "--json" in run
+    assert run[run.index("--vault-file") + 1] == str(tmp_path / "vault.yml")
+    assert run[run.index("--cache") + 1] == str(tmp_path / "status")
 
 
-def test_status_takes_its_sections_as_one_json_extra_var(tmp_path: Path) -> None:
-    run = _playbook(tmp_path, "status", "alpha", "--only", "vms,storage")
-    assert run[run.index('{"status_only": "vms,storage"}') - 1] == "-e", run
-    assert run[run.index('{"vm_name": "alpha"}') - 1] == "-e", run
+def test_status_passes_ansible_args_after_its_own(tmp_path: Path) -> None:
+    result = _status(tmp_path, settings=["ANSIBLE_ARGS=-e foo=bar"])
+    assert result.returncode == 0, _output(result)
+    run = _engine_runs(tmp_path)[0]
+    assert run[-2:] == ["-e", "foo=bar"], run
 
 
 def test_a_setting_under_a_name_1_0_renamed_is_refused_by_its_new_name(tmp_path: Path) -> None:
     # The check reads YAML with the environment's Python: this one's, whole, in place of a stand-in.
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    (tmp_path / "bin" / "python").chmod(0o755)
+    _python(tmp_path)
     (tmp_path / "local.yml").write_text(
         'vm_cores: 4\n"claude_remote_control": false\nclaude_login_timeout: ""\nclaude_login_args:\n'
         "vm_password: a-console-password\n"
@@ -2640,9 +2624,7 @@ def test_a_setting_under_a_name_1_0_renamed_is_refused_by_its_new_name(tmp_path:
 
 def test_a_setting_under_a_name_1_1_gave_a_new_one_is_still_read_and_said(tmp_path: Path) -> None:
     # Through 1.x the name a setting had in 1.0 still works: the run goes on, told the new name; empty, it sets nothing.
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    (tmp_path / "bin" / "python").chmod(0o755)
+    _python(tmp_path)
     (tmp_path / "local.yml").write_text(
         'vscode_claude_terminal: false\nvscode_workspaces_dir: ""\nvscode_claude_sessions: false\n'
     )
@@ -2671,9 +2653,7 @@ def test_the_check_tells_of_every_name_1_1_gave_anew_as_just_settings_finds_them
     defaults, _feeds = wiring.wiring()
     pairs = wiring.named_anew(defaults, wiring.specs())
     assert len(pairs) == 4, pairs
-    (tmp_path / "bin").mkdir()
-    (tmp_path / "bin" / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    (tmp_path / "bin" / "python").chmod(0o755)
+    _python(tmp_path)
     (tmp_path / "local.yml").write_text("".join(f"{old}: false\n" for old in pairs))
     result = subprocess.run(
         [str(REPO / "tools" / "check"), "settings", str(tmp_path / "bin"), str(tmp_path / "local.yml")],

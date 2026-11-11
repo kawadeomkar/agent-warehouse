@@ -107,6 +107,14 @@ def set_by(name: str, feeds: dict[str, list[str]], role_specs: dict) -> list[str
     return out
 
 
+def identifier(vault_name: str, feeds: dict[str, list[str]], role_specs: dict) -> bool:
+    """Whether what the vault holds under this name identifies rather than protects: it reaches role variables, none of
+    them no_log - the GitHub username, an OAuth client's ID. just settings masks one in its own row and never looks for
+    it elsewhere, and just status does not refuse to keep settings that hold one."""
+    fed = set_by(vault_name, feeds, role_specs)
+    return bool(fed) and not any(options.get(var, {}).get("no_log") for var in fed for options in role_specs.values())
+
+
 def parse_example(path: Path, secret: bool) -> list[tuple[str, list[tuple[list[str], list[tuple[str, object]]]]]]:
     """Sections of groups: the prose comment above some settings, and those settings with the value
     the example gives each. Settings in local.yml.example are commented out (`# name: value`); in

@@ -174,12 +174,16 @@
 # never answer over SSH, so only the sections that read the API (vms, storage).
 # Asserted on the report's model rather than its text, so a formatting change
 # does not break the test while a wrong VM, a wrong address or a lost filter
-# does. status_report_file is empty, whatever the environment says: the run writes no report file.
+# does.
 - name: Report on the fleet the way just status does
-  ansible.builtin.import_playbook: ../../playbooks/status.yml
-  vars:
-    status_report_file: ""
-    status_only: vms,storage
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run just status
+      ansible.builtin.include_tasks: tasks/status_report.yml
+      vars:
+        status_report_vars:
+          status_only: vms,storage
 
 - name: Verify the report
   hosts: localhost
@@ -220,11 +224,15 @@
         quiet: true
 
 - name: Report on two VMs by name
-  ansible.builtin.import_playbook: ../../playbooks/status.yml
-  vars:
-    status_report_file: ""
-    vm_name: alpha,beta
-    status_only: vms,storage
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run just status
+      ansible.builtin.include_tasks: tasks/status_report.yml
+      vars:
+        status_report_vars:
+          vm_name: alpha,beta
+          status_only: vms,storage
 
 - name: Verify the narrowed report
   hosts: localhost
@@ -240,12 +248,16 @@
         quiet: true
 
 - name: Report on a VM whose LAN NIC is net1
-  ansible.builtin.import_playbook: ../../playbooks/status.yml
-  vars:
-    status_report_file: ""
-    vm_name: netone
-    proxmox_nic: net1
-    status_only: vms
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Run just status
+      ansible.builtin.include_tasks: tasks/status_report.yml
+      vars:
+        status_report_vars:
+          vm_name: netone
+          proxmox_nic: net1
+          status_only: vms
 
 - name: Verify the report read the NIC it was told to
   hosts: localhost

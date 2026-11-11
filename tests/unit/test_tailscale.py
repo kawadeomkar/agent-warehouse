@@ -1437,16 +1437,15 @@ def test_a_record_is_written_with_the_tags_as_proxmox_gave_them(recording):
 
 def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
     # discover.yml (configure, login), provision.yml's publish (deploy) and just
-    # status read the record from Proxmox - the listing, or the role's own lookup
-    # - and never from the VM.
+    # status (test_status_settings.py) read the record from Proxmox - the listing,
+    # or the role's own lookup - and never from the VM.
     def add_hosts(playbook: str) -> list:
         tasks = []
         for play in yaml.safe_load((REPO / "playbooks" / f"{playbook}.yml").read_text()):
             tasks += _every_task(play.get("tasks", []))
         return [task["ansible.builtin.add_host"] for task in tasks if "ansible.builtin.add_host" in task]
 
-    # Only reads them: no run of status's here (test_status.py holds every one to status_root).
-    for playbook, groups in (("discover", "claude_vms"), ("provision", "claude_vms"), ("status", "status_vms")):
+    for playbook, groups in (("discover", "claude_vms"), ("provision", "claude_vms")):
         (added,) = [args for args in add_hosts(playbook) if args.get("groups") == groups and "ansible_host" in args]
         assert "claude_vm_tailscale_tag_pattern" in added["tailscale_joined_before"], playbook
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
@@ -1491,7 +1490,7 @@ def test_every_road_a_vm_takes_into_the_inventory_carries_proxmox_s_record():
     ],
 )
 def test_the_record_s_pattern_matches_the_whole_tag_in_either_list(tag, tags, recorded):
-    # What discover.yml, provision.yml and status.yml read as tailscale_joined_before: `is regex`, a search.
+    # What discover.yml, provision.yml and just status read as tailscale_joined_before: `is regex`, a search.
     defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
     names = ("claude_vm_tag_1x", "claude_vm_tags_owned", "claude_vm_tailscale_tag", "claude_vm_tailscale_tag_pattern")
     variables = {"claude_vm_tag": tag, **{name: trust_as_template(defaults[name]) for name in names}}

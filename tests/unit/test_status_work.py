@@ -1,6 +1,6 @@
-"""`just status`'s WORK: what of each checkout on a VM is on no remote or not committed (git_checkouts_info, work).
+"""`just status`'s WORK: what of each checkout on a VM is on no remote or not committed (module_utils/git_checkouts.py).
 
-git_checkouts_info runs in this process against real throwaway repositories, git with this machine's config shut
+git_checkouts_info's read runs in this process against real throwaway repositories, git with this machine's config shut
 out (GIT_CONFIG_GLOBAL=/dev/null, as every test here runs git): a worktree under .claude/worktrees/ and one outside
 the projects directory, a branch with no upstream, a detached HEAD with commits of its own, a stash, untracked files.
 Nothing it runs changes a repository, which the last test holds: every ref, the index and the worktrees' files are as
@@ -118,7 +118,7 @@ def test_reading_the_work_changes_nothing(projects) -> None:
 
 
 def test_every_git_the_work_runs_is_a_read() -> None:
-    source = (REPO / "playbooks" / "library" / "git_checkouts_info.py").read_text()
+    source = (REPO / "playbooks" / "module_utils" / "git_checkouts.py").read_text()
     start = source.index("def worktrees(")
     body = source[start : source.index("def _inside(")]
     commands = sorted(set(re.findall(r'_git\(\s*module,\s*[^,]+,\s*"([a-z-]+)"', body)))

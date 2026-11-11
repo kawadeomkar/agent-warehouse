@@ -161,7 +161,7 @@ in as each value is read; piped, or in `just logs`, only the finished report app
 
 A VM's name too long for its column is cut to fit, and ends in "…".
 
-It reads each VM over SSH as the VM user, with the host key this machine already holds: a VM rebuilt or
+It reads each VM over one SSH connection, as the VM user and, for what only root may read, through its sudo, with the host key this machine already holds: a VM rebuilt or
 renamed since is "not read", and status never takes its new key - `just deploy <vm> --only configure`
 does. It never runs `claude` there, so a stored login shows as signed in, without its plan.
 
@@ -216,5 +216,5 @@ Pushing an API key to a VM that was built without one is the common case: see
 - How it works: names, VMIDs, addresses and the tag in
   [§3](../architecture/README.md#3-the-identity-model), provisioning in
   [§4.2](../architecture/lifecycle.md#42-playbooksprovisionyml--three-plays), `just status` in
-  [§4.6](../architecture/lifecycle.md#46-playbooksstatusyml--read-only-drawn-live), what a re-run repairs in
+  [§4.6](../architecture/lifecycle.md#46-toolsstatus--read-only-drawn-live), what a re-run repairs in
   [§8](../architecture/convergence.md)

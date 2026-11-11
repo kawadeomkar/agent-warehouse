@@ -133,7 +133,7 @@ are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
 2. `claude_vm_tagged` (a lazily-evaluated group var) filters to the tagged QEMU VMs. Proxmox omits
    `tags` for an untagged guest, hence its `selectattr('tags', 'defined')`.
 3. `claude_vm_discovered` is `claude_vm_requested`: narrowed to the names given (`vm_name`), else the whole
-   fleet. `status.yml` narrows through the same group var. Never a VM named after a host of the inventory
+   fleet. `just status` narrows the same way. Never a VM named after a host of the inventory
    (`claude_vm_inventory_hosts`: `localhost`, and the Proxmox host's name, `pve` in `hosts.yml.example`):
    `add_host` merges a VM into the host of its name, so a VM named `pve` would give the Proxmox host the
    address its own agent reported, and the API token would go there; one named `localhost` would make the
@@ -362,124 +362,155 @@ recorded `''` while every VM it names has a line of its own there, which every V
 named each VM and its rerun a second time. The report once looped over the deleted VMs alone, so a VM
 released and then refused its deletion, or kept by its save, had no line of its own.
 
-## 4.6 `playbooks/status.yml` — read-only, drawn live
+## 4.6 `tools/status` — read-only, drawn live
 
 What every VM this project created is doing, and what needs doing next. **Status changes nothing**: it
 reads Proxmox through GETs and each VM over SSH, signs nothing in, starts and stops nothing, and adds
-nothing on this machine, not a host key or an alias, and nothing to `~/.ssh` or `~/.claude`. It writes only its own run's files inside the checkout: the report, removed as
-soon as the recipe has read it, and the log every recipe keeps. Proxmox's access log records its
-requests and each VM its SSH login and its sudo, as for every run. `tests/unit/test_status.py` holds every task it runs, and every task
-file and role entry point it reaches, to a fixed set:
+nothing on this machine, not a host key or an alias, and nothing to `~/.ssh` or `~/.claude`. It writes only
+in its own folder, `.cache/status/` (`STATUS_DIR`, git-ignored and refused by
+`tests/check_no_local_files.sh`, 0700), and the log every recipe keeps. Proxmox's access log records its requests
+and each VM its SSH login and its sudo, as for every run. It is the one recipe that runs no `ansible-playbook`:
+Ansible spends 0.3 to 0.6 s of a run on every task of every host, whatever the task does, and a report of a few
+dozen reads spent seven of its twenty seconds on the first reply. The engine, `lib/claude_vm/status/engine.py`, reads
+the same things directly ([§7.7](custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status)): VM rows on the
+screen in a quarter of a second and a finished report in about two, against five and twenty-one over a tunnel
+([§15.7](decisions.md#157-just-status-runs-no-playbook) has the measurements and what else was tried).
 
-- `uri` with the keys `url`, `headers`, `validate_certs`, `ca_path` and `timeout` only, a `url` that
-  starts with `{{ proxmox_api_url }}/`, `check_mode: false` and `no_log`; no `method`, no `body`;
-- the shared listing (`tasks/cluster_vms.yml`, `tasks/vm_addresses.yml`), `proxmox_vm`'s `settings_drift`
-  entry point and the `status` entry points of `claude_code`, `github_projects` and `tailscale`, every file
-  they include followed;
-- `command` with one of a fixed list of argvs, the roles' reads (`gh auth status`, `tailscale status
-  --json`, ...), and `systemd_service` with no state, which only reads a unit;
-- `vm_status_info`, `git_checkouts_info` with `under` and `work` alone, `ping`, `getent`, `stat`, `slurp`,
-  `set_fact`, `assert`, `add_host`, and the roles' `debug` and `set_stats`, which status's callback does not
-  show;
-- the report's `file` and `copy`, into `status_report_file`.
+**The order of a run.**
 
-The recipe runs it as a dry run, which guards Ansible's other modules; `uri` never runs in check mode,
-so every GET carries `check_mode: false` as the listing's does, and the allowlist guards the rest.
+1. The report's outline is drawn at once, each section with a spinner, before anything has been read.
+2. The settings: a snapshot where one holds, otherwise Ansible's own in this process
+   ([below](#what-a-run-keeps)).
+3. The Proxmox API, as GETs eight at a time: the listing (§4.3, steps 1-3), the version, the storages and the nodes
+   first, and each VM drawn the moment the listing lands; then every VM's config and its agent's address, so that
+   none waits behind another VM's history, then the own reads of each VM read further, so that one on a node that is down
+   holds nothing up, the template's config, and each of this
+   project's storages' disks. Each read waits `status_api_timeout`, 10 s. A VM's address reaching the engine starts
+   that VM's probe at once, whatever the rest of the fleet is doing. A read cut short, or an answer that is no HTTP, is that
+   read failed.
+4. Each VM over SSH, where a section asked for needs it (`access`, `sign-ins`, `system`, `work`) and the VM runs
+   and has an address: one connection, one program (the probe) doing every read at once, and no more VMs at once
+   than `forks` (20 in `ansible.cfg`), as Ansible would reach them.
+5. Each piece is drawn as it lands; `status_report` ranks what was found and works out the exit code.
 
-**Play 1 — list the fleet (localhost).** In one block whose rescue records why Proxmox could not be
-read: the listing (§4.3, steps 1–3) and each VM's config and agent report (`tasks/vm_addresses.yml`),
-both with `claude_vm_api_timeout` at `status_api_timeout`, 10 s; the version and the storages; the
-template's config, whose `ctime` says when it was built; each of this project's storages' disks, whose
-`ctime` dates each VM, since a clone's config keeps the template's. The
-rescue tells a refused token from a host that did not answer by the listing's own status, and says what
-to check for each. Then the managed SSH file's aliases, read only (§4.8). `status_fleet` turns all of it
-into the fleet: this project's VMs, other VMs as totals only (never named, never read), the storages, the
-template. A VM is read further only by a name no other tagged VM carries, that a recipe's pattern takes,
-on a node that answers; the others are shown from the listing, and two VMs of one name are a problem.
-A name given that matches no tagged VM is "not read", naming any nameless VM on a node that is down as
-the one it may be. Each VM to read is added to `status_vms` by its name, with how to reach it on the
-host itself and `ansible_python_interpreter: claude_vm_python`, as discovery adds them. With
-`claude_vm_discovery` off, the inventory's `claude_vms` are read as they are: the configure scenario's
-container, a Vagrant box.
+**The fleet.** A refused token is told from a host that did not answer by the listing's own status, and each says
+what to check; a token refused a VM's config or address names the privileges it lacks, and no VM is read over SSH
+after it, as none was when the playbook stopped there. A run that fails part way ends every connection it opened
+and starts none after, and exits 3 at once. `status_fleet` turns the listing and the reads into the fleet: this project's VMs, other VMs as totals
+only (never named, never read), the storages, the template. A VM is read further only by a name no other tagged VM
+carries, that a recipe's pattern takes, on a node that answers; the others are shown from the listing, and two VMs of
+one name are a problem. A name given that matches no tagged VM is "not read", naming any nameless VM on a node that
+is down as the one it may be. With `claude_vm_discovery` off, Proxmox is not asked and the inventory's `claude_vms`
+are read as they are, each reached as the inventory says (ssh with its own port and key, docker, local): the
+`configure` scenario's container, a Vagrant box.
 
-**Play 2 — read the VMs (`status_vms`, `strategy: free`, `timeout: 30`).** Each VM's own GETs,
-delegated to this machine, so the VMs are read at once: `status/current`, a day of `rrddata`, `pending`,
-and from a running VM's agent `get-osinfo` and `get-fsinfo`. `proxmox_vm`'s `settings_drift` compares
-the VM's config with what `just deploy` would send (`proxmox_vm_drift`,
-[§7.1](custom-code.md#71-filter_pluginsproxmoxpy)); it needs no connection. Then, where a section asked
-for needs it (`access`, `sign-ins`, `system`, `work`) and the VM runs and has an address, over SSH: one `ping`
-with `ignore_unreachable` first, whose refusal is said for what it is - no host key held here, a host key
-changed, a timeout, a refusal - and leaves the VM there; then each read in a block of its own whose rescue
-records it as not read: `vm_status_info` (the OS, the kernels, a reboot waiting, the load, apt's
-simulation, the user's claude processes and each editor's windows), `git_checkouts_info` with `work` over the
-projects directory `just code` resolves, as the VM user (what of each checkout is on no remote or not
-committed, as of its last fetch, [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)),
-and the `status` entry points of
-`claude_code`, `github_projects` and `tailscale` ([§5.5](roles.md#55-claude_code--install-claude-code),
+**One VM's reads.** Its own GETs, `status/current`, a day of `rrddata`, `pending` and from a running VM's agent
+`get-osinfo` and `get-fsinfo`; its config compared with what `just deploy` would send (`proxmox_vm_drift`,
+[§7.1](custom-code.md#71-filter_pluginsproxmoxpy)), which needs no connection. Over SSH, one run of the probe
+(`playbooks/module_utils/status_probe.py`, sent on stdin and run by the system's Python): as root, for Tailscale's
+state and markers, and in a child that has become the VM user for the system (the OS, the kernels, a reboot waiting,
+the load, apt's simulation, the user's claude processes and each editor's windows), Claude Code's state, gh's login
+and what of each checkout is on no remote or not committed, as of its last fetch. Each read is a thread with a limit
+of its own, one that hangs or fails said by name and the rest kept; the connection as a whole has 45 s, and a VM that
+takes the connection and says nothing is not waited on past 20 s. A VM that
+does not answer SSH is said for what it is - no host key held here, a host key changed, a timeout, a refusal - and
+nothing more is asked of it. Where `sudo` asks for a password the VM user's goes on stdin, never on a command line,
+and where `sudo` cannot be had at all the VM user's reads are still made and Tailscale's are said not to have been.
+Claude's never runs `claude`: whether `claude auth status` can refresh a login's token is still to be checked on a
+real VM, so the login is the file it is stored in being there, and the version where the installer's link points.
+The lines the roles say are the roles' own, one function both call (`lib/claude_vm/status/lines.py`,
 [§5.6](roles.md#56-github_projects--sign-in-to-github-clone-an-accounts-repositories),
-[§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)), the roles' own reads and reports, so a line
-status shows is the one `just login` and NEXT STEPS give. Claude's never runs `claude`: whether `claude auth
-status` can refresh a login's token is still to be checked on a real VM, so the login is the file it is
-stored in being there, and the version where the installer's link points.
+[§5.8](roles.md#58-tailscale--join-the-vm-to-a-tailnet)), so a line status shows is the one `just login` and NEXT
+STEPS give; `tests/unit/test_status_vms.py` runs the roles' own tasks and the engine on the same stand-in VMs, state
+by state, and holds the two equal.
 
-**Host keys.** Status adds and changes none. Each VM gets `ansible_ssh_args` from `add_host`
-(`status_ssh_args`): `ansible.cfg`'s own `ssh_args` with `StrictHostKeyChecking=yes` and
-`UpdateHostKeys=no`, OpenSSH's default being yes. As `ansible_ssh_args` and not the extra args, since ssh
-keeps the first value it is given for an option and Ansible puts `ssh_args` first: extra args would come
-after `accept-new`, and lose to it. A VM whose key this machine does not hold - rebuilt, renamed, its
-address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
+**Read-only, and how that is held.** The engine makes GETs and nothing else, and follows no redirect, which would
+carry the token elsewhere. The probe runs nothing but the fixed list of `ALLOWED` in its source, each a read, opens
+every file to read, and writes only to its own standard output: `tests/unit/test_status_vms.py` holds all of that
+statically and runs it against stand-in VMs whose every file must be unchanged after. `gh`'s token never leaves the
+VM: only which kind it is, and whether the role's marker holds its digest.
+
+**Host keys.** Status adds and changes none. Each VM is reached with `status_ssh_args`: `ansible.cfg`'s own `ssh_args`
+with `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, OpenSSH's default being yes, first on ssh's command line,
+since ssh keeps the first value it is given for an option. What else a VM is given follows them, as it did the hosts
+discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
+`ansible_ssh_private_key_file`, a VM's own `host_vars` file included, or where the inventory says nothing, the same
+settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like). A VM whose key this machine does not hold - rebuilt,
+renamed, its address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
 as every run does, or the `ssh` that shows the fingerprint and asks.
 
-**Play 3 — the report (localhost).** `status_report` ranks what every host found and works out the exit
-code; the report's file is written when `status_report_file` is set.
-
-**What a VM supplies is not trusted.** Each piece is a `status_found` fact, and `status_clean` makes
-every string in it one line of plain text (`one_line`,
-[§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) before anything keeps it:
-a newline, a carriage return, an escape sequence, a bidi control or a zero-width character never starts
-a line of its own, and every value is capped. The text report and `--json` are both built from that
-cleaned model.
+**What a VM supplies is not trusted.** `status_clean` makes every string of what a VM sent one line of plain text
+(`one_line`, [§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) before anything keeps it: a
+newline, a carriage return, an escape sequence, a bidi control or a zero-width character never starts a line of its
+own, and every value is capped. The text report and `--json` are both built from that cleaned model. What a VM sends
+is also held to a size and a time, and read with care for its shape: its root chooses every byte. A number JSON can
+say and Python cannot count (`1e999`, `NaN`) is no answer, and whatever else of a VM's answer cannot be read costs only
+that VM.
 
 **What counts.** Each item is "not read" (exit 2), a problem (exit 1) or a thing to do (exit 0), and the
 code is the highest found:
 
 | Level | When |
 |---|---|
-| not read | Proxmox did not answer, or refused the token. A name given that matches no tagged VM. A VM on a node that is down. A running VM whose agent reports no address on `proxmox_nic` after three minutes. A VM whose reads Proxmox did not answer. A VM that did not answer SSH, or whose host key is not held here or changed. A read inside a VM that failed or ran past 30 s. gh's login that could not be checked with GitHub |
+| not read | Proxmox did not answer, or refused the token. A name given that matches no tagged VM. A VM on a node that is down. A running VM whose agent reports no address on `proxmox_nic` after three minutes. A VM whose reads Proxmox did not answer. A VM that did not answer SSH, or whose host key is not held here or changed. A read inside a VM that failed or ran past its limit. gh's login that could not be checked with GitHub |
 | problem | Two tagged VMs of one name. A root disk or a storage 90% full. Remote Control failed or restarting. `tailscaled` not running where the role installed it |
 | to do | The VM's settings differ from `local.yml`'s, with the `proxmox_vm_force_update` run that sends them and what else it does. A change waiting for a restart. A first deploy that did not finish (the unfinished tag). A VM with no SSH alias. A root disk or a storage 80% full. A reboot waiting, with the claude processes and each editor's windows open. Security upgrades waiting. Claude Code not signed in or not installed. Remote Control stopped or not set up. The GitHub and Tailscale roles' own lines, wherever NEXT STEPS would give them |
 
 Stopped VMs, CPU pressure over a tenth of the last hour, other VMs, a thin pool provisioned beyond its
 size, the template's age, Remote Control off on purpose, a gh left alone and work on no remote or not
-committed are shown and not counted: a branch kept local is often on purpose, and WORK never says "clean". A run that failed or wrote no report exits 3.
+committed are shown and not counted: a branch kept local is often on purpose, and WORK never says "clean". A run
+that failed or was interrupted exits 3.
 
-**Live at a terminal.** The recipe chooses its own stdout callback,
-`callback_plugins/agent_warehouse_status.py`
-([§7.7](custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)),
-the only callback of the run. At a terminal it draws the whole report at the bottom of the screen
-within a second, a spinner wherever a value is still being read, and redraws it as each piece lands;
-when the run ends the live region is erased and the finished report printed once. Piped, in the log,
-under `--json` or at a terminal that cannot take it, only the finished report appears, or nothing. It is
-drawn in the region every live output shares
-([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)), as
-`just deploy`'s run is: nothing wraps, a resize pushes the screen into the scrollback and starts afresh,
-the cursor is never hidden. The tab's title says `status · reading 3 VMs` while VMs are read, and `status · done`
-at the end. `tests/unit/test_status_live.py` runs the real playbook at a pseudo-terminal of
-its own and reads the bytes back through a small terminal (`tests/unit/vt.py`). The finished report is
-taken only from play 3's own `set_fact` on localhost, since any module's result can carry facts and a VM's
-root makes the modules there return what it likes; their warnings are printed through `plain_summary`
-([§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)).
+**Live at a terminal.** The report is drawn at the bottom of the screen from the first moment, its outline, then a
+spinner wherever a value is still being read, redrawn as each piece lands; when the run ends the live region is
+erased and the finished report printed once. Piped, in the log, under `--json` or at a terminal that cannot take
+it, only the finished report appears, or nothing. It is drawn in the region every live output shares
+([§7.8](custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)), as `just deploy`'s run is:
+nothing wraps, a resize pushes the screen into the scrollback and starts afresh, the cursor is never hidden. The
+tab's title says `status · reading 3 VMs` while VMs are read, and `status · done` at the end. Everything but apt's
+simulation lands first, so only the UPDATES cell keeps its spinner while apt works.
+`tests/unit/test_status_live.py` runs the real engine at a pseudo-terminal of its own and reads the bytes back
+through a small terminal (`tests/unit/vt.py`).
 
-**The recipe.** `just status [names] [--only sections] [--json]` runs the playbook through
-`tools/run-logged` with a report path of its own run in `STATUS_DIR` (`.cache/status/`, git-ignored and
-refused by `tests/check_no_local_files.sh`, since the report holds addresses), then `tools/status-exit`,
-which prints the report under `--json`, removes it and exits with its code. `--only` takes `vms`,
-`storage`, `capacity`, `access`, `sign-ins`, `system` and `work`; `vms`, `storage` and `capacity` read the API
-alone and never open SSH. Capacity is each node's CPU threads and memory from `/cluster/resources?type=node`, which
-Proxmox fills in only for a token with `Sys.Audit` on the node, beside what the VMs listed on it hold, running and
-stopped (`status_capacity`); without the privilege, the node's `grant` says how to give it to the token's user
-(`proxmox_api_user`), on the node: the lines the section prints, and an agent reads in `--json`. A VM's own list of
-repositories is read from its notes (`own_repos`), which the report does not otherwise keep, since they are a person's.
+### What a run keeps
+
+Two files in `.cache/status/`, 0600, each only ever a way to work the same thing out sooner, and either can be
+deleted at any time:
+
+- **`settings.json`.** Asking Ansible for the settings takes most of a second, and they change only when a file
+  does. The answer is kept, keyed by the name, size and time of every file it is made from: `ansible.cfg`,
+  `inventory/`, the roles' `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
+  installed ansible-core, `requirements.yml` and the collections installed, the `~/.ssh/*.pub` the default keys come
+  from, the vault's password files, and the
+  environment's `ANSIBLE_*`, `HOME`, `PATH` and `REQUESTS_CA_BUNDLE`. It holds no secret: the API token is a mark
+  there, read from the vault at each run, and every other secret-derived setting is kept only as whether it is set.
+  A snapshot that would hold anything else the vault holds - looked for as JSON writes it, but for the GitHub
+  username and an OAuth client's ID, which `just settings` does not look for either - is not kept, and the run's log
+  names what held it back. A run given extra vars by hand (`-e`, through `ANSIBLE_ARGS`) neither reads nor writes
+  one: it asks Ansible.
+- **`upgrades.json`.** apt's simulation takes one to two seconds, the slowest read of a VM, and its answer depends
+  only on dpkg's status, the package lists and apt's own configuration. Each VM's answer is kept against a digest of
+  those files' names, sizes and times, which the probe works out in milliseconds, so the simulation runs only when
+  they have changed.
+
+**The recipe.** `just status [names] [--only sections] [--json]` runs `tools/status` through `tools/run-logged`, and
+exits with the report's own code. `--only` takes `vms`, `storage`, `capacity`, `access`, `sign-ins`, `system` and
+`work`; `vms`, `storage` and `capacity` read the API alone and never open SSH. Capacity is each node's CPU threads and
+memory from `/cluster/resources?type=node`, which Proxmox fills in only for a token with `Sys.Audit` on the node,
+beside what the VMs listed on it hold, running and stopped (`status_capacity`); without the privilege, the node's
+`grant` says how to give it to the token's user (`proxmox_api_user`), on the node: the lines the section prints, and
+an agent reads in `--json`. A VM's own list of repositories is read from its notes (`own_repos`), which the report does
+not otherwise keep, since they are a person's. From `ANSIBLE_ARGS` it takes `-e`, `-i` and `--private-key` (under the inventory's own key,
+over `ansible.cfg`'s and the environment's, as Ansible ranks it); it runs no playbook, so any other option is warned of
+and ignored, but for `--ask-vault-pass`, which it refuses, naming `.vault_pass` and
+`ANSIBLE_VAULT_PASSWORD_FILE`: the report is drawn at once, and nothing asks. The vault opens with `.vault_pass`, or
+the password file `ANSIBLE_VAULT_PASSWORD_FILE` or `ansible.cfg` names, as `ansible-playbook` would; an executable one
+is run for the password, as Ansible runs it, once in a run and before anything is drawn, since it may ask at the
+terminal: only then does the outline wait. Ansible resolves the roles' `module_defaults` group from the Galaxy collections
+installed, so the engine runs `tools/check collections` itself, the moment it asks Ansible for the settings, and
+refuses as every recipe does, naming `just install`; the recipe does not, since there it would hold back the
+outline. `settings.json` is keyed by `requirements.yml` and the collections installed, so a snapshot that holds was
+made where the check passed.
 
 ## 4.7 `deploy.yml`
 

@@ -6,8 +6,8 @@ changes with what is asked: a decline, a cancel, a generic hook's answer, other 
 for Claude Code 2.1.309 or later.
 
 As test_mcp_jobs.py, the server runs a copy of this checkout through the real just with stand-ins: ansible-playbook
-records what it was given and writes a status report with the VMs a dialog shows; python is the real one, but for
-tools/settings, whose run it records and answers.
+records what it was given; python is the real one, but for tools/status, which prints a report with the VMs a dialog
+shows, and tools/settings, whose run it records and answers.
 """
 
 from __future__ import annotations
@@ -53,24 +53,20 @@ def world(tmp_path_factory):
     bin_dir.mkdir()
     runs = root / "runs"
     runs.mkdir()
-    # The real Python, but for tools/settings: its run is recorded, and answered with SETTING.
+    # The real Python, but for tools/settings, whose run is recorded and answered with SETTING, and for just status's
+    # engine, which prints REPORT alone.
     (bin_dir / "python").write_text(
         "#!/bin/sh\n"
         'case "${1:-}" in tools/settings)\n'
         f'  printf "%s\\n" "$@" > "{runs}/settings.$$"\n'
-        f"  printf '%s\\n' '{json.dumps(SETTING)}'\n  exit 0 ;;\nesac\n"
+        f"  printf '%s\\n' '{json.dumps(SETTING)}'\n  exit 0 ;;\n"
+        f"tools/status) printf '%s\\n' '{json.dumps(REPORT)}'; exit 0 ;;\nesac\n"
         f'exec "{sys.executable}" "$@"\n'
     )
     (bin_dir / "python").chmod(0o755)
     (bin_dir / "ansible-galaxy").write_text("#!/bin/sh\nexit 0\n")
     (bin_dir / "ansible-galaxy").chmod(0o755)
-    (bin_dir / "ansible-playbook").write_text(
-        "#!/bin/sh\n"
-        f'printf "%s\\n" "$@" > "{runs}/playbook.$$"\n'
-        f"[ -z \"${{STATUS_REPORT_FILE:-}}\" ] || printf '%s\\n' '{json.dumps(REPORT)}' > \"$STATUS_REPORT_FILE\"\n"
-        # just status --json prints the report alone on standard output: nothing of the run's.
-        '[ -n "${STATUS_REPORT_FILE:-}" ] || echo done\n'
-    )
+    (bin_dir / "ansible-playbook").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > "{runs}/playbook.$$"\necho done\n')
     (bin_dir / "ansible-playbook").chmod(0o755)
     home = root / "home"
     home.mkdir()

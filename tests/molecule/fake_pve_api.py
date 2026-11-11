@@ -54,7 +54,7 @@ A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
 request is accepted except the agent's, which is refused with 403.
 
-For `just status` (playbooks/status.yml): /cluster/resources?type=storage lists
+For `just status` (tools/status): /cluster/resources?type=storage lists
 each storage the token may audit with its fill, and ?type=node the nodes, with
 no statistics, as a token without Sys.Audit sees them - but a node a fixture
 grants Sys.Audit on (PUT /api2/json/fake/privileges?token=&path=/nodes/<node>

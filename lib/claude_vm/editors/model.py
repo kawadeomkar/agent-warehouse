@@ -37,7 +37,7 @@ def relative(path: str, mode: str) -> None:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProcessMatch(Checked):
     """How just status knows one of the editor's windows on the VM: a process of the user's whose argv holds every
-    field given. vm_status_info is sent these as its arguments, since a module on the VM cannot import the core."""
+    field given. The status probe is sent these, since what runs on the VM cannot import the core."""
 
     argv0_contains: str = ""  # in the program's path
     argv0_name_prefix: str = ""  # the start of the program's own name

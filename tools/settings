@@ -68,7 +68,7 @@ SAFE_LOOKUPS = frozenset(
 # The files a person edits, as the report names them.
 USERS = ("hosts.yml", "vault.yml", "local.yml")
 # What the justfile passes with -e that is no setting: the names given, and init's own.
-NOT_SETTINGS = frozenset({"vm_name", "vm_project", "vm_session", "status_only", "init_given", "init_ask"})
+NOT_SETTINGS = frozenset({"vm_name", "vm_project", "vm_session", "init_given", "init_ask"})
 WIDTH = 100
 # What --value refuses in a value: an expression, which Ansible would template - run, for a lookup - and a control
 # character or a line break, which no setting of one line holds.
@@ -411,8 +411,7 @@ class Settings:
         return any(options.get(name, {}).get("no_log") for options in self.specs.values())
 
     def identifier(self, vault_name: str) -> bool:
-        fed = wiring.set_by(vault_name, self.feeds, self.specs)
-        return bool(fed) and not any(self.no_log(name) for name in fed)
+        return wiring.identifier(vault_name, self.feeds, self.specs)
 
     def by_person(self, where: str, name: str, raw) -> bool:
         """Set in a file a person edits, and in the vault to more than nothing or the example's placeholder."""

@@ -47,16 +47,6 @@ Reads gh's login state on the VM and prints it, with the one command to run when
 | `github_projects_login_ask` | bool | `false` | Ask at a prompt first. just deploy sets it for every VM but one whose Claude prompt got Enter. For a VM with github_projects_login_interactive, Enter runs the device flow and "n" skips it; for any other, "y" runs it and Enter skips it. With no terminal the answer would be nothing, which is Enter, so playbooks/github_login.yml never sets it in a run without one. |
 | `github_projects_login_role_follows` | bool | `false` | The whole role runs for this VM next, in the same run, so a vault token gh is not yet signed in with is said to be signed in by it rather than by a command to run. |
 
-## Entry point `status`
-
-**Say whether gh is signed in to GitHub, and how, changing nothing**
-
-Reads gh's login state on the VM, as the login entry point does, and gives its report, keeping what just status shows in github_projects_status_found. A check gh could not make with GitHub - no network - is kept as not checked, never as signed out. Never signs in, writes a token or clones.
-
-| Variable | Type | Default | Description |
-|---|---|---|---|
-| `github_projects_auth` | bool | `true` | Whether gh's login is this project's business; with it off, gh is left alone and only said. Set through `github_auth` in local.yml. |
-
 ## Entry point `release`
 
 **Sign gh out before the VM is destroyed**
@@ -71,7 +61,7 @@ Also takes, as described under `main`: `github_projects_user`, `github_projects_
 
 ## Internal values
 
-Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 65 of the 72 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 66 of the 73 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -81,7 +71,7 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_signed_in` |  | <code>{{ (github_projects_auth_account.state &#124; default('')) == 'success' }}</code> |
 | `github_projects_auth_unchecked` | Whether gh could not check its login with GitHub - no network, GitHub down - rather than GitHub refusing the token: `gh auth status --json` says both as state "error", and only a refusal carries GitHub's own "HTTP 401" or "HTTP 403". | <code>{{ (github_projects_auth_account.state &#124; default('')) == 'error' and not ((github_projects_auth_account.error &#124; default('')) is match('HTTP 40[13]')) }}</code> |
 | `github_projects_status_said` | What gh wrote to stderr - when it could not report its state, and when it would not sign in with the vault token - for the messages that quote it, without escape sequences or control characters (the plain_text filter, filter_plugins/text.py). | <code>{{ github_projects_auth_status.stderr &#124; default('') &#124; plain_text &#124; trim }}</code> |
-| `github_projects_gh_too_old_said` | What follows gh's own words when it could not report its state - a non-zero exit from `gh auth status --json`, which only a gh too old for --json gives - in auth.yml's failure and in login_report.yml's line alike. | <code>`gh auth status --json` needs gh 2.81.0 or newer. {{ "Install gh from GitHub's apt repository (dev_tools_install_gh: true), or set github_auth: false to leave gh alone." if github_projects_auth &#124; bool else 'This project leaves gh alone there (github_auth: false).' }}</code> |
+| `github_projects_gh_too_old_said` | What follows gh's own words when it could not report its state - a non-zero exit from `gh auth status --json`, which only a gh too old for --json gives - in auth.yml's failure and in login_report.yml's line alike. | <code>{{ github_projects_auth &#124; bool &#124; github_too_old_said }}</code> |
 | `github_projects_token_said` |  | <code>{{ github_projects_login.stderr &#124; default('') &#124; plain_text &#124; trim }}</code> |
 | `github_projects_login_kind` | How gh came to be signed in: `env` for a GH_TOKEN or GITHUB_TOKEN in gh's environment (which the reset environment of sudo -H rarely carries), and otherwise from the prefix of the token gh holds, read under no_log below: `pat` for a token like the one this role writes (ghp_ classic, github_pat_ fine-grained), `oauth` for the gho_ token of a device-flow login the user made, `none` signed out. | <code>{{ 'none' if not github_projects_signed_in &#124; bool else 'env' if (github_projects_auth_account.tokenSource &#124; default('')) is match('.*_TOKEN$') else 'pat' if github_projects_stored_token is match('(ghp_&#124;github_pat_)') else 'oauth' if github_projects_stored_token is match('gho_') else 'other' }}</code> |
 | `github_projects_auth_wanted` | Whether this run manages gh's login and the credential helper at all. | <code>{{ github_projects_auth &#124; bool and github_projects_gh_found &#124; bool }}</code> |
@@ -146,7 +136,8 @@ Set in `roles/github_projects/vars/main.yml`. These are not settings: Ansible ra
 | `github_projects_release_unrevoked` | Whether the summary says the token stays valid until the user revokes it - any but the vault's, which is every VM's: something left to do, for destroy's NEXT STEPS. | <code>{{ github_projects_stored_token &#124; length > 0 and (github_projects_release_ours &#124; bool or not (github_projects_token &#124; length > 0 and github_projects_stored_token == github_projects_token)) }}</code> |
 | `github_projects_release_summary` | One clause for destroy's report on the VM; empty where gh held no login. | <code>{{ '' if github_projects_stored_token &#124; length == 0 else (github_projects_release_signed_out ~ '; the token this project signed it in with stays valid until revoked at' ~ ' https://github.com/settings/applications, under GitHub CLI - which signs out every gh you have, so' ~ ' destroy does not') if github_projects_release_ours &#124; bool else (github_projects_release_signed_out ~ " (vault_github_token is every VM's, so it is not revoked)") if github_projects_token &#124; length > 0 and github_projects_stored_token == github_projects_token else (github_projects_release_signed_out ~ '; its token is not one this project recorded making (a sign-in by' ~ ' hand, or one before this version), and stays valid until revoked - at https://github.com/settings/tokens' ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,' ~ ' which signs out every gh you have') }}</code> |
 | `github_projects_login_lacks_workflow` | Whether gh's login is a device-flow one without the workflow scope, which GitHub refuses a push that changes .github/workflows/ for: said by login_report.yml, with the gh auth refresh that adds it, and left to do. | <code>{{ github_projects_login_kind == 'oauth' and 'workflow' not in (github_projects_auth_account.scopes &#124; default('')) }}</code> |
-| `github_projects_login_left` | Whether login_report.yml's line is something left to do, which NEXT STEPS records and just status says: a gh too old to say where gh is the role's business, a device-flow login without the workflow scope, a sign-out that nothing in this run ends. | <code>{{ github_projects_gh_found &#124; bool and ((github_projects_auth_status.rc &#124; default(0) != 0 and github_projects_auth &#124; bool) or github_projects_login_lacks_workflow &#124; bool or (not github_projects_signed_in &#124; bool and github_projects_auth &#124; bool and not (github_projects_token_wanted &#124; bool and github_projects_token_set &#124; bool and github_projects_login_role_follows &#124; bool))) }}</code> |
+| `github_projects_login_report` | What login_report.yml says of gh's login, and whether it is something left to do, which NEXT STEPS records and just status says: the core's words (lib/claude_vm/status/lines.py), one definition for both, from what the registers hold. | <code>{{ {'gh_found': github_projects_gh_found &#124; bool, 'status_rc': github_projects_auth_status.rc &#124; default(0), 'status_said': github_projects_status_said, 'signed_in': github_projects_signed_in &#124; bool, 'login_done': github_projects_login_done &#124; default(false) &#124; bool, 'account': github_projects_auth_account.login &#124; default('', true), 'kind': github_projects_login_kind, 'is_ours': github_projects_login_is_ours &#124; bool, 'lacks_workflow': github_projects_login_lacks_workflow &#124; bool, 'user': github_projects_user, 'host': ansible_host &#124; default(inventory_hostname), 'auth': github_projects_auth &#124; bool, 'auth_method': github_projects_auth_method, 'token_wanted': github_projects_token_wanted &#124; bool, 'token_set': github_projects_token_set &#124; bool, 'role_follows': github_projects_login_role_follows &#124; bool, 'configure_command': github_projects_configure_command, 'login_command': github_projects_login_command} &#124; github_login_report }}</code> |
+| `github_projects_login_left` |  | `{{ github_projects_login_report.left }}` |
 
 ## Tasks
 
@@ -513,32 +504,6 @@ classDef rescue stroke:#665352,stroke-width:2px;
   release___Read_the_marker_of_the_login_this_role_s_device_flow_made__by_its_1_x_name3-->|Task| release___Sign_gh_out4[release   sign gh out<br>When: **github projects stored token   length   0**]:::task
   release___Sign_gh_out4-->|Task| release___Record_what_became_of_the_login5[release   record what became of the login]:::task
   release___Record_what_became_of_the_login5-->End
-```
-
-### `status.yml` - entry point `status`
-
-| Task | Module | When |
-|---|---|---|
-| Read gh and its login state | `ansible.builtin.include_tasks` |  |
-| Say how gh is signed in | `ansible.builtin.include_tasks` |  |
-| Keep how gh is signed in | `ansible.builtin.set_fact` |  |
-
-```mermaid
-flowchart TD
-Start
-classDef block stroke:#3498db,stroke-width:2px;
-classDef task stroke:#4b76bb,stroke-width:2px;
-classDef includeTasks stroke:#16a085,stroke-width:2px;
-classDef importTasks stroke:#34495e,stroke-width:2px;
-classDef includeRole stroke:#2980b9,stroke-width:2px;
-classDef importRole stroke:#699ba7,stroke-width:2px;
-classDef includeVars stroke:#8e44ad,stroke-width:2px;
-classDef rescue stroke:#665352,stroke-width:2px;
-
-  Start-->|Include task| status___Read_gh_and_its_login_state_login_read_yml_0[status   read gh and its login state<br>include_task: login read yml]:::includeTasks
-  status___Read_gh_and_its_login_state_login_read_yml_0-->|Include task| status___Say_how_gh_is_signed_in_login_report_yml_1[status   say how gh is signed in<br>include_task: login report yml]:::includeTasks
-  status___Say_how_gh_is_signed_in_login_report_yml_1-->|Task| status___Keep_how_gh_is_signed_in2[status   keep how gh is signed in]:::task
-  status___Keep_how_gh_is_signed_in2-->End
 ```
 
 <!-- END_GENERATED: role -->

@@ -344,18 +344,6 @@ def test_what_a_vm_s_module_says_reaches_the_terminal_and_the_log_plain(tmp_path
     assert "evil.example" not in tail, tail
 
 
-def test_just_status_s_callback_shows_what_a_vm_s_module_says_plain_too(tmp_path):
-    # Run for real, as just status's run is: its own test of the hook sets the result the summaries are read from by
-    # hand, and would still pass if ansible-core stopped setting it.
-    _vm_module(tmp_path)
-    out, err, log = _play(tmp_path, VM_PLAY, "agent_warehouse_status")
-    for name, text in (("stdout", out), ("stderr", err), ("log", log)):
-        assert not TERMINAL_CONTROL.search(text), (name, text)
-        assert "retitled" not in text and "b3duZWQ=" not in text, (name, text)
-    said = out + err
-    assert "[WARNING]: warned" in said and "[DEPRECATION WARNING]: deprecated" in said, said
-
-
 def test_a_module_s_ansible_stats_do_reach_the_run_s_custom_stats(tmp_path):
     # Why NEXT STEPS reads the set_stats tasks' own results: the default callback,
     # showing the run's custom stats, shows the module's line among them.
@@ -383,7 +371,7 @@ PROBE_PLAY = """
 )
 
 
-@pytest.mark.parametrize("callback", ["agent_warehouse", "agent_warehouse_status"])
+@pytest.mark.parametrize("callback", ["agent_warehouse"])
 def test_the_callback_looks_up_a_filter_before_the_first_worker_so_filter_files_run_once(tmp_path, callback):
     # Each worker would otherwise execute every file in filter_plugins/ at its first lookup, task by task: a few
     # milliseconds each time. A probe file beside them says each process that executed it.

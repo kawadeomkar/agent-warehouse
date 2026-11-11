@@ -1118,8 +1118,7 @@ def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
                 if isinstance(added, dict) and "ansible_host" in added:
                     publishing.setdefault(path.stem, []).append(task["name"])
                     assert "claude_vm_python" in str(added.get("ansible_python_interpreter", "")), (path.stem, task)
-    # By stem: test_status.py holds every test file that names the status playbook to status_root.
-    assert sorted(publishing) == ["code", "destroy", "discover", "provision", "status"], publishing
+    assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
 
 
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])

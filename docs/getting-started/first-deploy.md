@@ -248,7 +248,7 @@ WORK  in ~/projects, as of each checkout's last fetch
                                   changes in 1 worktree
  beta     1 checkout              nothing                                         —        —
 
-read in 7.9 s · proxmox 0.9 s · vms 3 of 3 6.1 s
+read in 1.9 s · proxmox 0.5 s · vms 3 of 3 1.8 s
 exit 0 · nothing is wrong · --only, --json: just help status
 ```
 

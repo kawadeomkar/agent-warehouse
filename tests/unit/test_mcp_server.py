@@ -1,9 +1,9 @@
 """The MCP server, tools/mcp, driven over stdio by the SDK's own client, as Claude Code drives it.
 
 It runs a copy of this checkout - a git repository on main, its vault a stub that looks encrypted, .vault_pass beside
-it - through the real just, whose BIN points at stand-ins: ansible-playbook records what it was given and writes a
-status report, ansible-galaxy says the collections are installed. Nothing reaches a real Ansible, Proxmox or Claude
-Code, and the server's HOME is the test's own.
+it - through the real just, whose BIN points at stand-ins: ansible-playbook and just status's engine record what they
+were given, the engine prints a status report, ansible-galaxy says the collections are installed. Nothing reaches a
+real Ansible, Proxmox or Claude Code, and the server's HOME is the test's own.
 
 What it holds: the server's configuration is its arguments; a run gets an environment built from an allow list, stdin
 /dev/null, a session of its own, every setting on just's command line; the server never exits early, and answers a
@@ -84,27 +84,32 @@ def _copy(root: Path) -> Path:
 
 
 def _stand_ins(root: Path) -> Path:
-    """The tools the recipes run from BIN: ansible-playbook records its arguments, environment, stdin, session and
-    signals, and writes REPORT where just status asks; ansible-galaxy finds every collection installed."""
+    """The tools the recipes run from BIN: ansible-playbook and just status's engine (tools/status, through python)
+    record their arguments, environment, stdin, session and signals, and the engine prints REPORT; ansible-galaxy finds
+    every collection installed."""
     bin_dir = root / "bin"
     bin_dir.mkdir()
-    # A script, not a link: a link's Python, outside the virtualenv's folder, is the virtualenv's base, without its
-    # packages.
-    (bin_dir / "python").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
-    (bin_dir / "python").chmod(0o755)
     record = root / "runs"
     record.mkdir()
-    playbook = bin_dir / "ansible-playbook"
-    playbook.write_text(
-        "#!/bin/sh\n"
+    recorded = (
         f'out="{record}/$$"\n'
         'printf "%s\\n" "$@" > "$out.argv"\n'
         'env > "$out.env"\n'
         '[ -t 0 ] && echo tty > "$out.stdin" || cat > "$out.stdin"\n'
         'ps -o sid= -p $$ | tr -d " " > "$out.sid"\n'
         '[ ! -r /proc/$$/status ] || grep "^SigIgn" /proc/$$/status > "$out.signals"\n'
-        f"[ -z \"${{STATUS_REPORT_FILE:-}}\" ] || printf '%s\\n' '{json.dumps(REPORT)}' > \"$STATUS_REPORT_FILE\"\n"
     )
+    # A script, not a link: a link's Python, outside the virtualenv's folder, is the virtualenv's base, without its
+    # packages. The real one, but for the engine, which would read the settings of the world's checkout.
+    (bin_dir / "python").write_text(
+        '#!/bin/sh\ncase "${1:-}" in tools/status)\n'
+        f"{recorded}"
+        f"printf '%s\\n' '{json.dumps(REPORT)}'\nexit 1 ;;\nesac\n"
+        f'exec "{sys.executable}" "$@"\n'
+    )
+    (bin_dir / "python").chmod(0o755)
+    playbook = bin_dir / "ansible-playbook"
+    playbook.write_text(f"#!/bin/sh\n{recorded}")
     playbook.chmod(0o755)
     galaxy = bin_dir / "ansible-galaxy"
     galaxy.write_text("#!/bin/sh\nexit 0\n")
@@ -218,11 +223,11 @@ def test_status_returns_the_report_as_json_with_the_head_and_the_note_inside(sta
 def test_a_run_gets_its_options_on_the_command_line_and_nothing_of_the_session_s_environment(world, status_call):
     run = status_call["run"]
     argv = run["argv"].splitlines()
-    assert argv[argv.index("-e") + 1] == '{"vm_name": "alpha"}'
-    assert '{"status_only": "vms,work"}' in argv
+    assert argv[argv.index("--names") + 1] == "alpha"
+    assert argv[argv.index("--only") + 1] == "vms,work"
     assert "confirm_destroy=yes" not in run["argv"]
     env = dict(line.split("=", 1) for line in run["env"].splitlines() if "=" in line)
-    # None of the session's values: the recipe sets some of these names itself (status's stdout callback).
+    # None of the session's values: a recipe may set some of these names itself.
     assert {name: value for name, value in DROPPED.items() if env.get(name) == value} == {}
     assert not [name for name in env if name.startswith(("CLAUDE", "PYTHON", "JUST_"))]
     # The PATH just mcp recorded, which the recipe's own lines may lengthen; never the session's.

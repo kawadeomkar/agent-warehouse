@@ -70,9 +70,10 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 - A recipe is a bash script with no dependencies (`JUST_NO_DEPS` or `--no-deps` would skip one). Its first line
   is the checkout guard (`tools/check checkout`: just looks for a justfile upward, so started in a make-era
   worktree under `.claude/worktrees/` it would run main's, against main's inventory and vault); then its own rules
-  with their messages; then what it needs (`tools/env-run --bin`, `tools/check vault`, `tools/check collections`,
-  and where it reads the settings `tools/check settings`, which refuses a setting under a name 1.0 renamed and
-  names the new name of one 1.1 named anew); then the work, its last command `exec`'d.
+  with their messages; then what it needs (`tools/env-run --bin`, `tools/check vault`, `tools/check collections` -
+  which `status`'s engine runs instead, only where it asks Ansible - and where it reads the settings `tools/check
+  settings`, which refuses a setting under a name 1.0 renamed and names the new name of one 1.1 named anew); then
+  the work, its last command `exec`'d.
 - No assignment starts a program: just evaluates what a recipe uses before any line runs, so it would start
   before a refusal.
 - Bash, not sh: Ubuntu's dash dies of a Ctrl-C that the playbook it runs survived (Ansible's `pause`, Ctrl-C then
@@ -522,27 +523,37 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       has a refusing `ssh` first on PATH, and the offer's a local stand-in host (`test_init_settings.py` holds
       both).
 - **`just status` is read-only information, and must never change anything.** Read
-  [§4.6](docs/architecture/lifecycle.md#46-playbooksstatusyml--read-only-drawn-live) and
-  [§7.7](docs/architecture/custom-code.md#77-filter_pluginsstatuspy-and-callback_pluginsagent_warehouse_statuspy--just-status)
+  [§4.6](docs/architecture/lifecycle.md#46-toolsstatus--read-only-drawn-live) and
+  [§7.7](docs/architecture/custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status)
   first.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
-      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only), not GitHub or Tailscale,
-      not this machine: no host key - each VM gets `status_ssh_args` as `ansible_ssh_args`, `ansible.cfg`'s with
-      `StrictHostKeyChecking=yes` and `UpdateHostKeys=no` - no alias, nothing in `~/.ssh` or `~/.claude`.
-    - The roles are read through `status` entry points of their own (`claude_code`, `github_projects`,
-      `tailscale`), which reuse their reads and reports, so a line status shows is NEXT STEPS' own.
-    - It writes only its run's report into `.cache/status/` (git-ignored, refused by
-      `tests/check_no_local_files.sh`) and the log.
-    - `tests/unit/test_status.py` holds every task in `playbooks/status.yml`, and in every task file and role
-      entry point it reaches, to an allowlist - a `uri` only to `{{ proxmox_api_url }}/`, with
-      `check_mode: false` and `no_log`, since the recipe runs it as `--check`, which `uri` ignores - and checks
-      that a run against the fake sent nothing but GETs.
+      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only, no redirect followed), not GitHub
+      or Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
+      `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
+      options, port and key after them - no alias, nothing in `~/.ssh` or `~/.claude`.
+    - It runs no `ansible-playbook` (decided on measurements,
+      [§15.7](docs/architecture/decisions.md#157-just-status-runs-no-playbook)): `tools/status`, the engine in
+      `lib/claude_vm/status/`, the settings asked of Ansible in-process and kept, and one program on each VM
+      (`playbooks/module_utils/status_probe.py`, sent over stdin).
+    - A line status shows is NEXT STEPS' own: the roles' reports and the engine call the same functions
+      (`lib/claude_vm/status/lines.py`). The state the engine works out for itself (`found.py`) is held equal to the
+      roles' own tasks and vars, state by state, by `tests/unit/test_status_vms.py`: change a role's state and that
+      test says which of the engine's to change.
+    - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log.
+      Two files there, each only a way to work the same thing out sooner: `settings.json`, keyed by every file the
+      settings are made from (the filters, ansible-core and the collections too), which holds no secret (the token
+      is a mark, read from the vault at each run; a snapshot that would hold anything else the vault holds but its
+      two identifiers is not kept), and `upgrades.json`, apt's answer for a VM against a digest of its package
+      state. `-e` in `ANSIBLE_ARGS` neither reads nor writes one.
+    - `tests/unit/test_status_vms.py` holds the probe to its fixed `ALLOWED` list of programs, every file opened to
+      read and nothing written but its own standard output; a run against the fake sends nothing but GETs.
+    - `gh`'s token never leaves the VM: the probe says only which kind it is, and whether the role's marker holds its
+      digest. The VM user's password, where `sudo` asks for one, goes on stdin only, behind a mark, so a `sudo` that
+      asks for none never hands it to Python.
     - Every value a VM or Proxmox supplies is made one line of plain text (`one_line`, `status_clean`) before the
-      model keeps it; every line of the report fits 100 columns. Its stdout callback
-      (`callback_plugins/agent_warehouse_status.py`) takes the finished report only from the report play's own
-      `set_fact` on localhost.
-    - Every status run in a test pins `status_report_file` and `claude_ssh_config_file` into its own directory
-      and gets a refusing stand-in `ssh` (`status_root`); the reads inside a VM run against stand-in VMs
+      model keeps it; every line of the report fits 100 columns. What a VM sends is held to a size and a time.
+    - Every status run in a test gets a refusing stand-in `ssh` and pins `claude_ssh_config_file` into its own
+      directory (`status_root`), and keeps nothing; the reads inside a VM run against stand-in VMs
       (`tests/unit/test_status_vms.py`), which hold that every file there is unchanged.
 - **`just settings` reads without changing anything, but for the one setting `--value` writes into `local.yml` or
   `--reset` takes out, and never prints or writes a secret.** Read
@@ -682,8 +693,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   role can run more than once for a host in one play, and a skipped `set_fact` survives where a skipped register
   is overwritten, so a fact would hand VM #1's MAC to VM #2. The role sets exactly four facts, each
   unconditionally on every run - `proxmox_vm_exists`, `proxmox_vm_resolved_id`, `proxmox_vm_stopped` and
-  `proxmox_vm_address`, which `provision.yml`'s third play reads through `hostvars` - and its `settings_drift`
-  entry point a fifth, `proxmox_vm_settings_drift`. `claude_vm_tagged` and `claude_vm_requested` follow the same
+  `proxmox_vm_address`, which `provision.yml`'s third play reads through `hostvars`. `claude_vm_tagged` and `claude_vm_requested` follow the same
   pattern, after `playbooks/tasks/cluster_vms.yml` registers `claude_vm_all`
   ([§6.3](docs/architecture/variables.md#63-computed-internals)).
 - **Existence is not convergence.** `present.yml` tags a new VM in a call of its own straight after the clone,
@@ -752,7 +762,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   pinned ansible.posix 2.1.0 put it back under every other checkout, whose runs went on without a word. Each
   checkout now has its own (`tools/env-run --collections`), and every recipe that runs Ansible still runs
   `tools/check collections` first (`ansible-galaxy collection install --offline` against `requirements.yml`),
-  refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one.
+  refusing, naming `just install`, while a collection differs from its pin - as after a pull that bumped one. `just
+  status` runs it from its engine, only when it asks Ansible for its settings, its snapshot keyed by
+  `requirements.yml` and the collections installed: in the recipe it would hold back the outline.
 - **ansible-galaxy's response cache turns one failed request into a failed install.** It writes an empty
   entry before each request to Galaxy, and the retry after one that failed (a 502, a timeout) reads that
   entry and stops with `Missing expected 'results' in ansible-galaxy cache` (ansible-core 2.21), never asking
