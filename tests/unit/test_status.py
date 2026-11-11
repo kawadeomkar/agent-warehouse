@@ -103,7 +103,7 @@ PROMISED_KEYS = {
     },
     "attention": {"command", "level", "source", "subject", "text", "vm"},
     "proxmox": {"nodes", "unread", "version"},
-    "template": {"built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
+    "template": {"built", "built_ago", "ctime", "drift", "name", "node", "rebuild", "storage", "vmid"},
     "settings": {"aliases_enabled", "editor", "names", "nic", "tag", "tailscale_enabled", "vm_user", "vpn"},
     # Each VM's reads over SSH, and of them the system's (test_status_vms.py holds these, reading a VM).
     "ssh": {"claude", "github", "reached", "refusal", "system", "tailscale", "unread", "unreachable", "vpn", "work"},
@@ -475,6 +475,23 @@ def test_a_clone_that_carries_the_templates_ctime_has_no_age() -> None:
     model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
     assert model["vms"][0]["created_ago"] == ""
     assert model["vms"][1]["created_ago"] == "11 d ago"
+
+
+def test_a_template_made_from_a_clone_is_dated_by_its_disk() -> None:
+    # A golden, or a template of your own made from a clone, carries its source's meta ctime: a golden made minutes
+    # before was "built 11 d ago" (live, Proxmox VE 9.2). Its clones carry that ctime too, and still show no age.
+    now = 1_800_000_000
+    disks = [{"volid": "local-lvm:base-9000-disk-0", "vmid": 9000, "size": 1, "ctime": str(now - 600)}]
+    contents = [{"item": {"node": "pve", "storage": "local-lvm"}, "status": 200, "json": {"data": disks}}]
+    config = {"status": 200, "json": {"data": {"meta": "creation-qemu=9.2.0,ctime=1799000000"}}}
+    fleet = _fleet(contents=contents, template_config=config)
+    assert fleet["template"]["built"] == now - 600 and fleet["template"]["ctime"] == 1_799_000_000
+    fleet["vms"][0]["created"] = 1_799_000_000
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now", now)
+    assert model["template"]["built_ago"] == "10 m ago"
+    assert model["vms"][0]["created_ago"] == ""
+    # With its disk unread - on a storage the run did not list - its config's.
+    assert _fleet(template_config=config)["template"]["built"] == 1_799_000_000
 
 
 def test_a_template_the_next_deploy_rebuilds_is_a_thing_to_do_and_said_on_its_line() -> None:
