@@ -86,8 +86,10 @@
               The golden template could not be built ({{ ansible_failed_task.name | default('') }}:
               {{ ansible_failed_result.msg | default('no reason') | plain_text }}). The VMs are not affected.
 
+# The group by its hosts, which may be none: named, every run that builds no
+# golden has Ansible warn that the pattern matched nothing.
 - name: Set up the golden template's build VM
-  hosts: claude_vm_build
+  hosts: "{{ groups['claude_vm_build'] | default([]) }}"
   gather_facts: false
   become: true
   # A build VM that stops answering is the build failed, never the deploy.

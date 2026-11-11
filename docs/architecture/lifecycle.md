@@ -1239,6 +1239,10 @@ no part in it.
 | `golden_build.yml`: Set up the build VM | `claude_vm_build` | configure's first steps, the three `image` entry points, `tasks/golden_generalize.yml` |
 | `golden_build.yml`: Make it a template | localhost | `golden_template`, or `golden_discard` for a build that failed |
 
+The two plays on the hosts added take them as `groups['claude_vm_golden_pending']` and `groups['claude_vm_build']`, an
+empty list in a run that added none - golden templates off, or nothing to build - where a group named as the pattern
+would have Ansible warn that it matched no host.
+
 **The key** is the build number, the base's identity and the toolchain digest. The base's identity is its VMID, the
 image its record names and its config's `digest`, so a base rebuilt for a new bridge or CPU type makes a new key, and
 never leaves the VMs on the old one. A golden is taken only with that key, on the VM's node, under 7 days old, its disk

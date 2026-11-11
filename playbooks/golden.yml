@@ -71,8 +71,10 @@
               loop_control:
                 loop_var: claude_vm_golden_item
 
+# The group by its hosts, which may be none: named, a run that adds none (golden
+# templates off) has Ansible warn that the pattern matched nothing.
 - name: Choose each VM's template
-  hosts: claude_vm_golden_pending
+  hosts: "{{ groups['claude_vm_golden_pending'] | default([]) }}"
   gather_facts: false
   tasks:
     # The image options as this VM resolves them: one whose own differ (a host

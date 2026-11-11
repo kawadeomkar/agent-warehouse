@@ -32,7 +32,7 @@ BUILD_PREFIX = "agent-warehouse-build-"
 READ = [
     {
         "name": "Read what each VM clones",
-        "hosts": "claude_vm_golden_pending",
+        "hosts": "{{ groups['claude_vm_golden_pending'] | default([]) }}",
         "gather_facts": False,
         "tasks": [
             {"name": "Say the template", "ansible.builtin.debug": {"msg": "chose {{ claude_vm_golden_template }}"}}
@@ -63,6 +63,8 @@ def _golden(tmp_path, fake, *names, on=True, then=(), **extra):
     }
     report = _run(root, playbook, {}, "-e", json.dumps(args), timeout=240)
     assert report["rc"] == 0, (_failures(report), report["stderr"][-1500:])
+    # A play whose group the run added no host to - golden templates off, nothing built - matches none unwarned.
+    assert "Could not match supplied host pattern" not in report["stderr"], report["stderr"][-1500:]
     return report
 
 
