@@ -1234,7 +1234,7 @@ no part in it.
 | Play | On | Does |
 |---|---|---|
 | `golden.yml`: Read what the new VMs could clone | localhost | the image options every VM shares and their digest; `golden_read`, once for the run; each name added to `claude_vm_golden_pending` |
-| `golden.yml`: Choose each VM's template | those hosts | whether its own options are those; `golden_select`: its key, and a fresh golden of it, or that one is wanted |
+| `golden.yml`: Choose each VM's template | those hosts | whether its own options are those; `golden_select`: its key, and a fresh golden of it, or that one is wanted; says which golden it clones, or why the base |
 | `golden_build.yml`: Build the golden template | localhost | `golden_collect`, always; `golden_build` for the key the VMs that want a golden share; adds the build VM as a host, which a role never does |
 | `golden_build.yml`: Set up the build VM | `claude_vm_build` | configure's first steps, the three `image` entry points, `tasks/golden_generalize.yml` |
 | `golden_build.yml`: Make it a template | localhost | `golden_template`, or `golden_discard` for a build that failed |
@@ -1247,7 +1247,8 @@ would have Ansible warn that it matched no host.
 image its record names and its config's `digest`, so a base rebuilt for a new bridge or CPU type makes a new key, and
 never leaves the VMs on the old one. A golden is taken only with that key, on the VM's node, under 7 days old, its disk
 no larger than the VM's; `provision.yml` clones it by VMID, always as a full clone
-(`proxmox_vm_template_vmid`, from `claude_vm_golden_template`).
+(`proxmox_vm_template_vmid`, from `claude_vm_golden_template`), its name the clone task's label
+(`proxmox_vm_template_name`, from `claude_vm_golden_template_name`).
 
 **A VM's own options.** The key's options are those every VM shares, each role's defaults resolved by its
 `image_options` entry point, and the build sees the same. Each VM's are resolved too: one whose host vars change an

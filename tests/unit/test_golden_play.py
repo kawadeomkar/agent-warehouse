@@ -122,8 +122,11 @@ def test_a_second_vm_of_the_key_clones_the_golden_and_nothing_is_built(tmp_path,
     (made,) = [vm for vm in _vms(fake) if vm.get("name", "").startswith(PREFIX)]
     report = _golden(tmp_path, fake, "beta")
     (choice,) = _choices(report).values()
-    assert choice["golden"] == str(made["vmid"]) and not choice["wanted"]
+    assert choice["golden"] == str(made["vmid"]) and choice["golden_name"] == made["name"] and not choice["wanted"]
     assert len([vm for vm in _vms(fake) if vm.get("name", "").startswith(PREFIX)]) == 1
+    assert _messages(report, "Say which golden template this VM clones") == {
+        "beta": f"beta clones the golden template {made['name']}, with the toolchain already on it."
+    }
 
 
 def test_a_vm_that_exists_gets_none_and_nothing_is_built(tmp_path, fake):

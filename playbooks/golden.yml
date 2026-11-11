@@ -116,3 +116,10 @@
       when:
         - not proxmox_template_golden_choice.exists
         - proxmox_template_golden_choice.said | length > 0
+
+    - name: Say which golden template this VM clones
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} clones the golden template {{ proxmox_template_golden_choice.golden_name }}, with
+          the toolchain already on it.
+      when: proxmox_template_golden_choice.golden | length > 0

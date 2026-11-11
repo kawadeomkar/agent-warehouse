@@ -154,6 +154,11 @@ claude_vm_tagged: >-
      | list }}
 claude_vm_names: >-
   {{ (vm_name | default(vm_default_name, true)) | split(',') | map('trim') | select | list }}
+# The golden template a new VM is cloned from, chosen by playbooks/golden.yml in
+# just deploy, by the number Proxmox knows it by; empty for the base template.
+claude_vm_golden_template: "{{ (proxmox_template_golden_choice | default({})).golden | default('', true) }}"
+# And by its name, which labels the clone; empty for the base template.
+claude_vm_golden_template_name: "{{ (proxmox_template_golden_choice | default({})).golden_name | default('', true) }}"
 # The hosts of the inventory itself - this machine (localhost) and the Proxmox
 # host (pve, in hosts.yml.example) - whose names no VM may take. A VM's name
 # from Proxmox becomes a host through add_host, which merges it into a host of
@@ -162,9 +167,6 @@ claude_vm_names: >-
 # this machine a VM to configure. Every host but those the runs add VMs to, so
 # it reads the same before and after they are added. playbooks/tasks/vm_names.yml
 # refuses such a name given, and discovery and just status leave out such a VM.
-# The golden template a new VM is cloned from, chosen by playbooks/golden.yml in
-# just deploy, by the number Proxmox knows it by; empty for the base template.
-claude_vm_golden_template: "{{ (proxmox_template_golden_choice | default({})).golden | default('', true) }}"
 claude_vm_inventory_hosts: >-
   {{ (groups['all'] + ['localhost'])
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
@@ -416,7 +418,8 @@ proxmox_vm_api_token_secret: "{{ proxmox_api_token_secret }}"
 proxmox_vm_validate_certs: "{{ proxmox_validate_certs }}"
 proxmox_vm_node: "{{ proxmox_node }}"
 proxmox_vm_storage: "{{ proxmox_storage }}"
-proxmox_vm_template_name: "{{ proxmox_template_base }}"
+# A golden is cloned by the number Proxmox knows it by (provision.yml), so its name only labels the clone.
+proxmox_vm_template_name: "{{ claude_vm_golden_template_name or proxmox_template_base }}"
 proxmox_vm_nic: "{{ proxmox_nic }}"
 proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"

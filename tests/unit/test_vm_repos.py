@@ -185,18 +185,42 @@ def test_a_vm_is_created_with_its_list_beside_the_notes_it_was_cloned_with(tmp_p
     assert _published(report, PROVISION_PUBLISH, "listed") == {"own": True, "names": ["one", "two"]}
 
 
-def test_a_golden_s_clone_gets_its_list_beside_the_golden_s_record(tmp_path: Path, fleet: str) -> None:
-    # The notes a golden's clone carries are the golden's record, as a base's clone carries its build record.
+GOLDEN_NAME = "agent-warehouse-golden-" + "a" * 12
+
+
+def _a_golden(fleet: str) -> str:
+    """A golden template at 9200, as golden_template leaves one; its record."""
     record = proxmox.golden_record(
         {"key": "a" * 64, "build": 1, "base": "x", "node": "pve", "built": "2026-11-10T00:00:00Z", "disk": "12G"}
     )
-    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9200, name="agent-warehouse-golden-" + "a" * 12)
+    _pve(fleet, "POST", "nodes/pve/qemu/9000/clone", newid=9200, name=GOLDEN_NAME)
     _pve(fleet, "PUT", "nodes/pve/qemu/9200/config", description=record)
     _pve(fleet, "POST", "nodes/pve/qemu/9200/template")
+    return record
+
+
+def test_a_golden_s_clone_gets_its_list_beside_the_golden_s_record(tmp_path: Path, fleet: str) -> None:
+    # The notes a golden's clone carries are the golden's record, as a base's clone carries its build record.
+    record = _a_golden(fleet)
     report = _provision(tmp_path, fleet, "listed", ["one"], claude_vm_golden_template="9200")
     assert report["rc"] == 0, _failures(report)
     assert _notes(fleet, "listed").splitlines() == [record, f"{MARK} one"]
     assert _published(report, PROVISION_PUBLISH, "listed") == {"own": True, "names": ["one"]}
+
+
+def test_a_golden_s_clone_is_said_with_the_golden_s_name(tmp_path: Path, fleet: str) -> None:
+    # Cloned by its VMID, a golden lent the clone task no name of its own, and the run said the base's.
+    _a_golden(fleet)
+    choice = {"golden": "9200", "golden_name": GOLDEN_NAME}
+    report = _provision(tmp_path, fleet, "golden", proxmox_template_golden_choice=choice)
+    assert report["rc"] == 0, _failures(report)
+    (cloned,) = [task for task, vm, _ in _results(report) if vm == "golden" and "| Clone from" in task]
+    assert cloned.endswith(f"present | Clone from template {GOLDEN_NAME}"), cloned
+    # With none chosen, the base's.
+    base = _provision(tmp_path, fleet, "base")
+    assert base["rc"] == 0, _failures(base)
+    (cloned,) = [task for task, vm, _ in _results(base) if vm == "base" and "| Clone from" in task]
+    assert cloned.endswith("present | Clone from template ubuntu-24.04-cloudinit"), cloned
 
 
 def test_the_same_list_again_changes_nothing_and_a_new_name_is_added(tmp_path: Path, fleet: str) -> None:

@@ -225,6 +225,7 @@ def test_a_new_vm_with_no_golden_wants_one_of_its_key():
         "key": key,
         "disk": "12G",
         "golden": "",
+        "golden_name": "",
         "wanted": True,
         "said": "",
     }
@@ -235,7 +236,7 @@ def test_a_new_vm_clones_a_fresh_golden_of_its_key():
     made = _golden(150, key=key)
     listing = _listing(BASE, {"vmid": 150, "name": made["name"], "template": 1})
     choice = _choice(listing, {"9000": BASE_CONFIG, "150": made["config"]})
-    assert choice["golden"] == "150" and not choice["wanted"]
+    assert choice["golden"] == "150" and choice["golden_name"] == made["name"] and not choice["wanted"]
 
 
 def test_the_reads_a_loop_registered_are_taken_as_configs():
