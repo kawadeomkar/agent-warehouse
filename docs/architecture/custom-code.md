@@ -1317,7 +1317,10 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   add `claude_hosts_other`, so no VM is named after another host, no alias takes its address, and destroy never
   forgets its key.
 - **`just host`** lists the hosts from their files alone, replaces `hosts/current` whole (`store.replace`) under the
-  run lock, so a run under way ends on the host it started on, and `--remove` deletes a host's folder after
+  run lock, so a run under way ends on the host it started on. With `--json`, `--for` and `--host` ask which host a
+  run given those names and that `--host` would reach (`where`, `choose.where`): `choose` made public, no vault opened,
+  a refusal said as data. It is a preview, not a reservation: a front end that shows a host for a person to confirm
+  passes it to the run as `--host`. `--remove` deletes a host's folder after
   its name is typed at a terminal - never the current host's or the first's, and never its VMs.
 - **`just init --host <name>`** sets one up (`tools/check host init`, [§4.12](lifecycle.md#412-playbooksinit_settingsyml)),
   and `just init` alone works on the current host, as every command does. For a host in `hosts/`, a value for the

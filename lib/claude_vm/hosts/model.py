@@ -182,6 +182,19 @@ class HostRow(Checked):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Where(Checked):
+    """Which host a run would reach, from the names and the --host it would be given: a Choice's public face, read with
+    no vault opened. A preview, never a reservation: a person confirming a host passes it to the run as --host. No
+    property: each would be a key."""
+
+    host: str  # the host the run would be against; "" with one host, which nothing names
+    routed: bool  # the VMs named are on it, as their aliases record, and no host was given
+    unplaced: tuple[str, ...]  # the VMs named that no alias places, with more than one host
+    notes: tuple[str, ...]  # what the run would warn of as soon as its host is chosen
+    refusal: str  # why the run would be refused before anything starts, its host unchosen; "" for none
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class HostList(Checked):
     """just host --json: the hosts, from their files alone, no vault opened. Leaves through wire.to_wire as host_list,
     the class's name: renaming it renames the document. No property: each would be a key."""
@@ -189,6 +202,7 @@ class HostList(Checked):
     current_host: str | None
     hosts: tuple[HostRow, ...]
     problem: str | None  # what keeps the hosts from being read, where anything does
+    where: Where | None = None  # asked for with --for or --host: which host that run would reach
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

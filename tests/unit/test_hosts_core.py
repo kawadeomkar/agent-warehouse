@@ -273,7 +273,14 @@ def test_the_adapter_prints_the_host_the_core_chose(tmp_path: Path, current: str
         nested=given.get("nested", ""),
         names=tuple(filter(None, given.get("names", "").split(","))),
     )
-    assert _resolve(root, *args)["host"] == choose.choose(_layout(root), request).host.name
+    chosen = choose.choose(_layout(root), request).host.name
+    assert _resolve(root, *args)["host"] == chosen
+    # And the read a UI or the MCP server asks, just host --json with the names and --host a run would be given.
+    if "nested" not in given:
+        listed = _tool(root, "list", "--json", *args)
+        assert listed.returncode == 0, listed.stderr
+        where = json.loads(listed.stdout)["where"]
+        assert where is None if not args else where["host"] == chosen
 
 
 def test_nothing_of_a_host_s_local_yml_leaves_but_what_just_host_shows(tmp_path: Path) -> None:
@@ -286,7 +293,7 @@ def test_nothing_of_a_host_s_local_yml_leaves_but_what_just_host_shows(tmp_path:
 
 
 # The JSON just host --json printed before the core made it (bfec029e, written by hand), byte for byte: the core's
-# HostList, through wire.to_wire, prints the same.
+# HostList, through wire.to_wire, prints the same, and only adds the keys it gained since.
 def _two_current(root: Path) -> None:
     _checkout(root, local={"proxmox_node": "pve1"})
     _host(root, "nuc")
@@ -458,7 +465,19 @@ def test_just_host_json_is_the_bytes_it_was_before_the_core(tmp_path: Path, name
     LISTINGS[name](root)
     said = _tool(root, "list", "--json")
     assert said.returncode == 0, said.stderr
-    assert said.stdout == json.dumps(RECORDED[name]) + "\n"
+    # Keys only added since: where, at the end, null unless a run was asked about.
+    assert said.stdout == json.dumps({**RECORDED[name], "where": None}) + "\n"
+
+
+def test_where_is_a_refusal_as_data_with_the_notes_said_before_it(tmp_path: Path) -> None:
+    root = _checkout(tmp_path)
+    _host(root, "nuc")
+    (root / "hosts" / "lab").mkdir()
+    _aliases(root, beta="nuc")
+    where = choose.where(_layout(root), _request(root, host="lab", names=("beta",)))
+    assert where.host == "" and "which cannot be used" in where.refusal
+    assert len(where.notes) == 1 and where.notes[0].startswith("beta is nuc's")
+    assert choose.where(_layout(root), _request(root, names=("beta",))).host == "nuc"
 
 
 def test_to_wire_names_the_list_host_list_and_refuses_a_field_named_kind() -> None:

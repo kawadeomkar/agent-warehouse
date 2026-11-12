@@ -5,7 +5,7 @@ with the environment's Python.
 
     tools/host env --checkout <dir> --hosts-dir <dir> --vault-file <file> --settings-files <files> --vault-pass <file>
                    [--host <name>] [--nested <name>] [--names <a,b>] [--lenient] [--read-only]
-    tools/host list --checkout <dir> --hosts-dir <dir> [--json]
+    tools/host list --checkout <dir> --hosts-dir <dir> [--json] [--host <name>] [--names <a,b>]
     tools/host switch --checkout <dir> --hosts-dir <dir> <name>
     tools/host remove --checkout <dir> --hosts-dir <dir> <name>
     tools/host init --checkout <dir> --hosts-dir <dir> --vault-pass <file> [--address <address>] [--asking] [--shared]
@@ -21,6 +21,9 @@ Or it refuses, saying why on standard error, and exits 1, before anything starts
 pattern first, and printed quoted. With --lenient, as just settings and just vault ask it, a host that lacks a setting
 it sets for itself is taken, and what a run would read of it is not checked: they are how that is put right. With
 --read-only, as just status asks it, nothing is written, hosts/.checked.json included.
+
+list prints the hosts, as a table or, with --json, as a document a release only adds keys to. Given the names or the
+--host a run would take, the document says which host that run would reach (where), from the files alone.
 
 init sets up a host for just init, from tools/templates/host/: its folder and each file it lacks, the hosts.yml naming
 it; then prints what just init's playbooks are pointed at - its files, the vault's name for its token, what it sets for
@@ -177,7 +180,9 @@ def current(opts, layout: hosts.Layout) -> int:
 
 
 def listing(opts, layout: hosts.Layout) -> int:
-    listed = choose.listing(layout)
+    # Which host a run would reach, where the names or the --host it would be given were: a preview, no vault opened.
+    asked = choose.where(layout, _request(opts)) if opts.names or opts.host else None
+    listed = choose.listing(layout, asked)
     if opts.json:
         # A document a release only adds keys to (CONTRIBUTING.md, Releasing): format_version and kind first.
         print(json.dumps(wire.to_wire(listed)))

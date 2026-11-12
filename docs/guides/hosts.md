@@ -108,6 +108,12 @@ type its name: never the current host's or the first's, and never its VMs, which
 in a row. Only these can be `null`: `current_host` where there is no current host, and a row's `host_kind` for a
 folder not set up. A release adds keys to it, and never removes or renames one.
 
+`--for <vm,...>` and `--host <name>` beside `--json` ask which host a run given those names and that `--host` would
+reach, as `where`: its `host`, whether the VMs' aliases `routed` it there, the names no alias places (`unplaced`),
+what the run would warn of (`notes`), and the `refusal` it would meet before anything starts, said here rather than
+refused. It reads the files alone and switches nothing; the run still decides for itself when it starts, so give the
+host you mean as `--host` to the run.
+
 ## The VMs and their aliases
 
 Each VM's SSH alias records the host it was found on (`# origin: nuc` in the managed SSH config), and a run against

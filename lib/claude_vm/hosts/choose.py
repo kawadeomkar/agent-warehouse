@@ -6,7 +6,7 @@ person. Writes nothing."""
 from __future__ import annotations
 
 from .layout import Layout
-from .model import SHARED_HOSTS, Choice, Host, HostList, HostRow, Note, Refused, Request
+from .model import SHARED_HOSTS, Choice, Host, HostList, HostRow, Note, Refused, Request, Where
 
 
 def pick(layout: Layout, given: str = "", lenient: bool = False) -> Host | None:
@@ -91,8 +91,26 @@ def choose(layout: Layout, request: Request) -> Choice:
     )
 
 
-def listing(layout: Layout) -> HostList:
-    """Every host from its files alone, no vault opened: what just host shows, and its --json."""
+def where(layout: Layout, request: Request) -> Where:
+    """Which host the run the request describes would reach, and what it would say on choosing it: choose, made
+    public, no vault opened. A refusal is data here, as a layout's problem is, so a page can say why before a run."""
+    try:
+        choice = choose(layout, request)
+    except Refused as refused:
+        notes = tuple(note.text for note in refused.notes)
+        return Where(host="", routed=False, unplaced=(), notes=notes, refusal=str(refused))
+    return Where(
+        host=choice.host.name if choice.host else "",
+        routed=choice.routed,
+        unplaced=choice.unplaced,
+        notes=tuple(note.text for note in choice.notes),
+        refusal="",
+    )
+
+
+def listing(layout: Layout, asked: Where | None = None) -> HostList:
+    """Every host from its files alone, no vault opened: what just host shows, and its --json, with ``asked``, the run
+    a caller asked about."""
     try:
         every = layout.every()
         current = pick(layout) if every else None
@@ -124,4 +142,6 @@ def listing(layout: Layout) -> HostList:
                 problem=host.problem,
             )
         )
-    return HostList(current_host=current.name if current else None, hosts=tuple(rows), problem=said or None)
+    return HostList(
+        current_host=current.name if current else None, hosts=tuple(rows), problem=said or None, where=asked
+    )
