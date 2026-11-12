@@ -17,6 +17,6 @@
                           proxmox_template_golden_disk_size, proxmox_template_golden_digest,
                           proxmox_template_golden_build, proxmox_template_golden_shared | bool))
          if proxmox_template_golden_read.proxmox_template_golden_listing.status | default(0) == 200
-         else {'exists': false, 'base': '', 'key': '', 'disk': '', 'golden': '', 'wanted': false,
+         else {'exists': false, 'base': '', 'key': '', 'disk': '', 'golden': '', 'golden_name': '', 'wanted': false,
                'said': 'Proxmox did not list its VMs (' ~ (proxmox_template_golden_read.proxmox_template_golden_listing.status
                        | default('no answer')) ~ ')'} }}

@@ -703,19 +703,29 @@ def golden_size(boot_disk, least):
 def golden_choice(
     listing, configs, vm, base, node, prefix, now, max_age, disk, boot_disk, least, digest, build, shared=True
 ):
-    """Which template a VM is cloned from, as {exists, base, key, disk, golden, wanted, said}: golden, the VMID of a
-    fresh one of its key ("" for the base template); wanted, whether a golden of its key should be built for it; key,
-    the key, base, the base template's VMID, and disk, the size a golden built now has ("" when they are unknown); said,
-    why not a golden, for the run to say. listing is /cluster/resources?type=vm; configs each config golden_reads named,
-    by VMID; disk the VM's size; boot_disk the base's boot disk, by its name in the config; least the smallest a golden
-    is built at. A VM that exists keeps its disk: it is never cloned. A VM whose own options differ from the ones a
-    build would see (shared false) clones the base, since a golden built for it could not be shared, and so does one
-    whose disk a golden's would be too large for, since Proxmox cannot shrink it.
+    """Which template a VM is cloned from, as {exists, base, key, disk, golden, golden_name, wanted, said}: golden, the
+    VMID of a fresh one of its key ("" for the base template), and golden_name its name, for the run to say; wanted,
+    whether a golden of its key should be built for it; key, the key, base, the base template's VMID, and disk, the size
+    a golden built now has ("" when they are unknown); said, why not a golden, for the run to say. listing is
+    /cluster/resources?type=vm; configs each config golden_reads named, by VMID; disk the VM's size; boot_disk the
+    base's boot disk, by its name in the config; least the smallest a golden is built at. A VM that exists keeps its
+    disk: it is never cloned. A VM whose own options differ from the ones a build would see (shared false) clones the
+    base, since a golden built for it could not be shared, and so does one whose disk a golden's would be too large
+    for, since Proxmox cannot shrink it.
     """
     from .golden import golden_key
 
     configs = read_configs(configs)
-    out = {"exists": False, "base": "", "key": "", "disk": "", "golden": "", "wanted": False, "said": ""}
+    out = {
+        "exists": False,
+        "base": "",
+        "key": "",
+        "disk": "",
+        "golden": "",
+        "golden_name": "",
+        "wanted": False,
+        "said": "",
+    }
     if any(e.get("type") == "qemu" and e.get("name") == vm and not int(e.get("template") or 0) for e in listing or []):
         return {**out, "exists": True, "said": f"{vm} exists"}
     bases = _templates(listing, node, name=base)
@@ -737,7 +747,8 @@ def golden_choice(
     ]
     picked = golden_pick(goldens, out["key"], node, now, max_age, disk)
     if picked:
-        return {**out, "golden": picked}
+        name = next(str(g.get("name", "")) for g in goldens if g["vmid"] == picked)
+        return {**out, "golden": picked, "golden_name": name}
     if (_size_bytes(str(disk)) or 0) < (_size_bytes(out["disk"]) or 0):
         return {**out, "said": f"{vm}'s disk is smaller than a golden template's, {out['disk']}"}
     return {**out, "wanted": True}

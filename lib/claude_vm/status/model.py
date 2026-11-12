@@ -103,6 +103,11 @@ def _ctime(config):
     return int(match.group(1)) if match else None
 
 
+def _made(entry, config, disk_ctimes):
+    """When a VM or the template was made: its disk's ctime, else its config's."""
+    return disk_ctimes.get(entry.get("vmid")) or _ctime(config)
+
+
 def _pick(config):
     return {key: config[key] for key in CONFIG_KEYS if isinstance(config, dict) and key in config}
 
@@ -207,7 +212,10 @@ def status_fleet(
             "vmid": built.get("vmid"),
             "node": built.get("node"),
             "storage": scsi0_storage(_config_value(template_config, "scsi0")),
+            # Its config's ctime, which a clone of it carries; and when it was made, by its disk as a VM is, since a
+            # template made from a clone - a golden, or one of your own - carries its source's ctime too.
             "ctime": _ctime(template_config or {}),
+            "built": _made(built, template_config or {}, disk_ctimes),
             "drift": [str(d) for d in template_drift or []],
             "rebuild": bool(settings.get("template_rebuild", True)),
         }
@@ -247,7 +255,7 @@ def status_fleet(
                 ),
                 "config": config,
                 "own_repos": found["own_repos"]["names"] if found.get("own_repos", {}).get("own") else None,
-                "created": disk_ctimes.get(entry.get("vmid")) or _ctime(config),
+                "created": _made(entry, config, disk_ctimes),
                 # Read by name: a VM that is not can only be shown from the listing.
                 "read": reason == "",
                 "skipped": reason,
@@ -973,8 +981,8 @@ def status_report(found, read_at="", now=None, live=False):
     proxmox = dict(fleet.get("proxmox") or {})
     ssh_wanted = status_needs_ssh(sections)
     template = dict(fleet.get("template") or {})
-    if template.get("ctime"):
-        template["built_ago"] = _ago(now - template["ctime"])
+    if template.get("built"):
+        template["built_ago"] = _ago(now - template["built"])
     vms = []
     for listed in fleet.get("vms") or []:
         vm = dict(listed)

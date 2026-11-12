@@ -71,8 +71,10 @@
               loop_control:
                 loop_var: claude_vm_golden_item
 
+# The group by its hosts, which may be none: named, a run that adds none (golden
+# templates off) has Ansible warn that the pattern matched nothing.
 - name: Choose each VM's template
-  hosts: claude_vm_golden_pending
+  hosts: "{{ groups['claude_vm_golden_pending'] | default([]) }}"
   gather_facts: false
   tasks:
     # The image options as this VM resolves them: one whose own differ (a host
@@ -114,3 +116,10 @@
       when:
         - not proxmox_template_golden_choice.exists
         - proxmox_template_golden_choice.said | length > 0
+
+    - name: Say which golden template this VM clones
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }} clones the golden template {{ proxmox_template_golden_choice.golden_name }}, with
+          the toolchain already on it.
+      when: proxmox_template_golden_choice.golden | length > 0

@@ -32,7 +32,7 @@ BUILD_PREFIX = "agent-warehouse-build-"
 READ = [
     {
         "name": "Read what each VM clones",
-        "hosts": "claude_vm_golden_pending",
+        "hosts": "{{ groups['claude_vm_golden_pending'] | default([]) }}",
         "gather_facts": False,
         "tasks": [
             {"name": "Say the template", "ansible.builtin.debug": {"msg": "chose {{ claude_vm_golden_template }}"}}
@@ -63,6 +63,8 @@ def _golden(tmp_path, fake, *names, on=True, then=(), **extra):
     }
     report = _run(root, playbook, {}, "-e", json.dumps(args), timeout=240)
     assert report["rc"] == 0, (_failures(report), report["stderr"][-1500:])
+    # A play whose group the run added no host to - golden templates off, nothing built - matches none unwarned.
+    assert "Could not match supplied host pattern" not in report["stderr"], report["stderr"][-1500:]
     return report
 
 
@@ -120,8 +122,11 @@ def test_a_second_vm_of_the_key_clones_the_golden_and_nothing_is_built(tmp_path,
     (made,) = [vm for vm in _vms(fake) if vm.get("name", "").startswith(PREFIX)]
     report = _golden(tmp_path, fake, "beta")
     (choice,) = _choices(report).values()
-    assert choice["golden"] == str(made["vmid"]) and not choice["wanted"]
+    assert choice["golden"] == str(made["vmid"]) and choice["golden_name"] == made["name"] and not choice["wanted"]
     assert len([vm for vm in _vms(fake) if vm.get("name", "").startswith(PREFIX)]) == 1
+    assert _messages(report, "Say which golden template this VM clones") == {
+        "beta": f"beta clones the golden template {made['name']}, with the toolchain already on it."
+    }
 
 
 def test_a_vm_that_exists_gets_none_and_nothing_is_built(tmp_path, fake):
