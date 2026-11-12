@@ -1258,7 +1258,20 @@ host's `group_vars/all/` come second, so they outrank the shared ones. Every pla
 `proxmox_api_host`, `hosts: proxmox`, the template's build, init's checks and the name refusals all read the run's one
 host. `hosts/current` names the current host; `hosts/` is git-ignored and refused by `tests/check_no_local_files.sh`.
 
-- **One resolver** (`tools/check host`, which runs `tools/host`; the layout in `layout.py`) is the one place that
+- **One core, one adapter.** The rules are a core in `lib/claude_vm/hosts/` that reads and decides and never
+  writes: `layout.py` reads the files into `Host` records; `choose.py` answers which host a run is against, reading
+  no vault, no environment and no password script, and lists the hosts as `just host` shows them; `resolve.py` runs
+  every check a run's host must pass, in their order, the vault check among them (`vault_check`, a decision and the
+  key a check that passed is kept under), and `every`, each host as `just status` reads it; `setup.py` plans
+  `just init --host`, the switch and the removal; `model.py` holds the records, frozen and checked (§7.10). `tools/host`
+  is its one adapter: it reads the arguments into a `Request`, prints what the core decided - shell for a recipe to
+  `eval`, JSON, a table - and performs every write, `hosts/current` and `hosts/.checked.json` through `store.py` and
+  a host's files `O_EXCL`. It says each note on standard error at one of three moments: a `--host` beside another
+  host's VM as soon as the host is chosen, a vault nothing here opens when the check runs, the routing note last, once
+  every check passed; a refusal carries the notes said before it. `Host` and `Choice` stay the core's, since a
+  `Host` holds a whole `local.yml`: `just host --json` is `HostList`, through `wire.to_wire`, and `every`'s JSON a
+  private pipe to `just status`'s parent, bare.
+- **One resolver** (`tools/check host`, which runs `tools/host`) is the one place that
   knows a path. Each VM recipe asks it, in the line `{{ host_env }}`, after its own rules and before its lock: the
   host of the run - `--host`, else a nested recipe's `nested_host=`, else the host the VMs named are on, as their
   aliases record (`# origin`; names on two hosts are refused, one host per run, and beside `--host` a name another
@@ -1288,8 +1301,9 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   keyed on where Ansible recorded the host, with no variable a git-ignored file could set to switch it off. A host
   whose vault lacks it is an undefined variable before any request. The resolver refuses either name in the other's
   vault, reading the vaults' names in memory with the recipe's password file (`vault.py`, §7.10) - a password script
-  run as Ansible runs it; a vault no password here opens, a vault ID's or a client script's, is said and left to Ansible - and keeping a
-  check that passed in `hosts/.checked.json`, by the files' sizes and times, but for `just status`'s (`--read-only`),
+  run as Ansible runs it; a vault no password here opens, a vault ID's or a client script's, is said and left to
+  Ansible - and keeping a check that passed in `hosts/.checked.json`, by the files' sizes and times, but for `just
+  status`'s (`--read-only`),
   which writes only into `.cache/status/`. Nor may a settings file or a vault set what the inventory defaults make
   from the run's host (the kind's `from_host`: `proxmox_api_host`, `proxmox_api_token_secret`, `proxmox_api_url`,
   `proxmox_api_headers`, `proxmox_api_module_defaults`), which would outrank the rule for every host: beside another
@@ -1302,8 +1316,8 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   others: `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with them `proxmox_vm_known_hosts_kept`
   add `claude_hosts_other`, so no VM is named after another host, no alias takes its address, and destroy never
   forgets its key.
-- **`just host`** lists the hosts from their files alone, writes `hosts/current` anew and renames it over the old
-  under the run lock, so a run under way ends on the host it started on, and `--remove` deletes a host's folder after
+- **`just host`** lists the hosts from their files alone, replaces `hosts/current` whole (`store.replace`) under the
+  run lock, so a run under way ends on the host it started on, and `--remove` deletes a host's folder after
   its name is typed at a terminal - never the current host's or the first's, and never its VMs.
 - **`just init --host <name>`** sets one up (`tools/check host init`, [§4.12](lifecycle.md#412-playbooksinit_settingsyml)),
   and `just init` alone works on the current host, as every command does. For a host in `hosts/`, a value for the
