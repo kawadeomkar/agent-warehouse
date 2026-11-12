@@ -1094,8 +1094,12 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   terminals would inherit.
 - **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's
   branch and commit. `run_refusal` is the guard a run that changes something checks: `main` with no tracked change,
-  unless `--any-branch`. The justfile's digest from the server's start: once the file changes, a pull or a branch,
-  every tool answers "restart this server with /mcp" rather than run a schema that no longer matches. A recipe that
+  unless `--any-branch`. A digest of what the server runs, from its start: the justfile its tools are made from,
+  `tools/mcp`, which every job's supervisor runs anew, and `lib/claude_vm/`, some of which it imports only when a tool
+  first needs it, read from the files, Python's caches and dot-names (`.DS_Store`, an editor's swap file) aside. Once
+  one changes - a pull, a branch, an edit - every tool answers "restart this server with /mcp" rather than run a
+  schema that no longer matches, or older code beside newer. The environment is not compared: after an install that
+  moves a package the server runs on, the SDK above all, it is restarted by hand. A recipe that
   reads the vault is refused, before anything runs, when the vault is encrypted and there is no `.vault_pass` or
   recorded file, since a run has no terminal to ask the password at.
 - **`results.py`: what the model reads.** Claude Code gives the model only a result's structured part when it has one

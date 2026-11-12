@@ -75,7 +75,7 @@ class Server:
         self.config = config
         self.refusal = refusal
         self.environ = environ
-        self.justfile = checkout.digest(config.checkout / "justfile") if config else ""
+        self.code = checkout.code(config.checkout) if config else ""
         self._dumped: dict | None = None
 
     def env(self) -> dict[str, str]:
@@ -99,7 +99,7 @@ class Server:
         if self.config is None:
             raise ToolError(self.refusal)
         for refusal in (
-            checkout.changed_refusal(self.config, self.justfile),
+            checkout.changed_refusal(self.config, self.code),
             checkout.vault_refusal(self.config) if vault else "",
         ):
             if refusal:

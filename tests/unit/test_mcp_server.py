@@ -340,24 +340,55 @@ def test_a_vault_it_cannot_read_is_refused_before_anything_runs(world):
     assert len(_runs(world)) == before
 
 
-def test_a_changed_justfile_makes_every_tool_say_restart(world):
-    async def changed() -> list:
+# The justfile the tools are made from, the supervisor every job runs, and a module the server imports.
+@pytest.mark.parametrize("changed", ["justfile", "tools/mcp", "lib/claude_vm/mcp/checkout.py"])
+def test_a_change_to_what_the_server_runs_makes_every_tool_say_restart(world, changed):
+    async def calls() -> list:
         from mcp import Client, StdioServerParameters
         from mcp_types import Implementation
 
         params = StdioServerParameters(command=sys.executable, args=["-I", str(SERVER), *_args(world)], env=_env(world))
-        justfile = world["checkout"] / "justfile"
+        path = world["checkout"] / changed
         async with Client(params, client_info=Implementation(name="claude-code", version="2.1.319")) as client:
             await client.list_tools()
-            text = justfile.read_text()
-            justfile.write_text(text + "\n# changed\n")
+            text = path.read_text()
+            path.write_text(text + "\n# changed\n")
             try:
                 return [await client.call_tool("logs", {}), await client.call_tool("status", {})]
             finally:
-                justfile.write_text(text)
+                path.write_text(text)
 
-    for result in asyncio.run(asyncio.wait_for(changed(), 120)):
+    for result in asyncio.run(asyncio.wait_for(calls(), 120)):
         assert result.is_error and "restart this server with /mcp" in _text(result)
+
+
+def test_what_the_server_runs_is_read_from_its_files_alone(tmp_path):
+    # A checkout under a dot-folder of its own, as a worktree in .claude/worktrees/ is.
+    root = tmp_path / ".claude" / "worktrees" / "checkout"
+    for name, text in (("justfile", "set shell := ['bash']\n"), ("tools/mcp", "#!/usr/bin/env python3\n")):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    module = root / "lib" / "claude_vm" / "mcp" / "jobs.py"
+    module.parent.mkdir(parents=True)
+    module.write_text("STATE = 1\n")
+    at_start = checkout_state.code(root)
+    module.write_text("STATE = 2\n")
+    assert checkout_state.code(root) != at_start
+    module.write_text("STATE = 1\n")
+    assert checkout_state.code(root) == at_start
+    # A module added, or one renamed, is a change too.
+    module.rename(module.with_name("job.py"))
+    assert checkout_state.code(root) != at_start
+    module.with_name("job.py").rename(module)
+    # Python's caches, a dot-name - Finder's, an editor's swap file - and anything outside what the server runs are not.
+    (module.parent / "__pycache__").mkdir()
+    (module.parent / "__pycache__" / "jobs.cpython-313.pyc").write_bytes(b"\0")
+    (root / "lib" / "claude_vm" / ".DS_Store").write_bytes(b"\0\0\0\1Bud1")
+    (module.parent / ".jobs.py.swp").write_bytes(b"b0VIM 9.1")
+    (root / "docs").mkdir()
+    (root / "docs" / "agents.md").write_text("A page.\n")
+    (root / "tools" / "host").write_text("#!/usr/bin/env python3\n")
+    assert checkout_state.code(root) == at_start
 
 
 def _config(path: Path, **extra) -> Config:

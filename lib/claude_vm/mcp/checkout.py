@@ -1,10 +1,11 @@
 """What the server knows of the checkout it runs: its branch and commit, said on every result; whether a run may
-change anything from it; whether its justfile changed since the server started; whether its vault can be read.
+change anything from it; whether what the server runs changed since it started; whether its vault can be read.
 
 The settings and the vault live in one checkout, whose branch other sessions switch, so a run that changes something
-runs only on main with no tracked change, unless just mcp was given --any-branch (the branch guard). A pull changes the
-justfile, and with it the tools' schemas and maybe the server's own code: every tool then answers "restart" rather
-than run a schema that no longer matches.
+runs only on main with no tracked change, unless just mcp was given --any-branch (the branch guard). A pull, a branch
+or an edit changes the justfile, and with it the tools' schemas, or the server's own code, some of which it imports
+only when a tool first needs it: every tool then answers "restart" rather than run a schema that no longer matches,
+or older code beside newer.
 """
 
 from __future__ import annotations
@@ -60,20 +61,40 @@ def run_refusal(config: Config, at: Head) -> str:
     )
 
 
-def digest(path: Path) -> str:
-    try:
-        return hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return ""
+# What the server runs, from the checkout: the justfile its tools are made from, tools/mcp, which a job's supervisor
+# runs anew, and the package, which the server imports some of only when a tool first needs it.
+RUNS = ("justfile", "tools/mcp", "lib/claude_vm")
+
+
+def code(checkout: Path) -> str:
+    """A digest of what the server runs, as the checkout's files hold it now: each file's path and bytes, Python's
+    caches and dot-names aside. Read from the files, never from git, so an edit not yet committed counts and a commit
+    does not."""
+    whole = hashlib.sha256()
+    for part in RUNS:
+        top = checkout / part
+        found = [top] if top.is_file() else sorted(path for path in top.rglob("*") if path.is_file())
+        for path in found:
+            # No module is a dot-name: Finder's .DS_Store, or an editor's swap file beside a module it has open, is no
+            # change. Named below top, since a checkout may itself be under one (.claude/worktrees/).
+            if any(name == "__pycache__" or name.startswith(".") for name in path.relative_to(top).parts):
+                continue
+            try:
+                data = path.read_bytes()
+            except OSError:
+                data = b""
+            whole.update(f"{path.relative_to(checkout)}\0{len(data)}\0".encode())
+            whole.update(data)
+    return whole.hexdigest()
 
 
 def changed_refusal(config: Config, at_start: str) -> str:
-    """The restart notice, when the justfile is no longer the one the server read at its start."""
-    if digest(config.checkout / "justfile") == at_start:
+    """The restart notice, when what the server runs is no longer what it read at its start."""
+    if code(config.checkout) == at_start:
         return ""
     return (
-        f"The checkout {config.checkout} changed since this server started (a pull, a branch, just install): restart "
-        "this server with /mcp, so that its tools match the justfile again."
+        f"The checkout {config.checkout} changed since this server started (a pull, a branch, an edit): restart this "
+        "server with /mcp, so that it runs the checkout's code and its tools match the justfile again."
     )
 
 
