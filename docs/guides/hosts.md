@@ -101,6 +101,11 @@ so a run never ends on another host than the one it started on. `--host` on `dep
 and `status` reaches another host for that run alone. `just host <name> --remove` deletes a host's folder after you
 type its name: never the current host's or the first's, and never its VMs, which stay on it.
 
+`just host --json` is the list for a script or an agent, one JSON document: `format_version` and `kind`
+(`host_list`) first, then `current_host`, the current host's name; `hosts`, a row per host with its `name`,
+`address`, `folder`, `settings`, `host_kind` (`proxmox`), `first`, `current` (whether it is the current host) and `problem`; and
+`problem`, set when the hosts' files cannot be read. A release adds keys to it, and never removes or renames one.
+
 ## The VMs and their aliases
 
 Each VM's SSH alias records the host it was found on (`# origin: nuc` in the managed SSH config), and a run against
