@@ -1,8 +1,8 @@
 """Where a checkout's hosts are, read from their files alone: the first host in inventory/, each other in a folder of
 its own under hosts/, and which one is current. The one place that knows the layout (docs/architecture/custom-code.md
 §7.14): every recipe asks tools/check host, which asks this, for the host of its run and the files and inventory
-sources that host is read from. Reads, writes only hosts/current, and needs neither Ansible nor the vault - but for
-vault_names, which opens the vaults to read their names, never their values.
+sources that host is read from. Reads, writes only hosts/current, and needs neither Ansible nor the vault: the vaults'
+names are read through lib/claude_vm/vault.py.
 
 A host is an inventory source laid over the shared one: a run against hosts/<name> gets inventory/controller.yml, then
 hosts/<name>, so its group_vars outrank the shared ones and its hosts.yml is the run's one Proxmox host.
@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..vault import lenient_yaml
 from .kinds import KINDS, Kind
 
 # A host's name: a folder's under hosts/, a line of hosts/current, a word of the just line.
@@ -45,25 +46,6 @@ def name_refusal(name: str) -> str:
     return f"a host's name is lowercase letters, digits and -, at most 31, and never {', '.join(sorted(RESERVED))}"
 
 
-class _Loader:
-    """YAML as Ansible writes it: a tag such as !vault is a value, never a key, and read as None."""
-
-    loader = None
-
-    @classmethod
-    def load(cls, text: str):
-        import yaml
-
-        if cls.loader is None:
-
-            class Loader(yaml.SafeLoader):
-                pass
-
-            Loader.add_multi_constructor("!", lambda loader, suffix, node: None)
-            cls.loader = Loader
-        return yaml.load(text, Loader=cls.loader)  # noqa: S506 - a SafeLoader, with tags read as None
-
-
 def _yaml(path: Path) -> object:
     """The file's YAML, None where it is missing; Refused where it is not YAML, saying where, never what."""
     try:
@@ -75,7 +57,7 @@ def _yaml(path: Path) -> object:
     import yaml
 
     try:
-        return _Loader.load(text)
+        return lenient_yaml(text)
     except yaml.YAMLError as error:
         mark = getattr(error, "problem_mark", None)
         raise Refused(f"{path} is not YAML{f' at line {mark.line + 1}' if mark else ''}") from error
@@ -413,61 +395,6 @@ class Layout:
             handle.write(f"{host.name}\n")
         os.replace(temporary, self.hosts_dir / "current")
         return host
-
-
-# What each password script said in this run: run once, as it may ask a person.
-_said: dict[str, bytes] = {}
-
-
-def _password(path: str) -> bytes | None:
-    """A password file's password, as Ansible reads one: an executable file is run, its standard input and error left to
-    it so that it can ask, and says it on its output. None for a vault client script, which takes a vault ID Ansible
-    alone knows, or a script that fails."""
-    if not (os.access(path, os.X_OK) and not os.path.isdir(path)):
-        return Path(path).read_bytes().strip()
-    if Path(path).stem.endswith("-client"):
-        return None
-    whole = os.path.abspath(path)
-    if whole not in _said:
-        import subprocess
-
-        try:
-            _said[whole] = subprocess.run([whole], stdout=subprocess.PIPE, check=True).stdout.strip(b"\r\n")
-        except (OSError, subprocess.SubprocessError):
-            return None
-    return _said[whole]
-
-
-def vault_names(path: Path, password_files: list[str]) -> set[str] | None:
-    """The names a vault file sets, never its values: decrypted in memory with the first password file that opens it,
-    as Ansible opens it, a password script run as Ansible runs it. None where it cannot be read or opened here - a
-    vault ID's password, a client script's - which the caller says."""
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return None
-    if data.startswith(b"$ANSIBLE_VAULT"):
-        from ansible.parsing.vault import VaultLib, VaultSecret
-
-        for password_file in password_files:
-            try:
-                password = _password(password_file)
-            except OSError:
-                continue
-            if password is None:
-                continue
-            try:
-                data = VaultLib([("default", VaultSecret(password))]).decrypt(data)
-                break
-            except Exception:  # noqa: BLE001 - any refusal: the next file, as Ansible tries them
-                continue
-        else:
-            return None
-    try:
-        values = _Loader.load(data.decode("utf-8"))
-    except Exception:  # noqa: BLE001 - not YAML: Ansible says so
-        return None
-    return {str(name) for name in values} if isinstance(values, dict) else set()
 
 
 def checked_digest(paths: list[Path]) -> str:

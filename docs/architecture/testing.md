@@ -55,6 +55,9 @@ pytest over `tests/unit/`, file by file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
+- **The vault without Ansible** (`test_vault.py`): `vault.names` reads the names Ansible's `VaultLib` reads, vault by
+  vault - plain, 1.1, 1.2 with a vault ID's label, an inline `!vault`, another password, not a mapping - in Ansible's
+  order of password files, a client script and a failing one opening nothing; `vault.values` reads strictly.
 - **Filters** (`test_filters.py`, `test_vscode_filters.py`, `test_desktop_filter.py`,
   `test_text_filter.py`): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, VS Code's settings reader (since 1.1

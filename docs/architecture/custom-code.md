@@ -982,6 +982,13 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   `replace` swaps a file for new text atomically, keeping its mode (through a symlink, the file it names), and
   `locked`, around a read and a replace, holds an exclusive `flock` on the file's folder, so two writers never
   lose one's change.
+- **`vault.py`** reads the vault without Ansible, and imports none of it anywhere, which would cost 159 ms on a
+  homelab runner: the password files in Ansible's order (the recipe's, then `ANSIBLE_VAULT_PASSWORD_FILE`'s), a
+  script among them run once a process, its standard input and error left to it so that it can ask, a client
+  script left to Ansible; an AES256 file opened with `cryptography`, format 1.1 or 1.2. `names` gives the names a
+  vault sets, never its values, a tag such as an inline `!vault` read as `None`, for the hosts' check (§7.14);
+  `values` what the vaults hold, read strictly, for `just status`'s snapshot (§7.7), which asks Ansible for what it
+  cannot open. A vault ID's password opens nothing here.
 - **`refs.py`** names a VM and a command: `VmRef` (a name as `just` takes one, and a VM ID in Proxmox's range),
   `Action` (a recipe and its words, `line` its one display form, `command_line`) and `NextStep`.
 - **The adapters.** Each file in `filter_plugins/` is an adapter: it puts its checkout's `lib/` first on `sys.path`,
@@ -1017,8 +1024,10 @@ test of a running `claude`, held equal to it by `tests/unit/test_code_session.py
   thin all the same, for the runs no callback of the project's warms (the unit harness, Molecule).
 
 Covered by `tests/unit/test_claude_vm.py`: `lib/` holds the one package, every core module imports in a fresh
-`python -I` without `ansible`, `yaml` or `asyncio`, each record refuses what its fields cannot hold, and an adapter's
-filter imports its module only when called and refuses another checkout's `claude_vm`.
+`python -I` without `ansible`, `yaml` or `asyncio`, `vault.py` imports no `ansible` anywhere, each record refuses what
+its fields cannot hold, and an adapter's filter imports its module only when called and refuses another checkout's
+`claude_vm`. `tests/unit/test_vault.py` holds `vault.names` to the names Ansible's own `VaultLib` reads, vault by vault:
+a 1.2 vault with a vault ID's label, an inline `!vault`, another password, a client script.
 
 ## 7.11 The choices: the editor, the VPN, and later the host's OS
 
@@ -1278,8 +1287,8 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   folder (its `inventory_dir` is localhost's), and `vault_host_proxmox_api_token_secret` otherwise - one expression,
   keyed on where Ansible recorded the host, with no variable a git-ignored file could set to switch it off. A host
   whose vault lacks it is an undefined variable before any request. The resolver refuses either name in the other's
-  vault, reading the vaults' names in memory with the recipe's password file - a password script run as Ansible runs
-  it; a vault no password here opens, a vault ID's or a client script's, is said and left to Ansible - and keeping a
+  vault, reading the vaults' names in memory with the recipe's password file (`vault.py`, §7.10) - a password script
+  run as Ansible runs it; a vault no password here opens, a vault ID's or a client script's, is said and left to Ansible - and keeping a
   check that passed in `hosts/.checked.json`, by the files' sizes and times, but for `just status`'s (`--read-only`),
   which writes only into `.cache/status/`. Nor may a settings file or a vault set what the inventory defaults make
   from the run's host (the kind's `from_host`: `proxmox_api_host`, `proxmox_api_token_secret`, `proxmox_api_url`,

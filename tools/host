@@ -41,7 +41,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
-from claude_vm import wire  # noqa: E402
+from claude_vm import vault, wire  # noqa: E402
 from claude_vm.hosts import layout as hosts  # noqa: E402
 
 TEMPLATES = REPO / "tools" / "templates" / "host"
@@ -58,17 +58,8 @@ def _refuse(said: str) -> int:
 
 
 def _password_files(given: str) -> list[str]:
-    """The vault's password files, as Ansible tries them: the recipe's, then ANSIBLE_VAULT_PASSWORD_FILE's."""
-    files = [given, os.path.expanduser(os.environ.get("ANSIBLE_VAULT_PASSWORD_FILE", ""))]
-    return [one for at, one in enumerate(files) if one and one not in files[:at] and os.path.isfile(one)]
-
-
-def _encrypted(path: Path) -> bool:
-    try:
-        with open(path, "rb") as handle:
-            return handle.read(14) == b"$ANSIBLE_VAULT"
-    except OSError:
-        return False
+    """The password files that exist, as Ansible tries them: the recipe's, then ANSIBLE_VAULT_PASSWORD_FILE's."""
+    return [one for one in vault.password_files(given, os.environ) if os.path.isfile(one)]
 
 
 def _vaults_hold_their_own(layout: hosts.Layout, host: hosts.Host, password: str, keep: bool) -> str:
@@ -88,8 +79,8 @@ def _vaults_hold_their_own(layout: hosts.Layout, host: hosts.Host, password: str
     except (OSError, ValueError, AttributeError):
         pass
     files = _password_files(password)
-    shared_names = hosts.vault_names(shared, files)
-    own_names = None if own is None else hosts.vault_names(own, files)
+    shared_names = vault.names(shared, files)
+    own_names = None if own is None else vault.names(own, files)
     for file, names in ((hosts.SHARED_VAULT, shared_names), (host.vault_file, own_names)):
         made = [name for name in kind.from_host if names is not None and name in names]
         if made:
@@ -120,7 +111,7 @@ def _vaults_hold_their_own(layout: hosts.Layout, host: hosts.Host, password: str
     unopened = [
         file
         for file, path, names in ((hosts.SHARED_VAULT, shared, shared_names), (host.vault_file, own, own_names))
-        if path is not None and names is None and _encrypted(path)
+        if path is not None and names is None and vault.encrypted(path)
     ]
     if unopened:
         print(
@@ -181,11 +172,11 @@ def every(opts, layout: hosts.Layout) -> int:
             continue
         problem = host.problem or _what_a_run_reads(layout, host, opts, keep=False)
         if not problem:
-            for vault in [hosts.SHARED_VAULT] if host.first else [hosts.SHARED_VAULT, host.vault_file]:
-                path = layout._path(vault)
-                if not path.is_file() or not _encrypted(path):
+            for file in [hosts.SHARED_VAULT] if host.first else [hosts.SHARED_VAULT, host.vault_file]:
+                path = layout._path(file)
+                if not path.is_file() or not vault.encrypted(path):
                     problem = (
-                        f"{vault} is missing or not encrypted: just vault{'' if host.first else ' --host ' + host.name}"
+                        f"{file} is missing or not encrypted: just vault{'' if host.first else ' --host ' + host.name}"
                     )
         out.append(
             {
@@ -376,9 +367,9 @@ def init(opts, layout: hosts.Layout) -> int:
         )
     host = hosts.Host(name=name, folder=f"{layout.hosts_rel}/{name}", first=False, kind=kind)
     if (
-        _encrypted(layout.checkout / hosts.SHARED_VAULT)
+        vault.encrypted(layout.checkout / hosts.SHARED_VAULT)
         and not _password_files(opts.vault_pass)
-        and not _encrypted(layout._path(host.vault_file))
+        and not vault.encrypted(layout._path(host.vault_file))
     ):
         # just init would make .vault_pass anew for the host's vault, which then opens neither the shared one nor any
         # run that reads both.

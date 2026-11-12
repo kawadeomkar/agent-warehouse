@@ -176,6 +176,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  vault.py, the vault read without Ansible: its names for the hosts' check, its values
+                                  for just status, how Ansible finds and runs a password file (§7.10)
                                   mcp/, tools/mcp's server: config.py, its registered arguments; recipes.py, the
                                   tools' schemas from just --dump and a call's argv; environment.py, a run's
                                   environment from an allow list; checkout.py, the head, the branch guard, the

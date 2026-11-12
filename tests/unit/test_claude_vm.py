@@ -86,6 +86,30 @@ print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
     assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, allowed)
 
 
+# Modules that read without Ansible anywhere, not only when imported: the vault opened natively, which the hosts' check
+# and just status's snapshot read through, would otherwise pay Ansible's import (159 ms on a homelab runner).
+NO_ANSIBLE = ("claude_vm/vault.py",)
+
+
+@pytest.mark.parametrize("path", NO_ANSIBLE)
+def test_a_module_that_reads_without_ansible_imports_none_of_it_anywhere(path) -> None:
+    import ast
+
+    tree = ast.parse((LIB / path).read_text())
+    imported = [
+        name
+        for node in ast.walk(tree)
+        for name in (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+            if isinstance(node, ast.ImportFrom)
+            else []
+        )
+    ]
+    assert not [name for name in imported if name.split(".")[0] == "ansible"], imported
+
+
 def test_importing_the_package_imports_no_module_of_it() -> None:
     script = (
         f"import sys; sys.path.insert(0, {str(LIB)!r}); import claude_vm; "
