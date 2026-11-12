@@ -62,6 +62,11 @@ pytest over `tests/unit/`, file by file:
   core's, nothing of a host's `local.yml` in its JSON but what `just host` shows, and `just host --json`'s bytes as
   they were before the core made them. `test_claude_vm.py` holds that no module of the core imports `ansible` or
   writes a file.
+- **The MCP server with more than one host** (`test_mcp_hosts.py`): a copy of the checkout with two hosts, through
+  the real just, which records every command line: the names reach `just host --json --for` hyphenated, a host given
+  reaches the read and the run, no run gets a `--host` the call did not give but `destroy`'s pin of the host
+  confirmed, `init` none, a deploy that may create a VM no alias places is refused without a host, and the settings
+  dialog names the file the host given reads. `test_claude_vm.py` holds that the server imports nothing of the hosts.
 - **The vault without Ansible** (`test_vault.py`): `vault.names` reads the names Ansible's `VaultLib` reads, vault by
   vault - plain, 1.1, 1.2 with a vault ID's label, an inline `!vault`, another password, not a mapping - in Ansible's
   order of password files, a client script and a failing one opening nothing; `vault.values` reads strictly.

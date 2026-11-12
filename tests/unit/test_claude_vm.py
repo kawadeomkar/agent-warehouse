@@ -123,6 +123,15 @@ def test_the_hosts_core_decides_and_writes_nothing(path) -> None:
     assert [line for line in (LIB / path).read_text().splitlines() if WRITES.search(line)] == []
 
 
+def test_the_mcp_server_imports_nothing_of_the_hosts() -> None:
+    # A long-lived process, whose restart notice a pull that changes only lib/ may not trip: it asks just host --json.
+    mcp = sorted((LIB / "claude_vm" / "mcp").glob("*.py"))
+    assert (
+        mcp
+        and [path.name for path in mcp if re.search(r"\bclaude_vm\.hosts\b|from \.\.hosts\b", path.read_text())] == []
+    )
+
+
 def test_importing_the_package_imports_no_module_of_it() -> None:
     script = (
         f"import sys; sys.path.insert(0, {str(LIB)!r}); import claude_vm; "
