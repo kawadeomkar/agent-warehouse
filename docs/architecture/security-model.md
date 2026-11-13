@@ -318,8 +318,8 @@ and calls its commands. What that changes:
   `tools/run-logged` names logs by and joined under `.logs/`.
 - **The checkout's branch.** The settings and the vault are one checkout's, which other sessions switch. Every result
   names the branch and commit, and `just mcp` registers only `main` with no tracked change unless given
-  `--any-branch`. A pull or a branch changes the justfile, and every tool then answers "restart" rather than run a
-  schema that no longer matches.
+  `--any-branch`. A pull, a branch or an edit that changes the justfile or the server's own code makes every tool
+  answer "restart" rather than run a schema that no longer matches, or older code beside newer.
 - **A server that cannot run says so.** It never exits at its start - Claude Code pins a stdio server that dies
   within 3 s to the older protocol for 7 days - and answers each call with what is wrong instead: its command line, a
   checkout without a justfile, a vault it cannot read with no terminal to ask at.
