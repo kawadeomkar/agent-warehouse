@@ -1115,12 +1115,12 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   unless `--any-branch`. A digest of what the server runs, from its start: the justfile its tools are made from,
   `tools/mcp`, which every job's supervisor runs anew, and `lib/claude_vm/`, which the server imported at its start and
   each supervisor imports anew, read from the files, Python's caches and dot-names (`.DS_Store`, an editor's swap file)
-  aside. Once
-  one changes - a pull, a branch, an edit - every tool answers "restart this server with /mcp" rather than run a
-  schema that no longer matches, or older code beside newer. The environment is not compared: after an install that
-  moves a package the server runs on, the SDK above all, it is restarted by hand. A recipe that
-  reads the vault is refused, before anything runs, when the vault is encrypted and there is no `.vault_pass` or
-  recorded file, since a run has no terminal to ask the password at.
+  aside. Once one changes - a pull, a branch, an edit - every tool answers "restart this server with /mcp" rather than
+  run a schema that no longer matches, or older code beside newer: every tool but `jobs`, `job` and `cancel`, which
+  follow and stop a job the server started by the code that started it, so an agent can always stop a run. The
+  environment is not compared: after an install that moves a package the server runs on, the SDK above all, it is
+  restarted by hand. A recipe that reads the vault is refused, before anything runs, when the vault is encrypted and
+  there is no `.vault_pass` or recorded file, since a run has no terminal to ask the password at.
 - **`results.py`: what the model reads.** Claude Code gives the model only a result's structured part when it has one
   (verified on 2.1.309), so a JSON tool (`status`, `settings`) returns its report as structured content with the head
   and the note that what the VMs said is data inside it, and a text tool (`logs`, `log`) text alone, registered with

@@ -17,9 +17,12 @@ from pathlib import Path
 
 import pytest
 import yaml
-from test_hosts import ALWAYS
+from test_hosts import ALWAYS, PROMISED_KEYS
 from test_mcp_confirm import REPORT, SETTING, _talk, _typed
 from test_mcp_server import JUST, _copy, _text
+
+from claude_vm.mcp.results import json_result
+from claude_vm.mcp.server import HOSTS_KEEP
 
 ALIASES = {"beta": "nuc", "my-vm": "nuc", "gamma": "pve"}
 
@@ -203,3 +206,28 @@ def test_the_settings_dialog_names_the_file_the_host_given_reads(world):
     assert "inventory/group_vars/all/local.yml, every host's" in asked[0]
     # The list alone: which file a setting is in needs no run's host.
     assert {tuple(words) for words in _reads(_called(world))} == {("--json",)}
+
+
+def test_the_settings_dialog_is_not_shown_when_the_hosts_cannot_be_read(world):
+    # just host --json fails; every other command line runs as before. Read as one host, the dialog would name the
+    # shared file plain and show the current host's value for it, which the write never reads.
+    wrapper = world["just"]
+    text = wrapper.read_text()
+    wrapper.write_text(
+        text.replace("#!/bin/sh\n", '#!/bin/sh\nfor word in "$@"; do [ "$word" = host ] && exit 1; done\n', 1)
+    )
+    try:
+        _, asked, (result,) = _talk(
+            world, [("settings_set", {"name": "vm_cores", "value": "4"})], lambda message: ("decline", None)
+        )
+    finally:
+        wrapper.write_text(text)
+    assert asked == [] and result.is_error and "could not be read" in _text(result), _text(result)
+    assert _ran(_called(world), "settings") == []
+
+
+def test_a_hosts_result_cut_to_fit_keeps_keys_just_host_promises():
+    assert set(HOSTS_KEEP) <= set(PROMISED_KEYS)
+    listed = {"current_host": "pve", "hosts": [{"name": "pve"}], "where": {"notes": "n" * 50_000}}
+    cut = json_result(listed, "on main at abc", HOSTS_KEEP, "name the host")
+    assert "where" not in cut and {key: cut[key] for key in HOSTS_KEEP} == {key: listed[key] for key in HOSTS_KEEP}

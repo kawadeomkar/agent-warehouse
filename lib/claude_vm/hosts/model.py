@@ -201,7 +201,7 @@ class HostList(Checked):
 
     current_host: str | None
     hosts: tuple[HostRow, ...]
-    problem: str | None  # what keeps the hosts from being read, where anything does
+    problem: str  # what keeps the hosts from being read: "" where nothing does, as a row's problem is
     where: Where | None = None  # asked for with --for or --host: which host that run would reach
 
 

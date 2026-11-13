@@ -93,13 +93,15 @@ class Server:
                 raise ToolError(f"{self.config.just} could not read {justfile}: {error}") from error
         return self._dumped
 
-    def check(self, *, vault: bool) -> Config:
+    def check(self, *, vault: bool, changed: bool = True) -> Config:
         """The configuration, once every refusal of the server's own that applies has been said: its command line, the
-        checkout changed since its start, and for a recipe that reads the vault, a vault it cannot read."""
+        checkout changed since its start - but for jobs, job and cancel (changed False), which follow and stop a job
+        this server started, by the code that started it, so an agent can always stop a run - and for a recipe that
+        reads the vault, a vault it cannot read."""
         if self.config is None:
             raise ToolError(self.refusal)
         for refusal in (
-            checkout.changed_refusal(self.config, self.code),
+            checkout.changed_refusal(self.config, self.code) if changed else "",
             checkout.vault_refusal(self.config) if vault else "",
         ):
             if refusal:
@@ -293,6 +295,10 @@ def deploy_refusal(names: list[str] | None, only: str, check: bool, host: str = 
     return ""
 
 
+# What a hosts result cut to fit keeps of just host --json: keys the document promises, which test_mcp_hosts.py holds.
+HOSTS_KEEP = ("current_host", "hosts")
+
+
 def many_hosts(listed: dict) -> bool:
     """Whether just host --json lists more than one host: a host in hosts/ beside the first, or without one."""
     return any(not row.get("first") for row in listed.get("hosts") or [])
@@ -397,7 +403,7 @@ def tools(server: Server) -> list[Tool]:
         return await server.json_tool(
             "hosts",
             {},
-            keep=("current_host", "hosts"),
+            keep=HOSTS_KEEP,
             narrow="the list is all there is",
             ok={0},
         )
@@ -483,7 +489,7 @@ def tools(server: Server) -> list[Tool]:
         return await server.run("install", {}, wait_seconds, ctx, vault=False)
 
     async def jobs_(ctx: Context) -> str:
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         lines = []
         for job in jobs.listed(config.checkout)[:20]:
             record = job.read()
@@ -492,14 +498,14 @@ def tools(server: Server) -> list[Tool]:
         return text_result(f"{server.head()} · the jobs, newest first", "\n".join(lines) or "No jobs.")
 
     async def job(ctx: Context, id: str, since: int = 0, wait_seconds: int | None = None) -> str:  # noqa: A002
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
         return await server.follow(found, max(since, 0), wait_seconds, ctx)
 
     async def cancel(ctx: Context, id: str) -> str:  # noqa: A002
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
@@ -567,6 +573,13 @@ def tools(server: Server) -> list[Tool]:
         # read it - never the current host's value, which its own file may set over the shared one.
         where, read = "local.yml", host
         listed = await server.hosts_read()
+        if not listed:
+            # A read that failed is no answer of one host: the dialog would name the shared file plain, and show the
+            # current host's value for it, which the comment above says it must never.
+            raise ToolError(
+                "just host --json could not be read, so which file the setting goes in is unknown:"
+                " nothing was asked or changed."
+            )
         if many_hosts(listed):
             rows = listed["hosts"]
             first = next((row["name"] for row in rows if row.get("first")), None)

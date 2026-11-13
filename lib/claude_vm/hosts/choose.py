@@ -142,6 +142,4 @@ def listing(layout: Layout, asked: Where | None = None) -> HostList:
                 problem=host.problem,
             )
         )
-    return HostList(
-        current_host=current.name if current else None, hosts=tuple(rows), problem=said or None, where=asked
-    )
+    return HostList(current_host=current.name if current else None, hosts=tuple(rows), problem=said, where=asked)

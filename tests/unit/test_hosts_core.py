@@ -341,7 +341,7 @@ RECORDED = {
                 "problem": "",
             }
         ],
-        "problem": None,
+        "problem": "",
     },
     "two-hosts-nuc-current": {
         "format_version": "1.0",
@@ -369,7 +369,7 @@ RECORDED = {
                 "problem": "",
             },
         ],
-        "problem": None,
+        "problem": "",
     },
     "a-host-not-set-up": {
         "format_version": "1.0",
@@ -407,7 +407,7 @@ RECORDED = {
                 "problem": "",
             },
         ],
-        "problem": None,
+        "problem": "",
     },
     "no-first-host": {
         "format_version": "1.0",
@@ -481,7 +481,7 @@ def test_where_is_a_refusal_as_data_with_the_notes_said_before_it(tmp_path: Path
 
 
 def test_to_wire_names_the_list_host_list_and_refuses_a_field_named_kind() -> None:
-    assert wire.to_wire(HostList(current_host=None, hosts=(), problem=None))["kind"] == "host_list"
+    assert wire.to_wire(HostList(current_host=None, hosts=(), problem=""))["kind"] == "host_list"
 
     @dataclass(frozen=True)
     class Clash:
@@ -489,6 +489,18 @@ def test_to_wire_names_the_list_host_list_and_refuses_a_field_named_kind() -> No
 
     with pytest.raises(TypeError, match="kind"):
         wire.to_wire(Clash(kind="proxmox"))
+
+    # A property is sent as a key too, after the envelope, so one named kind would replace the document's unseen.
+    @dataclass(frozen=True)
+    class Derived:
+        name: str
+
+        @property
+        def kind(self) -> str:
+            return "proxmox"
+
+    with pytest.raises(TypeError, match="property named kind"):
+        wire.to_wire(Derived(name="pve"))
 
 
 def test_every_says_each_host_s_row_as_just_status_reads_it(tmp_path: Path) -> None:
