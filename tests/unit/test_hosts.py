@@ -483,6 +483,9 @@ def test_the_json_keeps_every_key_2_5_promises(tmp_path: Path) -> None:
         assert [key for key in row if key in PROMISED_ROW_KEYS] == PROMISED_ROW_KEYS, list(row)
         # current is a boolean wherever it appears: the current host's name is current_host.
         assert "kind" not in row and isinstance(row["current"], bool), row
+        assert row["problem"] == "", row
+    # "Nothing" has one shape under one name: a problem is "" at the top as in a row, never null.
+    assert listed["problem"] == ""
 
 
 def test_switching_writes_hosts_current_whole_and_refuses_a_host_not_set_up(tmp_path: Path) -> None:

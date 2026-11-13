@@ -475,7 +475,8 @@ def listing(opts, layout: hosts.Layout) -> int:
         # A document a release only adds keys to (CONTRIBUTING.md, Releasing): format_version and kind first, as
         # wire.to_wire puts them, and no other key named kind or current, so each means one thing.
         document = {"format_version": wire.FORMAT_VERSION, "kind": "host_list"}
-        document |= {"current_host": current.name if current else None, "hosts": rows, "problem": said or None}
+        # "" for none, as a row's problem is: null only where no value can be had - no current host.
+        document |= {"current_host": current.name if current else None, "hosts": rows, "problem": said or ""}
         print(json.dumps(document))
         return 0
     if not rows:
