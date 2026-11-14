@@ -80,14 +80,25 @@ def _options(words: list[str]) -> tuple[list[str], dict]:
 
 
 def _held(state: dict, user: str, path: str) -> dict:
-    """The privileges user holds on path: an ACL on the path, or one that propagates from above it."""
-    held = {}
-    for acl in state["acls"]:
-        above = acl["path"] == "/" or path.startswith(acl["path"].rstrip("/") + "/")
-        if acl["ugid"] == user and (acl["path"] == path or (above and acl["propagate"])):
-            for privilege in state["roles"].get(acl["roleid"], []):
-                held[privilege] = acl["propagate"]
-    return held
+    """The privileges user holds on path, as Proxmox works them out: from / down to the path, the roles of the deepest
+    level that grants the user any - on the path itself, or above it and propagating - take the place of those above,
+    and NoAccess among them leaves none. A group's grant is no user's here: the state keeps no memberships."""
+    words = [word for word in path.split("/") if word]
+    levels = ["/", *("/" + "/".join(words[: count + 1]) for count in range(len(words)))]
+    roles: dict = {}
+    for level in levels:
+        own = {
+            acl["roleid"]: acl["propagate"]
+            for acl in state["acls"]
+            if acl["ugid"] == user
+            and acl.get("type", "user") == "user"
+            and (acl["path"].rstrip("/") or "/") == level
+            and (level == levels[-1] or acl["propagate"])
+        }
+        roles = own or roles
+    if "NoAccess" in roles:
+        return {}
+    return {privilege: propagate for role, propagate in roles.items() for privilege in state["roles"].get(role, [])}
 
 
 def _refuse(message: str) -> int:
@@ -108,6 +119,10 @@ def _pvesh(state: dict, words: list[str]) -> tuple[int, object]:
         if parts[2] not in state["users"]:
             return _refuse(f"no such user ('{parts[2]}')"), None
         return 0, {"enable": 1, "expire": 0}
+    if parts == ["access", "acl"]:
+        # As Proxmox lists them: each ACL's path, its user's or group's name, the role and whether it propagates.
+        keys = ("path", "ugid", "roleid", "propagate", "type")
+        return 0, [{key: acl[key] for key in keys if key in acl} for acl in state["acls"]]
     if parts[:2] == ["access", "users"] and len(parts) == 5 and parts[3] == "token":
         token = state["tokens"].get(f"{parts[2]}!{parts[4]}")
         if token is None:
@@ -135,6 +150,17 @@ def _pveum(state: dict, words: list[str]) -> tuple[int, object]:
             if unknown:
                 return _refuse(f"invalid privilege '{unknown[0]}'"), None
             state["roles"][role] = [p for p in privileges if p]
+            return 0, None
+        case ["role", "modify", role]:
+            # As pveum: --append 1 adds the privileges given to what the role holds; without it, they replace it.
+            if role not in state["roles"]:
+                return _refuse(f"role '{role}' does not exist"), None
+            privileges = [p for p in options.get("privs", "").replace(";", ",").replace(" ", ",").split(",") if p]
+            unknown = [p for p in privileges if p not in _known(state)]
+            if unknown:
+                return _refuse(f"invalid privilege '{unknown[0]}'"), None
+            kept = state["roles"][role] if options.get("append") == "1" else []
+            state["roles"][role] = [*kept, *(p for p in privileges if p not in kept)]
             return 0, None
         case ["user", "add", user]:
             if user in state["users"]:

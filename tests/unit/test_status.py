@@ -168,6 +168,9 @@ def test_status_clean_cuts_a_roles_line_longer_than_a_field() -> None:
     assert len(cleaned["claude"]["line"]) == S.LINE_LIMIT
     assert len(cleaned["claude"]["version"]) == S.FIELD_LIMIT
     assert cleaned["claude"]["n"] == 3 and cleaned["claude"]["on"] is True
+    # A node's grant lines carry a command too - just init's, ending with the host's --host - and are kept as long.
+    (node,) = S.status_clean({"capacity": [{"node": "n" * 1000, "grant": ["g" * 1000]}]})["capacity"]
+    assert len(node["grant"][0]) == S.LINE_LIMIT and len(node["node"]) == S.FIELD_LIMIT
 
 
 # --------------------------------------------------------------------------------------------- sections ----

@@ -3,7 +3,13 @@
 # running tools/proxmox-access.sh on the Proxmox host as root, over the SSH the
 # template build uses. It is the one change just init makes on Proxmox, and
 # only on a y typed at its question: init_settings.yml includes it at a
-# terminal alone, while the vault holds no token secret and none was given.
+# terminal alone. While the vault holds a token's secret, or one was given, it
+# makes no token (--no-token, init_access_topping_up): it asks only where
+# something else is missing - the role or a privilege it lacks, which a role an
+# older version made does, the user, a grant - says nothing where nothing is,
+# and says why where it could not look. The script then refuses a token that is
+# not there, whose secret the vault's could not be: that refusal is said alone,
+# with no line to run by hand, which would be refused the same.
 #
 #   1. Reach the host as inventory/hosts.yml has it, and list its storages for
 #      VM disks and its bridges: the script's --list, which changes nothing.
@@ -14,14 +20,16 @@
 #      secret question, and the vault, written next, takes it encrypted.
 #
 # n, Enter, or a step that cannot be done says how to run the script by hand,
-# and the secret is asked for as before. The script is the same either way.
+# and the secret is asked for as before, while none is held. The script is the
+# same either way.
 # What the host prints reaches a message only through plain_text (banner
 # applies it too); the run that prints the secret is no_log, and the secret
 # goes nowhere but init_hidden_answers. Inputs, from init_settings.yml's
 # vars: init_access_host, init_access_address, init_access_hostvars,
 # init_access_user, init_access_token, init_access_script and the defaults;
 # and what it decides from its own registers there, init_access_arguments,
-# init_access_plan_ready and init_access_set_up_already.
+# init_access_plan_ready, init_access_set_up_already and
+# init_access_plan_refused.
 - name: init_access | Reach the Proxmox host as hosts.yml has it
   ansible.builtin.add_host:
     name: "{{ init_access_host }}"
@@ -134,19 +142,26 @@
     init_ask_flag: ""
     init_ask_text: >-
       {{ ['just init can set up the API access this project uses on ' ~ init_access_address ~ ', as root over SSH.',
-          'It would run there, creating only what is missing:']
+          'It would run there, adding only what is missing:']
          + init_access_plan.stdout_lines | map('regex_replace', '^', '  ') | list
          + (['Already there:'] + init_access_plan.stderr_lines | map('regex_replace', '^', '  ') | list
             if init_access_plan.stderr_lines | length > 0 else [])
-         + ["Nothing else on the host changes, and the token's secret goes straight into the encrypted vault.",
+         + (['What is added to the role reaches every user it is granted to, wherever it is granted.']
+            if init_access_plan.stdout_lines | select('search', '^pveum role modify ') | list | length > 0 else [])
+         + ['Nothing else on the host changes'
+            ~ ('.' if init_access_topping_up | bool else ", and the token's secret goes straight into the encrypted vault."),
             'n, or Enter, to do it yourself with tools/proxmox-access.sh (docs/getting-started/proxmox-access.md).'] }}
   when: init_access_plan_ready | bool
 
+# Topping up, said only with a warning in it: a token made with privilege separation, which what is given to its user
+# reaches only through a grant of its own.
 - name: init_access | Say that the access is set up already
   ansible.builtin.debug:
     msg: "{{ (['NOTICE  The API access is set up on ' ~ init_access_address ~ ' already:']
               + init_access_plan.stderr_lines | map('plain_text') | map('regex_replace', '^', '  ') | list) | join('\n') }}"
-  when: init_access_set_up_already | bool
+  when: >-
+    init_access_set_up_already | bool
+    and (not init_access_topping_up | bool or init_access_plan.stderr_lines | select('match', 'WARNING') | list | length > 0)
 
 # ------------------------------------------------------------------ the run ---
 # no_log: its stdout is the token's secret. What it said goes to stderr, which
@@ -203,12 +218,25 @@
   when: init_access_made | default(false) | bool and (init_hidden_answers | default({})).secret is not defined
 
 # --------------------------------------------------------------- otherwise ---
+# Topping up too: status and init_check send a person here for a privilege or a grant, so a check that could not be
+# made - no root SSH, a script that refused, a storage or bridge not settled - is said, never left silent. Where the
+# script itself refused the dry run while topping up - the token is not there - why is all that is said: the line to
+# run by hand would be refused the same.
+- name: init_access | Say why the script refused
+  ansible.builtin.debug:
+    msg: >-
+      NOTICE  {{ init_access_why }} (docs/getting-started/proxmox-access.md).
+  when: init_access_run is skipped and init_access_plan_refused | bool
+
 - name: init_access | Say how to set up the access by hand
   ansible.builtin.debug:
     msg: >-
-      NOTICE  {{ (init_access_why ~ '. ') if init_access_why | default('') | length > 0 else '' }}To set up the API
-      access yourself, run tools/proxmox-access.sh on the Proxmox host as root - from this checkout, ssh
-      root@{{ init_access_address }} sh -s{{ (' -- ' ~ init_access_arguments | join(' '))
-      if init_access_arguments | length > 0 else '' }} < tools/proxmox-access.sh - and give the next question,
-      or the next just init, the secret it prints (docs/getting-started/proxmox-access.md).
-  when: init_access_run is skipped and not init_access_set_up_already | bool
+      NOTICE  {{ (init_access_why ~ '. ') if init_access_why | default('') | length > 0 else '' }}{{
+      'To add what the role or its grants lack yourself' if init_access_topping_up | bool
+      else 'To set up the API access yourself' }}, run tools/proxmox-access.sh on the Proxmox host as root - from this
+      checkout, ssh root@{{ init_access_address }} sh -s{{ (' -- ' ~ init_access_arguments | join(' '))
+      if init_access_arguments | length > 0 else '' }} < tools/proxmox-access.sh{{
+      '' if init_access_topping_up | bool else ' - and give the next question, or the next just init, the secret it prints'
+      }} (docs/getting-started/proxmox-access.md).
+  when: >-
+    init_access_run is skipped and not init_access_set_up_already | bool and not init_access_plan_refused | bool

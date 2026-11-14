@@ -578,8 +578,8 @@ detached `HEAD`, the worktrees with changes not committed and its stashes; WORK 
 never "clean", since a checkout outside the directory, and not a worktree of one in it, is not seen. **`status_refusal(message)`** — which refusal ssh's message is, `changed` (a host key other
 than the one held here), `unknown` (none held), `timeout`, `refused` or `denied`, read from the whole
 message before it is cut: ssh's banner for a changed key runs past the 120 characters a value keeps.
-**`status_clean(value)`** — every string in a value `one_line` (§7.4), the roles' lines to 400
-characters and every other field to 120.
+**`status_clean(value)`** — every string in a value `one_line` (§7.4), the roles' lines and a node's
+`grant` lines, which carry a command, to 400 characters and every other field to 120.
 
 **`status_report(found, read_at, now, live=False)`** — the report's model from what every host found:
 the VMs, the storages, the template, what each VM said over SSH, the attention items ranked "not read",

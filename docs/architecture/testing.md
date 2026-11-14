@@ -468,10 +468,13 @@ pytest over `tests/unit/`, file by file:
   three grants and the token, made last, with the secret alone on stdout; the dry run printing the commands
   and changing nothing; a second run changing nothing and naming the token; the guest agent's privilege by
   version; `--list`; a storage or bridge the node lacks refused, naming its own, then given; a role without a
-  privilege named and left, and never said to give it; a user that holds the privileges another way given no
+  privilege given it, keeping the rest, with `--no-token` too; the dry run's plan for a role granted on the
+  path or above it the role's change alone, and the node's grant as well where something deeper replaces the
+  grant above - another role of the user's, NoAccess, a group's; `--no-token` with the token not there
+  changing nothing, or privilege-separated warned of; a user that holds the privileges another way given no
   grant, one whose grant from above does not propagate given one, and one whose grant on `/vms` does not
-  propagate named and left; a user that holds privileges on `/` warned of before its token; a token with privilege separation named; another user and token; root and
-  `pveum` required; a value that is not one plain word refused before anything runs; a refused write stopping
+  propagate named and left; a user that holds privileges on `/` warned of before its token; a token with
+  privilege separation named; another user and token; root and `pveum` required; a value that is not one plain word refused before anything runs; a refused write stopping
   it before the token. Statically: its privileges the ones `init_check.yml` checks, the commands
   `docs/getting-started/proxmox-access.md` shows the ones its dry run prints, and stdout carrying data alone.
 - **`just init`'s checks** (`test_init_check.py`): `init_check.yml` against the fake Proxmox on a
