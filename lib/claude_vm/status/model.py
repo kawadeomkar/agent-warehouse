@@ -33,10 +33,11 @@ from ..text import and_list, one_line, plural
 # for the checkouts.
 SECTIONS = ("vms", "storage", "capacity", "access", "sign-ins", "system", "work")
 SSH_SECTIONS = frozenset({"access", "sign-ins", "system", "work"})
-# A field a VM supplies is cut to this; a role's whole line, which carries a command, to the longer.
+# A field a VM supplies is cut to this; a role's whole line, which carries a command, to the longer - and a node's
+# grant lines, which carry just init's with the host's --host, and would lose their end to a field's limit.
 FIELD_LIMIT = 120
 LINE_LIMIT = 400
-LINE_KEYS = frozenset({"line"})
+LINE_KEYS = frozenset({"line", "grant"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
@@ -70,8 +71,9 @@ def _host_flag(settings):
 
 
 def status_clean(value, limit=FIELD_LIMIT):
-    """``value`` with every string in it made one line of plain text: a role's line (key "line") cut to LINE_LIMIT,
-    every other string to ``limit``. Keys are cleaned too. Numbers, booleans and None are kept."""
+    """``value`` with every string in it made one line of plain text: a role's line (key "line") and a node's grant
+    lines (key "grant") cut to LINE_LIMIT, every other string to ``limit``. Keys are cleaned too. Numbers, booleans and
+    None are kept."""
     if isinstance(value, dict):
         return {one_line(k, limit): status_clean(v, LINE_LIMIT if k in LINE_KEYS else limit) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -319,6 +321,7 @@ def status_fleet(
             nodes,
             [e for e in listing if isinstance(e, dict) and e.get("type", "qemu") in ("qemu", "lxc")],
             settings.get("api_user") or "",
+            _host_flag(settings),
         ),
         "template": template
         if template
@@ -340,15 +343,18 @@ def status_fleet(
     }
 
 
-def status_capacity(nodes, entries, user=""):
+def status_capacity(nodes, entries, user="", host_flag=""):
     """Each node's CPU threads and memory beside what the guests on it hold - every VM and container, this project's and
     others' - for
     the size of the next one: how much memory is in use now and free, and how much the running VMs could take of it
     (``unallocated``, which ballooning and an idle guest can leave above what is free). A node's figures are read only
     with Sys.Audit; without it Proxmox lists the node alone, ``read`` is false, and ``grant`` says how to give it to
-    ``user``, the API token's: the lines the report prints, and an agent reads in the JSON."""
+    ``user``, the API token's: the lines the report prints, and an agent reads in the JSON - just init's run, ending
+    with ``host_flag``, on a host of one node, and the commands in a cluster, where that run grants it on
+    one node only."""
+    named = sorted((n for n in nodes or [] if isinstance(n, dict) and n.get("node")), key=lambda n: n["node"])
     shown = []
-    for node in sorted((n for n in nodes or [] if isinstance(n, dict) and n.get("node")), key=lambda n: n["node"]):
+    for node in named:
         on = [e for e in entries if e.get("node") == node["node"] and not e.get("template")]
         held = {
             state: {
@@ -376,7 +382,9 @@ def status_capacity(nodes, entries, user=""):
                 "memory_free": int(memory) - int(used) if read else None,
                 "unallocated": int(memory) - held["running"]["memory"] if read else None,
                 **held,
-                "grant": [] if read or node.get("status", "") not in ("online", "") else grant(node["node"], user),
+                "grant": []
+                if read or node.get("status", "") not in ("online", "")
+                else grant(node["node"], user, host_flag, cluster=len(named) > 1),
             }
         )
     return shown
