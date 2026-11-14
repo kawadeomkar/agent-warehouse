@@ -2,8 +2,8 @@
 """just status: what every VM this project created is doing, and what needs doing next, changing nothing.
 
     "$bin/python" tools/status [--names <a,b>] [--only <sections>] [--json] [--cache <dir>]
-                               [--vault-file <file>] [--vault-password-file <file>] [-i <inventory>] [-e <vars>]
-                               [--private-key <file>]
+                               [--vault-file <file>]... [--vault-password-file <file>] [-i <inventory>]... [-e <vars>]
+                               [--private-key <file>] [--host-extra <json>] [--hosts <json>]
 
 The engine (lib/claude_vm/status/engine.py) reads and draws; this says what it was given. -e, -i and --private-key are
 ANSIBLE_ARGS' (or a test's), and any other of those is warned of and ignored: just status runs no playbook.
@@ -14,6 +14,7 @@ ANSIBLE_ARGS' (or a test's), and any other of those is warned of and ignored: ju
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import signal
 import sys
@@ -30,12 +31,22 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--only", default="")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--cache", default="")
-    parser.add_argument("--vault-file", default="")
+    # The shared vault, then a host's own in hosts/ (tools/check host): one --vault-file each, in that order.
+    parser.add_argument("--vault-file", action="append", default=[])
     parser.add_argument("--vault-password-file", default="")
     parser.add_argument("-i", "--inventory", action="append", default=[])
     parser.add_argument("-e", "--extra-vars", dest="extra", action="append", default=[])
+    # With more than one host, the others' names and addresses, as tools/check host hands them to every run (JSON,
+    # {"claude_hosts_other": [...]}): what the lines said name the run's host by. Unlike -e, the settings are kept.
+    parser.add_argument("--host-extra", default="")
     parser.add_argument("--private-key", "--key-file", dest="private_key", default="")
     parser.add_argument("-J", "--ask-vault-password", "--ask-vault-pass", dest="ask_vault", action="store_true")
+    # Every host of the checkout's, as tools/check host every lists them: each read by a child of this one, which
+    # --emit makes, the whole drawn here (lib/claude_vm/status/hosts.py).
+    parser.add_argument("--hosts", default="")
+    parser.add_argument("--emit", action="store_true")
+    # With --hosts and --names: only which of the names each host has a VM of, a line each, for a creating deploy.
+    parser.add_argument("--taken", action="store_true")
     opts, ignored = parser.parse_known_args(argv)
     if opts.ask_vault:
         # Warned of and ignored like the rest, the run would only fail later, for want of the password.
@@ -51,6 +62,10 @@ def main(argv: list[str]) -> int:
     # As a Ctrl-C, which ends every connection; never whatever SIGINT is now, which a run started with & has ignored.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     os.umask(0o077)
+    if opts.hosts:
+        from claude_vm.status import hosts
+
+        return hosts.run(opts, json.loads(opts.hosts))
     return engine.run(opts)
 
 

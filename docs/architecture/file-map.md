@@ -6,6 +6,8 @@ callback_plugins/agent_warehouse.py   the default output, the waits set apart, N
                                   drawn live (§7.5)
 .logs/                            one log per just run that used Ansible (git-ignored, 0700, pruned after 14 days)
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
+hosts/                            the checkout's hosts but the first, one folder each - hosts.yml, group_vars/all/local.yml
+                                  and vault.yml - and current, the current host's name (git-ignored; just host, §7.14)
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
@@ -19,12 +21,15 @@ zensical.toml                     the wiki as a site: navigation, theme, GitHub-
 justfile                          every entry point: few recipes, each narrowed by an option or a word (just help)
 tools/docs.py                     just docs: the generated reference sections; templates/role.md.j2 for docsible
 tools/env-run                     run a tool from the project's environment (the git hooks) - yours, or the checkout's own - or --bin: its bin (the justfile); --data, --collections: the checkout's folder
-tools/check                       the justfile's checks: the checkout, the vault, the collections, names, a project
+tools/check                       the justfile's checks: the checkout, the run's host, the vaults, the collections, names, a project
 tools/git-hook                    the pre-commit git hook just init installs: pre-commit from the committing checkout's environment
 tools/run-logged                  run a command with its Ansible output logged to .logs/ (every recipe that runs Ansible)
 tools/live                        a recipe's command drawn as a part of one run, or passed through as it ran; the run's end
                                   from the recipe's trap (§7.8)
 tools/status                      just status: the engine's command line (lib/claude_vm/status/engine.py, §7.7)
+tools/host                        the checkout's hosts (tools/check host): the hosts core's one adapter, which prints
+                                  the host of a run and the files it is read from, and performs just host's switch and
+                                  removal and just init --host's files (lib/claude_vm/hosts/, §7.14)
 tools/settings                    just settings: each setting's value and where it was set, from Ansible's own variables (§7.9)
 tools/mcp                         the MCP server just mcp registers with Claude Code: its tools the recipes (§7.12)
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
@@ -166,11 +171,18 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   the region, the run's own words and the summary out; the stdout callback hands it
                                   every event (§7.5)
                                   status/, just status: engine.py the run, settings.py, reach.py and found.py, lines.py
-                                  what the roles say too, model.py its model, and tui/status.py, its report drawn (§7.7)
+                                  what the roles say too, model.py its model, hosts.py every host's run at once, a
+                                  child each, and tui/status.py, its report drawn (§7.7)
                                   wiring.py, the settings' wiring, which tools/docs.py renders and tools/settings reads
                                   (§7.9)
                                   store.py, a file replaced atomically under a lock on its folder: tools/settings'
                                   write of local.yml (§7.9)
+                                  vault.py, the vault read without Ansible: its names for the hosts' check, its values
+                                  for just status, how Ansible finds and runs a password file (§7.10)
+                                  hosts/, the hosts core, which reads and decides and never writes: layout.py the files
+                                  as Host records, kinds.py the kinds of host, model.py the records, choose.py which
+                                  host and the list, resolve.py a run's checks and every host for just status,
+                                  setup.py init, the switch and the removal as plans (§7.14)
                                   mcp/, tools/mcp's server: config.py, its registered arguments; recipes.py, the
                                   tools' schemas from just --dump and a call's argv; environment.py, a run's
                                   environment from an allow list; checkout.py, the head, the branch guard, the
@@ -179,6 +191,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   early return at a browser block; cancels.py, a cancellation's reason, from the
                                   server's stdin; confirm.py, the confirmations' dialogs and code, and the settings
                                   an agent may change; server.py, the tools (§7.12)
+                                  hosts/: kinds.py, the kinds of host as literal data - each one's group, the settings
+                                  each host of it sets for itself, its secret's vault names; layout.py, where each of
+                                  the checkout's hosts is, and which one a run gets (§7.14)
                                   catalogue.py, what the choices a checkout makes once share - the editor, the
                                   VPN: each a setting naming a row of a list of the defaults (§7.11)
                                   editors/: model.py, the editors' records; family.py, the seam; common.py, what

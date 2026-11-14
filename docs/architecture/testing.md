@@ -55,6 +55,21 @@ pytest over `tests/unit/`, file by file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
+- **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
+  refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
+  `resolve` reads the environment it is given; the vault check decides and writes nothing; init, the switch and the
+  removal are plans - and what `tools/host` keeps of before: stderr's three moments, the host it prints equal to the
+  core's, nothing of a host's `local.yml` in its JSON but what `just host` shows, and `just host --json`'s bytes as
+  they were before the core made them. `test_claude_vm.py` holds that no module of the core imports `ansible` or
+  writes a file.
+- **The MCP server with more than one host** (`test_mcp_hosts.py`): a copy of the checkout with two hosts, through
+  the real just, which records every command line: the names reach `just host --json --for` hyphenated, a host given
+  reaches the read and the run, no run gets a `--host` the call did not give but `destroy`'s pin of the host
+  confirmed, `init` none, a deploy that may create a VM no alias places is refused without a host, and the settings
+  dialog names the file the host given reads. `test_claude_vm.py` holds that the server imports nothing of the hosts.
+- **The vault without Ansible** (`test_vault.py`): `vault.names` reads the names Ansible's `VaultLib` reads, vault by
+  vault - plain, 1.1, 1.2 with a vault ID's label, an inline `!vault`, another password, not a mapping - in Ansible's
+  order of password files, a client script and a failing one opening nothing; `vault.values` reads strictly.
 - **Filters** (`test_filters.py`, `test_vscode_filters.py`, `test_desktop_filter.py`,
   `test_text_filter.py`): the guest-agent readers, `guest_ipv4` among them refusing anything that
   does not parse as one IPv4 address, the managed SSH config's blocks, VS Code's settings reader (since 1.1
@@ -649,9 +664,13 @@ Both symlink the **real** `inventory/group_vars/all/defaults.yml` into the scena
 actual variable wiring is exercised rather than a copy. Test overrides live in `host_vars/`. The
 symlink must survive checkout — clone the repo, do not download a zip.
 
-The `provision` scenario's checks are three files `verify.yml` imports in turn: `seeds.yml`, the fixtures
+The `provision` scenario's checks are four files `verify.yml` imports in turn: `seeds.yml`, the fixtures
 below; `fleet.yml`, discovery, `just status`, the playbooks where they must refuse or report, `destroy.yml` and
-the SSH aliases; and `just_code.yml`, `just code`'s runs on the fleet as `fleet.yml` leaves it. CI runs the two
+the SSH aliases; `second_host.yml`, a second fake Proxmox on a port and token secret of its own, laid out as
+`just init --host nuc` leaves a host and reached through the overlay a run against it is given
+([More than one host](../guides/hosts.md)): a VM provisioned there and nowhere else, sent nuc's secret, its alias
+recording nuc beside the first host's, which its prune leaves, and destroyed there with its alias alone; and
+`just_code.yml`, `just code`'s runs on the fleet as `fleet.yml` leaves it. CI runs the two
 halves as jobs of their own, side by side: `verify_fleet.yml`, and `verify_code.yml`, which makes that fleet from
 the seeds first - `molecule.yml` takes the one to run from `MOLECULE_PROVISION_VERIFY`, so
 `MOLECULE_PROVISION_VERIFY=verify_code.yml just test provision` runs one half here, and `just test provision`

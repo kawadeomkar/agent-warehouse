@@ -23,9 +23,10 @@ REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "lib"
 # Loaded only inside the function that needs one: each is milliseconds a client that is not Ansible would pay.
 NEVER_AT_IMPORT = ("ansible", "yaml", "asyncio", "subprocess")
-# What a module may load when imported all the same: the process table is what proc.py is for. The MCP server's
-# modules, which tools/mcp alone imports, are a process of its own whose work is to run just, over asyncio.
-AT_IMPORT = {"claude_vm.proc": {"subprocess"}}
+# What a module may load when imported all the same: the process table is what proc.py is for, and a child per host
+# what status/hosts.py is for, which just status's engine imports only for --hosts. The MCP server's modules, which
+# tools/mcp alone imports, are a process of its own whose work is to run just, over asyncio.
+AT_IMPORT = {"claude_vm.proc": {"subprocess"}, "claude_vm.status.hosts": {"subprocess"}}
 MCP_AT_IMPORT = {"asyncio", "subprocess"}
 
 
@@ -83,6 +84,52 @@ print(json.dumps(sorted(m for m in {NEVER_AT_IMPORT!r} if m in loaded)))
 """
     allowed = MCP_AT_IMPORT if name.startswith("claude_vm.mcp.") else set()
     assert set(json.loads(_python(script))) <= AT_IMPORT.get(name, allowed)
+
+
+# Modules that read without Ansible anywhere, not only when imported: the vault opened natively, which the hosts' check
+# and just status's snapshot read through, would otherwise pay Ansible's import (159 ms on a homelab runner), and the
+# hosts core, which tools/host runs before every recipe that has more than one host.
+HOSTS_CORE = sorted(str(path.relative_to(LIB)) for path in (LIB / "claude_vm" / "hosts").glob("*.py"))
+NO_ANSIBLE = ("claude_vm/vault.py", *HOSTS_CORE)
+# What a module would call to write, rename or delete a file, or make a folder.
+WRITES = re.compile(
+    r"\.(write_text|write_bytes|mkdir|unlink|rmdir|touch|chmod)\(|\bos\.(replace|rename|remove|open|makedirs|chmod)\("
+    r"|\brmtree\(|\bopen\([^)]*[\"'][wax]|\bstore\b"
+)
+
+
+@pytest.mark.parametrize("path", NO_ANSIBLE)
+def test_a_module_that_reads_without_ansible_imports_none_of_it_anywhere(path) -> None:
+    import ast
+
+    tree = ast.parse((LIB / path).read_text())
+    imported = [
+        name
+        for node in ast.walk(tree)
+        for name in (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+            if isinstance(node, ast.ImportFrom)
+            else []
+        )
+    ]
+    assert not [name for name in imported if name.split(".")[0] == "ansible"], imported
+
+
+@pytest.mark.parametrize("path", HOSTS_CORE)
+def test_the_hosts_core_decides_and_writes_nothing(path) -> None:
+    # tools/host, its one adapter, performs every write the core plans: hosts/current, .checked.json, a host's files.
+    assert [line for line in (LIB / path).read_text().splitlines() if WRITES.search(line)] == []
+
+
+def test_the_mcp_server_imports_nothing_of_the_hosts() -> None:
+    # A long-lived process, whose restart notice a pull that changes only lib/ may not trip: it asks just host --json.
+    mcp = sorted((LIB / "claude_vm" / "mcp").glob("*.py"))
+    assert (
+        mcp
+        and [path.name for path in mcp if re.search(r"\bclaude_vm\.hosts\b|from \.\.hosts\b", path.read_text())] == []
+    )
 
 
 def test_importing_the_package_imports_no_module_of_it() -> None:
@@ -288,6 +335,19 @@ def test_a_replace_keeps_the_file_s_mode_and_leaves_no_scratch_file(tmp_path) ->
     store.replace(path, "a: 2\n")
     assert path.read_text() == "a: 2\n" and (path.stat().st_mode & 0o777) == 0o640
     assert sorted(p.name for p in tmp_path.iterdir()) == ["local.yml"]
+
+
+def test_a_replace_makes_a_new_file_only_with_the_mode_it_is_given(tmp_path) -> None:
+    from claude_vm import store
+
+    path = tmp_path / "current"
+    with pytest.raises(FileNotFoundError):
+        store.replace(path, "nuc\n")
+    store.replace(path, "nuc\n", mode_if_new=0o600)
+    assert path.read_text() == "nuc\n" and (path.stat().st_mode & 0o777) == 0o600
+    path.chmod(0o640)
+    store.replace(path, "pve\n", mode_if_new=0o600)
+    assert (path.stat().st_mode & 0o777) == 0o640
 
 
 def test_a_replace_through_a_symlink_replaces_the_file_it_names(tmp_path) -> None:

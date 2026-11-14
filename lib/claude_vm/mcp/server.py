@@ -93,13 +93,15 @@ class Server:
                 raise ToolError(f"{self.config.just} could not read {justfile}: {error}") from error
         return self._dumped
 
-    def check(self, *, vault: bool) -> Config:
+    def check(self, *, vault: bool, changed: bool = True) -> Config:
         """The configuration, once every refusal of the server's own that applies has been said: its command line, the
-        checkout changed since its start, and for a recipe that reads the vault, a vault it cannot read."""
+        checkout changed since its start - but for jobs, job and cancel (changed False), which follow and stop a job
+        this server started, by the code that started it, so an agent can always stop a run - and for a recipe that
+        reads the vault, a vault it cannot read."""
         if self.config is None:
             raise ToolError(self.refusal)
         for refusal in (
-            checkout.changed_refusal(self.config, self.code),
+            checkout.changed_refusal(self.config, self.code) if changed else "",
             checkout.vault_refusal(self.config) if vault else "",
         ):
             if refusal:
@@ -154,6 +156,31 @@ class Server:
             raise ToolError(text_result(first, err + out))
         return report, err
 
+    async def hosts_read(self, host: str = "", names: list[str] | None = None) -> dict:
+        """just host --json, asked which host a run given these names and --host would reach - the command line's own
+        answer, the one a UI asks: this server imports nothing of the hosts, whose code a pull may change under it.
+        {} where it cannot be read: a word in a title or a dialog, never a run's decision, which the run makes for
+        itself."""
+        arguments = {"for": ",".join(name.replace("_", "-") for name in names or []), "host": host}
+        try:
+            listed, _ = await self.report("hosts", arguments, {0})
+        except ToolError:
+            return {}
+        return listed
+
+    async def run_host(self, host: str, names: list[str]) -> str:
+        return run_host(await self.hosts_read(host, names))
+
+    async def titled_host(self, tool: str, arguments: dict[str, Any]) -> str:
+        """The host a run tool's job title names, where the checkout has more than one and none was given: the one the
+        run will resolve, so the title and every line that shows it say where it runs. Only the title's: the run is
+        given no --host it was not, so it resolves its host as at a terminal - a VM's alias, else the current host - and
+        init, whose --host is the host it sets up, is never given one."""
+        if tool == "init" or "host" not in arguments or arguments["host"]:
+            return ""
+        named = arguments.get("names") or [name for name in [arguments.get("name")] if name]
+        return await self.run_host("", named)
+
     async def json_tool(self, tool: str, arguments: dict[str, Any], keep: tuple[str, ...], narrow: str, ok: set[int]):
         """A recipe's JSON report on standard output, with the head, the note and any warning in it."""
         report, err = await self.report(tool, arguments, ok)
@@ -187,6 +214,9 @@ class Server:
             raise ToolError(str(error)) from error
         jobs.prune(config.checkout, int(recipes.settings(config)["LOG_RETENTION_DAYS"]))
         title = " ".join([tool_recipe(tool), *argv[argv.index(recipe["name"]) + 1 :]])
+        where = await self.titled_host(tool, arguments)
+        if where:
+            title += f" --host={where}"
         job = jobs.start(config.checkout, config.python, argv, self.env(), tool, title)
         return await self.follow(job, 0, wait_seconds, ctx)
 
@@ -241,17 +271,49 @@ def tool_recipe(tool: str) -> str:
     return recipes.TOOLS[tool].recipe
 
 
-def deploy_refusal(names: list[str] | None, only: str, check: bool) -> str:
+def deploy_refusal(names: list[str] | None, only: str, check: bool, host: str = "", unplaced: bool = False) -> str:
     """Why this deploy goes no further, or nothing: without names, one that would create a VM makes the default VM, a
     convenience of the terminal's that an agent's forgotten argument must not reach. Not the schema's to require: the
-    stages that reach every VM, or none, take no names."""
-    if names or check or only not in ("", "provision"):
+    stages that reach every VM, or none, take no names. With more than one host, one that may create a VM - a name no
+    alias places on a host (``unplaced``) - names its host too: the current host is the terminal's, as the default VM
+    is."""
+    if check or only not in ("", "provision"):
         return ""
-    return (
-        "deploy creates the VMs named, and none were: name them. The default VM is never implied through this server: "
-        f"at a terminal, just deploy{' --only provision' if only else ''} makes it. Without names, only='configure' or "
-        "'ssh-config' and check reach every VM this project created, and only='template' builds the template."
-    )
+    if not names:
+        return (
+            "deploy creates the VMs named, and none were: name them. The default VM is never implied through this "
+            f"server: at a terminal, just deploy{' --only provision' if only else ''} makes it. Without names, "
+            "only='configure' or 'ssh-config' and check reach every VM this project created, and only='template' "
+            "builds the template."
+        )
+    if unplaced and not host:
+        return (
+            "this checkout has more than one Proxmox host, and deploy may create a VM: name the host it goes on, "
+            "host='<name>' (hosts lists them). The current host is never implied through this server: at a terminal, "
+            "just deploy uses it. A VM that exists is found where it is, and needs no host."
+        )
+    return ""
+
+
+# What a hosts result cut to fit keeps of just host --json: keys the document promises, which test_mcp_hosts.py holds.
+HOSTS_KEEP = ("current_host", "hosts")
+
+
+def many_hosts(listed: dict) -> bool:
+    """Whether just host --json lists more than one host: a host in hosts/ beside the first, or without one."""
+    return any(not row.get("first") for row in listed.get("hosts") or [])
+
+
+def run_host(listed: dict) -> str:
+    """The host a run is against, from just host --json asked about it (--for, --host), where the checkout has more
+    than one: the host given, else the one the VMs named are on, as their aliases record, else the current one. "" with
+    one host, which nothing names, and for a run the hosts refuse, which refuses itself, saying why."""
+    if not many_hosts(listed):
+        return ""
+    where = listed.get("where")
+    if where is None:
+        return listed.get("current_host") or ""
+    return where.get("host") or ""
 
 
 class Typed(BaseModel):
@@ -311,23 +373,38 @@ def tools(server: Server) -> list[Tool]:
     """The tools, each with its recipe's schema where the justfile could be read, else its function's own: a server that
     cannot read it still lists them, and each answers with why."""
 
-    async def status(names: list[str] | None = None, only: str = "") -> CallToolResult:
+    async def status(names: list[str] | None = None, only: str = "", host: str = "") -> CallToolResult:
         server.check(vault=True)
         return await server.json_tool(
             "status",
-            {"names": names or [], "only": only},
+            {"names": names or [], "only": only, "host": host},
             keep=("exit", "title", "vms", "capacity", "attention", "counts"),
             narrow="give names, or only (vms, work, ...), to read the rest",
             ok={0, 1, 2},
         )
 
-    async def settings(name: str = "", all: bool = False, changed: bool = False) -> CallToolResult:  # noqa: A002
+    async def settings(
+        name: str = "",
+        all: bool = False,  # noqa: A002
+        changed: bool = False,
+        host: str = "",
+    ) -> CallToolResult:
         server.check(vault=bool(name or all or changed))
         return await server.json_tool(
             "settings",
-            {"name": name, "all": all, "changed": changed},
+            {"name": name, "all": all, "changed": changed, "host": host},
             keep=("target", "settings", "roles", "options"),
             narrow="name one role or setting to read it",
+            ok={0},
+        )
+
+    async def hosts() -> CallToolResult:
+        server.check(vault=False)
+        return await server.json_tool(
+            "hosts",
+            {},
+            keep=HOSTS_KEEP,
+            narrow="the list is all there is",
             ok={0},
         )
 
@@ -368,20 +445,27 @@ def tools(server: Server) -> list[Tool]:
         memory: str = "",
         disk: str = "",
         repos: str = "",
+        host: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         server.check(vault=True)
-        refusal = deploy_refusal(names, only, check)
+        unplaced = False
+        if names and not host and not check and only in ("", "provision"):
+            # A name no alias places may be created: with more than one host, on which is the caller's to say. Asked of
+            # just host --json, and refused where it cannot be read, since the current host is never implied here.
+            listed, _ = await server.report("hosts", {"for": ",".join(name.replace("_", "-") for name in names)}, {0})
+            unplaced = many_hosts(listed) and bool((listed.get("where") or {}).get("unplaced"))
+        refusal = deploy_refusal(names, only, check, host, unplaced)
         if refusal:
             raise ToolError(refusal)
         arguments = {"names": names or [], "only": only, "check": check, "tags": tags, "start": start}
-        arguments |= {"cores": cores, "memory": memory, "disk": disk, "repos": repos}
+        arguments |= {"cores": cores, "memory": memory, "disk": disk, "repos": repos, "host": host}
         return await server.run("deploy", arguments, wait_seconds, ctx)
 
     async def login(
-        ctx: Context, names: list[str] | None = None, only: str = "", wait_seconds: int | None = None
+        ctx: Context, names: list[str] | None = None, only: str = "", host: str = "", wait_seconds: int | None = None
     ) -> str:
-        return await server.run("login", {"names": names or [], "only": only}, wait_seconds, ctx)
+        return await server.run("login", {"names": names or [], "only": only, "host": host}, wait_seconds, ctx)
 
     async def code(
         ctx: Context,
@@ -389,12 +473,13 @@ def tools(server: Server) -> list[Tool]:
         project: str = "",
         editor: str = "",
         session: str = "",
+        host: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         refusal = session_refusal(server.check(vault=False), server.environ, session)
         if refusal:
             raise ToolError(refusal)
-        arguments = {"name": name, "project": project, "editor": editor, "session": session}
+        arguments = {"name": name, "project": project, "editor": editor, "session": session, "host": host}
         return await server.run("code", arguments, wait_seconds, ctx)
 
     async def install(ctx: Context, wait_seconds: int | None = None) -> str:
@@ -404,7 +489,7 @@ def tools(server: Server) -> list[Tool]:
         return await server.run("install", {}, wait_seconds, ctx, vault=False)
 
     async def jobs_(ctx: Context) -> str:
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         lines = []
         for job in jobs.listed(config.checkout)[:20]:
             record = job.read()
@@ -413,14 +498,14 @@ def tools(server: Server) -> list[Tool]:
         return text_result(f"{server.head()} · the jobs, newest first", "\n".join(lines) or "No jobs.")
 
     async def job(ctx: Context, id: str, since: int = 0, wait_seconds: int | None = None) -> str:  # noqa: A002
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
         return await server.follow(found, max(since, 0), wait_seconds, ctx)
 
     async def cancel(ctx: Context, id: str) -> str:  # noqa: A002
-        config = server.check(vault=False)
+        config = server.check(vault=False, changed=False)
         found = jobs.find(config.checkout, id)
         if found is None:
             raise ToolError(f"{id!r} is no job of this checkout's: jobs lists them")
@@ -432,7 +517,7 @@ def tools(server: Server) -> list[Tool]:
         jobs.stop(found, "cancel")
         return await server.follow(found, end, 45, ctx)
 
-    async def ask_destroy(ctx: Context, names: list[str] | None = None) -> Elicit:
+    async def ask_destroy(ctx: Context, names: list[str] | None = None, host: str = "") -> Elicit:
         """Before the person is asked: the client, the names, the lock, then what each VM holds."""
         config = server.check(vault=True)
         hyphenated = [name.replace("_", "-") for name in names or []]
@@ -445,25 +530,32 @@ def tools(server: Server) -> list[Tool]:
         held = jobs.lock_holder(config.checkout)
         if held:
             raise ToolError(f"{held}: wait for it to end, then ask again. Nothing was asked or deleted.")
-        report, _ = await server.report("status", {"names": hyphenated, "only": "vms,work"}, {0, 1, 2})
-        typed = f"{confirm.code('destroy', *hyphenated)} {' '.join(hyphenated)}"
-        return Elicit(confirm.destroy_message(hyphenated, report, typed), Typed)
+        report, _ = await server.report("status", {"names": hyphenated, "only": "vms,work", "host": host}, {0, 1, 2})
+        # With more than one host, the host is part of what is confirmed: an answer for one host's alpha is none for
+        # another's.
+        where = await server.run_host(host, hyphenated)
+        typed = f"{confirm.code('destroy', *([where] if where else []), *hyphenated)} {' '.join(hyphenated)}"
+        return Elicit(confirm.destroy_message(hyphenated, report, typed, where), Typed)
 
     async def destroy(
         ctx: Context,
         answer: Annotated[ElicitationResult[Typed], Resolve(ask_destroy)],
         names: list[str] | None = None,
+        host: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         hyphenated = [name.replace("_", "-") for name in names or []]
-        typed = f"{confirm.code('destroy', *hyphenated)} {' '.join(hyphenated)}"
+        server.check(vault=True)
+        where = await server.run_host(host, hyphenated)
+        typed = f"{confirm.code('destroy', *([where] if where else []), *hyphenated)} {' '.join(hyphenated)}"
         refused = answered(answer, typed)
         if refused:
             raise ToolError(f"Nothing was deleted: {refused}. At a terminal: just destroy {' '.join(hyphenated)}")
-        arguments = {"names": hyphenated, "confirm": ",".join(hyphenated)}
+        # The host confirmed is the host the run is against, whatever is current by the time it starts.
+        arguments = {"names": hyphenated, "confirm": ",".join(hyphenated), "host": where or host}
         return await server.run("destroy", arguments, wait_seconds, ctx)
 
-    async def ask_setting(ctx: Context, name: str = "", value: str = "", reset: bool = False) -> Elicit:
+    async def ask_setting(ctx: Context, name: str = "", value: str = "", reset: bool = False, host: str = "") -> Elicit:
         """Before the person is asked: the client, the allow list, the value, then what the setting is now."""
         server.check(vault=True)
         terminal = f"just settings {name} --value=<value>"
@@ -476,11 +568,33 @@ def tools(server: Server) -> list[Tool]:
             raise ToolError(refusal)
         if bool(value) == bool(reset):
             raise ToolError("settings_set takes a value, or reset to put the default back: one of the two")
-        report, _ = await server.report("settings", {"name": name}, {0})
+        # The file written, and the value it holds now as a run reads it: with more than one host, a host in hosts/
+        # named is its own local.yml, and anything else the shared one, every host's, read as the first host's runs
+        # read it - never the current host's value, which its own file may set over the shared one.
+        where, read = "local.yml", host
+        listed = await server.hosts_read()
+        if not listed:
+            # A read that failed is no answer of one host: the dialog would name the shared file plain, and show the
+            # current host's value for it, which the comment above says it must never.
+            raise ToolError(
+                "just host --json could not be read, so which file the setting goes in is unknown:"
+                " nothing was asked or changed."
+            )
+        if many_hosts(listed):
+            rows = listed["hosts"]
+            first = next((row["name"] for row in rows if row.get("first")), None)
+            if host and host != first:
+                folder = next((row["folder"] for row in rows if row.get("name") == host), f"hosts/{host}")
+                where = f"{folder}/group_vars/all/local.yml, {host}'s own"
+            else:
+                where = "inventory/group_vars/all/local.yml, every host's, which a host's own local.yml outranks"
+                read = first if first is not None else host
+        report, _ = await server.report("settings", {"name": name, "host": read}, {0})
         rows = [row for row in report.get("settings") or [] if isinstance(row, dict) and row.get("name") == name]
         current = json.dumps(rows[0].get("value")) if rows and rows[0].get("value") is not None else ""
-        typed = f"{confirm.code('settings_set', name, value, str(reset))} {name}"
-        return Elicit(confirm.setting_message(name, current, "" if reset else value, typed), Typed)
+        # A host named is the file written, its own local.yml: part of what is confirmed.
+        typed = f"{confirm.code('settings_set', name, value, str(reset), *([host] if host else []))} {name}"
+        return Elicit(confirm.setting_message(name, current, "" if reset else value, typed, where), Typed)
 
     async def settings_set(
         ctx: Context,
@@ -488,14 +602,15 @@ def tools(server: Server) -> list[Tool]:
         name: str = "",
         value: str = "",
         reset: bool = False,
+        host: str = "",
     ) -> CallToolResult:
-        typed = f"{confirm.code('settings_set', name, value, str(reset))} {name}"
+        typed = f"{confirm.code('settings_set', name, value, str(reset), *([host] if host else []))} {name}"
         refused = answered(answer, typed)
         if refused:
             raise ToolError(f"Nothing was changed: {refused}. At a terminal: just settings {name} --value=<value>")
         return await server.json_tool(
             "settings_set",
-            {"name": name, "value": value, "reset": reset},
+            {"name": name, "value": value, "reset": reset, "host": host},
             keep=("asked", "wrote", "name", "value"),
             narrow="the setting was written; just settings <name> reads it",
             ok={0},
@@ -503,6 +618,7 @@ def tools(server: Server) -> list[Tool]:
 
     async def init(
         ctx: Context,
+        address: str = "",
         host: str = "",
         token_user: str = "",
         token_id: str = "",
@@ -516,6 +632,7 @@ def tools(server: Server) -> list[Tool]:
         if refusal:
             raise ToolError(refusal)
         arguments = {
+            "address": address,
             "host": host,
             "token_user": token_user,
             "token_id": token_id,
@@ -532,6 +649,9 @@ def tools(server: Server) -> list[Tool]:
         "settings": "Read-only. name: a role (github_projects) or one setting (vm_cores); none says how to use this. "
         "A secret is said set or not set, never shown.",
         "logs": "Read-only: the run logs' names, newest first. Read one with log.",
+        "hosts": "Read-only: the checkout's Proxmox hosts - each one's name, address and node, and which is the "
+        "current one the terminal's commands run against. Every run tool takes host, to run against another; with more "
+        "than one host, a deploy that may create a VM must name one.",
         "deploy": "Creates, configures and signs in VMs and opens one in the user's editor: minutes, longer with a "
         "template build. Say first that pages will open in the user's browser to approve. Name every VM to create: "
         "there is no default VM here. A VM for a repository X: "
@@ -562,6 +682,7 @@ def tools(server: Server) -> list[Tool]:
         (status, None),
         (settings, None),
         (logs, False),
+        (hosts, None),
         (deploy, False),
         (login, False),
         (code, False),
@@ -572,7 +693,9 @@ def tools(server: Server) -> list[Tool]:
     ):
         name = fn.__name__
         description = described[name]
-        annotations = READ_ONLY if name in ("status", "settings", "logs") else DELETES if name == "destroy" else CHANGES
+        annotations = (
+            READ_ONLY if name in ("status", "settings", "logs", "hosts") else DELETES if name == "destroy" else CHANGES
+        )
         meta = GATED if name in ("install", "destroy", "settings_set", "init") else None
         tool = Tool.from_function(fn, name=name, annotations=annotations, meta=meta, structured_output=structured)
         if server.config is not None:

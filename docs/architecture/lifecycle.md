@@ -250,7 +250,10 @@ against 41 s.
    ([§7.5](custom-code.md#75-callback_pluginsagent_warehousepy--the-waits-and-next-steps)), names the
    VMs from `vm_name` alone, through the play var `claude_vm_confirm_names`: a `vars_prompt` is
    templated before any inventory variable is in scope, `-e` answer or not, so naming
-   `claude_vm_names` failed every run.
+   `claude_vm_names` failed every run. With more than one host it names the host too
+   (`claude_vm_confirm_host`), from the two things it can see: Ansible's own `groups['proxmox']`, the run's
+   inventory, and the `claude_hosts_other` the justfile passes as an extra var - a name both hosts have is
+   never deleted after a question that did not say where.
 2. List the cluster (§4.3, step 1) and assert every requested name exists among this project's VMs.
    Asking for a name that was never created is an error naming the VMs that *do* exist, not a
    confirmation prompt followed by silence. A name that exists but is untagged gets a hint: tag it,
@@ -307,8 +310,8 @@ tracked-file guard), `<vm>-<YYYYMMDD-HHMMSS>/projects/` laid out as on the VM an
 plain files and folders only, 0600 and 0700, at the names asked for or inside one, never through a link,
 never outside that folder. A link, hard link, device or pipe in the archive is left out and counted;
 rsync made the VM's links here as links, and the `chmod -R` after it followed them out of the folder. A
-`sessions.json` beside them names each, the Claude Code version that wrote it and the newest of them,
-says that what they hold is the VM's and unchecked, and gives the `claude --resume <path>` that continues
+`sessions.json` beside them names the Proxmox host the VM was on, and each session, the Claude Code
+version that wrote it and the newest of them, says that what they hold is the VM's and unchecked, and gives the `claude --resume <path>` that continues
 each here: given a
 transcript's path, Claude Code resumes it where it lies and writes to it there, whatever this machine
 holds of the same ID (the `configure` scenario holds that against the real claude). Not best effort like
@@ -397,6 +400,25 @@ screen in a quarter of a second and a finished report in about two, against five
    and has an address: one connection, one program (the probe) doing every read at once, and no more VMs at once
    than `forks` (20 in `ansible.cfg`), as Ansible would reach them.
 5. Each piece is drawn as it lands; `status_report` ranks what was found and works out the exit code.
+
+**More than one host** ([§7.14](custom-code.md#714-libclaude_vmhosts-and-toolshost--the-checkouts-hosts)). Without
+`--host` or a VM named, `just status` reads every host of the checkout's at once
+(`lib/claude_vm/status/hosts.py`): the engine is not safe to run twice in one process - `reach` ends every probe at
+one host's refusal, and Ansible's `GlobalCLIArgs` is one per process - so each host is read by a child of
+`tools/status`'s own, run with `--emit`, today's engine with that host's sources as `-i`, its vaults and its own
+folder of `.cache/status/<host>/`, which draws nothing and writes what it lands as JSON lines. The parent holds what
+each host found, builds each host's report with the same `status_report`, and draws them through the one live
+region, a block a host, each titled with its host's name and `▸` for the current one; a host that does not answer is
+its block alone, the others drawn meanwhile. Once every child has ended it adds what only the whole checkout shows:
+an alias recorded for a host whose listing has no VM of that name (`todo`, with the prune that clears it), and a VM
+name two hosts each have (`problem`). The JSON keeps every key 1.0 promised, the single objects (`proxmox`,
+`template`, `others`, `goldens`) the current host's, and adds `hosts` - each host's name, whether it is the current
+one, its exit, why it failed, its report - and `host` on every row of `vms`, `storages`, `capacity` and `attention`.
+The exit is the highest of the hosts', a host that did not answer counting only where it is the current one.
+A host that cannot be read - not set up, a token in the wrong vault - is said in its block, never the others'
+refusal. With `--host`, or names, which route to their host, it is one host's run as before, its settings kept in
+that host's folder. `just deploy` asks the other hosts through the same children (`--taken`, the listing only)
+before it may make a VM no alias records, and refuses a name one of them has.
 
 **The fleet.** A refused token is told from a host that did not answer by the listing's own status, and each says
 what to check; a token refused a VM's config or address names the privileges it lacks, and no VM is read over SSH
@@ -605,16 +627,30 @@ every writer goes through one task file so the block format cannot drift. Inputs
 `{name, address, user, workspace?}` and a state; `workspace` only feeds the connect line, and only
 `configure`, which has read it on the VM, passes it. The managed file,
 `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
-with what ssh reads and nothing else - no state of this project's is kept in a user's ssh config:
+with what ssh reads and one comment ssh skips, the host the VM was found on - no other state of this
+project's is kept in a user's ssh config:
 
 ```
 # BEGIN agent-warehouse: alpha
+# origin: pve                    ← claude_ssh_origin: the run's Proxmox host, by its inventory name
 Host alpha
     HostName 192.0.2.51          ← or alpha.<claude_ssh_host_domain>
     User dev
     ServerAliveInterval 30       ← claude_ssh_options, verbatim
 # END agent-warehouse: alpha
 ```
+
+**The origin.** Each block records the host its VM was found on (`claude_ssh_origin`, the first host of the
+inventory's `proxmox` group, from 2.5), since a run reaches one host's listing and nothing of another's. A
+comment rather than a change to the markers, so ssh, every parser and a checkout of an older version read the
+block as before; `ssh_config_blocks` returns it as `origin`, `""` for a block with no record, as every version
+before 2.5 wrote them. A block with no record, or one recording a host the checkout no longer has, is nobody's:
+the next write of that VM records this run's host. One recording another of the checkout's hosts
+(`claude_hosts_other`, which the host resolver hands each run) is that host's VM's alias, and a VM name belongs
+to one host: a write that names the VM is refused before anything is written, and `tasks/vm_names.yml` refuses
+the name before anything is created; fleet-wide the VM is left out and said. `destroy.yml` removes the alias,
+and forgets the `<name>.<domain>` host key, only of a VM whose block records no other host
+(`claude_ssh_names_elsewhere`): a block recording another host is that host's VM's, and stays.
 
 Through 1.x the managed file was `~/.ssh/claude-on-proxmox.conf`, its markers `claude-on-proxmox`
 (`claude_ssh_config_legacy_file`, beside the default only). The first run of this task file in 2.0, writing
@@ -662,11 +698,19 @@ named run wrote is left as it was, and the message names the run that refreshes 
 a host of the inventory, which is left out and said as discovery says it, keeping a workspace an
 earlier configure recorded, then pruning through `ssh_config_prune`
 ([§7.1](custom-code.md#71-filter_pluginsproxmoxpy)). Pruning removes blocks, never VMs, and only a block
-whose name no VM in the cluster carries any more - or one no alias may have, a name ssh reads as an address
+of this host's whose name no VM in its cluster carries any more - or one no alias may have, a name ssh reads as an address
 or one the inventory reaches a host by, which an earlier version wrote and which would otherwise take this
 machine's connections to that host for good. A name an untagged VM carries is left alone and reported, as
 `destroy.yml` refuses such a VM. While any tagged VM is listed without a name, which is what a node that is
-down looks like (§4.3), nothing else is pruned, because any block could be that VM's. With names, only those VMs are refreshed and nothing is pruned. Two
+down looks like (§4.3), nothing else is pruned, because any block could be that VM's. A listing says
+nothing of another host's VMs, so a block recording another host is never pruned here - one of the checkout's
+other hosts unsaid, one of a host it does not have (swapped out of `inventory/hosts.yml` by hand under another
+name, or removed) said, for the user to remove once its VM is gone. Two hosts swapped by hand under one name -
+`pve`, as `just init` names every first host - are one host to the records, and a prune against either removes
+the other's aliases: two hosts are `hosts/`'s. A block with no record is this host's while the checkout has one
+host, and pruned as before; with more than one it could be any host's, and is left and said, and `just status`
+says one whose VM no host lists, which only a hand removes. With names,
+only those VMs are refreshed and nothing is pruned. Two
 tagged VMs of one name are refused as discovery refuses them: an alias of that name would point at
 one at random.
 
@@ -1058,6 +1102,18 @@ syntax check and ansible-lint would take it for a playbook. What it shares with 
 `init_ask`, `init_given`, the files, the placeholders the examples ship with, what it reads of `local.yml`
 and the vault, and the validate of a YAML write - is in `playbooks/vars/init.yml`, which both load.
 
+`just init --host <name>` sets up another host of the checkout's ([§7.14](custom-code.md#714-libclaude_vmhosts-and-toolshost--the-checkouts-hosts)):
+`tools/check host init` makes `hosts/<name>/` from `tools/templates/host/` where a file is missing - never without
+`--address` or a terminal to ask one at, nor in a checkout of one host, where a bare word was 2.4's address - and
+hands both playbooks `init_host` (the host's name, the vault's name for its token, what it sets for itself, its
+default VM's name, whether it is the current host) and the four files pointed into its folder. The questions are
+then only the host's: its address and its token, the secret written as `vault_host_proxmox_api_token_secret`; the
+GitHub username and the VPN are the shared files' and asked of the first host alone, and given for another are
+refused. So is an exported `AGENT_WAREHOUSE_TOKEN_SECRET` for another host, which may be the first host's: its
+secret is typed or in `--token-secret-file`. Nor is a host set up while the shared vault is encrypted and no
+password file opens it: the vault this run writes would be encrypted with a `.vault_pass` made anew, which opens
+neither. Without `--host`, `just init` works on the current host, as every command does.
+
 It reads `hosts.yml` and `local.yml`, and the vault: as text when it is plaintext, through `ansible-vault
 decrypt --output -` under `no_log` when it is encrypted and there is a password (`.vault_pass`, or
 `ANSIBLE_VAULT_PASSWORD_FILE`); an encrypted vault with neither is left alone, and said. Every `ansible-vault`
@@ -1141,7 +1197,11 @@ checks run next and say what comes after.
 password looked for when the recipe runs, since the questions may have just made `.vault_pass` - so it sees
 the settings exactly as `just deploy` will. The recipe skips it, with one line, when the vault is
 encrypted and neither `.vault_pass` nor `ANSIBLE_VAULT_PASSWORD_FILE` can open it. One play on `localhost`,
-every task a read (held by `tests/unit/test_init_check.py`):
+every task a read (held by `tests/unit/test_init_check.py`) but the settings it writes. For another host
+(`init_host`), the run reads that host's sources over the shared ones, as every run against it, and once every check
+has passed writes into the host's `local.yml` each setting the host sets for itself that it does not set yet - the
+node, the storage and the bridge as the checks settled them, the rest as this run reads them - and its default VM's
+name, `<name>-default`; the host's name was given on the command line, a value given as every write's is:
 
 1. **Configured yet?** With the address or the secret still the example's, it says what is missing and ends:
    nothing is checked, and that is no problem.

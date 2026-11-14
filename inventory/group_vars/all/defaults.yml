@@ -19,7 +19,25 @@ proxmox_api_token_id: ansible
 # Trimmed: a vault edited by hand can end the secret with a newline, which both
 # HTTP clients refuse in a header with the whole header, secret included, in
 # their error - escaped, so no_log's masking missed it.
-proxmox_api_token_secret: "{{ vault_proxmox_api_token_secret | trim }}"
+# The first host's secret, in the shared vault, only while the run's Proxmox
+# host was defined in the shared inventory's own folder, as localhost is; a host
+# in hosts/<name>/ (a second source over the shared one) is sent the secret its
+# own vault holds under another name, and a host whose vault lacks it fails
+# here, undefined, before any request - never sent the first host's. Keyed on
+# inventory_dir, where Ansible recorded each host's definition, never on how the
+# sources were spelt, and one expression with no variable of its own beside it:
+# a helper set in a git-ignored file would switch the rule off. A localhost no
+# source defines (an inventory of a test's, or of your own without
+# controller.yml) has no folder: the Proxmox host's is taken for it, as before
+# there were hosts, since a run against hosts/<name> always loads controller.yml.
+# tools/check host refuses either name in the other's vault.
+proxmox_api_token_secret: >-
+  {{ (vault_proxmox_api_token_secret
+      if not groups['proxmox'] | default([])
+         or hostvars[groups['proxmox'][0]]['inventory_dir'] | default(none)
+            == hostvars['localhost']['inventory_dir']
+               | default(hostvars[groups['proxmox'][0]]['inventory_dir'] | default(none))
+      else vault_host_proxmox_api_token_secret) | trim }}
 # Off by default because Proxmox ships a self-signed certificate.
 proxmox_validate_certs: false
 proxmox_node: pve
@@ -167,8 +185,11 @@ claude_vm_golden_template_name: "{{ (proxmox_template_golden_choice | default({}
 # this machine a VM to configure. Every host but those the runs add VMs to, so
 # it reads the same before and after they are added. playbooks/tasks/vm_names.yml
 # refuses such a name given, and discovery and just status leave out such a VM.
+# The checkout's other hosts (claude_hosts_other) are among them: a run has one
+# Proxmox host in its inventory, and a VM named nuc would still take the NUC's
+# root SSH by its alias.
 claude_vm_inventory_hosts: >-
-  {{ (groups['all'] + ['localhost'])
+  {{ (groups['all'] + ['localhost'] + claude_hosts_other | map(attribute='name') | list)
      | reject('in', (groups['claude_vms'] | default([])) + (groups['claude_vm_pending'] | default([]))
                     + (groups['status_vms'] | default([])) + (groups['claude_vm_doomed'] | default([]))
                     + (groups['claude_vm_golden_pending'] | default([])) + (groups['claude_vm_build'] | default([])))
@@ -178,8 +199,9 @@ claude_vm_inventory_hosts: >-
 # (proxmox_vm_known_hosts_kept), whatever address the VM reported last, and a
 # VM's alias never takes one (below): one list for both.
 claude_vm_inventory_addresses: >-
-  {{ claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
-     | map(attribute='ansible_host', default='') | select | list }}
+  {{ (claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
+      | map(attribute='ansible_host', default='') | select | list)
+     + claude_hosts_other | map(attribute='address') | select | list }}
 # Every name this machine's ssh reaches a host of the inventory by: the host's
 # own, its ansible_host, and the Proxmox API's address. The managed SSH config
 # is included ahead of the user's own, so a VM's alias of one of them - a VM
@@ -397,6 +419,35 @@ claude_ssh_config_legacy_file: >-
   {{ (claude_ssh_config_file | dirname) ~ '/claude-on-proxmox.conf'
      if claude_ssh_config_file | basename == 'agent-warehouse.conf' else '' }}
 claude_ssh_user_config: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/config"
+# The host whose VMs this run reaches, by its inventory name, as each alias
+# block records it (# origin, tasks/ssh_config.yml): the prune, destroy and the
+# next write go by it. Empty without a Proxmox host in the inventory (a static
+# one, as Vagrant's), when a block records none. Not a setting.
+claude_ssh_origin: "{{ groups['proxmox'][0] if groups['proxmox'] | default([]) else '' }}"
+# How every line a run prints or writes onto a VM - NEXT STEPS, a retry, the
+# session notes - names the host its VM is on, with more than one host: " --host
+# <name>", so a line pasted later reaches that VM whichever host is current.
+# Empty with one host. Not a setting.
+claude_host_flag: "{{ ' --host ' ~ claude_ssh_origin if claude_hosts_other | length > 0 and claude_ssh_origin | length > 0 else '' }}"
+# The checkout's other hosts, as {name, address}: tools/check host hands them
+# to every run against one host (the justfile's vm_args), for the guards above
+# and the alias records. Not a setting.
+claude_hosts_other: []
+# The managed file's alias blocks, each as {name, origin}, as the file is when a
+# task asks - by its 1.x name while that is the one there. Not a setting.
+claude_ssh_blocks: >-
+  {{ (lookup('ansible.builtin.file', claude_ssh_config_file, errors='ignore')
+      or (lookup('ansible.builtin.file', claude_ssh_config_legacy_file, errors='ignore')
+          if claude_ssh_config_legacy_file | length > 0 else '')
+      or '') | ssh_config_blocks }}
+# The VMs whose alias records another of the checkout's hosts than this run's:
+# theirs to keep, which destroy removes neither the alias nor the
+# <name>.<domain> key of. A block recording a host the checkout no longer has
+# is no one's, as the alias write takes it: a host renamed in hosts.yml leaves
+# its VMs' blocks recording its old name.
+claude_ssh_names_elsewhere: >-
+  {{ claude_ssh_blocks | ssh_config_elsewhere(claude_ssh_origin, claude_hosts_other | map(attribute='name') | list)
+     | map(attribute='name') | list }}
 claude_ssh_config_include: true
 claude_ssh_host_domain: ""
 claude_ssh_identity_file: ""
@@ -444,6 +495,7 @@ claude_code_user: "{{ vm_user }}"
 claude_code_anthropic_api_key: "{{ anthropic_api_key }}"
 claude_code_remote_control_dir: "{{ vm_projects_dir }}"
 claude_code_login_desktop: "{{ login_desktop }}"
+claude_code_host_flag: "{{ claude_host_flag }}"
 
 github_projects_user: "{{ vm_user }}"
 github_projects_username: "{{ github_username }}"
@@ -456,10 +508,12 @@ github_projects_auth: "{{ github_auth }}"
 github_projects_auth_method: "{{ github_auth_method }}"
 github_projects_login_scopes: "{{ github_login_scopes }}"
 github_projects_login_desktop: "{{ login_desktop }}"
+github_projects_host_flag: "{{ claude_host_flag }}"
 github_projects_git_user_name: "{{ git_user_name }}"
 github_projects_git_user_email: "{{ git_user_email }}"
 
 tailscale_login_desktop: "{{ login_desktop }}"
+tailscale_host_flag: "{{ claude_host_flag }}"
 tailscale_joined_tag: "{{ claude_vm_tailscale_tag }}"
 # Whether Tailscale is the VPN, from the vpn setting: the role's own input,
 # since vpn's default reads tailscale_enabled, which the role cannot then be

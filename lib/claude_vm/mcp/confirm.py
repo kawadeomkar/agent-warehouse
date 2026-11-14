@@ -31,12 +31,13 @@ def code(*asked: str) -> str:
     return "".join(ALPHABET[b % len(ALPHABET)] for b in digest[:4])
 
 
-def destroy_message(names: list[str], report: dict, typed: str) -> str:
+def destroy_message(names: list[str], report: dict, typed: str, host: str = "") -> str:
     """The deletion's dialog: what goes and what to type - first, since Claude Code shows a dialog's first lines and
     folds the rest - then a line per VM from just status's report, each value a VM supplied made one line, and what of
-    its work exists nowhere else."""
+    its work exists nowhere else. With more than one host, the host it goes from."""
+    on = f" on the Proxmox host {host}" if host else " on Proxmox"
     lines = [
-        f"This deletes {', '.join(names)} and their disks on Proxmox. It cannot be undone.",
+        f"This deletes {', '.join(names)} and their disks{on}. It cannot be undone.",
         f"To delete, type: {typed}",
     ]
     by_name = {vm.get("name"): vm for vm in report.get("vms") or [] if isinstance(vm, dict)}
@@ -68,11 +69,11 @@ def destroy_message(names: list[str], report: dict, typed: str) -> str:
     return "\n".join(lines)
 
 
-def setting_message(name: str, current: str, new: str, typed: str) -> str:
-    """The setting's dialog: the setting, its value now and the one it would have, and what to type - all in the first
-    lines, which Claude Code shows unfolded."""
+def setting_message(name: str, current: str, new: str, typed: str, where: str = "local.yml") -> str:
+    """The setting's dialog: the setting, the file it is written in, its value there now and the one it would have, and
+    what to type - all in the first lines, which Claude Code shows unfolded."""
     return (
-        f"This changes {name} in local.yml, for every run from now on: now {one_line(current, 120) or '(its default)'},"
+        f"This changes {name} in {where}, for every run from now on: now {one_line(current, 120) or '(its default)'},"
         f" new {one_line(new, 120) or '(its default)'}.\n"
         f"To change it, type: {typed}"
     )

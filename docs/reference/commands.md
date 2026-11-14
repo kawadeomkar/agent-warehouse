@@ -50,7 +50,8 @@ environment where `python3` is not it.
 | Recipe | What it does |
 |---|---|
 | `just init` | Set up this checkout, then ask for what a first deploy needs |
-| &emsp;`--host HOST` | The Proxmox host's address, for inventory/hosts.yml |
+| &emsp;`--address ADDRESS` | The Proxmox host's address, for its hosts.yml |
+| &emsp;`--host ON` | Set up another host of this checkout, by its name (just host lists them); a value with a dot or a colon is taken for --address through 2.x |
 | &emsp;`--token-user TOKEN_USER` | The API token's user, when it is not ansible@pve |
 | &emsp;`--token-id TOKEN_ID` | The API token's ID, the part after its user's !, when it is not ansible |
 | &emsp;`--token-secret-file TOKEN_SECRET_FILE` | A file holding the token's secret (or AGENT_WAREHOUSE_TOKEN_SECRET in the environment; never on the command line) |
@@ -62,9 +63,11 @@ environment where `python3` is not it.
 | `just install` | Install the locked Python packages and the Galaxy collections: into your virtualenv, or this checkout's own |
 | &emsp;`--lock` | Update uv.lock after editing a pin in pyproject.toml, installing nothing (uv from PATH) |
 | `just vault` | Encrypt the vault, or edit it once it is encrypted |
+| &emsp;`--host ON` | That host's own vault, which holds its token, rather than the shared one (just host lists them) |
 | `just deploy [<name>...]` | Create, configure and sign in the VM(s), then open them in your editor |
 | &emsp;`--only STAGE` | Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone) |
 | &emsp;`--check` | Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named) |
+| &emsp;`--host ON` | Run against this host rather than the current one (just host lists them) |
 | &emsp;`-t, --tags ROLES` | Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code) |
 | &emsp;`--start` | Start a VM this run would leave stopped (proxmox_vm_start_existing) |
 | &emsp;`--cores CORES` | Each new VM's vCPU cores, in place of the vm_cores setting |
@@ -75,12 +78,15 @@ environment where `python3` is not it.
 | `just code <name>` | Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
 | &emsp;`--editor IDE` | Open it in this editor for this run, rather than the one the editor setting names: vscode or zed |
+| &emsp;`--host ON` | Run against this host rather than the current one (just host lists them) |
 | &emsp;`--session SESSION` | Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, ready for claude --resume |
 | &emsp;`<name>` | The one VM to open |
 | `just login [<name>...]` | Sign the VM(s) in to Claude, GitHub and Tailscale, or report how each is signed in |
+| &emsp;`--host ON` | Run against this host rather than the current one (just host lists them) |
 | &emsp;`--only SIGN_IN` | One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private repositories) or tailscale (its web login) |
 | &emsp;`<name>` | The VMs to sign in, one after another; none reports every VM this project created |
 | `just status [<name>...]` | What every VM this project created is doing, and what needs doing next, read without changing anything |
+| &emsp;`--host ON` | Run against this host rather than the current one (just host lists them) |
 | &emsp;`--only ONLY` | Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM |
 | &emsp;`--json` | The report as JSON, alone on standard output, with the same exit code |
 | &emsp;`<name>` | Only these VMs; none reads every VM this project created |
@@ -88,12 +94,20 @@ environment where `python3` is not it.
 | &emsp;`--all` | Every setting of local.yml, and which secrets of vault.yml are set |
 | &emsp;`--changed` | Only what local.yml or vault.yml changes from the defaults; alone, all of it |
 | &emsp;`--json` | The report as JSON, alone on standard output |
+| &emsp;`--host ON` | That host's values rather than the current host's; beside --value or --reset, its own local.yml is the one changed |
 | &emsp;`--reset` | Put the one setting named back to its default: its line out of local.yml, its example's back |
 | &emsp;`--value VALUE` | Set the one setting named to this value, in local.yml (never a secret: just vault; an empty value is none: --reset) |
 | &emsp;`<name>` | A role (tailscale) or one variable or setting (tailscale_ssh); none shows how to use this |
 | `just destroy [<name>...]` | Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them |
 | &emsp;`--confirm CONFIRM` | Delete without asking, these VMs only: the same names as given, comma-separated |
+| &emsp;`--host ON` | Run against this host rather than the current one (just host lists them) |
 | &emsp;`<name>` | The VMs; none means agent-warehouse-default |
+| `just host [<name>]` | List the hosts, or make one the current host, which every command runs against unless --host names another |
+| &emsp;`--json` | The list as JSON, alone on standard output |
+| &emsp;`--remove` | Delete the host's folder in hosts/, after you type its name: its VMs and their SSH aliases stay |
+| &emsp;`--for VMS` | With --json: the VMs a run would name, comma-separated, to say which host it would reach |
+| &emsp;`--host ON` | With --json: the host a run would be given, to say which host it would reach |
+| &emsp;`<name>` | The host to make the current one: every command runs against it from now on |
 | `just logs` | List the run logs in .logs/, newest first |
 | `just mcp` | Let Claude Code sessions in any project run these commands, through an MCP server |
 | &emsp;`--any-branch` | Let the server run this checkout on any branch, or with tracked changes; without it, main with no tracked change only |

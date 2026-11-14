@@ -153,9 +153,10 @@ A release is an annotated tag on `main`, named `vMAJOR.MINOR.PATCH` by
 and only that:
 
 - the `just` commands people use - `init`, `install`, `vault`, `deploy`, `status`, `login`, `code`, `destroy`,
-  `settings`, `logs`, `mcp` and `help` - and their options;
+  `settings`, `logs`, `host`, `mcp` and `help` - and their options;
 - the settings `local.yml.example` and `vault.yml.example` list, and the shape of `inventory/hosts.yml`: the
-  `proxmox` group, its host and that host's `ansible_host`;
+  `proxmox` group, its host and that host's `ansible_host`; and of a host in `hosts/<name>/` beside it (from 2.5):
+  its `hosts.yml` of that shape, its `group_vars/all/local.yml` and `vault.yml`, and `hosts/current`;
 - the role names `just deploy --tags` takes: `common`, `vscode_server`, `dev_tools`, `claude_code`,
   `github_projects` and `tailscale`;
 - the settings every recipe takes from the environment or before its name: `ANSIBLE_ARGS`, `LOG_DIR`,
@@ -166,10 +167,13 @@ and only that:
   path, `<projects>/.claude-on-proxmox/helpers/claude-start.sh`, is kept through 2.x as a link to it on every VM
   `just code` moved the directory on);
 - `just status`'s exit codes for a run that reads the fleet - 0 nothing is wrong, 1 a problem, 2 something
-  could not be read, 3 the run failed - and the JSON `just status --json` and `just settings --json` print, to
-  which a release may add keys but never removes or renames one (`test_status.py` and `test_settings.py` hold
-  the keys there are). A command line or a setup that a recipe refuses before it reads anything prints an
-  error on standard error and nothing on standard output, `--json` or not, and exits non-zero.
+  could not be read, 3 the run failed - and the JSON `just status --json`, `just settings --json` and (from 2.5)
+  `just host --json` print, to which a release may add keys but never removes or renames one (`test_status.py`,
+  `test_settings.py` and `test_hosts.py` hold the keys there are, `where`'s among them). `just host --json` begins
+  with `format_version` and `kind` (`host_list`): `format_version` is major.minor, a reader takes any 1.x and ignores
+  the keys it does not know, and a 2.0 would come only with a major release. A command line or a setup that a
+  recipe refuses before it reads anything prints an error on standard error and nothing on standard output,
+  `--json` or not, and exits non-zero.
 
 The contributor commands - `lint`, `test`, `docs`, `vagrant` and `clean` - the justfile's other settings, the
 role variables the example files do not list, and the wording of what any command prints are not part of it,

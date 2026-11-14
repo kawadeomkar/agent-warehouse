@@ -1207,7 +1207,8 @@ def test_every_status_run_in_a_test_writes_into_its_own_directory() -> None:
     for path in (REPO / "tests" / "unit").glob("test_*.py"):
         text = path.read_text()
         # test_ratchets.py names the file a table counts lines of, and test_controller_writes.py one that only reads the
-        # SSH config; neither runs anything. The MCP tests name it as what their stand-in python answers, in its place.
+        # SSH config; neither runs anything. The MCP tests and test_hosts.py name it as what their stand-in python
+        # answers, in its place.
         skipped = (
             "test_status.py",
             "test_justfile.py",
@@ -1215,6 +1216,8 @@ def test_every_status_run_in_a_test_writes_into_its_own_directory() -> None:
             "test_controller_writes.py",
             "test_mcp_server.py",
             "test_mcp_confirm.py",
+            "test_mcp_hosts.py",
+            "test_hosts.py",
         )
         if path.name not in skipped and "tools/status" in text:
             assert "status_root" in text, path.name
@@ -1637,6 +1640,20 @@ def test_a_reboot_says_each_editors_windows_as_the_editors_list_names_them() -> 
     system["editor_windows_by"] = ["vscode"]
     (text,) = [it["text"] for it in S.status_report(found, "now", 1_800_000_000)["attention"] if "reboot" in it["text"]]
     assert text.endswith("; 1 claude process is open there"), text
+
+
+def test_with_more_than_one_host_every_line_names_the_host_after_a_space() -> None:
+    # " --host <name>", as a run's own lines end: made one line with the rest of the settings, it lost its space and
+    # was joined to the line's last word, as "ssh-config--host nuc" (live, 2026-11-13).
+    fleet = _fleet()
+    fleet["vms"][0]["address"] = "192.0.2.60"
+    fleet["settings"]["host_flag"] = " --host nuc"
+    found = {"localhost": {"fleet": fleet}, "alpha": {"ssh": {"reached": True, "system": {**SYSTEM, "claude": 1}}}}
+    model = S.status_report(found, "now", 1_800_000_000)
+    (reboot,) = [it["command"] for it in model["attention"] if it["text"].startswith("waits for a reboot")]
+    assert reboot.endswith("then just deploy --only ssh-config --host nuc"), reboot
+    named = [it["command"] for it in model["attention"] if "--host" in (it.get("command") or "")]
+    assert named and all(" --host nuc" in command for command in named), named
 
 
 def test_a_vm_is_dated_by_its_disk_and_drawn_from_then_on() -> None:

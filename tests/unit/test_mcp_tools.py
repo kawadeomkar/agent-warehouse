@@ -168,3 +168,44 @@ def test_the_server_reads_nothing_of_its_environment_but_through_the_allow_list(
     assert readers == ["environment.py", "server.py"]
     source = (package / "server.py").read_text()
     assert source.count("os.environ") == 1 and "os.environ" in inspect.getsource(server.main)
+
+
+# ------------------------------------------------------------------------------------------- more than one host ----
+# The current host is the terminal's, as the default VM is: no tool changes it, a deploy that may create a VM names the
+# host it goes on, and a named VM that exists is found where its alias says it is, as just host --json says.
+
+
+def test_the_hosts_tool_lists_and_never_switches(dumped):
+    assert recipes.TOOLS["hosts"].recipe == "host" and recipes.TOOLS["hosts"].fixed == {"json": True}
+    assert recipes.schema(recipes.recipe_of(dumped, "hosts"), "hosts")["properties"] == {}
+
+
+def test_with_more_than_one_host_a_deploy_that_may_create_a_vm_names_its_host():
+    assert server.deploy_refusal(["newvm"], "", False, "", unplaced=True).startswith(
+        "this checkout has more than one Proxmox host, and deploy may create a VM: name the host"
+    )
+    assert server.deploy_refusal(["newvm"], "", False, "nuc", unplaced=True) == ""
+    # A VM its alias places, configuration, a dry run: no host to name.
+    assert server.deploy_refusal(["alpha"], "", False, "", unplaced=False) == ""
+    assert server.deploy_refusal(["newvm"], "configure", False, "", unplaced=True) == ""
+    assert server.deploy_refusal(["newvm"], "", True, "", unplaced=True) == ""
+    # Without names, the default VM, which is never implied here, whatever the hosts.
+    assert server.deploy_refusal([], "", False, "nuc").startswith("deploy creates the VMs named, and none were")
+
+
+def test_a_run_is_against_the_host_the_read_names_else_the_current_one_and_none_with_one_host():
+    # The server asks just host --json, --for the names and --host the call gives (test_mcp_hosts.py runs it): this is
+    # what it takes from the answer.
+    pve, nuc = {"name": "pve", "first": True}, {"name": "nuc", "first": False}
+    one = {"current_host": "pve", "hosts": [pve], "where": {"host": "pve", "refusal": ""}}
+    assert server.run_host(one) == "" and not server.many_hosts(one)
+    two = {"current_host": "nuc", "hosts": [pve, nuc]}
+    assert server.many_hosts(two)
+    assert server.run_host({**two, "where": None}) == "nuc"
+    assert server.run_host({**two, "where": {"host": "pve", "routed": True, "refusal": ""}}) == "pve"
+    # Names on two hosts: none, and the run refuses them itself.
+    assert server.run_host({**two, "where": {"host": "", "refusal": "the VMs named are on 2 hosts"}}) == ""
+    # Unread: none, a word in a title or a dialog.
+    assert server.run_host({}) == ""
+    # A second host without a first is more than one host too.
+    assert server.many_hosts({"current_host": None, "hosts": [nuc]})

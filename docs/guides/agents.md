@@ -45,6 +45,9 @@ agent tells you what the page is for, then follows the run with `job` to its nex
 - **The names.** A deploy that would create a VM needs its names: `just deploy`'s default VM is the terminal's, so that
   an agent's forgotten argument creates nothing. `only="configure"`, `only="ssh-config"`, `only="template"` and `check`
   take no names, as at a terminal.
+- **The host.** With [more than one Proxmox host](hosts.md), the `hosts` tool lists them and every run tool takes
+  `host`; no tool changes the current host, which is yours. A deploy that may create a VM names its host; a VM that
+  exists is found where it is. `destroy`'s dialog names the host, and the code to type holds it.
 
 ## Register it
 
@@ -80,9 +83,10 @@ variable, since a project's own `.claude/settings.json` can set those in every s
 
 Run `just mcp` again when this checkout, its environment, `just`, your `PATH`, `XDG_DATA_HOME` or `CLAUDE_CONFIG_DIR`
 moves. After a `git pull` that changes the justfile or the server's own code, a running server answers every call
-with "restart this server with /mcp": its tools are made from the justfile it read when it started, and it runs the
-code it loaded then. It does not see its environment change, so after a `just install` that moved a package it runs
-on - the MCP SDK, which Dependabot raises often - restart it yourself with `/mcp`.
+with "restart this server with /mcp" - but `jobs`, `job` and `cancel`, so a run under way can still be followed and
+stopped: its tools are made from the justfile it read when it started, and it runs the code it loaded then. It does
+not see its environment change, so after a `just install` that moved a package it runs on - the MCP SDK, which
+Dependabot raises often - restart it yourself with `/mcp`.
 
 ## Permission rules
 

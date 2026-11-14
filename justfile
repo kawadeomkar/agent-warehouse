@@ -95,6 +95,10 @@ ATTENDED := ''
 # VM ID, and runs share the managed SSH config. From the command line only, as BIN; RUN_LOCK= takes none, as LOG_DIR=
 # keeps no log.
 RUN_LOCK := justfile_directory() / '.cache' / 'run.lock'
+# From the command line only, as BIN: the folder of the checkout's hosts but the first, one folder each, and the name of
+# the current one (hosts/current), which tools/check host reads and just host writes. Git-ignored, and refused by
+# tests/check_no_local_files.sh; the unit tests point it into a folder of their own.
+HOSTS_DIR := justfile_directory() / 'hosts'
 
 # One run, one moment: every log of the run is named after it.
 stamp := datetime('%Y%m%d-%H%M%S')
@@ -102,11 +106,15 @@ stamp := datetime('%Y%m%d-%H%M%S')
 # ({{ self }} live_run=test lint): that one then draws into the parent's run, under its title. A setting, never the
 # environment, so a variable left exported joins no run.
 live_run := ''
+# The host of a run, for a recipe run as a part of another's ({{ self }} nested_host="$host" <recipe>): its --host, so
+# that the two are one run against one host. A setting, never the environment, as live_run; empty, the recipe resolves
+# its own.
+nested_host := ''
 # The same just on the same justfile, with every setting of this run: what a
 # recipe that includes another's work (test lints, init installs) runs it by.
 # A recursive just would otherwise start without the command line's BIN= and
 # the rest; tests/unit/test_justfile.py holds this to every setting above.
-self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' ATTENDED=' + quote(ATTENDED) + ' RUN_LOCK=' + quote(RUN_LOCK) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run)
+self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' ATTENDED=' + quote(ATTENDED) + ' RUN_LOCK=' + quote(RUN_LOCK) + ' HOSTS_DIR=' + quote(HOSTS_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run) + ' nested_host=' + quote(nested_host)
 # The first line of every recipe but help.
 guard := quote(justfile_directory() / 'tools/check') + ' checkout ' + quote(invocation_directory())
 # The names given ("$@"), joined with commas into $names. A VM name with an underscore, which Proxmox refuses in a
@@ -135,8 +143,13 @@ vault_args := 'set --; [ ! -f ' + quote(VAULT_PASS) + ' ] || set -- "$@" --vault
 # A VM recipe's: the vault's, then the names ($names, from hyphenate_names), if
 # any. Passed as JSON, not key=value: Ansible's key=value parser splits
 # extra-vars on whitespace, so make's VM_NAME="alpha beta" once became alpha
-# and only half the fleet was created.
-vm_args := vault_args + '; [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"'
+# and only half the fleet was created. Then, with more than one host, the
+# others' names and addresses ($host_extra, host_env's): the guards that keep
+# them out of a VM's name, its alias and destroy's forgetting of a key. And for
+# a host in hosts/, its inventory sources ($host_sources), each a -i: never an
+# exported ANSIBLE_INVENTORY, which the editor and every other program the run
+# starts would inherit, and carry into a later run against another host.
+vm_args := vault_args + '; [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"; [ -z "$host_extra" ] || set -- "$@" -e "$host_extra"; for source in $(printf %s "$host_sources" | tr , " "); do set -- "$@" -i "$source"; done'
 # A run with no terminal on stdin has nobody to approve a sign-in: no page
 # opens and nothing reaches the clipboard, since nobody is there to use them,
 # and just deploy skips its sign-ins, which would otherwise start by themselves
@@ -154,6 +167,19 @@ no_tty_args := '[ -t 0 ] || if [ ' + quote(ATTENDED) + ' = 1 ]; then set -- "$@"
 # process's start - never an fd lock, which ssh's ControlPersist masters and an
 # editor a run starts would inherit and hold.
 take_lock := 'tools/check lock ' + quote(RUN_LOCK) + ' "$$"'
+# The run's host (tools/check host): the one --host names ($on), else nested_host's, else the one the VMs named ($names)
+# are on, as their aliases record, else the one hosts/current names, else the first; refused as the resolver says - a
+# host not set up, a setting of the shared files no host inherits, an internal made from the run's host that a settings
+# file sets, a token in the wrong vault, an exported ANSIBLE_INVENTORY beside more than one host. Then, for the lines
+# after it: $host, $hosts_many (set with more than one host), $settings_files, $vault_files, $host_sources (a host in
+# hosts/: the shared controller.yml, then the host's folder, whose group_vars outrank the shared ones, each a -i of the
+# run's), $host_extra and $host_unplaced (the names no alias places on a host). A line of the recipe's script after its
+# own rules and before its lock, since the lock's title names the host; the environment's bin found first, whose Python
+# reads the hosts' YAML. The assignment's own line, since a refusal in a command substitution under eval would go
+# unseen. With one host - nothing in HOSTS_DIR - and none asked for, there is nothing to choose: the run is as it always
+# was, the resolver not started. $host_lenient set, a host lacking a setting it sets for itself is taken (just settings,
+# just vault); $host_readonly set, nothing is written (just status).
+host_env := find_bin + '; if [ -z "$on" ] && [ -z ' + quote(nested_host) + ' ] && [ -z "$(ls -A ' + quote(HOSTS_DIR) + ' 2>/dev/null)" ]; then host= hosts_many= settings_files=' + quote(SETTINGS_FILES) + ' vault_files=' + quote(VAULT_FILE) + ' host_sources= host_extra= host_unplaced=; else host_said=$(tools/check host "$bin" env${host_lenient:+ --lenient}${host_readonly:+ --read-only} --checkout=' + quote(justfile_directory()) + ' --hosts-dir=' + quote(HOSTS_DIR) + ' --vault-file=' + quote(VAULT_FILE) + ' --settings-files=' + quote(SETTINGS_FILES) + ' --vault-pass=' + quote(VAULT_PASS) + ' --nested=' + quote(nested_host) + ' --host="$on" --names="$names"); eval "$host_said"; fi'
 
 # deploy's stages, which deploy asks about when one is given as a VM name
 # (below). A recipe's name is a VM name there like any other: deploy takes
@@ -193,6 +219,8 @@ help *RECIPE:
     echo "Options go after the recipe's name, settings before it or exported: ANSIBLE_ARGS='...' passes"
     echo "anything else to ansible-playbook in init, deploy, code, login and destroy (status takes -e and -i), and"
     echo "LOG_DIR=<dir> moves the run logs: just ANSIBLE_ARGS=-vvv deploy alpha."
+    echo "With more than one Proxmox host, every command runs against the current one (just host lists them), or the"
+    echo "one --host names."
 
 # ------------------------------------------------------------------ use ----
 # just install, the git hook, the local config files - copied from their
@@ -214,11 +242,24 @@ help *RECIPE:
 # shows. init_settings.yml reads it from --token-secret-file's file, or from
 # AGENT_WAREHOUSE_TOKEN_SECRET in the environment. A word after the options
 # is caught by EXTRA and refused without being said.
+#
+# --host <name> sets up another host of the checkout's, in hosts/<name>/
+# (tools/check host init): its address, its token and what the checks find of
+# it, written into its own files, with every setting it sets for itself; the
+# GitHub account and the VPN are every host's, and not asked again. Without
+# --host, the current host's, as every command's: the first host's until just
+# host chose another. Another host's token secret comes from
+# --token-secret-file alone: an exported one may be the first host's. A host is
+# never created without --address or a terminal to ask for one, nor while the
+# checkout has no other: there, a bare word was 2.4's address, which is
+# --address from 2.5. Through 2.x a --host value with a dot or a colon is still
+# taken for the address, and said.
 [arg('EXTRA', help='Nothing: any word after the options is refused, unsaid')]
 [arg('PROMPT', long='no-prompt', value='no', help='Ask nothing, even at a terminal')]
-[arg('HOST', long='host', pattern='[A-Za-z0-9.:-]*', help="The Proxmox host's address, for inventory/hosts.yml")]
+[arg('ON', long='host', pattern='[A-Za-z0-9.:-]*', help='Set up another host of this checkout, by its name (just host lists them); a value with a dot or a colon is taken for --address through 2.x')]
 [arg('BRIDGE', long='bridge', pattern='[A-Za-z0-9._-]*', help='The bridge the template is built on, for local.yml (before the template exists)')]
 [arg('TAILSCALE', long='tailscale', pattern='(on|off)?', help="Answers init's VPN question: on, each VM joins your tailnet; off, none - a VPN of yours that routes the LAN, or none at all (vpn in local.yml)")]
+[arg('ADDRESS', long='address', pattern='[A-Za-z0-9.:-]*', help="The Proxmox host's address, for its hosts.yml")]
 [arg('STORAGE', long='storage', pattern='[A-Za-z0-9._-]*', help='The storage for VM disks, for local.yml: written when the token can use it there')]
 [arg('TOKEN_ID', long='token-id', pattern='[A-Za-z0-9._-]*', help="The API token's ID, the part after its user's !, when it is not ansible")]
 [arg('GITHUB_USER', long='github-user', pattern='[A-Za-z0-9-]*', help='The GitHub account whose repositories are cloned')]
@@ -230,10 +271,24 @@ help *RECIPE:
 [no-exit-message]
 [positional-arguments]
 [script]
-init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORAGE='' BRIDGE='' TAILSCALE='' PROMPT='' *EXTRA:
+init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORAGE='' BRIDGE='' TAILSCALE='' PROMPT='' *EXTRA:
     {{ guard }}
     {{ if EXTRA == '' { '' } else { init_extra_refused } }}
-    host=$1 token_user=$2 token_name=$3 token_secret_file=$4 github_user=$5 storage=$6 bridge=$7 tailscale=$8 prompt=$9
+    address=$1 on=$2 token_user=$3 token_name=$4 token_secret_file=$5 github_user=$6 storage=$7 bridge=$8 tailscale=$9 prompt=${10}
+    # --host names a host from 2.5; through 2.x a value with a dot or a colon is an address, as it was.
+    host_name=
+    case "$on" in
+    '') ;;
+    *[.:]*)
+      [ -z "$address" ] || { echo "error: --host $on and --address $address: --host names a host of this checkout's, and its address is --address" >&2; exit 1; }
+      echo "warning: --host names a host of this checkout's from 2.5, so $on, an address, is taken for --address $on, as before: give it so" >&2
+      address=$on ;;
+    *)
+      case "$on" in [!abcdefghijklmnopqrstuvwxyz0123456789]* | *[!abcdefghijklmnopqrstuvwxyz0123456789-]*)
+        echo "error: a host's name is lowercase letters, digits and -, from a letter or a digit (got: [$on])" >&2; exit 1 ;;
+      esac
+      host_name=$on ;;
+    esac
     # A relative file is where just was started, not this directory, where the
     # recipe runs; ~ is left for the playbook to expand.
     case "$token_secret_file" in '' | /* | '~'*) ;; *) token_secret_file={{ quote(invocation_directory()) }}/$token_secret_file ;; esac
@@ -244,7 +299,7 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
       case "$2" in *[!$3]*) echo "error: --$1 may contain only $4 (got: [$2])" >&2; exit 1 ;; esac
     }
     letters=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
-    only host "$host" "$letters.:-" 'letters, digits and . : -'
+    only address "$address" "$letters.:-" 'letters, digits and . : -'
     only token-user "$token_user" "$letters._@-" 'letters, digits and . _ - @'
     only token-id "$token_name" "$letters._-" 'letters, digits and . _ -'
     only token-secret-file "$token_secret_file" "$letters._/~+-" 'letters, digits and . _ - / ~ + (give an absolute path where the directory has others)'
@@ -252,7 +307,7 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     only storage "$storage" "$letters._-" 'letters, digits and . _ -'
     only bridge "$bridge" "$letters._-" 'letters, digits and . _ -'
     given=
-    for pair in host="$host" token_user="$token_user" token_name="$token_name" token_secret_file="$token_secret_file" \
+    for pair in host="$address" token_user="$token_user" token_name="$token_name" token_secret_file="$token_secret_file" \
       github_user="$github_user" storage="$storage" bridge="$bridge" tailscale="$tailscale"; do
       [ -z "${pair#*=}" ] || given="$given${given:+,}\"${pair%%=*}\":\"${pair#*=}\""
     done
@@ -261,8 +316,9 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     # init asks only at a terminal, and never with --no-prompt: init_ask is
     # false otherwise, so a run with no terminal, or the playbook run by hand,
     # asks nothing and writes only what was given.
-    [ "$prompt" = no ] || ! [ -t 0 ] || set -- -e '{"init_ask":true}' "$@"
-    {{ take_lock }} init
+    asking=
+    [ "$prompt" = no ] || ! [ -t 0 ] || { asking=1; set -- -e '{"init_ask":true}' "$@"; }
+    {{ take_lock }} init${host_name:+ --host $host_name}
     {{ self }} install
     {{ find_bin }}
     # The git hook names no environment (tools/git-hook), so each worktree commits through its own: pre-commit install
@@ -298,8 +354,18 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
       test -f "$file" || { (umask 077 && cp "$file.example" "$file"); copied="$copied $file"; }
     done
     [ -z "$copied" ] || echo "Created$copied from their .example files (git-ignored)."
+    # The host's own files, for another host - the one --host names, else the current one: its folder, and each file
+    # from tools/templates/host/ where it is missing. Then what both playbooks are pointed at - its files, the vault's
+    # name for its token, what it sets for itself - as JSON ($init_host_json), and its inventory sources. Refused for
+    # another host: a value for the shared files (the GitHub account, the VPN), and an exported token secret, which
+    # may be the first host's.
+    init_settings_files={{ quote(SETTINGS_FILES) }} init_vault={{ quote(VAULT_FILE) }} init_made=
+    host_said=$(tools/check host "$bin" init "$host_name" --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }} --vault-pass={{ quote(VAULT_PASS) }} --address="$address" ${asking:+--asking} ${github_user:+--shared} ${tailscale:+--shared} ${token_secret_file:+--secret-file})
+    eval "$host_said"
+    [ -z "$init_made" ] || echo "Created $init_made from tools/templates/host/ (git-ignored)."
+    set -- "$@" -e "$init_host_json"
     # --asking: no VPN chosen yet is this run's question, not a warning.
-    tools/check settings "$bin" --asking {{ SETTINGS_FILES }}
+    tools/check settings "$bin" --asking $init_settings_files
     # Drawn live from here, after just install, as one run in two parts - the questions, then the checks - unless it
     # is a stage of another recipe's run (live_run), or there is no state to carry the run between them (LIVE_DIR=,
     # when each playbook prints as it did): its title, which no value given goes into, the state the two playbooks
@@ -313,13 +379,24 @@ init HOST='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORA
     fi
     {{ run_logged }} init "$bin/ansible-playbook" -i playbooks/inventory/init.yml "$@" {{ ANSIBLE_ARGS }} playbooks/init_settings.yml
     # The checks run with the project's inventory and the vault, whose password
-    # is looked for now: the questions may have just made .vault_pass.
-    if head -c 14 {{ quote(VAULT_FILE) }} | grep -q '^\$ANSIBLE_VAULT' && [ ! -f {{ quote(VAULT_PASS) }} ] && [ -z "${ANSIBLE_VAULT_PASSWORD_FILE:-}" ]; then
-      echo "Proxmox is not checked: {{ VAULT_FILE }} is encrypted, and there is no {{ VAULT_PASS }} or ANSIBLE_VAULT_PASSWORD_FILE to open it with."
+    # is looked for now: the questions may have just made .vault_pass. Another
+    # host's, through its sources over the shared ones, as every run against it.
+    if head -c 14 "$init_vault" | grep -q '^\$ANSIBLE_VAULT' && [ ! -f {{ quote(VAULT_PASS) }} ] && [ -z "${ANSIBLE_VAULT_PASSWORD_FILE:-}" ]; then
+      echo "Proxmox is not checked: $init_vault is encrypted, and there is no {{ VAULT_PASS }} or ANSIBLE_VAULT_PASSWORD_FILE to open it with."
       exit 0
     fi
     [ ! -f {{ quote(VAULT_PASS) }} ] || set -- --vault-password-file {{ quote(VAULT_PASS) }} "$@"
+    for source in $(printf %s "$host_sources" | tr , ' '); do set -- "$@" -i "$source"; done
     {{ run_logged }} init "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/init_check.yml
+    # A host set up and checked, at a terminal: the offer to make it the current one.
+    if [ -n "$host_name" ] && [ -n "$asking" ] && [ "$(tools/check host "$bin" current --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }})" != "$host_name" ]; then
+      printf 'Make %s the current host, which every command runs against? y, or Enter for no: ' "$host_name"
+      read -r answer || answer=
+      case "$answer" in
+      y | Y) tools/check host "$bin" switch "$host_name" --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }} ;;
+      *) echo "just host $host_name makes it the current host, and --host $host_name on a command reaches it once." ;;
+      esac
+    fi
 
 # uv's sync installs the versions the lock pins into the environment
 # tools/env-run finds, after checking the lock still matches pyproject.toml.
@@ -388,16 +465,28 @@ install LOCK='':
 
 # A plaintext vault can only be encrypted and an encrypted one only edited, so
 # the file says which: the first `just vault` after editing the example
-# encrypts it, and every one after that opens it in $EDITOR.
+# encrypts it, and every one after that opens it in $EDITOR. The shared vault,
+# every host's; --host <name>, a host's own in hosts/, which holds its token -
+# reached even where the host lacks what a run needs, since this is how its
+# token is put right (the resolver's --lenient).
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help="That host's own vault, which holds its token, rather than the shared one (just host lists them)")]
 [doc('Encrypt the vault, or edit it once it is encrypted')]
 [group('use')]
 [no-exit-message]
+[positional-arguments]
 [script]
-vault:
+vault ON='':
     {{ guard }}
-    {{ find_bin }}
+    on=$1 names= host_lenient=1
+    shift
     file={{ quote(VAULT_FILE) }}
-    test -f "$file" || { echo "error: $file missing. Run: just init" >&2; exit 1; }
+    if [ -n "$on" ]; then
+      {{ host_env }}
+      file=${vault_files##* }
+    else
+      {{ find_bin }}
+    fi
+    test -f "$file" || { echo "error: $file missing. Run: just init${on:+ --host $on}" >&2; exit 1; }
     {{ vault_args }}
     if head -c 14 "$file" | grep -q '^\$ANSIBLE_VAULT'; then action=edit; else action=encrypt; fi
     echo "$bin/ansible-vault $action $* $file"
@@ -438,6 +527,7 @@ vault:
 [arg('CORES', long='cores', pattern='([1-9][0-9]{0,2})?', help="Each new VM's vCPU cores, in place of the vm_cores setting")]
 [arg('ROLES', long='tags', short='t', pattern='[a-z_,]*', help='Configure only these roles, comma-separated: beside VM names it means --only configure (just deploy alpha --tags claude_code)')]
 [arg('DISK', long='disk', pattern='([1-9][0-9]{0,5}[GT])?', help="Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting")]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('MEMORY', long='memory', pattern='([1-9][0-9]{0,6}[MG]?)?', help="Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting")]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [arg('REPOS', long='repos', pattern='([A-Za-z0-9_][A-Za-z0-9._-]{0,99}(,[A-Za-z0-9_][A-Za-z0-9._-]{0,99})*)?', help="Only these of your GitHub repositories on each VM named, comma-separated, in place of the github_projects setting: kept for that VM, and added to by a later --repos")]
@@ -447,10 +537,10 @@ vault:
 [no-exit-message]
 [positional-arguments]
 [script]
-deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *NAMES:
+deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *NAMES:
     {{ guard }}
-    stage=$1 check=$2 roles=$3 start=$4 cores=$5 memory=$6 disk=$7 repos=$8
-    shift 8
+    stage=$1 check=$2 on=$3 roles=$4 start=$5 cores=$6 memory=$7 disk=$8 repos=$9
+    shift 9
     tools/check names "$@"
     tools/check size "$cores" "$memory" "$disk"
     tools/check repos "$repos"
@@ -534,11 +624,26 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *
       echo "error: --repos gives a VM its list as it is provisioned, which only just deploy and just deploy --only provision do" >&2
       exit 1
     fi
-    [ -n "$check" ] || {{ take_lock }} "deploy${stage:+ --only $stage}${roles:+ --tags $roles}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
-    {{ find_bin }}
-    tools/check vault {{ quote(VAULT_FILE) }}
+    {{ host_env }}
+    # A VM name is one host's: a deploy that may make the VMs named asks every other host for each name no alias here
+    # places on a host (tools/status --taken: GETs only, each host with its own token), and refuses one found there.
+    # A host that does not answer is said, and the run goes on: the alias its next write makes still catches it.
+    if [ -n "$hosts_many" ] && [ -n "$host_unplaced" ] && [ -z "$check$roles" ] && { [ -z "$stage" ] || [ "$stage" = provision ]; }; then
+      others=$(tools/check host "$bin" every --except="$host" --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }} --vault-file={{ quote(VAULT_FILE) }} --vault-pass={{ quote(VAULT_PASS) }})
+      {{ vault_args }}
+      taken=$("$bin/python" tools/status --taken --hosts "$others" --names "$host_unplaced" --only vms "$@")
+      for name in $(printf %s "$host_unplaced" | tr , ' '); do
+        on_host=$(printf '%s\n' "$taken" | awk -v n="$name" '$1 == "taken" && $2 == n { print $3; exit }')
+        [ -z "$on_host" ] || { echo "error: $name is a VM of $on_host already, and a VM name belongs to one host: just deploy $name runs it there, or give this one another name" >&2; exit 1; }
+      done
+      for unread in $(printf '%s\n' "$taken" | awk '$1 == "unread" { print $2 }'); do
+        echo "warning: $unread did not answer, so whether it has a VM of these names is not known: its alias, once written, records it" >&2
+      done
+    fi
+    [ -n "$check" ] || {{ take_lock }} "deploy${stage:+ --only $stage}${roles:+ --tags $roles}$sized${names:+ $(printf %s "$names" | tr , ' ')}${hosts_many:+ --host $host}"
+    tools/check vault $vault_files
     tools/check collections "$bin"
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    tools/check settings "$bin" $settings_files
     {{ vm_args }}
     [ -z "$start" ] || set -- "$@" -e '{"proxmox_vm_start_existing": true}'
     # The size as JSON, memory in MiB: just held each value to its pattern, and tools/check size again, so each sits
@@ -569,7 +674,10 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *
     # The live output (callback_plugins/agent_warehouse.py): set, the run is drawn rather than streamed, under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     AGENT_WAREHOUSE_LIVE="deploy${check:+ --check}${stage:+ --only $stage}${roles:+ --tags $roles}${start:+ --start}$sized${names:+ $(printf %s "$names" | tr , ' ')}"
-    export AGENT_WAREHOUSE_LIVE
+    # The run's host beside its title, where the checkout has more than one: never in the title, whose first word
+    # names its declaration.
+    AGENT_WAREHOUSE_LIVE_HOST=${hosts_many:+$host}
+    export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_HOST
     exec {{ run_logged }} "$name" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} ${check:+--check --diff} "$playbook"
 
 # One VM at a time: an editor opens one window per workspace, and "open it in
@@ -580,6 +688,7 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *
 # Without it the folder's latest conversation continues, as before.
 [arg('IDE', long='editor', pattern='(vscode|zed)?', help='Open it in this editor for this run, rather than the one the editor setting names: vscode or zed')]
 [arg('NAME', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The one VM to open')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('PROJECT', long='project', pattern='([A-Za-z0-9._-]{1,100})?', help='Open one project folder on the VM rather than the whole projects directory')]
 [arg('SESSION', long='session', pattern='([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?', help="Continue one of this machine's Claude Code sessions there, by its ID as /resume lists it: its checkout brought to the session's pushed commit, ready for claude --resume")]
 [continue]
@@ -588,21 +697,21 @@ deploy STAGE='' CHECK='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *
 [no-exit-message]
 [positional-arguments]
 [script]
-code PROJECT='' IDE='' SESSION='' *NAME:
+code PROJECT='' IDE='' ON='' SESSION='' *NAME:
     {{ guard }}
-    project=$1 ide=$2 session=$3
-    shift 3
+    project=$1 ide=$2 on=$3 session=$4
+    shift 4
     [ "$#" -gt 0 ] || { echo "error: code opens one VM: just code <name>" >&2; exit 1; }
     tools/check names "$@"
     {{ hyphenate_names }}
     case "$names" in *,*) echo "error: code opens one VM at a time, not [$*]" >&2; exit 1 ;; esac
     tools/check project "$project"
     tools/check session "$session"
-    {{ take_lock }} "code${project:+ --project $project} $names"
-    {{ find_bin }}
-    tools/check vault {{ quote(VAULT_FILE) }}
+    {{ host_env }}
+    {{ take_lock }} "code${project:+ --project $project} $names${hosts_many:+ --host $host}"
+    tools/check vault $vault_files
     tools/check collections "$bin"
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    tools/check settings "$bin" $settings_files
     {{ vm_args }}
     [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     [ -z "$session" ] || set -- "$@" -e "{\"vm_session\": \"$session\"}"
@@ -611,7 +720,10 @@ code PROJECT='' IDE='' SESSION='' *NAME:
     # this title; a session's ID, which its report names, is left out of it. Any -v in ANSIBLE_ARGS streams it as
     # before.
     AGENT_WAREHOUSE_LIVE="code${project:+ --project $project} $names"
-    export AGENT_WAREHOUSE_LIVE
+    # The run's host beside its title, where the checkout has more than one: never in the title, whose first word
+    # names its declaration.
+    AGENT_WAREHOUSE_LIVE_HOST=${hosts_many:+$host}
+    export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_HOST
     exec {{ run_logged }} code "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/code.yml
 
 # The sign-ins only the person can make, each a page in the browser: Claude's
@@ -625,6 +737,7 @@ code PROJECT='' IDE='' SESSION='' *NAME:
 # three in just deploy's order and by its rules; just deploy runs them for its
 # VMs.
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs to sign in, one after another; none reports every VM this project created')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('SIGN_IN', long='only', pattern='(claude|github|tailscale)?', help='One sign-in: claude (by the browser, then Remote Control), github (the device flow, then the private repositories) or tailscale (its web login)')]
 [continue]
 [doc('Sign the VM(s) in to Claude, GitHub and Tailscale, or report how each is signed in')]
@@ -632,23 +745,26 @@ code PROJECT='' IDE='' SESSION='' *NAME:
 [no-exit-message]
 [positional-arguments]
 [script]
-login SIGN_IN='' *NAMES:
+login ON='' SIGN_IN='' *NAMES:
     {{ guard }}
-    only=$1
-    shift
+    on=$1 only=$2
+    shift 2
     tools/check names "$@"
     {{ hyphenate_names }}
-    {{ take_lock }} "login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
-    {{ find_bin }}
-    tools/check vault {{ quote(VAULT_FILE) }}
+    {{ host_env }}
+    {{ take_lock }} "login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}${hosts_many:+ --host $host}"
+    tools/check vault $vault_files
     tools/check collections "$bin"
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    tools/check settings "$bin" $settings_files
     {{ vm_args }}
     {{ no_tty_args }}
     # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     AGENT_WAREHOUSE_LIVE="login${only:+ --only $only}${names:+ $(printf %s "$names" | tr , ' ')}"
-    export AGENT_WAREHOUSE_LIVE
+    # The run's host beside its title, where the checkout has more than one: never in the title, whose first word
+    # names its declaration.
+    AGENT_WAREHOUSE_LIVE_HOST=${hosts_many:+$host}
+    export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_HOST
     exec {{ run_logged }} "login${only:+-$only}" "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} "playbooks/${only:+${only}_}login.yml"
 
 # What every VM this project created is doing, and what needs doing next, read
@@ -663,24 +779,44 @@ login SIGN_IN='' *NAMES:
 # it takes -e and -i; given -e, it keeps nothing and asks Ansible.
 [arg('JSON', long='json', value='true', help='The report as JSON, alone on standard output, with the same exit code')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='Only these VMs; none reads every VM this project created')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('ONLY', long='only', pattern='((vms|storage|capacity|access|sign-ins|system|work)(,(vms|storage|capacity|access|sign-ins|system|work))*)?', help='Only these sections, comma-separated: vms storage capacity access sign-ins system work; vms, storage and capacity read only the Proxmox API, never a VM')]
 [doc('What every VM this project created is doing, and what needs doing next, read without changing anything')]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-status ONLY='' JSON='' *NAMES:
+status ON='' ONLY='' JSON='' *NAMES:
     {{ guard }}
-    only=$1 json=$2
-    shift 2
+    on=$1 only=$2 json=$3
+    shift 3
     tools/check names "$@"
     tools/check sections "$only"
     {{ hyphenate_names }}
-    {{ find_bin }}
-    tools/check vault {{ quote(VAULT_FILE) }}
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
-    {{ vault_args }}
-    set -- "$@" --vault-file {{ quote(VAULT_FILE) }} --cache {{ quote(absolute_path(STATUS_DIR)) }}
+    # More than one host, and neither one nor a VM named: every host, each read by a child of tools/status's own
+    # (lib/claude_vm/status/hosts.py), each host's settings and upgrades kept in a folder of its own. A host that cannot
+    # be read - not set up, a token in the wrong vault - is a block of its own, never the others' refusal.
+    if [ -z "$on" ] && [ -z "$names" ] && [ -n "$(find {{ quote(HOSTS_DIR) }} -mindepth 1 -maxdepth 1 -type d ! -name '.*' 2>/dev/null)" ]; then
+      {{ find_bin }}
+      hosts_said=$(tools/check host "$bin" every --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }} --vault-file={{ quote(VAULT_FILE) }} --vault-pass={{ quote(VAULT_PASS) }})
+      tools/check settings "$bin" {{ SETTINGS_FILES }}
+      {{ vault_args }}
+      set -- "$@" --hosts "$hosts_said" --cache {{ quote(absolute_path(STATUS_DIR)) }}
+    else
+      # Read-only, as the whole of status is: the resolver keeps no check it made.
+      host_readonly=1
+      {{ host_env }}
+      tools/check vault $vault_files
+      tools/check settings "$bin" $settings_files
+      {{ vault_args }}
+      for file in $vault_files; do set -- "$@" --vault-file "$file"; done
+      # One host's, from a checkout of more: its settings and upgrades kept apart from the others', and the other hosts
+      # handed to it as to every run, so that the lines it says name its host. A host in hosts/ is read through its
+      # sources as -i, so that its files key the settings kept.
+      set -- "$@" --cache {{ quote(absolute_path(STATUS_DIR)) }}${hosts_many:+/$host}
+      [ -z "$host_extra" ] || set -- "$@" --host-extra "$host_extra"
+      for source in $(printf %s "$host_sources" | tr , ' '); do set -- "$@" -i "$source"; done
+    fi
     [ -z "$names" ] || set -- "$@" --names "$names"
     [ -z "$only" ] || set -- "$@" --only "$only"
     [ -z "$json" ] || set -- "$@" --json
@@ -704,26 +840,36 @@ status ONLY='' JSON='' *NAMES:
 [arg('RESET', long='reset', value='true', help="Put the one setting named back to its default: its line out of local.yml, its example's back")]
 [arg('CHANGED', long='changed', value='true', help='Only what local.yml or vault.yml changes from the defaults; alone, all of it')]
 [arg('VALUE', long='value', pattern='[^\x00-\x1f\x7f]*', help='Set the one setting named to this value, in local.yml (never a secret: just vault; an empty value is none: --reset)')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help="That host's values rather than the current host's; beside --value or --reset, its own local.yml is the one changed")]
 [doc("Each setting's value and where it was set, for a role, a variable or all of them; --value sets one in local.yml, --reset puts it back")]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
+settings ALL='' CHANGED='' JSON='' ON='' RESET='' VALUE='' *NAME:
     {{ guard }}
-    all=$1 changed=$2 json=$3 reset=$4 value=$5
-    shift 5
+    all=$1 changed=$2 json=$3 on=$4 reset=$5 value=$6
+    shift 6
     [ "$#" -le 1 ] || { echo "error: just settings takes one role or variable, and --value its value" >&2; exit 1; }
     [ -z "$all" ] || [ "$#" -eq 0 ] || { echo "error: just settings --all lists every setting: give it no role or variable" >&2; exit 1; }
     [ -z "$reset$value" ] || { [ "$#" -eq 1 ] && [ -z "$all$changed" ]; } || { echo "error: --value and --reset each change the one setting named beside it: just settings <name> --value <value>, or --reset" >&2; exit 1; }
     [ -z "$reset" ] || [ -z "$value" ] || { echo "error: --value sets a value and --reset takes one out: one or the other" >&2; exit 1; }
     {{ find_bin }}
     if [ "$#" -eq 0 ] && [ -z "$all$changed" ]; then exec "$bin/python" tools/settings --usage --json="$json"; fi
-    tools/check vault {{ quote(VAULT_FILE) }}
+    # The run's host, as every recipe's, but taken where it lacks a setting it sets for itself: this is how that is
+    # put right.
+    names= host_lenient=1
+    {{ host_env }}
+    tools/check vault $vault_files
     tools/check collections "$bin"
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    tools/check settings "$bin" $settings_files
     name=${1:-}
     {{ vault_args }}
+    # A host in hosts/ is read over the shared inventory, its own files a layer each; written only when named.
+    if [ -n "$host_sources" ]; then
+      set -- "$@" --host-folder="${host_sources##*,}"
+      [ -z "$on" ] || set -- "$@" --write-host=true
+    fi
     [ -z "$value" ] || set -- "$@" --value="$value"
     [ -z "$reset" ] || set -- "$@" --reset=true
     exec "$bin/python" tools/settings "$@" --all="$all" --changed="$changed" --json="$json" -- ${name:+"$name"}
@@ -734,6 +880,7 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
 # Claude Code; a person may too, in place of ANSIBLE_ARGS='-e
 # confirm_destroy=yes', which no name bound.
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('CONFIRM', long='confirm', pattern='([A-Za-z0-9][A-Za-z0-9._,-]*)?', help='Delete without asking, these VMs only: the same names as given, comma-separated')]
 [continue]
 [doc("Save the VM(s)' own Claude sessions here, release them from Claude, GitHub and Tailscale, then delete them")]
@@ -741,10 +888,10 @@ settings ALL='' CHANGED='' JSON='' RESET='' VALUE='' *NAME:
 [no-exit-message]
 [positional-arguments]
 [script]
-destroy CONFIRM='' *NAMES:
+destroy CONFIRM='' ON='' *NAMES:
     {{ guard }}
-    confirm=$1
-    shift
+    confirm=$1 on=$2
+    shift 2
     tools/check names "$@"
     {{ hyphenate_names }}
     if [ -n "$confirm" ]; then
@@ -753,18 +900,64 @@ destroy CONFIRM='' *NAMES:
       set_of() { printf %s "$1" | tr _ - | tr , '\n' | sort -u | tr '\n' ,; }
       [ "$(set_of "$confirm")" = "$(set_of "$names")" ] || { echo "error: --confirm names $confirm, but the VMs given are $names: nothing was deleted" >&2; exit 1; }
     fi
-    {{ take_lock }} "destroy${names:+ $(printf %s "$names" | tr , ' ')}"
-    {{ find_bin }}
-    tools/check vault {{ quote(VAULT_FILE) }}
+    {{ host_env }}
+    {{ take_lock }} "destroy${names:+ $(printf %s "$names" | tr , ' ')}${hosts_many:+ --host $host}"
+    tools/check vault $vault_files
     tools/check collections "$bin"
-    tools/check settings "$bin" {{ SETTINGS_FILES }}
+    tools/check settings "$bin" $settings_files
     {{ vm_args }}
     [ -z "$confirm" ] || set -- "$@" -e '{"confirm_destroy": "yes"}'
     # Drawn live (callback_plugins/agent_warehouse.py, its declaration in lib/claude_vm/run/recipes.py), under
     # this title. Any -v in ANSIBLE_ARGS streams it as before.
     AGENT_WAREHOUSE_LIVE="destroy${names:+ $(printf %s "$names" | tr , ' ')}"
-    export AGENT_WAREHOUSE_LIVE
+    # The run's host beside its title, where the checkout has more than one: never in the title, whose first word
+    # names its declaration.
+    AGENT_WAREHOUSE_LIVE_HOST=${hosts_many:+$host}
+    export AGENT_WAREHOUSE_LIVE AGENT_WAREHOUSE_LIVE_HOST
     exec {{ run_logged }} destroy "$bin/ansible-playbook" "$@" {{ ANSIBLE_ARGS }} playbooks/destroy.yml
+
+# The checkout's hosts (tools/check host): the first in inventory/, each other
+# in a folder of its own under hosts/ (HOSTS_DIR), made by just init --host.
+# Without a name, the list, from the files alone: nothing is asked of a host.
+# With one, that host becomes the current one, hosts/current written anew and
+# renamed over the old, under the run lock, so a run under way finishes on the
+# host it started on. --remove deletes a host's folder, after its name is typed
+# at a terminal: never the current host's or the first's, and never its VMs,
+# which stay on it with their aliases here. With --json, --for and --host say
+# which host a run given those names and that --host would reach (the where
+# key): a preview, from the files alone, that never switches.
+[arg('JSON', long='json', value='true', help='The list as JSON, alone on standard output')]
+[arg('REMOVE', long='remove', value='true', help="Delete the host's folder in hosts/, after you type its name: its VMs and their SSH aliases stay")]
+[arg('NAME', pattern='[a-z0-9][a-z0-9-]{0,30}', help='The host to make the current one: every command runs against it from now on')]
+[arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='With --json: the host a run would be given, to say which host it would reach')]
+[arg('VMS', long='for', pattern='([A-Za-z0-9][A-Za-z0-9._,-]*)?', help='With --json: the VMs a run would name, comma-separated, to say which host it would reach')]
+[doc('List the hosts, or make one the current host, which every command runs against unless --host names another')]
+[group('use')]
+[no-exit-message]
+[positional-arguments]
+[script]
+host JSON='' REMOVE='' VMS='' ON='' *NAME:
+    {{ guard }}
+    json=$1 remove=$2 vms=$3 on=$4
+    shift 4
+    [ "$#" -le 1 ] || { echo "error: just host takes one host's name (got: [$*])" >&2; exit 1; }
+    [ -z "$json" ] || [ "$#" -eq 0 ] || { echo "error: --json lists the hosts: give it no name" >&2; exit 1; }
+    [ -n "$json" ] || [ -z "$vms$on" ] || { echo "error: --for and --host say which host a run would reach, in the list: give them with --json" >&2; exit 1; }
+    [ -z "$vms" ] || tools/check names $(printf %s "$vms" | tr , ' ')
+    [ -z "$remove" ] || [ "$#" -eq 1 ] || { echo "error: --remove deletes the host named beside it: just host <name> --remove" >&2; exit 1; }
+    if [ -n "$remove" ] && [ ! -t 0 ]; then
+      echo "error: just host --remove asks you to type the host's name, and there is no terminal to ask at" >&2
+      exit 1
+    fi
+    {{ find_bin }}
+    set -- "${1:-}" --checkout={{ quote(justfile_directory()) }} --hosts-dir={{ quote(HOSTS_DIR) }}
+    if [ -z "$1" ]; then exec tools/check host "$bin" list "$2" "$3" ${json:+--json} ${vms:+--names=$vms} ${on:+--host=$on}; fi
+    {{ take_lock }} "host $1${remove:+ --remove}"
+    if [ -z "$remove" ]; then exec tools/check host "$bin" switch "$@"; fi
+    printf 'Delete %s/%s/, its settings and its token here? Its VMs stay. Type %s to delete it: ' {{ quote(HOSTS_DIR) }} "$1" "$1" >&2
+    read -r answer || answer=
+    [ "$answer" = "$1" ] || { echo "Nothing was deleted." >&2; exit 1; }
+    exec tools/check host "$bin" remove "$@"
 
 # Only files named the way tools/run-logged names its logs, and only in
 # LOG_DIR, which as a justfile setting goes into the script's text rather than its

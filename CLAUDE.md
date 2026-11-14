@@ -32,7 +32,7 @@ checkout (`tools/env-run --collections`), and every recipe and `tools/env-run <t
 
 ```
 just install                         # sync the environment (yours, or this checkout's own, made with uv) to uv.lock + the Galaxy collections; --lock after editing a pin
-just init                            # once: just install + the git hook + the local config, asking for what a first deploy needs
+just init                            # once: just install + the git hook + the local config, asking for what a first deploy needs (--address pve.lan; --host nuc --address ... sets up another host)
 just vault                           # encrypt the vault while it is plaintext, edit it once it is encrypted
 just lint                            # uv lock --check, yamllint --strict, ansible-lint (production), ruff, just --fmt --check, --syntax-check, the other pre-commit hooks
 just lint syntax                     # some of them: lock, yaml, ansible, python, just, syntax, hooks
@@ -55,6 +55,7 @@ just settings vm_cores --value 4     # set one setting in local.yml, held to its
 just settings vm_cores --reset       # back to its default: its line out of local.yml, its example's line back
 just code alpha [--project repo] [--session <id>]   # refresh one alias, copy recent Claude sessions, open the VM in the editor (VS Code with a Claude terminal by default; --editor zed)
 just logs                            # the run logs, newest first: read these instead of asking for terminal output
+just host                            # the checkout's Proxmox hosts (the first in inventory/, each other in hosts/<name>/); just host nuc makes one current; --host nuc on deploy, code, login, destroy, status reaches it once
 just mcp                             # register the MCP server with Claude Code: sessions in any project run these commands
 just docs                            # regenerate the wiki's reference pages; serve previews the site, build builds it strictly
 ```
@@ -83,8 +84,8 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 - A recipe that includes another's work runs it as `{{ self }} <recipe>`, which passes on every setting (a
   recursive just begins without the command line's `BIN=`), and as `{{ self }} live_run=<its name> <recipe>` to
   make it a stage of its own run.
-- A recipe that changes something - `deploy` (but `--check`), `login`, `code`, `destroy`, `init`, `install` - takes
-  the run lock (`{{ take_lock }} <title>`) as the first line after its rules. `ATTENDED` (someone at the screen with
+- A recipe that changes something - `deploy` (but `--check`), `login`, `code`, `destroy`, `init`, `install`, `host`
+  with a name - takes the run lock (`{{ take_lock }} <title>`) as the first line after its rules. `ATTENDED` (someone at the screen with
   no terminal: `no_tty_args` then turns the asking off and nothing else) and `RUN_LOCK` are read from the command
   line alone, as `BIN` is: a variable of the same name some other tool exports changes nothing.
 - A recipe drawn in parts (`lint`, `init`, `test`) exports its title and its state's path (`live_state`), sets
@@ -337,6 +338,51 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenario (its `defaults.yml` the project's) sets `vpn: tailscale` and the Vagrantfile `tailscale_enabled:
       true`, or with none the default they would stop covering Tailscale without failing. The template is never
       signed in to anything.
+- **A host is an inventory source laid over the shared one, and nothing of one host's reaches another.** Read
+  [§7.14](docs/architecture/custom-code.md#714-libclaude_vmhosts-and-toolshost--the-checkouts-hosts) and
+  [§15.8](docs/architecture/decisions.md#158-a-host-is-an-inventory-source-not-a-variable) first.
+    - The first host stays in `inventory/`; each other is `hosts/<name>/` (git-ignored, refused by
+      `tests/check_no_local_files.sh`), run with `-i inventory/controller.yml -i hosts/<name>`, so
+      `groups['proxmox']` is that host alone and no playbook or role names a host. Only `tools/check host`
+      (`tools/host`, the one adapter of the core in `lib/claude_vm/hosts/`, which reads and decides and never writes,
+      and which no front end imports: the MCP server asks `just host --json`) knows a path: every VM recipe's
+      `{{ host_env }}` line asks it, after the rules and
+      before the lock, and reads `$vault_files`, `$settings_files` and `$host_sources` from it, never `VAULT_FILE` or
+      `SETTINGS_FILES`, which stay the first host's and are refused beside another.
+    - A host's sources are each a `-i` of the run's, never an exported `ANSIBLE_INVENTORY`: the editor and every
+      program a run starts would inherit it into a later run against another host. Beside another host, one you
+      exported is refused for every run, the first host's too, which no `-i` overrides it for.
+    - `proxmox_api_token_secret` is one expression keyed on `inventory_dir`: the shared vault's
+      `vault_proxmox_api_token_secret` only while the run's Proxmox host was defined beside localhost, else the
+      host's own `vault_host_proxmox_api_token_secret`, undefined before any request where its vault has none. Never
+      a helper variable beside it, which a git-ignored file could set; the resolver refuses either name in the
+      other's vault, and, beside another host, any settings file or vault a run reads that sets what the defaults make
+      from the run's host (the kind's `from_host`: the token's secret, the API's address, URL, headers and module
+      defaults), which would outrank the rule for every host.
+    - Only a host's `hosts.yml` is inventory in its folder: Ansible reads every `.yml`, `.yaml` and `.json` there,
+      and every folder but `group_vars` and `host_vars`, so the resolver refuses another. What a host's files say is
+      that host's problem, said in its place, never a traceback, and a run against another goes on.
+    - The kinds table (`lib/claude_vm/hosts/kinds.py`) names each host's always-written settings, which the
+      resolver requires, and those of one network, which it never lets the shared files supply.
+    - `claude_hosts_other` (the other hosts' names and addresses, from the resolver) feeds
+      `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with it `proxmox_vm_known_hosts_kept`.
+    - `just host <name>` switches under the run lock; no agent changes the current host. `just init` alone works on
+      the current host, as every command does; another host's init takes no exported token secret, which may be the
+      first host's, and no value of the shared files'.
+    - `just destroy`'s question names the host beside another, read from the run's own `groups['proxmox']` and the
+      `claude_hosts_other` the justfile hands it: all a `vars_prompt` can see.
+    - A VM name is one host's: a VM named runs against the host its alias records (`origins`, the managed SSH config
+      alone), names on two hosts are refused, and `--host` beside a name another host's alias records is a warning:
+      the run reaches that host's VM of the name, and `vm_names.yml` refuses the runs that would write its alias.
+    - A line a run prints or writes onto a VM that says what to run ends with `claude_host_flag` (` --host <name>`
+      with more than one host, empty with one): the retries, the roles' commands through `<role>_host_flag`,
+      `code_editor_flag` and the editor plan's own `host_flag`, which `validate` holds apart from `--editor`, the
+      session notes, whose rows `session_notes.py` names it in from the notes' marker, and `just status`'s lines,
+      from its settings' `host_flag`, where each command ends. A new such line takes it too:
+      `test_every_line_that_names_a_vm_names_its_host` fails on one that does not.
+    - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
+      the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
+      `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
 - **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
   write a fourth, and Claude Code's own CLI a fifth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
@@ -371,8 +417,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       reserved range.
     - Deleting a VM never forgets the Proxmox host's key, or another inventory host's
       (`proxmox_vm_known_hosts_kept`), whatever address the VM reported last.
-    - A block is only ever written for a tagged VM and holds only what ssh reads; pruning removes blocks, never
-      VMs. The `Include` is added only when `ssh -G` says the user's config does not reach the managed file
+    - A block is only ever written for a tagged VM and holds only what ssh reads, and its origin: one comment,
+      `# origin: <host>` (`claude_ssh_origin`), the host its VM was found on. Pruning removes blocks, never
+      VMs, and only this host's: a block recording another host is never pruned, re-pointed or removed by a run
+      against this one (`ssh_config_elsewhere`), and one with no record only while the checkout has one host.
+      The `Include` is added only when `ssh -G` says the user's config does not reach the managed file
       yet, and never rewrites or changes the mode of the user's file.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward aside,
   and never answers VS Code's, Zed's or Claude Code's security questions.** Read
@@ -515,7 +564,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `init_answer`, typed or picked from the menu the live engine asks a yes or no or a choice as, whose answers
       are what the typed ones are (`init_ask_menu`).
     - Every write is under `init_ask` (a terminal, and no `--no-prompt`) or under a value given on the command
-      line (`init_given`), which never overwrites: one that differs from what is set fails the run, naming both.
+      line (`init_given`, or `--host`'s name for another host's own settings), which never overwrites: one that
+      differs from what is set fails the run, naming both. Another host (`init_host`) is asked only its address and
+      token, its secret written as `vault_host_proxmox_api_token_secret`, and gets each setting it sets for itself
+      only once every check passed.
       `hosts.yml` and `local.yml` are changed by one validated `lineinfile` each, on the example's own line.
     - Every later run reads `local.yml` as a template, so a node, storage or bridge name the host reported is
       held to Proxmox's own format (`proxmox_name`) before it is offered or written, and
@@ -560,6 +612,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       or Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
       `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
       options, port and key after them - no alias, nothing in `~/.ssh` or `~/.claude`.
+    - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
+      `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
+      vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.
     - It runs no `ansible-playbook` (decided on measurements,
       [§15.7](docs/architecture/decisions.md#157-just-status-runs-no-playbook)): `tools/status`, the engine in
       `lib/claude_vm/status/`, the settings asked of Ansible in-process and kept, and one program on each VM
@@ -638,7 +693,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `just mcp --any-branch`, and with `ATTENDED=1` exactly when the session is an interactive one here
       (`CLAUDE_CODE_ENTRYPOINT=cli`, not over SSH) or `--attended` says so.
     - A `deploy` that would create a VM needs its names (`deploy_refusal`): the default VM is the terminal's, never
-      implied through an agent.
+      implied through an agent; with more than one host, its `host` too, the current host being the terminal's. No
+      tool changes the current host (`hosts` lists them), and `destroy`'s code holds the host it deletes from.
     - A call returns at the run's first browser block, with the job's ID and where it ended: the person cannot see
       a backgrounded call's progress. Only a person's stop - Esc (`AbortError: user-cancel`), `x` in `/tasks`
       (`AbortError: The operation was aborted.`), `cancel` - stops a run, by SIGINT to its group, the tree ended after

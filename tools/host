@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""The checkout's hosts: the one adapter of the hosts core (lib/claude_vm/hosts/), which decides; this reads the
+arguments, prints what the core decided as shell, JSON or a table, and performs the writes. tools/check host runs it
+with the environment's Python.
+
+    tools/host env --checkout <dir> --hosts-dir <dir> --vault-file <file> --settings-files <files> --vault-pass <file>
+                   [--host <name>] [--nested <name>] [--names <a,b>] [--lenient] [--read-only]
+    tools/host list --checkout <dir> --hosts-dir <dir> [--json] [--host <name>] [--names <a,b>]
+    tools/host switch --checkout <dir> --hosts-dir <dir> <name>
+    tools/host remove --checkout <dir> --hosts-dir <dir> <name>
+    tools/host init --checkout <dir> --hosts-dir <dir> --vault-pass <file> [--address <address>] [--asking] [--shared]
+                    [--secret-file] [<name>]
+    tools/host current --checkout <dir> --hosts-dir <dir>
+    tools/host every --checkout <dir> --hosts-dir <dir> [--except <name>] [--vault-file <file>] [--vault-pass <file>]
+
+env prints, for the recipe to eval, the host of the run - --host, else the host --nested names (a recipe run inside
+another's, its host passed as the justfile's nested_host=), else the one the VMs named are on, as their SSH aliases
+record, else the one hosts/current names, else the first host - as shell assignments: host, hosts_many,
+settings_files, vault_files, host_sources (each a -i of the run's, for a host in hosts/), host_extra and host_unplaced.
+Or it refuses, saying why on standard error, and exits 1, before anything starts. Every value it prints is held to a
+pattern first, and printed quoted. With --lenient, as just settings and just vault ask it, a host that lacks a setting
+it sets for itself is taken, and what a run would read of it is not checked: they are how that is put right. With
+--read-only, as just status asks it, nothing is written, hosts/.checked.json included.
+
+list prints the hosts, as a table or, with --json, as a document a release only adds keys to. Given the names or the
+--host a run would take, the document says which host that run would reach (where), from the files alone.
+
+init sets up a host for just init, from tools/templates/host/: its folder and each file it lacks, the hosts.yml naming
+it; then prints what just init's playbooks are pointed at - its files, the vault's name for its token, what it sets for
+itself - as JSON, for the recipe to pass on, with its inventory sources. Without a name, the current host's, as every
+command's: the first host's until another is chosen. A host is never created without an address given or a terminal
+to ask for one, nor at all while the checkout has no other: there, a bare word was 2.4's address.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shlex
+import shutil
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
+from claude_vm import store, wire  # noqa: E402
+from claude_vm.hosts import choose, resolve, setup  # noqa: E402
+from claude_vm.hosts import layout as hosts  # noqa: E402
+from claude_vm.hosts.model import Note, OtherHost, Request  # noqa: E402
+
+TEMPLATES = REPO / "tools" / "templates" / "host"
+
+
+def _refuse(said: str) -> int:
+    print(f"error: {said}", file=sys.stderr)
+    return 1
+
+
+def _say(notes: tuple[Note, ...]) -> None:
+    for note in notes:
+        print(f"warning: {note.text}" if note.level == "warning" else note.text, file=sys.stderr)
+
+
+def _request(opts) -> Request:
+    return Request(
+        host=opts.host,
+        nested=opts.nested,
+        names=tuple(name for name in opts.names.split(",") if name),
+        lenient=opts.lenient,
+        read_only=opts.read_only,
+        vault_file=opts.vault_file,
+        settings_files=opts.settings_files,
+        vault_pass=opts.vault_pass,
+    )
+
+
+def _others(others: tuple[OtherHost, ...]) -> list[dict]:
+    return [{"name": other.name, "address": other.address} for other in others]
+
+
+def _kept(layout: hosts.Layout) -> dict:
+    """hosts/.checked.json: each host's vault check that passed, under the vault files' key."""
+    try:
+        kept = json.loads((layout.hosts_dir / ".checked.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
+def _keep(layout: hosts.Layout, name: str, key: str) -> None:
+    """A check that passed, kept until a vault file changes: read and replaced whole under the folder's lock."""
+    path = layout.hosts_dir / ".checked.json"
+    try:
+        with store.locked(path):
+            store.replace(path, json.dumps({**_kept(layout), name: key}), mode_if_new=0o600)
+    except OSError:
+        pass
+
+
+def every(opts, layout: hosts.Layout) -> int:
+    """Every host, for just status to read each, as JSON; a vault no password here opens said as it is reached.
+    Writes nothing."""
+    out = []
+    for read in resolve.every(layout, _request(opts), os.environ, _kept(layout), opts.except_):
+        _say(read.notes)
+        out.append(
+            {
+                "name": read.name,
+                "current": read.current,
+                "sources": list(read.sources),
+                "vault_files": list(read.vault_files),
+                "extra": {"claude_hosts_other": _others(read.others)},
+                "problem": read.problem,
+            }
+        )
+    print(json.dumps(out))
+    return 0
+
+
+def env(opts, layout: hosts.Layout) -> int:
+    request = _request(opts)
+    choice = choose.choose(layout, request)
+    _say(choice.notes)
+    kept = _kept(layout) if choice.many and not request.lenient else {}
+    run = resolve.resolve(layout, choice, request, os.environ, kept)
+    if run.check is not None and run.check.keep and not request.read_only:
+        _keep(layout, choice.host.name, run.check.key)
+    _say(run.notes)
+    values = {
+        "host": choice.host.name if choice.host else "",
+        "hosts_many": "1" if choice.many else "",
+        "settings_files": " ".join(run.settings_files),
+        "vault_files": " ".join(run.vault_files),
+        "host_sources": ",".join(run.sources),
+        "host_extra": json.dumps({"claude_hosts_other": _others(run.others)}) if choice.many else "",
+        # The VMs named that no alias places on one of the hosts: a creating deploy asks the other hosts for these.
+        "host_unplaced": ",".join(choice.unplaced),
+    }
+    for name, value in values.items():
+        print(f"{name}={shlex.quote(value)}")
+    return 0
+
+
+def init(opts, layout: hosts.Layout) -> int:
+    plan = setup.plan_init(
+        layout,
+        opts.name,
+        address=opts.address,
+        asking=opts.asking,
+        shared=opts.shared,
+        secret_file=opts.secret_file,
+        vault_pass=opts.vault_pass,
+        environ=os.environ,
+        templates=TEMPLATES,
+    )
+    for new in plan.files:
+        path = Path(new.path)
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        # Readable by you alone, as the shared files just init copies are: the vault is plaintext until just init
+        # encrypts it.
+        with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="utf-8") as out:
+            out.write(new.text)
+    print(f"init_host_json={shlex.quote(json.dumps(plan.payload))}")
+    print(f"host_sources={shlex.quote(','.join(plan.sources))}")
+    if plan.first:
+        return 0
+    print(f"init_settings_files={shlex.quote(' '.join(plan.settings_files))}")
+    print(f"init_vault={shlex.quote(plan.vault_file)}")
+    print(f"init_made={shlex.quote(' '.join(new.said for new in plan.files))}")
+    return 0
+
+
+def current(opts, layout: hosts.Layout) -> int:
+    """The current host's name - the one hosts/current names, else the first's - "" with no host at all: what just init
+    asks before it offers a switch."""
+    host = choose.pick(layout)
+    print(host.name if host else "")
+    return 0
+
+
+def listing(opts, layout: hosts.Layout) -> int:
+    # Which host a run would reach, where the names or the --host it would be given were: a preview, no vault opened.
+    asked = choose.where(layout, _request(opts)) if opts.names or opts.host else None
+    listed = choose.listing(layout, asked)
+    if opts.json:
+        # A document a release only adds keys to (CONTRIBUTING.md, Releasing): format_version and kind first.
+        print(json.dumps(wire.to_wire(listed)))
+        return 0
+    said = listed.problem or ""
+    if not listed.hosts:
+        print(f"{said}." if said else "No host yet: just init sets up the first, in inventory/hosts.yml.")
+        return 0
+    headings = []
+    for kind in hosts.KINDS.values():
+        headings += [heading for heading in kind.shown if heading not in headings]
+    table = [["  HOST", "ADDRESS", *(heading for heading, _ in headings), "SETTINGS", ""]]
+    for row in listed.hosts:
+        cells = [
+            str(row.settings.get(setting) if row.settings.get(setting) is not None else "-") for _, setting in headings
+        ]
+        note = "the current host" if row.current else row.problem
+        table.append([f"{'▸' if row.current else ' '} {row.name}", row.address or "-", *cells, f"{row.folder}/", note])
+    widths = [max(len(line[at]) for line in table) for at in range(len(table[0]) - 1)]
+    for line in table:
+        columns = "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=False))
+        print(f"{columns}  {line[-1]}" if line[-1] else columns.rstrip())
+    print()
+    if said:
+        print(f"{said}.")
+    if len(listed.hosts) > 1:
+        print("just host <name> switches; --host <name> on a command reaches another host once.")
+    else:
+        print("One host: just init --host <name> --address <address> sets up another.")
+    return 0
+
+
+def switch(opts, layout: hosts.Layout) -> int:
+    host = setup.plan_switch(layout, opts.name)
+    # Replaced whole, never edited in place: a run reading it reads the old name or the new one.
+    layout.hosts_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = layout.hosts_dir / "current"
+    with store.locked(path):
+        store.replace(path, f"{host.name}\n", mode_if_new=0o600)
+    print(f"{host.name} is the current host: every command runs against it, and --host <name> reaches another once.")
+    return 0
+
+
+def remove(opts, layout: hosts.Layout) -> int:
+    shutil.rmtree(setup.plan_remove(layout, opts.name))
+    name = opts.name
+    print(
+        f"Removed {layout.hosts_rel}/{name}/, this checkout's settings and token for {name}. Its VMs are still there "
+        "on it, and their SSH aliases here: a fleet-wide just deploy --only ssh-config prunes none of them."
+    )
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(prog="tools/host")
+    parser.add_argument("action", choices=["env", "list", "switch", "remove", "init", "current", "every"])
+    parser.add_argument("name", nargs="?", default="")
+    parser.add_argument("--checkout", required=True)
+    parser.add_argument("--hosts-dir", required=True)
+    parser.add_argument("--host", default="")
+    parser.add_argument("--nested", default="")
+    parser.add_argument("--names", default="")
+    parser.add_argument("--vault-file", default=hosts.DEFAULT_VAULT)
+    parser.add_argument("--settings-files", default=hosts.DEFAULT_SETTINGS)
+    parser.add_argument("--vault-pass", default="")
+    parser.add_argument("--json", action="store_true")
+    parser.add_argument("--lenient", action="store_true")
+    parser.add_argument("--read-only", action="store_true")
+    parser.add_argument("--asking", action="store_true")
+    parser.add_argument("--address", default="")
+    # just init's: a value given for the shared files (the GitHub account, the VPN), and the token secret's file.
+    parser.add_argument("--shared", action="store_true")
+    parser.add_argument("--secret-file", action="store_true")
+    parser.add_argument("--except", dest="except_", default="")
+    opts = parser.parse_args(argv)
+    for value in (opts.host, opts.nested, opts.name):
+        if value and not hosts.NAME.fullmatch(value):
+            return _refuse(f"a host's name is lowercase letters, digits and -, at most 31 (got: [{value}])")
+    checkout = Path(opts.checkout)
+    hosts_dir = Path(opts.hosts_dir)
+    layout = hosts.Layout(checkout, hosts_dir if hosts_dir.is_absolute() else checkout / hosts_dir)
+    actions = {"env": env, "list": listing, "switch": switch, "remove": remove, "init": init, "current": current}
+    action = {**actions, "every": every}[opts.action]
+    if opts.action in ("switch", "remove") and not opts.name:
+        return _refuse(f"just host {'--remove ' if opts.action == 'remove' else ''}takes the host's name")
+    try:
+        return action(opts, layout)
+    except hosts.Refused as refused:
+        # Whatever the files say that keeps the hosts from being read - a file that is not YAML, hosts/current naming
+        # no host - is said as the recipe's error, never a traceback, after any note said before it.
+        _say(refused.notes)
+        return _refuse(str(refused))
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
