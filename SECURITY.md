@@ -219,7 +219,13 @@ restate them are not treated as vulnerabilities:
   what the VM reports - and the VM runs an agent with sudo. The Tailscale node ID the device is deleted by
   is the VM's to report, and the API credential can delete any device in the tailnet, so the device is
   looked up first and deleted only when its name is the one this project asked the VM to join as
-  (`tailscale_hostname`, or that name with Tailscale's `-<n>`); anything else is said, not deleted. A VM
+  (`tailscale_hostname`, or that name with Tailscale's `-<n>`, unless that is the name another VM joins as:
+  `web` can report the ID of `web-2`'s device). The other VMs are the host's fleet and the checkout's other
+  hosts' VMs it has aliases for, each named as `tailscale_hostname` names this one (`dev-web-2` beside
+  `dev-web`); where nothing tells two VMs' names apart - one `tailscale_hostname` for every VM, or `alpha.lab`
+  beside `alpha-lab` - no device is deleted. Anything else is said, not deleted. What is left is a device of
+  none of those VMs that happens to be named `<vm>-<digits>`, such as one of a VM on a Proxmox host this
+  checkout does not have. A VM
   whose address was recycled since is released wherever that address
   now answers - an SSH host key it does not hold fails the connection first, and nothing is sent to it but
   the release's own commands.

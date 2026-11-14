@@ -658,11 +658,7 @@ def test_a_vm_s_name_makes_the_dns_label_the_role_makes() -> None:
     from claude_vm.status import settings
 
     defaults = (REPO / "roles" / "tailscale" / "defaults" / "main.yml").read_text()
-    assert (
-        "(inventory_hostname | lower | regex_replace('[^a-z0-9-]+', '-') | regex_replace('^-+|-+$', ''))[:63]"
-        in defaults
-    )
-    assert "| regex_replace('-+$', '')" in defaults
+    assert 'tailscale_hostname: "{{ inventory_hostname | tailscale_label }}"' in defaults
     assert settings.dns_label("My_Alpha.lab") == "my-alpha-lab"
     assert settings.dns_label("--a--") == "a"
     assert settings.dns_label("a" * 62 + "-b") == "a" * 62

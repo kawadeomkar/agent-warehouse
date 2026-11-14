@@ -37,6 +37,10 @@ The independent security review of 2026-11-10 brought these; an install made bef
 - **A session save is bounded**: at most `destroy_sessions_max_size` (4G) of files, no more than five minutes
   without a byte and an hour in all. A VM that goes past a bound is kept by `just destroy`, neither released nor
   deleted: raise the setting, or set `destroy_save_sessions: false` to delete it unsaved.
+- **`just destroy` leaves a Tailscale device another VM may join under**: one named as another VM of the host, or
+  of another host the checkout has, would join (`web-2` beside `web`), and every one where one `tailscale_hostname`
+  names every VM or two VMs' names make one machine name (`alpha.lab` and `alpha-lab`). The run says so, with where
+  to delete it by hand.
 
 ## The project is called agent-warehouse
 

@@ -753,7 +753,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path. The pre-check honours
+  `tailscale_node_id_pattern` before it goes into the API's path, and only when its name is the VM's or Tailscale's
+  `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
+  (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
+  may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
   `proxmox_vm_allow_untagged_delete` but never admits a template, and deletion runs in parallel, which is why
   `absent.yml`'s `known_hosts` task is `throttle: 1`.
 - **`deploy.yml` configures only what provisioning published** (`claude_vm_discovery: false`): discovery without

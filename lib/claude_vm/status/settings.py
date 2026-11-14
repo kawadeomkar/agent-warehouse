@@ -27,6 +27,7 @@ from pathlib import Path
 
 from .. import vault, wiring
 from ..hosts.kinds import KINDS
+from ..vpn.tailscale import tailscale_label
 from . import model
 
 REPO = Path(__file__).resolve().parents[3]
@@ -634,8 +635,7 @@ def load(opts, say=None) -> dict:
 
 def dns_label(name: str) -> str:
     """A VM's name made one DNS label, as tailscale_hostname makes it."""
-    label = re.sub(r"[^a-z0-9-]+", "-", name.lower())
-    return re.sub(r"-+$", "", re.sub(r"^-+|-+$", "", label)[:63])
+    return tailscale_label(name)
 
 
 def _named(value, name: str, label: str):

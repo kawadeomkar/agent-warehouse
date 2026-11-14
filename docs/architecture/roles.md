@@ -876,8 +876,17 @@ plan's research record.
   is set (half of one is said by name and never sent), else `none`; `none`, `token` and `oauth` name one.
   `token` is an API access token, `oauth` an OAuth client, exchanged at `/api/v2/oauth/token` for a
   one-hour token (it needs `devices:core`). `GET /api/v2/device/<Self.ID>` first, then `DELETE` only when
-  the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`: the VM reports the ID,
-  and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
+  the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`, and that is not the name
+  another VM joins as: `destroy.yml` passes the names of the fleet's other VMs from Proxmox's listing, and of the
+  checkout's other hosts' VMs from their aliases (`tailscale_release_other_vms`), and `tailscale_sibling_labels`
+  makes each the machine name it joins as, by the same `tailscale_label` rule, with whatever this VM's
+  `tailscale_hostname` has around its own (`dev-web-2` beside `dev-web`). Where nothing tells the devices apart -
+  a `tailscale_hostname` with no label of the VM's name in it, one name for every VM, or two VMs whose names make
+  the same label (`alpha.lab` and `alpha-lab`) - no device of the name is deleted, and the release says so. The VM
+  reports the ID, can read its peers' in its own `tailscale status`, and the credential can delete any
+  device. A stronger rule - the node's ID recorded in Proxmox at the join, and only that one deleted - would
+  need a record of its own (an ID is mixed case, which a tag is not) and readers of it; it is the way to go
+  if a VM compromised after its join must name no device at all. The ID goes into the path, and `urlencode` leaves `/` alone, so
   one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
   is an earlier run's. Run by the `release` entry point, which

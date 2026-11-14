@@ -1082,7 +1082,11 @@ and `tests/unit/test_choices.py` holds the three equal.
   as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the
   roles left and refuses what the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through
   `tasks/vm_marks.yml`, what it says, and its NEXT STEPS records (`vpn_next`), a step outside the project said as it
-  is (`NextStep.text`).
+  is (`NextStep.text`). `tailscale.py` also holds `tailscale_label(name)`, a VM's name made the one DNS label the
+  `tailscale` role asks Tailscale for: the role's `tailscale_hostname` default, `just status`'s engine and destroy's
+  release, which compares a device's name with the fleet's other VMs' (`tailscale_sibling_labels`, each made as
+  this VM's `tailscale_hostname` is made from its name), all call it, so the three cannot drift
+  (`filter_plugins/vpn.py` gives Ansible the filters).
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
   the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login; any other tag
   under it, such as the WireGuard address 2.0 kept (`wg-<address>`), is no mark and is read as none. Discovery,

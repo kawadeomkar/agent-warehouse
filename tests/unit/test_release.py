@@ -116,6 +116,13 @@ CASES = {
     "gone": {"node": "nGONE", "api": "token"},
     # A VM reporting another device's ID - a laptop's: never deleted.
     "liar": {"node": "nLAPTOP", "api": "token"},
+    # A VM reporting the ID of web-2's device, which it can read in its own tailscale status: web-2 is a VM of the
+    # fleet, so web-2 is that VM's name, never Tailscale's renaming of web's.
+    "web": {"node": "nWEB2", "api": "token", "others": ["web-2", "db"]},
+    # The same with a machine name of the user's own: VM prefixed-2 joins as dev-prefixed-2, made as dev-prefixed is.
+    "prefixed": {"node": "nDEVPREFIXED2", "api": "token", "others": ["prefixed-2"], "hostname": "dev-prefixed"},
+    # Two VMs whose names make one machine name: nothing tells their devices apart, so neither is deleted.
+    "twin-lab": {"node": "nTWIN", "api": "token", "others": ["twin.lab"]},
     # A VM reporting an ID that is a path: it never reaches the API.
     "traversal": {"node": "../../tailnet/-/keys", "api": "token"},
     # The same, as long as the VM likes: said cut, as other text a VM chose is.
@@ -251,6 +258,8 @@ def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
             **({"destroy_test_undeletable": True} if case.get("undeletable") else {}),
             **({"destroy_test_lost": True} if case.get("lost") else {}),
             **({"destroy_save_sessions": case["save"]} if "save" in case else {}),
+            **({"claude_vm_release_others": case["others"]} if "others" in case else {}),
+            **({"tailscale_hostname": case["hostname"]} if "hostname" in case else {}),
             **({"vscode_workspaces_dir": str(home / "ws")} if case.get("workspaces") else {}),
             "claude_vm_release_address": case.get("address", "192.0.2.10"),
             "github_projects_home": str(home),
@@ -351,6 +360,9 @@ DEVICES = {
     "nBOTH": "both",
     "nHALF": "half-oauth",
     "nLAPTOP": "laptop",
+    "nWEB2": "web-2",
+    "nDEVPREFIXED2": "dev-prefixed-2",
+    "nTWIN": "twin-lab",
 }
 
 
@@ -474,6 +486,39 @@ def test_a_device_is_deleted_only_under_the_name_this_project_asked_the_vm_to_jo
         "liar: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
         ' reported is named "laptop", not "liar", so it is not this VM\'s; find this VM\'s own device at'
         f" {ADMIN} and delete it."
+    )
+
+
+def test_a_device_named_as_another_vm_of_the_fleet_joins_is_never_deleted(released):
+    # by-hand's by-hand-1 is deleted: no VM of the fleet is named so, so it is Tailscale's renaming of a name taken.
+    _, report, _, deleted = released
+    assert "nWEB2" not in deleted and "nBYHAND" in deleted
+    assert _said(report)["web"] == (
+        "web: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        " reported is named \"web-2\", the name another VM of yours joins as, so it may be that VM's; find this VM's"
+        f" own device at {ADMIN} and delete it."
+    )
+
+
+def test_the_other_vms_machine_names_are_made_as_this_vm_s_is_made_from_its_name(released):
+    # dev-prefixed-2 is prefixed's own name and -2 to the pattern: compared with the bare prefixed-2, it was deleted.
+    _, report, _, deleted = released
+    assert "nDEVPREFIXED2" not in deleted
+    assert _said(report)["prefixed"] == (
+        "prefixed: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        ' reported is named "dev-prefixed-2", the name another VM of yours joins as, so it may be that VM\'s; find'
+        f" this VM's own device at {ADMIN} and delete it."
+    )
+
+
+def test_a_device_two_vms_may_join_under_is_never_deleted(released):
+    # twin-lab and twin.lab both join as twin-lab, the second as twin-lab-1: the device may be either's.
+    _, report, _, deleted = released
+    assert "nTWIN" not in deleted
+    assert _said(report)["twin-lab"] == (
+        "twin-lab: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        ' reported is named "twin-lab", a name another VM of yours may join as too, so it may be that VM\'s; find'
+        f" this VM's own device at {ADMIN} and delete it."
     )
 
 
@@ -1225,8 +1270,9 @@ def fake_pve(tmp_path):
         yield base
 
 
-def _head(tmp_path, fake_pve):
-    """A directory to run destroy.yml's first play from against the fake, and that play with the addresses after it."""
+def _head(tmp_path, fake_pve, var="claude_vm_release_address"):
+    """A directory to run destroy.yml's first play from against the fake, and that play with each VM's ``var`` after
+    it, its address by default."""
     root = tmp_path / "run"
     _pve_vars(root, fake_pve)
     plays = yaml.safe_load(DESTROY.read_text())
@@ -1241,7 +1287,7 @@ def _head(tmp_path, fake_pve):
                     "name": "Say where each VM would be released",
                     "hosts": "claude_vm_doomed",
                     "gather_facts": False,
-                    "tasks": [{"name": "Address", "ansible.builtin.debug": {"var": "claude_vm_release_address"}}],
+                    "tasks": [{"name": "Address", "ansible.builtin.debug": {"var": var}}],
                 },
             ]
         )
@@ -1266,6 +1312,38 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     # The listing did lag: the run's own relisting still showed it stopped.
     calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
+
+
+def test_each_vm_released_is_told_the_names_of_the_fleet_s_other_vms_from_the_listing(tmp_path, fake_pve):
+    _pve_vm(fake_pve, 9010, "web-2")
+    _pve_vm(fake_pve, 9011, "elsewhere", tags="someone-else")
+    root, playbook = _head(tmp_path, fake_pve, "claude_vm_release_others")
+    # The checkout's other host's VMs, by the aliases that record it: one joins the same tailnet as readily. A block
+    # recording a host the checkout no longer has is no one's.
+    aliases = root / ".ssh" / "agent-warehouse.conf"
+    aliases.parent.mkdir(parents=True, exist_ok=True)
+    aliases.write_text(
+        "".join(
+            f"# BEGIN agent-warehouse: {name}\n# origin: {origin}\nHost {name}\n# END agent-warehouse: {name}\n"
+            for name, origin in (("db-nuc", "nuc"), ("gone-host", "old"))
+        )
+    )
+    extra = {
+        "vm_name": "parked",
+        "confirm_destroy": "yes",
+        "destroy_release": False,
+        "destroy_save_sessions": False,
+        "claude_hosts_other": [{"name": "nuc", "address": "192.0.2.20"}],
+        "claude_ssh_config_file": str(aliases),
+    }
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    said = {
+        host: result.get("claude_vm_release_others") for name, host, result in _results(report) if name == "Address"
+    }
+    # The fake's container carries the tag too, and is no VM; the VM it deletes is not its own sibling.
+    assert list(said) == ["parked"] and {"web-2", "db-nuc"} <= set(said["parked"])
+    assert not {"parked", "elsewhere", "ours-container", "gone-host"} & set(said["parked"])
 
 
 # "", 0 and false too, which took the default's 4G in their place without a word.

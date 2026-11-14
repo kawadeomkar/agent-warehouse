@@ -332,7 +332,8 @@ writes, `~/.config/agent-warehouse/gh-device-login`, tells its token from the va
 marker says, and from one pasted by hand) and
 `tailscale` (start a stopped `tailscaled`, read `Self.ID`, `tailscale logout`, then with the API
 credential the vault holds look the device up and delete it from the controller, only when its name is
-`tailscale_hostname` or `<it>-<n>`, since the VM reports the ID). Each runs in a block whose rescue
+`tailscale_hostname` or `<it>-<n>` and that is no other VM's of the listing, since the VM reports the ID).
+Each runs in a block whose rescue
 records the failure: a release never stops a deletion. Each leaves one clause in a `*_release_said` fact,
 set on every run of its file.
 
