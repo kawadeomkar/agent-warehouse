@@ -1,6 +1,6 @@
 # {{ ansible_managed }}
 [Unit]
-Description=Claude Code Remote Control ({{ claude_code_remote_control_name }})
+Description=Claude Code Remote Control ({{ claude_code_remote_control_name | replace('%', '%%') }})
 Documentation=https://code.claude.com/docs/en/remote-control
 After=network-online.target
 Wants=network-online.target
@@ -15,9 +15,9 @@ StartLimitIntervalSec=0
 Type=simple
 User={{ claude_code_user }}
 Group={{ claude_code_user }}
-WorkingDirectory={{ claude_code_remote_control_target_dir }}
-Environment=HOME={{ claude_code_home }}
-Environment=PATH={{ claude_code_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory={{ claude_code_remote_control_target_dir | replace('%', '%%') }}
+Environment=HOME={{ claude_code_home | replace('%', '%%') }}
+Environment=PATH={{ claude_code_home | replace('%', '%%') }}/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Remote Control needs the subscription login, which ANTHROPIC_API_KEY would
 # override. The server would pick a key up from ~/.claude/settings.json (this
 # unit sets HOME so it reads it), not from this unit - so what protects the
@@ -29,7 +29,13 @@ Environment=PATH={{ claude_code_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin
 # a reason the journal hint does not name. The mode is deliberately not
 # validated here (see meta/argument_specs.yml), so Claude Code's own rejection
 # must be what the journal shows. A plain word is left as it is.
-ExecStart={{ claude_code_remote_control_bin }} remote-control --name {{ claude_code_remote_control_name | quote }} --permission-mode {{ claude_code_remote_control_permission_mode | quote }} --spawn {{ claude_code_remote_control_spawn | quote }}
+{#  The lines above render as they did before 2.6: a unit whose text changed is
+    restarted, which would end every VM's Remote Control sessions once on
+    upgrade (tests/unit/test_remote_control_unit.py holds a plain unit to its old
+    bytes). Each value is quoted as systemd reads one (systemd_arg), not as a
+    shell would, since systemd expands % and $ inside quotes too; a % in a path
+    or a name elsewhere in the unit is doubled for the same reason. This
+    comment renders as nothing, the ExecStart line after it as before. #}ExecStart={{ claude_code_remote_control_bin | systemd_arg }} remote-control --name {{ claude_code_remote_control_name | systemd_arg }} --permission-mode {{ claude_code_remote_control_permission_mode | systemd_arg }} --spawn {{ claude_code_remote_control_spawn | systemd_arg }}
 # always, not on-failure: server mode exits by itself after about ten minutes
 # without a network, and on-failure restarts only an unclean exit. A stop
 # through systemctl is never restarted, so `systemctl stop` still means stop.

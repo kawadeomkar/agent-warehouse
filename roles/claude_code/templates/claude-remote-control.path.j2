@@ -13,10 +13,10 @@
 # as a login exists. The service itself does not depend on the file's path,
 # which is Claude Code's to move.
 [Unit]
-Description=Start Claude Code Remote Control ({{ claude_code_remote_control_name }}) when a login lands
+Description=Start Claude Code Remote Control ({{ claude_code_remote_control_name | replace('%', '%%') }}) when a login lands
 
 [Path]
-PathChanged={{ claude_code_home }}/.claude/.credentials.json
+PathChanged={{ claude_code_home | replace('%', '%%') }}/.claude/.credentials.json
 Unit={{ claude_code_remote_control_service }}.service
 
 [Install]

@@ -336,7 +336,7 @@ Host old
 """
 
 # claude_vm_tag_pattern as the inventory renders it for the default tag: it, and its 1.x name.
-TAG = r"(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|$)"
+TAG = r"(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|\Z)"
 
 
 def vm(name, vmid, tags="agent-warehouse", kind="qemu"):

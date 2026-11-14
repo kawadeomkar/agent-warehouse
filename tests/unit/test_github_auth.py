@@ -1490,6 +1490,8 @@ def test_only_github_s_own_device_page_is_github_s_own():
         "https://githubXcom/login/device",
         "https://gist.github.com/login/device",
         "https://example.com/?https://github.com/login/device",
+        # An anchored match took a page with a newline at its end.
+        "https://github.com/login/device\n",
     ):
         assert re.match(pattern, page) is None, page
 

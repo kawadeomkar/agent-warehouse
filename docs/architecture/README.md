@@ -132,7 +132,7 @@ shared host every tagged VM a token lists is treated as its holder's
 `claude_vm_tag_pattern` so `agent-warehouse-staging` and `not-agent-warehouse` are never claimed:
 
 ```
-(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|$)
+(?i)(^|[;,])(agent\-warehouse|claude\-on\-proxmox)([;,]|\Z)
 ```
 
 The second is the tag through 1.x (`claude_vm_tag_1x`), owned beside the first while `claude_vm_tag` is the

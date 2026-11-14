@@ -187,7 +187,7 @@ def status_fleet(
     disk_ctimes = {}
     for volumes in contents.values():
         for volume in volumes if isinstance(volumes, list) else []:
-            if not isinstance(volume, dict) or not re.search(r":(base|vm)-\d+-disk-\d+$", str(volume.get("volid"))):
+            if not isinstance(volume, dict) or not re.search(r":(base|vm)-\d+-disk-\d+\Z", str(volume.get("volid"))):
                 continue
             try:
                 vmid, ctime = int(volume.get("vmid")), int(volume.get("ctime"))

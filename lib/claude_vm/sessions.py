@@ -22,7 +22,7 @@ from datetime import UTC, datetime
 # letter or digit into "-", and shortens a name longer than this with a hash of its own.
 _FOLDER_LENGTH = 200
 # A Claude Code worktree: <checkout>/.claude/worktrees/<name>, or a folder inside one.
-_WORKTREE = re.compile(r"^(?P<checkout>/.+?)/\.claude/worktrees/[^/]+(?:/.*)?$")
+_WORKTREE = re.compile(r"^(?P<checkout>/.+?)/\.claude/worktrees/[^/]+(?:/.*)?\Z")
 _VERSION = re.compile(r"^(\d+(?:\.\d+)*)")
 # What just destroy saves by: a folder as Claude Code names one, and a session's ID. Anything else
 # a VM reports is left out, since the names travel to tar and become paths on this machine.
@@ -33,7 +33,7 @@ _SIZE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(?:([KMGT])i?B?|(B))?", re.IGNORECA
 # GitHub as a clone's origin names it: https, ssh, scp-like, and ssh over port 443.
 _GITHUB = re.compile(
     r"^(?:(?:https|ssh)://(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
-    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?$",
+    r"(?P<owner>[^/]+)/(?P<repo>[^/]+?)(?:\.git)?/?\Z",
     re.IGNORECASE,
 )
 

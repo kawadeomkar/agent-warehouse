@@ -842,6 +842,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 ## Things that have bitten this repo
 
 - **ansible-core 2.21**: a non-boolean conditional is a fatal error, not a warning.
+- **`$` lets a trailing newline through.** A pattern that holds a value to a shape ends with `\Z` (or is used with
+  `fullmatch`): `'^[a-z]+$'` takes `"web\n"` under Ansible's `match`, `search` and `regex` tests and Python's
+  `re.match` and `re.search`, and a VM supplies some of these values - `--session`'s folder, Tailscale's page, what
+  gh printed. Only a pattern read line by line (`re.M`, `multiline=True`, `(?m)`, lineinfile's `regexp`) ends with
+  `$`. `tests/unit/test_anchors.py` scans every pattern written in a test, in Python, or in a `*_pattern` variable,
+  a `$` last in a closing group included; CONTRIBUTING.md has the rule.
 - **An Ansible tool's stdout is more than its output once verbosity or debugging is on.** With
   `ANSIBLE_VERBOSITY` or `ANSIBLE_DEBUG` exported (or set in `ansible.cfg`), `ansible-vault decrypt --output -`
   prints `Using ... as config file` and more after the vault's text, which `just init` read as the vault's:

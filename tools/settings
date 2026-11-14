@@ -266,7 +266,7 @@ def _justfile() -> dict[str, str]:
     bodies: dict[str, str] = {}
     recipe = None
     for line in source.splitlines():
-        head = re.match(r"^([a-z][a-z_]*)(?: [^:]*)?:\s*$", line)
+        head = re.match(r"^([a-z][a-z_]*)(?: [^:]*)?:\s*\Z", line)
         if head:
             recipe = head.group(1)
             bodies[recipe] = ""
@@ -592,7 +592,7 @@ class Settings:
     def _value_end(lines: list[str], start: int, commented: bool = False) -> int:
         """The line after a setting's value: its further lines are indented, or a list's dashes - or, commented,
         "#   " lines, as tools/docs.py reads the example's."""
-        further = re.compile(r"^#\s{3,}\S") if commented else re.compile(r"^([ \t]+\S|-([ \t]|$))")
+        further = re.compile(r"^#\s{3,}\S") if commented else re.compile(r"^([ \t]+\S|-([ \t]|\Z))")
         end = start + 1
         while end < len(lines) and further.match(lines[end]):
             end += 1

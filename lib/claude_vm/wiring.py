@@ -11,9 +11,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GROUP_VARS = ROOT / "inventory" / "group_vars" / "all"
 # "# ---------------------------------------------------------------- setup ----"
-BANNER = re.compile(r"^# -{3,} (.+?) -{3,}$")
+BANNER = re.compile(r"^# -{3,} (.+?) -{3,}\Z")
 # A value that is one variable's and nothing else: "{{ vm_cores }}".
-ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}$")
+ALIAS = re.compile(r"^\{\{\s*([a-z_][a-z0-9_]*)\s*\}\}\Z")
 
 
 def roles() -> list[str]:
@@ -47,8 +47,8 @@ def wiring() -> tuple[dict, dict[str, list[str]]]:
     """
     import yaml
 
-    either = re.compile(r"^\{\{\s*\((\w+)\s+if\b.*\belse\s+(\w+)\)\s*\|\s*trim\s*\}\}$", re.S)
-    wire = re.compile(r"""^(\w+): "\{\{ (\w+)(?: \| trim)?(?: \| default\((.*)\))? \}\}"$""")
+    either = re.compile(r"^\{\{\s*\((\w+)\s+if\b.*\belse\s+(\w+)\)\s*\|\s*trim\s*\}\}\Z", re.S)
+    wire = re.compile(r"""^(\w+): "\{\{ (\w+)(?: \| trim)?(?: \| default\((.*)\))? \}\}"\Z""")
     defaults: dict = {}
     feeds: dict[str, list[str]] = {}
     files = sorted((ROOT / "roles").glob("*/defaults/main.yml")) + [GROUP_VARS / "defaults.yml"]
@@ -136,7 +136,7 @@ def parse_example(path: Path, secret: bool) -> list[tuple[str, list[tuple[list[s
     start = next((i for i, line in enumerate(lines) if BANNER.match(line)), None)
     if start is None:
         raise SystemExit(f"{rel}: no `# --- Section ---` banner, so nothing marks where the settings start")
-    setting = re.compile(r"^([a-z][a-z0-9_]*):(?: .*)?$" if secret else r"^# ([a-z][a-z0-9_]*):(?: .*)?$")
+    setting = re.compile(r"^([a-z][a-z0-9_]*):(?: .*)?\Z" if secret else r"^# ([a-z][a-z0-9_]*):(?: .*)?\Z")
     sections: list = []
     prose: list[str] = []
     found: list[tuple[str, list[str]]] = []  # each setting with its lines of YAML

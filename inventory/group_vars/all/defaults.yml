@@ -145,7 +145,7 @@ claude_vm_tags_owned: "{{ [claude_vm_tag | lower] + ([claude_vm_tag_1x] if claud
 # claude_vm_tag of "Agent-Warehouse" is stamped on a VM as
 # "agent-warehouse", and matched as typed it would never be found again.
 # The proxmox_vm role lowercases both sides of its own comparison the same way.
-claude_vm_tag_pattern: "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|$)"
+claude_vm_tag_pattern: "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|\\Z)"
 # The tag a VM carries once it has held a Tailscale login of the tailscale
 # role's own, written by configure.yml after the role and read back by
 # discovery, provisioning and just status as tailscale_joined_before: kept in
@@ -156,7 +156,7 @@ claude_vm_tag_pattern: "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape
 # record 1.x wrote is never handed the key either.
 claude_vm_tailscale_tag: "{{ claude_vm_tag | lower }}-tailscale"
 claude_vm_tailscale_tag_pattern: >-
-  (?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)
+  (?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|\Z)
 # The VMs this project owns, filtered out of the cluster's VM list. Defined
 # here, not in each playbook, so discover.yml, just status and destroy.yml cannot
 # drift on what "ours" means. Evaluated lazily: any play that uses it must have

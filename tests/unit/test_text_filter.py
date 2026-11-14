@@ -20,6 +20,7 @@ retry_line = _module.retry_line
 and_list = _module.and_list
 banner = _module.banner
 plain_summary = _module.plain_summary
+systemd_arg = _module.systemd_arg
 
 
 @pytest.mark.parametrize(
@@ -184,3 +185,32 @@ def test_a_modules_warnings_and_failure_are_made_plain_and_read_in_their_own_ord
     assert warning.event.msg == "warned  txt.exe", warning
     assert plain_summary(said.exception).event.msg == "failed  x"
     assert plain_summary(None) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "argument"),
+    [
+        # Every unit a VM has today is made of plain words, and renders as it did.
+        ("alpha", "alpha"),
+        ("acceptEdits", "acceptEdits"),
+        ("same-dir", "same-dir"),
+        ("dev@alpha.example:2", "dev@alpha.example:2"),
+        ("my box", '"my box"'),
+        ("it's", '"it\'s"'),
+        ('say "hi"', '"say \\"hi\\""'),
+        ("100%", '"100%%"'),
+        ("%n", '"%%n"'),
+        ("$HOME", '"$$HOME"'),
+        ("${HOME}", '"$${HOME}"'),
+        ("a\\b", '"a\\\\b"'),
+        ("", '""'),
+    ],
+)
+def test_a_value_reaches_systemd_as_one_argument_unexpanded(value, argument):
+    assert systemd_arg(value) == argument
+
+
+@pytest.mark.parametrize("value", ["alpha\n", "a\nExecStartPre=/bin/sh", "a\tb", "a\x00", "a\x7f"])
+def test_a_control_character_never_reaches_a_unit(value):
+    with pytest.raises(ValueError, match="holds a control character"):
+        systemd_arg(value)

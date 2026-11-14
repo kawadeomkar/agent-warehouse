@@ -346,7 +346,7 @@ def duplicate_names(vms):
     return sorted((name for name, count in counts.items() if count > 1), key=lambda name: str(name).lower())
 
 
-_SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)
+_SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*\Z", re.I)
 
 
 def _size_bytes(text):
@@ -438,7 +438,7 @@ TEMPLATE_RECORD = "Built by agent-warehouse:"
 # rebuilds none for the record's name alone, and written as TEMPLATE_RECORD by the next build.
 TEMPLATE_RECORD_1X = "Built by claude-on-proxmox:"
 _TEMPLATE_RECORD_RE = re.compile(
-    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)$"
+    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)\Z"
 )
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
@@ -508,7 +508,7 @@ def qm_config(text):
     agent-warehouse%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
     config, key = {}, None
     for line in str(text or "").splitlines():
-        match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)$", line)
+        match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)\Z", line)
         if match:
             key = match.group(1)
             config[key] = match.group(2)
@@ -901,7 +901,7 @@ def os_release_debian(text):
 # default where a VM names none.
 _NO_AVX2 = re.compile(
     r"^(|kvm64|kvm32|qemu64|qemu32|486|athlon|phenom|pentium.*|coreduo|core2duo|conroe|penryn|nehalem.*|westmere.*"
-    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)$",
+    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)\Z",
     re.I,
 )
 
@@ -927,7 +927,7 @@ def custom_template_problems(listing, configs, name, node, disk, nic, owned):
         return [f'the config of "{name}" could not be read']
     vmid, problems = template["vmid"], []
     if not any(
-        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+$", key)
+        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+\Z", key)
     ):
         problems.append(f"it has no cloud-init drive: qm set {vmid} --ide2 <storage>:cloudinit")
     if _option(config.get("agent"), "enabled") != "1":

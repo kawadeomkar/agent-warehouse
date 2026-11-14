@@ -1409,8 +1409,8 @@ def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
     assert "ZED_" not in json.dumps(ZED_TASK)
     # The helper's path reaches Zed only held to a pattern of its own, never the folder's, which takes more: the
     # one code.yml decides the task's writing by, and the core's.
-    assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+$"
-    assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}$"
+    assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+\\Z"
+    assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}\\Z"
 
 
 # The Zed window with its writes, on a "VM" that is a directory of the test's own, reached locally: what it writes
@@ -2248,7 +2248,7 @@ def test_the_session_s_checkout_folder_is_held_to_what_project_takes():
     project = next(
         t for t in _tasks(_the_window(_play())["block"]) if t["name"] == "Refuse a project that is not one folder name"
     )
-    pattern = "'^[A-Za-z0-9._-]{1,100}$'"
+    pattern = "'^[A-Za-z0-9._-]{1,100}\\Z'"
     assert any(pattern in str(that) for that in check["ansible.builtin.assert"]["that"])
     assert any(pattern in str(that) for that in project["ansible.builtin.assert"]["that"])
 

@@ -156,7 +156,7 @@
     # for it only when a domain is set, as the write below does.
     - name: ssh_config | Refuse a name or address that is not one plain word
       vars:
-        claude_ssh_word: '^[A-Za-z0-9][A-Za-z0-9._-]*$'
+        claude_ssh_word: '^[A-Za-z0-9][A-Za-z0-9._-]*\Z'
         claude_ssh_unsafe: >-
           {{ (claude_ssh_vms | rejectattr('name', 'match', claude_ssh_word) | map(attribute='name') | list
               + (claude_ssh_vms | rejectattr('address', 'match', claude_ssh_word) | map(attribute='name') | list

@@ -82,7 +82,7 @@ tailscale_key_held_back: >-
   {{ tailscale_no_login | bool and tailscale_joined_before | bool and tailscale_key_wanted | bool }}
 # Joined under another name than asked: <hostname>-<n>, the name already taken.
 tailscale_name_taken: >-
-  {{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '-[0-9]+$') }}
+  {{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '-[0-9]+\Z') }}
 # A login that is complete: a node key the control server took. HaveNodeKey
 # alone is not one - an expired key keeps it, and keeps it while the login that
 # replaces it waits for its approval.
@@ -226,10 +226,10 @@ tailscale_web_page: >-
   {{ ((tailscale_web_state.stdout | from_json).AuthURL | default(''))
      if (tailscale_web_state.rc | default(1)) == 0 else '' }}
 tailscale_web_page_trusted: >-
-  {{ (tailscale_web_page is match('https://login[.]tailscale[.]com/a/[0-9a-f]+$'))
+  {{ (tailscale_web_page is match('https://login[.]tailscale[.]com/a/[0-9a-f]+\Z'))
      if tailscale_login_server | length == 0
      else (tailscale_web_page is match((tailscale_login_server | regex_replace('/+$', '') | regex_escape)
-                                        ~ '/[A-Za-z0-9/_:.?=&%-]+$')) }}
+                                        ~ '/[A-Za-z0-9/_:.?=&%-]+\Z')) }}
 
 # --- Tailscale's API (api_delete.yml) ---
 # A node's stable ID as Tailscale gives it: letters and digits, and nothing
@@ -266,7 +266,7 @@ tailscale_api_device_name: >-
   {{ ((tailscale_api_device.name | default('', true)) or (tailscale_api_device.hostname | default('', true)))
      | string | lower | regex_replace('[.].*$', '') }}
 tailscale_api_device_ours: >-
-  {{ tailscale_api_device_name is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '(-[0-9]+)?$') }}
+  {{ tailscale_api_device_name is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '(-[0-9]+)?\Z') }}
 tailscale_api_deleted: "{{ (tailscale_api_delete.status | default(0)) in [200, 204] }}"
 tailscale_api_gone_already: >-
   {{ (tailscale_api_lookup.status | default(0)) == 404 or (tailscale_api_delete.status | default(0)) == 404 }}

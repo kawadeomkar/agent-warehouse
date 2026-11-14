@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from claude_vm.mcp.jobs import Job
 
 BROWSER = "ACTION REQUIRED IN YOUR BROWSER"
-RULE = re.compile(r"^#{20,}$")
+RULE = re.compile(r"^#{20,}\Z")
 # How often the output is read, and how long a run may be silent before the call says it is still running: progress
 # also keeps Claude Code's idle limit, 30 minutes for stdio by default, from ending the call.
 POLL = 0.5

@@ -227,8 +227,15 @@ URL or a command stays whole to copy, and a last newline, so that a prompt's las
 screen as a backslash and an `n`. Every part goes through `plain_text`. The prompts call it as a filter,
 the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
 
+**`systemd_arg(value)`** — a value as one argument of a systemd unit's `ExecStart=`, for Remote Control's unit:
+systemd reads a unit by rules of its own, not a shell's, and expands `%` specifiers and `$` variables inside
+quotes too, so a shell's quoting (`quote`) is the wrong one. A plain word stays as it is, so every unit of
+plain words renders as it always did; anything else is put in double quotes with `\` and `"` escaped and `%`
+and `$` doubled. A control character is a `ValueError`: no quoting carries a newline into a unit. Covered by
+`tests/unit/test_text_filter.py`.
+
 These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
-Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_list` as filters, and the
+Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line`, `and_list` and `systemd_arg` as filters, and the
 callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
 `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 

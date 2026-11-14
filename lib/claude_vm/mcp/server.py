@@ -62,7 +62,7 @@ TERMINAL = (
     "after no code was entered, ssh-add."
 )
 # A run log's name as tools/run-logged makes one: the time, the recipe and the parts its patterns checked.
-LOG_NAME = re.compile(r"^[0-9]{8}-[0-9]{6}-[a-z][a-z0-9_-]{0,79}\.log$")
+LOG_NAME = re.compile(r"^[0-9]{8}-[0-9]{6}-[a-z][a-z0-9_-]{0,79}\.log\Z")
 LOG_LINES = (1, 2000)
 # A Claude Code session's ID, as just code --session takes it.
 SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")

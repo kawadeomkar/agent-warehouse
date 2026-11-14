@@ -155,7 +155,7 @@
     # is, an argument no editor quotes for a shell: an absolute path of
     # letters, digits, ".", "_", "-" and "/". Its own, never the folder
     # pattern an editor's URL takes, which allows more.
-    code_helper_path_pattern: '^/[A-Za-z0-9._/-]+$'
+    code_helper_path_pattern: '^/[A-Za-z0-9._/-]+\Z'
     # The editor's window as a plan (lib/claude_vm/editors/, docs/architecture/custom-code.md §7.10): what it
     # refuses, writes in just code's directory on the VM, copies there, opens and says, made by the editor's family
     # from these inputs and held by the core to its rules; tasks/editor_open.yml applies it. A lazy play var, never
@@ -250,7 +250,7 @@
       {{ [code_tz_env, code_localtime | realpath,
           lookup('ansible.builtin.file', code_timezone_file, errors='ignore') if code_timezone_file is file else '']
          | map('default', '', true) | map('trim') | map('regex_replace', '^:?(?:.*/zoneinfo/)?(?:posix/|right/)?', '')
-         | select('match', '^[A-Za-z0-9_+-]{1,32}(?:/[A-Za-z0-9_+-]{1,32}){0,3}$') | first | default('UTC', true) }}
+         | select('match', '^[A-Za-z0-9_+-]{1,32}(?:/[A-Za-z0-9_+-]{1,32}){0,3}\Z') | first | default('UTC', true) }}
 
     code_here_home: "{{ lookup('ansible.builtin.env', 'HOME') }}"
     # What the window step says of the session handoff, whichever editor opens the window.
@@ -423,7 +423,7 @@
             code_asked: "{{ vm_project | default('', true) | string }}"
           ansible.builtin.assert:
             that:
-              - code_asked is match('^[A-Za-z0-9._-]{1,100}$')
+              - code_asked is match('^[A-Za-z0-9._-]{1,100}\Z')
               - code_asked not in ['.', '..']
             fail_msg: >-
               --project names one project folder on the VM, the way a GitHub repository is named: up to 100
@@ -665,7 +665,7 @@
             code_names: >-
               {{ code_listing.files | default([]) | map(attribute='path') | map('basename') | map('plain_text') | sort | list }}
             code_close: >-
-              {{ code_names | select('match', '(?i)^' ~ (code_project | regex_escape) ~ '$') | list }}
+              {{ code_names | select('match', '(?i)^' ~ (code_project | regex_escape) ~ '\Z') | list }}
             # find lists a path that does not exist under skipped_paths.
             code_root_there: >-
               {{ code_listing is not skipped

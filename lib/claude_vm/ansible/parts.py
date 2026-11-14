@@ -398,9 +398,9 @@ class Molecule(Reader):
     after the action that failed. Its warnings and Ansible's are said like a check's, but for Molecule's routine
     (ROUTINE): a requirements file or a playbook a scenario has no need of."""
 
-    ACTION = re.compile(r"\[(?P<scenario>[^\]>]+?) > (?P<action>[\w-]+)\] (?P<what>Executing|Executed: (?P<how>.+))$")
+    ACTION = re.compile(r"\[(?P<scenario>[^\]>]+?) > (?P<action>[\w-]+)\] (?P<what>Executing|Executed: (?P<how>.+))\Z")
     TASK = re.compile(r"^(?:TASK|RUNNING HANDLER) \[(?P<task>.+?)\]")
-    MATRIX = re.compile(r"\] scenario test matrix: (?P<actions>[\w, -]+)$")
+    MATRIX = re.compile(r"\] scenario test matrix: (?P<actions>[\w, -]+)\Z")
     # Ansible's line for a task that failed on a host, in any result format, and the lines that end what it said.
     FAILED = re.compile(r"^(?:fatal|failed): \[")
     PLAY = re.compile(r"^(?:PLAY|TASK|RUNNING HANDLER) ")
