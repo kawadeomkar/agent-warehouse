@@ -222,6 +222,14 @@ def test_check_settings_refuses_what_2_1_removed_with_wireguard_pointing_at_the_
     assert "none of its choices" not in result.stderr
 
 
+def test_check_settings_warns_of_the_installer_url_2_6_reads_no_more(tmp_path):
+    # Through 2.5 it changed what every VM installed; read by nothing now, it would change nothing without a word.
+    result = _check(tmp_path, "vpn: none\nclaude_code_installer_url: https://mirror.example/install.sh\n")
+    assert result.returncode == 0, result.stderr
+    assert "sets claude_code_installer_url, which 2.6 reads no more" in result.stderr
+    assert "claude_code_download_url" in result.stderr and "mirror.example" not in result.stderr
+
+
 @pytest.mark.parametrize("text", ["vpn_reach: lan\n", 'wireguard_vm_prefix: ""\n'])
 def test_check_settings_lets_a_removed_setting_that_changed_nothing_pass(tmp_path, text):
     result = _check(tmp_path, "vpn: none\n" + text)

@@ -16,10 +16,11 @@ what it stores. How each part below is enforced is the
 - **The custom modules**: `roles/github_projects/library/github_repos.py`, which handles a GitHub token, and
   the five in `playbooks/library/` that `just code`, `just status` and `just destroy` run, on a VM or on this
   machine - among them `claude_sessions_fetch`, which unpacks here the tar stream a VM sends.
-- **Supply chain**: the vendored apt signing keys in `roles/dev_tools/files/` and
-  `roles/tailscale/files/`, and every other download a VM gets - the uv release, the Ubuntu cloud image,
-  the Claude Code installer - each verified as [What the VM trusts](docs/guides/what-the-vm-trusts.md)
-  says.
+- **Supply chain**: the vendored signing keys - apt's in `roles/dev_tools/files/` and
+  `roles/tailscale/files/`, Anthropic's release key in `roles/claude_code/files/` and Ubuntu's cloud image key in
+  `roles/proxmox_template/files/` - the verifier that checks the last two's signatures on this machine
+  (`lib/claude_vm/openpgp.py`), and every other download a VM gets - the uv release, the Ubuntu cloud image,
+  Claude Code - each verified as [What the VM trusts](docs/guides/what-the-vm-trusts.md) says.
 - **Credential handling**: the Proxmox API token, the GitHub token, the Anthropic API key and the Tailscale
   auth key and API credential, which live in an ansible-vault file, and the Claude sign-in's one-time code.
   Every task that renders one is `no_log`, none is put on a command line or in a file, and the tests grep

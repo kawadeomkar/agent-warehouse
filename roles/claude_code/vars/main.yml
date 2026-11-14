@@ -1,6 +1,23 @@
 ---
 # Internal, not meant to be overridden.
 
+# The native install's release, as Anthropic signs it (tasks/install_native.yml):
+# the key of files/claude-code.asc, "Anthropic Claude Code Release Signing
+# <security@anthropic.com>", by its fingerprint, which the verifier finds the
+# key by; tests/unit/test_pins.py holds the file to it.
+claude_code_release_fingerprint: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+# The first release Anthropic signed the manifest of, so the oldest the role
+# installs; and the shape of a release's version, as the channels name one.
+claude_code_signed_since: 2.1.89
+claude_code_release_pattern: '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?\Z'
+# The release's binary for this VM, by the manifest's name for its platform:
+# glibc only, which every base the project accepts is.
+# Where the release's binary is downloaded to before it installs itself: the user's own ~/.claude/downloads, as the
+# installer script has it, by its release and platform.
+claude_code_download: "{{ claude_code_home }}/.claude/downloads/claude-{{ claude_code_release }}-{{ claude_code_platform }}"
+claude_code_platform: >-
+  {{ {'x86_64': 'linux-x64', 'aarch64': 'linux-arm64'}.get(ansible_facts['architecture'], ansible_facts['architecture']) }}
+
 # Environment keys in settings.json that each disable Remote Control. The first
 # four switch off the feature-flag evaluation its availability depends on, so a
 # session starts and then never appears in the app. The rest route the client

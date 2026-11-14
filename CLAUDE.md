@@ -175,6 +175,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       rebuild destroys it; a custom image URL needs its checksum.
     - A base outside the Debian family is refused by name: an image before it is built on (`virt-cat`), and every VM
       first in configure, by a `raw` task that needs no Python.
+- **What a VM installs that its vendor signs is held to the signature, checked on this machine.** Read
+  [§7.15](docs/architecture/custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here) first.
+    - Claude Code's native install reads the release's manifest and Anthropic's detached signature of it, verifies
+      them here (`openpgp_verified`, `files/claude-code.asc` found by `claude_code_release_fingerprint`), downloads the
+      binary held to the manifest's digest, runs its `install` of that exact release - never a channel's name, which
+      it could resolve and fetch again - and holds what `~/.local/bin/claude` resolves to to the same digest. The
+      channel is `autoUpdatesChannel`, written by `settings.yml`. Never the installer script, which verifies no
+      signature.
+    - The cloud image is held to its digest in Ubuntu's `SHA256SUMS` once the list's signature verifies
+      (`proxmox_template_image_key` and `_fingerprint`, the vendored key by default); an image with no checksum to hold
+      it to is refused, never downloaded unchecked.
+    - `lib/claude_vm/openpgp.py` is the standard library alone: one v4 RSA signature of a binary document, the key found
+      by its own packet's fingerprint, never revoked or expired by its own self-signature, a signature no later than a
+      day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
+      fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a

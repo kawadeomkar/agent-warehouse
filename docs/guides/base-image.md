@@ -10,7 +10,10 @@ There are two ways, set in `local.yml`:
 | An image at a URL | `proxmox_template_image_url` and `proxmox_template_image_checksum` | Downloads it, adds the guest agent, and builds its template from it, rebuilding when the URL changes (a new image at the same URL needs the template removed first) |
 | A Proxmox template you built | `proxmox_template_custom: <its name>` | Checks it and clones it. It never changes, rebuilds or deletes it, and builds no template of its own |
 
-A custom image URL needs its checksum: `sha256:<digest>`, or `sha256:<URL of a checksum list>`.
+A custom image URL needs its checksum: `sha256:<digest>`, or `sha256:<URL of a checksum list>`. An Ubuntu cloud
+image's list on `cloud-images.ubuntu.com` is held to Ubuntu's signature beside it (`SHA256SUMS.gpg`) before the image
+is held to the list, as the default image's is; any other image is held to its checksum alone, which is yours to vouch
+for. `proxmox_template_image_signature: ""` turns the signature check off.
 
 Do not point `proxmox_template_vmid` and `proxmox_template_name` at a template of your own: those name the template this
 project builds. A template there with no record of this project's build is refused and left as it is.

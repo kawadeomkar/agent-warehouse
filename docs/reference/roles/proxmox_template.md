@@ -19,6 +19,9 @@ Runs on the PVE node over SSH. Downloads a cloud image, creates a VM with `qm`, 
 | `proxmox_template_name` | str | `ubuntu-24.04-cloudinit` | Template name. VMs are cloned from it by name, and a finished template at the VMID is recognised by it. |
 | `proxmox_template_image_url` | str | `https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img` | Cloud image downloaded and imported as the template's root disk. |
 | `proxmox_template_image_checksum` | str | `sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS` | get_url checksum spec. Set to an empty string to skip verification. |
+| `proxmox_template_image_signature` | str | computed | The URL of Ubuntu's detached signature of the checksum list (SHA256SUMS.gpg), which the list is held to, by Ubuntu's cloud image key, before the image is held to the list. Made from the checksum for a list of Ubuntu's own; empty, as for any other image, the checksum alone holds the image. |
+| `proxmox_template_image_key` | str | computed | The armored OpenPGP key the signature is by. Ubuntu's cloud image key, vendored in the role's files/ubuntu-cloudimage.asc, unless an image of your own is signed by a key of yours. |
+| `proxmox_template_image_fingerprint` | str | `D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81` | The fingerprint of that key, which the verifier finds it by among the key's packets - never by the key ID the signature names. |
 | `proxmox_template_image_dir` | path | `/var/lib/vz/agent-warehouse` | Directory on the node that keeps the pristine download. Created if missing. Keep it outside the content directories of a storage, or Proxmox lists the image in the UI (under template/iso it appeared as an ISO). |
 | `proxmox_template_storage` | str | `local-lvm` | Proxmox storage the root disk and the cloud-init drive are created on. Set through `proxmox_storage` in local.yml. |
 | `proxmox_template_bridge` | str | `vmbr0` | Bridge the template's net0 is attached to, and so every clone's. Set through `proxmox_bridge` in local.yml. |
@@ -196,6 +199,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | &emsp;Look for the image directory by its name from 2.0 | `ansible.builtin.stat` | <code>proxmox_template_image_dir_1x_found.stat.isdir &#124; default(false)</code> |
 | &emsp;Move the image directory to its name from 2.0 | `ansible.builtin.command` | <code>proxmox_template_image_dir_1x_found.stat.isdir &#124; default(false) and not (proxmox_template_image_dir_1x_found.stat.islnk &#124; default(false)) and not proxmox_template_image_dir_found.stat.exists and not ansible_check_mode</code> |
 | &emsp;Ensure image directory exists | `ansible.builtin.file` |  |
+| &emsp;Hold the image to Ubuntu's signature of its checksum list | `ansible.builtin.include_tasks` |  |
 | &emsp;Download cloud image | `ansible.builtin.get_url` |  |
 | &emsp;Read the image's SHA-256 | `ansible.builtin.stat` |  |
 | &emsp;Decide which image to import | `ansible.builtin.set_fact` |  |
@@ -240,26 +244,27 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Look_for_the_image_directory_by_its_1_x_name0-->|Task| Look_for_the_image_directory_by_its_name_from_2_01[look for the image directory by its name from 2 0<br>When: **proxmox template image dir 1x found stat isdir  <br>default false**]:::task
   Look_for_the_image_directory_by_its_name_from_2_01-->|Task| Move_the_image_directory_to_its_name_from_2_02[move the image directory to its name from 2 0<br>When: **proxmox template image dir 1x found stat isdir  <br>default false  and not  proxmox template image dir<br>1x found stat islnk   default false   and not<br>proxmox template image dir found stat exists and<br>not ansible check mode**]:::task
   Move_the_image_directory_to_its_name_from_2_02-->|Task| Ensure_image_directory_exists3[ensure image directory exists]:::task
-  Ensure_image_directory_exists3-->|Task| Download_cloud_image4[download cloud image]:::task
-  Download_cloud_image4-->|Task| Read_the_image_s_SHA_2565[read the image s sha 256]:::task
-  Read_the_image_s_SHA_2565-->|Task| Decide_which_image_to_import6[decide which image to import]:::task
-  Decide_which_image_to_import6-->|Block Start| Prepare_the_image_for_customization7_block_start_1[[prepare the image for customization<br>When: **proxmox template install guest agent   bool**]]:::block
-  Prepare_the_image_for_customization7_block_start_1-->|Task| Install_libguestfs_tools0[install libguestfs tools<br>When: **proxmox template manage libguestfs   bool**]:::task
+  Ensure_image_directory_exists3-->|Include task| Hold_the_image_to_Ubuntu_s_signature_of_its_checksum_list_image_signature_yml_4[hold the image to ubuntu s signature of its<br>checksum list<br>include_task: image signature yml]:::includeTasks
+  Hold_the_image_to_Ubuntu_s_signature_of_its_checksum_list_image_signature_yml_4-->|Task| Download_cloud_image5[download cloud image]:::task
+  Download_cloud_image5-->|Task| Read_the_image_s_SHA_2566[read the image s sha 256]:::task
+  Read_the_image_s_SHA_2566-->|Task| Decide_which_image_to_import7[decide which image to import]:::task
+  Decide_which_image_to_import7-->|Block Start| Prepare_the_image_for_customization8_block_start_1[[prepare the image for customization<br>When: **proxmox template install guest agent   bool**]]:::block
+  Prepare_the_image_for_customization8_block_start_1-->|Task| Install_libguestfs_tools0[install libguestfs tools<br>When: **proxmox template manage libguestfs   bool**]:::task
   Install_libguestfs_tools0-->|Task| Copy_the_cloud_image_for_customization1[copy the cloud image for customization]:::task
   Copy_the_cloud_image_for_customization1-->|Task| Read_which_system_the_image_holds2[read which system the image holds]:::task
   Read_which_system_the_image_holds2-->|Task| Refuse_an_image_outside_the_Debian_family3[refuse an image outside the debian family]:::task
   Refuse_an_image_outside_the_Debian_family3-->|Task| Install_packages_into_the_image_with_virt_customize4[install packages into the image with virt<br>customize]:::task
-  Install_packages_into_the_image_with_virt_customize4-.->|End of Block| Prepare_the_image_for_customization7_block_start_1
-  Install_packages_into_the_image_with_virt_customize4-->|Task| Remove_the_template_that_differs_from_its_settings8[remove the template that differs from its settings<br>When: **proxmox template existing rc    0**]:::task
-  Remove_the_template_that_differs_from_its_settings8-->|Task| Fail_when_Proxmox_kept_the_template9[fail when proxmox kept the template<br>When: **proxmox template existing rc    0**]:::task
-  Fail_when_Proxmox_kept_the_template9-->|Task| Create_VM_proxmox_template_vmid10[create vm proxmox template vmid]:::task
-  Create_VM_proxmox_template_vmid10-->|Task| Import_the_cloud_image_as_the_root_disk11[import the cloud image as the root disk]:::task
-  Import_the_cloud_image_as_the_root_disk11-->|Task| Add_cloud_init_drive_and_set_boot_order12[add cloud init drive and set boot order]:::task
-  Add_cloud_init_drive_and_set_boot_order12-->|Task| Convert_VM_to_template13[convert vm to template]:::task
-  Convert_VM_to_template13-->|Task| Read_the_template_as_it_was_built14[read the template as it was built]:::task
-  Read_the_template_as_it_was_built14-->|Task| Fail_when_the_template_differs_from_its_settings_as_built15[fail when the template differs from its settings<br>as built]:::task
-  Fail_when_the_template_differs_from_its_settings_as_built15-.->|End of Block| Build_the_template7_block_start_0
-  Fail_when_the_template_differs_from_its_settings_as_built15-->End
+  Install_packages_into_the_image_with_virt_customize4-.->|End of Block| Prepare_the_image_for_customization8_block_start_1
+  Install_packages_into_the_image_with_virt_customize4-->|Task| Remove_the_template_that_differs_from_its_settings9[remove the template that differs from its settings<br>When: **proxmox template existing rc    0**]:::task
+  Remove_the_template_that_differs_from_its_settings9-->|Task| Fail_when_Proxmox_kept_the_template10[fail when proxmox kept the template<br>When: **proxmox template existing rc    0**]:::task
+  Fail_when_Proxmox_kept_the_template10-->|Task| Create_VM_proxmox_template_vmid11[create vm proxmox template vmid]:::task
+  Create_VM_proxmox_template_vmid11-->|Task| Import_the_cloud_image_as_the_root_disk12[import the cloud image as the root disk]:::task
+  Import_the_cloud_image_as_the_root_disk12-->|Task| Add_cloud_init_drive_and_set_boot_order13[add cloud init drive and set boot order]:::task
+  Add_cloud_init_drive_and_set_boot_order13-->|Task| Convert_VM_to_template14[convert vm to template]:::task
+  Convert_VM_to_template14-->|Task| Read_the_template_as_it_was_built15[read the template as it was built]:::task
+  Read_the_template_as_it_was_built15-->|Task| Fail_when_the_template_differs_from_its_settings_as_built16[fail when the template differs from its settings<br>as built]:::task
+  Fail_when_the_template_differs_from_its_settings_as_built16-.->|End of Block| Build_the_template7_block_start_0
+  Fail_when_the_template_differs_from_its_settings_as_built16-->End
 ```
 
 ### `custom_check.yml` - entry point `custom_check`
@@ -520,6 +525,43 @@ classDef rescue stroke:#665352,stroke-width:2px;
   golden_template___Make_it_a_template6-->|Task| golden_template___Forget_the_build_VM_s_host_key7[golden template   forget the build vm s host key]:::task
   golden_template___Forget_the_build_VM_s_host_key7-.->|End of Block| golden_template___Make_the_golden_on_the_API0_block_start_0
   golden_template___Forget_the_build_VM_s_host_key7-->End
+```
+
+### `image_signature.yml`
+
+| Task | Module | When |
+|---|---|---|
+| Refuse a signature with no checksum list it signs | `ansible.builtin.assert` | <code>proxmox_template_image_signature &#124; length > 0</code> |
+| Read the checksum list and Ubuntu's signature of it | `ansible.builtin.uri` | <code>proxmox_template_image_signature &#124; length > 0</code> |
+| Verify the checksum list by Ubuntu's signature | `ansible.builtin.set_fact` | <code>proxmox_template_image_signature &#124; length > 0</code> |
+| Take the image's digest from the signed list | block | <code>proxmox_template_image_signature &#124; length > 0</code> |
+| &emsp;Refuse a list that names the image not once | `ansible.builtin.assert` |  |
+| &emsp;Hold the download to it | `ansible.builtin.set_fact` |  |
+| Hold the download to the checksum as it is set | `ansible.builtin.set_fact` | <code>proxmox_template_image_signature &#124; length == 0</code> |
+| Refuse an image with no checksum to hold it to | `ansible.builtin.assert` |  |
+
+```mermaid
+flowchart TD
+Start
+classDef block stroke:#3498db,stroke-width:2px;
+classDef task stroke:#4b76bb,stroke-width:2px;
+classDef includeTasks stroke:#16a085,stroke-width:2px;
+classDef importTasks stroke:#34495e,stroke-width:2px;
+classDef includeRole stroke:#2980b9,stroke-width:2px;
+classDef importRole stroke:#699ba7,stroke-width:2px;
+classDef includeVars stroke:#8e44ad,stroke-width:2px;
+classDef rescue stroke:#665352,stroke-width:2px;
+
+  Start-->|Task| image_signature___Refuse_a_signature_with_no_checksum_list_it_signs0[image signature   refuse a signature with no<br>checksum list it signs<br>When: **proxmox template image signature   length   0**]:::task
+  image_signature___Refuse_a_signature_with_no_checksum_list_it_signs0-->|Task| image_signature___Read_the_checksum_list_and_Ubuntu_s_signature_of_it1[image signature   read the checksum list and<br>ubuntu s signature of it<br>When: **proxmox template image signature   length   0**]:::task
+  image_signature___Read_the_checksum_list_and_Ubuntu_s_signature_of_it1-->|Task| image_signature___Verify_the_checksum_list_by_Ubuntu_s_signature2[image signature   verify the checksum list by<br>ubuntu s signature<br>When: **proxmox template image signature   length   0**]:::task
+  image_signature___Verify_the_checksum_list_by_Ubuntu_s_signature2-->|Block Start| image_signature___Take_the_image_s_digest_from_the_signed_list3_block_start_0[[image signature   take the image s digest from the<br>signed list<br>When: **proxmox template image signature   length   0**]]:::block
+  image_signature___Take_the_image_s_digest_from_the_signed_list3_block_start_0-->|Task| image_signature___Refuse_a_list_that_names_the_image_not_once0[image signature   refuse a list that names the<br>image not once]:::task
+  image_signature___Refuse_a_list_that_names_the_image_not_once0-->|Task| image_signature___Hold_the_download_to_it1[image signature   hold the download to it]:::task
+  image_signature___Hold_the_download_to_it1-.->|End of Block| image_signature___Take_the_image_s_digest_from_the_signed_list3_block_start_0
+  image_signature___Hold_the_download_to_it1-->|Task| image_signature___Hold_the_download_to_the_checksum_as_it_is_set4[image signature   hold the download to the<br>checksum as it is set<br>When: **proxmox template image signature   length    0**]:::task
+  image_signature___Hold_the_download_to_the_checksum_as_it_is_set4-->|Task| image_signature___Refuse_an_image_with_no_checksum_to_hold_it_to5[image signature   refuse an image with no checksum<br>to hold it to]:::task
+  image_signature___Refuse_an_image_with_no_checksum_to_hold_it_to5-->End
 ```
 
 <!-- END_GENERATED: role -->

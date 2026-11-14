@@ -204,8 +204,10 @@
 # vscode_user_settings_file: ""
 
 # ------------------------------------------------------------ Claude Code ---
-# Claude Code release channel: stable, latest, or an exact version like 2.1.41
-# (the oldest with `claude auth`, which the Claude terminal relies on)
+# Claude Code release channel: stable, latest, or an exact version of 2.1.89
+# or later, the first release Anthropic signs, like 2.1.311. A channel is the
+# update setting written into ~/.claude/settings.json; what is installed is
+# always the release it names, its signature checked here.
 # claude_code_version: stable
 # Extra user-level settings merged into ~/.claude/settings.json
 # claude_code_settings:

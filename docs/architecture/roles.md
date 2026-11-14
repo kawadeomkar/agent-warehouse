@@ -13,7 +13,13 @@ a sibling node looks free to it; before building, the role reads pmxcfs's cluste
 ran to `qm create` - after the download and `virt-customize` - and died there with
 `VM 9000 already exists on node 'pve2'`.
 
-1. Download Ubuntu Noble's minimal cloud image, checksummed against Ubuntu's published `SHA256SUMS`, into
+1. Download Ubuntu Noble's minimal cloud image, held to its digest in Ubuntu's `SHA256SUMS` once that list verifies
+   by Ubuntu's signature (`SHA256SUMS.gpg`, by the vendored key `files/ubuntu-cloudimage.asc`, found by
+   `proxmox_template_image_fingerprint`; `tasks/image_signature.yml`, [§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)):
+   the node reads the list and the signature with `uri`, this machine verifies them, and `get_url` is given
+   `sha256:<digest>`. `proxmox_template_image_signature` is made from the checksum when that is a list of Ubuntu's
+   own on `cloud-images.ubuntu.com`, so any Ubuntu cloud image is held so, and is empty for any other image, whose
+   checksum alone holds it. Into
    `proxmox_template_image_dir` (`/var/lib/vz/agent-warehouse`, created `0755`; the build first moves
    `/var/lib/vz/claude-on-proxmox`, its 1.x name, there, so the download is not fetched again). Not a content
    directory of the `local` storage: under `template/iso` Proxmox listed the image as an ISO. The
@@ -225,22 +231,40 @@ of two install paths:
 
 - **native** (default): probe `claude --version`; install when missing, or when `claude_code_version`
   is an exact `x.y.z` that differs from what is installed. `stable`/`latest` self-update, so they are
-  installed once and never reinstalled. The installer script is downloaded to a tempfile in a `block`
-  with an `always:` cleanup.
+  installed once and never reinstalled. Never through Anthropic's installer script, which checks the binary
+  only against a manifest from the same server and verifies no signature: the VM reads the version a channel
+  names (`{base}/stable`), that release's `manifest.json` and Anthropic's detached signature of it
+  (`manifest.json.sig`) with `uri`, from `claude_code_download_url`; this machine verifies the signature with
+  the vendored key, `files/claude-code.asc`, found by `claude_code_release_fingerprint` (the
+  `openpgp_verified` filter, [§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here));
+  and the VM downloads the binary for its platform (`linux-x64` or `linux-arm64`, from the gathered
+  architecture) held by `get_url` to the digest the verified manifest gives, into the user's own
+  `~/.claude/downloads` (a `/tmp` mounted `noexec` would refuse to run it) in a `block` with an `always:` cleanup,
+  and runs its own `install <the release verified>` - never the channel's name, which the binary could resolve and
+  fetch again for itself - then holds what `~/.local/bin/claude` resolves to to the same digest. The channel is the
+  `autoUpdatesChannel` setting `settings.yml` writes. It carries no signature and needs none: the version it names
+  must have a manifest that verifies, be that version's (the manifest names it), and be `claude_code_signed_since`
+  (2.1.89, the first release Anthropic signed) or later, so whoever serves the channel can only pick among
+  Anthropic's signed releases. An exact version older than that is refused. The reads have a timeout, retries and
+  a size bound, and run under `--check`. What the role verifies is what it installs: the binary's own updates
+  after that are its own, from Anthropic's servers, and a VM installed before 2.6 is not compared with anything.
 - **npm**: `community.general.npm` with `version: omit` for `stable`/`latest`.
 
 ### Managed settings
 
 `settings.yml` merges managed settings *over* whatever is on the VM (`slurp` with
 `failed_when: false`, `combine(recursive=True)`), so a user's own edits to `~/.claude/settings.json`
-survive a re-run. Every task there is `no_log: true` because the API key passes through.
+survive a re-run. Every task there is `no_log: true` because the API key passes through. For a native install on
+`stable` or `latest` it also writes `autoUpdatesChannel`, the channel the binary updates on; a pinned version sets
+none.
 
 A merge can only add, so the role owns `env.ANTHROPIC_API_KEY` explicitly: when nothing managed
 sets it, a key found on disk is stale and is removed, along with an `env` block it leaves empty.
 Without that, clearing `claude_code_anthropic_api_key` changed nothing on the VM — the key an earlier
 run wrote went on outranking the claude.ai login. The file is therefore read on every run, even with
 nothing to manage, but parsed only when something is managed or its text contains the key — so with
-nothing managed, a hand-broken file the role has no business with does not fail the run. Once
+nothing managed, a hand-broken file the role has no business with does not fail the run. A native install on
+`stable` or `latest`, the default, always manages `autoUpdatesChannel`, so there the file is parsed. Once
 something is managed the file has to be parsed: an empty or whitespace-only one counts as `{}`, and
 one that is not a JSON object fails in a `block` whose `rescue` names the file, rather than as a
 `from_json` traceback hidden by `no_log`. A key set through `claude_code_settings.env` counts as

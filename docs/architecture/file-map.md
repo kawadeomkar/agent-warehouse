@@ -124,7 +124,9 @@ playbooks/
 roles/                            one role per concern, each with defaults/, meta/argument_specs.yml, molecule/
   proxmox_template/               qm + virt-customize on the PVE node; tasks/golden_read.yml, golden_select.yml, golden_build.yml,
                                   golden_template.yml, golden_collect.yml and golden_discard.yml, a golden template's
-                                  entry points, on this machine through the API (§4.14)
+                                  entry points, on this machine through the API (§4.14); tasks/image_signature.yml, the
+                                  cloud image held to Ubuntu's signature of its checksum list, by files/ubuntu-cloudimage.asc
+                                  (§7.15)
   proxmox_vm/                     the Proxmox API role (tasks/{main,present,absent}.yml, vars/main.yml)
   common/                         OS baseline, user, sudo, keys, sshd hardening, PATH for ssh commands; tasks/apt.yml,
                                   timezone.yml, user.yml, sshd.yml, profile.yml, shared by main.yml and image.yml, what
@@ -132,7 +134,8 @@ roles/                            one role per concern, each with defaults/, met
   vscode_server/                  sshd forwarding drop-in checked with sshd -T, inotify limit
   dev_tools/                      Node.js, Docker, gh, uv, Rust  (files/*.asc are vendored signing keys); tasks/image.yml
                                   and image_options.yml, what a golden template carries and is built with (§7.13)
-  claude_code/                    native or npm install, settings.json, Remote Control and the path unit that
+  claude_code/                    native or npm install - the native one from Anthropic's signed release, by
+                                  files/claude-code.asc (§7.15) -, settings.json, Remote Control and the path unit that
                                   starts it when a login lands; tasks/login.yml, browser_login.yml (the sign-in),
                                   after_login.yml, home.yml (the user's home, for login and status),
                                   unit_absent.yml; release.yml, and release_pause.yml and
@@ -161,6 +164,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   by its title (§7.8); run/model.py, a live run as stages, steps and tasks (just
                                   deploy's first), and tui/run.py, it drawn: its frame, a line per step, the summary
                                   (§7.5)
+                                  openpgp.py, a vendor's detached signature checked against a vendored key, standard
+                                  library alone (§7.15);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
@@ -225,6 +230,8 @@ filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and check
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   init_pick_question and init_pick, how one of them is asked for and what an answer picks;
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
+filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
+                                  signature checked with a vendored key, here (§7.15)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
                                   which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on
                                   the VM;
@@ -252,7 +259,8 @@ tests/
                                   fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
-                                  fake_anthropic_api.py, the Messages API for the real claude in configure.
+                                  fake_anthropic_api.py, the Messages API for the real claude in configure;
+                                  fake_downloads.py, a vendor's download server for the signed downloads' tests.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why; and boot_wait.yml,

@@ -1220,7 +1220,8 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   held run lock before it asks anything. `settings_set` changes only the settings on `ALLOWED`; `REFUSED` names every
   other setting of `local.yml.example`, so a new one is a decision, and a role variable in no example is refused
   too - an agent steered by what it read must not move `github_projects_api_url`, which the vault's token is sent
-  to, or `claude_code_installer_url`, which every VM runs as root. Where a setting's type lets more through, `VALUES`
+  to, or `claude_code_download_url`, which every VM
+  downloads Claude Code from. Where a setting's type lets more through, `VALUES`
   holds its value: `claude_code_version` is `stable`, `latest` or a version, since with npm as the install method it
   is the version npm installs, and npm takes any spec there - another package, a repository - as root on every VM.
   What `tools/settings` refuses still applies under it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
@@ -1373,3 +1374,35 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   (`host_flag`), where each command ends and before what it then says, and destroy's question and `sessions.json`
   name the host. `tests/unit/test_hosts.py` reads every playbook, role and template for a `just` line naming a VM, or a
   host's fleet or template, without it.
+
+## 7.15 `lib/claude_vm/openpgp.py` — a vendor's signature, checked here
+
+What a VM downloads that its vendor signs is verified on this machine before a digest from it is handed to the
+target: Claude Code's release manifest (`roles/claude_code/tasks/install_native.yml`, signed by Anthropic from 2.1.89)
+and Ubuntu's `SHA256SUMS` (`roles/proxmox_template/tasks/image_signature.yml`, signed by Ubuntu's cloud image key).
+The target reads the file and its detached signature with `uri`, so nothing is written and no run reports a change;
+the `openpgp_verified(data, signature, keys, fingerprint)` filter (`filter_plugins/openpgp.py`) hands back the data
+once the signature verifies, or fails the task saying why; and the target downloads the binary or the image held by
+`get_url` to the digest the verified file gives.
+
+It is the standard library alone, and only as much of OpenPGP (RFC 4880, the version 4 parts of RFC 9580) as those two
+files need; anything else is refused by name rather than half understood: one ASCII-armored signature, its checksum
+held to its body and nothing but whitespace around it; a version 4 signature of a binary document (type `0x00`) by an
+RSA key over SHA-256 or SHA-512, with a creation time no later than a day ahead of this machine's clock, and an
+issuer - a whole fingerprint, or a whole key ID, hashed or not - that is the key given; never an expired signature,
+and no critical subpacket it does not know. The key is found in the vendored file by its version 4 fingerprint,
+computed from its own packet, never by the key ID a signature names, and must be RSA of 2048 bits or more, neither
+revoked nor expired by a signature of its own over it (a certification by another key says nothing of its life). The
+RSA step builds the PKCS #1 v1.5 block the digest must give and compares it whole, in constant time, with what the
+signature raises to the key's exponent - building and comparing, never parsing what came out, which is the way past
+Bleichenbacher's forgery against a parser that stops after the digest. The keys are each role's own `files/` (the
+golden rules allow a lookup of those alone), found by a fingerprint - in `claude_code`'s `vars/main.yml`, and in
+`proxmox_template`'s `defaults/main.yml`, beside the key, since a custom image may name another - and
+`tests/unit/test_pins.py` holds both to the vendors' published fingerprints.
+
+`gpgv` or `sqv` on the target would have done the cryptography with no code of the project's, but Proxmox VE 8 has
+`gpgv`, 9 has `sqv`, which refuses the older copy of Ubuntu's key, and a VM's base has neither: one verifier here is
+one behaviour everywhere, tested offline against the real signatures. Covered by `tests/unit/test_openpgp.py`, against
+the vendors' files (`tests/unit/openpgp/`) and signatures a key made for the test (`tests/unit/signing.py`) gets wrong
+one way at a time, and `tests/unit/test_signed_downloads.py`, which runs both task files against stand-in hosts and a
+stand-in for the download server (`tests/molecule/fake_downloads.py`).

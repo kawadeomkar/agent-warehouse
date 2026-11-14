@@ -1,4 +1,16 @@
 ---
+# Claude Code's native install, from a release Anthropic signed. Never the
+# installer script, which checks the binary only against a manifest from the
+# same server and verifies no signature: the VM reads the release's manifest
+# and Anthropic's detached signature of it, this machine verifies the
+# signature with the vendored key (files/claude-code.asc, held to
+# claude_code_release_fingerprint), and the VM downloads the binary held to
+# the digest the verified manifest gives, then runs its own `install` of that
+# exact version - never a channel's name, which the binary could resolve and
+# fetch again for itself - and what ~/.local/bin/claude is then is held to the
+# same digest (docs/architecture/roles.md §5.5). The channel, stable or latest,
+# is the auto-update setting the role writes (settings.yml). Later updates are
+# the binary's own, from Anthropic's servers: the role verifies what it installs.
 - name: install_native | Check installed version
   ansible.builtin.command:
     argv:
@@ -19,39 +31,167 @@
     or (claude_code_version is match('^[0-9]+\.[0-9]+\.[0-9]+')
         and claude_code_version not in claude_code_current.stdout)
   block:
-    - name: install_native | Create download directory
-      ansible.builtin.tempfile:
-        state: directory
-        suffix: claude-code
+    # Anthropic signs a release's manifest from 2.1.89 on: an older one has
+    # nothing to verify it by.
+    - name: install_native | Refuse a version Anthropic signed no release of
+      ansible.builtin.assert:
+        that: >-
+          claude_code_version in ['stable', 'latest']
+          or (claude_code_version is match(claude_code_release_pattern)
+              and claude_code_version is version(claude_code_signed_since, '>='))
+        fail_msg: >-
+          claude_code_version is {{ claude_code_version | to_json }}: it must be stable, latest or a version of
+          {{ claude_code_signed_since }} or later, the first whose release Anthropic signs.
+        quiet: true
+
+    # The channel names a version and carries no signature, and needs none:
+    # whatever it names, that version's manifest must verify, so whoever
+    # serves it can only pick among Anthropic's own releases, of
+    # claude_code_signed_since or later.
+    # Reads, so in check mode too; each held to a time and, below, a size.
+    - name: install_native | Read the version the channel names
+      ansible.builtin.uri:
+        url: "{{ claude_code_download_url }}/{{ claude_code_version }}"
+        return_content: true
+        timeout: 30
       become: true
       become_user: "{{ claude_code_user }}"
-      register: claude_code_tmp
+      register: claude_code_channel
+      retries: 3
+      delay: 5
+      until: claude_code_channel.status | default(0) == 200
+      check_mode: false
+      when: claude_code_version in ['stable', 'latest']
 
-    # The installer verifies the binary against the release manifest, but the
-    # script itself is trusted through TLS to claude.ai only
-    # (docs/guides/what-the-vm-trusts.md).
-    - name: install_native | Download installer script
-      ansible.builtin.get_url:
-        url: "{{ claude_code_installer_url }}"
-        dest: "{{ claude_code_tmp.path }}/install.sh"
-        owner: "{{ claude_code_user }}"
-        group: "{{ claude_code_user }}"
+    - name: install_native | Refuse a release that is no version of Anthropic's signed ones
+      vars:
+        claude_code_named: >-
+          {{ (claude_code_channel.content | default('') | trim)
+             if claude_code_version in ['stable', 'latest'] else claude_code_version }}
+      ansible.builtin.assert:
+        that:
+          - (claude_code_channel.content | default('')) | length < 256
+          - claude_code_named is match(claude_code_release_pattern)
+          - claude_code_named is version(claude_code_signed_since, '>=')
+        fail_msg: >-
+          {{ claude_code_download_url }}/{{ claude_code_version }} named
+          {{ (claude_code_named | plain_text)[:100] | to_json }}, which is not a version of
+          {{ claude_code_signed_since }} or later.
+        quiet: true
+
+    - name: install_native | Settle the release
+      ansible.builtin.set_fact:
+        claude_code_release: >-
+          {{ (claude_code_channel.content | trim) if claude_code_version in ['stable', 'latest']
+             else claude_code_version }}
+
+    - name: install_native | Read the release's manifest and Anthropic's signature of it
+      ansible.builtin.uri:
+        url: "{{ claude_code_download_url }}/{{ claude_code_release }}/{{ claude_code_item }}"
+        return_content: true
+        timeout: 30
+      become: true
+      become_user: "{{ claude_code_user }}"
+      register: claude_code_manifest_read
+      retries: 3
+      delay: 5
+      until: claude_code_manifest_read.status | default(0) == 200
+      check_mode: false
+      loop: [manifest.json, manifest.json.sig]
+      loop_control:
+        loop_var: claude_code_item
+
+    - name: install_native | Refuse a manifest or a signature larger than one is
+      ansible.builtin.assert:
+        that: claude_code_manifest_read.results | map(attribute='content', default='') | map('length') | max < 1048576
+        fail_msg: >-
+          {{ claude_code_download_url }}/{{ claude_code_release }} sent a manifest or a signature of more than 1 MiB,
+          which no release's is.
+        quiet: true
+
+    # Here, never on the VM: the key and the verifier are this machine's.
+    - name: install_native | Verify the manifest by Anthropic's signature
+      ansible.builtin.set_fact:
+        claude_code_manifest: >-
+          {{ claude_code_manifest_read.results[0].content
+             | openpgp_verified(claude_code_manifest_read.results[1].content,
+                                lookup('ansible.builtin.file', 'claude-code.asc'), claude_code_release_fingerprint)
+             | from_json }}
+
+    - name: install_native | Refuse a manifest that is not this release's for this machine
+      ansible.builtin.assert:
+        that:
+          - claude_code_manifest.version | default('') == claude_code_release
+          - claude_code_platform in claude_code_manifest.platforms | default({})
+          - claude_code_manifest.platforms[claude_code_platform].checksum | default('') is match('^[0-9a-f]{64}\Z')
+        fail_msg: >-
+          The signed manifest of {{ claude_code_release }} names version
+          {{ (claude_code_manifest.version | default('none') | string | plain_text)[:40] }}, or has no binary for
+          {{ claude_code_platform }} with a SHA-256.
+        quiet: true
+
+    # In the user's own ~/.claude/downloads, as the installer script puts it: a
+    # binary run from /tmp fails where /tmp is mounted noexec.
+    - name: install_native | Create download directory
+      ansible.builtin.file:
+        path: "{{ claude_code_home }}/.claude/downloads"
+        state: directory
         mode: "0700"
+      become: true
+      become_user: "{{ claude_code_user }}"
 
-    - name: install_native | Run installer
+    - name: install_native | Download the release's binary, held to the signed digest
+      ansible.builtin.get_url:
+        url: "{{ claude_code_download_url }}/{{ claude_code_release }}/{{ claude_code_platform }}/claude"
+        dest: "{{ claude_code_download }}"
+        checksum: "sha256:{{ claude_code_manifest.platforms[claude_code_platform].checksum }}"
+        mode: "0700"
+        timeout: 120
+      become: true
+      become_user: "{{ claude_code_user }}"
+
+    # What the installer script runs once the binary checks out, which puts the
+    # binary in place and links ~/.local/bin/claude: of the release verified.
+    - name: install_native | Install it
       ansible.builtin.command:
         argv:
-          - bash
-          - "{{ claude_code_tmp.path }}/install.sh"
-          - "{{ claude_code_version }}"
+          - "{{ claude_code_download }}"
+          - install
+          - "{{ claude_code_release }}"
       become: true
       become_user: "{{ claude_code_user }}"
       changed_when: true
       environment:
         HOME: "{{ claude_code_home }}"
+
+    # Whatever install did - copied itself, or fetched again - what claude now
+    # is must be the binary the signed manifest gives.
+    - name: install_native | Read what was installed
+      ansible.builtin.stat:
+        path: "{{ claude_code_bin }}"
+        follow: true
+        checksum_algorithm: sha256
+      become: true
+      become_user: "{{ claude_code_user }}"
+      register: claude_code_installed
+      when: not ansible_check_mode
+
+    - name: install_native | Refuse an install that is not the release verified
+      ansible.builtin.assert:
+        that: >-
+          claude_code_installed.stat.checksum | default('')
+          == claude_code_manifest.platforms[claude_code_platform].checksum
+        fail_msg: >-
+          {{ claude_code_bin }} is not the binary Anthropic's signed manifest of {{ claude_code_release }} gives
+          ({{ claude_code_platform }}, SHA-256 {{ claude_code_manifest.platforms[claude_code_platform].checksum }}):
+          install put something else in place.
+        quiet: true
+      when: not ansible_check_mode
   always:
-    - name: install_native | Remove download directory
+    - name: install_native | Remove the download
       ansible.builtin.file:
-        path: "{{ claude_code_tmp.path }}"
+        path: "{{ claude_code_download }}"
         state: absent
-      when: claude_code_tmp.path is defined
+      become: true
+      become_user: "{{ claude_code_user }}"
+      when: claude_code_release is defined

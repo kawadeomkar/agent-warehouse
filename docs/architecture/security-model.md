@@ -124,7 +124,10 @@ the git hook or `just lint` first needs them, on the machine that holds the vaul
 keys are vendored in-repo, and each file is held to its vendor's published fingerprints, computed from its own
 packets (`tests/unit/test_pins.py`), so a key changed or added fails the tests. The uv release is pinned by version *and* per-architecture SHA-256, stored
 separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
-moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The
+moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. Claude
+Code's native install and the Ubuntu cloud image are each held to their vendor's signature, checked on this machine
+with a vendored key before the target is handed a digest
+([§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)). The
 Molecule base image is pinned by digest, with an unpinned weekly canary. What verifies each download a VM gets is listed in
 [What the VM trusts](../guides/what-the-vm-trusts.md).
 

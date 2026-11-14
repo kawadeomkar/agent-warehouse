@@ -209,7 +209,7 @@ def test_settings_set_changes_an_allowed_setting_once_confirmed_and_never_anothe
     written = _ran(world, "settings")[-1]
     assert "--value=4" in written and written[-1] == "vm_cores"
     _clear(world)
-    for name in ("github_projects_api_url", "claude_code_installer_url", "claude_ssh_options", "vm_ssh_public_keys"):
+    for name in ("github_projects_api_url", "claude_code_download_url", "claude_ssh_options", "vm_ssh_public_keys"):
         _, asked, (result,) = _talk(world, [("settings_set", {"name": name, "value": "x"})], accept)
         assert result.is_error and asked == [] and f"just settings {name} --value=" in _text(result)
     assert _ran(world, "settings") == []
@@ -239,7 +239,7 @@ def test_every_setting_of_the_example_is_allowed_or_refused_and_never_both():
     assert set(confirm.ALLOWED) & confirm.REFUSED == set()
     assert names == set(confirm.ALLOWED) | confirm.REFUSED, "classify each new setting in lib/claude_vm/mcp/confirm.py"
     # Where a credential goes, or what runs on every VM: never an agent's to change, in an example or not.
-    for name in ("github_projects_api_url", "tailscale_api_url", "claude_code_installer_url"):
+    for name in ("github_projects_api_url", "tailscale_api_url", "claude_code_download_url"):
         assert name not in confirm.ALLOWED
     specs = {}
     for path in (REPO / "roles").glob("*/meta/argument_specs.yml"):

@@ -293,6 +293,10 @@ RENAMED = {
 
 # Each setting 2.1 removed with WireGuard (docs/guides/upgrading.md), still set in local.yml or hosts.yml, would
 # be read by nothing, without a word. vpn_reach: lan, which changed nothing, is only warned of.
+# Read by nothing since 2.6, which installs Claude Code from its signed release rather than the installer script:
+# warned of, since a file that sets it changed what was installed through 2.5, and changes nothing now.
+REPLACED = {"claude_code_installer_url": "claude_code_download_url, where releases are read from"}
+
 RETIRED = (
     "vpn_reach",
     "wireguard_hub",
@@ -419,6 +423,9 @@ for path in sys.argv[2:]:
             print(f"error: {path} sets {name}, which 2.1 removed with WireGuard: take it out "
                   "(docs/guides/upgrading.md)", file=sys.stderr)
             found = True
+        if name in REPLACED and value not in ("", None):
+            print(f"warning: {path} sets {name}, which 2.6 reads no more: Claude Code is installed from its signed "
+                  f"release, {REPLACED[name]} (docs/guides/upgrading.md)", file=sys.stderr)
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",

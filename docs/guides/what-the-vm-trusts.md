@@ -48,12 +48,18 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI. When
   the run says gh on the VM named another page, not GitHub's own, the VM may not be the one you made:
   authorise nothing for it unless you know it is yours.
-- Downloads are verified, though not yet everywhere the vendor makes it possible: the uv release by a
-  pinned SHA256 and apt repositories by vendored signing keys, but the Ubuntu cloud image only against the
-  `SHA256SUMS` from the same server, whose signature (`SHA256SUMS.gpg`) is not checked. The Claude Code
-  installer script is fetched over TLS from `claude.ai` and checks the binary against a release manifest from
-  the same place; Anthropic signs that manifest (from 2.1.89) and publishes a signed apt repository, but this
-  project verifies neither yet, so whoever can serve those addresses can serve the VMs another Claude Code.
+- Downloads are verified: the uv release by a pinned SHA256; apt repositories by vendored signing keys; the
+  Ubuntu cloud image by its digest in Ubuntu's `SHA256SUMS`, once Ubuntu's signature of that list
+  (`SHA256SUMS.gpg`) verifies by Ubuntu's cloud image key; and Claude Code's native install by its digest in the
+  release's manifest, once Anthropic's signature of the manifest verifies by Anthropic's release key - never
+  through the installer script, which verifies no signature. Both signatures are checked on this machine, with keys
+  vendored in the repository and held to the vendors' fingerprints, so whoever can serve those addresses can only
+  pick among releases the vendor signed: a pinned Claude Code older than 2.1.89, the first signed release, is
+  refused. That holds for what the role installs, whose installed binary is held to the signed digest. On the
+  `stable` and `latest` channels Claude Code then updates itself, from Anthropic's servers, under its own checks,
+  not the project's; a VM installed before 2.6 keeps the binary it had, compared with no manifest until a pinned
+  version is installed over it. Neither the list nor the manifest is held to be the newest: an older signed one
+  served in its place verifies too, back to 2.1.89 for Claude Code. `claude_code_install_method: npm` takes Claude Code from npm's registry instead, trusted over TLS.
   With `dev_tools_install_rust` on,
   rustup comes from Ubuntu's archive, and the Rust toolchain it installs is fetched over TLS from `static.rust-lang.org` and checked against
   the hashes in the channel manifest, which comes from the same place.

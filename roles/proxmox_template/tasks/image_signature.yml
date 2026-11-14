@@ -1,0 +1,77 @@
+---
+# The image's checksum list, held to Ubuntu's signature of it before the image
+# is held to the list (docs/architecture/roles.md §5.1): the node reads the
+# list and the signature, this machine verifies the signature with the
+# key (proxmox_template_image_key, the vendored files/ubuntu-cloudimage.asc
+# unless one of your own is set, found by proxmox_template_image_fingerprint),
+# and the download is given the image's
+# digest from the signed list - never a list taken on trust from the server
+# the image comes from. Sets proxmox_template_image_signed, the checksum
+# get_url is given: sha256:<digest>, or proxmox_template_image_checksum as it
+# is when no signature is set. Reads only: nothing is written on the node.
+- name: image_signature | Refuse a signature with no checksum list it signs
+  ansible.builtin.assert:
+    that: proxmox_template_image_checksum | default('', true) is match('sha256:https?://')
+    fail_msg: >-
+      proxmox_template_image_signature is set, so proxmox_template_image_checksum must be sha256:<the URL of the
+      checksum list it signs>, not {{ proxmox_template_image_checksum | default('', true) | to_json }}. Set
+      proxmox_template_image_signature to "" for an image you hold to its checksum alone.
+    quiet: true
+  when: proxmox_template_image_signature | length > 0
+
+- name: image_signature | Read the checksum list and Ubuntu's signature of it
+  ansible.builtin.uri:
+    url: "{{ proxmox_template_image_item }}"
+    return_content: true
+    timeout: 60
+  register: proxmox_template_image_list
+  check_mode: false
+  loop:
+    - "{{ proxmox_template_image_checksum | default('', true) | regex_replace('^sha256:', '') }}"
+    - "{{ proxmox_template_image_signature }}"
+  loop_control:
+    loop_var: proxmox_template_image_item
+  when: proxmox_template_image_signature | length > 0
+
+# Here, never on the node: the key and the verifier are this machine's.
+- name: image_signature | Verify the checksum list by Ubuntu's signature
+  ansible.builtin.set_fact:
+    proxmox_template_image_signed_list: >-
+      {{ proxmox_template_image_list.results[0].content
+         | openpgp_verified(proxmox_template_image_list.results[1].content,
+                            proxmox_template_image_key, proxmox_template_image_fingerprint) }}
+  when: proxmox_template_image_signature | length > 0
+
+- name: image_signature | Take the image's digest from the signed list
+  vars:
+    proxmox_template_image_digests: >-
+      {{ proxmox_template_image_signed_list
+         | regex_findall('(?m)^([0-9a-f]{64}) [ *]' ~ (proxmox_template_image_url | basename | regex_escape) ~ '\r?$') }}
+  when: proxmox_template_image_signature | length > 0
+  block:
+    - name: image_signature | Refuse a list that names the image not once
+      ansible.builtin.assert:
+        that: proxmox_template_image_digests | length == 1
+        fail_msg: >-
+          Ubuntu's signed checksum list names {{ proxmox_template_image_url | basename }}
+          {{ proxmox_template_image_digests | length }} times, not once: is proxmox_template_image_checksum the list
+          beside {{ proxmox_template_image_url }}?
+        quiet: true
+
+    - name: image_signature | Hold the download to it
+      ansible.builtin.set_fact:
+        proxmox_template_image_signed: "sha256:{{ proxmox_template_image_digests[0] }}"
+
+- name: image_signature | Hold the download to the checksum as it is set
+  ansible.builtin.set_fact:
+    proxmox_template_image_signed: "{{ proxmox_template_image_checksum | default('', true) }}"
+  when: proxmox_template_image_signature | length == 0
+
+# An image downloaded with nothing to hold it to would be taken on trust, unsaid.
+- name: image_signature | Refuse an image with no checksum to hold it to
+  ansible.builtin.assert:
+    that: proxmox_template_image_signed | default('', true) | length > 0
+    fail_msg: >-
+      {{ proxmox_template_image_url }} has no checksum to hold it to: set proxmox_template_image_checksum to
+      sha256:<the URL of its checksum list>, or sha256:<its digest>.
+    quiet: true

@@ -1,14 +1,17 @@
 ---
 claude_code_user: dev
 
-# native: official installer script (self-updating binary in ~/.local/bin)
+# native: Anthropic's signed release, verified here (self-updating binary in
+#         ~/.local/bin)
 # npm:    @anthropic-ai/claude-code via npm (requires Node.js)
 claude_code_install_method: native
 
-# stable, latest, or an exact version such as 2.1.41 - the oldest with
-# `claude auth`, which the Claude terminal of just code's window relies on.
+# stable, latest, or an exact version such as 2.1.89 - the first whose release
+# Anthropic signs, which the native method verifies.
 claude_code_version: stable
-claude_code_installer_url: https://claude.ai/install.sh
+# Where the native method reads a release: the channels, each release's signed
+# manifest and its binaries. Tests point it at a stand-in.
+claude_code_download_url: https://downloads.claude.ai/claude-code-releases
 
 # Optional API key. Written to the `env` block of ~/.claude/settings.json so
 # every session picks it up. Leave empty to log in interactively on the VM;

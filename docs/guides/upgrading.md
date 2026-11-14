@@ -34,6 +34,17 @@ host changes nothing, but:
 
 The independent security review of 2026-11-10 brought these; an install made before needs nothing for most of them:
 
+- **Claude Code is installed from Anthropic's signed release**, never through the installer script: the VM reads the
+  release's manifest and Anthropic's signature of it, this machine verifies the signature, and the binary is held to
+  the digest the manifest gives. A pinned `claude_code_version` older than 2.1.89, the first signed release, is
+  refused: set `stable`, `latest` or 2.1.89 or later. The exact release verified is what is installed, and what
+  `~/.local/bin/claude` then is must be it; the channel is written as `autoUpdatesChannel` in
+  `~/.claude/settings.json`. `claude_code_installer_url` is read no more, and every recipe says so while it is set:
+  `claude_code_download_url` names where releases are read from. Each golden template is built again once, since
+  what it is built from changed. Should Anthropic or Ubuntu change their signing key before a release of this
+  project does, `claude_code_install_method: npm` installs Claude Code from npm's registry without the signature,
+  and `proxmox_template_image_key` with `proxmox_template_image_fingerprint` name a key of your own for the image.
+- **The cloud image is held to Ubuntu's signature** of its `SHA256SUMS`. A template already built is not rebuilt.
 - **gh's device flow asks for no `workflow` scope** (`github_login_scopes: []`): a push from a VM that changes
   `.github/workflows/` is refused by GitHub, naming the scope, until `github_login_scopes: [workflow]` and a new
   sign-in. A login made before keeps the scope, and no run says so: `gh auth refresh -h github.com -r workflow` on

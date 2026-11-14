@@ -41,12 +41,18 @@ def test_the_vm_s_uv_is_no_older_than_the_controller_s() -> None:
 # keyring as GitHub ships it: the key of 2022, expired 2026-09-05, which apt ignores, and the one after it (both named
 # in cli/cli#13118 and in the Linux install page of its repository).
 KEYS = {
+    # Anthropic's Claude Code release key, which signs each release's manifest from 2.1.89
+    # (https://code.claude.com/docs/en/setup, "Binary integrity and code signing").
+    "roles/claude_code/files/claude-code.asc": {"31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE"},
     "roles/dev_tools/files/docker.asc": {"9DC858229FC7DD38854AE2D88D81803C0EBFCD88"},
     "roles/dev_tools/files/github-cli.asc": {
         "2C6106201985B60E6C7AC87323F3D4EA75716059",
         "7F38BBB59D064DBCB3D84D725612B36462313325",
     },
     "roles/dev_tools/files/nodesource.asc": {"6F71F525282841EEDAF851B42F59B5F99B1BE0B4"},
+    # Ubuntu's cloud image key, which signs SHA256SUMS: the copy with its 2025 SHA-512 self-signature, as
+    # ubuntu-keyring and keyserver.ubuntu.com have it.
+    "roles/proxmox_template/files/ubuntu-cloudimage.asc": {"D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81"},
     "roles/tailscale/files/tailscale.asc": {"2596A99EAAB33821893C0A79458CA832957F5868"},
 }
 
@@ -96,6 +102,16 @@ def _primary_fingerprints(data: bytes) -> set[str]:
             found.add(hashlib.sha1(b"\x99" + struct.pack(">H", len(body)) + body).hexdigest().upper())
         i += length
     return found
+
+
+def test_the_release_keys_the_roles_verify_by_are_the_pinned_ones() -> None:
+    # The fingerprint a role finds its key by, and the one held here, are one.
+    claude = yaml.safe_load((REPO / "roles" / "claude_code" / "vars" / "main.yml").read_text())
+    template = yaml.safe_load((REPO / "roles" / "proxmox_template" / "defaults" / "main.yml").read_text())
+    assert {claude["claude_code_release_fingerprint"]} == KEYS["roles/claude_code/files/claude-code.asc"]
+    assert {template["proxmox_template_image_fingerprint"]} == KEYS[
+        "roles/proxmox_template/files/ubuntu-cloudimage.asc"
+    ]
 
 
 def test_every_vendored_signing_key_is_its_vendor_s() -> None:

@@ -14,9 +14,9 @@ Using it: [Remote Control](../../guides/remote-control.md). How it works: [§5.5
 | Variable | Type | Default | Description |
 |---|---|---|---|
 | `claude_code_user` | str | `dev` | User Claude Code is set up for. Its ~/.claude is written, its login read, and Remote Control run as it. Set through `vm_user` in local.yml. |
-| `claude_code_install_method` | str | `native` | native runs the official installer, a self-updating binary in the user's ~/.local/bin; npm installs @anthropic-ai/claude-code globally and needs Node.js. One of `native`, `npm`. |
+| `claude_code_install_method` | str | `native` | native installs Anthropic's signed release, its manifest's signature checked on the controller and the binary held to the manifest's digest, a self-updating binary in the user's ~/.local/bin; npm installs @anthropic-ai/claude-code globally and needs Node.js. One of `native`, `npm`. |
 | `claude_code_version` | str | `stable` | stable, latest or an exact semantic version. |
-| `claude_code_installer_url` | str | `https://claude.ai/install.sh` | The installer script the native method downloads and runs. |
+| `claude_code_download_url` | str | `https://downloads.claude.ai/claude-code-releases` | Where the native method reads a release - the channels, each release's manifest and its signature, and its binaries. The manifest must verify by Anthropic's key, whatever serves it. Tests point it at a stand-in. |
 | `claude_code_anthropic_api_key` | str | `""` | Written to the env block of ~/.claude/settings.json. Clearing it removes the key an earlier run wrote there. A secret: never logged. Set through `vault_anthropic_api_key` in vault.yml. |
 | `claude_code_settings` | dict | `{}` | Merged recursively into ~/.claude/settings.json. Its env block can carry a key or a token, which is why it is no_log. A secret: never logged. |
 | `claude_code_global_instructions` | str | `""` | Content of ~/.claude/CLAUDE.md, the instructions Claude Code applies in every project. Empty writes nothing and leaves a file already there. |
@@ -92,20 +92,25 @@ Also takes, as described under `main`: `claude_code_remote_control_service`.
 
 **What a golden template carries of Claude Code - the binary, by install method, and an empty ~/.claude**
 
-Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_installer_url`.
+Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_download_url`.
 
 ## Entry point `image_options`
 
 **Record the options the image entry point is built with, for a golden template's key**
 
-Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_installer_url`.
+Also takes, as described under `main`: `claude_code_user`, `claude_code_install_method`, `claude_code_version`, `claude_code_download_url`.
 
 ## Internal values
 
-Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 49 of the 56 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/claude_code/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. 51 of the 61 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
+| `claude_code_release_fingerprint` | The native install's release, as Anthropic signs it (tasks/install_native.yml): the key of files/claude-code.asc, "Anthropic Claude Code Release Signing &lt;security@anthropic.com&gt;", by its fingerprint, which the verifier finds the key by; tests/unit/test_pins.py holds the file to it. | `31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE` |
+| `claude_code_signed_since` | The first release Anthropic signed the manifest of, so the oldest the role installs; and the shape of a release's version, as the channels name one. | `2.1.89` |
+| `claude_code_release_pattern` |  | `^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?\Z` |
+| `claude_code_download` | The release's binary for this VM, by the manifest's name for its platform: glibc only, which every base the project accepts is. | `{{ claude_code_home }}/.claude/downloads/claude-{{ claude_code_release }}-{{ claude_code_platform }}` |
+| `claude_code_platform` |  | `{{ {'x86_64': 'linux-x64', 'aarch64': 'linux-arm64'}.get(ansible_facts['architecture'], ansible_facts['architecture']) }}` |
 | `claude_code_remote_control_blocking_env` | Environment keys in settings.json that each disable Remote Control. | `["DISABLE_TELEMETRY", "DO_NOT_TRACK", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_GROWTHBOOK", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"]` |
 | `claude_code_settings_existing_text` | What settings.yml read from ~/.claude/settings.json, as text, or '' when the file is not there. | <code>{{ (claude_code_settings_existing.content &#124; b64decode) if claude_code_settings_existing.content is defined else '' }}</code> |
 | `claude_code_remote_control_settings_on_disk` | The settings.json Claude Code will actually start with, read back from disk after settings.yml has written it. | <code>{{ (claude_code_remote_control_settings_raw.content &#124; b64decode &#124; from_json) if claude_code_remote_control_settings_raw.content is defined and (claude_code_remote_control_settings_raw.content &#124; b64decode &#124; trim &#124; length > 0) else {} }}</code> |
@@ -439,11 +444,21 @@ classDef rescue stroke:#665352,stroke-width:2px;
 |---|---|---|
 | Check installed version | `ansible.builtin.command` |  |
 | Install Claude Code {{ claude_code_version }} | block | <code>claude_code_current.rc != 0 or (claude_code_version is match('^[0-9]+\.[0-9]+\.[0-9]+')     and claude_code_version not in claude_code_current.stdout)</code> |
-| &emsp;Create download directory | `ansible.builtin.tempfile` |  |
-| &emsp;Download installer script | `ansible.builtin.get_url` |  |
-| &emsp;Run installer | `ansible.builtin.command` |  |
+| &emsp;Refuse a version Anthropic signed no release of | `ansible.builtin.assert` |  |
+| &emsp;Read the version the channel names | `ansible.builtin.uri` | <code>claude_code_version in ['stable', 'latest']</code> |
+| &emsp;Refuse a release that is no version of Anthropic's signed ones | `ansible.builtin.assert` |  |
+| &emsp;Settle the release | `ansible.builtin.set_fact` |  |
+| &emsp;Read the release's manifest and Anthropic's signature of it | `ansible.builtin.uri` |  |
+| &emsp;Refuse a manifest or a signature larger than one is | `ansible.builtin.assert` |  |
+| &emsp;Verify the manifest by Anthropic's signature | `ansible.builtin.set_fact` |  |
+| &emsp;Refuse a manifest that is not this release's for this machine | `ansible.builtin.assert` |  |
+| &emsp;Create download directory | `ansible.builtin.file` |  |
+| &emsp;Download the release's binary, held to the signed digest | `ansible.builtin.get_url` |  |
+| &emsp;Install it | `ansible.builtin.command` |  |
+| &emsp;Read what was installed | `ansible.builtin.stat` | <code>not ansible_check_mode</code> |
+| &emsp;Refuse an install that is not the release verified | `ansible.builtin.assert` | <code>not ansible_check_mode</code> |
 | &emsp;*always:* | | |
-| &emsp;&emsp;Remove download directory | `ansible.builtin.file` | <code>claude_code_tmp.path is defined</code> |
+| &emsp;&emsp;Remove the download | `ansible.builtin.file` | <code>claude_code_release is defined</code> |
 
 ```mermaid
 flowchart TD
@@ -459,11 +474,21 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
   Start-->|Task| install_native___Check_installed_version0[install native   check installed version]:::task
   install_native___Check_installed_version0-->|Block Start| install_native___Install_Claude_Code_claude_code_version1_block_start_0[[install native   install claude code claude code<br>version<br>When: **claude code current rc    0 or  claude code<br>version is match    0 9     0 9     0 9        <br>and claude code version not in claude code current<br>stdout**]]:::block
-  install_native___Install_Claude_Code_claude_code_version1_block_start_0-->|Task| install_native___Create_download_directory0[install native   create download directory]:::task
-  install_native___Create_download_directory0-->|Task| install_native___Download_installer_script1[install native   download installer script]:::task
-  install_native___Download_installer_script1-->|Task| install_native___Run_installer2[install native   run installer]:::task
-  install_native___Run_installer2-.->|End of Block| install_native___Install_Claude_Code_claude_code_version1_block_start_0
-  install_native___Run_installer2-->End
+  install_native___Install_Claude_Code_claude_code_version1_block_start_0-->|Task| install_native___Refuse_a_version_Anthropic_signed_no_release_of0[install native   refuse a version anthropic signed<br>no release of]:::task
+  install_native___Refuse_a_version_Anthropic_signed_no_release_of0-->|Task| install_native___Read_the_version_the_channel_names1[install native   read the version the channel<br>names<br>When: **claude code version in   stable    latest**]:::task
+  install_native___Read_the_version_the_channel_names1-->|Task| install_native___Refuse_a_release_that_is_no_version_of_Anthropic_s_signed_ones2[install native   refuse a release that is no<br>version of anthropic s signed ones]:::task
+  install_native___Refuse_a_release_that_is_no_version_of_Anthropic_s_signed_ones2-->|Task| install_native___Settle_the_release3[install native   settle the release]:::task
+  install_native___Settle_the_release3-->|Task| install_native___Read_the_release_s_manifest_and_Anthropic_s_signature_of_it4[install native   read the release s manifest and<br>anthropic s signature of it]:::task
+  install_native___Read_the_release_s_manifest_and_Anthropic_s_signature_of_it4-->|Task| install_native___Refuse_a_manifest_or_a_signature_larger_than_one_is5[install native   refuse a manifest or a signature<br>larger than one is]:::task
+  install_native___Refuse_a_manifest_or_a_signature_larger_than_one_is5-->|Task| install_native___Verify_the_manifest_by_Anthropic_s_signature6[install native   verify the manifest by anthropic<br>s signature]:::task
+  install_native___Verify_the_manifest_by_Anthropic_s_signature6-->|Task| install_native___Refuse_a_manifest_that_is_not_this_release_s_for_this_machine7[install native   refuse a manifest that is not<br>this release s for this machine]:::task
+  install_native___Refuse_a_manifest_that_is_not_this_release_s_for_this_machine7-->|Task| install_native___Create_download_directory8[install native   create download directory]:::task
+  install_native___Create_download_directory8-->|Task| install_native___Download_the_release_s_binary__held_to_the_signed_digest9[install native   download the release s binary <br>held to the signed digest]:::task
+  install_native___Download_the_release_s_binary__held_to_the_signed_digest9-->|Task| install_native___Install_it10[install native   install it]:::task
+  install_native___Install_it10-->|Task| install_native___Read_what_was_installed11[install native   read what was installed<br>When: **not ansible check mode**]:::task
+  install_native___Read_what_was_installed11-->|Task| install_native___Refuse_an_install_that_is_not_the_release_verified12[install native   refuse an install that is not the<br>release verified<br>When: **not ansible check mode**]:::task
+  install_native___Refuse_an_install_that_is_not_the_release_verified12-.->|End of Block| install_native___Install_Claude_Code_claude_code_version1_block_start_0
+  install_native___Refuse_an_install_that_is_not_the_release_verified12-->End
 ```
 
 ### `install_npm.yml`
