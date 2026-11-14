@@ -275,7 +275,7 @@ github_projects: []
 github_auth: true
 github_auth_method: auto
 github_login_auto_start: true
-github_login_scopes: [workflow]
+github_login_scopes: []
 git_user_name: ""
 git_user_email: ""
 

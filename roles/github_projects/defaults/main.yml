@@ -54,8 +54,10 @@ github_projects_auth: true
 # gh holds, and an empty one is a named failure rather than a fallback.
 github_projects_auth_method: auto
 # Scopes the device flow asks for on top of gh's own (repo, read:org, gist).
-# workflow, so that a push which changes .github/workflows/ is not refused.
-github_projects_login_scopes: [workflow]
+# None by default: workflow lets a push change .github/workflows/, which is
+# the road to a repository's Actions secrets, so it is asked for only when
+# set. A login that lacks a scope set here is said, with how to add it.
+github_projects_login_scopes: []
 # During the device flow, open the page and copy the code on the controller.
 # Off, the run only prints them. Every test turns this off: the controller is
 # the developer's machine.

@@ -392,11 +392,14 @@ github_projects_release_summary: >-
            ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,'
            ~ ' which signs out every gh you have') }}
 
-# Whether gh's login is a device-flow one without the workflow scope, which
-# GitHub refuses a push that changes .github/workflows/ for: said by
-# login_report.yml, with the gh auth refresh that adds it, and left to do.
+# Whether gh's login is a device-flow one without the workflow scope that
+# github_projects_login_scopes asks for, which GitHub refuses a push that
+# changes .github/workflows/ for: said by login_report.yml, with the gh auth
+# refresh that adds it, and left to do. Not asked for, as by default, it is
+# nothing to do.
 github_projects_login_lacks_workflow: >-
-  {{ github_projects_login_kind == 'oauth' and 'workflow' not in (github_projects_auth_account.scopes | default('')) }}
+  {{ 'workflow' in github_projects_login_scopes and github_projects_login_kind == 'oauth'
+     and 'workflow' not in (github_projects_auth_account.scopes | default('')) }}
 
 # What login_report.yml says of gh's login, and whether it is something left to do, which NEXT STEPS records and just
 # status says: the core's words (lib/claude_vm/status/lines.py), one definition for both, from what the registers

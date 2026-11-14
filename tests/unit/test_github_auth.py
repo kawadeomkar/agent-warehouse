@@ -118,7 +118,7 @@ DEVICE_TOKEN = "gho_device0000000000"
 FINE_GRAINED = "github_pat_000000000000"
 # Every token any fixture hands the role or gh holds: none may reach a report.
 CANNED = (*TOKENS.values(), "bad-token", DEVICE_TOKEN, FINE_GRAINED)
-DEVICE_LOGIN = "auth login --hostname github.com --git-protocol https --web --skip-ssh-key --scopes workflow"
+DEVICE_LOGIN = "auth login --hostname github.com --git-protocol https --web --skip-ssh-key"
 NOREPLY = f"4242+{USERNAME}@users.noreply.github.com"
 # Control characters a VM's user could put in what gh prints: a title, a
 # clipboard write (OSC 52) and a colour.
@@ -800,7 +800,9 @@ LOGINS = {
     "pat": {"stored": TOKENS["old"]},
     "fine-grained": {"stored": FINE_GRAINED},
     "ours": {"stored": TOKENS["old"], "marker": TOKENS["old"]},
-    "oauth": {"stored": TOKENS["oauth"]},
+    "oauth": {"stored": TOKENS["oauth"], "github_projects_login_scopes": ["workflow"]},
+    # The same login, the settings asking for no scope of gh's beyond its own, as by default: nothing to do.
+    "oauth-default": {"stored": TOKENS["oauth"]},
     "env": {"stored": TOKENS["env"], "source": "GH_TOKEN"},
     "old-gh": {"old": True},
     # A vault token gh is not signed in with yet: the device flow does not
@@ -868,7 +870,7 @@ def test_github_login_records_what_is_left_to_do(login_run, login):
     for host in ("signed-out", "old-gh", "oauth", "pending-token"):
         assert left[host] == login[host], host
     # Signed in, or gh left alone.
-    for host in ("pat", "fine-grained", "ours", "env", "auth-off", "old-gh-auth-off"):
+    for host in ("pat", "fine-grained", "ours", "oauth-default", "env", "auth-off", "old-gh-auth-off"):
         assert left[host] == "", host
 
 
@@ -883,6 +885,15 @@ def test_github_login_names_a_missing_workflow_scope_of_a_device_flow_login(logi
     assert "lacks the workflow scope" in login["oauth"]
     assert "gh auth refresh -h github.com -s workflow" in login["oauth"]
     assert "workflow scope" not in login["pat"]
+    # Not asked for, as by default: the login has what the settings want.
+    assert "workflow scope" not in login["oauth-default"]
+
+
+def test_the_device_flow_asks_for_no_scope_beyond_gh_s_own_by_default():
+    # workflow lets a push change .github/workflows/, the road to a repository's Actions secrets.
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    inventory = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    assert defaults["github_projects_login_scopes"] == [] and inventory["github_login_scopes"] == []
 
 
 def test_github_login_names_what_signs_a_pending_vault_token_in(login):
@@ -1048,7 +1059,15 @@ def opened_foreign(tmp_path_factory, fake_github):
 
 @pytest.fixture(scope="module")
 def expired(tmp_path_factory, fake_github):
-    return _device_flow(tmp_path_factory, fake_github, "expired", {"expire": True})
+    # With scopes on top of gh's own, as github_login_scopes asks for them (the role's variable: the harness reads no
+    # inventory): the flow's other runs ask for none.
+    return _device_flow(
+        tmp_path_factory,
+        fake_github,
+        "expired",
+        {"expire": True},
+        {"github_projects_login_scopes": ["workflow", "read:project"]},
+    )
 
 
 @pytest.fixture(scope="module")
@@ -1255,6 +1274,13 @@ def test_another_page_gh_named_is_said_and_neither_shown_nor_opened(opened_genui
         assert "\n" not in shown and shown.endswith("Ctrl-C ends the whole run."), repr(shown)
     assert FOREIGN_NAMED in said["foreign"], said
     assert "named another page" not in said["genuine"], said
+
+
+def test_the_device_flow_asks_for_the_scopes_set_and_none_by_default(approved, expired):
+    # DEVICE_LOGIN is gh's own scopes alone, the default; github_login_scopes adds to them, joined as gh takes them.
+    calls = _calls(approved[0], "approved")
+    assert DEVICE_LOGIN in calls and not [call for call in calls if "--scopes" in call], calls
+    assert DEVICE_LOGIN + " --scopes workflow,read:project" in _calls(expired[0], "expired")
 
 
 def test_an_expired_code_is_a_named_failure(expired):

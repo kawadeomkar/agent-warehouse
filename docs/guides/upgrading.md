@@ -34,6 +34,10 @@ host changes nothing, but:
 
 The independent security review of 2026-11-10 brought these; an install made before needs nothing for most of them:
 
+- **gh's device flow asks for no `workflow` scope** (`github_login_scopes: []`): a push from a VM that changes
+  `.github/workflows/` is refused by GitHub, naming the scope, until `github_login_scopes: [workflow]` and a new
+  sign-in. A login made before keeps the scope, and no run says so: `gh auth refresh -h github.com -r workflow` on
+  each such VM drops it.
 - **A session save is bounded**: at most `destroy_sessions_max_size` (4G) of files, no more than five minutes
   without a byte and an hour in all. A VM that goes past a bound is kept by `just destroy`, neither released nor
   deleted: raise the setting, or set `destroy_save_sessions: false` to delete it unsaved.

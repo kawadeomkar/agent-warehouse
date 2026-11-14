@@ -28,10 +28,12 @@ on the VM, one of two ways:
   `gh` in on the VM where gh is signed out or signed in by this project, so one `just deploy` ends with
   everything cloned and a VM that pushes. A login you made on the VM yourself stays, and the token only
   lists there; each run says so, and `github_auth_method: token` puts the token over it. As a classic
-  token it needs `repo`, `workflow` and `read:org` (with `repo` alone it only lists, and the run says which
-  scopes to add); as a fine-grained one, Metadata (read), Contents,
-  Pull requests and Workflows (read and write) on all repositories - a token limited to selected
-  repositories lists and clones only those. The same token serves every VM.
+  token it needs `repo` and `read:org` (with `repo` alone it only lists, and the run says which
+  scopes to add); as a fine-grained one, Metadata (read), Contents and
+  Pull requests (read and write) on all repositories - a token limited to selected
+  repositories lists and clones only those. Add `workflow` (classic) or Workflows (fine-grained) only if the
+  agent should change `.github/workflows/`, which is the road to a repository's Actions secrets. The same
+  token serves every VM.
 - **Without one**, `just deploy` signs the VM in itself, with no question first (`github_login_auto_start`;
   `just login alpha --only github` does the same for a VM that exists). It runs GitHub's device flow for
   you, as far as GitHub allows: gh
@@ -70,7 +72,10 @@ which on a VM already signed in runs the clone straight away.
 `github_auth_method` picks between the two: `auto` (the default) is the token when there is one and the
 device flow otherwise, `web` is the device flow always, with a token used for the listing only, and
 `token` is the token only, where an empty vault fails by name instead of falling back. `github_login_scopes`
-is what the device flow asks for on top of gh's own, `workflow` by default.
+is what the device flow asks for on top of gh's own, nothing by default: `[workflow]` lets the VM's agent
+push a change to `.github/workflows/`, which runs with the repository's Actions secrets, and without it GitHub
+refuses such a push and names the scope. A login made before 2.6 keeps the `workflow` scope it was given,
+and no run or `just status` says so: `gh auth refresh -h github.com -r workflow` on each such VM drops it.
 
 ### Pushing from the VM
 

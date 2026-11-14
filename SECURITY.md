@@ -194,7 +194,8 @@ restate them are not treated as vulnerabilities:
   sign-ins hand it more: `just deploy` and `just login` run `claude auth login` and `gh auth login`
   there and ask you to authorise what they print, so an impostor that prints
   a genuine sign-in page or device code of its own receives a claude.ai login, or a GitHub OAuth token
-  with gh's scopes (`repo`, `read:org`, `gist`) and `workflow` that does not expire until revoked - with
+  with gh's scopes (`repo`, `read:org`, `gist`), and any `github_login_scopes` adds, that does not expire until
+  revoked - with
   no GitHub token in the vault as much as with one. Authorise only a page or code for a VM you have just
   created or know to be yours; a run that says gh on the VM named another page, not GitHub's own, is one
   more sign that the VM is not. Keeping

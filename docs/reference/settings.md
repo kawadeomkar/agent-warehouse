@@ -176,11 +176,11 @@ just deploy starts the device flow by itself; false asks first, VM by VM.
 |---|---|---|
 | `github_login_auto_start` | `true` |  |
 
-Scopes the device flow asks for on top of gh's own (repo, read:org, gist); workflow lets a push change .github/workflows/.
+Scopes the device flow asks for on top of gh's own (repo, read:org, gist). None by default: [workflow] lets the VM's agent push a change to .github/workflows/, which is the road to a repository's Actions secrets; without it GitHub refuses such a push, naming the scope. A login made before keeps the scopes it has (gh auth refresh -r workflow drops one).
 
 | Setting | Default | Notes |
 |---|---|---|
-| `github_login_scopes` | `[workflow]` | Sets `github_projects_login_scopes` ([`github_projects`](roles/github_projects.md)): Scopes the device flow asks for on top of gh's own (repo, read:org, gist). |
+| `github_login_scopes` | `[]` | Sets `github_projects_login_scopes` ([`github_projects`](roles/github_projects.md)): Scopes the device flow asks for on top of gh's own (repo, read:org, gist). |
 
 The git identity on each VM. Empty: your GitHub display name (or login) and GitHub's noreply address for your account, so no private email lands in commits by default.
 
@@ -507,7 +507,7 @@ GitHub account whose repositories get cloned onto the VM.
 |---|---|
 | `vault_github_username` | Sets `github_projects_username` ([`github_projects`](roles/github_projects.md)): GitHub account to list repositories for. |
 
-Optional. With it, private repositories are listed and cloned and gh on each VM is signed in with it, so git push and gh pr create work there. A classic token needs repo, workflow and read:org; a fine-grained one Metadata (read) and Contents, Pull requests and Workflows (read and write) on all repositories. Leave it empty to sign in once per VM by GitHub's device flow instead (just login &lt;name&gt; --only github), with no secret here: that run clones the private repositories too, and later runs list with the token gh stored. [docs/guides/github.md](../guides/github.md).
+Optional. With it, private repositories are listed and cloned and gh on each VM is signed in with it, so git push and gh pr create work there. A classic token needs repo and read:org; a fine-grained one Metadata (read) and Contents and Pull requests (read and write) on all repositories. Add workflow (classic) or Workflows (fine-grained) only if the VM's agent should change .github/workflows/, the road to a repository's Actions secrets. Leave it empty to sign in once per VM by GitHub's device flow instead (just login &lt;name&gt; --only github), with no secret here: that run clones the private repositories too, and later runs list with the token gh stored. [docs/guides/github.md](../guides/github.md).
 
 | Secret, in `vault.yml` | Notes |
 |---|---|

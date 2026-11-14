@@ -587,9 +587,10 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
    command is `gh` the way gh itself does, so a second run changes nothing. The helpers are read
    whenever gh is signed in, `github_auth` or not.
 5. **Say what is missing** on a signed-out VM: the device-flow command (or, under `just deploy`,
-   `github_projects_sign_in_follows`, that the deploy signs it in next), which adds `-s workflow` to
-   gh's default scopes (`repo`, `read:org`, `gist`) so that a push changing `.github/workflows/` is
-   not refused, and that private repositories are not listed until then.
+   `github_projects_sign_in_follows`, that the deploy signs it in next), which adds
+   `github_projects_login_scopes` to gh's default scopes (`repo`, `read:org`, `gist`) with `-s` - none by
+   default, since `workflow` lets a push change `.github/workflows/`, the road to a repository's Actions
+   secrets - and that private repositories are not listed until then.
 
 ### Listing and cloning: `clone.yml`
 
@@ -635,7 +636,8 @@ on, the checkouts that existed before the run are pulled one at a time with `ans
 gh's state as `auth.yml` does, the user's home included (the marker lives under it; when only `main.yml`
 looked it up, the entry point's first real run found it missing), decides from the same vars and
 reports how a VM is signed in - and, for a
-device-flow login that lacks the `workflow` scope, the `gh auth refresh` that adds it. It names only
+device-flow login that lacks the `workflow` scope `github_projects_login_scopes` asks for, the `gh auth refresh`
+that adds it. It names only
 what can run there: with `github_auth: false` nothing, and for a vault token not applied yet the
 `just deploy ... --tags github_projects` that applies it. Given names, any number, it runs the device
 flow itself (`device_flow.yml`) for each VM signed out, then, after the last approval, the whole role

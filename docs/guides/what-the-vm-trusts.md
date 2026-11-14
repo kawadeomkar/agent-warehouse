@@ -25,7 +25,8 @@ and the [security model](../architecture/security-model.md) is how each is enfor
 - A VM with a [list of repositories of its own](vms.md#repositories) holds the same GitHub login as any other: the list
   narrows what is cloned onto it, not what `gh` there can reach.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
-  does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
+  does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus any `github_login_scopes` adds -
+  none by default; `workflow` would let the agent rewrite a repository's Actions workflows - broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
   that to you ([Tearing down](destroy.md)).

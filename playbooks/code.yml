@@ -189,7 +189,7 @@
       github_signed_in: >-
         {{ github_projects_auth | default(true) | bool and github_projects_auth_method | default('auto') != 'token' }}
       clone_protocol: "{{ github_projects_clone_protocol | default('https') }}"
-      login_scopes: "{{ github_projects_login_scopes | default(['workflow']) | join(',') }}"
+      login_scopes: "{{ github_projects_login_scopes | default([]) | join(',') }}"
       remote_control_unit: "{{ code_remote_control_unit }}"
       timezone: "{{ code_timezone }}"
     code_plan: "{{ code_editor | editor_open_plan(code_editors, code_open_inputs) }}"

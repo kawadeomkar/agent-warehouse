@@ -131,6 +131,7 @@ VM = {
         "token_set": "{{ github_projects_token_set | bool }}",
         "configure_command": "{{ github_projects_configure_command }}",
         "login_command": "{{ github_projects_login_command }}",
+        "workflow_asked": "{{ 'workflow' in github_projects_login_scopes }}",
     },
     "tailscale": {
         "wanted": "{{ tailscale_wanted | bool }}",

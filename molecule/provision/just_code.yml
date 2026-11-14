@@ -211,7 +211,7 @@
           - verify_task.command == '/bin/bash'
           - verify_task.args == ['-l', verify_helpers ~ '/claude-terminal.sh', verify_task.args[2], verify_task.args[3],
                                  verify_task.args[4], '/etc/systemd/system/claude-remote-control.path', verify_task.args[6],
-                                 'https', 'workflow', 'alpha', verify_helpers ~ '/session-notes.sh', verify_notes,
+                                 'https', '', 'alpha', verify_helpers ~ '/session-notes.sh', verify_notes,
                                  'claude-remote-control', 'Asia/Kolkata', '']
           - verify_task.args[2] is search('just deploy alpha --only configure,')
           # What a sign-in there says: Remote Control started by the path unit that watches for the login, or not.

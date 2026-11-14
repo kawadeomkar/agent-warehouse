@@ -124,7 +124,9 @@ def github_found(part, settings, host):
             "account": account.get("login") or "",
             "kind": kind,
             "is_ours": is_ours,
-            "lacks_workflow": kind == "oauth" and "workflow" not in str(account.get("scopes") or ""),
+            "lacks_workflow": bool(settings["workflow_asked"])
+            and kind == "oauth"
+            and "workflow" not in str(account.get("scopes") or ""),
             "user": settings["user"],
             "host": host,
             "auth": settings["auth"],

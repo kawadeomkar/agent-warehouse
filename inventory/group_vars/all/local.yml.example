@@ -107,9 +107,12 @@
 # github_auth_method: auto
 # just deploy starts the device flow by itself; false asks first, VM by VM.
 # github_login_auto_start: true
-# Scopes the device flow asks for on top of gh's own (repo, read:org, gist);
-# workflow lets a push change .github/workflows/.
-# github_login_scopes: [workflow]
+# Scopes the device flow asks for on top of gh's own (repo, read:org, gist).
+# None by default: [workflow] lets the VM's agent push a change to
+# .github/workflows/, which is the road to a repository's Actions secrets;
+# without it GitHub refuses such a push, naming the scope. A login made
+# before keeps the scopes it has (gh auth refresh -r workflow drops one).
+# github_login_scopes: []
 # The git identity on each VM. Empty: your GitHub display name (or login) and
 # GitHub's noreply address for your account, so no private email lands in
 # commits by default.
