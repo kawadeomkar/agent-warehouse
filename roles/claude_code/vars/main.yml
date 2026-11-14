@@ -350,7 +350,9 @@ claude_code_login_redirecting: >-
 # names: an AddressFamily inet (or inet6) in the user's ssh config would fail
 # the ::1 (or 127.0.0.1) forward on every sign-in, and ssh keeps the command
 # line's value over the config's. It changes nothing of the connection, which
-# is to the VM's IPv4 address anyway. -f returns once both are up.
+# is to the VM's IPv4 address anyway. -f returns once both are up. The VM's
+# ssh arguments follow, as Ansible splits them: its host key held where every
+# run holds it, under its identity, and no agent forwarded (vm_ssh_args).
 # A stand-in replaces ssh in tests.
 claude_code_login_ssh: ssh
 claude_code_login_forward_argv: >-
@@ -362,6 +364,8 @@ claude_code_login_forward_argv: >-
       '-L', '[::1]:' ~ claude_code_login_callback_port ~ ':127.0.0.1:' ~ claude_code_login_callback_port]
      + (['-i', hostvars[inventory_hostname].ansible_ssh_private_key_file]
         if hostvars[inventory_hostname].ansible_ssh_private_key_file is defined else [])
+     + ((hostvars[inventory_hostname].ansible_ssh_common_args | default('')) ~ ' '
+        ~ (hostvars[inventory_hostname].ansible_ssh_extra_args | default(''))) | ssh_args_split
      + [(hostvars[inventory_hostname].ansible_user | default(claude_code_user)) ~ '@'
         ~ hostvars[inventory_hostname].ansible_host | default(inventory_hostname),
         'echo $$ > ' ~ (claude_code_login_forward_pidfile | quote) ~ ' && exec sleep '

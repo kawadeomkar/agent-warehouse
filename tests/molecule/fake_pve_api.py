@@ -69,6 +69,8 @@ every VM's root disk is 11 GiB used of 31. A clone's config carries the
 template's meta ctime, as Proxmox VE 9.2's did when it was checked against a real
 clone; the moment it was made is its disk's ctime, in the storage's content, which
 PUT /api2/json/fake/disk-ctime?vmid=&ctime= sets for a fixture's VM made earlier.
+The template's config has a SMBIOS UUID (smbios1), and each clone one of its own, so a VM made again at the same ID
+has another, as Proxmox gives them: what the runs file a VM's SSH host key under.
 
 Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_secret>
 """
@@ -79,6 +81,7 @@ import re
 import ssl
 import sys
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -135,6 +138,8 @@ VMS = {
             "scsi0": "local-lvm:base-9000-disk-0,discard=on,size=3584M",
             "ide2": "local-lvm:vm-9000-cloudinit,media=cdrom",
             "net0": "virtio=BC:24:11:00:23:28,bridge=vmbr0",
+            # Every VM's own, as Proxmox gives one to each VM it creates: what a VM's SSH host key is filed under.
+            "smbios1": "uuid=9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3",
             # As a 1.x build recorded it, on purpose: every scenario's deploy then holds that 2.0 rebuilds no template
             # for its record's 1.x name alone.
             "description": "Built by claude-on-proxmox: build=1;"
@@ -648,6 +653,8 @@ class Handler(BaseHTTPRequestHandler):
                     "name": params.get("name"),
                     "scsi0": vm["config"]["scsi0"].replace(f"base-{vmid}", f"vm-{newid}"),
                     "net0": f"virtio={mac_for(newid)},bridge=vmbr0",
+                    # As Proxmox: every clone a SMBIOS UUID of its own, a VM made again at the same ID another.
+                    "smbios1": f"uuid={uuid.uuid4()}",
                 },
                 # Its config keeps the template's meta; its disk is made now.
                 "disk_ctime": int(time.time()),

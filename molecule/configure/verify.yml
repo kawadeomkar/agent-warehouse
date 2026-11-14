@@ -314,10 +314,20 @@
           - "'HostName claude-dev' in verify_ssh_text"
           - "'User dev' in verify_ssh_text"
           - "'ServerAliveInterval 30' in verify_ssh_text"
-          - "'ForwardAgent' not in verify_ssh_text"
+          # Agent forwarding off, and a changed key refused, whatever the
+          # user's own config says. The scenario's VM is the inventory's own
+          # (claude_vm_discovery off): its address is the inventory's, no VM's
+          # word, and its key stays where its connection keeps it, so the block
+          # names no file of the project's and no identity.
+          - "'ForwardAgent no' in verify_ssh_text"
+          - "'StrictHostKeyChecking accept-new' in verify_ssh_text"
+          - "'UserKnownHostsFile' not in verify_ssh_text"
+          - "'HostKeyAlias' not in verify_ssh_text"
           - verify_ssh_stats.results[0].stat.mode == '0600'
           - not verify_ssh_stats.results[1].stat.exists
           - "'hostname claude-dev' in verify_ssh_resolved.stdout_lines"
           - "'user dev' in verify_ssh_resolved.stdout_lines"
+          - "'forwardagent no' in verify_ssh_resolved.stdout_lines"
+          - "'stricthostkeychecking accept-new' in verify_ssh_resolved.stdout_lines"
         fail_msg: "Unexpected managed ssh config:\n{{ verify_ssh_text }}"
         quiet: true

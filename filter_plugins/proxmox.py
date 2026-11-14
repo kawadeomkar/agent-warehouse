@@ -28,6 +28,8 @@ PROXMOX = (
     "proxmox_marks",
     "proxmox_tags_moved",
     "proxmox_notes_repos",
+    "ssh_host_key_alias",
+    "provisioned_vms",
     "proxmox_notes_with_repos",
     "golden_record",
     "golden_read",
@@ -49,7 +51,20 @@ PROXMOX = (
     "os_release_debian",
     "custom_template_problems",
 )
-CHECKS = ("ssh_alias_refusal", "ssh_alias_refusals", "ssh_hostname", "guest_ipv4", "sshd_match_spec")
+CHECKS = (
+    "ssh_alias_refusal",
+    "ssh_alias_refusals",
+    "ssh_hostname",
+    "guest_ipv4",
+    "sshd_match_spec",
+    "vm_ssh_args",
+    "vm_ssh_word",
+    "vm_control_name",
+    "vm_ssh_unheld",
+    "known_hosts_due",
+    "known_hosts_keys",
+    "ssh_args_split",
+)
 
 
 class FilterModule:

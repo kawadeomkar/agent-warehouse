@@ -1,108 +1,46 @@
-"""Deleting a VM forgets its SSH host key under every name this machine may hold it by.
+"""Deleting a VM forgets no SSH host key, anywhere.
 
-The task runs for real, delegated to localhost as in destroy.yml, against a
-known_hosts file in a scratch HOME: never the developer's own.
-
-What this guards: with claude_ssh_host_domain set, the SSH aliases and just code
-connect by <name>.<domain>, so that is a name known_hosts records the key under.
-Deleting the VM forgot only its address, and a VM created again under the same
-name failed its first connection by name with "Host key verification failed".
-
-And what it never forgets: the address is the VM's own report, from its guest
-agent, so a VM that reported the Proxmox host's address (or another host's of
-the inventory) just before its deletion had this machine forget that host's
-key, and accept whatever answered there next.
+What this guards: the key used to be filed under the address the VM's guest agent reported, and forgotten by it at
+deletion, so a VM that reported the Proxmox host's address, or a NAS's, just before its deletion had this machine
+forget that host's key and take whatever answered there next. Then it was filed under agent-warehouse-<SMBIOS UUID>,
+from the config Proxmox gives, and forgotten by that: but a backup restored without --unique keeps its UUID, so
+deleting one of two such VMs forgot the other's key, and any VM later given the deleted one's UUID - which anyone who
+may change a VM's hardware on a shared host can set - was let in on first use. Kept, the key only ever matches that VM
+again, and refuses every other.
 """
 
 from __future__ import annotations
 
-import json
-import subprocess
-from pathlib import Path
-
-import pytest
 import yaml
-from harness import REPO, _run
+from harness import REPO
+
+from claude_vm import proxmox
 
 ROLE = REPO / "roles" / "proxmox_vm"
-FORGET = "absent | Forget the VM's SSH host key"
+UUID = "0b5f5bbc-4a1f-4c1e-9d6b-6f1c2d3e4f50"
+ALIAS = f"agent-warehouse-{UUID}"
 
 
-def _forget(tmp_path: Path, **extra) -> set[str]:
-    """Run absent.yml's forget task with the role's vars and `extra`; return the hosts left in known_hosts."""
-    extra = {"proxmox_vm_found_tags": ["agent-warehouse"], **extra}
-    home = tmp_path / "home"
-    (home / ".ssh").mkdir(parents=True)
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(tmp_path / "key")], check=True)
-    key = (tmp_path / "key.pub").read_text().split()[:2]
-    known = home / ".ssh" / "known_hosts"
-    hosts = ("192.0.2.10", "alpha.lan", "beta.lan", "198.51.100.129")
-    known.write_text("".join(f"{host} {key[0]} {key[1]}\n" for host in hosts))
-
-    task = next(t for t in yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text()) if t["name"] == FORGET)
-    playbook = tmp_path / "forget.yml"
-    vars_files = [str(ROLE / "defaults" / "main.yml"), str(ROLE / "vars" / "main.yml")]
-    play = {"hosts": "localhost", "gather_facts": False, "vars_files": vars_files, "tasks": [task]}
-    playbook.write_text(yaml.safe_dump([play]))
-    # The module expands ~/.ssh/known_hosts from HOME: the scratch one.
-    report = _run(tmp_path, playbook, {}, "-e", json.dumps(extra), env={"HOME": str(home)})
-    assert report["rc"] == 0, report["stderr"][-2000:]
-    return {line.split()[0] for line in known.read_text().splitlines() if line.strip()}
+def test_deleting_a_vm_touches_no_known_hosts_file():
+    tasks = yaml.safe_load((ROLE / "tasks" / "absent.yml").read_text())
+    modules = {key for task in tasks for key in task if "." in key}
+    assert modules == {"community.proxmox.proxmox_kvm"}, modules
+    # Nothing of the role names a known_hosts file, nor a key to forget, nor an address to forget it by.
+    role = "\n".join(path.read_text() for path in ROLE.rglob("*.yml") if "molecule" not in path.parts)
+    for name in ("known_hosts", "ssh-keygen", "forget_address", "host_key_alias"):
+        assert name not in role, name
 
 
-VM = {"proxmox_vm_name": "alpha", "proxmox_vm_forget_address": "192.0.2.10"}
-
-
-def test_with_a_domain_the_name_is_forgotten_with_the_address(tmp_path):
-    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="lan") == {"beta.lan", "198.51.100.129"}
-
-
-def test_without_a_domain_only_the_address_is_forgotten(tmp_path):
-    assert _forget(tmp_path, **VM, proxmox_vm_known_hosts_domain="") == {"alpha.lan", "beta.lan", "198.51.100.129"}
-
-
-@pytest.mark.parametrize("domain", ["lan", ""])
-def test_a_vm_whose_address_is_unknown_still_loses_its_name(tmp_path, domain):
-    left = _forget(tmp_path, **{**VM, "proxmox_vm_forget_address": ""}, proxmox_vm_known_hosts_domain=domain)
-    assert left == {"198.51.100.129"} | (
-        {"192.0.2.10", "beta.lan"} if domain else {"192.0.2.10", "alpha.lan", "beta.lan"}
+def test_the_inventory_wires_no_known_hosts_file_into_the_role():
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    assert not [name for name in defaults if name.startswith("proxmox_vm_known_hosts")]
+    assert (
+        defaults["claude_ssh_known_hosts_file"] == "{{ claude_ssh_config_file | dirname }}/agent-warehouse.known_hosts"
     )
 
 
-def test_the_inventory_wires_the_domain_into_the_role():
-    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    assert defaults["proxmox_vm_known_hosts_domain"] == "{{ claude_ssh_host_domain }}"
-
-
-def test_the_proxmox_host_s_key_is_never_forgotten(tmp_path):
-    left = _forget(tmp_path, **VM, proxmox_vm_api_host="192.0.2.10", proxmox_vm_known_hosts_domain="lan")
-    assert left == {"192.0.2.10", "beta.lan", "198.51.100.129"}
-
-
-def test_an_address_kept_for_the_inventory_is_never_forgotten(tmp_path):
-    kept = {"proxmox_vm_api_host": "198.51.100.1", "proxmox_vm_known_hosts_kept": ["192.0.2.10"]}
-    assert _forget(tmp_path, **VM, **kept, proxmox_vm_known_hosts_domain="") == {
-        "192.0.2.10",
-        "alpha.lan",
-        "beta.lan",
-        "198.51.100.129",
-    }
-
-
-@pytest.mark.parametrize("kept", [{"proxmox_vm_known_hosts_kept": ["beta.lan"]}, {"proxmox_vm_api_host": "beta.lan"}])
-def test_a_kept_name_is_never_forgotten_as_the_vm_s_name_either(tmp_path, kept):
-    # The Proxmox host reached as beta.lan, under another name in the inventory, and a VM named beta deleted.
-    vm = {**VM, "proxmox_vm_name": "beta"}
-    left = _forget(
-        tmp_path, **{"proxmox_vm_api_host": "198.51.100.1", **kept}, **vm, proxmox_vm_known_hosts_domain="lan"
-    )
-    assert left == {"alpha.lan", "beta.lan", "198.51.100.129"}
-
-
-def test_the_inventory_wires_its_own_hosts_addresses_into_the_role():
-    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
-    assert defaults["proxmox_vm_known_hosts_kept"] == "{{ claude_vm_inventory_addresses }}"
-    assert "claude_vm_inventory_hosts" in defaults["claude_vm_inventory_addresses"]
-    assert "ansible_host" in defaults["claude_vm_inventory_addresses"]
-    # The same list an SSH alias may never take.
-    assert "claude_vm_inventory_addresses" in defaults["claude_vm_inventory_names"]
+def test_the_alias_is_the_uuid_proxmox_gives_or_none():
+    assert proxmox.ssh_host_key_alias({"smbios1": f"uuid={UUID.upper()},manufacturer=QEMU"}) == ALIAS
+    assert proxmox.ssh_host_key_alias({"smbios1": f"manufacturer=x,uuid={UUID}"}) == ALIAS
+    for config in ({}, {"smbios1": ""}, {"smbios1": "uuid=not-a-uuid"}, {"smbios1": f"uuid={UUID}x"}, None, "x"):
+        assert proxmox.ssh_host_key_alias(config) == "", config

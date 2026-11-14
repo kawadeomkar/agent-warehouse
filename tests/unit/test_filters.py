@@ -265,7 +265,17 @@ class TestGuestAddresses:
             [uri_result({"net0": NET0}), uri_result({"net0": NET0})],
             [uri_result({"result": [LO, DOCKER0, ETH0]}), uri_result(skipped=True)],
         )
-        assert rows == [{**ALPHA, "address": "192.0.2.51"}, {**PARKED, "address": ""}]
+        assert rows == [{**ALPHA, "address": "192.0.2.51", "key_alias": ""}, {**PARKED, "address": "", "key_alias": ""}]
+
+    def test_names_each_vm_s_host_key_by_its_identity_from_its_config(self):
+        # The key is filed under the VM's SMBIOS UUID, whatever address it reports; with no UUID given, by address.
+        uuid = "0f6c1d2e-3a4b-4c5d-8e9f-a0b1c2d3e4f5"
+        rows = guest_addresses(
+            [ALPHA, ALPHA],
+            [uri_result({"net0": NET0, "smbios1": f"uuid={uuid}"}), uri_result({"net0": NET0})],
+            [uri_result({"result": [ETH0]}), uri_result({"result": [ETH0]})],
+        )
+        assert [row["key_alias"] for row in rows] == [f"agent-warehouse-{uuid}", ""]
 
     def test_reads_the_nic_it_is_given(self):
         # A template whose LAN NIC is net1: reading net0 regardless is the bug
@@ -287,7 +297,7 @@ class TestGuestAddresses:
             ],
         )
         assert [row["address"] for row in rows] == ["", "", "", ""]
-        assert rows[0] == {**NAMELESS, "address": ""}
+        assert rows[0] == {**NAMELESS, "address": "", "key_alias": ""}
 
     def test_never_guesses_without_the_nics_mac(self):
         # Without the MAC, docker0 would come first: no such NIC, or one whose config names no MAC.

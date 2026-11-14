@@ -53,7 +53,8 @@ what it stores. How each part below is enforced is the
   membership. Turned off, the rule goes with the one cloud-init writes and the groups that reach root
   without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: what
-  [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
+  [On the controller](docs/architecture/security-model.md#on-the-controller) lists - the VMs' SSH host keys in
+  `~/.ssh/agent-warehouse.known_hosts`, the Proxmox host's in `~/.ssh/known_hosts`,
   the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
   the checkout's own folder outside it (`tools/env-run --data`), VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
@@ -147,7 +148,16 @@ restate them are not treated as vulnerabilities:
   gathers the ways to bound it - a fine-grained token with chosen repositories and an expiry, no `workflow`
   scope (the default), no login on a VM that should push nothing; a token of each VM's own is not built.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
-  can be reached without manual steps. Changed keys are still refused.
+  can be reached without manual steps. Changed keys are still refused. Each VM's key is kept in the project's own
+  `~/.ssh/agent-warehouse.known_hosts` under the VM's identity - `agent-warehouse-<its SMBIOS UUID>`, which
+  Proxmox holds and makes anew for every VM, the `HostKeyAlias` every connection and alias names - never under
+  the address the VM reports: a VM cannot have this machine forget another host's key, a recycled address means
+  nothing for a VM already known, and a VM that reports a sibling's address is refused there, since the sibling
+  does not hold its key - each VM's shared connection is kept on a socket of its identity's own, so it cannot ride
+  the sibling's open one either, and two VMs that report one address are both left out. A deleted VM's key stays,
+  so a VM later given its identity is refused rather than trusted. A new VM's first connection is still trust on
+  first use, and so is the first run after upgrading for a VM this machine held no key for by address; the key it
+  did hold is copied over once, for the address the VM reports at that moment.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH, Claude's sign-in in the
   browser and Zed's port forwards use, and OpenSSH defaults to anyway; the VM user can forward ports, as a user with passwordless sudo always could.
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
@@ -218,19 +228,16 @@ restate them are not treated as vulnerabilities:
   (no global header, and no entry kept once it is written), or one that stops sending for five minutes or
   takes an hour, fails the save and is kept. A saved transcript is still the
   VM's writing - treat what it says, and what resuming it here asks to run, as you would the VM itself.
-- Deleting a VM also removes its host key from `known_hosts`, which re-opens that first-contact window
-  for its address. The address goes back into the DHCP pool, so whatever answers there next is trusted
-  once - and the next `just deploy` then sends it your SSH keys, GitHub token and Anthropic API key. The
-  sign-ins hand it more: `just deploy` and `just login` run `claude auth login` and `gh auth login`
-  there and ask you to authorise what they print, so an impostor that prints
+- A new VM's first contact is trust on first use: whatever answers at the address its guest agent reports, when
+  the VM is first reached, is trusted - and `just deploy` then sends it your SSH keys, GitHub token and
+  Anthropic API key. The sign-ins hand it more: `just deploy` and `just login` run `claude auth login` and
+  `gh auth login` there and ask you to authorise what they print, so an impostor that prints
   a genuine sign-in page or device code of its own receives a claude.ai login, or a GitHub OAuth token
   with gh's scopes (`repo`, `read:org`, `gist`), and any `github_login_scopes` adds, that does not expire until
   revoked - with
   no GitHub token in the vault as much as with one. Authorise only a page or code for a VM you have just
   created or know to be yours; a run that says gh on the VM named another page, not GitHub's own, is one
-  more sign that the VM is not. Keeping
-  the key instead would only trade this for a failure every time a lease is recycled, so the removal is
-  deliberate. On a network where you do not trust every device, put the VMs on a bridge that only
+  more sign that the VM is not. On a network where you do not trust every device, put the VMs on a bridge that only
   trusted devices can reach (`proxmox_bridge`, set before `just deploy --only template`, since every clone inherits
   the template's NIC). A fixed address from `vm_ipconfig`, outside the DHCP pool, keeps the
   address from being leased to anything else, but only for a single VM: that one value applies to every
@@ -256,10 +263,9 @@ restate them are not treated as vulnerabilities:
   `dev-web`); where nothing tells two VMs' names apart - one `tailscale_hostname` for every VM, or `alpha.lab`
   beside `alpha-lab` - no device is deleted. Anything else is said, not deleted. What is left is a device of
   none of those VMs that happens to be named `<vm>-<digits>`, such as one of a VM on a Proxmox host this
-  checkout does not have. A VM
-  whose address was recycled since is released wherever that address
-  now answers - an SSH host key it does not hold fails the connection first, and nothing is sent to it but
-  the release's own commands.
+  checkout does not have. The address the release connects to is the VM's own report too, but the
+  host key it is held to is the one kept under the VM's identity: a VM that reports another machine's address,
+  or whose address was recycled since, fails the connection there, and nothing is sent to it.
 - **The Claude sign-in's forward.** While Claude's browser sign-in waits, one port on this machine's
   loopback, on both its addresses (`ssh -L 127.0.0.1:<port>:… -L [::1]:<port>:…`), reaches claude's callback
   on the VM's own `127.0.0.1`, so any process on this machine can reach that callback for those minutes - as

@@ -1469,3 +1469,50 @@ def test_the_harness_keeps_the_sign_in_off_this_machine(tmp_path):
     hosts = _hosts(tmp_path, {"probe": {}})
     assert hosts["probe"]["claude_code_login_desktop"] is False
     assert hosts["probe"]["claude_code_remote_control"] is False
+
+
+def test_the_forward_reaches_the_vm_with_the_ssh_arguments_every_run_does(tmp_path):
+    # Its own ssh, so it takes the VM's ssh arguments as Ansible splits them: its host key held under its identity
+    # in the project's file, a jump host of the user's own, no agent forwarded (vm_ssh_args).
+    playbook = tmp_path / "forward.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "alpha",
+                    "gather_facts": False,
+                    "vars_files": [str(ROLE / "defaults" / "main.yml"), str(ROLE / "vars" / "main.yml")],
+                    "tasks": [{"name": "Say it", "ansible.builtin.debug": {"var": "claude_code_login_forward_argv"}}],
+                }
+            ]
+        )
+    )
+    alias = "agent-warehouse-0b5f5bbc-4a1f-4c1e-9d6b-6f1c2d3e4f50"
+    hosts = {
+        "alpha": {
+            "ansible_connection": "local",
+            "ansible_host": "192.0.2.10",
+            "ansible_user": "dev",
+            "ansible_ssh_common_args": "-o ProxyJump=jump.invalid",
+            "ansible_ssh_extra_args": f"-o HostKeyAlias={alias} -o 'UserKnownHostsFile=/a b' -o ForwardAgent=no",
+        }
+    }
+    extra = {
+        "claude_code_login_callback_port": "4242",
+        "claude_code_login_forward_pidfile": "/run/forward.pid",
+        "claude_code_login_approval_timeout": 30,
+    }
+    report = _run(tmp_path, playbook, hosts, "-e", json.dumps(extra))
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    ((argv,),) = [[r["claude_code_login_forward_argv"]] for name, _, r in _results(report) if name == "Say it"]
+    at = argv.index("dev@192.0.2.10")
+    assert argv[at - 8 : at] == [
+        "-o",
+        "ProxyJump=jump.invalid",
+        "-o",
+        f"HostKeyAlias={alias}",
+        "-o",
+        "UserKnownHostsFile=/a b",
+        "-o",
+        "ForwardAgent=no",
+    ], argv

@@ -48,11 +48,33 @@
         claude_vm_marks: "{{ claude_vm_found.tags | default('') | proxmox_marks(claude_vm_tags_owned) }}"
         # Its own list of repositories, from its notes in Proxmox, never the VM.
         claude_vm_repos: "{{ claude_vm_found.repos | default({}) }}"
+        # Its host key held in the project's own known_hosts file, under its
+        # identity from Proxmox (key_alias), never the address it reports; no
+        # agent forwarded whatever the user's ssh config says (vm_ssh_args).
+        # Common args, which ssh, sftp and scp all get, and a shared-connection
+        # socket of its identity's own: one by address alone would let a VM
+        # that reports another's address ride that one's open connection, on
+        # which no host key is checked again. The common args configured
+        # follow them - a variable, else ANSIBLE_SSH_COMMON_ARGS or
+        # ansible.cfg's, which this host var would otherwise outrank.
+        claude_vm_host_key_alias: "{{ claude_vm_found.key_alias | default('') }}"
+        ansible_ssh_common_args: >-
+          {{ claude_vm_found.key_alias | default('') | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
+          {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+             plugin_type='connection', plugin_name='ssh')) }}
+        ansible_control_path: >-
+          %(directory)s/{{ claude_vm_found.key_alias | default('') | vm_control_name(claude_vm_found.address) }}-%%r-%%p
       changed_when: false
       loop: "{{ claude_vm_addressed | selectattr('address') | list }}"
       loop_control:
         loop_var: claude_vm_found
         label: "{{ claude_vm_found.name }}"
+
+    # Before anything connects to them: a key kept before 2.6 by address.
+    - name: Carry each VM's host key over to its identity
+      ansible.builtin.import_tasks: tasks/host_keys.yml
+      vars:
+        claude_host_keys_vms: "{{ claude_vm_addressed | selectattr('address') | list }}"
 
     # With vm_name given, every named VM is meant to be configured. One that is
     # stopped, still booting, unreachable, or not tagged at all is added by

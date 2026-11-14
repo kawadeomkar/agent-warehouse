@@ -71,6 +71,28 @@ unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leav
 resolves VM names (`claude_ssh_host_domain`), else the address its guest agent reported. The alias's block, the
 check that the user's ssh config reaches the managed file, and `just code`'s own connection all read it, so the
 editor and Ansible connect to the same place.
+**`ssh_host_key_alias(config)`** — the name a VM's SSH host key is filed under, `agent-warehouse-<its SMBIOS
+UUID>`, from its config (`smbios_uuid`), which Proxmox holds and makes anew for every VM and clone; `""` for a
+config without one. `guest_addresses` adds it to each row as `key_alias`, provision's publish reads it from the
+role's registers, and `just status`'s model from each VM's config; and two VMs that report one address are each
+given none there, with `shared_address`, since nothing can tell which is telling the truth. **`vm_ssh_args(alias,
+known_hosts, forward_agent)`** — the ssh options of every connection to a VM, as `ansible_ssh_common_args` takes
+them (ssh, sftp and scp alike): `UserKnownHostsFile` (the project's own, `claude_ssh_known_hosts_file`, in double
+quotes, `vm_ssh_word`, so a space is no second file), `HostKeyAlias` (refused unless it is one `ssh_host_key_alias`
+makes), `CheckHostIP=no`, `UpdateHostKeys=no` and `ForwardAgent=no` unless asked for, each shell-quoted. ansible.cfg's
+`ssh_args` come before them on ssh's command line and stand, ssh keeping the first value of an option.
+**`vm_control_name(alias, address)`** names a VM's shared-connection socket, before ssh's own `-%r-%p`, with a digest
+of its identity and address: one named by the address alone let a VM that reported a sibling's address ride the
+sibling's open connection, on which no key is checked again. It is short, since a socket's path is at most 103
+characters on macOS, ssh adds 17 while it makes one, and the directory holds the account's name: a prefix before ssh's
+40-character `%C` left an account name 12. **`vm_ssh_unheld(vms, hostvars, known_hosts)`** names the VMs whose
+effective common args lost those options - a host var or `-e` outranks a publisher's. **`ssh_args_split(text)`**
+splits `ansible_ssh_common_args` and `ansible_ssh_extra_args` as Ansible does, for the ssh Claude's sign-in forward
+runs itself;
+**`known_hosts_due(vms, lines, kept)`** says which VMs' keys are still to be carried over - an identity and an address,
+no key under the identity, no mark - and **`known_hosts_keys(results, loop_var)`** takes the plain key lines
+`ssh-keygen -F` found in a loop's results, `{name, key_alias, key}` with the host field left off, so
+`tasks/host_keys.yml` can file a key kept by address before 2.6 under the VM's identity, once.
 **`sshd_match_spec(ssh_connection, user)`** — what `sshd -T -C` evaluates its `Match` blocks for: the
 user's sessions from where Ansible's own connection comes, read from its `SSH_CONNECTION` (client address
 and port, local address and port), or the loopback address where there is none (a container, a local run).
@@ -1338,10 +1360,9 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   host's `local.yml`, naming `just init --host`; and a setting of one network (`vm_ipconfig`, `vm_nameservers`,
   `proxmox_template_custom`, `claude_ssh_host_domain`) the shared `local.yml` sets and the host's does not is refused,
   naming the line to add.
-- **The other hosts stay protected.** With one host in each run's inventory, three guards would lose sight of the
-  others: `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with them `proxmox_vm_known_hosts_kept`
-  add `claude_hosts_other`, so no VM is named after another host, no alias takes its address, and destroy never
-  forgets its key.
+- **The other hosts stay protected.** With one host in each run's inventory, two guards would lose sight of the
+  others: `claude_vm_inventory_hosts` and `claude_vm_inventory_addresses` add `claude_hosts_other`, so no VM is named
+  after another host and no alias takes its address. Destroy forgets no VM's key, and never one by an address.
 - **`just host`** lists the hosts from their files alone, replaces `hosts/current` whole (`store.replace`) under the
   run lock, so a run under way ends on the host it started on. With `--json`, `--for` and `--host` ask which host a
   run given those names and that `--host` would reach (`where`, `choose.where`): `choose` made public, no vault opened,

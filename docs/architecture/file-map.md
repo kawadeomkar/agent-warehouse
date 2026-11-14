@@ -111,6 +111,8 @@ playbooks/
                                   said and kept for NEXT STEPS (claude_login.yml, github_login.yml, tailscale_login.yml)
   tasks/sign_in_held.yml          GitHub's or Tailscale's sign-in held back for a VM, said and kept for NEXT STEPS
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/agent-warehouse.conf, Include once
+  tasks/host_keys.yml             a VM's host key kept by address before 2.6, copied into ~/.ssh/agent-warehouse.known_hosts
+                                  under the VM's identity, the user's own file only read (§4.8)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/session_save.yml          destroy's save of what of a VM's Claude sessions is only there, into .sessions/

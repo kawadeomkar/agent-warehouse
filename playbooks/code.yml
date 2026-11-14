@@ -506,7 +506,25 @@
             # The VM's own Python, as every add_host that publishes a VM gives it: the VM user's ssh sessions
             # have ~/.local/bin first on PATH, where interpreter discovery would take a uv-installed one.
             ansible_python_interpreter: "{{ claude_vm_python }}"
+            # Its host key held in the project's own known_hosts file, under its identity from Proxmox, never
+            # the address it reports; no agent forwarded (vm_ssh_args).
+            # Common args, for sftp and scp too, the configured ones after them, and a shared-connection socket
+            # of its identity's own (discover.yml says why).
+            claude_vm_host_key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
+            ansible_ssh_common_args: >-
+              {{ claude_vm_addressed[0].key_alias | default('')
+                 | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                 plugin_type='connection', plugin_name='ssh')) }}
+            ansible_control_path: >-
+              %(directory)s/{{ claude_vm_addressed[0].key_alias | default('') | vm_control_name(code_reach) }}-%%r-%%p
           changed_when: false
+
+        # Before anything connects: a key kept before 2.6 by address.
+        - name: Carry the VM's host key over to its identity
+          ansible.builtin.import_tasks: tasks/host_keys.yml
+          vars:
+            claude_host_keys_vms: "{{ [claude_vm_addressed[0] | combine({'address': code_reach})] }}"
 
         # Where the code lives, read on the VM as configure reads it: the VM
         # user's home, so nothing is guessed from this machine. Not needed when
@@ -624,6 +642,7 @@
               - name: "{{ claude_vm_addressed[0].name }}"
                 address: "{{ claude_vm_addressed[0].address }}"
                 user: "{{ vm_user }}"
+                key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
                 workspace: "{{ code_root }}"
                 editor_flag: "{{ code_editor_flag }}"
             claude_vm_names_chosen: "{{ claude_vm_names }}"

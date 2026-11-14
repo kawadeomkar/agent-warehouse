@@ -281,6 +281,9 @@
               {{ claude_vm_addressed | default([]) | selectattr('name', 'equalto', claude_vm_name_item)
                  | map(attribute='address') | first | default('', true) }}
             claude_vm_release_here: "{{ (claude_vm_release_found or '') if claude_vm_reaching | bool else '' }}"
+            claude_vm_release_alias: >-
+              {{ claude_vm_addressed | default([]) | selectattr('name', 'equalto', claude_vm_name_item)
+                 | map(attribute='key_alias', default='') | first | default('', true) }}
           ansible.builtin.add_host:
             name: "{{ claude_vm_name_item }}"
             groups: claude_vm_doomed
@@ -290,6 +293,19 @@
             # The VM's own Python over SSH; this machine's for a local one.
             ansible_python_interpreter: "{{ claude_vm_python if claude_vm_release_here | length > 0 else ansible_playbook_python }}"
             claude_vm_release_address: "{{ claude_vm_release_here }}"
+            # Its host key held in the project's own known_hosts file, under its
+            # identity from Proxmox, never the address it reports: a VM that
+            # reports a sibling's address is refused, not released there.
+            # Common args, for sftp and scp too, the configured ones after
+            # them, and a shared-connection socket of its identity's own
+            # (discover.yml says why).
+            claude_vm_host_key_alias: "{{ claude_vm_release_alias }}"
+            ansible_ssh_common_args: >-
+              {{ claude_vm_release_alias | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                 plugin_type='connection', plugin_name='ssh')) }}
+            ansible_control_path: >-
+              %(directory)s/{{ claude_vm_release_alias | vm_control_name(claude_vm_release_here) }}-%%r-%%p
             # The fleet's other VMs, from the listing, which no VM can change,
             # and those of the checkout's other hosts, by their aliases: a
             # Tailscale device named as one of them joins is never this VM's.
@@ -301,6 +317,15 @@
           loop_control:
             loop_var: claude_vm_name_item
             label: "{{ claude_vm_name_item }}"
+
+        # Before the release connects: a key kept before 2.6 by address. Only a
+        # VM that reported an address: one with none is reached by nothing.
+        - name: Carry each VM's host key over to its identity
+          ansible.builtin.import_tasks: tasks/host_keys.yml
+          vars:
+            claude_host_keys_vms: >-
+              {{ claude_vm_addressed | default([]) | selectattr('name', 'in', claude_vm_names) | selectattr('address')
+                 | list if claude_vm_reaching | bool else [] }}
       rescue:
         - name: Stop again each VM this run started, since it deletes nothing
           ansible.builtin.import_tasks: tasks/vm_stop.yml
@@ -475,11 +500,6 @@
   vars:
     ansible_connection: local
     ansible_python_interpreter: "{{ ansible_playbook_python }}"
-    # <name>.<domain> answers for this host's VM only while the alias of the
-    # name is this host's: one recording another host is that host's VM's, and
-    # keeps its key, as it keeps its alias below.
-    proxmox_vm_known_hosts_domain: >-
-      {{ '' if inventory_hostname in claude_ssh_names_elsewhere else claude_ssh_host_domain }}
 
   # A deletion that fails - a stop that timed out, a VM with protection on, an
   # API error - is recorded and raised at the end of the run, not here: a play

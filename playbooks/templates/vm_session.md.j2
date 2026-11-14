@@ -124,7 +124,9 @@ What the project writes on your machine outside its checkout, and what it has an
 - **Signed in is stale?** "Tasks: Run Task", **Session notes** refreshes it.
 - **VS Code asked whether to open this file?** In a one-project window it lies outside the window's folder. Open is remembered for that window; trusting the window of `{{ again }}` once avoids the question in every project's.
 {% endif %}
-- **"REMOTE HOST IDENTIFICATION HAS CHANGED"** after a rebuild: `ssh-keygen -R {{ vm.address }}` on your machine.
+{% set known = claude_ssh_known_hosts_file | default('', true) %}
+{% set known = '~' ~ known[home | length:] if home and known.startswith(home ~ '/') else (known or '~/.ssh/agent-warehouse.known_hosts') %}
+- **"REMOTE HOST IDENTIFICATION HAS CHANGED"** after a rename in Proxmox (its next boot made new host keys): `ssh-keygen -R {{ vm.key_alias | default(vm.address, true) }} -f {{ known }}` on your machine.
 {% if claude_code_remote_control | default(true) | bool %}
 - **Not in the Claude apps?** `systemctl status {{ code_remote_control_unit }}` here, then `just deploy {{ name }} --tags claude_code{{ on }}` on your machine.
 {% endif %}

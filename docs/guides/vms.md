@@ -163,9 +163,8 @@ in as each value is read; piped, or in `just logs`, only the finished report app
 
 A VM's name too long for its column is cut to fit, and ends in "…".
 
-It reads each VM over one SSH connection, as the VM user and, for what only root may read, through its sudo, with the host key this machine already holds: a VM rebuilt or
-renamed since is "not read", and status never takes its new key - `just deploy <vm> --only configure`
-does. It never runs `claude` there, so a stored login shows as signed in, without its plan.
+It reads each VM over one SSH connection, as the VM user and, for what only root may read, through its sudo, with the host key this machine already holds for it, under its identity: a VM renamed since is "not read", and status never takes a new key - `just deploy <vm> --only configure`
+does, and `just deploy <vm> --only ssh-config` carries over a key kept by address before 2.6. It never runs `claude` there, so a stored login shows as signed in, without its plan.
 
 It exits 0 when nothing is wrong (things to do included), 1 for a problem, 2 when something could not be
 read, and 3 when the run itself failed. `--only` takes `vms`, `storage`, `capacity`, `access`, `sign-ins`, `system`

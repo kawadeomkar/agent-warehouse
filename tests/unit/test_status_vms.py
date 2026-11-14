@@ -714,14 +714,14 @@ REFUSALS = {
     "unknown": (
         "No ED25519 host key is known for 192.0.2.60 and you have requested strict checking.\r\n"
         "Host key verification failed.",
-        "holds no SSH host key for 192.0.2.60, and status adds none",
+        "holds no SSH host key for alpha (agent-warehouse-",
     ),
     "changed": (
         "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\r\n"
         "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\n"
         "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\r\n"
         "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!\r\nHost key verification failed.",
-        "the SSH host key at 192.0.2.60 is not the one this machine holds",
+        "the SSH host key at 192.0.2.60 is not the one this machine holds for alpha",
     ),
 }
 
@@ -741,7 +741,9 @@ def test_each_host_key_refusal_is_said_for_what_it_is(tmp_path, fleet, refusal) 
     assert report["rc"] == 0, report["stderr"][-2000:]
     item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
     assert item["level"] == "unread" and expected in item["text"], item
-    assert ("ssh-keygen -R 192.0.2.60" in item["command"]) == (refusal == "changed")
+    # Its key is filed under its identity, the alias, in the project's own file: that is what a rename's clears.
+    assert ("ssh-keygen -R agent-warehouse-" in item["command"]) == (refusal == "changed")
+    assert "192.0.2.60" not in item["command"]
 
 
 def test_only_the_api_sections_never_open_ssh(tmp_path, fleet) -> None:

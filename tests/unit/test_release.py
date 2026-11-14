@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shlex
 import stat
 import urllib.parse
 import urllib.request
@@ -1109,6 +1111,7 @@ def test_a_run_that_fails_before_deleting_stops_again_what_it_started():
         "List the VMs again, with the ones just started",
         "Read the address of each VM to release",
         "Add each VM as a host to delete",
+        "Carry each VM's host key over to its identity",
     ]
     # Straight after the start: nothing between them that could fail.
     assert names.index("Remember which VMs this run started") == (
@@ -1191,6 +1194,44 @@ def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
                     publishing.setdefault(path.stem, []).append(task["name"])
                     assert "claude_vm_python" in str(added.get("ansible_python_interpreter", "")), (path.stem, task)
     assert sorted(publishing) == ["code", "destroy", "discover", "golden_build", "provision"], publishing
+
+
+COMMON_CONFIGURED = (
+    "{{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',"
+    " plugin_type='connection', plugin_name='ssh')) }}"
+)
+
+
+def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_identity():
+    # The address is the VM's own report: a key filed under it was one the VM could have this machine forget, and a
+    # VM that reported a sibling's address had a run sent there. Every publisher of a fleet VM files the key in the
+    # project's own file under the VM's identity, as common args (ssh, sftp and scp all get them), with a shared
+    # connection's socket of the identity's own - by address alone, a VM reporting a sibling's address rode the
+    # sibling's open connection, on which no key is checked - and carries over a key kept by address before 2.6
+    # before anything connects. The golden build's VM has a file of its own (.cache/golden/), and is no VM of the fleet.
+    publishing = {}
+    for path in [REPO / "deploy.yml", *sorted((REPO / "playbooks").glob("*.yml"))]:
+        for play in yaml.safe_load(path.read_text()) or []:
+            tasks = list(_every_task(play.get("tasks") or []))
+            for task in tasks:
+                added = task.get("ansible.builtin.add_host")
+                if isinstance(added, dict) and "ansible_host" in added and added.get("groups") != "claude_vm_build":
+                    publishing.setdefault(path.stem, []).append(task["name"])
+                    assert "claude_vm_host_key_alias" in added, (path.stem, task["name"])
+                    assert "vm_ssh_args(claude_ssh_known_hosts_file" in str(added.get("ansible_ssh_common_args")), (
+                        path.stem,
+                        task["name"],
+                    )
+                    # The common args configured after them: this host var outranks ANSIBLE_SSH_COMMON_ARGS and
+                    # ansible.cfg's, which reach the VMs only through it.
+                    assert COMMON_CONFIGURED in " ".join(str(added["ansible_ssh_common_args"]).split()), path.stem
+                    assert "ansible_ssh_extra_args" not in added, (path.stem, task["name"])
+                    control = " ".join(str(added.get("ansible_control_path", "")).split())
+                    assert control.startswith("%(directory)s/{{ ") and control.endswith(" }}-%%r-%%p"), path.stem
+                    assert "| vm_control_name(" in control, path.stem
+                    imports = [t.get("ansible.builtin.import_tasks") for t in tasks]
+                    assert "tasks/host_keys.yml" in imports, path.stem
+    assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
 
 
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])
@@ -1312,6 +1353,40 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     # The listing did lag: the run's own relisting still showed it stopped.
     calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
+
+
+def test_a_vm_destroy_reaches_gets_the_common_args_configured_and_a_socket_of_its_own(tmp_path, fake_pve):
+    # The host var a publisher sets outranks ANSIBLE_SSH_COMMON_ARGS and ansible.cfg's ssh_common_args: it hands
+    # them on, after the project's own, which ssh keeps since they come first.
+    said = "[ansible_ssh_common_args, ansible_control_path]"
+    root, playbook = _head(tmp_path, fake_pve, said)
+    extra = {"vm_name": "parked", "confirm_destroy": "yes", "claude_vm_release_agent_delay": 0.2}
+    env = {"ANSIBLE_SSH_COMMON_ARGS": "-o ProxyJump=jump.invalid"}
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120, env=env)
+    assert report["rc"] == 0, _failures(report)
+    ((common, control),) = [result[said] for name, _, result in _results(report) if name == "Address"]
+    words = shlex.split(common)
+    assert words[-2:] == ["-o", "ProxyJump=jump.invalid"], words
+    known = next(at for at, word in enumerate(words) if word.startswith("UserKnownHostsFile="))
+    assert known < words.index("ProxyJump=jump.invalid") and any(word.startswith("HostKeyAlias=") for word in words)
+    assert re.fullmatch(r"%\(directory\)s/aw-[0-9a-f]{12}-%%r-%%p", control), control
+
+
+def test_a_vm_whose_options_an_extra_var_outranks_is_refused_before_destroy_reaches_it(tmp_path, fake_pve):
+    # destroy's VMs are in claude_vm_doomed, not claude_vms: the refusal reads every group a publisher adds to.
+    root, playbook = _head(tmp_path, fake_pve)
+    extra = {
+        "vm_name": "parked",
+        "confirm_destroy": "yes",
+        "claude_vm_release_agent_delay": 0.2,
+        "ansible_ssh_common_args": "-o ProxyJump=jump.invalid",
+    }
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] != 0
+    assert (
+        "and deleted nothing: parked: ansible_ssh_common_args is set for it somewhere that outranks the project's own"
+    ) in _failures(report)["localhost"]
+    assert not [name for name, _, _ in _results(report) if name == "Address"]
 
 
 def test_each_vm_released_is_told_the_names_of_the_fleet_s_other_vms_from_the_listing(tmp_path, fake_pve):

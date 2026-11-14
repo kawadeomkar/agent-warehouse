@@ -524,7 +524,10 @@ pytest over `tests/unit/`, file by file:
 - **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
   play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
   sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM
-  forgets its host key under its address and `<name>.<domain>`), `test_var_names.py` (no task var
+  touches no known_hosts file), `test_host_keys.py` (every connection to a VM holds its key under its identity, on a
+  shared connection of its identity's own; a key kept by address before 2.6 is copied in once per identity, never
+  for a VM the run created and never put back once removed by hand, in check mode too; a VM whose options were
+  outranked is refused; the user's file only read), `test_var_names.py` (no task var
   named like a register or fact, in any playbook or role), `test_cloud_init_wait.py` (a first boot
   that failed is said with what failed and how to build the VM again), `test_gathered_facts.py` (no
   tracked file reads a fact by its top-level name, and every `ansible.cfg` a run reads, the tests' own

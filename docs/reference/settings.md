@@ -233,7 +233,7 @@ Point aliases at &lt;name&gt;.&lt;domain&gt; instead of the address, on a networ
 
 | Setting | Default | Notes |
 |---|---|---|
-| `claude_ssh_host_domain` | `""` | Sets `proxmox_vm_known_hosts_domain` ([`proxmox_vm`](roles/proxmox_vm.md)): The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain). For example `lan`. |
+| `claude_ssh_host_domain` | `""` | For example `lan`. |
 
 The key each alias names (IdentityFile). Empty lets ssh pick, which finds the default key vm_ssh_public_keys reads.
 

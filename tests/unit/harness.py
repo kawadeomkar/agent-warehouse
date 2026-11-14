@@ -1158,7 +1158,9 @@ def _pve_vm(base: str, vmid: int, name: str, *, running: bool = False, agent_pol
 
 def _pve_vars(directory: Path, base: str, pinned: dict | None = None) -> Path:
     """directory/group_vars/all for a run against the fake at base: the project's defaults.yml, linked, and
-    fake_api.yml - the fake's address, the token's secret, the VM user, then pinned. Returns that directory."""
+    fake_api.yml - the fake's address, the token's secret, the VM user, the SSH files of this machine in directory
+    (the managed config, the user's own and so the known_hosts files beside each: never the developer's ~/.ssh), then
+    pinned. Returns that directory."""
     group_vars = directory / "group_vars" / "all"
     group_vars.mkdir(parents=True, exist_ok=True)
     defaults = group_vars / "defaults.yml"
@@ -1169,6 +1171,8 @@ def _pve_vars(directory: Path, base: str, pinned: dict | None = None) -> Path:
         "proxmox_api_port": int(base.rsplit(":", 1)[1]),
         "vault_proxmox_api_token_secret": PVE_SECRET,
         "vm_user": "dev",
+        "claude_ssh_config_file": str(directory / ".ssh" / "agent-warehouse.conf"),
+        "claude_ssh_user_config": str(directory / ".ssh" / "config"),
     }
     (group_vars / "fake_api.yml").write_text(yaml.safe_dump({**api, **(pinned or {})}))
     return group_vars

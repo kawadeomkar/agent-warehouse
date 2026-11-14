@@ -61,12 +61,22 @@
                'address': claude_ssh_vm.address,
                'user': vm_user,
                'workspace': vm_projects_dir | default('', true),
+               'key_alias': claude_ssh_vm.key_alias | default(''),
              }] }}
       loop: "{{ claude_vm_addressed | selectattr('name', 'defined') | list }}"
       loop_control:
         loop_var: claude_ssh_vm
         label: "{{ claude_ssh_vm.name }}"
       when: claude_ssh_vm.address | length > 0 or claude_ssh_host_domain | default('') | length > 0
+
+    # Before the aliases point ssh and the editors at the project's file: a key
+    # kept before 2.6 by address goes there under the VM's identity, as every
+    # run that reaches the VM carries it, so that just status and `ssh <vm>`
+    # read a VM this machine already trusted without asking for its key.
+    - name: Carry each VM's host key over to its identity
+      ansible.builtin.import_tasks: tasks/host_keys.yml
+      vars:
+        claude_host_keys_vms: "{{ claude_vm_addressed | selectattr('name', 'defined') | selectattr('address') | list }}"
 
     - name: Write the aliases
       ansible.builtin.import_tasks: tasks/ssh_config.yml

@@ -137,7 +137,8 @@ def test_present_writes_one_block_per_vm_and_the_include_at_the_top(tmp_path: Pa
     # The block holds what ssh reads, and no state of this project's.
     assert "# vmid" not in managed
     assert "# workspace" not in managed
-    assert "ForwardAgent" not in managed
+    # Agent forwarding off, written so: a Host * of the user's own further down would turn it on otherwise.
+    assert managed.count("    ForwardAgent no\n") == 2 and "ForwardAgent yes" not in managed
     assert "IdentityFile" not in managed
     assert managed.endswith("# END agent-warehouse: beta\n")
 
@@ -295,6 +296,26 @@ def test_a_host_domain_replaces_the_address(tmp_path: Path) -> None:
     assert "192.0.2.51" not in _managed(tmp_path)
 
 
+def test_each_alias_holds_its_vm_s_key_under_its_identity_in_the_project_s_file(tmp_path: Path) -> None:
+    # The key is looked up and filed under the VM's identity, never the address the VM reported, so the editor's
+    # connection takes the key every run holds; a VM without an identity is filed by its address, in that file still.
+    alias = "agent-warehouse-0b5f5bbc-4a1f-4c1e-9d6b-6f1c2d3e4f50"
+    result = _run(tmp_path, [{**ALPHA, "key_alias": alias}, BETA])
+    assert result.returncode == 0, result.stdout + result.stderr
+    known = str(Path(_paths(tmp_path)["claude_ssh_config_file"]).parent / "agent-warehouse.known_hosts")
+    alpha, beta = _resolve(tmp_path, "alpha"), _resolve(tmp_path, "beta")
+    assert alpha["hostkeyalias"] == alias and "hostkeyalias" not in beta
+    assert alpha["userknownhostsfile"] == beta["userknownhostsfile"] == known
+    assert alpha["checkhostip"] == "no" and alpha["updatehostkeys"] == "false" and alpha["forwardagent"] == "no"
+
+
+@pytest.mark.parametrize("alias", ["github.com", "agent-warehouse-1 ProxyCommand=x", "x\nProxyCommand x"])
+def test_an_identity_that_is_not_one_of_ours_is_refused(tmp_path: Path, alias: str) -> None:
+    result = _run(tmp_path, [{**ALPHA, "key_alias": alias}])
+    assert result.returncode != 0 and "Not writing an alias for" in result.stdout
+    assert not Path(_paths(tmp_path)["claude_ssh_config_file"]).exists()
+
+
 def test_identity_file_agent_forwarding_and_options_are_written_when_set(tmp_path: Path) -> None:
     result = _run(
         tmp_path,
@@ -311,6 +332,50 @@ def test_identity_file_agent_forwarding_and_options_are_written_when_set(tmp_pat
     assert resolved["forwardagent"] == "yes"
     assert resolved["serveraliveinterval"] == "15"
     assert resolved["connecttimeout"] == "5"
+
+
+def test_a_changed_key_is_refused_whatever_a_host_star_of_the_user_s_says(tmp_path: Path) -> None:
+    # ssh takes the first value it reads, and the managed file is read before the user's own entries: a Host * with
+    # StrictHostKeyChecking no further down would have ssh, both editors and the session copy connect past a changed
+    # key.
+    result = _run(tmp_path, [ALPHA])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "    StrictHostKeyChecking accept-new\n" in _managed(tmp_path)
+    managed = Path(_paths(tmp_path)["claude_ssh_config_file"])
+    both = tmp_path / "both.conf"
+    both.write_text(managed.read_text() + "Host *\n    StrictHostKeyChecking no\n    ForwardAgent yes\n")
+    said = dict(line.split(" ", 1) for line in _ssh_g(str(both), "alpha").splitlines() if " " in line)
+    assert said["stricthostkeychecking"] == "accept-new" and said["forwardagent"] == "no"
+
+
+def test_host_key_checking_may_be_made_stricter_through_the_options(tmp_path: Path) -> None:
+    result = _run(tmp_path, [ALPHA], claude_ssh_options={"StrictHostKeyChecking": "yes"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _managed(tmp_path).count("StrictHostKeyChecking") == 1
+    assert _resolve(tmp_path, "alpha")["stricthostkeychecking"] == "true"
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"StrictHostKeyChecking": "no"}, {"ForwardAgent": "yes"}, {"userknownhostsfile": "/dev/null"}, {"User": "root"}],
+)
+def test_an_option_the_alias_writes_itself_is_refused_in_the_options(tmp_path: Path, options: dict) -> None:
+    # Written before the options, it would win, and the one given be dropped without a word.
+    result = _run(tmp_path, [ALPHA], claude_ssh_options=options)
+    # Ansible wraps the error at its width.
+    assert result.returncode != 0 and "which the alias block writes itself" in " ".join(result.stdout.split())
+    assert not Path(_paths(tmp_path)["claude_ssh_config_file"]).exists()
+
+
+def test_a_vm_of_the_inventory_s_own_keeps_its_key_where_its_connection_does(tmp_path: Path) -> None:
+    # claude_vm_discovery off: its address is the inventory's, no VM's word, and Ansible reaches it on the user's own
+    # known_hosts; the alias names no file of the project's, so ssh and the editors hold it to the same key.
+    result = _run(tmp_path, [{**ALPHA, "held": False}, BETA])
+    assert result.returncode == 0, result.stdout + result.stderr
+    alpha, beta = _resolve(tmp_path, "alpha"), _resolve(tmp_path, "beta")
+    assert "agent-warehouse.known_hosts" not in alpha["userknownhostsfile"]
+    assert beta["userknownhostsfile"].endswith("agent-warehouse.known_hosts")
+    assert alpha["forwardagent"] == "no" and alpha["stricthostkeychecking"] == "accept-new"
 
 
 def test_the_connect_line_names_the_editor_a_run_chose_against_the_setting(tmp_path: Path) -> None:

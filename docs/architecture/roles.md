@@ -77,16 +77,13 @@ check and `absent.yml`, both only for a VM that exists.
 The read-then-assert pairs exist so a failure reports *what to fix* (check that the API token holds
 `VM.Monitor` on PVE 8, `VM.GuestAgent.Audit` on PVE 9) instead of Ansible's generic retry timeout.
 
-**`tasks/absent.yml`** — ask the agent for the address *while the VM still exists* (the NIC's MAC comes
-from the config the lookup already holds), stop, delete
+**`tasks/absent.yml`** — stop, delete
 with `force: true` (which also covers a VM restarted between the two calls) and
 `destroy_unreferenced_disks: true` (a disk that still carries the VMID but that the configuration no
 longer lists goes with the VM - these VMs are deleted often, and the tag check has already
-established the VMID is this project's), then one housekeeping
-step: remove the address from `known_hosts`. It matters because names and DHCP leases are reused,
-and a stale host key produces `HOST KEY VERIFICATION FAILED` with no hint why. If no address could
-be determined, a warning says so and names the `ssh-keygen -R` fix. There are no cached facts to
-clear: the project has no fact cache ([§13](toolchain.md)).
+established the VMID is this project's). No SSH host key is forgotten: the VM's is filed under its identity, which no
+VM made later has, so it only refuses any other VM given it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+There are no cached facts to clear: the project has no fact cache ([§13](toolchain.md)).
 
 **`vars/main.yml`** holds the role's lazily-evaluated internals — see [§6.3](variables.md#63-computed-internals).
 

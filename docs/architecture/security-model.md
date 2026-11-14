@@ -212,9 +212,12 @@ there: `tools/molecule-lanes` writes each one's whole output, without colour, to
 
 ## On the controller
 
-The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth and
-Claude Code's own CLI a fifth:
-`~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
+The project writes exactly four things outside the repository, and has VS Code's own CLI write a fifth and
+Claude Code's own CLI a sixth:
+the SSH host keys - the Proxmox host's in `~/.ssh/known_hosts`, and every VM's in a file of the project's own,
+`~/.ssh/agent-warehouse.known_hosts`, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`) rather than the
+address it reports, so a VM can neither have this machine forget another host's key nor send a run to a sibling -
+and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
 checkout's own folder (`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you
 bring no virtualenv, the Python environment ([§13](toolchain.md)) - and, only where you point
@@ -231,7 +234,8 @@ the tools keep for themselves:
 
 | Where | What | Written by | When | Taken out by |
 |---|---|---|---|---|
-| `~/.ssh/known_hosts` | each VM's SSH host key, and the Proxmox host's | ssh, on first contact (`StrictHostKeyChecking=accept-new`) | every run that reaches a VM or the Proxmox host | `just destroy`: the VM's lines, never the Proxmox host's |
+| `~/.ssh/known_hosts` | the Proxmox host's SSH host key - never a VM's | ssh, on the first root SSH to the host (`StrictHostKeyChecking=accept-new`) | `just init`'s checks, and a template build | nothing: it is yours |
+| `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`) | each VM's SSH host key, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`), never its address | ssh, on first contact with a VM (`StrictHostKeyChecking=accept-new`, with the file and the identity every connection names); a VM's key kept by address in `~/.ssh/known_hosts` before 2.6, copied in once, and a comment line marking each VM's copy made (`playbooks/tasks/host_keys.yml`) | every run that reaches a VM | nothing: a deleted VM's key stays under its identity, which no VM made later has, so that any VM given it again is refused, never taken on first use. `ssh-keygen -R <identity> -f ~/.ssh/agent-warehouse.known_hosts` takes one out |
 | `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`) | one `Host` block per VM, so `ssh <vm>` reaches it, recording the host the VM is on | `just deploy`, `just code` (`playbooks/tasks/ssh_config.yml`) | `claude_ssh_config` on (the default) | `just deploy --only ssh-config` prunes a VM that is gone from its host; `just destroy` the VM's |
 | one `Include` line at the top of `~/.ssh/config` (`claude_ssh_user_config`) | makes ssh read the file above | the same, once | `claude_ssh_config_include` on, while ssh does not reach the file yet | nothing: it is yours to remove |
 | `~/.local/share/agent-warehouse/checkouts/<folder>-<checksum>` (under `$XDG_DATA_HOME` when set) | this checkout's Galaxy collections, and its Python environment when you bring no virtualenv | `just install` | always | `just clean env` |

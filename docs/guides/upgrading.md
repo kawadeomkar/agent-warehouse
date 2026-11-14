@@ -56,6 +56,18 @@ The independent security review of 2026-11-10 brought these; an install made bef
   of another host the checkout has, would join (`web-2` beside `web`), and every one where one `tailscale_hostname`
   names every VM or two VMs' names make one machine name (`alpha.lab` and `alpha-lab`). The run says so, with where
   to delete it by hand.
+- **The VMs' SSH host keys move to `~/.ssh/agent-warehouse.known_hosts`**, each under the VM's identity
+  (`agent-warehouse-<SMBIOS UUID>`) rather than its address. The first run that reaches a VM - `--check` too -
+  copies the key `~/.ssh/known_hosts` holds for its address into the new file, once, and says so, or says that
+  there was none and the key is taken on first use; nothing is removed from `~/.ssh/known_hosts`, whose lines for
+  the VMs are read no more (`ssh-keygen -R <address>` takes one out). Each alias block gains `HostKeyAlias`,
+  `UserKnownHostsFile`, `CheckHostIP no`, `UpdateHostKeys no`, `StrictHostKeyChecking accept-new` and
+  `ForwardAgent no` at its next write: `just deploy --only ssh-config` writes them all, and carries the keys over
+  first. `just status` reads a VM only once its key is in the new file. A copy of the managed SSH config on another
+  machine wants the new file beside it. `claude_ssh_options` may no longer set any option the block writes itself
+  (`ForwardAgent` is `claude_ssh_forward_agent`), but a stricter `StrictHostKeyChecking`, and an
+  `ansible_ssh_common_args` set for a VM where it outranks the project's own is refused: set
+  `ansible_ssh_extra_args` for options of yours.
 
 ## The project is called agent-warehouse
 

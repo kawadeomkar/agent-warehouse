@@ -42,8 +42,6 @@ All API calls are delegated to the controller.
 | `proxmox_vm_lookup_retries` | int | `6` | How many more times a just-cloned VM's configuration is read, after the first, before giving up, since the cluster listing can lag behind a clone. |
 | `proxmox_vm_lookup_delay` | int | `5` | Seconds between reads of a just-cloned VM's configuration. |
 | `proxmox_vm_allow_untagged_delete` | bool | `false` | Allow state=absent to delete a VM that does not carry the ownership tag. Off by default so a name collision cannot destroy a VM this project never created. |
-| `proxmox_vm_known_hosts_domain` | str | `""` | The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain). state=absent forgets the host key recorded under &lt;name&gt;.&lt;domain&gt; too, besides the one under the address. Set through claude_ssh_host_domain in local.yml. Set through `claude_ssh_host_domain` in local.yml. |
-| `proxmox_vm_known_hosts_kept` | list of `str` | `[]` | Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported, or &lt;name&gt;.&lt;domain&gt; it is reached by - the inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host) is never forgotten either way. Wired from the inventory's hosts in group_vars/all. |
 | `proxmox_vm_name` | str | same as `inventory_hostname` | VM name in Proxmox. Defaults to the inventory hostname. |
 | `proxmox_vm_id` | raw | `""` | Pin the VM to a specific VMID. Left empty, Proxmox assigns the next free one. The VM is identified by name, not by ID, so this is rarely needed. Run across several hosts at once, the role clones one VM at a time unless each has a distinct VMID here, because concurrent clones that ask Proxmox for one are handed the same. provision.yml sets one for every new VM of a fleet. Declared raw so the role can validate it and report a helpful message. |
 | `proxmox_vm_size` | dict | `{}` | This run's size for a VM it creates, each part optional - cores, memory_mb, disk (as 64G) - in place of proxmox_vm_cores, proxmox_vm_memory_mb and proxmox_vm_disk_size. Set by provision.yml from just deploy's --cores, --memory and --disk. A VM created with one is tagged &lt;ownership tag&gt;-sized, its size its own from then on - just status calls no difference from the size settings drift, and proxmox_vm_force_update keeps it. A VM that exists is refused when it has another size, but under proxmox_vm_force_update, which applies it. |
@@ -68,7 +66,7 @@ All API calls are delegated to the controller.
 
 ## Internal values
 
-Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 28 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
+Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a role's vars above `local.yml`, so a value set there has no effect. All 26 are computed during a run, from earlier tasks' results. Each one's purpose is the first sentence of the comment above it, where it has one of its own.
 
 | Name | Purpose | Value |
 |---|---|---|
@@ -98,8 +96,6 @@ Set in `roles/proxmox_vm/vars/main.yml`. These are not settings: Ansible ranks a
 | `proxmox_vm_found_repos` |  | <code>{{ proxmox_vm_found_notes &#124; proxmox_notes_repos }}</code> |
 | `proxmox_vm_notes_sent` |  | <code>{{ proxmox_vm_found_notes &#124; proxmox_notes_with_repos(proxmox_vm_repos) }}</code> |
 | `proxmox_vm_needs_configuration` | Whether the VM still needs its settings applied, its disk resized and a start. | <code>{{ (not proxmox_vm_exists) or (proxmox_vm_force_update &#124; bool) or ((proxmox_vm_lookup.proxmox_vms[0].config &#124; default({}, true)).ciuser &#124; default('', true) &#124; length == 0) or (proxmox_vm_unfinished_tag in proxmox_vm_found_tags) }}</code> |
-| `proxmox_vm_forget_address` | The address whose host key should be forgotten when the VM is deleted, as the guest agent reports it while the VM still exists. | `{{ proxmox_vm_reported_address }}` |
-| `proxmox_vm_forget_names` | Every name this machine may hold the VM's host key under - the address, and &lt;name&gt;.&lt;domain&gt; when the SSH aliases and just code connect by name (proxmox_vm_known_hosts_domain). | <code>{{ (([proxmox_vm_forget_address] if proxmox_vm_forget_address &#124; length > 0 else []) + ([proxmox_vm_name ~ '.' ~ proxmox_vm_known_hosts_domain] if proxmox_vm_known_hosts_domain &#124; length > 0 else [])) &#124; reject('in', [proxmox_vm_api_host] + proxmox_vm_known_hosts_kept) &#124; list }}</code> |
 
 ## Tasks
 
@@ -163,11 +159,8 @@ classDef rescue stroke:#665352,stroke-width:2px;
 
 | Task | Module | When |
 |---|---|---|
-| Ask the guest agent for the VM's address | `community.proxmox.proxmox_vm_info` |  |
 | Stop the VM | `community.proxmox.proxmox_kvm` |  |
 | Delete the VM and its disks | `community.proxmox.proxmox_kvm` |  |
-| Forget the VM's SSH host key | `ansible.builtin.known_hosts` |  |
-| Warn when the address could not be determined | `ansible.builtin.debug` | <code>proxmox_vm_forget_address &#124; length == 0</code> |
 
 ```mermaid
 flowchart TD
@@ -181,12 +174,9 @@ classDef importRole stroke:#699ba7,stroke-width:2px;
 classDef includeVars stroke:#8e44ad,stroke-width:2px;
 classDef rescue stroke:#665352,stroke-width:2px;
 
-  Start-->|Task| absent___Ask_the_guest_agent_for_the_VM_s_address0[absent   ask the guest agent for the vm s address]:::task
-  absent___Ask_the_guest_agent_for_the_VM_s_address0-->|Task| absent___Stop_the_VM1[absent   stop the vm]:::task
-  absent___Stop_the_VM1-->|Task| absent___Delete_the_VM_and_its_disks2[absent   delete the vm and its disks]:::task
-  absent___Delete_the_VM_and_its_disks2-->|Task| absent___Forget_the_VM_s_SSH_host_key3[absent   forget the vm s ssh host key]:::task
-  absent___Forget_the_VM_s_SSH_host_key3-->|Task| absent___Warn_when_the_address_could_not_be_determined4[absent   warn when the address could not be<br>determined<br>When: **proxmox vm forget address   length    0**]:::task
-  absent___Warn_when_the_address_could_not_be_determined4-->End
+  Start-->|Task| absent___Stop_the_VM0[absent   stop the vm]:::task
+  absent___Stop_the_VM0-->|Task| absent___Delete_the_VM_and_its_disks1[absent   delete the vm and its disks]:::task
+  absent___Delete_the_VM_and_its_disks1-->End
 ```
 
 ### `present.yml`

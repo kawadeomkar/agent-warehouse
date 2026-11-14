@@ -122,14 +122,21 @@ def guest_addresses(vms, configs, networks, nic="net0"):
     ``/agent/network-get-interfaces``. Returns the entries with an ``address``
     key added: the IPv4 the agent reports on the interface whose MAC is the
     config's ``nic``, so a bridge the guest grew later (docker0) is never
-    returned. ``nic`` is the one setting that decides this, which is why the
-    caller passes ``proxmox_nic``.
+    returned; and a ``key_alias``, the name its SSH host key is filed under
+    (ssh_host_key_alias), "" for a config without an SMBIOS UUID. ``nic`` is
+    the one setting that decides the address, which is why the caller passes
+    ``proxmox_nic``.
 
     Anything that leaves one VM without an address - its request failed or was
     skipped, the VM is stopped, the agent has not answered, the VM has no such
     NIC, an answer of another shape - gives that VM "", never an error: the
     caller sweeps a whole fleet and skips that VM rather than abort for every
     other one, and never guesses an address without the MAC.
+
+    So do two VMs that report one address, each given "" and that address as
+    ``shared_address``: an address is the VM's own to report, and a VM that
+    reports another's would have the run's work done there. Which of them is
+    telling the truth, nothing here can know, so neither is reached.
     """
     if not isinstance(vms, list) or not isinstance(configs, list) or not isinstance(networks, list):
         raise ValueError("guest_addresses expects three lists")
@@ -149,8 +156,13 @@ def guest_addresses(vms, configs, networks, nic="net0"):
         reported = interfaces.get("result") if isinstance(interfaces, dict) else None
         address = (guest_ipv4(reported, mac) or "") if mac and isinstance(reported, list) else ""
         repos = proxmox_notes_repos(settings.get("description")) if isinstance(settings, dict) else {"own": False}
-        rows.append({**vm, "address": address, **({"repos": repos} if repos["own"] else {})})
-    return rows
+        alias = ssh_host_key_alias(settings) if isinstance(settings, dict) else ""
+        rows.append({**vm, "address": address, "key_alias": alias, **({"repos": repos} if repos["own"] else {})})
+    reported = Counter(row["address"] for row in rows if row["address"])
+    return [
+        {**row, "address": "", "shared_address": row["address"]} if reported[row["address"]] > 1 else row
+        for row in rows
+    ]
 
 
 def proxmox_access_denied(msg):
@@ -306,6 +318,45 @@ def vms_not_named(vms, names):
         raise ValueError(f"vms_not_named expects a list, got {type(vms).__name__}")
     taken = set(names or [])
     return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
+
+
+# A VM's SMBIOS UUID as its config gives it (smbios1's uuid=): Proxmox makes one anew for each VM it creates and each
+# clone, where a VM ID is used again - the lowest free one - for a VM made after one was deleted.
+_SMBIOS_UUID_RE = re.compile(r"(?:^|,)uuid=([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})(?:,|\Z)")
+
+
+def smbios_uuid(config):
+    """The SMBIOS UUID a VM's config (a mapping of its keys) gives it, in lowercase, or "" where it gives none."""
+    value = config.get("smbios1") if isinstance(config, dict) else None
+    found = _SMBIOS_UUID_RE.search(str(value or ""))
+    return found.group(1).lower() if found else ""
+
+
+def provisioned_vms(names, hostvars):
+    """The VMs provision.yml published (``names``, each a host of ``hostvars``), as the host-key carry-over takes them:
+    {name, address, key_alias, created}, ``created`` where the role's lookup found no VM of the name before it cloned
+    one - a VM this run made, which nothing could have kept a key for."""
+    vms = []
+    for name in names or []:
+        host = (hostvars or {}).get(name) or {}
+        vms.append(
+            {
+                "name": str(name),
+                "address": str(host.get("ansible_host") or ""),
+                "key_alias": str(host.get("claude_vm_host_key_alias") or ""),
+                "created": str(host.get("proxmox_vm_exists", True)).strip().lower() in ("false", "0", "no"),
+            }
+        )
+    return vms
+
+
+def ssh_host_key_alias(config):
+    """The name a VM's SSH host key is filed under in the project's known_hosts file (claude_ssh_known_hosts_file):
+    agent-warehouse-<its SMBIOS UUID>, from its config, whatever address it is reached at - the address is the VM's own
+    report, and a key filed under it was one a VM could have this machine forget, or a sibling answer for. "" for a
+    config that gives no UUID: that VM's key is filed by its address."""
+    uuid = smbios_uuid(config)
+    return f"agent-warehouse-{uuid}" if uuid else ""
 
 
 def built_template(vms, name):

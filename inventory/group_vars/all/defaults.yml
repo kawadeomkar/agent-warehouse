@@ -201,9 +201,7 @@ claude_vm_inventory_hosts: >-
                     + (groups['claude_vm_golden_pending'] | default([])) + (groups['claude_vm_build'] | default([])))
      | unique | list }}
 # The address each of those hosts is reached at, its ansible_host, where it has
-# one. Deleting a VM never forgets the host key of one of them
-# (proxmox_vm_known_hosts_kept), whatever address the VM reported last, and a
-# VM's alias never takes one (below): one list for both.
+# one, which a VM's alias never takes (below).
 claude_vm_inventory_addresses: >-
   {{ (claude_vm_inventory_hosts | select('in', hostvars) | map('extract', hostvars)
       | map(attribute='ansible_host', default='') | select | list)
@@ -414,11 +412,22 @@ claude_sessions_sync: "{{ vscode_claude_sessions }}"
 vscode_claude_sessions: true
 vscode_user_settings_file: ""
 
-# Nothing in ~/.ssh is edited but the managed file below, known_hosts, and one
-# Include line at the top of ~/.ssh/config, added once and never removed
-# (docs/architecture/lifecycle.md §4.8).
+# Nothing in ~/.ssh is edited but the managed file below, the VMs' known_hosts
+# file beside it, and one Include line at the top of ~/.ssh/config, added once
+# and never removed (docs/architecture/lifecycle.md §4.8).
 claude_ssh_config: true
 claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/agent-warehouse.conf"
+# The VMs' SSH host keys, in a file of the project's own beside the managed
+# config, each under its VM's identity (agent-warehouse-<SMBIOS UUID>, the
+# HostKeyAlias every connection and alias names: vm_ssh_args), never under the
+# address the VM reports - so a VM can neither have this machine forget another
+# host's key nor send a run to a sibling - and ~/.ssh/known_hosts is never
+# written for a VM. Not a setting.
+claude_ssh_known_hosts_file: "{{ claude_ssh_config_file | dirname }}/agent-warehouse.known_hosts"
+# The user's own known_hosts, which held the VMs' keys by address before 2.6:
+# read for a VM whose key the file above lacks, which tasks/host_keys.yml copies
+# in under its identity, and never edited. Not a setting.
+claude_ssh_user_known_hosts: "{{ claude_ssh_user_config | dirname }}/known_hosts"
 # The managed file's name through 1.x, beside it: the first alias write of 2.0
 # moves it to claude_ssh_config_file (tasks/ssh_config.yml), and until then
 # just status and the prune read it. Only the default name had one.
@@ -484,8 +493,6 @@ proxmox_vm_user: "{{ vm_user }}"
 proxmox_vm_ssh_public_keys: "{{ vm_ssh_public_keys }}"
 proxmox_vm_tags: ["{{ claude_vm_tag }}"]
 proxmox_vm_tags_1x: "{{ claude_vm_tags_owned[1:] }}"
-proxmox_vm_known_hosts_domain: "{{ claude_ssh_host_domain }}"
-proxmox_vm_known_hosts_kept: "{{ claude_vm_inventory_addresses }}"
 
 proxmox_template_bridge: "{{ proxmox_bridge }}"
 proxmox_template_storage: "{{ proxmox_storage }}"

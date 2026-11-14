@@ -84,6 +84,8 @@ FLEET = {
         "tailscale_off": "{{ (tailscale_off_setting.name ~ ' is ' ~ tailscale_off_setting.value)"
         " if tailscale_off_setting is defined else 'vpn is none' }}",
         "vm_user": "{{ vm_user }}",
+        # Where the VMs' host keys are kept, each under its VM's identity: what a refusal of a key tells you to edit.
+        "known_hosts": "{{ claude_ssh_known_hosts_file }}",
         "discovery": "{{ claude_vm_discovery | bool }}",
         # The editor just code opens, by its key and its name, for the line under ACCESS.
         "editor": "{{ claude_editor_key }}",
@@ -205,6 +207,8 @@ REACH = {
     "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file status_private_key", "private_key_file"),
     "python": "{{ claude_vm_python }}",
     "ssh_args": "{{ status_ssh_args }} " + _SSH_MORE,
+    # Where the VMs' host keys are kept, each under its VM's identity (vm_ssh_args, which the engine adds per VM).
+    "known_hosts": "{{ claude_ssh_known_hosts_file }}",
     "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
     "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
     "become": "{{ ansible_become | default(true) | bool }}",

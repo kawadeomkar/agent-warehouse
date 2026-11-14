@@ -343,9 +343,12 @@ kept, its sessions unsaved, ends first. The role with `proxmox_vm_state: absent`
 placeholders, fanning out over `forks`; it looks each VM up again and applies the ownership check per
 VM. It runs in a block: `claude_vm_deleted` after it marks a VM gone, and a deletion that fails is
 rescued - a play in which every VM fails ends the run - into `claude_vm_delete_failure` and
-`claude_vm_delete_error`, its reason alone, raised by the last play. Its `known_hosts` task is `throttle: 1`, because parallel deletes would otherwise each rewrite
-the same file and restore a key another had just removed. It never forgets the Proxmox host's key, or another
-inventory host's (`proxmox_vm_known_hosts_kept`), under any name, whatever address the VM reported last.
+`claude_vm_delete_error`, its reason alone, raised by the last play. No SSH host key is forgotten: the VM's is
+filed under its identity, its SMBIOS UUID, which no VM made after it has, so it can only ever match that VM again - its
+backup, restored with its keys - and refuses any other VM given that UUID, which anyone who may change a VM's hardware
+on a shared host can set, where a forgotten key would let such a VM in on first use and forget the key of another VM
+restored with the same UUID. Nothing is ever forgotten by an address, which the VM reports, and
+`~/.ssh/known_hosts` is never written for a VM.
 
 **Play 3 — forget the alias (localhost).** `tasks/ssh_config.yml` with `state: absent` for the VMs
 that are actually gone: the delete play sets `claude_vm_deleted` only after the role, which a host that
@@ -466,9 +469,13 @@ with `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, OpenSSH's default bein
 since ssh keeps the first value it is given for an option. What else a VM is given follows them, as it did the hosts
 discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
 `ansible_ssh_private_key_file`, a VM's own `host_vars` file included, or where the inventory says nothing, the same
-settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like). A VM whose key this machine does not hold - rebuilt,
-renamed, its address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
-as every run does, or the `ssh` that shows the fingerprint and asks.
+settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like),
+and after them `vm_ssh_args` for its identity, on a shared connection of its own. A VM whose key this machine does not
+hold under its identity - made since, or kept by address before 2.6 and not carried over yet - is "not read", naming
+`just deploy <vm> --only ssh-config`, which carries a kept key over, and `just deploy <vm> --only configure`, which
+takes a new VM's key as every run does. One whose key differs - renamed, another machine at its address, or another
+VM with its identity - is "not read", with `ssh-keygen -R <identity> -f <the project's file>` once the cause is
+known. Its address changing changes nothing: the key is filed by identity.
 
 **What a VM supplies is not trusted.** `status_clean` makes every string of what a VM sent one line of plain text
 (`one_line`, [§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) before anything keeps it: a
@@ -626,9 +633,9 @@ recipe chooses the playbook from an `--only` its pattern has checked.
 
 ## 4.8 `playbooks/ssh_config.yml` and `playbooks/tasks/ssh_config.yml`
 
-The aliases are the one thing this project writes on the controller besides `known_hosts`, and
+The aliases are the one thing this project writes on the controller besides the host keys, and
 every writer goes through one task file so the block format cannot drift. Inputs: a list of
-`{name, address, user, workspace?}` and a state; `workspace` only feeds the connect line, and only
+`{name, address, user, key_alias?, workspace?}` and a state; `workspace` only feeds the connect line, and only
 `configure`, which has read it on the VM, passes it. The managed file,
 `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
 with what ssh reads and one comment ssh skips, the host the VM was found on - no other state of this
@@ -640,9 +647,50 @@ project's is kept in a user's ssh config:
 Host alpha
     HostName 192.0.2.51          ← or alpha.<claude_ssh_host_domain>
     User dev
+    HostKeyAlias agent-warehouse-<uuid>   ← the VM's SMBIOS UUID, from Proxmox
+    UserKnownHostsFile "~/.ssh/agent-warehouse.known_hosts"
+    CheckHostIP no
+    UpdateHostKeys no
+    StrictHostKeyChecking accept-new   ← yes or ask through claude_ssh_options, never no
+    ForwardAgent no              ← yes only with claude_ssh_forward_agent
     ServerAliveInterval 30       ← claude_ssh_options, verbatim
 # END agent-warehouse: alpha
 ```
+
+**The host key.** Every connection to a VM - Ansible's (each `add_host` that publishes one sets
+`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then the common args configured: a
+variable, else `ANSIBLE_SSH_COMMON_ARGS` or `ansible.cfg`'s, which the host var would otherwise outrank),
+`just status`'s, the sign-in's forward, destroy's save, and the alias above that the editors and `ssh` use - looks the
+VM's key up, and files a new one, in the project's own `~/.ssh/agent-warehouse.known_hosts`
+(`claude_ssh_known_hosts_file`, beside the managed file) under `agent-warehouse-<SMBIOS UUID>`: Proxmox makes the
+UUID anew for every VM and clone, and the VM cannot
+change it, where its address is the VM's own report. So a VM cannot have this machine forget another host's key, a
+lease handed on means nothing for a VM already known, and a VM that reports a sibling's address is refused there,
+since the sibling holds another key. A shared connection is kept on a socket named for the VM's identity
+(`ansible_control_path`, `vm_control_name`; `just status`'s the same), since a session over an open master does
+no key exchange, and one named for the address alone let such a VM ride the sibling's. Two VMs that report one
+address are both left out of the run, said (`guest_addresses`, `tasks/vm_addresses.yml`). `CheckHostIP no` keeps
+the address out of the file, `UpdateHostKeys no` keeps a VM from adding keys to it, and `ForwardAgent no` and
+`StrictHostKeyChecking accept-new` override a `Host *` of the user's own further down; `claude_ssh_options` may set
+none of what the block writes, but a stricter `StrictHostKeyChecking`. Deleting a VM forgets nothing
+([§4.5](#45-playbooksdestroyyml--confirm-release-delete)). A VM of the inventory's own (`claude_vm_discovery` off)
+is reached at the inventory's address, which is no VM's word, with its key where its connection keeps it - the user's
+file - and its block says the same.
+
+**The carry-over.** A key kept in `~/.ssh/known_hosts` by address before 2.6 is copied in under the VM's identity
+before a run first connects (`tasks/host_keys.yml`, after each publisher's `add_host`, and in `just deploy --only
+ssh-config` before the aliases are written), once: a comment, `# agent-warehouse carried <identity>`, which ssh skips
+and `ssh-keygen -R` keeps, marks the VM done, so a key removed by hand - a VM renamed in Proxmox has new keys - is
+never put back from the user's file, whose lines by address stay. A VM the run created gets the mark alone: what the
+user's file holds for its address is another machine's, one that had the lease before. What is copied is the key
+kept for the address the VM reports at that moment, so a VM already hostile then could be handed a sibling's key; a
+VM with nothing kept is said to be taken on first use. The writes run in check mode too, since a dry run's
+connections take keys on first use as a run's do. The task refuses a VM whose effective `ansible_ssh_common_args`
+lost the project's options to a host var or an extra var of the same name, each VM a publisher added, destroy's too;
+the golden build refuses its build VM the same way. The user's file is only read: which address a VM reports is its
+own to say, so nothing is removed from that file by it. Two runs at once from two checkouts each
+write the project's file whole, `known_hosts` and `lineinfile` replacing it as ssh appends: a key one adds as the
+other writes can be lost, and is then taken again on the next connection.
 
 **The origin.** Each block records the host its VM was found on (`claude_ssh_origin`, the first host of the
 inventory's `proxmox` group, from 2.5), since a run reaches one host's listing and nothing of another's. A
@@ -652,9 +700,9 @@ before 2.5 wrote them. A block with no record, or one recording a host the check
 the next write of that VM records this run's host. One recording another of the checkout's hosts
 (`claude_hosts_other`, which the host resolver hands each run) is that host's VM's alias, and a VM name belongs
 to one host: a write that names the VM is refused before anything is written, and `tasks/vm_names.yml` refuses
-the name before anything is created; fleet-wide the VM is left out and said. `destroy.yml` removes the alias,
-and forgets the `<name>.<domain>` host key, only of a VM whose block records no other host
-(`claude_ssh_names_elsewhere`): a block recording another host is that host's VM's, and stays.
+the name before anything is created; fleet-wide the VM is left out and said. `destroy.yml` removes the alias
+only of a VM whose block records no other host (`claude_ssh_names_elsewhere`): a block recording another host is
+that host's VM's, and stays; its host key is under its own identity, which no deletion here names.
 
 Through 1.x the managed file was `~/.ssh/claude-on-proxmox.conf`, its markers `claude-on-proxmox`
 (`claude_ssh_config_legacy_file`, beside the default only). The first run of this task file in 2.0, writing
@@ -1239,7 +1287,7 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    to the `proxmox` group's host with `ignore_unreachable`, which proves the connection the build will use
    and reads the host's short name, its node name (`init_ssh_node`), which must be `proxmox_node`, since the
    template is built there. No host in the group is a problem too. `accept-new` may add its host key to
-   `~/.ssh/known_hosts`, one of the two files the project writes there.
+   `~/.ssh/known_hosts`, the one file of the user's the project has ssh write in `~/.ssh`.
 7. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
    or the node root SSH said the host is. Equal to `proxmox_node`, it is `ok`. While `proxmox_node` is the
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no

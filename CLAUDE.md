@@ -380,7 +380,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The kinds table (`lib/claude_vm/hosts/kinds.py`) names each host's always-written settings, which the
       resolver requires, and those of one network, which it never lets the shared files supply.
     - `claude_hosts_other` (the other hosts' names and addresses, from the resolver) feeds
-      `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with it `proxmox_vm_known_hosts_kept`.
+      `claude_vm_inventory_hosts` and `claude_vm_inventory_addresses`.
     - `just host <name>` switches under the run lock; no agent changes the current host. `just init` alone works on
       the current host, as every command does; another host's init takes no exported token secret, which may be the
       first host's, and no value of the shared files'.
@@ -398,17 +398,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
-- **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
-  write a fourth, and Claude Code's own CLI a fifth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
+- **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
+  write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
     - `playbooks/vars/controller_writes.yml` is the one list of them, with the editor's own records of the windows it
       opens and what the tools keep for themselves: every VM's session notes show it and the security model renders
       it. `tests/unit/test_controller_writes.py` finds each row's write where it is made, and fails on a place its
       row does not name.
-    - The fifth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
+    - The sixth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
       `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
-    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
-      line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
+    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first root SSH, and never a
+      VM's; `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`, beside the managed config), every
+      VM's key, filed under the VM's identity, `agent-warehouse-<SMBIOS UUID>` from Proxmox, which every connection to
+      a VM names (`vm_ssh_args`: the file, `HostKeyAlias`, and `ForwardAgent=no` unless asked for); the managed SSH
+      config `~/.ssh/agent-warehouse.conf`
+      (plus one `Include` line at the top of `~/.ssh/config` that is added once and never removed), and the
+      checkout's own folder,
       `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
       (`tools/env-run --data`: the Galaxy collections, and the Python environment when the user brings no
       virtualenv), which `just clean env` deletes, and nothing beside it. Nothing else in `~/.ssh` is ever
@@ -419,7 +424,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       again; `just status` and the prune read the 1.x file while it is the one there, and `just clean env`
       deletes a 1.x folder left behind. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
       unless the user points `destroy_sessions_dir` elsewhere.
-    - The fourth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
+    - The fifth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
       window step run `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/tasks/vscode_check.yml`):
       no other extension, and no VS Code setting.
     - Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with `ssh -G` and
@@ -430,8 +435,24 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a `ProxyCommand`
       after a valid address pass `ssh -G` and run on this machine, and never `0.0.0.0`, multicast or the
       reserved range.
-    - Deleting a VM never forgets the Proxmox host's key, or another inventory host's
-      (`proxmox_vm_known_hosts_kept`), whatever address the VM reported last.
+    - A VM's host key is never filed or looked up by an address, which the VM reports, and never forgotten. Every
+      `add_host` that publishes a VM gives it `claude_vm_host_key_alias`, `ansible_ssh_common_args` from `vm_ssh_args`
+      (ssh, sftp and scp alike) and a shared connection's socket of its identity's own (`ansible_control_path`,
+      `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
+      riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
+      Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
+      refuses any other given it. `~/.ssh/known_hosts` is never edited.
+    - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
+      in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
+      publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
+      marks it done, so a key removed by hand is never put back. A VM the run created gets the mark alone. The
+      user's file is only read. That task refuses a VM whose effective `ansible_ssh_common_args` lost the
+      project's options (a host var or `-e` of the same name), destroy's too, and the golden build its build VM.
+      `tests/unit/test_host_keys.py` runs it for real.
+    - The alias block pins what a `Host *` of the user's could loosen: `ForwardAgent`, `CheckHostIP`,
+      `UpdateHostKeys` and `StrictHostKeyChecking accept-new` (stricter only, through `claude_ssh_options`, which
+      may set none of the others). A VM of the inventory's own (`claude_vm_discovery` off), whose address is the
+      inventory's, keeps its key where its connection does, on the user's file.
     - A block is only ever written for a tagged VM and holds only what ssh reads, and its origin: one comment,
       `# origin: <host>` (`claude_ssh_origin`), the host its VM was found on. Pruning removes blocks, never
       VMs, and only this host's: a block recording another host is never pruned, re-pointed or removed by a run
@@ -772,8 +793,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
   (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
   may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
-  `proxmox_vm_allow_untagged_delete` but never admits a template, and deletion runs in parallel, which is why
-  `absent.yml`'s `known_hosts` task is `throttle: 1`.
+  `proxmox_vm_allow_untagged_delete` but never admits a template, and deletion runs in parallel: `absent.yml`
+  writes nothing here, its VM's host key kept under its identity
+  ([§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 - **`deploy.yml` configures only what provisioning published** (`claude_vm_discovery: false`): discovery without
   `vm_name` means every tagged VM, and provisioning without it the one default VM. `just deploy --only configure`,
   `--check` and `--only ssh-config`, `just status` and `just login` stay fleet-wide without names

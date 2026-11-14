@@ -300,6 +300,33 @@ def test_goldens_past_the_collection_age_are_deleted_but_never_the_base_or_a_vm(
     assert 9300 not in ids and {9000, 9301} <= ids
 
 
+def test_a_build_vm_whose_options_an_extra_var_outranks_is_refused_and_deleted(tmp_path, fake):
+    # Its key in a file of the build's own: a host var or -e of the same name would reach it on the user's own file.
+    report = _golden(tmp_path, fake, "alpha", ansible_ssh_common_args="-o ProxyJump=jump.invalid")
+    said = [
+        str(result.get("msg", ""))
+        for _, _, result in _results(report)
+        if "could not be built" in str(result.get("msg"))
+    ]
+    assert said and "outranks the build VM's own" in said[0], said
+    assert not [vm for vm in _vms(fake) if vm.get("name", "").startswith((PREFIX, BUILD_PREFIX))]
+
+
+def test_the_build_vm_gets_the_common_args_configured_after_its_own():
+    (play,) = [play for play in yaml.safe_load(BUILD.read_text()) if "Add the build VM as a host" in json.dumps(play)]
+    (added,) = [
+        task["ansible.builtin.add_host"]
+        for block in play["tasks"]
+        for task in block.get("block", [block])
+        if task.get("name") == "Add the build VM as a host"
+    ]
+    common = " ".join(added["ansible_ssh_common_args"].split())
+    assert common.endswith(
+        "{{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',"
+        " plugin_type='connection', plugin_name='ssh')) }}"
+    ), common
+
+
 def test_a_build_that_fails_leaves_the_vms_on_the_base_and_deletes_what_it_made(tmp_path, fake):
     # An agent that never answers: the build VM never reports an address.
     report = _golden(tmp_path, fake, "alpha", proxmox_template_build_agent_retries=1)

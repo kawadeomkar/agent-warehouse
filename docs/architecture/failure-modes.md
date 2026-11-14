@@ -114,8 +114,15 @@ An unanchored search for `agent-warehouse` also claims
 
 ## Stale host keys
 
-The host key is removed in `absent.yml`. See
-[§5.2](roles.md#52-proxmox_vm--the-core-role). There is no fact cache to go stale ([§13](toolchain.md)).
+A VM's key is kept under its identity (`agent-warehouse-<SMBIOS UUID>`), never its address, so a lease handed to
+another VM, or a VM made again at an old VMID, meets no stale key: each VM's identity is new. A deleted VM's key
+is kept: no VM made later has its identity, so it only refuses one given it by hand or a backup restored without
+`--unique` ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)). What is left is a VM renamed in
+Proxmox, which its next boot gives new host keys (cloud-init takes it for a new instance): its session notes and
+`just status` say the `ssh-keygen -R agent-warehouse-<uuid> -f ~/.ssh/agent-warehouse.known_hosts` that clears it, and
+the carry-over's mark keeps the key this machine kept by address before 2.6 from coming back. Two runs at once from
+two checkouts can lose a key one of them filed, as each writes the file whole; the next connection takes it again.
+There is no fact cache to go stale ([§13](toolchain.md)).
 
 ## `/cluster/resources` lags
 

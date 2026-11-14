@@ -340,3 +340,35 @@ One checkout drives more than one Proxmox host - a homelab and a NUC - and movin
   `--host` on a command reaches another once.
 - **Each alias records its host** (`# origin: <host>`), and a run prunes, re-points and removes only its own host's,
   so a listing of one host never takes another's VMs for gone.
+
+## 15.9 A VM's host key is filed under its identity, not its address
+
+*Decided November 2026, after the independent security review of 2026-11-10, for 2.6.*
+
+Through 2.4 a VM's SSH host key went into the user's `~/.ssh/known_hosts` under the address its guest agent
+reported, and `just destroy` forgot it by that address. The address is the VM's own report, so a VM could have this
+machine forget another host's key (a NAS's, by reporting its address just before its deletion), and could send a
+run - destroy's release, a configure - to a sibling VM, whose key was pinned for that address and which takes the
+fleet's SSH key. Both had one cause: the key was filed under something the VM chose.
+
+- **Each key is filed under the VM's SMBIOS UUID** (`HostKeyAlias agent-warehouse-<uuid>`), which Proxmox holds,
+  makes anew for every VM and clone, and the VM cannot change. The VMID was the other candidate: it is on every host
+  variable already, but Proxmox hands the lowest free one to the next VM, so a VM deleted outside the project leaves a
+  key the next one fails on, and two Proxmox hosts driven from one checkout share VMIDs.
+- **In a file of the project's own**, `~/.ssh/agent-warehouse.known_hosts` beside the managed config, which every
+  connection names (`UserKnownHostsFile`): `~/.ssh/known_hosts` is never written for a VM, and a non-default file
+  also turns OpenSSH's `UpdateHostKeys` off, which the project sets explicitly too.
+- **A key kept by address before 2.6 is copied in once per identity**, never removed from the user's file: removing
+  by an address would be the very thing this ends. A comment in the project's file marks each copy made, so a key
+  removed by hand is never put back, and a VM a run created gets the mark alone.
+- **A deleted VM's key is kept**, under an identity no VM made later has: forgotten, a VM given that identity by
+  hand - or a backup restored without `--unique` - would be taken on first use, and the other of two VMs restored
+  with one identity would lose its key.
+- **A shared connection is kept per identity**, never per address alone: a session over an open master does no key
+  exchange, so a VM that reports a sibling's address would otherwise ride the sibling's.
+
+**Later, not built.** First contact with a new VM is still trust on first use. The key could be read through the
+guest agent over the API right after the clone (`agent/file-read` of `/etc/ssh/ssh_host_ed25519_key.pub`), before
+anything untrusted has run there, and the first connection made with `StrictHostKeyChecking=yes`. It needs the API's
+certificate validated, or the API is no better a channel than the LAN, and on Proxmox VE 9 a privilege the token does
+not have (`VM.GuestAgent.FileRead`).

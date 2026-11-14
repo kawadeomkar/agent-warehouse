@@ -1,0 +1,139 @@
+---
+# The VMs' SSH host keys, carried over from before 2.6 (docs/architecture/lifecycle.md §4.8). A VM's key was kept in
+# the user's own known_hosts (claude_ssh_user_known_hosts) under the address the VM reported, and is now kept in the
+# project's file (claude_ssh_known_hosts_file) under the VM's identity (its key_alias, from Proxmox). Each VM's keys
+# are carried over once, the first time a run reaches it: the keys the user's file holds for the address it reports
+# then are copied in under its identity, so a VM this machine already trusted is not taken on first contact again, and
+# just status, which takes no key, can read it. Then a mark, `# agent-warehouse carried <identity>`, which ssh reads as
+# a comment and ssh-keygen -R keeps: a key removed by hand later (a VM renamed has new keys) is never put back from the
+# user's file, whose lines by address stay. A VM this run created gets the mark alone: whatever the user's file holds
+# for its address is another machine's, one that had the address before. The user's file is only read, never edited:
+# which address a VM reports is the VM's to say, and a removal by it would let a VM have this machine forget another
+# host's key.
+#
+# Every write here runs in check mode too: a dry run connects as a run does, and ssh then takes on first use each key
+# it finds no line for - the carry-over has to come first either way.
+#
+# Input, as `vars:` on the import: claude_host_keys_vms, a list of {name, address, key_alias, created} - each VM the
+# play reaches, its address, its identity ("" where Proxmox gives none: its key is filed by its address, and nothing is
+# carried) and whether this run created it. Runs on this machine.
+
+# The options every publisher gives a VM (vm_ssh_args), the project's known_hosts and its identity among them, as the
+# connection will apply them: a host var or an extra var of the same name outranks the publisher's, and would connect
+# by address on the user's own file without a word. Every VM a publisher added: to claude_vms, or destroy's to
+# claude_vm_doomed.
+- name: host_keys | Refuse a VM whose connection would not check its host key as the project files it
+  vars:
+    claude_host_keys_published: "{{ (groups['claude_vms'] | default([])) + (groups['claude_vm_doomed'] | default([])) }}"
+    claude_host_keys_unheld: >-
+      {{ claude_host_keys_vms | default([]) | map(attribute='name') | select('in', claude_host_keys_published)
+         | list | vm_ssh_unheld(hostvars, claude_ssh_known_hosts_file) }}
+  ansible.builtin.assert:
+    that: claude_host_keys_unheld | length == 0
+    fail_msg: >-
+      {{ claude_host_keys_unheld | join(', ') }}: ansible_ssh_common_args is set for {{ 'it' if claude_host_keys_unheld
+      | length == 1 else 'them' }} somewhere that outranks the project's own (a host var or -e), so the connection would
+      not hold the host key to {{ claude_ssh_known_hosts_file }}. Set ansible_ssh_extra_args for options of your own
+      instead.
+    quiet: true
+
+# ssh-keygen -F finds a key whether its host field is plain or hashed (HashKnownHosts, which ssh honours when it files
+# a key on first use).
+- name: host_keys | Look for each VM's key in the project's known_hosts file
+  ansible.builtin.command:
+    argv: [ssh-keygen, -F, "{{ claude_host_keys_vm.key_alias }}", -f, "{{ claude_ssh_known_hosts_file }}"]
+  register: claude_host_keys_kept
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  loop: "{{ claude_host_keys_vms | default([]) | selectattr('key_alias') | list }}"
+  loop_control:
+    loop_var: claude_host_keys_vm
+    label: "{{ claude_host_keys_vm.name }}"
+
+- name: host_keys | Look for the project's known_hosts file
+  ansible.builtin.stat:
+    path: "{{ claude_ssh_known_hosts_file }}"
+    get_checksum: false
+  register: claude_host_keys_file
+  check_mode: false
+
+- name: host_keys | Read the project's known_hosts file
+  ansible.builtin.slurp:
+    src: "{{ claude_ssh_known_hosts_file }}"
+  register: claude_host_keys_text
+  check_mode: false
+  when: claude_host_keys_file.stat.exists
+
+# Each VM with an identity whose carry-over has not been made: no mark, and no key under it either - a key there was
+# taken by a run before the marks, or by ssh itself.
+- name: host_keys | Find the VMs whose keys are not carried over yet
+  vars:
+    claude_host_keys_lines: >-
+      {{ (claude_host_keys_text.content | b64decode).splitlines() if claude_host_keys_text.content is defined else [] }}
+  ansible.builtin.set_fact:
+    claude_host_keys_due: >-
+      {{ claude_host_keys_vms | default([]) | known_hosts_due(claude_host_keys_lines, claude_host_keys_kept.results
+         | default([])) }}
+
+# ssh-keygen -F exits 0 with the lines found, 1 with none, and fails on a file that is not there.
+- name: host_keys | Read what the user's own known_hosts file holds for each one's address
+  ansible.builtin.command:
+    argv: [ssh-keygen, -F, "{{ claude_host_keys_vm.address }}", -f, "{{ claude_ssh_user_known_hosts }}"]
+  register: claude_host_keys_found
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  loop: "{{ claude_host_keys_due | rejectattr('created') | list }}"
+  loop_control:
+    loop_var: claude_host_keys_vm
+    label: "{{ claude_host_keys_vm.name }}"
+
+- name: host_keys | Copy them into the project's file under each VM's identity
+  ansible.builtin.known_hosts:
+    path: "{{ claude_ssh_known_hosts_file }}"
+    name: "{{ claude_host_keys_line.key_alias }}"
+    key: "{{ claude_host_keys_line.key_alias }} {{ claude_host_keys_line.key }}"
+    state: present
+  register: claude_host_keys_copied
+  check_mode: false
+  throttle: 1
+  loop: "{{ claude_host_keys_found.results | default([]) | known_hosts_keys('claude_host_keys_vm') }}"
+  loop_control:
+    loop_var: claude_host_keys_line
+    label: "{{ claude_host_keys_line.name }}"
+
+- name: host_keys | Mark each VM's keys carried over
+  ansible.builtin.lineinfile:
+    path: "{{ claude_ssh_known_hosts_file }}"
+    line: "# agent-warehouse carried {{ claude_host_keys_vm.key_alias }}"
+    create: true
+    mode: "0600"
+  check_mode: false
+  throttle: 1
+  loop: "{{ claude_host_keys_due }}"
+  loop_control:
+    loop_var: claude_host_keys_vm
+    label: "{{ claude_host_keys_vm.name }}"
+
+- name: host_keys | Say whose keys were copied, and whose are taken on first use
+  vars:
+    claude_host_keys_moved: >-
+      {{ claude_host_keys_copied.results | default([]) | selectattr('changed') | map(attribute='claude_host_keys_line')
+         | map(attribute='name') | unique | list }}
+    claude_host_keys_first: >-
+      {{ claude_host_keys_due | rejectattr('created') | map(attribute='name') | reject('in', claude_host_keys_moved)
+         | list }}
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('Copied the SSH host key' ~ ('s' if claude_host_keys_moved | length > 1 else '') ~ ' of '
+          ~ claude_host_keys_moved | join(', ') ~ ' from ' ~ claude_ssh_user_known_hosts ~ ' into '
+          ~ claude_ssh_known_hosts_file ~ ", each under its VM's identity, which every connection to it checks from"
+          ~ ' now on: the key this machine kept for the address each reports now. The lines '
+          ~ claude_ssh_user_known_hosts ~ ' keeps by address are read for these VMs no more; ssh-keygen -R <address>'
+          ~ ' takes one out.') if claude_host_keys_moved | length > 0 else '' }}
+      {{ (claude_host_keys_first | join(', ') ~ ': ' ~ claude_ssh_user_known_hosts ~ ' holds no key for the address '
+          ~ ('it reports' if claude_host_keys_first | length == 1 else 'each reports') ~ ', so '
+          ~ ('its key is' if claude_host_keys_first | length == 1 else 'their keys are')
+          ~ " taken on first use, as a new VM's is.") if claude_host_keys_first | length > 0 else '' }}
+  when: claude_host_keys_moved | length > 0 or claude_host_keys_first | length > 0
