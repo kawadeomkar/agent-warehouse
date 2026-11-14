@@ -19,7 +19,12 @@
 running `just install`, which installs into that virtualenv as into any of a user's. The Galaxy cache holds the
 checkout's own collections folder (`tools/env-run --collections`), and its key hashes
 `requirements.yml`, which is only correct because those versions are exact. With `install: "false"` it stops
-after Python and uv: the docs workflow takes them from it, so their pins are written once. Third-party actions are
+after Python and uv: the docs workflow takes them from it, so their pins are written once. Every checkout, in every
+workflow, is `persist-credentials: false`: `actions/checkout` otherwise leaves the job's token where git finds it for
+the rest of the job - a config file under the runner's temp that the checkout's `.git/config` includes - and every
+later step, and whatever a test, a hook or a dependency runs, could read it there. No step pushes, and the one that
+fetches, `release.yml`'s of the tag pushed, needs no token for a public repository (`tests/unit/test_ci.py` holds
+every checkout to it). Third-party actions are
 pinned to commit SHAs, and Dependabot updates them along with the uv lock every week, the workflows' and the
 setup action's in one entry grouped by action, so an action used in both moves in both in one pull request. Each of its pull
 requests asks the repository's owner for a review through `.github/CODEOWNERS`, which names the files
