@@ -30,6 +30,14 @@ host changes nothing, but:
   the host into `inventory/hosts.yml`, or set it up as another host with `just init --host`. Beside a second host,
   an exported `ANSIBLE_INVENTORY` is refused: each run reads its host's own.
 
+## What 2.6 verifies and bounds
+
+The independent security review of 2026-11-10 brought these; an install made before needs nothing for most of them:
+
+- **A session save is bounded**: at most `destroy_sessions_max_size` (4G) of files, no more than five minutes
+  without a byte and an hour in all. A VM that goes past a bound is kept by `just destroy`, neither released nor
+  deleted: raise the setting, or set `destroy_save_sessions: false` to delete it unsaved.
+
 ## The project is called agent-warehouse
 
 From 2.0 the project is called agent-warehouse, since it is to run more models than Claude Code and more

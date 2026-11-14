@@ -86,6 +86,15 @@
         - destroy_save_sessions | default(true) | bool
         - destroy_sessions_dir | default('', true) | length > 0
 
+    - name: Refuse a cap on the saved sessions that is not a size
+      ansible.builtin.assert:
+        that: destroy_sessions_max_size | default('4G') | claude_sessions_cap > 0
+        fail_msg: >-
+          destroy_sessions_max_size is the most one VM's saved sessions may hold, a size such as 4G or 500M, not
+          "{{ destroy_sessions_max_size }}". Nothing was deleted.
+        quiet: true
+      when: destroy_save_sessions | default(true) | bool
+
     - name: Refuse a VM named after a host of the inventory
       ansible.builtin.import_tasks: tasks/vm_names.yml
 

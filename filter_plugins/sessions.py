@@ -10,6 +10,7 @@ if _LIB not in sys.path:
 
 FILTERS = (
     "claude_project_folder",
+    "claude_sessions_cap",
     "claude_session_dirs",
     "claude_sessions_listed",
     "claude_sessions_plan",

@@ -804,6 +804,31 @@ def test_a_vm_the_run_lost_part_way_through_its_release_is_said_not_deleted_with
 
 
 @pytest.fixture(scope="module")
+def overfull(tmp_path_factory, fake_github, fake_tailscale):
+    """A VM with sessions of its own, more of them than destroy_sessions_max_size lets a save hold."""
+    root = tmp_path_factory.mktemp("overfull")
+    hosts = _hosts(root, {"overfull": {"claude": True, "sessions": True}}, fake_github, fake_tailscale)
+    extra = {"ansible_become": False, "destroy_sessions_max_size": "0.1K"}
+    return root, _run(root, _destroy_tail(root), hosts, "-e", json.dumps(extra))
+
+
+def test_a_vm_that_sends_more_than_a_save_may_hold_is_neither_released_nor_deleted(overfull):
+    root, report = overfull
+    assert (root / "overfull" / ".claude" / ".credentials.json").exists()
+    assert "auth logout" not in _calls(root, "overfull", *CLAUDE_CALLS)
+    (why,) = [
+        result["ansible_facts"]["claude_vm_delete_failure"]
+        for name, host, result in _results(report)
+        if name == "Keep the VM, whose sessions could not be saved"
+    ]
+    assert (
+        "the VM sent more than the 102 bytes of files destroy_sessions_max_size allows; what arrived before is in"
+        in (why)
+    )
+    assert MARKER not in json.dumps(report)
+
+
+@pytest.fixture(scope="module")
 def unreleased(tmp_path_factory, fake_github, fake_tailscale):
     """destroy_release: false, the save on: a VM signed in to Claude, with sessions of its own."""
     root = tmp_path_factory.mktemp("unreleased")
@@ -1241,6 +1266,18 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     # The listing did lag: the run's own relisting still showed it stopped.
     calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
+
+
+# "", 0 and false too, which took the default's 4G in their place without a word.
+@pytest.mark.parametrize("cap", ["lots", "0", "-1G", "", 0, False])
+def test_a_cap_on_the_saved_sessions_that_is_no_size_is_refused_before_anything_starts(tmp_path, cap):
+    root, playbook = _head(tmp_path, "https://127.0.0.1:9")
+    extra = {"vm_name": "parked", "confirm_destroy": "yes", "destroy_sessions_max_size": cap}
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] != 0
+    (failure,) = _failures(report).values()
+    assert failure.startswith("Refuse a cap on the saved sessions that is not a size: destroy_sessions_max_size is")
+    assert not [name for name, _, _ in _results(report) if name.startswith("cluster_vms |")]
 
 
 @pytest.mark.parametrize("folder", ["saved-sessions", "./saved"])

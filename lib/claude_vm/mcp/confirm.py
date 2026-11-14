@@ -138,6 +138,7 @@ REFUSED = frozenset(
         "claude_ssh_identity_file",
         "claude_ssh_options",
         "destroy_sessions_dir",
+        "destroy_sessions_max_size",
         "editor_files_dir",
         "git_user_email",
         "git_user_name",

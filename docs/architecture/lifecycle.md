@@ -308,7 +308,10 @@ delegated here, then runs `tar -cf - -T -` on the VM over SSH as Ansible reaches
 itself into `destroy_sessions_dir` (`.sessions/` in the checkout, git-ignored and refused by the
 tracked-file guard), `<vm>-<YYYYMMDD-HHMMSS>/projects/` laid out as on the VM and edited in nothing:
 plain files and folders only, 0600 and 0700, at the names asked for or inside one, never through a link,
-never outside that folder. A link, hard link, device or pipe in the archive is left out and counted;
+never outside that folder, and none with a part that starts with a dot or holds a control character. It takes
+at most `destroy_sessions_max_size` of files (4G, held to a size before any VM starts), and bounds the
+stream, the entries, a header's size and sparse files too, since `tarfile` reads a pax header or a GNU long
+name whole into memory: past one, the save fails. A link, hard link, device or pipe in the archive is left out and counted;
 rsync made the VM's links here as links, and the `chmod -R` after it followed them out of the folder. A
 `sessions.json` beside them names the Proxmox host the VM was on, and each session, the Claude Code
 version that wrote it and the newest of them, says that what they hold is the VM's and unchecked, and gives the `claude --resume <path>` that continues
@@ -316,7 +319,7 @@ each here: given a
 transcript's path, Claude Code resumes it where it lies and writes to it there, whatever this machine
 holds of the same ID (the `configure` scenario holds that against the real claude). Not best effort like
 the releases: a failed save - SSH or tar failing, an archive cut short, a name asked for that did not
-arrive, or the VM no longer answering, which its VM tasks take with `ignore_unreachable` and an assert,
+arrive, more than a save may hold, or the VM no longer answering, which its VM tasks take with `ignore_unreachable` and an assert,
 never leaving the run unseen - sets `claude_vm_delete_failure`, and `claude_vm_save_error` with the
 failed task and its message alone, starts Remote Control again (`release_resume`) and ends the host, so
 the VM is neither released nor deleted and the last play fails the run with why. Its VM tasks run as the VM user, never through sudo, whose files they read. With

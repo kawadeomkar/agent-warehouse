@@ -368,7 +368,11 @@ pytest over `tests/unit/`, file by file:
   check mode, and what of a VM's sessions destroy saves - every one with `all`, just code's copies told
   apart by the manifest, the memory folders, names the VM made up left out, the command that continues
   each, its path quoted - and how: archives with absolute paths, `..`, links, hard links, devices and
-  names not asked for unpacked into nothing outside the folder, an archive cut short, GNU tar's exit 2
+  names not asked for unpacked into nothing outside the folder, a name Claude Code never writes (a dot, a
+  `HEAD`, a control character, too deep or too long) left out and said by its start, a path too long for
+  this machine left out rather than the save failed, the bounds - the cap in bytes, every entry, a header of
+  exactly the bound and one past it, a global header, a sparse file, no entry kept once written, a VM gone
+  silent - an archive cut short, GNU tar's exit 2
   for a name it cannot find said as that name, a failing or a stand-in `ssh` given the port, key and
   arguments. In `test_code_session.py`, the window step's session tasks between two real checkouts,
   the VM's with a GitHub origin: the copies and their edits, a second run changing nothing, the sync

@@ -1291,8 +1291,8 @@ def test_only_plain_files_and_folders_at_the_names_asked_for_are_unpacked(tmp_pa
         _member(f"./{FOLDER}/{ID}.jsonl/inside", data=b"x"),
         _member(f"./{FOLDER}/{ID}.jsonl", data=b"twice\n"),
     )
-    files, left_out, arrived = fetch.unpack(stream, str(dest), ASKED)
-    assert files == 3 and arrived == {f"{FOLDER}/{ID}.jsonl", f"{FOLDER}/{ID}"}
+    files, left_out, count, arrived = fetch.unpack(stream, str(dest), ASKED)
+    assert files == 3 and arrived == {f"{FOLDER}/{ID}.jsonl", f"{FOLDER}/{ID}"} and count == len(left_out) == 9
     assert _tree(dest) == [
         FOLDER,
         f"{FOLDER}/{ID}",
@@ -1325,12 +1325,293 @@ def test_a_transcript_asked_for_must_arrive_as_a_file_and_a_folder_as_a_folder(t
     dest = tmp_path / "dest"
     dest.mkdir()
     stream = _archive(_member(f"./{FOLDER}/{ID}.jsonl", tarfile.DIRTYPE), _member(f"./{FOLDER}/memory", data=b"x"))
-    _, left_out, arrived = fetch.unpack(stream, str(dest), ASKED)
+    _, left_out, _, arrived = fetch.unpack(stream, str(dest), ASKED)
     assert arrived == set() and _tree(dest) == []
     assert [item["why"] for item in left_out] == [
         "a folder where a transcript is asked for",
         "a file where a folder is asked for",
     ]
+
+
+NOT_CLAUDE_S = "not named as Claude Code names its own"
+
+
+@pytest.mark.parametrize(
+    ("name", "why"),
+    [
+        # A .git a git run inside the saved folder would read, its hooks and fsmonitor included.
+        (f"./{FOLDER}/memory/.git/config", NOT_CLAUDE_S),
+        (f"./{FOLDER}/memory/.hidden", NOT_CLAUDE_S),
+        (f"./{FOLDER}/.{ID}.jsonl", NOT_CLAUDE_S),
+        (f"./{FOLDER}/{ID}/subagents/agent\x1b[2J.jsonl", NOT_CLAUDE_S),
+        (f"./{FOLDER}/{ID}/subagents/agent\x7f.jsonl", NOT_CLAUDE_S),
+        (f"./{FOLDER}/{ID}/" + "a" * 256, NOT_CLAUDE_S),
+        (f"./{FOLDER}/{ID}/" + "/".join(["d"] * 15) + "/f", "deeper than a session's folder goes"),
+        # A bare repository needs no dot: HEAD beside objects/ and refs/ is one to git, whose config a git run in the
+        # folder reads. In any case, since a file system that ignores it takes head for HEAD.
+        (f"./{FOLDER}/memory/HEAD", "named as git names a repository's own"),
+        (f"./{FOLDER}/memory/sub/head", "named as git names a repository's own"),
+    ],
+)
+def test_a_name_claude_code_never_writes_is_left_out(tmp_path, name, why):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    stream = _archive(_member(f"./{FOLDER}/memory/MEMORY.md", data=b"- a note\n"), _member(name, data=b"x"))
+    files, left_out, count, _ = fetch.unpack(stream, str(dest), ASKED)
+    assert files == 1 and count == 1
+    # Said as the module keeps it: cut to NAME_SAID, a character that is not printable as ?.
+    said = "".join(ch if ch.isprintable() else "?" for ch in name[: fetch.NAME_SAID])
+    assert left_out == [{"name": said, "why": why}]
+    assert _tree(dest) == [FOLDER, f"{FOLDER}/memory", f"{FOLDER}/memory/MEMORY.md"]
+
+
+def test_a_name_as_deep_and_as_long_as_claude_code_s_own_may_be_is_written(tmp_path):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    deep = f"./{FOLDER}/{ID}/" + "/".join(["d"] * 13) + "/" + "a" * 255
+    files, left_out, _, _ = fetch.unpack(_archive(_member(deep, data=b"x")), str(dest), ASKED)
+    assert files == 1 and left_out == []
+
+
+def test_only_the_first_50_entries_left_out_are_named_and_every_one_counted(tmp_path):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    stream = _archive(*(_member(f"./{FOLDER}/{OTHER}-{n}.jsonl", data=b"x") for n in range(120)))
+    files, left_out, count, _ = fetch.unpack(stream, str(dest), ASKED)
+    assert files == 0 and count == 120 and len(left_out) == fetch.LISTED == 50
+    assert left_out[-1] == {"name": f"./{FOLDER}/{OTHER}-49.jsonl", "why": "not asked for"}
+
+
+def test_a_name_left_out_is_said_by_its_start_as_plain_text(tmp_path):
+    # Each of the 50 names kept goes into the module's result: a megabyte each would be 50 of them.
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    long = f"./{FOLDER}/{OTHER}-" + "x\x1b" * 400 + ".jsonl"
+    _, left_out, count, _ = fetch.unpack(_archive(_member(long, data=b"x")), str(dest), ASKED)
+    assert count == 1 and len(left_out[0]["name"]) == fetch.NAME_SAID and "\x1b" not in left_out[0]["name"]
+
+
+def test_a_path_longer_than_this_machine_takes_is_left_out_not_the_save_failed(tmp_path, monkeypatch):
+    import errno
+
+    def too_long(*args):
+        raise OSError(errno.ENAMETOOLONG, "File name too long")
+
+    monkeypatch.setattr(fetch, "_write", too_long)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    files, left_out, count, _ = fetch.unpack(_archive(_member(f"./{FOLDER}/memory/a.md", data=b"x")), str(dest), ASKED)
+    assert files == 0 and count == 1 and left_out[0]["why"] == "a path longer than this machine takes"
+
+
+def test_a_global_header_stops_the_save_whatever_its_size(tmp_path):
+    # Its records go on every entry after it, a copy each: a few thousand entries after one of a megabyte is gigabytes.
+    info, data = _member(f"./{FOLDER}/memory/MEMORY.md", data=b"x")
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w", format=tarfile.PAX_FORMAT, pax_headers={"comment": "x" * 100}) as archive:
+        archive.addfile(info, data)
+    out.seek(0)
+    with pytest.raises(fetch.Stopped, match="^the VM sent a global header"):
+        fetch.unpack(out, str(tmp_path), ASKED)
+
+
+def test_no_entry_read_is_kept_once_it_is_unpacked(tmp_path, monkeypatch):
+    # tarfile keeps every entry it reads in its members: one each of a few hundred thousand.
+    kept = []
+    original = tarfile.TarFile.next
+
+    def counting(self):
+        kept.append(len(self.members))
+        return original(self)
+
+    monkeypatch.setattr(tarfile.TarFile, "next", counting)
+    stream = _archive(*(_member(f"./{FOLDER}/memory/{n}.md", data=b"x") for n in range(50)))
+    files, _, _, _ = fetch.unpack(stream, str(tmp_path), ASKED)
+    assert files == 50 and max(kept) <= 1
+
+
+def test_a_vm_that_sends_nothing_is_ended(tmp_path):
+    # One block and then silence would otherwise hold just destroy, and the run lock, until Ctrl-C.
+    import time
+
+    class Process:
+        killed = False
+
+        def kill(self):
+            self.killed = True
+
+    process, stream = Process(), fetch._Counted(io.BytesIO(b""), 1)
+    with fetch._Watch(process, stream, idle=1, whole=60) as watch:
+        for _ in range(40):
+            if process.killed:
+                break
+            time.sleep(0.1)
+    assert process.killed and watch.why == "the VM sent nothing for 1 s"
+
+
+def test_more_of_files_than_the_cap_stops_the_save_before_the_file_that_passes_it_is_written(tmp_path):
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    stream = _archive(
+        _member(f"./{FOLDER}/memory/a.md", data=b"x" * 600), _member(f"./{FOLDER}/memory/b.md", data=b"y" * 600)
+    )
+    with pytest.raises(fetch.Stopped, match="^the VM sent more than the 1000 bytes of files destroy_sessions_max_size"):
+        fetch.unpack(stream, str(dest), ASKED, most=1000)
+    assert _tree(dest) == [FOLDER, f"{FOLDER}/memory", f"{FOLDER}/memory/a.md"]
+
+
+def test_a_file_longer_than_the_room_left_is_cut_off_and_stops_the_save(tmp_path):
+    with pytest.raises(fetch.Stopped):
+        fetch._write(str(tmp_path), "f", io.BytesIO(b"x" * 100), 0, 99)
+    assert (tmp_path / "f").stat().st_size == 0
+
+
+def test_a_stream_that_goes_on_past_its_bound_stops_the_save():
+    stream = fetch._Counted(io.BytesIO(b"x" * 2048), 1024)
+    assert stream.read(1024) == b"x" * 1024
+    with pytest.raises(fetch.Stopped, match="^the VM sent more than 1K in all$"):
+        stream.read(1)
+
+
+def test_more_entries_than_a_save_may_hold_stops_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(fetch, "MOST_ENTRIES", 5)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    stream = _archive(*(_member(f"./{FOLDER}/memory/{n}.md", data=b"x") for n in range(6)))
+    with pytest.raises(fetch.Stopped, match="^the VM sent more than 5 entries$"):
+        fetch.unpack(stream, str(dest), ASKED)
+
+
+def test_a_save_takes_up_to_200000_entries():
+    assert fetch.MOST_ENTRIES == 200_000 and fetch.MOST_BYTES == 4 << 30 and fetch.MOST_HEADER == 1 << 20
+
+
+class _Grudging(io.BytesIO):
+    """A stream that fails the test when more than ``most`` bytes of it are read."""
+
+    def __init__(self, data, most):
+        super().__init__(data)
+        self.most, self.taken = most, 0
+
+    def read(self, size=-1):
+        data = super().read(size)
+        self.taken += len(data)
+        assert self.taken <= self.most, f"read {self.taken} bytes of a header it should have refused"
+        return data
+
+
+@pytest.mark.parametrize(
+    ("kind", "fmt"),
+    [
+        (tarfile.XHDTYPE, tarfile.USTAR_FORMAT),
+        (tarfile.GNUTYPE_LONGNAME, tarfile.GNU_FORMAT),
+        (tarfile.GNUTYPE_LONGLINK, tarfile.GNU_FORMAT),
+    ],
+)
+def test_a_header_larger_than_a_name_needs_is_refused_before_it_is_read(tmp_path, kind, fmt):
+    # tarfile reads a pax header or a GNU long name whole into memory before the entry it is for.
+    header = tarfile.TarInfo("././@LongLink")
+    header.type, header.size = kind, 2 << 20
+    data = header.tobuf(fmt) + b"\0" * (2 << 20)
+    stream = _Grudging(data, 64 << 10)
+    with pytest.raises(fetch.Stopped, match="^the VM sent a header of 2M, more than the 1M one needs$"):
+        fetch.unpack(stream, str(tmp_path), ASKED)
+
+
+def test_a_header_of_exactly_the_bound_is_read(tmp_path):
+    # One record of a pax header that is exactly MOST_HEADER long: "<length> comment=<value>\n", its length its own.
+    info, data = _member(f"./{FOLDER}/memory/MEMORY.md", data=b"x")
+    info.pax_headers = {"comment": "x" * (fetch.MOST_HEADER - 17)}
+    out = io.BytesIO()
+    with tarfile.open(fileobj=out, mode="w", format=tarfile.PAX_FORMAT) as archive:
+        archive.addfile(info, data)
+    out.seek(0)
+    files, _, _, _ = fetch.unpack(out, str(tmp_path), ASKED)
+    assert files == 1
+
+
+def test_a_header_a_name_fits_in_is_read():
+    # The check is in tarfile's own hook, which a Python could move; a long name must still arrive.
+    out = io.BytesIO()
+    name = f"./{FOLDER}/{ID}/" + "/".join(["a" * 200] * 3)
+    with tarfile.open(fileobj=out, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        archive.addfile(*_member(name, data=b"x"))
+    out.seek(0)
+    with tarfile.open(fileobj=out, mode="r|", tarinfo=fetch._Header) as archive:
+        assert [member.name for member in archive] == [name]
+    assert "_proc_member" in vars(tarfile.TarInfo) and "_proc_gnusparse_10" in vars(tarfile.TarInfo)
+
+
+def _sparse_gnu():
+    info = tarfile.TarInfo(f"./{FOLDER}/memory/MEMORY.md")
+    info.type = tarfile.GNUTYPE_SPARSE
+    return info.tobuf(tarfile.GNU_FORMAT) + b"\0" * 1024
+
+
+def _sparse_pax(headers):
+    info, data = _member(f"./{FOLDER}/memory/MEMORY.md", data=b"x" * 10)
+    info.pax_headers = headers
+    return _archive((info, data)).getvalue()
+
+
+@pytest.mark.parametrize(
+    "archive",
+    [
+        _sparse_gnu(),
+        _sparse_pax({"GNU.sparse.map": "0,10", "GNU.sparse.realsize": "10"}),
+        _sparse_pax({"GNU.sparse.size": "10", "GNU.sparse.offset": "0", "GNU.sparse.numbytes": "10"}),
+        _sparse_pax({"GNU.sparse.major": "1", "GNU.sparse.minor": "0", "GNU.sparse.realsize": "10"}),
+    ],
+    ids=["gnu", "pax-0.1", "pax-0.0", "pax-1.0"],
+)
+def test_a_sparse_file_stops_the_save(tmp_path, archive):
+    # The VM's tar makes one only with --sparse; its map can be as long as the VM makes it.
+    with pytest.raises(fetch.Stopped, match="^the VM sent a sparse file"):
+        fetch.unpack(io.BytesIO(archive), str(tmp_path), ASKED)
+
+
+def test_a_save_past_its_cap_fails_saying_where_what_arrived_is(tmp_path):
+    projects = _vm_projects(tmp_path)
+    dest = tmp_path / "a" / "projects"
+    with pytest.raises(
+        RuntimeError, match=f"^the VM sent more than the 10 bytes of files .*; what arrived before is in {dest}$"
+    ):
+        fetch.fetch(str(dest), str(projects), ASKED, most=10)
+
+
+@pytest.mark.parametrize(
+    ("size", "cap"),
+    [
+        ("4G", 4 << 30),
+        ("4", 4 << 30),
+        (4, 4 << 30),
+        ("500M", 500 << 20),
+        ("1.5T", 3 << 39),
+        ("64k", 64 << 10),
+        ("8GiB", 8 << 30),
+        (" 2 G ", 2 << 30),
+        ("0", 0),
+        # B alone is bytes, never the gigabytes a bare number is.
+        ("500B", 500),
+        ("4096b", 4096),
+        (False, 0),
+        ("lots", 0),
+        ("4G4", 0),
+        ("-1G", 0),
+        ("", 0),
+        (None, 0),
+    ],
+)
+def test_the_cap_is_a_size_as_the_settings_write_one(size, cap):
+    assert filters.claude_sessions_cap(size) == cap
+
+
+def test_the_fetch_module_refuses_a_cap_of_nothing(tmp_path, patch_module):
+    from conftest import fail_main
+
+    args = {"dest": str(tmp_path / "a" / "projects"), "root": "/home/dev/.claude/projects", "names": ASKED}
+    assert "max_bytes must be a number of bytes above 0" in fail_main(fetch.main, {**args, "max_bytes": 0})["msg"]
+    assert not (tmp_path / "a").exists()
 
 
 def _vm_projects(tmp_path):

@@ -28,6 +28,8 @@ _VERSION = re.compile(r"^(\d+(?:\.\d+)*)")
 # a VM reports is left out, since the names travel to tar and become paths on this machine.
 _SAVED_FOLDER = re.compile(r"[A-Za-z0-9-]+")
 _SESSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# A size as the settings write one, vm_disk_size's way: a number and K, M, G or T, G when none is given.
+_SIZE = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(?:([KMGT])i?B?|(B))?", re.IGNORECASE)
 # GitHub as a clone's origin names it: https, ssh, scp-like, and ssh over port 443.
 _GITHUB = re.compile(
     r"^(?:(?:https|ssh)://(?:[^@/]+@)?(?:ssh\.)?github\.com(?::\d+)?/|(?:[^@/:]+@)?github\.com:)"
@@ -404,6 +406,18 @@ def claude_sessions_saved(sessions, memory, dest):
         "memory": folders,
         "refused": refused,
     }
+
+
+def claude_sessions_cap(size):
+    """destroy_sessions_max_size in bytes: the most the files of one VM's save may hold (4G, 500M, 4096B; a number
+    alone is gigabytes, as vm_disk_size's is). 0 for a value that is no size, or none - "", 0, false: destroy.yml
+    refuses it before any VM starts, rather than take the default in its place."""
+    match = _SIZE.fullmatch(str(size if size is not None else "").strip())
+    if not match:
+        return 0
+    if match.group(3):
+        return int(float(match.group(1)))
+    return int(float(match.group(1)) * 1024 ** ("KMGT".index((match.group(2) or "G").upper()) + 1))
 
 
 def claude_sessions_listed(rows):

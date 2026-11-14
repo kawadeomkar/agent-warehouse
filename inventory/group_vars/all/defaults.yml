@@ -295,6 +295,7 @@ deploy_code: true
 destroy_release: true
 destroy_save_sessions: true
 destroy_sessions_dir: ""
+destroy_sessions_max_size: 4G
 # Every test turns this off, and tests/unit/test_github_auth.py,
 # test_claude_login.py and test_tailscale.py fail if one does not.
 login_desktop: true

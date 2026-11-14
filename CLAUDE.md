@@ -486,8 +486,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Nothing the VM sends is trusted: a folder or ID not named as Claude Code names them is left out, and
       `claude_sessions_fetch` (delegated here) runs `tar` there over SSH as Ansible reaches the VM and unpacks
       the stream itself - plain files and folders only, at the names asked for, never through a link or outside
-      the folder. Never rsync, which made the VM's links here as links, nor a `file` with `recurse`, whose
-      `follow` chmodded their targets.
+      the folder, and no name that starts with a dot or holds a control character. Never rsync, which made the
+      VM's links here as links, nor a `file` with `recurse`, whose `follow` chmodded their targets.
+    - What one save takes is bounded before it is read: `destroy_sessions_max_size` of files (4G), the stream,
+      the entries, a header's size (`tarfile` reads a pax header or a GNU long name whole into memory, so a
+      `tarinfo` subclass refuses a large one first), and no sparse file. Past a bound the save fails, never an
+      entry quietly left out, and the module's own error is never one of `tarfile`'s, some of which it takes for
+      the archive's end.
     - `destroy_sessions_dir` is absolute or `~`, refused otherwise before any VM starts; the default,
       `.sessions/<vm>-<time>/` in the checkout, is git-ignored and refused by `tests/check_no_local_files.sh`.
       What is saved is edited in nothing, 0700/0600.

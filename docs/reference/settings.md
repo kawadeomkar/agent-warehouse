@@ -382,6 +382,12 @@ A folder per VM and run, &lt;name&gt;-&lt;YYYYMMDD-HHMMSS&gt;, 0700, in an absol
 |---|---|---|
 | `destroy_sessions_dir` | `""` |  |
 
+The most one VM's save may write, whatever the VM sends (4G, 500M): past it the save fails and the VM is kept, what arrived before left in its folder.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `destroy_sessions_max_size` | `4G` |  |
+
 Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run only prints them, for a controller with no desktop.
 
 | Setting | Default | Notes |

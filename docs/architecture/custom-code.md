@@ -509,11 +509,17 @@ VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, w
 where the VM is this machine, as in the tests), the names on stdin each after `./`, so that none reads
 as an option, and the stream unpacked by Python's `tarfile` into a folder it creates: plain files and
 folders only, at the names asked for - `<folder>/<id>.jsonl`, `<folder>/<id>`, `<folder>/memory` -
-or inside one of the folders, with no `..`, absolute path or empty component, never through a link
+or inside one of the folders, with no `..`, absolute path or empty component, no part that starts with a
+dot or holds a control character, none over 255 bytes and none deeper than 16, never through a link
 (`O_EXCL | O_NOFOLLOW`, in folders it made), 0600 and 0700, with the archive's times. A link, hard link,
-device or pipe is left out and named in `left_out`. It fails on SSH or tar failing, an archive cut short
-(a byte count that is no number of 512-byte blocks: `tarfile` reads one cut after its first header as
-one that ended) or a name asked for that did not arrive. Nothing of the content is returned.
+device or pipe is left out and named in `left_out`, the first 50 of them. It fails on SSH or tar failing,
+an archive cut short (a byte count that is no number of 512-byte blocks: `tarfile` reads one cut after its
+first header as one that ended), a name asked for that did not arrive, or past a bound: `max_bytes` of
+files written (`destroy_sessions_max_size`, made bytes by the `claude_sessions_cap` filter), twice that and
+64 MiB of stream, 200 000 entries, a pax header or GNU long name over 1 MiB - `tarfile` reads one whole into
+memory, so a `TarInfo` subclass refuses it in `_proc_member`, before it is read - and a sparse file, whose
+map can be as long as the VM makes it. Its own error, `Stopped`, is no `tarfile` error, some of which
+`TarFile.next()` takes for the archive's end. Nothing of the content is returned.
 
 **`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm)`** —
 the decision as data: `sessions` to copy, each with the checkout it continues in and the memory folder
@@ -548,7 +554,9 @@ up - is left out and counted in `refused`, never handed to tar. Returns `files` 
 `claude_sessions_fetch`; `sessions` for `sessions.json`, each with its first directory, branch, last
 write, the version that wrote it (its digits alone), whether it began on the VM, and the `claude --resume
 <path>` that continues it, the path quoted; `newest`, the newest version, which resuming them needs at
-least; `started` and `continued`; and the `memory` folders.
+least; `started` and `continued`; and the `memory` folders. **`claude_sessions_cap(size)`** is
+`destroy_sessions_max_size` in bytes, a size as `vm_disk_size` is written (a number alone is gigabytes),
+and 0 for a value that is none, which `destroy.yml` refuses before any VM starts.
 
 Covered by `tests/unit/test_session_handoff.py`, with real git checkouts and canned transcripts, by
 the window step's runs in `tests/unit/test_code_session.py`, and by destroy's release play, run in
