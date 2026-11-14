@@ -173,6 +173,15 @@ user's choice. What was decided, and why:
   or a Claude talked into it, could plant beside the project's task, run by one key outside Claude Code's
   permission prompts. So the generated task has no tag, the project binds no key, and the guide shows a task, a tag
   and a key the user keeps in their own Zed files, the tag a name of their own.
+- **A window trusts its VM, and the guides say so** (November 2026, after the independent security review of
+  2026-11-10). VS Code's Remote - SSH, and Zed's remote development, put the server on the VM inside the window's
+  trust boundary: a VM whose root is hostile can run commands on this machine through an open window, and no
+  setting or profile prevents it ([In the editor](security-model.md#in-the-editor)). The windows stay, and
+  `deploy_code` stays on: at the end of a first deploy the VM is new and has run nothing untrusted, the exposure
+  is in keeping a window open while the agent works, and that is the workflow the editor step exists for. The
+  answer if the trade-off is ever judged too much is an editor whose workbench runs in a browser tab, which the VM
+  cannot leave - VS Code's `code serve-web`, or a tunnel to vscode.dev - as a third editor in
+  `lib/claude_vm/editors/`. Not built.
 - **No timed second `zed` call for the notes** (D13). Zed's command takes one `ssh://` path, so the notes are
   opened by hand once, and Zed reopens the tab with the window. A second call once Zed's server runs on the VM
   has no signal to wait for - another window of the VM satisfies any check at once - and a lost race leaves a

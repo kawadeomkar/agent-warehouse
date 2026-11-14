@@ -351,6 +351,26 @@ and calls its commands. What that changes:
 
 ## In the editor
 
+Opening a VM in an editor trusts the VM with this machine, and nothing in this project can change that. VS
+Code's Remote - SSH runs a server on the VM that the window here obeys: the extension's own Security Note says
+"A compromised remote could use the VS Code Remote connection to execute code on your local machine"
+([Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)), the VS Code team counts that server inside the client's trust boundary
+([vscode-remote-release#6608](https://github.com/microsoft/vscode-remote-release/issues/6608), open since 2022), and published research (Calif, August 2025) has an
+extension on the server open a terminal on the client (`workbench.action.terminal.newLocal`) and type into it,
+in default settings. Workspace Trust is about a folder's content, not the host, and a profile or a user-data
+directory of its own is still the same user. The VM's root - an agent with passwordless sudo - can replace VS
+Code Server, in the VM user's home, and Zed's remote server, in `~/.zed_server`; Zed documents nothing of what
+that server can make the client do. Two details follow: the workspace file `just code` writes is on the VM,
+0644 in the VM user's directory, where its root can rewrite the tasks it runs there; and in the window's
+terminals `BROWSER` is VS Code's helper, which has this machine open any http or https page the VM names,
+behind VS Code's trusted-domains prompt alone - no pattern of this project's checks it. What the project keeps
+apart from the VM - escape sequences stripped, addresses validated, a sign-in page opened only when it is the
+service's own - is beside this one channel. The guides say it where the choice is made
+([What a window on a VM trusts](../guides/vscode.md#what-a-window-on-a-vm-trusts)), and a browser-based editor,
+which would be the boundary this lacks, is
+[§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time)'s answer if the trade-off
+is ever judged too much.
+
 In VS Code, `just code`'s workspace file starts a terminal running `claude` when the window
 opens, which is exactly the kind of code-on-open VS Code guards with Workspace Trust and the
 automatic-tasks question. Both stay the user's to answer ([§4.9](lifecycle.md#49-playbookscodeyml)):

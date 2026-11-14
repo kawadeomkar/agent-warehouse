@@ -11,6 +11,29 @@ VS Code is the editor `just code` and `just deploy` open by default. The `editor
 open, one at a time (`just settings editor`), and `just code alpha --editor <editor>` picks it for one run;
 the other is [Zed](zed.md).
 
+## What a window on a VM trusts
+
+A window on a VM trusts that VM with this machine. VS Code's server runs on the VM and the window here does
+what it says, and Microsoft's note for Remote - SSH is plain: "A compromised remote could use the VS Code
+Remote connection to execute code on your local machine" ([Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)). No setting, profile or
+Workspace Trust changes that. The VM runs an agent with passwordless sudo, so a VM whose agent was talked into
+something - by a repository, a web page, a tool's output - can run commands here, as you, while its window is
+open. So:
+
+- Open a window only on a VM you would let run commands on your machine, and close it when you are not
+  working in it. `just deploy` opens one at its end: `just settings deploy_code --value false` stops that.
+- To keep the agent at arm's length, use Remote Control - `just deploy` sets it up, and you reach it in
+  claude.ai/code or the Claude apps - or plain `ssh alpha` in a terminal. Neither runs here what the VM sends,
+  with two caveats for ssh: a `ForwardAgent yes` of your own `~/.ssh/config`, a `Host *` one too, hands the VM
+  your SSH agent for the session, and the terminal shows what the VM prints as it is, escape sequences and all,
+  some of which a terminal acts on (setting the clipboard, for one).
+- These narrow what a hostile VM reaches without closing the channel: a VS Code profile with no other
+  extensions for these windows (VS Code's own commands stay in reach), and `"remote.autoForwardPorts": false`
+  in your settings, so that no port the VM opens is forwarded here by itself.
+
+`just code` does not repeat this on every run: [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) and [What the VM trusts](what-the-vm-trusts.md)
+say it once.
+
 ## Opening a VM
 
 ```bash

@@ -74,6 +74,20 @@ a VM lives with in [What the VM trusts](docs/guides/what-the-vm-trusts.md), how 
 [docs/architecture/security-model.md](docs/architecture/security-model.md) - and reports that only
 restate them are not treated as vulnerabilities:
 
+- **Opening a VM in your editor trusts that VM with this machine.** `just code`, and the last step of
+  `just deploy` (`deploy_code`, on by default), open a VS Code Remote - SSH or Zed window on a VM where an
+  agent runs with passwordless sudo. Microsoft says of Remote - SSH: "A compromised remote could use the VS
+  Code Remote connection to execute code on your local machine" ([its Security Note](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)). VS Code's
+  server on the VM is in the same trust boundary as the window ([vscode-remote-release#6608](https://github.com/microsoft/vscode-remote-release/issues/6608)), the
+  VM's root can replace it, and published research has a server open a terminal on the client and type into
+  it, in default settings; no VS Code setting, profile or Workspace Trust prevents that. Zed says nothing
+  either way of what its remote server can do to the client. So a window on a VM whose agent was talked into
+  something - by a repository, a web page, a tool's output - can run commands here, as you, while it is open.
+  Open a window only on a VM you would let do that, and close it when you are not working in it;
+  `deploy_code: false` keeps `just deploy` from opening one. Remote Control (claude.ai/code and the Claude
+  apps, which `just deploy` sets up by default) and plain `ssh <vm>` keep the VM at arm's length
+  ([What a window on a VM trusts](docs/guides/vscode.md#what-a-window-on-a-vm-trusts)). This is the largest
+  of these trade-offs, and no code of this project's can close it.
 - `proxmox_validate_certs` defaults to `false`, because a stock Proxmox install presents a self-signed
   certificate, so every run sends the API token to whatever answers at the host's address on port 8006.
   [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
@@ -83,7 +97,9 @@ restate them are not treated as vulnerabilities:
   bridge the host's own address is usually on, with no Proxmox firewall on their network device. So that
   network always has a device you cannot fully trust on it: root on any VM - an agent with passwordless
   sudo, or another user's VM on a shared host - can try to answer for the host's address and read the
-  token, which reaches every VM on the host (below).
+  token, which reaches every VM on the host (below). A network of the VMs' own keeps them off the host's
+  address and your other machines
+  ([The VMs on a network of their own](docs/getting-started/proxmox-access.md#the-vms-on-a-network-of-their-own)).
 - **The API token's reach.** `tools/proxmox-access.sh` grants the `AnsibleVM` role on `/vms`, and the grant
   propagates to every VM on the host. The token can set the SSH keys cloud-init installs on any VM there,
   restart it into them, and delete it - this project's VMs or not - and so can anyone who obtains the token,
@@ -117,6 +133,18 @@ restate them are not treated as vulnerabilities:
   root on one VM can make its sudo ask and read the password from the next run. With it, that VM's root
   has the password to every other VM's console and, on the tighter box, to every other VM's sudo. Make it
   one you use nowhere else; a password of each VM's own is not built yet.
+- `.vault_pass`, which `just init` makes so that every run opens the vault without asking, sits beside the
+  vault in the checkout: a backup, a sync or anything that reads the checkout as you has both files, and the
+  vault's encryption then protects only what leaves the machine without the password. A password kept in
+  the system's keychain, with a script that asks it, takes it out of backups and of the reach of anything
+  that only reads files
+  ([Keeping the vault password in your keychain](docs/getting-started/first-deploy.md#keeping-the-vault-password-in-your-keychain));
+  a process that can run commands as you can still ask the keychain for it.
+- **One GitHub login for every VM.** A token in the vault is every VM's, and a device-flow login leaves a
+  token on its VM that does not expire, with gh's scopes (`repo`, `read:org`, `gist`): the agent on any VM can
+  read and push to every repository that login reaches. [A narrower GitHub login](docs/guides/github.md#a-narrower-github-login)
+  gathers the ways to bound it - a fine-grained token with chosen repositories and an expiry, no `workflow`
+  scope (the default), no login on a VM that should push nothing; a token of each VM's own is not built.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
   can be reached without manual steps. Changed keys are still refused.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH, Claude's sign-in in the
@@ -126,7 +154,8 @@ restate them are not treated as vulnerabilities:
 - In VS Code, `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside
   it, when the window opens (`editor_claude_terminal`, on by default). The file is written by this project
   beside the repositories, never in one, and what its tasks run is fixed
-  ([In the editor](docs/architecture/security-model.md#in-the-editor)). VS Code still runs
+  ([In the editor](docs/architecture/security-model.md#in-the-editor)) - against a repository, not against the
+  VM: the file is on the VM, where its root can rewrite it as it can replace VS Code Server (above). VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own

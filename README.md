@@ -121,6 +121,8 @@ The run stops for you at most three times, each at a page it opens in your brows
 Then your editor opens on the VM, in `~/projects`. In VS Code, the default, Claude runs in a terminal; the
 first time, VS Code asks you to trust the folder and to allow automatic tasks, both yours to answer. In Zed
 (`just settings editor --value zed`), Claude is a task of the window you start ([Zed](docs/guides/zed.md)).
+A window on a VM trusts that VM with your machine
+([What a window on a VM trusts](docs/guides/vscode.md#what-a-window-on-a-vm-trusts)).
 [Your first deploy](docs/getting-started/first-deploy.md) walks through each stop, and what to do when
 one is skipped or fails.
 

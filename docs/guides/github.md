@@ -92,6 +92,27 @@ token then only lists. A private repository is cloned over HTTPS only where git 
 signed in and made git's credential helper, by this role or by you (`gh auth setup-git`) - and is
 otherwise skipped and named rather than failed; over SSH your key clones it either way.
 
+## A narrower GitHub login
+
+Whatever signs gh in on a VM, the agent there has: it can read and push to every repository that login
+reaches, on every VM it is on. Ways to narrow it, from the least change:
+
+- **No extra scopes for the device flow**, the default since 2.6 (`github_login_scopes: []`): gh's own `repo`,
+  `read:org` and `gist`, which reach every repository of the account and do not expire, but cannot change
+  `.github/workflows/`, where a repository's Actions secrets are within reach.
+- **A fine-grained token in the vault**, limited to the repositories the VMs need and given an expiry:
+  `vault_github_token` (`just vault`), with Metadata (read) and Contents and Pull requests (read and write) on
+  those repositories, and `github_auth_method: token`, so that it is the one login and a device flow never
+  adds another. It lists and clones only those repositories, and stops working on the date you chose. It is
+  still one token on every VM: a token of each VM's own is not built.
+- **No login at all**, where the VMs should push nothing: `github_auth: false` - one setting for every VM a
+  run reaches, not a choice of one VM's - and no token in the vault. Public repositories are still cloned; gh
+  on the VM is left as it is.
+
+A device-flow login a VM already holds keeps its scopes until you sign it out or refresh it, as above;
+`just destroy` signs it out, and revoking it is under GitHub's Authorized OAuth Apps, which ends every GitHub
+CLI sign-in of the account.
+
 ## Commit identity
 
 Commits need an identity. `git_user_name` and `git_user_email` (in `local.yml`) are written to

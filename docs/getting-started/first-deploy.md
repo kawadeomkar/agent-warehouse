@@ -123,6 +123,39 @@ Or skip `just init`'s questions and edit the three files yourself - `just init` 
 alone - then run `just vault`, which encrypts the vault (with the password in `.vault_pass`, if you made
 one).
 
+### Keeping the vault password in your keychain
+
+`.vault_pass` sits beside the vault, so a backup or a sync of the checkout, or anything that reads your files,
+has both. Ansible takes an executable as the password file, and uses what it prints, so the password can live in
+your system's keychain instead. On macOS, store it, typing the password at the prompt (`cat .vault_pass` shows
+it), and make the script that reads it:
+
+```bash
+security add-generic-password -a "$USER" -s agent-warehouse-vault -w
+mkdir -p ~/.local/bin
+printf '#!/bin/sh\nexec security find-generic-password -a "$USER" -s agent-warehouse-vault -w\n' \
+  > ~/.local/bin/agent-warehouse-vault-pass
+chmod 700 ~/.local/bin/agent-warehouse-vault-pass
+```
+
+On Linux with a Secret Service keychain (GNOME Keyring, KWallet), `secret-tool store --label="agent-warehouse
+vault" service agent-warehouse-vault` stores it, and the script is `exec secret-tool lookup service
+agent-warehouse-vault`. Then point every run at the script, in your shell's profile, and see that it opens the
+vault with the file moved aside - every recipe passes `.vault_pass` while it is there, so a check beside it opens
+the vault with the file, script or no script - and only then delete the file:
+
+```bash
+export ANSIBLE_VAULT_PASSWORD_FILE=~/.local/bin/agent-warehouse-vault-pass
+mv .vault_pass .vault_pass.aside
+just settings github_username      # opens the vault through the script alone
+rm .vault_pass.aside               # once it did; mv .vault_pass.aside .vault_pass if it did not
+```
+
+`just mcp` passes nothing of your environment to the runs it starts: register it again with
+`just mcp --vault-password-file ~/.local/bin/agent-warehouse-vault-pass`. What this buys is that backups, syncs
+and anything that only reads your files no longer have the password; a process that can run commands as you can
+still ask the keychain, which answers a command-line tool without a prompt while it is unlocked.
+
 ## Deploy
 
 ```bash

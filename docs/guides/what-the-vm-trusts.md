@@ -22,6 +22,18 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   restarts or the VM does. The password is one for every VM, and the playbooks hand it to any VM whose sudo
   asks for it: root on one VM can make its sudo ask, and then holds the sudo password of every other tighter
   box. Make it one you use nowhere else.
+- A window on a VM - `just code`, and the end of `just deploy` - trusts that VM with this machine: VS Code's
+  and Zed's servers run on the VM, where its root can replace them, and Microsoft says a compromised remote
+  can run code on your machine through Remote - SSH. Open a window only on a VM you would let do that, and
+  keep the agent at arm's length with Remote Control or plain `ssh`
+  ([What a window on a VM trusts](vscode.md#what-a-window-on-a-vm-trusts)).
+- Remote Control's sessions start in the projects directory with Claude Code's question whether to trust it
+  already answered yes, since a server has no one to ask: Claude Code asks it of no repository cloned there,
+  and a repository's own `.claude/settings.json` hooks and `.mcp.json` servers apply to a session opened in it
+  as they would after a yes. The permission mode is still `default`, so the session asks before a tool runs that
+  no rule allows - but a repository's own `.claude/settings.json` is among those rules: its allow rules let the
+  tools they name run unasked, and its hooks run without a question at all. A repository whose name starts with a
+  dot is never cloned.
 - A VM with a [list of repositories of its own](vms.md#repositories) holds the same GitHub login as any other: the list
   narrows what is cloned onto it, not what `gh` there can reach.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
@@ -29,7 +41,8 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   none by default; `workflow` would let the agent rewrite a repository's Actions workflows - broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
-  that to you ([Tearing down](destroy.md)).
+  that to you ([Tearing down](destroy.md)). [A narrower GitHub login](github.md#a-narrower-github-login) puts the
+  ways to bound it in one place.
 - The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
   is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
   VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI. When

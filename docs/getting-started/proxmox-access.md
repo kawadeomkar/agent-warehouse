@@ -158,6 +158,30 @@ lacks and the `pveum role modify` line that adds them. It asks for the token's I
 `proxmox_api_token_id`; the secret goes into the encrypted `vault.yml` as `vault_proxmox_api_token_secret`
 ([Your first deploy](first-deploy.md#set-up-the-project)).
 
+## The VMs on a network of their own
+
+By default the VMs share the host's bridge (`proxmox_bridge`, `vmbr0`), the network the host's own address
+and your other machines are usually on, and each runs an agent with passwordless sudo. A VM there can answer
+for another machine's address, and reach whatever that network reaches. Two things narrow it:
+
+- **Check the host's certificate** ([below](#trusting-the-proxmox-certificate)): a VM that answers for the
+  host's address then fails the handshake, and the API token is never sent to it.
+- **A bridge or VLAN of the VMs' own**, which cannot reach the host's management address or the machines you
+  care about: it is made on the host, as your network's design, and `proxmox_bridge` names it before the
+  template is built, since every clone takes the template's network device. The controller still needs to
+  reach the VMs over SSH, and the VMs the internet for their packages. Naming it changes only what is made
+  from then on: the next `just deploy` builds the template again on it, and a VM made before stays on the old
+  bridge until it is destroyed and made again. The token needs `SDN.Use` on the new bridge as on the old -
+  `pveum acl modify /sdn/zones/localnetwork/<bridge> --users ansible@pve --roles AnsibleVM` - or Proxmox
+  refuses a network device on it.
+
+Proxmox's own firewall does not do it per VM by itself: a VM's firewall (`firewall=1` on its network device)
+acts only while the datacenter's firewall is on, a host setting this project never changes; its IP filter drops
+a DHCP VM's traffic until the VM's address is in an IP set, the address the VM itself reports; and nothing on
+the network device stops a VM answering ARP for another address. Where you run Proxmox's firewall, its MAC
+filter (`macfilter`, on with it by default) keeps a VM from sending as another network device, which is worth
+having; the rest is the network's design.
+
 ## Trusting the Proxmox certificate
 
 Proxmox ships a self-signed certificate, so `proxmox_validate_certs` defaults to `false`: the token is
