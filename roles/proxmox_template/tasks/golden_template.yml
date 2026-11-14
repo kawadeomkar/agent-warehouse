@@ -25,7 +25,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_template_golden_config_url }}"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_golden_before
       no_log: true
@@ -55,7 +56,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_template_golden_config_url }}"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_golden_after
       no_log: true

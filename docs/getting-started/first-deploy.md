@@ -56,7 +56,11 @@ answer that cannot be right (a URL for the address, a secret that is not one) is
 What you answered is never asked again. The vault is written encrypted, and its password, which
 `just init` makes, is in `.vault_pass`: keep that file, since the vault cannot be opened without it.
 
-Then `just init` checks what `just deploy` will need of Proxmox: that the API answers and takes the token,
+Then `just init` checks what `just deploy` will need of Proxmox. First, before the token goes anywhere, it works out
+the certificate that makes the API's verify, and keeps it beside `hosts.yml` as `proxmox-trust.pem`, with checking on
+for every run from then on; without a terminal, `--certificate <its SHA-256 fingerprint>` keeps it
+([Trusting the Proxmox certificate](proxmox-access.md#trusting-the-proxmox-certificate)).
+Then: that the API answers and takes the token,
 that the token holds every privilege the project uses on `/vms`, that the template exists and is what its
 settings would build or, while it is missing or will be rebuilt, that root SSH to the host works, and that the
 VMs will get an SSH key. It works out the node - the one
@@ -79,6 +83,7 @@ summary and one `NEXT STEPS` block.
 | `inventory/hosts.yml` | The address of your Proxmox host, which `just init` asks for. VMs are **not** listed here |
 | `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for once you choose `tailscale`. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
 | `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `vpn` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
+| `inventory/proxmox-trust.pem` | The certificate the Proxmox API is checked against, which `just init` writes and nothing else: delete it to have `just init` trust a new one |
 
 Every setting the two files take, with its default, is in the [settings reference](../reference/settings.md),
 and `just vault` opens the vault in your editor. No VPN is chosen while `local.yml` sets no `vpn`, and every

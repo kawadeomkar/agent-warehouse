@@ -31,7 +31,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/cluster/resources?type=vm"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_collect_listing
       no_log: true
@@ -42,7 +43,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       loop: "{{ proxmox_template_collect_goldens }}"
       loop_control:
@@ -56,7 +58,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ item.node }}/qemu/{{ item.vmid }}/config"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       loop: "{{ proxmox_template_collect_builds }}"
       loop_control:

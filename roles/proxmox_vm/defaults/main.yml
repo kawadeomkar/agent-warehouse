@@ -6,9 +6,11 @@ proxmox_vm_api_port: 8006
 proxmox_vm_api_user: ansible@pve
 proxmox_vm_api_token_id: ansible
 proxmox_vm_api_token_secret: ""
-# Set to true after trusting the PVE CA on the controller
+# Check the API's certificate, against proxmox_vm_ca_path where it names a file
+# (the trust file just init keeps), else this machine's trust store
 # (docs/getting-started/proxmox-access.md).
 proxmox_vm_validate_certs: false
+proxmox_vm_ca_path: ""
 # Seconds each API request waits for Proxmox's answer: never proxmoxer's 5,
 # which a host busy copying a disk outlasts in the middle of a clone.
 proxmox_vm_api_timeout: 30

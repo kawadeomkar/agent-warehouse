@@ -15,7 +15,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/cluster/resources?type=node"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_build_nodes
       no_log: true
@@ -45,7 +46,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/cluster/nextid"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_build_nextid
       no_log: true
@@ -132,7 +134,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ proxmox_node }}/qemu/{{ proxmox_template_build_nextid.json.data }}/config"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: proxmox_template_build_config
       no_log: true

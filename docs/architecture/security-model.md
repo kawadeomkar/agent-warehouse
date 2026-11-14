@@ -9,7 +9,7 @@ with; this is the mechanism.
 Authentication is API tokens only, never a password: a dedicated `ansible@pve` token rather than `root@pam`,
 holding only the VM privileges the `proxmox_vm` role uses ([Proxmox access](../getting-started/proxmox-access.md)).
 What the token reaches, what a shared host means and what to do about it, and the certificate it is sent to
-unchecked by default are trade-offs
+unchecked until `just init` sets checking up are trade-offs
 [SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 with what to do in [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) and
 [Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate).
@@ -19,6 +19,18 @@ the role, to which it appends a privilege it lacks (never taking one away) - for
 to, as one person's `y` reaches all who share it ([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)) - and
 the token's secret goes from the script's stdout into the encrypted vault under `no_log` - never on the screen or
 a command line. A vault it cannot write deletes the token again, since its secret, shown once, would be lost.
+
+Before the token is sent anywhere, `just init` asks the API, with no token, whether its certificate verifies as
+checking stands; where it does not, it works out what makes it verify and keeps it: the host's CA or its node's own
+certificate, read over root SSH - the one channel to the host already trusted - in the trust file beside `hosts.yml`
+with `proxmox_validate_certs: true`, or that setting alone where this machine's trust store verifies it, as both
+`uri`'s and the modules' clients have it. Where nothing verifies, what the address presents is compared with the
+host's certificates: anything but the host's own holds the token. Every request to the API then checks it
+(`proxmox_api_validate`, with `proxmox_api_ca_path` - the modules' `module_defaults`, each `uri`, and `just status`)
+and follows no redirect; a certificate that changed fails the run with what to do, and nothing retries without
+checking. The file holds only certificates (`pem_certificates`, the node's without its chain), is git-ignored and
+refused by `tests/check_no_local_files.sh`, and is written at a terminal or for `--certificate`'s fingerprint,
+over one there only on a yes, or the new fingerprint given, once it no longer verifies.
 
 ## Tailscale
 

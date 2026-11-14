@@ -177,7 +177,8 @@
         url: "{{ proxmox_api_url }}/nodes/{{ claude_vm_item.node }}/qemu/{{ claude_vm_item.vmid }}/status/start"
         method: POST
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: claude_vm_release_starts
       changed_when: true
@@ -213,7 +214,8 @@
           ansible.builtin.uri:
             url: "{{ proxmox_api_url }}/nodes/{{ claude_vm_item.node }}/qemu/{{ claude_vm_item.vmid }}/config"
             headers: "{{ proxmox_api_headers }}"
-            validate_certs: "{{ proxmox_validate_certs }}"
+            follow_redirects: none
+            validate_certs: "{{ proxmox_api_validate }}"
             ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
           register: claude_vm_release_configs
           failed_when: false
@@ -236,7 +238,8 @@
               {{ proxmox_api_url }}/nodes/{{ claude_vm_config.claude_vm_item.node }}/qemu/{{
               claude_vm_config.claude_vm_item.vmid }}/agent/network-get-interfaces
             headers: "{{ proxmox_api_headers }}"
-            validate_certs: "{{ proxmox_validate_certs }}"
+            follow_redirects: none
+            validate_certs: "{{ proxmox_api_validate }}"
             ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
           register: claude_vm_release_agent
           until: >-

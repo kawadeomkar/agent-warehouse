@@ -92,6 +92,10 @@ MUST_BLOCK = [
     "hosts/nuc/group_vars/all/vault.yml",
     "hosts/nuc/notes.txt",
     "hosts/.checked.json",
+    # The certificate just init keeps names the host and its address.
+    "inventory/proxmox-trust.pem",
+    "hosts/nuc/proxmox-trust.pem",
+    "inventory/prod/proxmox-trust.pem",
     # Run logs name the Proxmox host and every VM by address.
     ".logs/20261007-203015-deploy.log",
     ".logs/notes.txt",

@@ -165,6 +165,36 @@ def guest_addresses(vms, configs, networks, nic="net0"):
     ]
 
 
+# What Python's ssl, and requests and urllib around it, say of an API certificate that did not verify: not trusted, or
+# not naming the address it was reached at.
+UNTRUSTED_RE = re.compile(r"CERTIFICATE_VERIFY_FAILED|certificate verify failed", re.I)
+MISMATCH_RE = re.compile(r"[Hh]ostname mismatch|match target host|not valid for|doesn't match", re.I)
+
+
+def proxmox_untrusted_hint(msg, trust_file=""):
+    """What to do when a request to the API failed because its certificate did not verify (``msg``, the error), or ""
+    for any other failure. ``trust_file`` is the file it was checked against, just init's (proxmox_trust_file), or ""
+    for this machine's trust store. Never "turn checking off": just init reads the host's certificates over root SSH
+    with checking on, and puts one that verifies in place only on a yes that shows both fingerprints, or the new one's
+    given (docs/getting-started/proxmox-access.md). A certificate that stopped verifying is also what someone answering
+    in the host's place presents."""
+    msg = str(msg or "")
+    if not (UNTRUSTED_RE.search(msg) or MISMATCH_RE.search(msg)):
+        return ""
+    against = str(trust_file or "") or "this machine's trust store"
+    if MISMATCH_RE.search(msg):
+        return (
+            "Proxmox's certificate does not name the address in proxmox_api_host: reach it by a name or address the"
+            " certificate holds"
+        )
+    return (
+        f"Proxmox presents a certificate that does not verify against {against}. If Proxmox renewed it, the host was"
+        " reinstalled, or this machine's Python changed (3.12 and 3.13 trust a Proxmox VE 8 certificate differently),"
+        " just init reads the host's own over root SSH and asks before it trusts one in its place; if not, something"
+        " else may answer at that address"
+    )
+
+
 def proxmox_access_denied(msg):
     """Whether a community.proxmox error means the API refused the token.
 

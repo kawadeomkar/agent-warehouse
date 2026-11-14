@@ -1094,6 +1094,16 @@ def status_report(found, read_at="", now=None, live=False):
     items = []
     if proxmox.get("unread"):
         _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
+    elif not proxmox.get("off") and settings.get("api_checked") is False:
+        # Every recipe warns of it for the host its files name; a host of several that is read here, with its token,
+        # is said here too.
+        _add(
+            items,
+            "proxmox",
+            "todo",
+            "the API's certificate is not checked, so the token goes to whatever answers at the host's address",
+            f"just init{_host_flag(settings)} sets checking up",
+        )
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
         text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"

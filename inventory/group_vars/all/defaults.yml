@@ -38,7 +38,11 @@ proxmox_api_token_secret: >-
             == hostvars['localhost']['inventory_dir']
                | default(hostvars[groups['proxmox'][0]]['inventory_dir'] | default(none))
       else vault_host_proxmox_api_token_secret) | trim }}
-# Off by default because Proxmox ships a self-signed certificate.
+# Off by default because Proxmox ships a certificate of its own CA, which
+# nothing here trusts; just init turns checking on without it, by keeping the
+# certificate the API is checked against in proxmox_trust_file below
+# (docs/getting-started/proxmox-access.md). True checks against this machine's
+# trust store (or REQUESTS_CA_BUNDLE), which a certificate from a public CA needs.
 proxmox_validate_certs: false
 proxmox_node: pve
 proxmox_storage: local-lvm
@@ -57,7 +61,9 @@ proxmox_api_module_defaults:
   api_user: "{{ proxmox_api_user }}"
   api_token_id: "{{ proxmox_api_token_id }}"
   api_token_secret: "{{ proxmox_api_token_secret }}"
-  validate_certs: "{{ proxmox_validate_certs }}"
+  validate_certs: "{{ proxmox_api_validate }}"
+  # Empty, it is left out: community.proxmox reads ca_path only when it is set.
+  ca_path: "{{ proxmox_api_ca_path }}"
   # How long each request a module makes waits for Proxmox's answer: the reads'
   # claude_vm_api_timeout, never proxmoxer's 5 seconds, which a host copying a
   # disk outlasts - a clone made, then failed before it was tagged this project's.
@@ -76,10 +82,34 @@ proxmox_api_url: >-
 # The header carries the token: every task that sends it is no_log.
 proxmox_api_headers:
   Authorization: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
-# The wiki trusts the Proxmox CA through REQUESTS_CA_BUNDLE, which the
-# modules' HTTP client reads and `uri` does not, so it is passed on. Empty
-# when certificates are not validated; callers `default(omit, true)` it.
-proxmox_api_ca_path: "{{ lookup('ansible.builtin.env', 'REQUESTS_CA_BUNDLE') if proxmox_validate_certs | bool else '' }}"
+# The certificate the API is checked against, which just init writes: Proxmox's
+# CA, or the node's own where Python refuses that CA (3.13 and later verify
+# strictly, and a Proxmox CA without keyUsage - every Proxmox VE 8 host's - is
+# refused). In the folder of the Proxmox host's hosts.yml - inventory/ for the
+# first host, hosts/<name>/ for another - so each host has its own; never
+# committed. "" where the inventory has no Proxmox host. Not a setting.
+proxmox_trust_file: >-
+  {{ (hostvars[groups['proxmox'][0]]['inventory_dir'] ~ '/proxmox-trust.pem')
+     if groups['proxmox'] | default([]) and hostvars[groups['proxmox'][0]]['inventory_dir'] | default(none)
+     else '' }}
+# Whether just init has written it. Not a setting.
+proxmox_trust_kept: "{{ proxmox_trust_file | length > 0 and proxmox_trust_file is file }}"
+# Whether every request to the API checks its certificate: proxmox_validate_certs,
+# or the trust file just init wrote, there - since just init never changes a
+# setting, the file alone turns checking on, and deleting it turns it off.
+# Every caller reads this, never the setting alone. Not a setting.
+proxmox_api_validate: "{{ proxmox_validate_certs | bool or proxmox_trust_kept | bool }}"
+# What it is checked against: the trust file where there is one, else
+# REQUESTS_CA_BUNDLE, which the modules' HTTP client reads and `uri` does not,
+# so it is passed on; empty, this machine's trust store. Empty too when nothing
+# is checked; callers `default(omit, true)` it.
+proxmox_api_ca_path: >-
+  {{ ((proxmox_trust_file if proxmox_trust_kept | bool else lookup('ansible.builtin.env', 'REQUESTS_CA_BUNDLE'))
+      if proxmox_api_validate | bool else '') | trim }}
+# What to do when a request failed for the certificate, or "" for any other
+# failure: the proxmox_untrusted_hint filter, with the file it was checked against.
+proxmox_api_untrusted_hint: >-
+  {{ proxmox_api_failure | default('') | proxmox_untrusted_hint(proxmox_trust_file if proxmox_trust_kept | bool else '') }}
 # Seconds each of those reads waits for Proxmox: uri's own default, which
 # playbooks/tasks/cluster_vms.yml and vm_addresses.yml keep, and every request a
 # Proxmox module makes (the shared module defaults above, and the proxmox_vm
@@ -482,7 +512,8 @@ proxmox_vm_api_port: "{{ proxmox_api_port }}"
 proxmox_vm_api_user: "{{ proxmox_api_user }}"
 proxmox_vm_api_token_id: "{{ proxmox_api_token_id }}"
 proxmox_vm_api_token_secret: "{{ proxmox_api_token_secret }}"
-proxmox_vm_validate_certs: "{{ proxmox_validate_certs }}"
+proxmox_vm_validate_certs: "{{ proxmox_api_validate }}"
+proxmox_vm_ca_path: "{{ proxmox_api_ca_path }}"
 proxmox_vm_api_timeout: "{{ claude_vm_api_timeout }}"
 proxmox_vm_node: "{{ proxmox_node }}"
 proxmox_vm_storage: "{{ proxmox_storage }}"

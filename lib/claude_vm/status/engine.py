@@ -420,6 +420,8 @@ class Run:
                     "check proxmox_api_user, proxmox_api_token_id and vault_proxmox_api_token_secret"
                     " (docs/getting-started/proxmox-access.md)",
                 )
+            elif untrusted := proxmox_reads.proxmox_untrusted_hint(listing["msg"], self.fleet.get("trust_file", "")):
+                self.unread(f"Proxmox's certificate did not verify: {listing['msg']}", untrusted)
             else:
                 self.unread(
                     f"Proxmox did not answer: {listing['msg'] or 'no response'}",

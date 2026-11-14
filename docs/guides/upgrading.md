@@ -34,6 +34,15 @@ host changes nothing, but:
 
 The independent security review of 2026-11-10 brought these; an install made before needs nothing for most of them:
 
+- **The Proxmox API's certificate is checked once `just init` has set it up.** Run `just init` once: before the token
+  goes anywhere, it works out what makes the certificate verify - this machine's trust store, or the host's CA or
+  its node's certificate read over root SSH - and keeps it in `inventory/proxmox-trust.pem` (`hosts/<name>/` for
+  another host) with `proxmox_validate_certs: true`, which has every run against the host check it. Every recipe
+  warns until then, and `just status` says so of each host. The `REQUESTS_CA_BUNDLE` and `proxmox_validate_certs:
+  true` set up by hand still work, and where they no longer verify `just init` finds what does, with checking on:
+  with Python 3.13 or later and a CA made before pve-cluster 9.1.2, the file to trust is the node's own certificate,
+  not the CA. Every request to the API now follows no redirect
+  ([Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)).
 - **Claude Code is installed from Anthropic's signed release**, never through the installer script: the VM reads the
   release's manifest and Anthropic's signature of it, this machine verifies the signature, and the binary is held to
   the digest the manifest gives. A pinned `claude_code_version` older than 2.1.89, the first signed release, is

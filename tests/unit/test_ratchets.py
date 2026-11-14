@@ -100,10 +100,14 @@ def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None
 PROXMOX_OWN = re.compile(
     r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$|tools/proxmox-access\.sh$)"
 )
+# From 2.6 every request to the API checks its certificate by one value, proxmox_api_validate, against
+# proxmox_api_ca_path (custom-code.md §7.16): each validate_certs line read proxmox_validate_certs before, which named
+# Proxmox as much but is no term here, so the files that send a request count one line more for each.
 PROXMOX_ELSEWHERE = {
     "deploy.yml": 2,
-    # The token's rule names its two vault names (a host's own, from 2.5: docs/architecture/custom-code.md §7.14).
-    "inventory/group_vars/all/defaults.yml": 32,
+    # The token's rule names its two vault names (a host's own, from 2.5: docs/architecture/custom-code.md §7.14); and
+    # the certificate's: checked, against what, and what to do when it no longer verifies.
+    "inventory/group_vars/all/defaults.yml": 41,
     "inventory/group_vars/all/local.yml.example": 4,
     "inventory/group_vars/all/vault.yml.example": 2,
     "lib/claude_vm/ansible/engine.py": 4,
@@ -111,30 +115,35 @@ PROXMOX_ELSEWHERE = {
     "lib/claude_vm/refs.py": 3,
     "lib/claude_vm/run/model.py": 4,
     # The kinds of host, as literal data, each naming its own settings once by design: the resolver, just host and just
-    # status read them there. With them, the internals made from the run's host that no settings file may set.
-    "lib/claude_vm/hosts/kinds.py": 10,
+    # status read them there. With them, the internals made from the run's host that no settings file may set, the
+    # two that say how its certificate is checked among them.
+    "lib/claude_vm/hosts/kinds.py": 12,
     "lib/claude_vm/status/engine.py": 16,
     "lib/claude_vm/status/model.py": 18,
-    "lib/claude_vm/status/settings.py": 5,
+    # With whether the API's certificate is checked, which the report says of each host whether or not it reads it.
+    "lib/claude_vm/status/settings.py": 7,
     "lib/claude_vm/tui/run.py": 3,
     "lib/claude_vm/tui/status.py": 3,
+    # The certificate just init keeps, tried as the modules and uri verify it.
+    "lib/claude_vm/trust.py": 1,
     "lib/claude_vm/wiring.py": 1,
     "playbooks/code.yml": 2,
     "playbooks/configure.yml": 1,
-    "playbooks/destroy.yml": 14,
+    "playbooks/destroy.yml": 17,
     "playbooks/discover.yml": 2,
-    "playbooks/init_check.yml": 37,
+    # With the certificate's step, before the first request that carries the token.
+    "playbooks/init_check.yml": 49,
     "playbooks/init_settings.yml": 12,
-    "playbooks/provision.yml": 26,
+    "playbooks/provision.yml": 28,
     "playbooks/ssh_config.yml": 2,
     "playbooks/tailscale_login.yml": 1,
-    "playbooks/tasks/cluster_vms.yml": 17,
+    "playbooks/tasks/cluster_vms.yml": 20,
     "playbooks/tasks/init_choose.yml": 2,
     "playbooks/tasks/init_local_setting.yml": 1,
-    "playbooks/tasks/vm_addresses.yml": 11,
+    "playbooks/tasks/vm_addresses.yml": 13,
     "playbooks/tasks/vm_marks.yml": 6,
     "playbooks/tasks/vpn_members.yml": 2,
-    "playbooks/tasks/vm_stop.yml": 4,
+    "playbooks/tasks/vm_stop.yml": 5,
     # The token secret's vault name for the first host, the default where just init sets up no other.
     "playbooks/vars/init.yml": 1,
     "playbooks/templates/vm_session.md.j2": 2,

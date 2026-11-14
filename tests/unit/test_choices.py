@@ -265,6 +265,65 @@ def test_just_init_asks_the_question_rather_than_warn_of_it(tmp_path):
     assert 'tools/check settings "$bin" --asking $init_settings_files' in (REPO / "justfile").read_text()
 
 
+# ------------------------------------------- tools/check settings, for the API's certificate ---
+def _check_host(
+    tmp_path: Path, local_text: str, *, hosts: str | None = "all: {}\n", trust: bool = False, asking: bool = False
+) -> subprocess.CompletedProcess:
+    """tools/check settings as a recipe runs it for one host: its hosts.yml (when there is one), then local.yml."""
+    folder = tmp_path / "inventory"
+    folder.mkdir(exist_ok=True)
+    (folder / "local.yml").write_text("vpn: none\n" + local_text)
+    if hosts is not None:
+        (folder / "hosts.yml").write_text(hosts)
+    if trust:
+        (folder / "proxmox-trust.pem").write_text("-----BEGIN CERTIFICATE-----\n")
+    return subprocess.run(
+        [
+            str(REPO / "tools" / "check"),
+            "settings",
+            str(Path(sys.executable).parent),
+            *(["--asking"] if asking else []),
+            str(folder / "hosts.yml"),
+            str(folder / "local.yml"),
+        ],
+        cwd=REPO,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("local_text", "hosts", "trust", "warned"),
+    [
+        ("", "all: {}\n", False, True),
+        ("proxmox_validate_certs: false\n", "all: {}\n", False, True),
+        ("proxmox_validate_certs: true\n", "all: {}\n", False, False),
+        ("proxmox_validate_certs: \"{{ lookup('env', 'CHECK') | bool }}\"\n", "all: {}\n", False, False),
+        # The file just init keeps beside hosts.yml turns checking on, whatever the setting says.
+        ("proxmox_validate_certs: false\n", "all: {}\n", True, False),
+        ("", "all: {}\n", True, False),
+        # In hosts.yml's vars, which local.yml after it outranks.
+        ("", "all:\n  vars:\n    proxmox_validate_certs: true\n", False, False),
+        ("proxmox_validate_certs: false\n", "all:\n  vars:\n    proxmox_validate_certs: true\n", False, True),
+        # No host yet: nothing sends a token.
+        ("", None, False, False),
+    ],
+)
+def test_check_settings_says_while_nothing_checks_the_api_s_certificate(tmp_path, local_text, hosts, trust, warned):
+    result = _check_host(tmp_path, local_text, hosts=hosts, trust=trust)
+    assert result.returncode == 0, result.stderr
+    assert ("nothing checks the certificate of the Proxmox API" in result.stderr) is warned, result.stderr
+    if warned:
+        assert "just init sets checking up (docs/getting-started/proxmox-access.md)" in result.stderr
+
+
+def test_just_init_sets_checking_up_rather_than_warn_of_it(tmp_path):
+    result = _check_host(tmp_path, "", asking=True)
+    assert result.returncode == 0 and result.stderr == "", result.stderr
+
+
 def test_check_settings_finds_the_defaults_whatever_cdpath_says(tmp_path):
     # just runs tools/check by a relative path: an exported CDPATH would have cd print the directory, or go to
     # another checkout's, and every choice but none be refused.

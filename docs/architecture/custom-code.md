@@ -1354,7 +1354,8 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   status`'s (`--read-only`),
   which writes only into `.cache/status/`. Nor may a settings file or a vault set what the inventory defaults make
   from the run's host (the kind's `from_host`: `proxmox_api_host`, `proxmox_api_token_secret`, `proxmox_api_url`,
-  `proxmox_api_headers`, `proxmox_api_module_defaults`), which would outrank the rule for every host: beside another
+  `proxmox_api_headers`, `proxmox_api_module_defaults`, and the certificate's `proxmox_trust_file`,
+  `proxmox_trust_kept`, `proxmox_api_validate` and `proxmox_api_ca_path`), which would outrank the rule for every host: beside another
   host, each is refused in every file a run reads. The kind's always-written settings (for Proxmox, the node,
   storage, bridge, API user, token ID, port, certificate checking and template VMID) are refused missing from the
   host's `local.yml`, naming `just init --host`; and a setting of one network (`vm_ipconfig`, `vm_nameservers`,
@@ -1427,3 +1428,43 @@ one behaviour everywhere, tested offline against the real signatures. Covered by
 the vendors' files (`tests/unit/openpgp/`) and signatures a key made for the test (`tests/unit/signing.py`) gets wrong
 one way at a time, and `tests/unit/test_signed_downloads.py`, which runs both task files against stand-in hosts and a
 stand-in for the download server (`tests/molecule/fake_downloads.py`).
+
+## 7.16 `lib/claude_vm/trust.py` — the certificate the Proxmox API is checked against
+
+`just init` keeps the certificate that makes the API's verify, before the token is sent anywhere
+(`playbooks/init_check.yml`, [§4.13](lifecycle.md#413-playbooksinit_checkyml)), and every request reads it after
+(`proxmox_api_validate` and `proxmox_api_ca_path` in the inventory defaults). Which certificate that is depends on
+this machine's Python as much as on the host, so it is tried, never assumed: Python 3.13 and later verify with
+`VERIFY_X509_STRICT`, which refuses a CA without `keyUsage` - every Proxmox VE 8 host's, and every 9 host's made before
+pve-cluster 9.1.2 and not issued again by 9.1.8 - and with `VERIFY_X509_PARTIAL_CHAIN`, which takes the node's own
+certificate as an anchor; 3.12 does neither. No probe here sends the token: each that asks whether a certificate
+verifies is a `HEAD /version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
+Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, which made the certificate's step of
+`just init` take nine.
+
+- **`proxmox_trust_holds(pem, url)`** asks whether what checking uses now verifies: the trust file's text, or the
+  trust store for none.
+- **`proxmox_trust_pick(candidates, url)`** tries each candidate as Ansible's `uri` and urllib3 (requests, every
+  `community.proxmox` module) do, through `ssl.create_default_context` with the candidate as its only CA data - this
+  machine's trust store first, as both clients have it (the standard library's store and certifi's, or the bundle
+  `REQUESTS_CA_BUNDLE` names, which both are handed), then the host's CA, then the node's own certificate without its
+  chain (`pem_first`) - and hands back the first that verifies, with its SHA-256 fingerprint as `openssl x509
+  -fingerprint -sha256` prints it, and why each before it did not, which `proxmox_trust_said` makes one line of plain
+  text. `strict` forces Python 3.13's flags on or off, so that the tests run both on either Python.
+- **`proxmox_trust_presented(candidates, url)`** reads what the address presents with a context that checks nothing,
+  and says whether it is the host's: the node's certificate itself, or one that chains to the host's CA or node
+  certificate whatever name it holds. The store proves no host, since any public CA signs anyone's. The step tells a
+  name to fix from something else answering at the address by it. The certificate alone decides, read with nothing
+  sent after the handshake: what answers sees which request carries no token, and could say nothing to this one. So
+  where root SSH read the host's certificates and none verified, `just init` holds the token unless what is presented
+  is the host's, a certificate read or not.
+
+Only `-----BEGIN CERTIFICATE-----` blocks of what was read from the host are ever kept or tried (`pem_certificates`),
+and a file larger than a certificate file is none. A trust file there turns checking on, whatever
+`proxmox_validate_certs` says - another host's `local.yml` holds the value its first run wrote - and `just init` writes
+`proxmox_validate_certs: true` beside a file it keeps where `local.yml` sets none, so that a copy of the checkout
+without the file refuses rather than sends the token unchecked. A certificate that changed is said where the API's
+failures are put into words (`proxmox_untrusted_hint` in `lib/claude_vm/proxmox.py`: `tasks/cluster_vms.yml`,
+`init_check.yml` and `just status`), never retried without checking. Covered by `tests/unit/test_proxmox_trust.py`,
+against a local TLS server serving a node's certificate under a CA made as Proxmox makes one (`tests/unit/pki.py`),
+and `tests/unit/test_init_check.py`, which runs the step against the fake Proxmox serving the same.

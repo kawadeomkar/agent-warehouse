@@ -626,6 +626,7 @@ def tools(server: Server) -> list[Tool]:
         storage: str = "",
         bridge: str = "",
         tailscale: str = "",
+        certificate: str = "",
         wait_seconds: int | None = None,
     ) -> str:
         refusal = client_refusal(ctx, "init", "just init")
@@ -640,6 +641,7 @@ def tools(server: Server) -> list[Tool]:
             "storage": storage,
             "bridge": bridge,
             "tailscale": tailscale,
+            "certificate": certificate,
         }
         return await server.run("init", arguments, wait_seconds, ctx, vault=False)
 

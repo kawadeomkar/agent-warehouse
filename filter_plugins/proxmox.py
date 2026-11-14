@@ -25,6 +25,7 @@ PROXMOX = (
     "tailnet_ipv4",
     "guest_addresses",
     "proxmox_access_denied",
+    "proxmox_untrusted_hint",
     "proxmox_marks",
     "proxmox_tags_moved",
     "proxmox_notes_repos",

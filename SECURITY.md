@@ -90,12 +90,18 @@ restate them are not treated as vulnerabilities:
   apps, which `just deploy` sets up by default) and plain `ssh <vm>` keep the VM at arm's length
   ([What a window on a VM trusts](docs/guides/vscode.md#what-a-window-on-a-vm-trusts)). This is the largest
   of these trade-offs, and no code of this project's can close it.
-- `proxmox_validate_certs` defaults to `false`, because a stock Proxmox install presents a self-signed
-  certificate, so every run sends the API token to whatever answers at the host's address on port 8006.
-  [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-  explains how to trust the Proxmox CA and turn it on; a later release will have `just init` fetch the CA
-  and turn validation on by default. Until you turn it on, count the project's own VMs among the devices
-  that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
+- **The API's certificate is checked once `just init` has set it up.** A stock Proxmox install presents a
+  certificate of its own CA, which nothing here trusts, so `proxmox_validate_certs` defaults to `false`. `just
+  init` works out, before the token is sent anywhere, what makes the certificate verify - this machine's trust
+  store, or the host's CA or its node's certificate read over root SSH - and keeps it beside `hosts.yml` with
+  checking on for every run against the host
+  ([Trusting the Proxmox certificate](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)).
+  Where the address presents none of the host's certificates while root SSH reaches the host - another, or none it
+  can read - `just init` sends no token. A certificate that changes is trusted in place of the old one only on a yes
+  that shows both fingerprints, never through a run with checking off. Every recipe warns until then, `just status`
+  too for each host it reads, and the default itself turns on in the next major release. Until checking is
+  on, every run sends the API token to whatever answers at the host's address on port 8006, so count the
+  project's own VMs among the devices that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
   bridge the host's own address is usually on, with no Proxmox firewall on their network device. So that
   network always has a device you cannot fully trust on it: root on any VM - an agent with passwordless
   sudo, or another user's VM on a shared host - can try to answer for the host's address and read the

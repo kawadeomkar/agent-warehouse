@@ -373,7 +373,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       a helper variable beside it, which a git-ignored file could set; the resolver refuses either name in the
       other's vault, and, beside another host, any settings file or vault a run reads that sets what the defaults make
       from the run's host (the kind's `from_host`: the token's secret, the API's address, URL, headers and module
-      defaults), which would outrank the rule for every host.
+      defaults, and the certificate's trust file and checking), which would outrank the rule for every host.
     - Only a host's `hosts.yml` is inventory in its folder: Ansible reads every `.yml`, `.yaml` and `.json` there,
       and every folder but `group_vars` and `host_vars`, so the resolver refuses another. What a host's files say is
       that host's problem, said in its place, never a traceback, and a run against another goes on.
@@ -626,10 +626,25 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `tailscale` is chosen (or `on` given, or `vpn: tailscale` or `tailscale_enabled: true` set), hidden, and
       never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
-      `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
+      `init_ask` or a value given, and the host's trust file (`proxmox_trust_file`, beside its `hosts.yml`), by one
+      `copy` under `init_ask` or `--certificate`'s fingerprint being the certificate's; every other task is a read -
+      over root SSH, `hostname -s` and the host's two certificates, each looked at before it is read.
+    - The certificate is worked out at every run before the first request that carries the token, by probes that send
+      none (`lib/claude_vm/trust.py`): what checking uses now first, then the host's certificates read over root SSH.
+      A file kept holds only certificates, the node's without its chain, and comes with `proxmox_validate_certs: true`
+      where `local.yml` sets none, so a copy of the checkout without the file refuses; the file's being there turns
+      checking on too (`proxmox_api_validate`, which every caller reads, never `proxmox_validate_certs` alone, and
+      `test_proxmox_trust.py` holds). One that no longer verifies is replaced only on a `y` that shows both
+      fingerprints or the new one given, never through a run with checking off, and no hint ever says to turn it off
+      (`proxmox_untrusted_hint`). Where root SSH read the host's certificates, nothing verifies and the address is not
+      shown to present one of them - another certificate, or none read, since what answers sees which request
+      carries no token - no task that carries the token runs (`init_token_held`). Every request that carries it is
+      `follow_redirects: none`. The file is git-ignored, refused by `tests/check_no_local_files.sh`, and in
+      `ansible.cfg`'s `inventory_ignore_extensions` as `.pem`.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and
       `_init_at_a_terminal` in `tests/unit/test_init_settings.py`, which holds that statically, and gives the
-      Proxmox host a local stand-in or a refusing `ssh`, never a real one (`tests/unit/test_init_check.py`).
+      Proxmox host a local stand-in or a refusing `ssh`, never a real one (`tests/unit/test_init_check.py`), and
+      the host's certificates as files of its own (`init_trust_paths`), the step off but where a test gives them.
 - **`just init`'s offer to make the API token is the one change the project makes on Proxmox outside its
   template and VMs, and only on a `y`.** Read [§4.12](docs/architecture/lifecycle.md#412-playbooksinit_settingsyml)
   and [Proxmox access](docs/getting-started/proxmox-access.md#letting-just-init-set-it-up) first.

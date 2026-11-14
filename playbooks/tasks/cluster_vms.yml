@@ -18,7 +18,8 @@
   ansible.builtin.uri:
     url: "{{ proxmox_api_url }}/cluster/resources?type=vm"
     headers: "{{ proxmox_api_headers }}"
-    validate_certs: "{{ proxmox_validate_certs }}"
+    follow_redirects: none
+    validate_certs: "{{ proxmox_api_validate }}"
     ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
     timeout: "{{ claude_vm_api_timeout }}"
   register: claude_vm_all
@@ -32,10 +33,12 @@
 
 - name: cluster_vms | Fail when Proxmox did not list the VMs
   vars:
+    proxmox_api_failure: "{{ claude_vm_all.msg | default('') }}"
     claude_vm_all_hint: >-
       {{ 'Check proxmox_api_user, proxmox_api_token_id and vault_proxmox_api_token_secret'
            ~ ' (docs/getting-started/proxmox-access.md, "The API token").'
          if claude_vm_all.status | default(-1) in [401, 403]
+         else proxmox_api_untrusted_hint ~ '.' if proxmox_api_untrusted_hint | length > 0
          else 'Check that proxmox_api_host in inventory/hosts.yml is the Proxmox host, and that it is reachable.' }}
   ansible.builtin.assert:
     that: claude_vm_all.status | default(-1) == 200

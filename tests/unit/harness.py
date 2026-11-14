@@ -1133,10 +1133,10 @@ def _pve(base: str, method: str, endpoint: str, **params) -> dict:
         return json.loads(answer.read() or b"{}")
 
 
-def _fake_pve(directory: Path):
+def _fake_pve(directory: Path, certificate: tuple[Path, Path] | None = None):
     """The fake Proxmox on a loopback port, until the fixture ends, its state and its request log in directory/pve;
-    yields its https base URL."""
-    cert, key = _certificate(directory)
+    yields its https base URL. It serves certificate - its file and its key's - or one of its own, self-signed."""
+    cert, key = certificate or _certificate(directory)
     for base in _serve(FAKES / "fake_pve_api.py", str(cert), str(key), str(directory / "pve"), PVE_SECRET):
         yield base.replace("http://", "https://")
 

@@ -131,9 +131,10 @@ are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
    so a single powered-off node in a cluster broke discovery for VMs on all the others. The listing
    already carries `name`, `vmid`, `node`, `status`, `template` and `tags`. The task is `no_log`
    because the request carries the token, so a second task asserts on the status and shows only it
-   and the reason. `REQUESTS_CA_BUNDLE` is passed as `ca_path`, so the certificate recipe in
-   [Proxmox access](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-   covers this request too. It is `check_mode: false`: `uri` does not support check mode, so under
+   and the reason, or, for a certificate that did not verify, what to do (the `proxmox_untrusted_hint` filter).
+   It checks the certificate as every request to the API does, by `proxmox_api_validate`, against
+   `proxmox_api_ca_path`: the trust file `just init` keeps, or `REQUESTS_CA_BUNDLE`
+   ([Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)). It is `check_mode: false`: `uri` does not support check mode, so under
    `just deploy --check` it would skip itself and discovery would find nothing.
 2. `claude_vm_tagged` (a lazily-evaluated group var) filters to the tagged QEMU VMs. Proxmox omits
    `tags` for an untagged guest, hence its `selectattr('tags', 'defined')`.
@@ -517,7 +518,8 @@ deleted at any time:
 
 - **`settings.json`.** Asking Ansible for the settings takes most of a second, and they change only when a file
   does. The answer is kept, keyed by the name, size and time of every file it is made from: `ansible.cfg`,
-  `inventory/`, the roles' `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
+  `inventory/` (another host's `hosts.yml`, `group_vars/` and the `proxmox-trust.pem` beside them), the roles'
+  `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
   installed ansible-core, `requirements.yml` and the collections installed, the `~/.ssh/*.pub` the default keys come
   from, the vault's password files, and the
   environment's `ANSIBLE_*`, `HOME`, `PATH` and `REQUESTS_CA_BUNDLE`. It holds no secret: the API token is a mark
@@ -1257,7 +1259,7 @@ checks run next and say what comes after.
 password looked for when the recipe runs, since the questions may have just made `.vault_pass` - so it sees
 the settings exactly as `just deploy` will. The recipe skips it, with one line, when the vault is
 encrypted and neither `.vault_pass` nor `ANSIBLE_VAULT_PASSWORD_FILE` can open it. One play on `localhost`,
-every task a read (held by `tests/unit/test_init_check.py`) but the settings it writes. For another host
+every task a read (held by `tests/unit/test_init_check.py`) but the settings and the trust file it writes. For another host
 (`init_host`), the run reads that host's sources over the shared ones, as every run against it, and once every check
 has passed writes into the host's `local.yml` each setting the host sets for itself that it does not set yet - the
 node, the storage and the bridge as the checks settled them, the rest as this run reads them - and its default VM's
@@ -1266,29 +1268,48 @@ name, `<name>-default`; the host's name was given on the command line, a value g
 1. **Configured yet?** With the address or the secret still the example's, it says what is missing and ends:
    nothing is checked, and that is no problem.
 2. **The vault** is encrypted: only whether its text starts as a vault does is kept.
-3. **The API**: `GET /version`, `no_log` since the header carries the token, as `tasks/cluster_vms.yml` does,
-   with `ca_path`. 200 is `ok`, with the version; a 401 or 403 names the token; a connection that fails,
-   the address; a certificate error, the CA steps.
-4. **Privileges on `/vms`**: `GET /access/permissions?path=/vms`, against `init_token_privileges.vms` and the
+3. **The certificate**, before the first request that carries the token, every probe with none
+   (`lib/claude_vm/trust.py`). What checking uses now - the trust file `proxmox_trust_file` beside the host's
+   `hosts.yml`, or the trust store with `proxmox_validate_certs` - is asked first (`proxmox_trust_holds`); where it
+   verifies, nothing more. Else the host's CA and the certificate pveproxy serves are looked for over root SSH (`stat`,
+   then `slurp` of a file no larger than a certificate file is, `no_log`, delegated, `ignore_unreachable`), and
+   `proxmox_trust_pick` tries the trust store - the standard library's and certifi's, or `REQUESTS_CA_BUNDLE`'s -
+   the CA and the node's own certificate without its chain, each through `ssl` as `uri` and urllib3 verify, while
+   `proxmox_trust_presented` reads what the address presents and whether it is the host's. The first that verifies
+   is kept at a terminal, or for `--certificate`'s fingerprint (`init_given.certificate`): the store's as
+   `proxmox_validate_certs: true` in `local.yml`, the CA's or the node's in the trust file by `copy`, with
+   `proxmox_validate_certs: true` where `local.yml` does not set it, and a `set_fact` of it for the rest of the run. A
+   file that no longer verifies is replaced (`force` only then) on a `y` to a question that shows both fingerprints
+   (`tasks/init_ask.yml`), or for the new one's fingerprint given; else it is kept, a problem. Nothing verifying and
+   the host's own presented is a `note` (a name to fix); while root SSH read the host's, anything else presented, or
+   no certificate read at all, is a problem; and either problem holds the token (`init_token_held`), so the API is not
+   asked. The certificate alone decides: what answers sees which request carries no token, and could say nothing to
+   the probe and take the token from the next request.
+4. **The API**, unless the token is held: `GET /version`, `no_log` since the header carries the token, as
+   `tasks/cluster_vms.yml` does, with `ca_path` and no redirect followed (`follow_redirects: none`, as every request
+   that carries it). 200 is `ok`, with the version; a 401 or 403 names the token; a connection that fails,
+   the address; a certificate that did not verify, what to do (`proxmox_untrusted_hint`): with the trust file, to
+   delete it and run `just init` again.
+5. **Privileges on `/vms`**: `GET /access/permissions?path=/vms`, against `init_token_privileges.vms` and the
    guest agent's, by `/version`'s major: `VM.Monitor` on 8, `VM.GuestAgent.Audit` on 9. A privilege is
    granted when it is listed, and reaches the VMs under `/vms`, where Proxmox checks it, only with 1, its
    propagate flag: a 0 is said with the `-propagate 1` that fixes it, and a token holding none at all with
    the privilege separation that usually explains it. Storage and bridge are not checked: their names may
    still be the defaults, wrong for the host.
-5. **The template**, from the cluster listing, as `deploy.yml` finds it: a VM named `proxmox_template_name`
+6. **The template**, from the cluster listing, as `deploy.yml` finds it: a VM named `proxmox_template_name`
    that is a template. Found, it must be on `proxmox_node`, where the clones are made. Missing, deploy builds
    it at `proxmox_template_vmid`, so a guest there - any, on any node, one that is down included - is a
    problem naming it. A listing that fails is a problem said with the rest. Found, its config is read and
    compared with what its settings would build, through `roles/proxmox_template`'s `drift` entry point as
    `deploy.yml` does ([§4.1](#41-playbookstemplateyml--built-and-rebuilt-when-it-differs)): one that differs is
    said with each difference, and deploy rebuilds it, unless `proxmox_template_rebuild` is off.
-6. **Root SSH**, only while the template is missing or will be rebuilt (or the listing would not say):
+7. **Root SSH**, only while the template is missing or will be rebuilt (or the listing would not say):
    `hostname -s`, delegated
    to the `proxmox` group's host with `ignore_unreachable`, which proves the connection the build will use
    and reads the host's short name, its node name (`init_ssh_node`), which must be `proxmox_node`, since the
    template is built there. No host in the group is a problem too. `accept-new` may add its host key to
    `~/.ssh/known_hosts`, the one file of the user's the project has ssh write in `~/.ssh`.
-7. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
+8. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
    or the node root SSH said the host is. Equal to `proxmox_node`, it is `ok`. While `proxmox_node` is the
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
    question, since there is nothing to choose - and set there, a node that differs is a problem naming both.
@@ -1297,7 +1318,7 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    `local.yml` is read as a template by every later run, and with the certificate not checked and the host key
    taken on first contact, the answer is whoever's sits in the path, so `{{ ... }}` in a name there would run on
    the controller. A reported name that is no node's is said, as JSON, and never written.
-8. **The storage and the bridge**, on that node, through `tasks/init_choose.yml`: the storages for VM disks
+9. **The storage and the bridge**, on that node, through `tasks/init_choose.yml`: the storages for VM disks
    (`GET /nodes/<node>/storage?content=images&enabled=1`) and, while there is no template, the bridges
    (`GET /nodes/<node>/network?type=any_local_bridge`), both filtered by Proxmox to what the token may see,
    each with its own permission read (`Datastore.AllocateSpace` and `Datastore.Audit` on `/storage/<name>`,
@@ -1316,17 +1337,18 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    storage's (`pve-storage-id`) or bridge's is shown as JSON and never offered, and the root-SSH listing of
    `init_access.yml` is held the same way; `tasks/init_local_setting.yml`, which every write of `local.yml` goes
    through, refuses a value that opens a template whatever its source.
-9. **A key for the VMs**: `vm_ssh_public_keys`. `vault_vm_password` alone is a problem - it is for the Proxmox
+10. **A key for the VMs**: `vm_ssh_public_keys`. `vault_vm_password` alone is a problem - it is for the Proxmox
    console, and deploy configures the VMs over SSH, which takes a key; with neither, the public keys in
    `~/.ssh` are listed and the `local.yml` line suggested. A `vm_password` that holds a password, its name
    before 1.0, is a problem too: nothing reads it, and the fix is to rename it in `vault.yml`.
 
-Each result is `ok`, `!!` with its fix, or `--` not checked, printed together at the end, and the run fails
-when any is `!!`. NEXT STEPS (`claude_vm_next`, under the key `just init`, matter `init_check`) then gives
+Each result is `ok`, `!!` with its fix, `--` not checked, or `note`, printed together at the end, and the run
+fails when any is `!!`. NEXT STEPS (`claude_vm_next`, under the key `just init`, matter `init_check`) then gives
 each `!!` line with its fix; with none, what could not be checked; with neither, `just deploy alpha`, which
 the report's last line says too - unless the GitHub username is still the example's, which the questions'
-NEXT STEPS names. A run that ended at step 1 records nothing. It writes `local.yml` alone, through
-`tasks/init_local_setting.yml`, and only at a terminal or for a value given; without either, it reports.
+NEXT STEPS names - and after any of them each `note`, which fails nothing: the certificate not checked. A run that
+ended at step 1 records nothing. It writes `local.yml`, through `tasks/init_local_setting.yml`, and the trust file
+alone, and only at a terminal or for a value given; without either, it reports.
 
 ## 4.14 `playbooks/golden.yml` — the golden template new VMs clone
 

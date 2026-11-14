@@ -265,16 +265,17 @@ help *RECIPE:
 [arg('GITHUB_USER', long='github-user', pattern='[A-Za-z0-9-]*', help='The GitHub account whose repositories are cloned')]
 [arg('TOKEN_USER', long='token-user', pattern='[A-Za-z0-9._@-]*', help="The API token's user, when it is not ansible@pve")]
 [arg('TOKEN_SECRET_FILE', long='token-secret-file', pattern='[A-Za-z0-9._/~+-]*', help="A file holding the token's secret (or AGENT_WAREHOUSE_TOKEN_SECRET in the environment; never on the command line)")]
+[arg('CERTIFICATE', long='certificate', pattern='(([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})?', help="The SHA-256 fingerprint of the certificate to check the API against, as the host prints it (openssl x509 -noout -fingerprint -sha256): kept, or put in place of one that changed, only when it is that one")]
 [continue]
 [doc('Set up this checkout, then ask for what a first deploy needs')]
 [group('use')]
 [no-exit-message]
 [positional-arguments]
 [script]
-init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORAGE='' BRIDGE='' TAILSCALE='' PROMPT='' *EXTRA:
+init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER='' STORAGE='' BRIDGE='' TAILSCALE='' CERTIFICATE='' PROMPT='' *EXTRA:
     {{ guard }}
     {{ if EXTRA == '' { '' } else { init_extra_refused } }}
-    address=$1 on=$2 token_user=$3 token_name=$4 token_secret_file=$5 github_user=$6 storage=$7 bridge=$8 tailscale=$9 prompt=${10}
+    address=$1 on=$2 token_user=$3 token_name=$4 token_secret_file=$5 github_user=$6 storage=$7 bridge=$8 tailscale=$9 certificate=${10} prompt=${11}
     # --host names a host from 2.5; through 2.x a value with a dot or a colon is an address, as it was.
     host_name=
     case "$on" in
@@ -306,9 +307,10 @@ init ADDRESS='' ON='' TOKEN_USER='' TOKEN_ID='' TOKEN_SECRET_FILE='' GITHUB_USER
     only github-user "$github_user" "$letters-" 'letters, digits and -'
     only storage "$storage" "$letters._-" 'letters, digits and . _ -'
     only bridge "$bridge" "$letters._-" 'letters, digits and . _ -'
+    only certificate "$certificate" "$letters:" 'hex digits and :'
     given=
     for pair in host="$address" token_user="$token_user" token_name="$token_name" token_secret_file="$token_secret_file" \
-      github_user="$github_user" storage="$storage" bridge="$bridge" tailscale="$tailscale"; do
+      github_user="$github_user" storage="$storage" bridge="$bridge" tailscale="$tailscale" certificate="$certificate"; do
       [ -z "${pair#*=}" ] || given="$given${given:+,}\"${pair%%=*}\":\"${pair#*=}\""
     done
     set --

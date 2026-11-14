@@ -67,11 +67,11 @@ The API user and token, as just init or tools/proxmox-access.sh makes them ([doc
 | `proxmox_api_token_id` | `ansible` | Sets `proxmox_vm_api_token_id` ([`proxmox_vm`](roles/proxmox_vm.md)): Name of the API token, the part after the ! in user!token. |
 | `proxmox_api_port` | `8006` | Sets `proxmox_vm_api_port` ([`proxmox_vm`](roles/proxmox_vm.md)): Port of the Proxmox VE API. |
 
-Set to true after trusting the PVE CA on the controller ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)).
+Check the API's certificate: against the certificate just init keeps beside hosts.yml, in proxmox-trust.pem, or without one against this machine's trust store, as a certificate from a public CA needs. just init writes this itself, with the file it keeps or where the trust store verifies it; set false while the file is there, the file alone still turns checking on ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)).
 
 | Setting | Default | Notes |
 |---|---|---|
-| `proxmox_validate_certs` | `false` | Sets `proxmox_vm_validate_certs` ([`proxmox_vm`](roles/proxmox_vm.md)): Verify the API's TLS certificate. For example `true`. |
+| `proxmox_validate_certs` | `false` | For example `true`. |
 
 The template every VM is cloned from. On a cluster, build one per node with a VMID and a name of its own ([docs/getting-started/requirements.md](../getting-started/requirements.md)).
 

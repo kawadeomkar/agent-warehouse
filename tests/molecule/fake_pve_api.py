@@ -72,6 +72,10 @@ PUT /api2/json/fake/disk-ctime?vmid=&ctime= sets for a fixture's VM made earlier
 The template's config has a SMBIOS UUID (smbios1), and each clone one of its own, so a VM made again at the same ID
 has another, as Proxmox gives them: what the runs file a VM's SSH host key under.
 
+A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
+request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
+host's place, which can tell the probes just init sends with no token from the request that carries one.
+
 Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_secret>
 """
 
@@ -210,6 +214,7 @@ STALE = {}
 # What /version reports, and each token's privileges by path where a fixture
 # set them: {(token id, path): [privilege, ...]}.
 VERSION = {"version": "8.2.4"}
+TOKENLESS = {"answer": "401"}
 PRIVILEGES = {}
 # Each node's storages for VM disks, with their type and free bytes, and its bridges.
 STORAGES = {NODE: [{"storage": "local-lvm", "type": "lvmthin", "avail": 412 * 1024**3}]}
@@ -409,6 +414,11 @@ class Handler(BaseHTTPRequestHandler):
             }
             log.write(json.dumps(entry) + "\n")
 
+        if not token and TOKENLESS["answer"] == "none":
+            self.close_connection = True
+            return None
+        if method == "HEAD":
+            return self._reply_empty(501, "method 'HEAD' not available")
         if not token or token.group(3) != TOKEN_SECRET:
             # Real pveproxy sends 401 with an *empty* body, deliberately
             # withholding the reason; the detail survives only in the HTTP
@@ -420,6 +430,10 @@ class Handler(BaseHTTPRequestHandler):
         if token.group(2) == NOAGENT_TOKEN_ID and "agent" in parts:
             vmid = parts[parts.index("agent") - 1]
             return self._reply(403, None, f"Permission check failed (/vms/{vmid}, VM.GuestAgent.Audit)")
+        if parts[:2] == ["fake", "tokenless"] and method == "PUT":
+            # Not a PVE endpoint: a fixture's answer to a request with no token.
+            TOKENLESS["answer"] = params["answer"]
+            return self._reply(200, dict(TOKENLESS))
         if parts[:2] == ["fake", "version"] and method == "PUT":
             # Not a PVE endpoint: a fixture's Proxmox version.
             VERSION["version"] = params["version"]
@@ -777,6 +791,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._handle("GET")
+
+    def do_HEAD(self):
+        self._handle("HEAD")
 
     def do_POST(self):
         self._handle("POST")

@@ -168,6 +168,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.5)
                                   openpgp.py, a vendor's detached signature checked against a vendored key, standard
                                   library alone (§7.15);
+                                  trust.py, which certificate makes the Proxmox API's verify, as the run's own clients
+                                  verify it, for just init to keep (§7.16);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
@@ -231,7 +233,9 @@ filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and check
                                   just init answer follows; with_setting, one written into YAML text;
                                   init_candidates and init_choose_rows, what the token can use among a node's storages or bridges;
                                   init_pick_question and init_pick, how one of them is asked for and what an answer picks;
-                                  proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one
+                                  proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one;
+                                  and of trust.py: proxmox_trust_pick and proxmox_trust_said, the certificate kept
+                                  and why the others did not verify (§7.16)
 filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
                                   signature checked with a vendored key, here (§7.15)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to

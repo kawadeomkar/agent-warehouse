@@ -158,6 +158,9 @@ lacks and the `pveum role modify` line that adds them. It asks for the token's I
 `proxmox_api_token_id`; the secret goes into the encrypted `vault.yml` as `vault_proxmox_api_token_secret`
 ([Your first deploy](first-deploy.md#set-up-the-project)).
 
+Before any of it, while nothing checks the API's certificate, it works out the certificate that makes it verify and
+keeps it ([Trusting the Proxmox certificate](#trusting-the-proxmox-certificate)).
+
 ## The VMs on a network of their own
 
 By default the VMs share the host's bridge (`proxmox_bridge`, `vmbr0`), the network the host's own address
@@ -184,16 +187,59 @@ having; the rest is the network's design.
 
 ## Trusting the Proxmox certificate
 
-Proxmox ships a self-signed certificate, so `proxmox_validate_certs` defaults to `false`: the token is
-sent to whatever answers on port 8006. That includes the project's own VMs: they sit on `proxmox_bridge`,
-by default `vmbr0`, usually the bridge the host's own address is on, so root on any of them - an agent with
-passwordless sudo - can try to answer for the host there, and the token it reads reaches every VM on the
-host. A later release will have `just init` fetch the CA and turn validation on by default. Until then, to
-validate, copy the PVE CA once and point the HTTP client at it:
+Proxmox ships a certificate of its own CA, which nothing on this machine trusts, so until the API's certificate is
+checked every run sends the token to whatever answers on port 8006. That includes the project's own VMs: they sit on
+`proxmox_bridge`, by default `vmbr0`, usually the bridge the host's own address is on, so root on any of them - an
+agent with passwordless sudo - can try to answer for the host there, and the token it reads reaches every VM on the
+host ([The VMs on a network of their own](#the-vms-on-a-network-of-their-own)). Every recipe warns while nothing
+checks it, and `just status` says so for each host it reads.
 
-```bash
-scp root@<pve-ip>:/etc/pve/pve-root-ca.pem ~/.config/pve-root-ca.pem
-export REQUESTS_CA_BUNDLE=~/.config/pve-root-ca.pem
-```
+**`just init` sets it up.** At every run, before the token is sent anywhere, it asks the API - with no token - whether
+its certificate verifies as checking stands, and where it does, that is all. Otherwise it reads the host's own
+certificates over root SSH and tries, in this order:
 
-and set `proxmox_validate_certs: true` in `local.yml`.
+1. This machine's trust store, which is all a certificate from a public CA (Proxmox's ACME support, Let's Encrypt)
+   needs: the standard library's, which Ansible's `uri` uses, and certifi's, which the Proxmox modules use, must both
+   verify it - or the bundle `REQUESTS_CA_BUNDLE` names, which both are handed. Then it sets
+   `proxmox_validate_certs: true` in `local.yml`, and keeps no file.
+2. Proxmox's CA, `/etc/pve/pve-root-ca.pem`.
+3. The node's own certificate, the one pveproxy serves (`/etc/pve/local/pveproxy-ssl.pem` where you installed one,
+   else `/etc/pve/local/pve-ssl.pem`): the node's alone, never the chain served with it, since each certificate of a
+   trust file is an anchor of its own.
+
+The first that verifies is kept in the host's trust file - `inventory/proxmox-trust.pem`, or
+`hosts/<name>/proxmox-trust.pem` for another host, git-ignored like `hosts.yml` beside it - with
+`proxmox_validate_certs: true` in `local.yml` where it is not set, so that a copy of the checkout without the file
+refuses the run rather than send the token unchecked; the run says which certificate, with its SHA-256 fingerprint.
+It keeps it at a terminal, or for `just init --certificate <fingerprint>`, which keeps it only when its fingerprint is
+the one given - the one the host prints, `openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pve-ssl.pem`;
+without either it says what it found and writes nothing. A CA kept accepts any certificate it signs for the name: any
+node of the cluster, which is what a cluster's CA is for.
+
+It is tried rather than assumed because no one file works everywhere: Python 3.13 and later - the environment `just
+install` makes - check certificates strictly, and refuse Proxmox's CA where it has no `keyUsage`, as every Proxmox VE 8
+host's has none, and every 9 host's made before pve-cluster 9.1.2 and not issued again by 9.1.8; those versions take
+the node's own certificate as the anchor instead, which Python 3.12 - CI's, or a virtualenv of your own - does not.
+
+**Where nothing verifies,** what the address presents is compared with the host's certificates read over root SSH.
+The host's own under another name - a certificate that does not name the address in `hosts.yml` - is a note: reach
+Proxmox by a name or address its certificate holds. Anything else - another certificate, or none it could read -
+means nothing shows that the host answers on the API's port while root SSH reaches the host: a problem, and no step
+that would send the token runs. Only the certificate decides, read with nothing sent after the handshake, since what
+answers there sees which request carries no token and could answer that one alone. Without root SSH there is nothing
+to compare with, and the note says how to copy the file by hand.
+
+**When the certificate changes.** Proxmox renews the node's certificate within two years, a reinstalled host has a
+new CA, and a kept certificate may suit one Python and not another. With checking on, the first run after that fails,
+saying Proxmox presents a certificate that does not verify. `just init` then reads the host's certificates over root
+SSH, with checking still on, and shows the one kept and the one that verifies now, each by its SHA-256 fingerprint:
+it puts the new one in place on a `y`, or for `just init --certificate <the new fingerprint>`; otherwise it keeps the
+old one and sends no token. A certificate that stopped verifying is also what someone answering in the host's place
+presents, so compare the fingerprint with what the host prints before you say yes. Nothing ever retries without
+checking, and nothing asks you to turn checking off.
+
+**By hand.** With no root SSH to the host, copy one of the files above yourself to the trust file's place, after
+comparing its fingerprint with the one the host prints. On Python 3.13 or later take the node's certificate unless
+your CA has `keyUsage`; on 3.12, the CA. With `proxmox_validate_certs: true` and no trust file, the API is checked
+against this machine's trust store, or the bundle `REQUESTS_CA_BUNDLE` names. To turn checking off again, delete the
+trust file and set `proxmox_validate_certs` back to false - and every recipe warns again.
