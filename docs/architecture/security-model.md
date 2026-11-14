@@ -121,7 +121,8 @@ environments pre-commit builds for them are not. It installs each Python hook's 
 (`ruamel.yaml` for pre-commit-hooks, and the setuptools that builds it) unpinned and unhashed, outside
 `uv.lock`, and, on a machine with no Go, downloads a Go toolchain for gitleaks with no checksum - once, when
 the git hook or `just lint` first needs them, on the machine that holds the vault. apt signing
-keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
+keys are vendored in-repo, and each file is held to its vendor's published fingerprints, computed from its own
+packets (`tests/unit/test_pins.py`), so a key changed or added fails the tests. The uv release is pinned by version *and* per-architecture SHA-256, stored
 separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
 moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The
 Molecule base image is pinned by digest, with an unpinned weekly canary. What verifies each download a VM gets is listed in
