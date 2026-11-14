@@ -691,7 +691,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the command line at its default. A run's environment is an allow list (`environment.py`) with the `PATH`,
       `HOME`, `XDG_DATA_HOME` and `CLAUDE_CONFIG_DIR` recorded at registration (`HOME` and `XDG_DATA_HOME` decide the
       collections Ansible loads, `CLAUDE_CONFIG_DIR` where `code`'s session is looked for and `just code` copies from):
-      nothing of Ansible's, Python's, `just`'s or Claude Code's from the session.
+      nothing of Ansible's, Python's, `just`'s or Claude Code's from the session. `SHELL` is the account's own
+      (`login_shell`, from the account database), never the session's: ssh starts a `ProxyCommand`, a `ProxyJump` and
+      a `Match exec` with it.
     - A run's stdin is `/dev/null`, and it runs in a session of its own with the signals at their defaults. One that
       changes something is a job (`jobs.py`): a supervisor in a session of its own writes `.cache/mcp/jobs/<id>/`, and
       the job outlives the call, the server and the session; it runs only from `main` with no tracked change, unless

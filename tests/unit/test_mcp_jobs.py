@@ -25,7 +25,7 @@ import pytest
 from harness import GIT_ENV
 from test_mcp_server import SERVER, _args, _copy, _env, _just, _text
 
-from claude_vm.mcp import cancels, jobs, runs, server
+from claude_vm.mcp import cancels, environment, jobs, runs, server
 from claude_vm.mcp.config import Config
 from claude_vm.mcp.environment import run_env
 
@@ -313,6 +313,51 @@ def test_a_run_s_claude_config_dir_is_the_recorded_one_or_none():
     assert "CLAUDE_CONFIG_DIR" not in run_env(config, session) and run_env(config, session)["HOME"] == "/home/dev"
     work = replace(config, claude_config_dir="/home/dev/.claude-work")
     assert run_env(work, session)["CLAUDE_CONFIG_DIR"] == "/home/dev/.claude-work"
+
+
+def _shell_that_marks(tmp_path):
+    """A program a session could name as SHELL, which leaves a file where it is run."""
+    shell = tmp_path / "evil-shell"
+    shell.write_text(f'#!/bin/sh\necho "$@" > "{tmp_path}/ran"\n')
+    shell.chmod(0o755)
+    return shell
+
+
+def test_a_run_s_shell_is_the_account_s_never_the_session_s(tmp_path, monkeypatch):
+    # The session's SHELL is a project's to set (.claude/settings.json env), and ssh starts every proxy command with it.
+    config = Config(checkout=Path("/x"), python="", just="", uv="", path="/usr/bin", home="/home/dev")
+    evil = _shell_that_marks(tmp_path)
+    assert "SHELL" not in environment.PASSED
+    assert run_env(config, {"SHELL": str(evil)})["SHELL"] == environment.login_shell() != str(evil)
+    # The account database's, where it names a program that can be run; /bin/sh for none, a relative one or no account.
+    named = {str(evil): str(evil), "": "/bin/sh", "evil-shell": "/bin/sh", "/nonexistent": "/bin/sh"}
+    for name, shell in named.items():
+        monkeypatch.setattr(environment.pwd, "getpwuid", lambda uid, name=name: SimpleNamespace(pw_shell=name))
+        assert environment.login_shell() == shell and run_env(config, {})["SHELL"] == shell
+    monkeypatch.setattr(environment.pwd, "getpwuid", lambda uid: {}[uid])
+    assert environment.login_shell() == "/bin/sh"
+
+
+def test_ssh_starts_a_proxy_command_with_the_run_s_shell_not_the_session_s(tmp_path):
+    # The real client, which connects nowhere: a proxy command is the connection, and this one ends at once. A jump
+    # host is the same to ssh, which makes a proxy command of it. Nothing of the developer's ~/.ssh is read or written.
+    ssh = shutil.which("ssh")
+    if ssh is None:
+        pytest.skip("no ssh client here")
+    config = Config(checkout=tmp_path, python="", just="", uv="", path=os.environ.get("PATH", ""), home=str(tmp_path))
+    evil = _shell_that_marks(tmp_path)
+    (tmp_path / "ssh_config").write_text("")
+    argv = [ssh, "-F", str(tmp_path / "ssh_config"), "-o", "BatchMode=yes", "-o", "UserKnownHostsFile=/dev/null"]
+    argv += ["-o", "GlobalKnownHostsFile=/dev/null", "-o", "ProxyCommand=true %h %p", "dev@192.0.2.7", "true"]
+
+    def run(env):
+        subprocess.run(argv, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30, check=False)
+        return (tmp_path / "ran").exists()
+
+    # As a session's environment would have it, and as this test would know had ssh stopped reading SHELL.
+    assert run({"PATH": config.path, "HOME": str(tmp_path), "SHELL": str(evil)})
+    (tmp_path / "ran").unlink()
+    assert not run(run_env(config, {"SHELL": str(evil)}))
 
 
 def test_a_stop_remembers_the_run_s_tree_before_it_signals_it(tmp_path, monkeypatch):
