@@ -22,6 +22,8 @@ provisioner:
   env:
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/roles
     ANSIBLE_FILTER_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/filter_plugins
+    # The vm_route action, for a playbook at the checkout's top, which is not beside playbooks/action_plugins.
+    ANSIBLE_ACTION_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/action_plugins
     # just code's session modules, and what they share, for the handoff check
     # in side_effect.yml.
     ANSIBLE_LIBRARY: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/library

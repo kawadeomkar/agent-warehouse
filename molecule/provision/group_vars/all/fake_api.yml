@@ -40,6 +40,11 @@ destroy_sessions_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRE
 # that reached a sign-in must not open this machine's browser or clipboard.
 login_desktop: false
 
+# Straight to each VM, never through the fake's host: auto would ask this
+# machine's ssh where it dials it, through the developer's own ssh config
+# (tests/unit/test_vm_route.py holds every scenario to it).
+vm_ssh_route: direct
+
 # deploy.yml runs here, and with it configure.yml's Tailscale role for any VM
 # it could reach - none, against the fake API, but a test never reaches
 # Tailscale: log upload off for every VM deploy could add

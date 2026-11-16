@@ -58,6 +58,8 @@ Vagrant.configure("2") do |config|
       # Vagrant reaches this VM on a forwarded port that an alias would not
       # carry, and a test must never write into the developer's ~/.ssh.
       claude_ssh_config: false,
+      # Straight to the VM, never through a Proxmox host there is none of.
+      vm_ssh_route: "direct",
       configure_wait_for_cloud_init: false,
       common_manage_hostname: false,
       common_user_ssh_public_keys: [SSH_PUBLIC_KEY],

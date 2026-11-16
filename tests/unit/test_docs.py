@@ -167,6 +167,7 @@ def test_every_setting_that_reaches_a_role_is_in_an_example_file():
         "claude_ssh_known_hosts_file": "beside claude_ssh_config_file: the VMs' host keys, each under its identity",
         "proxmox_api_validate": "made from proxmox_validate_certs and the trust file just init keeps beside hosts.yml",
         "proxmox_api_ca_path": "the trust file just init keeps beside hosts.yml, or REQUESTS_CA_BUNDLE",
+        "claude_vm_ssh_via": "a VM's own, published with it: -J and the Proxmox host where it is reached through it",
     }
     missing = [
         source

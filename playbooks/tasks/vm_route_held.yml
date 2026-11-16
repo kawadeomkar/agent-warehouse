@@ -1,0 +1,41 @@
+---
+# The route's own check of the VMs a publisher just added, before anything connects to them, then the hop's shared
+# connection made sure of (docs/architecture/lifecycle.md §4.15). Through the host, each VM's options, as its
+# connection will apply them, carry the hop first among its proxy options or a jump the VM brings of its own - never
+# neither, since nothing is dialled from here - and one that carries the hop has no other proxy option where ssh would
+# read it first (vm_route_unheld). A host var, a host_vars file or -e that outranks the publisher's value is found
+# here. tasks/host_keys.yml holds the host key's options; this, the route's.
+#
+# The making sure covers what fans out next: configure's play gathers facts before any task of its own, twenty
+# connections at once, and the host's MaxStartups drops some of those that each log in by themselves.
+#
+# Input, as `vars:` on the import: claude_vm_route_held, the names just added. One with no address is reached by
+# nothing (destroy adds it with a local connection, to delete it).
+
+- name: vm_route_held | Refuse a VM whose connection would not go where the route says
+  vars:
+    claude_vm_route_unheld: >-
+      {{ claude_vm_route_held | default([]) | vm_route_unheld(hostvars, claude_vm_route | default({}),
+         lookup('ansible.builtin.config', 'ssh_args', plugin_type='connection', plugin_name='ssh'),
+         lookup('ansible.builtin.config', 'ssh_extra_args', plugin_type='connection', plugin_name='ssh')) }}
+  ansible.builtin.assert:
+    that: claude_vm_route_unheld | length == 0
+    fail_msg: >-
+      VMs are reached through {{ (claude_vm_route | default({})).hop.label | default('the Proxmox host') }}, and
+      {{ claude_vm_route_unheld | map(attribute='name') | zip(claude_vm_route_unheld | map(attribute='why'))
+         | map('join', ': ') | join('; ') }}. Set a jump of your own as ansible_ssh_common_args or
+      ansible_ssh_extra_args where the VM is given them - with an empty value on the Proxmox host's own entry where it
+      is set for every host - or set vm_ssh_route: direct.
+    quiet: true
+  check_mode: false
+  tags: [always]
+
+- name: vm_route_held | Make sure of the shared connection through the Proxmox host
+  vm_route:
+    do: held
+    route: "{{ claude_vm_route | default({}) }}"
+  check_mode: false
+  tags: [always]
+  when: >-
+    claude_vm_route_held | default([]) | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+    | select | list | length > 0

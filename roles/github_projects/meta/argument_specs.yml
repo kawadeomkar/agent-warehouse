@@ -99,6 +99,12 @@ argument_specs:
           - What ends each just line naming this VM, in NEXT STEPS, a retry or a message - " --host <name>" where
             the checkout has more than one Proxmox host (claude_host_flag), so a line pasted later reaches the
             VM's host. Empty with one host.
+      github_projects_ssh_via:
+        type: str
+        description:
+          - What each ssh line a message prints for this VM gains after ssh - -J and the Proxmox host, where the
+            VM is reached through it (claude_vm_ssh_via, vm_ssh_route). Empty where it is reached directly or by a
+            jump of its own.
   login:
     short_description: Say whether gh is signed in to GitHub, and how, and sign it in by the device flow when asked
     description:
@@ -130,6 +136,9 @@ argument_specs:
       github_projects_host_flag:
         type: str
         description: What ends each just line for this VM, as main has it.
+      github_projects_ssh_via:
+        type: str
+        description: What each ssh line for this VM gains after ssh, as main has it.
 
 
   # tasks_from: release, which playbooks/destroy.yml runs on each VM before it

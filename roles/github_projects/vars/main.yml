@@ -416,6 +416,7 @@ github_projects_login_report: >-
       'lacks_workflow': github_projects_login_lacks_workflow | bool,
       'user': github_projects_user,
       'host': ansible_host | default(inventory_hostname),
+      'via': github_projects_ssh_via,
       'auth': github_projects_auth | bool,
       'auth_method': github_projects_auth_method,
       'token_wanted': github_projects_token_wanted | bool,

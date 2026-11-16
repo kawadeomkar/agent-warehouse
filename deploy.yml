@@ -45,6 +45,14 @@
       vars:
         claude_vm_names_alias: true
 
+    # How this machine reaches the VMs, before the template: through the
+    # Proxmox host, a login it cannot make stops the run here, before anything
+    # is built or created (playbooks/tasks/vm_route.yml).
+    - name: Settle how the VMs are reached
+      ansible.builtin.import_tasks: playbooks/tasks/vm_route.yml
+      vars:
+        claude_vm_route_start: true
+
 # The template check is made through the Proxmox API rather than on the node,
 # and playbooks/template.yml gathers no facts, so a run that does not need to
 # build the template opens no SSH connection to the Proxmox host at all. Only
@@ -146,6 +154,11 @@
     - name: Report what this run will do
       vars:
         claude_deploy_root: "{{ groups['proxmox'][0] | default('the proxmox host') }}"
+        # Through the Proxmox host, the run reaches it over SSH all the same, as the VMs' hop.
+        claude_deploy_no_ssh: >-
+          {{ 'so this run reaches the Proxmox host over SSH only as the hop to the VMs'
+             if (claude_vm_route | default({})).route | default('direct') == 'host'
+             else 'so this run needs no SSH to the Proxmox host' }}
         claude_deploy_template_said: >-
           {{ 'Template "' ~ proxmox_template_base ~ '" differs from its settings ('
                   ~ proxmox_template_drift | join('; ') ~ '), so this run rebuilds it first, over SSH as root@'
@@ -153,9 +166,9 @@
              if claude_template_rebuild | bool
              else 'Template "' ~ proxmox_template_base ~ '" differs from its settings ('
                   ~ proxmox_template_drift | join('; ') ~ '), and is kept as it is since proxmox_template_rebuild is'
-                  ~ ' false, so this run needs no SSH to the Proxmox host.'
+                  ~ ' false, ' ~ claude_deploy_no_ssh ~ '.'
              if claude_template_exists | bool and proxmox_template_drift | default([]) | length > 0
-             else 'Template "' ~ proxmox_template_base ~ '" is already built, so this run needs no SSH to the Proxmox host.'
+             else 'Template "' ~ proxmox_template_base ~ '" is already built, ' ~ claude_deploy_no_ssh ~ '.'
              if claude_template_exists | bool
              else 'Template "' ~ proxmox_template_base ~ '" does not exist yet; building it first, over SSH as root@'
                   ~ claude_deploy_root ~ '.' }}

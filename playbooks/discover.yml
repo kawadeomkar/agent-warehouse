@@ -20,6 +20,13 @@
   gather_facts: false
 
   tasks:
+    # How this machine reaches the VMs, settled first; through the Proxmox host,
+    # its login checked before anything else (tasks/vm_route.yml).
+    - name: Settle how the VMs are reached
+      ansible.builtin.import_tasks: tasks/vm_route.yml
+      vars:
+        claude_vm_route_start: true
+
     # Two VMs of one name are refused: the second add_host below would
     # silently overwrite the first, so `just deploy --only configure` would
     # report success having touched only one of them, unpredictably.
@@ -46,6 +53,13 @@
         loop_var: claude_vm_found
         label: "{{ claude_vm_found.name }}"
 
+    # Through the Proxmox host: its login if it was put off, and one forward to
+    # the first of them that goes through it.
+    - name: Check the route to the reachable ones
+      ansible.builtin.import_tasks: tasks/vm_route.yml
+      vars:
+        claude_vm_route_vms: "{{ claude_vm_addressed | selectattr('address') | list }}"
+
     - name: Add the reachable ones to the inventory
       ansible.builtin.add_host:
         name: "{{ claude_vm_found.name }}"
@@ -70,20 +84,28 @@
         # follow them - the VM's own as its groups give it, the claude_vms
         # group's included, else ANSIBLE_SSH_COMMON_ARGS or ansible.cfg's,
         # which this host var would otherwise outrank - kept from the first
-        # time the run published it (claude_vm_ssh_given).
+        # time the run published it (claude_vm_ssh_given). Through the
+        # Proxmox host, the hop between the two, made afresh each time, and in
+        # its socket's name; the words a person's ssh needs for it
+        # (claude_vm_ssh_via). None for a VM given a jump of its own.
         claude_vm_host_key_alias: "{{ claude_vm_found.key_alias | default('') }}"
         claude_vm_ssh_given: "{{ claude_vm_ssh_given_now }}"
+        claude_vm_ssh_via: "{{ claude_vm_hop_now.via }}"
         ansible_ssh_common_args: >-
           {{ claude_vm_found.key_alias | default('') | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-          {{ claude_vm_ssh_given_now }}
+          {{ (claude_vm_hop_now.option ~ ' ') if claude_vm_hop_now.option else '' }}{{ claude_vm_ssh_given_now }}
         ansible_control_path: >-
-          %(directory)s/{{ claude_vm_found.key_alias | default('') | vm_control_name(claude_vm_found.address) }}-%%r-%%p
+          %(directory)s/{{ claude_vm_found.key_alias | default('')
+             | vm_control_name(claude_vm_found.address, claude_vm_hop_now.name) }}-%%r-%%p
       vars:
         claude_vm_ssh_given_now: >-
           {{ hostvars[claude_vm_found.name].claude_vm_ssh_given
              | default(hostvars[claude_vm_found.name].ansible_ssh_common_args
                        | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
                                         plugin_name='ssh'))) }}
+        claude_vm_hop_now: >-
+          {{ claude_vm_route | default({}) | vm_hop(claude_vm_found.address, claude_vm_ssh_given_now,
+                                                    hostvars[claude_vm_found.name].ansible_ssh_extra_args | default('')) }}
       changed_when: false
       loop: "{{ claude_vm_addressed | selectattr('address') | list }}"
       loop_control:
@@ -95,6 +117,13 @@
       ansible.builtin.import_tasks: tasks/host_keys.yml
       vars:
         claude_host_keys_vms: "{{ claude_vm_addressed | selectattr('address') | list }}"
+
+    # Each VM goes where the route says, and through the host the shared
+    # connection is there before configure's facts fan out over it.
+    - name: Hold each VM to the route
+      ansible.builtin.import_tasks: tasks/vm_route_held.yml
+      vars:
+        claude_vm_route_held: "{{ claude_vm_addressed | selectattr('address') | map(attribute='name') | list }}"
 
     # With vm_name given, every named VM is meant to be configured. One that is
     # stopped, still booting, unreachable, or not tagged at all is added by

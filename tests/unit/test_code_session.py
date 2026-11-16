@@ -1971,8 +1971,8 @@ EDITOR_WRITES = {
 }
 # The task files code.yml imports that other playbooks import too, each held to its own tests: the
 # Proxmox API reads, the alias (test_ssh_config.py), the refusal of a VM named after an inventory
-# host (test_vm_names.py) and the host key's carry-over (test_host_keys.py). Every other import is
-# code.yml's own, and its tasks are held to everything
+# host (test_vm_names.py), the host key's carry-over (test_host_keys.py) and the route to the VM
+# (test_vm_route.py). Every other import is code.yml's own, and its tasks are held to everything
 # here as code.yml's are.
 SHARED = {
     "tasks/cluster_vms.yml",
@@ -1981,6 +1981,9 @@ SHARED = {
     "tasks/vm_names.yml",
     # The VM's host key carried over to its identity: test_host_keys.py.
     "tasks/host_keys.yml",
+    # How the VM is reached, and the VM held to it: test_vm_route.py.
+    "tasks/vm_route.yml",
+    "tasks/vm_route_held.yml",
 }
 
 

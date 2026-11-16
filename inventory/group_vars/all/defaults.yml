@@ -496,6 +496,12 @@ claude_ssh_names_elsewhere: >-
      | map(attribute='name') | list }}
 claude_ssh_config_include: true
 claude_ssh_host_domain: ""
+# The domain the aliases and just code reach VMs by: claude_ssh_host_domain
+# where the route is direct, none through the Proxmox host, whose sshd would
+# resolve the name itself. Not a setting.
+claude_ssh_reach_domain: >-
+  {{ '' if (hostvars['localhost'].claude_vm_route | default({})).route | default('direct') == 'host'
+     else claude_ssh_host_domain | default('', true) }}
 claude_ssh_identity_file: ""
 # Off on purpose: the VM user has passwordless sudo and runs Claude Code, and
 # ForwardAgent hands every key in your agent to both for the life of the
@@ -503,6 +509,17 @@ claude_ssh_identity_file: ""
 claude_ssh_forward_agent: false
 claude_ssh_options:
   ServerAliveInterval: "30"
+# Each setting's description: local.yml.example, under Editor and SSH.
+vm_ssh_route: auto
+# The routes vm_ssh_route names, each as a person reads it (lib/claude_vm/route.py
+# decides). Literal values only. Internal, not a setting.
+claude_vm_ssh_routes:
+  auto:
+    name: through the Proxmox host where it is reached on a tailnet, else direct
+  direct:
+    name: straight to each VM's address
+  host:
+    name: through the Proxmox host's sshd
 
 # --------------------------------------------------- role variable wiring ---
 # Roles are self-contained and prefix their variables; wire them to the
@@ -542,6 +559,7 @@ claude_code_anthropic_api_key: "{{ anthropic_api_key }}"
 claude_code_remote_control_dir: "{{ vm_projects_dir }}"
 claude_code_login_desktop: "{{ login_desktop }}"
 claude_code_host_flag: "{{ claude_host_flag }}"
+claude_code_ssh_via: "{{ claude_vm_ssh_via | default('') }}"
 
 github_projects_user: "{{ vm_user }}"
 github_projects_username: "{{ github_username }}"
@@ -555,6 +573,7 @@ github_projects_auth_method: "{{ github_auth_method }}"
 github_projects_login_scopes: "{{ github_login_scopes }}"
 github_projects_login_desktop: "{{ login_desktop }}"
 github_projects_host_flag: "{{ claude_host_flag }}"
+github_projects_ssh_via: "{{ claude_vm_ssh_via | default('') }}"
 github_projects_git_user_name: "{{ git_user_name }}"
 github_projects_git_user_email: "{{ git_user_email }}"
 

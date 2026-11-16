@@ -77,6 +77,18 @@ def test_each_identity_has_a_shared_connection_of_its_own():
     assert len(names) == 6
 
 
+def test_a_vm_reached_through_a_hop_has_a_shared_connection_of_the_hop_s_own():
+    # Two Proxmox hosts with one VM range: a VM with no identity is named by its address, and through two hops that
+    # would let a run against one host ride a connection opened through the other. Without a hop, today's name.
+    hops = ("awh-0123456789ab", "awh-ba9876543210")
+    assert len({checks.vm_control_name(ALPHA, "192.0.2.60", hop) for hop in hops}) == 2
+    assert len({checks.vm_control_name("", "192.0.2.60", hop) for hop in hops}) == 2
+    assert checks.vm_control_name(ALPHA, "192.0.2.60", "") == checks.vm_control_name(ALPHA, "192.0.2.60")
+    assert checks.vm_control_name(ALPHA, "192.0.2.60", hops[0]) != checks.vm_control_name(ALPHA, "192.0.2.60")
+    # The name's shape and length do not change, so the path below still fits.
+    assert len(checks.vm_control_name(ALPHA, "192.0.2.60", hops[0])) == len(checks.vm_control_name(ALPHA, "192.0.2.60"))
+
+
 def test_a_socket_s_path_leaves_a_long_account_name_room_on_macos():
     # ssh refuses a ControlPath longer than a socket's address holds, 103 characters on macOS, counting the 17 it adds
     # (".<16 random>") while it makes the socket, and Ansible's directory is in the account's home. ssh's own %C is 40

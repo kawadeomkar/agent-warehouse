@@ -45,7 +45,10 @@
 - name: session_save | Fail when the VM stopped answering
   ansible.builtin.assert:
     that: not (claude_vm_save_user.unreachable | default(false))
-    fail_msg: "it stopped answering over SSH: {{ claude_vm_save_user.msg | default('no reason given') | plain_text }}"
+    fail_msg: >-
+      it stopped answering over SSH: {{ claude_vm_save_user.msg | default('no reason given') | plain_text | full_stop }}
+      {{ hostvars['localhost'].claude_vm_route | default({}) | vm_unanswered(claude_vm_ssh_via | default(''),
+         inventory_hostname, claude_host_flag | default('')) }}
     quiet: true
 
 # Once, so that every task below names the same folder: a var holding now()

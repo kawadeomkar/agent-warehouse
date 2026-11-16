@@ -99,3 +99,6 @@ claude_code_sign_in_follows: false
 # What ends each line naming a just command for this VM: " --host <name>" where
 # the checkout has more than one Proxmox host (wired from claude_host_flag).
 claude_code_host_flag: ""
+# The words a person's own ssh needs for this VM beyond its address: -J and the
+# Proxmox host, where the VM is reached through it (wired from claude_vm_ssh_via).
+claude_code_ssh_via: ""

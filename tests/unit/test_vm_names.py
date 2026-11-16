@@ -352,9 +352,13 @@ def test_the_vm_just_code_opens_counts_as_named_even_in_a_bare_deploy() -> None:
 
 
 def test_deploy_refuses_a_name_in_its_first_play() -> None:
-    # Before the template play, whose build needs root SSH: tested against the fake above.
+    # Before the template play, whose build needs root SSH: tested against the fake above. Then how the VMs are
+    # reached, whose login through the Proxmox host is checked before anything is built (test_vm_route.py).
     first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
-    assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == ["playbooks/tasks/vm_names.yml"]
+    assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == [
+        "playbooks/tasks/vm_names.yml",
+        "playbooks/tasks/vm_route.yml",
+    ]
     assert first["tasks"][0]["vars"] == {"claude_vm_names_alias": True}
 
 

@@ -22,11 +22,15 @@ code_controller_writes:
   - id: known_hosts
     path: "`~/.ssh/known_hosts`"
     what: the Proxmox host's SSH host key - never a VM's
-    writer: ssh, on the first root SSH to the host (`StrictHostKeyChecking=accept-new`)
-    when: "`just init`'s checks, and a template build"
+    writer: >-
+      ssh, on the first SSH to the host (`StrictHostKeyChecking=accept-new`): root's, or the hop's through it to the
+      VMs (`vm_ssh_route`)
+    when: "`just init`'s checks, a template build, and every run whose route to the VMs is the Proxmox host"
     removed_by: "nothing: it is yours"
     sources:
       - ansible.cfg
+      - lib/claude_vm/route.py
+      - playbooks/tasks/vm_route.yml
     invariant: "`~/.ssh/known_hosts`"
   - id: vm_known_hosts
     path: "`~/.ssh/agent-warehouse.known_hosts`"
@@ -123,7 +127,9 @@ code_controller_writes:
 # What the project's tools keep for themselves, and what is not a file: said
 # in a line each, so nothing is left out.
 code_controller_also:
-  - "Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp`, and `~/.ansible/galaxy_cache`."
+  - >-
+    Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp` - the shared connection
+    through the Proxmox host's among them, where the VMs are reached through it - and `~/.ansible/galaxy_cache`.
   - >-
     uv's cache, `~/.cache/uv`, and the Python it downloads for the checkout's
     own environment, in `~/.local/share/uv/python`.

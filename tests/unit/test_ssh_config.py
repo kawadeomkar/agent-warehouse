@@ -782,3 +782,73 @@ def test_an_include_ssh_does_not_expand_is_not_taken_for_ours(tmp_path: Path) ->
     assert lines[0] == f"Include {_paths(tmp_path)['claude_ssh_config_file']}"
     assert "Include $HOME/.ssh/agent-warehouse.conf" in lines
     assert "hostname 192.0.2.51" in _probe(tmp_path, user_config)
+
+
+def _routed(login: str = "held", key: str = "") -> dict:
+    """The run's route through the Proxmox host as tasks/vm_route.yml keeps it, its checks already made (or the login
+    failed): nothing here reaches a host."""
+    hop = {"ssh": "ssh", "user": "root", "host": "100.64.0.7", "port": None, "key": key, "socket": "/tmp/cp/awh-0"}
+    return {
+        "claude_vm_route": {
+            "route": "host",
+            "setting": "auto",
+            "hop": {**hop, "label": "pve (root@100.64.0.7)"},
+            "policy": "accept-new",
+            "said": True,
+            "login": login,
+            "forward": "checked" if login == "held" else "",
+            "jumps": [],
+        }
+    }
+
+
+def test_through_the_proxmox_host_each_alias_jumps_through_it_after_its_user(tmp_path: Path) -> None:
+    result = _run(tmp_path, [ALPHA, {**BETA, "held": False}], **_routed())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "    User dev\n    ProxyJump root@100.64.0.7\n" in _managed(tmp_path)
+    # ssh -G shows a jump's host in brackets, whatever its spelling.
+    assert _resolve(tmp_path, "alpha")["proxyjump"].replace("[", "").replace("]", "") == "root@100.64.0.7"
+    # A VM of the inventory's own gets no hop; and the file still holds no command line.
+    assert "proxyjump" not in _resolve(tmp_path, "beta")
+    assert "ProxyCommand" not in _managed(tmp_path)
+
+
+def test_a_jump_of_the_user_s_own_in_the_options_takes_the_place_of_the_hop(tmp_path: Path) -> None:
+    options = {"ServerAliveInterval": "30", "ProxyJump": "jump.example"}
+    result = _run(tmp_path, [ALPHA], claude_ssh_options=options, **_routed())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _resolve(tmp_path, "alpha")["proxyjump"] == "jump.example"
+    assert "100.64.0.7" not in _managed(tmp_path)
+
+
+def test_no_alias_goes_through_a_proxmox_host_that_cannot_be_the_hop(tmp_path: Path) -> None:
+    result = _run(tmp_path, [ALPHA], **_routed(login="failed"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not Path(_paths(tmp_path)["claude_ssh_config_file"]).exists()
+    assert "No alias was written through pve (root@100.64.0.7), which cannot be used as the hop" in result.stdout
+    # Where the caller opens a window through the alias (just code), it fails instead.
+    result = _run(tmp_path, [ALPHA], claude_ssh_hop_stop=True, **_routed(login="failed"))
+    assert result.returncode != 0 and "the editor's window opens through the alias" in result.stdout
+    assert not Path(_paths(tmp_path)["claude_ssh_config_file"]).exists()
+
+
+def test_through_the_proxmox_host_an_alias_names_the_vm_by_its_address(tmp_path: Path) -> None:
+    # The host's sshd would resolve <name>.<domain> itself: the defaults' own rule.
+    defaults = yaml.safe_load((REPO / "inventory" / "group_vars" / "all" / "defaults.yml").read_text())
+    reach = {"claude_ssh_host_domain": "lan", "claude_ssh_reach_domain": defaults["claude_ssh_reach_domain"]}
+    result = _run(tmp_path, [ALPHA], **reach, **_routed())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _resolve(tmp_path, "alpha")["hostname"] == "192.0.2.51"
+    result = _run(tmp_path, [ALPHA], **reach)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _resolve(tmp_path, "alpha")["hostname"] == "alpha.lan"
+
+
+@pytest.mark.parametrize(("key", "said"), [("~/.ssh/id_ed25519", False), ("/keys/pve", True)])
+def test_the_lines_that_give_the_jump_the_host_s_key_are_said_where_ssh_would_not_offer_it(tmp_path, key, said):
+    # A ProxyJump carries no key: ssh -G for the host, with this test's HOME and no config of the developer's, lists
+    # the default files, ~/.ssh/id_ed25519 among them.
+    expanded = key.replace("~", str(tmp_path / "home"))
+    result = _run(tmp_path, [ALPHA], **_routed(key=expanded))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ("IdentityFile " + expanded in result.stdout) is said, result.stdout

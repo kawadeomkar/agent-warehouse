@@ -1024,3 +1024,89 @@
           ssh-config with vm_name=alpha exited {{ verify_ssh_one.rc }}, leaving {{ verify_one_names }}:
           {{ (verify_ssh_one.stdout ~ '\n' ~ verify_ssh_one.stderr).splitlines()[-25:] }}
         quiet: true
+
+    # Through the Proxmox host (vm_ssh_route: host): one VM's alias gains the hop's ProxyJump, written only once the
+    # host has been checked - its login and one forward - through a stand-in for the host's ssh that logs each call.
+    # The VMs here are local stand-ins, so this shows what is written, not a connection through a hop
+    # (tests/unit/test_vm_route.py runs the publishers). A managed file and a host of its own, which the checks above
+    # never read: a block of this run records pve as its origin.
+    - name: Make a stand-in for the Proxmox host's ssh, and the host
+      vars:
+        verify_hop_dir: "{{ verify_ssh_dir }}/hop"
+      block:
+        # A connection an earlier run's stand-in left is a file there, which -O check would find.
+        - name: Remove the stand-in's sockets of an earlier run
+          ansible.builtin.file:
+            path: /tmp/aw-molecule-hop
+            state: absent
+
+        - name: Make the stand-in's folder
+          ansible.builtin.file:
+            path: "{{ verify_hop_dir }}"
+            state: directory
+            mode: "0700"
+
+        - name: Write the stand-in
+          ansible.builtin.copy:
+            dest: "{{ verify_hop_dir }}/ssh"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              here=$(dirname "$0")
+              printf '%s\n' "$*" >> "$here/calls"
+              socket=$(printf '%s\n' "$@" | sed -n 's/^ControlPath=//p' | head -1)
+              case " $* " in
+              *" -O check "*) [ -e "$socket" ] && exit 0; exit 255 ;;
+              *" -N "*) : > "$socket"; exit 0 ;;
+              *" -W "*) exit 0 ;;
+              esac
+              exit 1
+
+        - name: Write the host whose VMs are reached through it
+          ansible.builtin.copy:
+            dest: "{{ verify_hop_dir }}/proxmox.yml"
+            mode: "0600"
+            content: |
+              proxmox:
+                hosts:
+                  pve:
+                    ansible_host: 100.64.0.7
+                    ansible_user: root
+                    ansible_ssh_executable: {{ verify_hop_dir }}/ssh
+                    ansible_control_path_dir: /tmp/aw-molecule-hop
+
+    - name: Run ssh-config for one VM through the Proxmox host
+      ansible.builtin.command:
+        argv: >-
+          {{ verify_playbook_cmd + ['--inventory=' ~ verify_ssh_dir ~ '/hop/proxmox.yml', '--extra-vars',
+             {'vm_name': 'alpha', 'vm_ssh_route': 'host', 'claude_ssh_config_file': verify_ssh_dir ~ '/hop.conf'}
+             | to_json, verify_ssh_playbook] }}
+      environment: "{{ verify_playbook_env }}"
+      register: verify_ssh_hop
+      changed_when: false
+      failed_when: false
+
+    - name: Resolve alpha's alias through the Proxmox host with the real ssh client
+      ansible.builtin.command:
+        argv: [ssh, -G, -F, "{{ verify_ssh_dir }}/hop.conf", alpha]
+      register: verify_alpha_hop
+      changed_when: false
+      failed_when: false
+
+    - name: Assert the alias goes through the Proxmox host, checked first
+      vars:
+        verify_hop_calls: "{{ lookup('ansible.builtin.file', verify_ssh_dir ~ '/hop/calls', errors='ignore') or '' }}"
+      ansible.builtin.assert:
+        that:
+          - verify_ssh_hop.rc == 0
+          # ssh -G shows a jump's host in brackets.
+          - "'proxyjump root@[100.64.0.7]' in verify_alpha_hop.stdout_lines"
+          - "'hostname 192.0.2.51' in verify_alpha_hop.stdout_lines"
+          - verify_hop_calls is search('-O check')
+          - verify_hop_calls is search(' -N ')
+          - verify_hop_calls is search('-W 192\.0\.2\.51:22 ')
+        fail_msg: >-
+          ssh-config through the host exited {{ verify_ssh_hop.rc }}, alpha resolving to
+          {{ verify_alpha_hop.stdout_lines | default([]) | select('match', '^(hostname|proxyjump) ') | list }}:
+          {{ (verify_ssh_hop.stdout ~ '\n' ~ verify_ssh_hop.stderr).splitlines()[-25:] }}
+        quiet: true

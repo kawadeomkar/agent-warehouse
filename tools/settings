@@ -79,8 +79,9 @@ EXPRESSION_REFUSED = (
 )
 # A setting that names one entry of an internal list of the inventory defaults takes that list's names as its
 # choices: the editor setting, one of claude_editors (what just code has files for), and the vpn setting, one of
-# claude_vpns, or none, which is no entry (lib/claude_vm/catalogue.py: CHOICES).
-CHOICES_FROM = {"editor": "claude_editors", "vpn": "claude_vpns"}
+# claude_vpns, or none, which is no entry, and the route to the VMs, one of claude_vm_ssh_routes
+# (lib/claude_vm/catalogue.py: CHOICES).
+CHOICES_FROM = {"editor": "claude_editors", "vpn": "claude_vpns", "vm_ssh_route": "claude_vm_ssh_routes"}
 CHOICES_ALSO = {"vpn": ("none",)}
 CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 # What each type takes, as a refusal says it.
@@ -478,6 +479,8 @@ class Settings:
         may take out a name made from each VM's own, or one a run sets, that local.yml sets by hand."""
         if name == "ansible_host":
             return None, "the Proxmox host's address is in inventory/hosts.yml", "inventory/hosts.yml"
+        if name == "vm_ssh_jump":
+            return None, "the hop's account is set on the Proxmox host's own entry in hosts.yml", "inventory/hosts.yml"
         if name in self.example_vault or name.startswith("vault_"):
             return None, f"{name} is held in vault.yml", "just vault"
         if not self.known(name) and not (resetting and name in self.local):

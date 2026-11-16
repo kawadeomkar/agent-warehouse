@@ -314,7 +314,7 @@ RETIRED = (
 )
 
 # Each choice's setting checked here: the defaults' list of its members, and the values that are no member.
-CHOICES = {"vpn": ("claude_vpns", ("none",))}
+CHOICES = {"vpn": ("claude_vpns", ("none",)), "vm_ssh_route": ("claude_vm_ssh_routes", ())}
 
 
 class Loader(yaml.SafeLoader):
@@ -369,6 +369,18 @@ def group(data):
             yield from group(child)
 
 
+def jumps_on_the_host(data):
+    """How many times a hosts.yml sets vm_ssh_jump where it belongs: on a host of the proxmox group."""
+    count = 0
+    for path in (("all", "children", "proxmox", "hosts"), ("proxmox", "hosts")):
+        node = data
+        for key in path:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict):
+            count += sum(1 for host in node.values() if isinstance(host, dict) and "vm_ssh_jump" in host)
+    return count
+
+
 found = False
 try:
     with open(os.path.join(sys.argv[1], "inventory", "group_vars", "all", "defaults.yml"), encoding="utf-8") as stream:
@@ -399,6 +411,13 @@ for path in sys.argv[2:]:
         continue
     named = {name for name, _ in settings(data)}
     chosen = chosen or bool(named & {"vpn", "tailscale_enabled"})
+    # The hop's account is the Proxmox host's own: anywhere else - a local.yml, a group's vars - every host would read
+    # it as its own, with one host as with two (docs/guides/hosts.md).
+    jumps = sum(1 for name, _ in settings(data) if name == "vm_ssh_jump")
+    if jumps > (jumps_on_the_host(data) if os.path.basename(path) == "hosts.yml" else 0):
+        print(f"error: {path} sets vm_ssh_jump other than on the Proxmox host's own entry in hosts.yml, which is the one"
+              " place it is read from (docs/guides/hosts.md)", file=sys.stderr)
+        found = True
     for name, value in settings(data):
         if name == "proxmox_validate_certs" and value not in ("", None):
             validate = value is True or (isinstance(value, str) and ("{{" in value or value.lower() == "true"))

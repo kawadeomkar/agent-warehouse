@@ -22,8 +22,11 @@ FIELDS = ("id", "path", "what", "writer", "when", "removed_by", "sources", "inva
 
 # How each row's write looks where it is made.
 MADE_BY = {
-    # Only ansible.cfg's own ssh_args reach the Proxmox host; everything that reaches a VM names the project's file.
-    "known_hosts": r"(?m)^ssh_args = .*StrictHostKeyChecking=accept-new",
+    # Only ansible.cfg's own ssh_args reach the Proxmox host, and the hop through it to the VMs, whose policy the
+    # route's task file hands the core; everything that reaches a VM names the project's file.
+    "known_hosts": (
+        r"(?m)^ssh_args = .*StrictHostKeyChecking=accept-new|^\s*policy: accept-new|StrictHostKeyChecking=\{policy\}"
+    ),
     "vm_known_hosts": r"ansible\.builtin\.known_hosts:|StrictHostKeyChecking=accept-new|\| vm_ssh_args\(",
     "ssh_config": r"(?:path|dest|creates): \"\{\{ claude_ssh_config_file \}\}\"",
     "ssh_include": r"line: \"Include \{\{ claude_ssh_config_file \}\}\"",

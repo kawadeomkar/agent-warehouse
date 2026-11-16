@@ -369,6 +369,8 @@ def hop_held(hop: dict, policy: str, limits=None) -> dict:
     the user's forwards for that host; an open that loses the race to another prints that the socket exists and waits
     for good, so it is ended then, or at its limit, and ``-O check`` decides once more."""
     limits = {**LIMITS, **(limits or {})}
+    # Ansible's control directory, as Ansible makes it for a connection of its own: 0700, its owner's alone.
+    os.makedirs(os.path.dirname(hop["socket"]), mode=0o700, exist_ok=True)
     if hop_check(hop, policy, limits["check"]):
         return {"ok": True, "opened": False, "said": ""}
     # None of the user's own forwards for that host come up with it.
@@ -441,3 +443,154 @@ def route_settle(setting, hop: dict, limit=None) -> dict:
     dialled = ssh_g_hostname(text, hop["host"])
     addresses = addresses_of(dialled)
     return {"route": route_rule("auto", addresses), "addresses": addresses, "dialled": dialled}
+
+
+def _given(hostvars, name, given_all, extra_all) -> tuple[str, str]:
+    """What a VM is given, its common args and its extra args: a VM published already in its group, as its groups and
+    -e give it (the common args the publisher keeps as claude_vm_ssh_given first); any other, what every host is."""
+    if hostvars is not None and name in hostvars:
+        host = hostvars[name]
+        given = host.get("claude_vm_ssh_given", host.get("ansible_ssh_common_args", given_all))
+        return str(given or ""), str(host.get("ansible_ssh_extra_args", extra_all) or "")
+    return str(given_all or ""), str(extra_all or "")
+
+
+def vm_route_vms(vms, hostvars=None, given_all="", extra_all="") -> list[dict]:
+    """Of ``vms`` (``{name, address}``, or a name, whose address is the proxmox_vm_address provision.yml's play left on
+    it), each with an address, by name: ``{name, address, jump}``, ``jump`` the jump the VM is given (ssh_jump of its
+    common and extra args), "" where it goes through the hop."""
+    found = []
+    for vm in vms or []:
+        if isinstance(vm, str) and hostvars is not None and vm in hostvars:
+            vm = {"name": vm, "address": hostvars[vm].get("proxmox_vm_address") or ""}
+        if not isinstance(vm, dict) or not vm.get("address"):
+            continue
+        name = str(vm.get("name") or "")
+        given, extra = _given(hostvars, name, given_all, extra_all)
+        found.append({"name": name, "address": str(vm["address"]), "jump": ssh_jump(given, extra)})
+    return sorted(found, key=lambda vm: vm["name"])
+
+
+def vm_route_unheld(names, hostvars, settled, ssh_args_configured="", extra_configured="") -> list[dict]:
+    """Of the VMs ``names`` just published, each whose connection, as ``hostvars`` has it, would not go where the route
+    says, ``{name, why}``: through the host, every VM with an address carries the hop first among its proxy options,
+    or brings a jump of its own; never neither. One that carries the hop has no other proxy option where ssh would
+    read it first: its ssh_args, ansible.cfg's or the environment's where it has none of its own, nor ssh_extra_args
+    from ansible.cfg or the environment where it has no ansible_ssh_extra_args. A host var or -e that outranks the
+    publisher's value is found here, before anything connects."""
+    if not isinstance(settled, dict) or settled.get("route") != "host":
+        return []
+    unheld = []
+    for name in names or []:
+        host = hostvars[str(name)]
+        address = str(host.get("ansible_host") or "")
+        if not address or str(host.get("ansible_connection") or "ssh").rsplit(".", 1)[-1] != "ssh":
+            continue
+        common = str(host.get("ansible_ssh_common_args") or "")
+        extra = host.get("ansible_ssh_extra_args")
+        if not host.get("claude_vm_ssh_via"):
+            if not ssh_jump(common, extra or ""):
+                unheld.append({"name": str(name), "why": "neither the hop nor a jump of its own"})
+            continue
+        wanted = ("ProxyCommand", " ".join(hop_argv(settled["hop"], address, settled["policy"])))
+        proxies = ssh_proxies(common)
+        if proxies[:1] != [wanted]:
+            unheld.append({"name": str(name), "why": "ansible_ssh_common_args is set where it outranks the project's"})
+            continue
+        before = ssh_proxy_any(host.get("ansible_ssh_args", ssh_args_configured))
+        after = ssh_jump(extra) if extra is not None else ssh_proxy_any(extra_configured)
+        if before:
+            unheld.append({"name": str(name), "why": f"ssh_args holds {before}, which ssh would take before the hop"})
+        elif after:
+            where = "ansible_ssh_extra_args" if extra is not None else "ssh_extra_args (ansible.cfg or the environment)"
+            unheld.append({"name": str(name), "why": f"{where} holds {after} beside the hop"})
+    return unheld
+
+
+def _plain(said) -> str:
+    from .text import one_line
+
+    return one_line(said, 400).rstrip(".") or "no reason given"
+
+
+def _direct_tail(settled) -> str:
+    if settled.get("setting") != "auto":
+        return ""
+    return (
+        " Where a VPN routes the VMs' network, or a jump of your own reaches them, set vm_ssh_route: direct:"
+        " under auto, a host reached on a tailnet is a hop."
+    )
+
+
+def route_said(settled) -> str:
+    """The run's one line about its route, said once: "" where it is direct."""
+    if not isinstance(settled, dict) or settled.get("route") != "host":
+        return ""
+    return (
+        f"VMs are reached through {settled['hop']['label']}. A VM that does not answer shows as a closed connection;"
+        " `just status` says what the host reports for it."
+    )
+
+
+def login_said(settled, said) -> str:
+    """Why the hop's login failed, and the ways out."""
+    hop = settled["hop"]
+    return (
+        f"VMs are reached through {hop['label']} (vm_ssh_route: {settled.get('setting', 'auto')}), and ssh could not"
+        f" log in there: {_plain(said)}. Its key may be missing from the agent and from the host's entry"
+        " (ansible_ssh_private_key_file), the host's key may have changed, or the login may be refused:"
+        f" `ssh {_destination(hop)}` here shows which.{_direct_tail(settled)}"
+    )
+
+
+def forward_said(settled, name, address, verdict) -> str:
+    """What one forward said of the hop: why it cannot be used, or that the VM said nothing; "" where it answered."""
+    hop = settled["hop"]
+    why = verdict.get("why")
+    vm = f"{name} at {address}" if name else str(address)
+    if why == "prohibited":
+        return (
+            f"{hop['label']} refused to forward to {vm}: {_plain(verdict.get('said'))}. Its sshd forbids it -"
+            " AllowTcpForwarding, PermitOpen, DisableForwarding, or restrict on the key - or Tailscale's own SSH"
+            " server answers there and its policy does: each gives the same reply. Allow forwarding to the VMs there,"
+            f" or name an account that may (vm_ssh_jump).{_direct_tail(settled)}"
+        )
+    if why == "failed":
+        said = _plain(verdict.get("said"))
+        return f"ssh could not use {hop['label']} as a hop to {vm}: {said}.{_direct_tail(settled)}"
+    if why == "silent":
+        return (
+            f"No answer from {vm} through {hop['label']} within {LIMITS['forward']} s: it fails alone when it is first"
+            " reached."
+        )
+    return ""
+
+
+def vm_unanswered(settled, via, name, host_flag="") -> str:
+    """What a VM's first contact that failed adds: through the host, that it did not answer there and where to look;
+    under direct, the setting that would go through it; nothing for a VM that brings its own jump, nor for a run that
+    settled no route (VMs of the inventory's own, which no publisher adds)."""
+    if not isinstance(settled, dict) or settled.get("route") not in ("host", "direct"):
+        return ""
+    if settled.get("route") == "host":
+        if not via:
+            return ""
+        return (
+            f"It did not answer through {settled['hop']['label']}: `just status {name}{host_flag}` says what the host"
+            " reports for it."
+        )
+    return (
+        "Where this machine reaches the Proxmox host but not its VMs' network, vm_ssh_route: host carries every"
+        " connection through the host."
+    )
+
+
+def hop_key_offered(text, key) -> bool:
+    """Whether ``ssh -G`` (``text``) for the hop lists ``key`` among the identity files it would offer, each expanded
+    as ssh expands ~; one with a % token in it is taken as not known."""
+    offered = set()
+    for line in str(text or "").splitlines():
+        word, _, value = line.strip().partition(" ")
+        if word.lower() == "identityfile" and value.strip() and "%" not in value:
+            offered.add(os.path.expanduser(value.strip()))
+    return os.path.expanduser(str(key or "")) in offered

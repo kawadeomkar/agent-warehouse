@@ -11,6 +11,10 @@
 #                     editor_flag, only in the connect line too, is just code's
 #                     code_editor_flag, put after the name as it is given
 #   claude_ssh_state  present (the default) or absent
+#   claude_ssh_hop_stop  true where a Proxmox host that cannot be used as the
+#                     hop fails the run (just code, which opens its window
+#                     through the alias); otherwise no alias is written
+#                     through it, and the run goes on
 #
 # And from the inventory: claude_ssh_origin, the host whose VMs these are, which
 # each block records, and claude_hosts_other, the checkout's other hosts.
@@ -77,7 +81,18 @@
          | ssh_config_elsewhere(claude_ssh_origin | default(''),
                                 claude_hosts_other | default([]) | map(attribute='name') | list)
          | selectattr('name', 'in', claude_ssh_vms | map(attribute='name') | list) | list }}
+    # Through the Proxmox host, by the rule and claude_ssh_options alone - what
+    # Ansible's variables give a VM is the run's, and the person's ssh and the
+    # editor read none of it - the line every block gains: ProxyJump to the
+    # host, unless claude_ssh_options names a jump of the user's own.
+    claude_ssh_route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+    claude_ssh_own_jump: >-
+      {{ (claude_ssh_options | default({})).keys() | map('lower') | select('in', ['proxyjump', 'proxycommand'])
+         | list | length > 0 }}
   ansible.builtin.set_fact:
+    claude_ssh_jump: >-
+      {{ claude_ssh_route.hop | jump_spec
+         if claude_ssh_route.route | default('direct') == 'host' and not claude_ssh_own_jump | bool else '' }}
     claude_ssh_refused: "{{ claude_ssh_refusals if claude_ssh_strict | bool else [] }}"
     claude_ssh_left_out: "{{ [] if claude_ssh_strict | bool else claude_ssh_refusals }}"
     claude_ssh_theirs: "{{ claude_ssh_theirs_now }}"
@@ -163,7 +178,7 @@
         claude_ssh_unsafe: >-
           {{ (claude_ssh_vms | rejectattr('name', 'match', claude_ssh_word) | map(attribute='name') | list
               + (claude_ssh_vms | rejectattr('address', 'match', claude_ssh_word) | map(attribute='name') | list
-                 if claude_ssh_host_domain | default('') | length == 0 else [])
+                 if claude_ssh_reach_domain | default(claude_ssh_host_domain | default('')) | length == 0 else [])
               + (claude_ssh_vms | rejectattr('key_alias', 'undefined') | rejectattr('key_alias', 'match', claude_ssh_alias_word)
                  | map(attribute='name') | list))
              | unique | list }}
@@ -267,6 +282,79 @@
         quiet: true
       when: claude_ssh_state | default('present') == 'present'
 
+    # Never through a hop that was not checked: its login, and one forward, if
+    # the run has not made them yet. Unusable, no alias is written through it -
+    # the blocks already in the file stay as they are, and the prune still runs
+    # - but where the caller opens a window through the alias (just code).
+    - name: ssh_config | Check the Proxmox host before an alias goes through it
+      ansible.builtin.import_tasks: vm_route.yml
+      vars:
+        # Every VM a publisher reached (held, by default): one of the inventory's own gets no hop.
+        claude_vm_route_vms: >-
+          {{ (claude_ssh_written | rejectattr('held', 'defined') | list)
+             + (claude_ssh_written | selectattr('held', 'defined') | selectattr('held') | list) }}
+        claude_vm_route_alias: true
+        claude_vm_route_stop: "{{ claude_ssh_hop_stop | default(false) }}"
+      when: claude_ssh_jump | length > 0
+
+    - name: ssh_config | Fail where the window opens through an alias the Proxmox host cannot carry
+      ansible.builtin.fail:
+        msg: >-
+          The alias reaches the VM through {{ claude_vm_route.hop.label }}, which cannot be used as the hop (said
+          above), and the editor's window opens through the alias. Set vm_ssh_route: direct where this machine
+          reaches the VMs' network, or give claude_ssh_options a ProxyJump of your own.
+      when:
+        - claude_ssh_jump | length > 0
+        - "'failed' in [claude_vm_route.login, claude_vm_route.forward]"
+        - claude_ssh_hop_stop | default(false) | bool
+
+    - name: ssh_config | Write no alias through a Proxmox host that cannot be the hop
+      ansible.builtin.set_fact:
+        claude_ssh_written: "{{ claude_ssh_written | selectattr('held', 'defined') | selectattr('held', 'false') | list }}"
+      when:
+        - claude_ssh_jump | length > 0
+        - "'failed' in [claude_vm_route.login, claude_vm_route.forward]"
+
+    - name: ssh_config | Say that no alias went through the Proxmox host
+      ansible.builtin.debug:
+        msg: >-
+          No alias was written through {{ claude_vm_route.hop.label }}, which cannot be used as the hop (said above);
+          those already in {{ claude_ssh_config_file }} are left as they are. Set vm_ssh_route: direct where this
+          machine reaches the VMs' network, or give claude_ssh_options a ProxyJump of your own.
+      when:
+        - claude_ssh_jump | length > 0
+        - "'failed' in [claude_vm_route.login, claude_vm_route.forward]"
+
+    # A ProxyJump line carries no key: the jump's ssh reads the user's own
+    # config for the hop. Where the inventory names a key for the Proxmox host,
+    # ssh is asked which it would offer there (ssh -G lists them unexpanded).
+    - name: ssh_config | Ask ssh which keys it offers the Proxmox host
+      ansible.builtin.command:
+        argv: >-
+          {{ ['ssh', '-G'] + (['-p', claude_vm_route.hop.port | string] if claude_vm_route.hop.port else [])
+             + [claude_vm_route.hop.user ~ '@' ~ claude_vm_route.hop.host if claude_vm_route.hop.user
+                else claude_vm_route.hop.host] }}
+      register: claude_ssh_hop_keys
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when:
+        - claude_ssh_jump | length > 0
+        - claude_ssh_written | length > 0
+        - claude_vm_route.hop.key | default('') | length > 0
+
+    - name: ssh_config | Say the lines that give the jump the Proxmox host's key
+      ansible.builtin.debug:
+        msg: |-
+          The aliases reach their VMs through {{ claude_vm_route.hop.label }}, and ssh may not offer it the key the
+          inventory names for it ({{ claude_vm_route.hop.key }}): a ProxyJump carries none, and the jump reads your own
+          ssh config for the host. A key the agent holds works either way; otherwise add to {{ claude_ssh_user_config }}:
+            Host {{ claude_vm_route.hop.host }}
+                IdentityFile {{ claude_vm_route.hop.key }}
+      when:
+        - claude_ssh_hop_keys is not skipped
+        - not (claude_ssh_hop_keys.stdout | default('') | hop_key_offered(claude_vm_route.hop.key))
+
     - name: ssh_config | Ensure the ssh directory exists
       ansible.builtin.file:
         path: "{{ claude_ssh_config_file | dirname }}"
@@ -294,8 +382,11 @@
           # origin: {{ claude_ssh_origin }}
           {% endif %}
           Host {{ claude_ssh_vm.name }}
-              HostName {{ claude_ssh_vm | ssh_hostname(claude_ssh_host_domain | default('')) }}
+              HostName {{ claude_ssh_vm | ssh_hostname(claude_ssh_reach_domain | default(claude_ssh_host_domain | default(''))) }}
               User {{ claude_ssh_vm.user }}
+          {% if claude_ssh_jump | length > 0 and claude_ssh_vm.held | default(true) | bool %}
+              ProxyJump {{ claude_ssh_jump }}
+          {% endif %}
           {% if claude_ssh_vm.key_alias | default('') | length > 0 %}
               HostKeyAlias {{ claude_ssh_vm.key_alias }}
           {% endif %}
@@ -376,7 +467,7 @@
           {{ (lookup('ansible.builtin.file', claude_ssh_user_config, errors='ignore') or '')
              is search('^\s*include\s+(' ~ (claude_ssh_spellings | map('regex_escape') | join('|')) ~ ')\s*$',
                        multiline=True, ignorecase=True)
-             and ('hostname ' ~ (claude_ssh_written[0] | ssh_hostname(claude_ssh_host_domain | default(''))))
+             and ('hostname ' ~ (claude_ssh_written[0] | ssh_hostname(claude_ssh_reach_domain | default(claude_ssh_host_domain | default('')))))
                  in (claude_ssh_probe.stdout_lines | default([])) }}
       ansible.builtin.lineinfile:
         path: "{{ claude_ssh_user_config }}"

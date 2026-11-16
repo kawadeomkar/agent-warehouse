@@ -59,7 +59,10 @@ Opening the window fills this in; "Tasks: Run Task", **Session notes** refreshes
 |---|---|
 | {{ editor_name }} | `{{ again }}`, or one repository: `{{ again }} --project <repo>` |
 | SSH, by alias | `ssh {{ name }}` |
+{#- Through the Proxmox host, the alias alone: nothing of the hop's account is written where the VM's root reads it. -#}
+{% if (hostvars[name].claude_vm_ssh_via | default('')) | length == 0 %}
 | SSH, by address | `ssh {{ vm_user }}@{{ vm.address }}` |
+{% endif %}
 {% if tailscale_wanted | default(tailscale_enabled | default(true)) | bool %}
 | SSH, over Tailscale | the command in the Tailscale row of **Signed in**, once the VM is on your tailnet |
 {% endif %}

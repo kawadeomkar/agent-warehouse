@@ -167,6 +167,14 @@
 # NAT or a laptop that slept.
 # claude_ssh_options:
 #   ServerAliveInterval: "30"
+# How this machine reaches the VMs. auto: through the Proxmox host's own sshd,
+# as a forward, where the host is reached on a tailnet (ssh dials it at a
+# 100.64.0.0/10 or fd7a:115c:a1e0::/48 address), straight to each VM's
+# address otherwise. host: always through it; direct: never. Through the host
+# the aliases carry it as a ProxyJump line, and claude_ssh_host_domain is not
+# used (docs/guides/remote-access.md). Another account on the host for the
+# hop is vm_ssh_jump, on the host's own entry in hosts.yml.
+# vm_ssh_route: auto
 # Where the code lives on the VM: cloned into, opened by Remote Control, and
 # what the editor opens. Empty means ~/projects of the VM user.
 # vm_projects_dir: ""

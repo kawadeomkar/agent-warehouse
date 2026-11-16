@@ -407,7 +407,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       row does not name.
     - The sixth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
       `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
-    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first root SSH, and never a
+    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first SSH to it - root's, or
+      the hop's where the VMs are reached through it - and never a
       VM's; `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`, beside the managed config), every
       VM's key, filed under the VM's identity, `agent-warehouse-<SMBIOS UUID>` from Proxmox, which every connection to
       a VM names (`vm_ssh_args`: the file, `HostKeyAlias`, and `ForwardAgent=no` unless asked for); the managed SSH
@@ -459,6 +460,43 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       against this one (`ssh_config_elsewhere`), and one with no record only while the checkout has one host.
       The `Include` is added only when `ssh -G` says the user's config does not reach the managed file
       yet, and never rewrites or changes the mode of the user's file.
+- **Where this machine reaches the Proxmox host but not its VMs' network, every connection to a VM goes through the
+  host's sshd, and never falls back to dialling the VM.** Read
+  [§4.15](docs/architecture/lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host) and
+  [§7.17](docs/architecture/custom-code.md#717-libclaude_vmroutepy--how-this-machine-reaches-a-hosts-vms) first.
+    - `vm_ssh_route` is `direct`, `host` or `auto`: `host` where every address ssh dials for the Proxmox host (`ssh -G`
+      of its `ansible_host`, then that name's addresses here, at run time) is a tailnet one, `direct` otherwise. A rule
+      with no fallback either way: a hop that cannot be used stops the run, naming `vm_ssh_route: direct`. Never kept
+      in `just status`'s snapshot, never inherited by another host, refused to the MCP server's `settings_set`.
+    - The hop is the Proxmox host as Ansible's ssh plugin resolves it, or an account on it, `vm_ssh_jump` on the
+      host's own entry in `hosts.yml` alone - an account, never `user@host` - which `tools/check settings` refuses
+      anywhere else and `just settings` never writes. Every value of its command is held to one fixed set of
+      characters, never quoted (`lib/claude_vm/route.py`), and the VM's address to one IPv4 address: `-W
+      <address>:%p`, never `%h`. `ControlPath` and `ControlPersist` stay in the one word, or Ansible adds no
+      `ControlPath` of the VM's own. The literal `accept-new` is the playbooks' (`tasks/vm_route.yml`), handed to the
+      core, which `test_controller_writes.py` counts for the host's row.
+    - Every ssh run for the hop itself - `-O check`, the open, `-O stop`, the forward check - is the core's, under a
+      hard limit, reached from playbooks through the `vm_route` action, never a `command` task: an open that loses a
+      race never returns. Never `-N` beside a live connection (a session on the host), never `-O exit` (it cuts
+      another run's tasks), no `ansible_ssh_retries` (the Tailscale key goes once). The forward check reads ssh's exit
+      status and standard error, never what arrives on the forward, and stops a run only on `administratively
+      prohibited` or ssh's own failure.
+    - Each publisher puts the VM in its group first, then imports `tasks/vm_route.yml` (the login if put off, one
+      forward), then its `add_host`: `vm_ssh_args`, the hop (`vm_hop`, made afresh, never in `claude_vm_ssh_given`),
+      what the VM is given, the hop in `vm_control_name`'s third argument, `claude_vm_ssh_via`; then
+      `tasks/host_keys.yml`, then `tasks/vm_route_held.yml`, which refuses a VM with neither the hop first nor a jump
+      of its own, or another proxy option in `ssh_args` or a configured `ssh_extra_args` beside the hop, and makes
+      sure of the shared connection. `tests/unit/test_release.py` and `test_vm_route.py` hold every publisher to it.
+    - A VM given a jump of its own (a `ProxyJump`, `-J` or a `ProxyCommand` other than `none` in what it is given)
+      gets no hop, decided per VM. The login is made at a run's start only where what every host is given holds none.
+    - The later plays that reach the VMs at once and are not serial make sure of the shared connection in one local
+      task first, `run_once`, delegated here, failing no host.
+    - The alias gains `ProxyJump` by the rule and `claude_ssh_options` alone, never through a hop that was not
+      checked: unusable, no alias is written through it, and only `just code` fails. Through the hop a VM is named by
+      its address (`claude_ssh_reach_domain`), and the session notes drop the row by address.
+    - Every harness and scenario pins `vm_ssh_route: direct` (`_pve_vars`, the scenarios' vars, the Vagrantfile):
+      `auto` would ask this machine's ssh, through the developer's own config, where it dials a test's host.
+      `test_vm_route.py` fails if one stops.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward aside,
   and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -501,7 +539,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       in one `block` whose `rescue` says any failure with the `just code` line and ends the play.
     - `tests/unit/test_code_session.py` holds every task `code.yml` reaches to an allowlist: read-only here, or one
       of eight writes, each under its exact condition in `WRITERS_WHEN` and delegated to the VM; a `shell`, a
-      writer in a `block` or a `connection` fails it by name. The `provision` scenario asserts the
+      writer in a `block` or a `connection` fails it by name. The task files it shares with other playbooks are
+      each held by their own tests (`SHARED`): the API's reads, the alias, the names, the host key's carry-over, and
+      the route's two, `tasks/vm_route.yml` and `tasks/vm_route_held.yml` (`test_vm_route.py`). The `provision` scenario asserts the
       `vscode_user_settings_file` it planted is untouched, bytes and mtime, after every run.
     - With `claude_sessions_sync` (on by default) it copies only this machine's sessions of the last 30 days
       whose first directory's git origin names a repository the VM has a checkout of (`owner/repo`, never by

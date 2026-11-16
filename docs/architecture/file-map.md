@@ -75,6 +75,8 @@ playbooks/
                                   here as plain files and folders only)
   action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
                                   for the menu the live engine asks it as (§7.8)
+  action_plugins/vm_route.py      the route to the VMs settled, and the hop's own ssh run here under hard limits: the
+                                  login, one forward, the shared connection made sure of (§7.17)
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude; git_checkouts.py, reading a checkout without changing it;
@@ -113,6 +115,10 @@ playbooks/
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/agent-warehouse.conf, Include once
   tasks/host_keys.yml             a VM's host key kept by address before 2.6, copied into ~/.ssh/agent-warehouse.known_hosts
                                   under the VM's identity, the user's own file only read (§4.8)
+  tasks/vm_route.yml              how this machine reaches the VMs, settled once a run; through the Proxmox host, its
+                                  login and one forward, each checked at most once (§4.15)
+  tasks/vm_route_held.yml         each VM a publisher added held to the route - the hop, or a jump of its own, never
+                                  neither - then the shared connection made sure of (§4.15)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/session_save.yml          destroy's save of what of a VM's Claude sessions is only there, into .sessions/

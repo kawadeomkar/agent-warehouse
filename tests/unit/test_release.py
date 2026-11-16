@@ -1110,8 +1110,11 @@ def test_a_run_that_fails_before_deleting_stops_again_what_it_started():
         "Wait for each started VM's guest agent and its NIC's address",
         "List the VMs again, with the ones just started",
         "Read the address of each VM to release",
+        # A host that forbids forwarding to them fails here, which stops what the run started and deletes nothing.
+        "Check the route to each VM",
         "Add each VM as a host to delete",
         "Carry each VM's host key over to its identity",
+        "Hold each VM to the route",
     ]
     # Straight after the start: nothing between them that could fail.
     assert names.index("Remember which VMs this run started") == (
@@ -1250,8 +1253,21 @@ def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_i
                     control = " ".join(str(added.get("ansible_control_path", "")).split())
                     assert control.startswith("%(directory)s/{{ ") and control.endswith(" }}-%%r-%%p"), path.stem
                     assert "| vm_control_name(" in control, path.stem
+                    # Through the Proxmox host, the hop: made afresh from the route each time, never part of what the
+                    # VM is given, between the project's options and those; in its socket's name; and the words a
+                    # person's ssh needs, for the lines a run prints.
+                    hop = next(name for name in task["vars"] if name.endswith("hop_now") or name.endswith("_hop"))
+                    assert "| vm_hop(" in task["vars"][hop], path.stem
+                    words = "{{ (" + hop + ".option ~ ' ') if " + hop + ".option else '' }}{{ "
+                    assert words in common and common.index(words) > common.index("vm_ssh_args("), path.stem
+                    assert f", {hop}.name)" in control, path.stem
+                    assert added["claude_vm_ssh_via"] == "{{ " + hop + ".via }}", path.stem
                     imports = [t.get("ansible.builtin.import_tasks") for t in tasks]
                     assert "tasks/host_keys.yml" in imports, path.stem
+                    # The route checked before the VM is added, the VM held to it after its key is carried over.
+                    at = tasks.index(task)
+                    assert "tasks/vm_route.yml" in imports[:at], path.stem
+                    assert imports.index("tasks/host_keys.yml") < imports.index("tasks/vm_route_held.yml"), path.stem
     assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
 
 

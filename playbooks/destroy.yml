@@ -168,6 +168,16 @@
           it is not clear which one to delete, and nothing was. Rename or remove the duplicates, then run this again.
         quiet: true
 
+    # How this machine reaches the VMs, only while it reaches one: through the
+    # Proxmox host, a login it cannot make stops the run here, before any VM is
+    # started (tasks/vm_route.yml). With the release and the save both off it
+    # reaches no VM, and needs no SSH.
+    - name: Settle how the VMs are reached
+      ansible.builtin.import_tasks: tasks/vm_route.yml
+      vars:
+        claude_vm_route_start: true
+      when: claude_vm_reaching | bool
+
     # Releasing a VM - signing it out of Claude and GitHub, taking it off the
     # tailnet - happens on the VM, over SSH, since what it signed in with is on
     # its disk: a stopped VM is started for it. One that does not start is
@@ -273,6 +283,16 @@
             claude_vm_just_started: "{{ claude_vm_release_started | map(attribute='vmid') | list }}"
           when: claude_vm_reaching | bool
 
+        # Through the Proxmox host: its login if it was put off, and one forward to
+        # the first VM that goes through it. A host that forbids forwarding fails
+        # the run here, which stops the VMs it started and deletes nothing.
+        - name: Check the route to each VM
+          ansible.builtin.import_tasks: tasks/vm_route.yml
+          vars:
+            claude_vm_route_vms: >-
+              {{ claude_vm_addressed | default([]) | selectattr('name', 'in', claude_vm_names) | list }}
+          when: claude_vm_reaching | bool
+
         # How the release play below reaches the VM: host variables, never
         # play variables. A play's vars apply to its delegated tasks too, so SSH
         # settings set there sent the release's calls to Tailscale's API - and
@@ -287,6 +307,11 @@
             claude_vm_release_alias: >-
               {{ claude_vm_addressed | default([]) | selectattr('name', 'equalto', claude_vm_name_item)
                  | map(attribute='key_alias', default='') | first | default('', true) }}
+            claude_vm_release_hop: >-
+              {{ claude_vm_route | default({})
+                 | vm_hop(claude_vm_release_here, ansible_ssh_common_args | default(lookup('ansible.builtin.config',
+                          'ssh_common_args', plugin_type='connection', plugin_name='ssh')),
+                          ansible_ssh_extra_args | default('')) }}
           ansible.builtin.add_host:
             name: "{{ claude_vm_name_item }}"
             groups: claude_vm_doomed
@@ -300,15 +325,20 @@
             # identity from Proxmox, never the address it reports: a VM that
             # reports a sibling's address is refused, not released there.
             # Common args, for sftp and scp too, the configured ones after
-            # them, and a shared-connection socket of its identity's own
-            # (discover.yml says why).
+            # them, and a shared-connection socket of its identity's own;
+            # through the Proxmox host, the hop between the two (discover.yml
+            # says why). What every host is given, which no group of the
+            # user's reaches here.
             claude_vm_host_key_alias: "{{ claude_vm_release_alias }}"
+            claude_vm_ssh_via: "{{ claude_vm_release_hop.via }}"
             ansible_ssh_common_args: >-
               {{ claude_vm_release_alias | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-                 plugin_type='connection', plugin_name='ssh')) }}
+              {{ (claude_vm_release_hop.option ~ ' ') if claude_vm_release_hop.option else '' }}{{ ansible_ssh_common_args
+                 | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                  plugin_name='ssh')) }}
             ansible_control_path: >-
-              %(directory)s/{{ claude_vm_release_alias | vm_control_name(claude_vm_release_here) }}-%%r-%%p
+              %(directory)s/{{ claude_vm_release_alias
+                 | vm_control_name(claude_vm_release_here, claude_vm_release_hop.name) }}-%%r-%%p
             # The fleet's other VMs, from the listing, which no VM can change,
             # and those of the checkout's other hosts, by their aliases: a
             # Tailscale device named as one of them joins is never this VM's.
@@ -329,6 +359,13 @@
             claude_host_keys_vms: >-
               {{ claude_vm_addressed | default([]) | selectattr('name', 'in', claude_vm_names) | selectattr('address')
                  | list if claude_vm_reaching | bool else [] }}
+
+        # Each VM goes where the route says, and through the host the shared
+        # connection is there before the release reaches them all at once.
+        - name: Hold each VM to the route
+          ansible.builtin.import_tasks: tasks/vm_route_held.yml
+          vars:
+            claude_vm_route_held: "{{ claude_vm_names if claude_vm_reaching | bool else [] }}"
       rescue:
         - name: Stop again each VM this run started, since it deletes nothing
           ansible.builtin.import_tasks: tasks/vm_stop.yml
@@ -352,6 +389,22 @@
   become: true
 
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once (tasks/vm_route.yml). Fails no host: a hop that is
+    # gone shows as each VM not answering, which this play already handles.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     - name: Leave a VM with no address as it is
       ansible.builtin.meta: end_host
       when: claude_vm_release_address | default('', true) | length == 0
@@ -642,6 +695,11 @@
              if (claude_release_vm.claude_vm_release_reached | default({})).unreachable | default(false) | bool
                 or (claude_release_vm.claude_vm_release_reached | default({})).ping | default('') != 'pong'
              else '' }}
+        # Where a VM that did not answer is looked into: through the Proxmox host, just status.
+        claude_release_unanswered: >-
+          {{ (claude_vm_route | default({}) | vm_unanswered(claude_release_vm.claude_vm_ssh_via | default(''),
+              claude_release_vm.inventory_hostname, claude_host_flag | default('')))
+             if claude_release_unreached == 'could not be reached' else '' }}
         claude_release_left: >-
           {{ 'its Tailscale device, if it was on your tailnet, stays until you delete it ' ~ claude_release_where
              ~ ' (or a VM built again under its name joins as <name>-1); a GitHub token its sign-in made stays valid until'
@@ -684,7 +742,8 @@
              else 'released - it had nothing signed in to end.' if claude_release_vm.claude_vm_released | default(false) | bool
              else ('deleted without being released (destroy_release: false): ' ~ claude_release_left)
              if not (claude_release_vm.destroy_release | default(true) | bool)
-             else ((claude_release_unreached or 'could not be reached') ~ ', so it was not released: ' ~ claude_release_left) }}
+             else ((claude_release_unreached or 'could not be reached') ~ ', so it was not released: ' ~ claude_release_left
+                   ~ ((' ' ~ claude_release_unanswered) if claude_release_unanswered else '')) }}
       loop: "{{ groups['claude_vm_doomed'] | default([]) }}"
       loop_control:
         loop_var: claude_release_name

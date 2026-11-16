@@ -1,0 +1,186 @@
+---
+# How this machine reaches the VMs (docs/architecture/lifecycle.md §4.15): straight to each VM's address, or through
+# the Proxmox host's own sshd as a forward (vm_ssh_route; lib/claude_vm/route.py). The route is settled by the first
+# import of a run and kept on localhost as claude_vm_route, with what the run has checked of the hop; every publisher
+# reads it there. The hop is checked itself, never a VM: a new VM reports its address before its sshd is up.
+#
+# Two checks, each made at most once in a run, by the vm_route action under hard limits:
+#   - the login: the hop's shared connection made sure of (-O check first, then an open), its errors read. Made at a
+#     run's start where the route is the host and what every host is given holds no jump; otherwise put off to the
+#     first import that has a VM going through the hop, and never made where every VM brings its own jump;
+#   - one forward of its own to the first such VM by name, read from ssh's exit status and standard error only: only
+#     the host refusing to forward, or ssh's own failure, stops the run. A VM that says nothing fails alone later.
+#
+# Every task runs in check mode too (a dry run connects as a run does) and is tagged always. Inputs, as `vars:` on the
+# import, never facts of the same names:
+#   claude_vm_route_start  true at a run's start: the login is made here unless every host is given a jump.
+#   claude_vm_route_vms    the VMs about to be reached, [{name, address}]: those in claude_vms already are read as
+#                          their groups give them, any other as every host is given.
+#   claude_vm_route_alias  true for the aliases: every VM of claude_vm_route_vms goes through the hop unless
+#                          claude_ssh_options names a jump of its own, whatever Ansible's variables give it, which the
+#                          person's ssh and the editor never read.
+#   claude_vm_route_stop   false where an unusable hop is said and recorded, not a failure (the aliases).
+#   claude_vm_route_forward_wanted  false where the run's VMs have had theirs: the golden build's VM.
+
+- name: vm_route | Settle how this machine reaches the VMs
+  vm_route:
+    do: settle
+    setting: "{{ vm_ssh_route | default('auto') }}"
+    host: "{{ groups['proxmox'] | default([]) | first | default('') }}"
+    jump: >-
+      {{ hostvars[groups['proxmox'][0]].vm_ssh_jump | default('', true)
+         if groups['proxmox'] | default([]) | length > 0 else '' }}
+    policy: accept-new
+  register: claude_vm_route_settled
+  check_mode: false
+  tags: [always]
+  when: claude_vm_route is not defined
+
+- name: vm_route | Keep the route for the rest of the run
+  ansible.builtin.set_fact:
+    claude_vm_route: >-
+      {{ claude_vm_route if claude_vm_route is defined
+         else claude_vm_route_settled.route | combine({'said': false, 'login': '', 'forward': '', 'jumps': []}) }}
+  check_mode: false
+  tags: [always]
+
+# Which of the VMs about to be reached go through the hop: those that bring no jump of their own. And whether every
+# host is given one, as localhost reads what every host is given: then the login waits for a VM that needs it.
+- name: vm_route | Work out which VMs go through the Proxmox host
+  vars:
+    claude_vm_route_options_jump: >-
+      {{ (claude_ssh_options | default({})).keys() | map('lower') | select('in', ['proxyjump', 'proxycommand']) | list }}
+    claude_vm_route_given_all: >-
+      {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                                  plugin_name='ssh')) }}
+  ansible.builtin.set_fact:
+    claude_vm_route_every_jump: "{{ claude_vm_route_given_all | ssh_jump(ansible_ssh_extra_args | default('')) }}"
+    claude_vm_route_through: >-
+      {{ (claude_vm_route_vms | default([]) | vm_route_vms
+          if claude_vm_route_alias | default(false) | bool
+          else claude_vm_route_vms | default([])
+               | vm_route_vms(hostvars, claude_vm_route_given_all, ansible_ssh_extra_args | default('')))
+         if claude_vm_route.route == 'host'
+            and not (claude_vm_route_alias | default(false) | bool and claude_vm_route_options_jump | length > 0)
+         else [] }}
+  check_mode: false
+  tags: [always]
+
+- name: vm_route | Say how the VMs are reached
+  ansible.builtin.debug:
+    msg: "{{ claude_vm_route | route_said }}"
+  tags: [always]
+  when:
+    - claude_vm_route.route == 'host'
+    - not claude_vm_route.said | bool
+
+# Once each: a VM that brings a jump of its own is reached by it, not through the host.
+- name: vm_route | Say each VM that is reached by a jump of its own
+  ansible.builtin.debug:
+    msg: >-
+      {{ claude_vm_route_vm.name }} is reached by the jump it is given ({{ claude_vm_route_vm.jump | one_line(200) }}),
+      not through {{ claude_vm_route.hop.label }}.
+  loop: "{{ claude_vm_route_through | selectattr('jump') | rejectattr('name', 'in', claude_vm_route.jumps) | list }}"
+  loop_control:
+    loop_var: claude_vm_route_vm
+    label: "{{ claude_vm_route_vm.name }}"
+  tags: [always]
+
+# The two places ssh would read a proxy option before the hop, or beside it, that neither the sign-in's forward nor
+# destroy's fetch reads, as every host has them: refused here where the login is made at the start; a VM's own are
+# looked at once it is added (tasks/vm_route_held.yml).
+- name: vm_route | Refuse a proxy option ssh would read before the hop
+  vars:
+    claude_vm_route_before: >-
+      {{ ansible_ssh_args | default(lookup('ansible.builtin.config', 'ssh_args', plugin_type='connection',
+                                           plugin_name='ssh')) | ssh_proxy_any }}
+    claude_vm_route_beside: >-
+      {{ lookup('ansible.builtin.config', 'ssh_extra_args', plugin_type='connection', plugin_name='ssh')
+         | ssh_proxy_any if ansible_ssh_extra_args is not defined else '' }}
+  ansible.builtin.assert:
+    that:
+      - claude_vm_route_before | length == 0
+      - claude_vm_route_beside | length == 0
+    fail_msg: >-
+      VMs are reached through {{ claude_vm_route.hop.label }}, and {{ ('ssh_args holds ' ~ claude_vm_route_before
+      ~ ', which ssh would take before the hop') if claude_vm_route_before else ('ssh_extra_args, from ansible.cfg or
+      the environment, holds ' ~ claude_vm_route_beside ~ ' beside it') }}: ssh would follow one of the two without a
+      word, or stop. Set a jump of your own as ansible_ssh_common_args or ansible_ssh_extra_args - with an empty value
+      on the Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct.
+    quiet: true
+  check_mode: false
+  tags: [always]
+  when:
+    - claude_vm_route.route == 'host'
+    - claude_vm_route.login | length == 0
+    - claude_vm_route_start | default(false) | bool
+    - claude_vm_route_every_jump | length == 0
+
+- name: vm_route | Log in to the Proxmox host as the VMs' hop
+  vm_route:
+    do: login
+    route: "{{ claude_vm_route }}"
+  register: claude_vm_route_login
+  failed_when: claude_vm_route_login is failed and claude_vm_route_stop | default(true) | bool
+  check_mode: false
+  tags: [always]
+  when:
+    - claude_vm_route.route == 'host'
+    - claude_vm_route.login | length == 0
+    - >-
+      (claude_vm_route_start | default(false) | bool and claude_vm_route_every_jump | length == 0)
+      or claude_vm_route_through | rejectattr('jump') | list | length > 0
+
+- name: vm_route | Forward once through the Proxmox host to the first VM that goes through it
+  vm_route:
+    do: forward
+    route: "{{ claude_vm_route }}"
+    name: "{{ (claude_vm_route_through | rejectattr('jump') | first).name }}"
+    address: "{{ (claude_vm_route_through | rejectattr('jump') | first).address }}"
+  register: claude_vm_route_forward
+  failed_when: claude_vm_route_forward is failed and claude_vm_route_stop | default(true) | bool
+  check_mode: false
+  tags: [always]
+  when:
+    - claude_vm_route.route == 'host'
+    - claude_vm_route.forward | length == 0
+    - claude_vm_route_forward_wanted | default(true) | bool
+    - claude_vm_route.login != 'failed'
+    - claude_vm_route_login.ok | default(true) | bool
+    - claude_vm_route_through | rejectattr('jump') | list | length > 0
+
+# A VM that said nothing to the forward is said once, and fails alone at its first contact.
+- name: vm_route | Say a VM that did not answer through the host
+  ansible.builtin.debug:
+    msg: "{{ claude_vm_route_forward.said_plain }}"
+  tags: [always]
+  when:
+    - claude_vm_route_forward is not skipped
+    - claude_vm_route_forward.why | default('') == 'silent'
+
+# Where an unusable hop is no failure, it is said: no alias is written through it. Read from the action's own
+# verdicts, ok and usable: a failed_when that lets the run go on clears the result's failed.
+- name: vm_route | Say that the Proxmox host cannot be used as the hop
+  ansible.builtin.debug:
+    msg: >-
+      {{ (claude_vm_route_login.msg if not claude_vm_route_login.ok | default(true) | bool
+          else claude_vm_route_forward.msg) | default('', true) | one_line(none) }}
+  tags: [always]
+  when: >-
+    not claude_vm_route_login.ok | default(true) | bool
+    or not claude_vm_route_forward.usable | default(true) | bool
+
+- name: vm_route | Remember what was checked
+  ansible.builtin.set_fact:
+    claude_vm_route: >-
+      {{ claude_vm_route | combine({
+           'said': claude_vm_route.said | bool or claude_vm_route.route == 'host',
+           'login': 'failed' if not claude_vm_route_login.ok | default(true) | bool
+                    else 'held' if claude_vm_route_login is not skipped else claude_vm_route.login,
+           'forward': 'failed' if not claude_vm_route_forward.usable | default(true) | bool
+                      else 'checked' if claude_vm_route_forward is not skipped else claude_vm_route.forward,
+           'jumps': claude_vm_route.jumps + (claude_vm_route_through | selectattr('jump') | map(attribute='name')
+                                             | list),
+         }) }}
+  check_mode: false
+  tags: [always]

@@ -54,7 +54,8 @@ def github_login_report(facts):
         if facts["lacks_workflow"]:
             line += (
                 " Its token lacks the workflow scope, so a push that changes .github/workflows/ is refused; add it"
-                f" with: ssh -t {facts['user']}@{facts['host']} gh auth refresh -h github.com -s workflow"
+                f" with: ssh{' ' + facts['via'] if facts.get('via') else ''} -t {facts['user']}@{facts['host']} gh"
+                " auth refresh -h github.com -s workflow"
             )
     elif not auth:
         line = "not signed in to GitHub, and this project leaves gh alone there (github_auth: false)."

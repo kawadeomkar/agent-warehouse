@@ -1502,6 +1502,15 @@ that takes, and runs nothing of Ansible's.
   its standard output: what a forward carries is the far end's to write. `forward_verdict` says the hop unusable only
   for `administratively prohibited` or ssh's own failure; a far end that refused or said nothing is the far end's
   doing.
+- **What playbooks reach.** The action `vm_route` (`playbooks/action_plugins/vm_route.py`) settles the route - the
+  hop's settings the Proxmox host's own, resolved by Ansible's ssh connection plugin's options, so a host var, then
+  `ansible.cfg`, then the environment - and runs the login, the forward and the making sure; `tasks/vm_route.yml` and
+  `tasks/vm_route_held.yml` are where the runs reach it
+  ([§4.15](lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host)). `vm_route_vms` says which VMs about
+  to be published go through the hop and which bring a jump, `vm_route_unheld` which published ones would not go where
+  the route says, and `route_said`, `login_said`, `forward_said` and `vm_unanswered` put each into words, what ssh said
+  through `one_line`.
 
 Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, and one run
-of the real ssh, given no config, whose `ProxyCommand` reaches a recorder.
+of the real ssh, given no config, whose `ProxyCommand` reaches a recorder; the task files and the publishers by
+`tests/unit/test_vm_route.py`.

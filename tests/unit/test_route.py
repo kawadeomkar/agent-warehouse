@@ -257,23 +257,25 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 
 
 # A stand-in for the hop's ssh, playing OpenSSH's control commands and its forward by a mode file: it logs each call,
-# a master is a file at the socket's path, and a forward ends as the mode says.
+# a master is a file at the socket's path, an open makes one unless the mode says otherwise, and a forward ends as the
+# file "forward" says, else as the mode does.
 STAND_IN = r"""#!/bin/sh
 here=$(dirname "$0")
 printf '%s\n' "$*" >> "$here/calls"
 socket=$(printf '%s\n' "$@" | sed -n 's/^ControlPath=//p' | head -1)
 mode=$(cat "$here/mode" 2>/dev/null)
+forward=$(cat "$here/forward" 2>/dev/null || printf '%s' "$mode")
 case " $* " in
 *" -O check "*) [ -e "$socket" ] && { echo "Master running (pid=1)" >&2; exit 0; }
     echo "Control socket connect($socket): No such file or directory" >&2; exit 255 ;;
 *" -O stop "*) rm -f "$socket"; echo "Stop listening request sent." >&2; exit 0 ;;
 *" -N "*) case $mode in
-    open) : > "$socket"; exit 0 ;;
     race) : > "$socket"; echo "ControlSocket $socket already exists, disabling multiplexing" >&2; exec sleep 60 ;;
     hang-then-opened) : > "$socket"; exec sleep 60 ;;
     refused) echo "root@pve: Permission denied (publickey)." >&2; exit 255 ;;
+    *) : > "$socket"; exit 0 ;;
     esac ;;
-*" -W "*) case $mode in
+*" -W "*) case $forward in
     answer) echo "SSH-2.0-OpenSSH_9.6"; exit 0 ;;
     forged) echo "channel 0: open failed: administratively prohibited: open failed"; exit 0 ;;
     closed) echo "channel 0: open failed: connect failed: Connection refused" >&2; echo "stdio forwarding failed" >&2
@@ -358,6 +360,14 @@ def test_an_open_that_never_returns_is_ended_at_its_limit_and_the_check_decides(
     assert held["ok"] and 1 <= time.monotonic() - started < 10
 
 
+def test_making_sure_makes_the_control_directory_its_owner_s_alone(tmp_path, short_dir):
+    ssh = _program(tmp_path / "ssh", STAND_IN)
+    (tmp_path / "mode").write_text("open")
+    hop = route.hop_settings(ssh=ssh, user="root", host="pve", control_dir=f"{short_dir}/cp")
+    assert route.hop_held(hop, "accept-new")["ok"]
+    assert (Path(short_dir) / "cp").stat().st_mode & 0o777 == 0o700
+
+
 def test_an_open_that_fails_with_no_connection_found_says_what_ssh_said(hop_at):
     held = route.hop_held(hop_at("refused"), "accept-new")
     assert held == {"ok": False, "opened": False, "said": "root@pve: Permission denied (publickey)."}
@@ -399,3 +409,27 @@ def test_the_core_names_no_host_key_policy_of_its_own():
     # The project's two places that take a new host key are counted by tests/unit/test_controller_writes.py; the core
     # is handed its policy by each caller.
     assert "StrictHostKeyChecking=accept-new" not in (REPO / "lib" / "claude_vm" / "route.py").read_text()
+
+
+def test_a_first_contact_that_fails_says_where_to_look_by_the_route():
+    # Through the host, ssh says only that the connection closed: the host's view is just status's. Under direct, the
+    # setting that goes through it. Nothing for a VM that brings its own jump, nor for a run that settled no route.
+    through = route.vm_unanswered(ROUTE, "-J root@pve.example.ts.net", "alpha", " --host nuc")
+    assert through == (
+        "It did not answer through pve (root@pve.example.ts.net): `just status alpha --host nuc` says what the host"
+        " reports for it."
+    )
+    assert "vm_ssh_route: host" in route.vm_unanswered({"route": "direct"}, "", "alpha")
+    assert route.vm_unanswered(ROUTE, "", "alpha") == "" and route.vm_unanswered({}, "", "alpha") == ""
+
+
+def test_the_words_of_a_hop_that_cannot_be_used_name_every_reply_and_the_way_out():
+    login = route.login_said({**ROUTE, "setting": "auto"}, "root@pve: Permission denied (publickey).\r\n")
+    assert "ssh could not log in there: root@pve: Permission denied (publickey). Its key" in login
+    assert "`ssh root@pve.example.ts.net` here shows which" in login and "vm_ssh_route: direct" in login
+    forbidden = route.forward_said(ROUTE, "alpha", "192.0.2.77", {"why": "prohibited", "said": "administratively"})
+    for setting in ("AllowTcpForwarding", "PermitOpen", "DisableForwarding", "restrict", "Tailscale's own SSH"):
+        assert setting in forbidden, setting
+    # Under host, no word of auto's.
+    assert "vm_ssh_route: direct" not in forbidden
+    assert route.forward_said(ROUTE, "alpha", "192.0.2.77", {"why": "answered"}) == ""

@@ -176,8 +176,11 @@ claude_code_remote_control_blocker: >-
 # installer puts claude - on PATH. ssh runs a command in a non-login,
 # non-interactive shell, and Ubuntu's .bashrc returns before doing anything for
 # one, so a bare "claude auth login" is "command not found".
+# Internal: what each ssh line a message prints for this VM gains after ssh -
+# -J and the Proxmox host, where the VM is reached through it - with its space.
+claude_code_ssh_words: "{{ (' ' ~ claude_code_ssh_via) if claude_code_ssh_via | default('') | length > 0 else '' }}"
 claude_code_remote_control_login_command: >-
-  ssh -t {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} "bash -lc 'claude auth login'"
+  ssh{{ claude_code_ssh_words }} -t {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} "bash -lc 'claude auth login'"
 
 # Internal: whether the server started by this run is still the same, running
 # process. Compares the state read right after the start with one read after
@@ -243,7 +246,7 @@ claude_code_login_lasts_minutes: "{{ ((claude_code_login_timeout | int + claude_
 # Internal: how a sign-in left waiting by a run this machine cannot ask about is
 # ended by hand, on the VM.
 claude_code_login_end_command: >-
-  ssh {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} kill {{ claude_code_login_other_claude }}
+  ssh{{ claude_code_ssh_words }} {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }} kill {{ claude_code_login_other_claude }}
 
 # Internal: what claude printed, and the sign-in page in it. Without a terminal
 # it prints the page as a plain URL; under one it wraps it in an OSC 8

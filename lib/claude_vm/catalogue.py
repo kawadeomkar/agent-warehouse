@@ -14,6 +14,7 @@ from .records import plain
 CHOICES: Final[Mapping[str, tuple[str, tuple[str, ...]]]] = {
     "editor": ("claude_editors", ()),
     "vpn": ("claude_vpns", ("none",)),
+    "vm_ssh_route": ("claude_vm_ssh_routes", ()),
 }
 
 

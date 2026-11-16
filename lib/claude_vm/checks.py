@@ -146,16 +146,18 @@ def vm_ssh_args(alias, known_hosts, forward_agent=False):
     return " ".join(f"-o {shlex.quote(option)}" for option in options)
 
 
-def vm_control_name(alias, address):
+def vm_control_name(alias, address, hop=""):
     """What names a VM's shared-connection socket, before ssh's own -%r-%p (its user and port, which a session over an
     open master never asks again): a digest of its identity and the address it is reached at, so that a VM reporting
-    another's address never rides that one's open connection, on which no host key is checked again. Short, since a
-    socket's path is at most 103 characters on macOS, ssh adds 17 while it makes one, and the directory holds the
-    account's name: ssh's %C alone, 40, left a long account name too little room."""
+    another's address never rides that one's open connection, on which no host key is checked again - and of the hop
+    it is reached through, where it takes one (vm_hop's name): two hosts with one VM range never share a connection.
+    Short, since a socket's path is at most 103 characters on macOS, ssh adds 17 while it makes one, and the directory
+    holds the account's name: ssh's %C alone, 40, left a long account name too little room."""
     alias = "" if alias is None else str(alias)
     if alias and not HOST_KEY_ALIAS_RE.fullmatch(alias):
         raise ValueError(f"{alias!r} is not a VM's host key alias")
-    return f"aw-{hashlib.sha256(f'{alias} {address}'.encode()).hexdigest()[:12]}"
+    named = f"{alias} {address} {hop}" if hop else f"{alias} {address}"
+    return f"aw-{hashlib.sha256(named.encode()).hexdigest()[:12]}"
 
 
 def vm_ssh_unheld(vms, hostvars, known_hosts):
