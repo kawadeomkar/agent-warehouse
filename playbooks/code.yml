@@ -265,6 +265,12 @@
     code_sync_failed: "{{ code_session_sent.rc | default(0) != 0 }}"
     code_sync_why: >-
       {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true)) | one_line(none) }}
+    # rsync goes over the alias, whose jump through the Proxmox host reads the user's own ssh config for its key:
+    # where the alias step said it may not be offered, the lines that offer it, again.
+    code_sync_hop_key: >-
+      {{ (' Its jump through ' ~ claude_vm_route.hop.label ~ ' may lack its key: add to ' ~ claude_ssh_user_config
+          ~ ' the lines Host ' ~ claude_vm_route.hop.host ~ ' and IdentityFile ' ~ claude_vm_route.hop.key ~ '.')
+         if claude_ssh_hop_key_said is defined and claude_ssh_hop_key_said is not skipped else '' }}
     # The sessions the sync left out, list by list: what is said before their IDs, the IDs, and after.
     code_sessions_left: >-
       {{ [[' Left as they are, continued on ' ~ claude_vm_names[0] ~ ' since they were copied: ',
@@ -300,7 +306,7 @@
               ~ (' rsync could not send them all to ' ~ claude_vm_names[0] ~ ' (it exited '
                  ~ code_session_sent.rc | default('') ~ (': ' ~ code_sync_why if code_sync_why else '')
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
-                 if code_sync_failed | bool else '')
+                 ~ code_sync_hop_key if code_sync_failed | bool else '')
               ~ ' claude_sessions_sync: false turns the copying off.' }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-

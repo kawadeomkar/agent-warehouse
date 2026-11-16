@@ -6,6 +6,7 @@ The hop's ssh runs against stand-ins written here, which play what OpenSSH does 
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
@@ -302,17 +303,18 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 
 # A stand-in for the hop's ssh, playing OpenSSH's control commands and its forward by a mode file: it logs each call,
 # a master is a file at the socket's path - one that holds "stale" is a socket nothing listens at - an open makes one
-# unless the mode says otherwise, and a forward ends as the file "forward" says, else as the mode does. An open beside
-# a live master is a client with ControlMaster=auto, which asks the host for a session (logged in "sessions"), and
-# with ControlMaster=yes says the socket exists and goes on as a connection of its own; at a stale one, auto takes the
-# path over and yes says it exists.
+# unless the mode says otherwise, and a forward ends as the file "forward-<address>" says, else the file "forward",
+# else the mode. An open beside a live master is a client with ControlMaster=auto, which asks the host for a session
+# (logged in "sessions"), and with ControlMaster=yes says the socket exists and goes on as a connection of its own; at
+# a stale one, auto takes the path over and yes says it exists.
 STAND_IN = r"""#!/bin/sh
 here=$(dirname "$0")
 printf '%s\n' "$*" >> "$here/calls"
 socket=$(printf '%s\n' "$@" | sed -n 's/^ControlPath=//p' | head -1)
 master=$(printf '%s\n' "$@" | sed -n 's/^ControlMaster=//p' | head -1)
 mode=$(cat "$here/mode" 2>/dev/null)
-forward=$(cat "$here/forward" 2>/dev/null || printf '%s' "$mode")
+target=$(printf '%s\n' "$@" | sed -n '/^-W$/{n;p;}' | head -1 | cut -d: -f1)
+forward=$(cat "$here/forward-$target" 2>/dev/null || cat "$here/forward" 2>/dev/null || printf '%s' "$mode")
 case " $* " in
 *" -O check "*) [ -e "$socket" ] && [ "$(cat "$socket")" = stale ] && {
         echo "Control socket connect($socket): Connection refused" >&2; exit 255; }
@@ -656,3 +658,63 @@ def test_an_ssh_that_cannot_be_asked_is_a_refusal(tmp_path):
     shown = route.ssh_shown(str(tmp_path / "absent"), [], "192.0.2.77")
     assert not shown["ok"] and "absent" in shown["said"]
     assert route.vm_route_refusal(ROUTE, "192.0.2.77", False, shown).startswith("ssh refused its options: ")
+
+
+@pytest.mark.parametrize("via", ["", "-J root@pve.example.ts.net"])
+def test_the_gh_line_names_the_hop_s_words_after_ssh_and_nothing_else(via):
+    # The role's report and just status's are one function's (lib/claude_vm/status/lines.py).
+    from claude_vm.status import lines
+
+    facts = {
+        "gh_found": True,
+        "status_rc": 0,
+        "signed_in": True,
+        "login_done": False,
+        "account": "octocat",
+        "kind": "oauth",
+        "is_ours": True,
+        "lacks_workflow": True,
+        "user": "dev",
+        "host": "192.0.2.10",
+        "via": via,
+        "auth": True,
+        "token_wanted": False,
+        "token_set": False,
+    }
+    words = f" {via}" if via else ""
+    said = lines.github_login_report(facts)
+    said = said if isinstance(said, str) else json.dumps(said)
+    assert f"ssh{words} -t dev@192.0.2.10 gh auth refresh -h github.com -s workflow" in said
+
+
+def test_remote_control_s_printed_line_names_the_hop_s_words_after_ssh():
+    text = (REPO / "roles" / "claude_code" / "tasks" / "remote_control.yml").read_text()
+    assert "ssh{{ claude_code_ssh_words }} {{ claude_code_user }}@" in text
+    words = (REPO / "roles" / "claude_code" / "vars" / "main.yml").read_text()
+    assert (
+        "claude_code_ssh_words: \"{{ (' ' ~ claude_code_ssh_via) if claude_code_ssh_via | default('') | length > 0"
+        " else '' }}\"" in words
+    )
+
+
+def test_the_words_of_a_vm_destroy_keeps_and_of_one_it_deletes():
+    # Kept: the hop at fault, named; deleted: the VM's own fault, what the host's forward showed, never just status.
+    assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": "answered"}) == (
+        "it answered a forward of its own through pve (root@pve.example.ts.net), but not this run's connection, made"
+        " again"
+    )
+    forbidden = route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": "prohibited", "said": "administratively"})
+    assert forbidden.startswith("pve (root@pve.example.ts.net) refused to forward to alpha at 192.0.2.77")
+    for why in ("refused", "silent", None):
+        assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": why}) == "", why
+    assert route.vm_kept_said({"route": "direct"}, "alpha", "192.0.2.77", {"why": "answered"}) == ""
+    via = "-J root@pve.example.ts.net"
+    refused = {"why": "refused", "said": "channel 0: open failed: connect failed: No route to host"}
+    assert route.vm_gone_said(ROUTE, via, refused) == (
+        "It did not answer through pve (root@pve.example.ts.net): the host's connection to it was refused (No route to"
+        " host)."
+    )
+    assert route.vm_gone_said(ROUTE, via, {"why": "silent"}).endswith("it said nothing to the host within 15 s.")
+    assert route.vm_gone_said(ROUTE, via) == "It did not answer through pve (root@pve.example.ts.net)."
+    assert route.vm_gone_said(ROUTE, "") == "" and "just status" not in route.vm_gone_said(ROUTE, via, refused)
+    assert "vm_ssh_route: host" in route.vm_gone_said({"route": "direct"}, "")

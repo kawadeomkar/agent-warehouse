@@ -265,6 +265,41 @@ def test_a_setting_of_one_network_the_shared_files_set_is_never_inherited(tmp_pa
     assert _resolve(root, "--host=lab")["host"] == "lab"
 
 
+def test_the_route_to_the_vms_the_shared_files_set_is_never_inherited(tmp_path: Path) -> None:
+    # One host on a tailnet, another on the LAN: the first's route through its host would carry the other's VMs too.
+    alias_file = str(tmp_path / ".ssh" / "agent-warehouse.conf")
+    root = _checkout(tmp_path, local={"vm_ssh_route": "host", "claude_ssh_config_file": alias_file})
+    _host(root, "nuc")
+    said = _refused(root, "--host=nuc")
+    assert "sets vm_ssh_route, which describes one network or one host" in said
+    _host(root, "lab", local={**ALWAYS, "vm_ssh_route": "direct"})
+    assert _resolve(root, "--host=lab")["host"] == "lab"
+
+
+def test_the_hop_s_account_in_a_local_yml_is_refused_with_two_hosts_as_with_one(tmp_path: Path) -> None:
+    # The hop's account is the Proxmox host's own, on its entry in hosts.yml: in the shared local.yml every host would
+    # read it, the first's and another's alike. tools/check settings is given each host's files as its recipes give
+    # them.
+    alias_file = str(tmp_path / ".ssh" / "agent-warehouse.conf")
+    root = _checkout(tmp_path, local={"vm_ssh_jump": "forwarder", "claude_ssh_config_file": alias_file})
+    _host(root, "nuc")
+    shared = root / "inventory" / "group_vars" / "all" / "local.yml"
+    nuc = root / "hosts" / "nuc"
+    for files in (
+        [root / "inventory" / "hosts.yml", shared],
+        [shared, nuc / "hosts.yml", nuc / "group_vars" / "all" / "local.yml"],
+    ):
+        checked = subprocess.run(
+            [str(REPO / "tools" / "check"), "settings", str(Path(sys.executable).parent), *map(str, files)],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert checked.returncode != 0, files
+        assert f"error: {shared} sets vm_ssh_jump other than on the Proxmox host's own entry" in checked.stderr, files
+
+
 def test_an_exported_inventory_is_left_alone_with_one_host_and_refused_beside_more(tmp_path: Path) -> None:
     root = _checkout(tmp_path)
     left = _tool(root, "env", "--host=pve", env={"ANSIBLE_INVENTORY": "/somewhere/else"})
@@ -865,6 +900,9 @@ def _overlay_checkout(tmp_path: Path, ports: dict) -> Path:
             "claude_ssh_config_include": False,
             "ansible_ssh_executable": str(tmp_path / "ssh"),
             "vpn": "none",
+            # Straight to each VM: auto would ask this machine's ssh where it dials the host (test_vm_route.py holds
+            # it), and a setting of one network is never inherited, so each host sets its own.
+            "vm_ssh_route": "direct",
         },
     )
     (root / "inventory" / "hosts.yml").write_text(_hosts_yml("pve", "127.0.0.1"))
@@ -873,7 +911,13 @@ def _overlay_checkout(tmp_path: Path, ports: dict) -> Path:
         root,
         "nuc",
         hosts_yml=_hosts_yml("nuc", "127.0.0.1"),
-        local={**ALWAYS, "proxmox_node": "pve", "proxmox_api_port": ports["nuc"], "proxmox_storage": "nuc-store"},
+        local={
+            **ALWAYS,
+            "proxmox_node": "pve",
+            "proxmox_api_port": ports["nuc"],
+            "proxmox_storage": "nuc-store",
+            "vm_ssh_route": "direct",
+        },
     )
     return root
 

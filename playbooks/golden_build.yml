@@ -59,13 +59,33 @@
             mode: "0700"
           when: (proxmox_template_build_vm | default({})).name is defined
 
-        # Through the Proxmox host: its login, if this run put it off. The run's
-        # VMs have had the forward checked.
+        # Through the Proxmox host: its login, if this run put it off, and its
+        # forward, where the run's VMs made none (each brought a jump of its
+        # own). A hop either found unusable fails into the rescue here.
         - name: Check the route to the build VM
           ansible.builtin.import_tasks: tasks/vm_route.yml
           vars:
             claude_vm_route_vms: "{{ [proxmox_template_build_vm] }}"
-            claude_vm_route_forward_wanted: false
+          when: (proxmox_template_build_vm | default({})).name is defined
+
+        # The aliases go on past a hop they found unusable (tasks/vm_route.yml
+        # records it): a build VM that would go through it is never added, so
+        # the build fails here, not after a 300 s wait.
+        - name: Refuse a build VM that would go through a Proxmox host this run could not use
+          vars:
+            claude_vm_build_through: >-
+              {{ claude_vm_route | default({})
+                 | vm_hop(proxmox_template_build_vm.address, ansible_ssh_common_args | default(lookup(
+                          'ansible.builtin.config', 'ssh_common_args', plugin_type='connection', plugin_name='ssh')),
+                          ansible_ssh_extra_args | default('')) }}
+          ansible.builtin.assert:
+            that: >-
+              claude_vm_build_through.via | length == 0
+              or 'failed' not in [claude_vm_route.login | default(''), claude_vm_route.forward | default('')]
+            fail_msg: >-
+              The build VM is reached through {{ claude_vm_route.hop.label | default('the Proxmox host') }}, which
+              this run found could not be used as the hop (said above).
+            quiet: true
           when: (proxmox_template_build_vm | default({})).name is defined
 
         # How to reach it goes on the host, never on a play (CLAUDE.md). An
@@ -249,17 +269,22 @@
             msg: >-
               The golden template could not be made ({{ ansible_failed_task.name | default('') }}:
               {{ ansible_failed_result.msg | default('no reason') | plain_text }}). The VMs are not affected.
-              {{ hostvars['localhost'].claude_vm_route | default({}) | vm_unanswered(claude_vm_ssh_via | default(''),
-                 inventory_hostname, claude_host_flag | default(''))
-                 if ansible_failed_result.unreachable | default(false) | bool
-                    or ansible_failed_task.name | default('') is search('accept connections') else '' }}
 
+    # A build VM that never answered, through the Proxmox host: that it did not
+    # answer there, read from the build VM's own variables, and never just
+    # status, which cannot read a build VM.
     - name: Say the image could not be built
+      vars:
+        claude_vm_golden_failure_said: >-
+          {{ hostvars[claude_vm_golden_build_host].claude_vm_golden_failure | default('the build VM stopped answering') }}
       ansible.builtin.debug:
         msg: >-
-          The golden template's image could not be built
-          ({{ hostvars[claude_vm_golden_build_host].claude_vm_golden_failure
-              | default('the build VM stopped answering') }}). The VMs are not affected.
+          The golden template's image could not be built ({{ claude_vm_golden_failure_said }}). The VMs are not affected.
+          {{ claude_vm_route | default({}) | vm_gone_said(hostvars[claude_vm_golden_build_host].claude_vm_ssh_via
+                                                          | default(''))
+             if hostvars[claude_vm_golden_build_host].claude_vm_golden_failure is not defined
+                or claude_vm_golden_failure_said is search('^Wait for the build VM to accept connections')
+             else '' }}
       when:
         - claude_vm_golden_build_host | length > 0
         - not (claude_vm_golden_image_built | bool)

@@ -20,7 +20,6 @@
 #                          claude_ssh_options names a jump of its own, whatever Ansible's variables give it, which the
 #                          person's ssh and the editor never read.
 #   claude_vm_route_stop   false where an unusable hop is said and recorded, not a failure (the aliases).
-#   claude_vm_route_forward_wanted  false where the run's VMs have had theirs: the golden build's VM.
 
 - name: vm_route | Settle how this machine reaches the VMs
   vm_route:
@@ -131,6 +130,7 @@
       (claude_vm_route_start | default(false) | bool and claude_vm_route_every_jump | length == 0)
       or claude_vm_route_through | rejectattr('jump') | list | length > 0
 
+# At the VM's own port, as its connection resolves it (the action reads it).
 - name: vm_route | Forward once through the Proxmox host to the first VM that goes through it
   vm_route:
     do: forward
@@ -144,7 +144,6 @@
   when:
     - claude_vm_route.route == 'host'
     - claude_vm_route.forward | length == 0
-    - claude_vm_route_forward_wanted | default(true) | bool
     - claude_vm_route.login != 'failed'
     - claude_vm_route_login.ok | default(true) | bool
     - claude_vm_route_through | rejectattr('jump') | list | length > 0

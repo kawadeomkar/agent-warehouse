@@ -162,6 +162,23 @@
     - vars/sign_in.yml
 
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once, after a play that may have waited minutes on a
+    # person (tasks/vm_route.yml). Fails no host: a hop that is gone shows as
+    # each VM not answering.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     - name: Configure the repositories now that gh is signed in
       when:
         - claude_vm_github_login_failure is not defined

@@ -487,19 +487,25 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Each publisher puts the VM in its group first, then imports `tasks/vm_route.yml` (the login if put off, one
       forward), then its `add_host`: `vm_ssh_args`, the hop (`vm_hop`, made afresh, never in `claude_vm_ssh_given`),
       what the VM is given, the hop in `vm_control_name`'s third argument, `claude_vm_ssh_via`; then
-      `tasks/host_keys.yml`, then `tasks/vm_route_held.yml`, which refuses a VM with neither the hop first nor a jump
-      of its own, or another proxy option in `ssh_args` or a configured `ssh_extra_args` beside the hop, and makes
-      sure of the shared connection. `tests/unit/test_release.py` and `test_vm_route.py` hold every publisher to it.
+      `tasks/host_keys.yml`, then `tasks/vm_route_held.yml`, which asks each VM's own ssh (`ssh -G -F /dev/null` and
+      its whole line, as its connection resolves it) which proxy it takes - the hop's command, word for word, or for a
+      VM given a jump some proxy, on its whole line and on its common and extra args alone - refusing any other before
+      anything connects, and makes sure of the shared connection. Never a second reading of ssh's arguments for that:
+      ssh reads spellings it would miss. `tests/unit/test_release.py` and `test_vm_route.py` hold every publisher to
+      it.
     - A VM given a jump of its own (a `ProxyJump`, `-J` or a `ProxyCommand` other than `none` in what it is given)
       gets no hop, decided per VM. The login is made at a run's start only where what every host is given holds none.
-    - The later plays that reach the VMs at once and are not serial make sure of the shared connection in one local
-      task first, `run_once`, delegated here, failing no host.
+    - The later plays that reach the VMs at once make sure of the shared connection in one local task first,
+      `run_once`, delegated here, failing no host - the two after a serial sign-in among them, which may have waited
+      minutes on a person.
     - The alias gains `ProxyJump` by the rule and `claude_ssh_options` alone, never through a hop that was not
       checked: unusable, no alias is written through it, and only `just code` fails. Through the hop a VM is named by
       its address (`claude_ssh_reach_domain`), and the session notes drop the row by address.
-    - Every harness and scenario pins `vm_ssh_route: direct` (`_pve_vars`, the scenarios' vars, the Vagrantfile):
-      `auto` would ask this machine's ssh, through the developer's own config, where it dials a test's host.
-      `test_vm_route.py` fails if one stops.
+    - Every harness and scenario that brings a Proxmox host pins `vm_ssh_route: direct` - `_pve_vars`,
+      `test_init_check.py`'s inventory, the two hosts' checkouts of `test_status_hosts.py` and `test_hosts.py`, the
+      scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
+      where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
+      the route sets its own, its sockets in a directory of the test's.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward aside,
   and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -579,7 +585,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `release_pause`, `release_resume` on a VM kept), and a VM that stops answering part way fails into the
       rescue (`ignore_unreachable` and an assert), never out of the run unseen.
     - A failed save keeps the VM, neither released nor deleted; an unreachable VM is deleted and said to have
-      gone unsaved; `destroy_release: false` still saves; a VM whose sudo fails is saved, then deleted unreleased,
+      gone unsaved - but through the Proxmox host, where one forward of its own shows the hop at fault, not the
+      VM, it is reached once more on a connection made again, or kept, as a failed save keeps it;
+      `destroy_release: false` still saves; a VM whose sudo fails is saved, then deleted unreleased,
       said so - sudo is asked for in a block before the save, since a failed sudo is an error `failed_when` never
       sees.
 - **Tests never read or write the developer's `~/.claude`.** `just code` reads this machine's sessions

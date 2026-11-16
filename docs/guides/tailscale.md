@@ -53,7 +53,9 @@ your editor to the same host, `http://alpha.tail1234.ts.net:3000` for a dev serv
 same sshd and the same keys as on the LAN (`vm_ssh_public_keys`). With `claude_ssh_host_domain:
 tail1234.ts.net`, the aliases this project writes and `just code` use `<VM name>.tail1234.ts.net` in place
 of the LAN address; the machine running Ansible must be on the tailnet then, and Ansible itself keeps
-using the LAN. That is the VM's tailnet name only when the VM joined under its own name: a VM name that is
+using the LAN. Not where the VMs are reached through the Proxmox host - the default where `hosts.yml` names the
+host on a tailnet ([Remote access](remote-access.md#your-proxmox-host-on-your-tailnet-and-no-subnet-router)) -
+whose sshd would resolve the name: there the aliases name each VM's address. That is the VM's tailnet name only when the VM joined under its own name: a VM name that is
 not one DNS label joins under a cleaned-up one (`alpha.lab` as `alpha-lab`), and a name already taken gets
 a suffix (`alpha-1`). The report shows the name each VM has; `tailscale_hostname`
 ([Other settings](#other-settings)) asks for another.

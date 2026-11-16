@@ -44,8 +44,9 @@ connection to a VM goes through the host's own sshd, as a forward: configuration
 | `direct` | always straight to its address, as before 2.7 |
 
 There is no fallback either way: a host `auto` goes through that cannot be used - no SSH to it, forwarding off -
-stops the run at its first step, saying what the host said, and a VM's address is never dialled from wherever your
-laptop is. Where a VPN of yours routes the VMs' network, or you reach them by a jump of your own, set
+stops the run, saying what the host said: no SSH to it at the run's start, forwarding off at the first step that
+reaches a VM (for a new VM, once the template is built and the VM created). A VM's address is never dialled from
+wherever your laptop is. Where a VPN of yours routes the VMs' network, or you reach them by a jump of your own, set
 `vm_ssh_route: direct`. A VPN that reaches only the host, such as WireGuard to it alone, is not recognised: set
 `host`.
 
@@ -69,7 +70,12 @@ laptop is. Where a VPN of yours routes the VMs' network, or you reach them by a 
   decides forwarding.
 - **A VM that does not answer** through the host shows as a closed connection or a time-out; `just status <vm>` says
   what the host reports for it. A run started within 45 seconds of your laptop waking can find the VMs not answering
-  once, on a connection that has not noticed it is gone.
+  once, on a connection that has not noticed it is gone. `just destroy` asks the host about such a VM before it
+  deletes it: one that answers the host but not the run, or that the host will not forward to, is kept, neither
+  released nor deleted.
+- **`tailscale_accept_routes`** on, where the host advertises the VMs' own network to the tailnet: each VM then
+  routes that network through Tailscale, its replies to the host's address on it among them, so a connection through
+  the host breaks. Leave it off for such VMs.
 
 The forwarding-only account, `forwarder` here, made on the host with no shell and your key in its `authorized_keys`,
 and these lines at the end of the host's `/etc/ssh/sshd_config` (`PermitOpen` may list the VMs' network instead):

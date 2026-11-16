@@ -334,6 +334,94 @@ def test_a_build_that_fails_leaves_the_vms_on_the_base_and_deletes_what_it_made(
     assert not [vm for vm in _vms(fake) if vm.get("name", "").startswith((PREFIX, BUILD_PREFIX))]
 
 
+def _added(report) -> dict:
+    """What the build VM was published with: the add_host's host variables."""
+    (added,) = [
+        result["add_host"]["host_vars"]
+        for name, _, result in _results(report)
+        if name == "Add the build VM as a host" and "add_host" in result
+    ]
+    return added
+
+
+def test_the_build_reads_the_route_direct_where_the_run_settled_it_so(tmp_path, fake):
+    # The run's own route, settled by its import of tasks/vm_route.yml: direct (the harness's pin), so no hop, no
+    # words of one, and no socket of its own, which Ansible reads as its own default.
+    added = _added(_golden(tmp_path, fake, "alpha"))
+    assert "ProxyCommand" not in added["ansible_ssh_common_args"] and added["claude_vm_ssh_via"] == ""
+    assert added["ansible_control_path"] == ""
+
+
+@pytest.fixture
+def hop(tmp_path):
+    """A route through a stand-in hop (test_route.py's): (its directory, the hop's settings)."""
+    import shutil
+    import tempfile
+
+    from test_route import STAND_IN
+
+    from claude_vm import route
+
+    folder = tmp_path / "hop"
+    folder.mkdir()
+    (folder / "ssh").write_text(STAND_IN)
+    (folder / "ssh").chmod(0o755)
+    (folder / "mode").write_text("open")
+    (folder / "forward").write_text("answer")
+    control = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    yield folder, route.hop_settings(ssh=str(folder / "ssh"), user="root", host="100.64.0.7", control_dir=control)
+    shutil.rmtree(control, ignore_errors=True)
+
+
+def _through(settled: dict, login: str, forward: str) -> dict:
+    return {
+        "claude_vm_route": {
+            "route": "host",
+            "setting": "host",
+            "hop": settled,
+            "policy": "accept-new",
+            "said": True,
+            "login": login,
+            "forward": forward,
+            "jumps": [],
+        }
+    }
+
+
+def test_a_build_vm_through_the_host_is_published_with_the_hop_and_held_to_it(tmp_path, fake, hop):
+    # The run's VMs each brought a jump of their own, so no forward was made: the build VM's is.
+    folder, settled = hop
+    report = _golden(tmp_path, fake, "alpha", **_through(settled, "held", ""))
+    added = _added(report)
+    from claude_vm import route
+
+    address = added["ansible_host"]
+    assert route.ssh_proxies(added["ansible_ssh_common_args"]) == [
+        ("ProxyCommand", " ".join(route.hop_argv(settled, address, "accept-new")))
+    ]
+    assert added["claude_vm_ssh_via"] == "-J root@100.64.0.7"
+    assert added["ansible_control_path"].startswith("%(directory)s/aw-")
+    calls = (folder / "calls").read_text()
+    assert f"-W {address}:22" in calls and " -O check " in calls
+
+
+def test_a_build_vm_through_a_host_this_run_could_not_use_is_never_added(tmp_path, fake, hop):
+    # The aliases went on past a login that failed: the build fails at once, its VM deleted, and nothing reaches it.
+    folder, settled = hop
+    report = _golden(tmp_path, fake, "alpha", **_through(settled, "failed", ""))
+    said = [
+        str(result.get("msg", ""))
+        for _, _, result in _results(report)
+        if "could not be built" in str(result.get("msg"))
+    ]
+    assert said and "which this run found could not be used as the hop" in said[0], said
+    assert not [
+        name for name, _, result in _results(report) if name == "Add the build VM as a host" and "add_host" in result
+    ]
+    assert not (folder / "calls").exists()
+    assert not [vm for vm in _vms(fake) if vm.get("name", "").startswith((PREFIX, BUILD_PREFIX))]
+
+
 def _now() -> str:
     from datetime import UTC, datetime
 

@@ -2688,6 +2688,18 @@ def test_the_hop_s_account_is_read_from_the_proxmox_host_s_own_entry_alone(tmp_p
         ), text
 
 
+def test_the_route_set_in_a_hosts_yml_is_refused_by_name(tmp_path: Path) -> None:
+    # Read where localhost reads it, a local.yml: on the Proxmox host's own entry it would be taken for that host's
+    # and read by nothing.
+    _python(tmp_path)
+    (tmp_path / "local.yml").write_text("vm_ssh_route: host\n")
+    hosts = tmp_path / "hosts.yml"
+    hosts.write_text("all: {children: {proxmox: {hosts: {pve: {ansible_host: 192.0.2.10}}}}}\n")
+    assert _just("status", settings=_recording(tmp_path)).returncode == 0
+    hosts.write_text("all: {children: {proxmox: {hosts: {pve: {ansible_host: 192.0.2.10, vm_ssh_route: host}}}}}\n")
+    assert f"error: {hosts} sets vm_ssh_route, which is read from local.yml" in _refused(tmp_path, "status")
+
+
 def test_the_check_tells_of_every_name_1_1_gave_anew_as_just_settings_finds_them(tmp_path: Path) -> None:
     # tools/check finds them in defaults.yml alone, by the role prefix, since it runs before every recipe and imports
     # neither Ansible nor claude_vm; just settings finds them through the roles' argument_specs. The two are one list:

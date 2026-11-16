@@ -70,6 +70,7 @@ from harness import (
     _run,
     _run_at_a_terminal,
     _serve,
+    _unreachable,
 )
 
 DESTROY = REPO / "playbooks" / "destroy.yml"
@@ -848,6 +849,108 @@ def test_a_vm_the_run_lost_part_way_through_its_release_is_said_not_deleted_with
         " answering), so it is still there, its SSH alias with it: run just destroy lost again once that is fixed."
         " Released so far - Claude Code: signed out."
     )
+
+
+# Through the Proxmox host, four VMs that do not answer the run's connection, each telling the hop's own forward
+# something else (lib/claude_vm/route.py's forward_verdict): stale answers it, and the run again once the shared
+# connection was stopped and made again; still answers it and never the run; forbidden is refused by the host;
+# down refuses the host's connection itself.
+THROUGH = {
+    "stale": ("192.0.2.81", "answer"),
+    "still": ("192.0.2.82", "answer"),
+    "forbidden": ("192.0.2.83", "prohibited"),
+    "down": ("192.0.2.84", "closed"),
+}
+
+
+@pytest.fixture(scope="module")
+def through(tmp_path_factory, fake_github, fake_tailscale):
+    """destroy's release, deletion and report for THROUGH, through a stand-in hop (test_route.py's)."""
+    import shutil
+    import tempfile
+
+    from test_route import STAND_IN
+
+    from claude_vm import route
+
+    root = tmp_path_factory.mktemp("through")
+    hop = root / "hop"
+    hop.mkdir()
+    ssh = hop / "ssh"
+    ssh.write_text(STAND_IN)
+    ssh.chmod(0o755)
+    (hop / "mode").write_text("open")
+    cases = {name: {"sessions": True} for name in THROUGH}
+    hosts = _hosts(root, cases, fake_github, fake_tailscale)
+    for name, (address, forward) in THROUGH.items():
+        (hop / f"forward-{address}").write_text(forward)
+        _unreachable(hosts[name], root)
+        hosts[name].update(
+            ansible_host=address,
+            claude_vm_release_address=address,
+            claude_vm_ssh_via="-J root@100.64.0.7",
+        )
+    # stale answers once the run's connection was stopped and made again: here, as a local connection.
+    hosts["stale"]["ansible_connection"] = (
+        "{{ 'local' if lookup('ansible.builtin.file', '" + str(hop / "calls") + "', errors='ignore')"
+        " is search(' -O stop ') else 'ssh' }}"
+    )
+    control = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        settled = route.hop_settings(ssh=str(ssh), user="root", host="100.64.0.7", control_dir=control, name="pve")
+        extra = {
+            "ansible_become": False,
+            "claude_vm_route": {"route": "host", "setting": "host", "hop": settled, "policy": "accept-new"},
+        }
+        report = _run(root, _destroy_tail(root), hosts, "-e", json.dumps(extra), ordered=True)
+    finally:
+        shutil.rmtree(control, ignore_errors=True)
+    return root, hop, report
+
+
+def test_through_the_host_a_vm_is_kept_where_the_hop_is_at_fault_and_deleted_where_it_is_its_own(through):
+    root, hop, report = through
+    said = _said(report)
+    # Answered the hop, then the run once its connection was made again: released, saved and deleted as any VM.
+    assert said["stale"].startswith("stale: released - ")
+    assert (_saved(root, "stale") / "projects" / VM_FOLDER / f"{STARTED}.jsonl").exists()
+    # The hop at fault: neither released nor deleted, said why, and where the host's view of it is.
+    assert said["still"] == (
+        "still: kept, its SSH alias with it, neither released nor deleted - it answered a forward of its own through"
+        " pve (root@100.64.0.7), but not this run's connection, made again. `just status still` says what the host"
+        " reports for it; run just destroy still again once it answers."
+    )
+    assert said["forbidden"].startswith(
+        "forbidden: kept, its SSH alias with it, neither released nor deleted - pve (root@100.64.0.7) refused to"
+        " forward to forbidden at 192.0.2.83: "
+    )
+    # Its own: deleted unsaved, as under direct, and never sent to just status, which cannot read a VM that is gone.
+    assert said["down"].startswith("down: could not be reached, so it was not released: ")
+    assert said["down"].endswith(
+        "It did not answer through pve (root@100.64.0.7): the host's connection to it was refused (Connection refused)."
+    )
+    assert "just status" not in said["down"]
+    gone = [
+        host
+        for name, host, result in _results(report)
+        if name == "Record that the VM was deleted" and not result.get("skipped")
+    ]
+    assert sorted(gone) == ["down", "stale"]
+    # What the last play fails the run with (the tail here stops before it).
+    kept = {
+        host: result["ansible_facts"]["claude_vm_delete_failure"]
+        for name, host, result in _results(report)
+        if name == "Keep a VM the Proxmox host is at fault for" and not result.get("skipped")
+    }
+    assert sorted(kept) == ["forbidden", "still"]
+    assert kept["still"].startswith("still was neither released nor deleted: it answered a forward of its own")
+    assert "`just status still` says what the host reports for it" in kept["still"]
+    # The hop: made sure of, one forward of its own to each VM that did not answer, one stop and the connection made
+    # again; never -O exit.
+    calls = (hop / "calls").read_text()
+    assert " -O exit " not in calls and calls.count(" -O stop ") == 1
+    assert sorted(re.findall(r"-W (192\.0\.2\.8\d):22", calls)) == sorted(a for a, _ in THROUGH.values())
+    assert all("ControlPath=none" in line for line in calls.splitlines() if " -W " in line)
 
 
 @pytest.fixture(scope="module")

@@ -285,7 +285,9 @@
     # Never through a hop that was not checked: its login, and one forward, if
     # the run has not made them yet. Unusable, no alias is written through it -
     # the blocks already in the file stay as they are, and the prune still runs
-    # - but where the caller opens a window through the alias (just code).
+    # - but where the caller opens a window through the alias (just code),
+    # whose run the task after this ends, with the ways out: the check itself
+    # only says and records.
     - name: ssh_config | Check the Proxmox host before an alias goes through it
       ansible.builtin.import_tasks: vm_route.yml
       vars:
@@ -294,7 +296,7 @@
           {{ (claude_ssh_written | rejectattr('held', 'defined') | list)
              + (claude_ssh_written | selectattr('held', 'defined') | selectattr('held') | list) }}
         claude_vm_route_alias: true
-        claude_vm_route_stop: "{{ claude_ssh_hop_stop | default(false) }}"
+        claude_vm_route_stop: false
       when: claude_ssh_jump | length > 0
 
     - name: ssh_config | Fail where the window opens through an alias the Proxmox host cannot carry
@@ -327,11 +329,14 @@
 
     # A ProxyJump line carries no key: the jump's ssh reads the user's own
     # config for the hop. Where the inventory names a key for the Proxmox host,
-    # ssh is asked which it would offer there (ssh -G lists them unexpanded).
+    # ssh is asked which it would offer there (ssh -G lists them unexpanded),
+    # reading the config the aliases are in - claude_ssh_user_config, nothing
+    # where it is not there - never another by default.
     - name: ssh_config | Ask ssh which keys it offers the Proxmox host
       ansible.builtin.command:
         argv: >-
-          {{ ['ssh', '-G'] + (['-p', claude_vm_route.hop.port | string] if claude_vm_route.hop.port else [])
+          {{ ['ssh', '-G', '-F', claude_ssh_user_config if claude_ssh_user_config is exists else '/dev/null']
+             + (['-p', claude_vm_route.hop.port | string] if claude_vm_route.hop.port else [])
              + [claude_vm_route.hop.user ~ '@' ~ claude_vm_route.hop.host if claude_vm_route.hop.user
                 else claude_vm_route.hop.host] }}
       register: claude_ssh_hop_keys
@@ -351,6 +356,8 @@
           ssh config for the host. A key the agent holds works either way; otherwise add to {{ claude_ssh_user_config }}:
             Host {{ claude_vm_route.hop.host }}
                 IdentityFile {{ claude_vm_route.hop.key }}
+      # Read by just code, which names the lines again beside what its sync's rsync said.
+      register: claude_ssh_hop_key_said
       when:
         - claude_ssh_hop_keys is not skipped
         - not (claude_ssh_hop_keys.stdout | default('') | hop_key_offered(claude_vm_route.hop.key))

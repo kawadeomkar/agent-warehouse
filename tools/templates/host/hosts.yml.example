@@ -9,7 +9,8 @@ all:
         pve:
           ansible_host: 192.0.2.10 # IP of this Proxmox host (also used for the API)
           ansible_user: root
-          # Where the VMs are reached through this host (vm_ssh_route), another
-          # account on it for the hop: one that may only forward, with no shell
+          # Where the VMs are reached through this host - vm_ssh_route in
+          # local.yml decides it, never here - another account on it for the
+          # hop: one that may only forward, with no shell
           # (docs/guides/remote-access.md). An account only, never user@host.
           # vm_ssh_jump: forwarder

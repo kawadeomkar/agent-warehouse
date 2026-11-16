@@ -1093,6 +1093,12 @@
       changed_when: false
       failed_when: false
 
+    # Nothing of the scenario's is left on the machine that ran it.
+    - name: Remove the stand-in's sockets
+      ansible.builtin.file:
+        path: /tmp/aw-molecule-hop
+        state: absent
+
     - name: Assert the alias goes through the Proxmox host, checked first
       vars:
         verify_hop_calls: "{{ lookup('ansible.builtin.file', verify_ssh_dir ~ '/hop/calls', errors='ignore') or '' }}"

@@ -622,40 +622,35 @@ def vm_route_vms(vms, hostvars=None, given_all="", extra_all="") -> list[dict]:
     return sorted(found, key=lambda vm: vm["name"])
 
 
-def vm_route_unheld(names, hostvars, settled, ssh_args_configured="", extra_configured="") -> list[dict]:
-    """Of the VMs ``names`` just published, each whose connection, as ``hostvars`` has it, would not go where the route
-    says, ``{name, why}``: through the host, every VM with an address carries the hop first among its proxy options,
-    or brings a jump of its own; never neither. One that carries the hop has no other proxy option where ssh would
-    read it first: its ssh_args, ansible.cfg's or the environment's where it has none of its own, nor ssh_extra_args
-    from ansible.cfg or the environment where it has no ansible_ssh_extra_args. A host var or -e that outranks the
-    publisher's value is found here, before anything connects."""
-    if not isinstance(settled, dict) or settled.get("route") != "host":
-        return []
-    unheld = []
-    for name in names or []:
-        host = hostvars[str(name)]
-        address = str(host.get("ansible_host") or "")
-        if not address or str(host.get("ansible_connection") or "ssh").rsplit(".", 1)[-1] != "ssh":
-            continue
-        common = str(host.get("ansible_ssh_common_args") or "")
-        extra = host.get("ansible_ssh_extra_args")
-        if not host.get("claude_vm_ssh_via"):
-            if not ssh_jump(common, extra or ""):
-                unheld.append({"name": str(name), "why": "neither the hop nor a jump of its own"})
-            continue
+def unheld_detail(settled, address, takes_hop, line) -> str:
+    """Where in a VM's line the proxy option is that ssh would take before the hop, or beside it, by the project's
+    reading of ssh's arguments: words for a person, beside what ssh itself showed. ``line`` holds the ssh plugin's
+    ``ssh_args``, ``ssh_common_args`` and ``ssh_extra_args`` for the VM; "" where none is found there."""
+    before = ssh_proxy_any(line.get("ssh_args"))
+    if before:
+        return f"ssh_args holds {before}, which ssh would take before {'the hop' if takes_hop else 'its own'}"
+    if not takes_hop:
+        return ""
+    beside = ssh_proxy_any(line.get("ssh_extra_args"))
+    if beside:
+        return f"ssh_extra_args holds {beside} beside the hop"
+    try:
         wanted = ("ProxyCommand", " ".join(hop_argv(settled["hop"], address, settled["policy"])))
-        proxies = ssh_proxies(common)
-        if proxies[:1] != [wanted]:
-            unheld.append({"name": str(name), "why": "ansible_ssh_common_args is set where it outranks the project's"})
-            continue
-        before = ssh_proxy_any(host.get("ansible_ssh_args", ssh_args_configured))
-        after = ssh_jump(extra) if extra is not None else ssh_proxy_any(extra_configured)
-        if before:
-            unheld.append({"name": str(name), "why": f"ssh_args holds {before}, which ssh would take before the hop"})
-        elif after:
-            where = "ansible_ssh_extra_args" if extra is not None else "ssh_extra_args (ansible.cfg or the environment)"
-            unheld.append({"name": str(name), "why": f"{where} holds {after} beside the hop"})
-    return unheld
+    except HopRefused:
+        return ""
+    if ssh_proxies(line.get("ssh_common_args"))[:1] != [wanted]:
+        return "ansible_ssh_common_args is set where it outranks the project's"
+    return ""
+
+
+def unheld_said(settled, unheld) -> str:
+    """Why the VMs ``unheld`` (``{name, why}``) are refused before anything connects to them, and the ways out."""
+    each = "; ".join(f"{vm['name']}: {vm['why']}" for vm in unheld)
+    return (
+        f"VMs are reached through {settled['hop']['label']}, and {each}. Set a jump of your own as"
+        " ansible_ssh_common_args or ansible_ssh_extra_args where the VM is given them - with an empty value on the"
+        " Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct."
+    )
 
 
 def _plain(said) -> str:
@@ -747,6 +742,44 @@ def vm_unanswered(settled, via, name, host_flag="") -> str:
         "Where this machine reaches the Proxmox host but not its VMs' network, vm_ssh_route: host carries every"
         " connection through the host."
     )
+
+
+def vm_kept_said(settled, name, address, verdict) -> str:
+    """Why ``just destroy`` keeps a VM that did not answer through the hop, from a forward of its own to it
+    (forward_verdict): the hop is at fault, not the VM, so nothing of it is deleted unsaved. "" where the VM's own
+    fault is what the forward showed (it refused the connection, or said nothing): that one goes, as under direct."""
+    why = verdict.get("why") if isinstance(verdict, dict) else None
+    if (
+        not isinstance(settled, dict)
+        or settled.get("route") != "host"
+        or why not in ("answered", "prohibited", "failed")
+    ):
+        return ""
+    if why == "answered":
+        return (
+            f"it answered a forward of its own through {settled['hop']['label']}, but not this run's connection, made"
+            " again"
+        )
+    return forward_said(settled, name, address, verdict).rstrip(".")
+
+
+def vm_gone_said(settled, via, verdict=None) -> str:
+    """What the report of a VM deleted though it did not answer adds: through the hop, what the host's forward to it
+    showed - the VM's own fault - and never `just status`, which cannot read a VM that is gone; under direct, the
+    setting that would go through the host; nothing for a VM that brings its own jump."""
+    if not isinstance(settled, dict) or settled.get("route") != "host":
+        return vm_unanswered(settled, via, "")
+    if not via:
+        return ""
+    label = settled["hop"]["label"]
+    why = verdict.get("why") if isinstance(verdict, dict) else None
+    if why == "refused":
+        reason = re.search(r"connect failed: ([^\n]*)", str(verdict.get("said") or ""))
+        refused = f" ({_plain(reason.group(1))})" if reason else ""
+        return f"It did not answer through {label}: the host's connection to it was refused{refused}."
+    if why == "silent":
+        return f"It did not answer through {label}: it said nothing to the host within {LIMITS['forward']} s."
+    return f"It did not answer through {label}."
 
 
 def hop_key_offered(text, key) -> bool:

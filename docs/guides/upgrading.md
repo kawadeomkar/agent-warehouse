@@ -18,8 +18,9 @@ naming `just install`, while one differs. They live in the checkout's own folder
 - **A host your `hosts.yml` names by a LAN address**: nothing changes.
 - **A host named on a tailnet** - its tailnet address, a MagicDNS name, or a name of yours `ssh` resolves to one:
   every connection to a VM goes through the host from now on, at home too, and the aliases gain a `ProxyJump` line.
-  Where the host cannot be used as a hop - no SSH to it, forwarding off - every command stops at its first step,
-  saying what the host said: set `vm_ssh_route: direct` once if a VPN of yours routes the VMs' network.
+  Where the host cannot be used as a hop, every command stops, saying what the host said: with no SSH to it at its
+  start, with forwarding off at the first step that reaches a VM - for `just deploy` of a new VM, once its template is
+  built and the VM created. Set `vm_ssh_route: direct` once if a VPN of yours routes the VMs' network.
 - **A jump of your own** in `ansible_ssh_common_args` or `ansible_ssh_extra_args`, for every host or for the
   `claude_vms` group, stays the VMs' route, and the run says so. One in `ssh_args` (`ansible.cfg`), or in
   `ssh_extra_args` from `ansible.cfg` or the environment, is refused beside the hop: move it to one of those two, or

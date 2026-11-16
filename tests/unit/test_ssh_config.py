@@ -852,3 +852,14 @@ def test_the_lines_that_give_the_jump_the_host_s_key_are_said_where_ssh_would_no
     result = _run(tmp_path, [ALPHA], **_routed(key=expanded))
     assert result.returncode == 0, result.stdout + result.stderr
     assert ("IdentityFile " + expanded in result.stdout) is said, result.stdout
+
+
+def test_a_key_the_user_s_config_names_for_the_host_is_offered_and_not_said(tmp_path):
+    # ssh -G is asked with the config the aliases are in (claude_ssh_user_config), never another by default: there it
+    # names the key for the host, so the jump offers it.
+    user_config = Path(_paths(tmp_path)["claude_ssh_user_config"])
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("Host 100.64.0.7\n    IdentityFile /keys/pve\n")
+    result = _run(tmp_path, [ALPHA], **_routed(key="/keys/pve"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "IdentityFile /keys/pve" not in result.stdout, result.stdout

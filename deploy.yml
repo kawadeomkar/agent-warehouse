@@ -55,8 +55,10 @@
 
 # The template check is made through the Proxmox API rather than on the node,
 # and playbooks/template.yml gathers no facts, so a run that does not need to
-# build the template opens no SSH connection to the Proxmox host at all. Only
-# the first run - the one that actually builds it - needs root SSH.
+# build the template opens no SSH connection to the Proxmox host for it. Only
+# the first run - the one that actually builds it - needs root SSH; where the
+# VMs are reached through the host, every run logs in to it as their hop (the
+# play above).
 - name: Check whether the cloud-init template already exists
   hosts: localhost
   gather_facts: false
@@ -113,7 +115,7 @@
 
     # A template that differs from what its settings would build - a setting changed, this version's build, or no
     # record of its build at all - is rebuilt by the template play, which runs only then or when there is none:
-    # through the API, so a run that needs neither still opens no SSH connection to the Proxmox host.
+    # through the API, so a run that needs neither opens no SSH connection to the Proxmox host for the template.
     - name: Compare the template with what its settings would build
       ansible.builtin.include_role:
         name: proxmox_template
