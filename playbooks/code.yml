@@ -497,6 +497,14 @@
         # and accept-new, not the user's ssh config, which is the editor's business.
         # In claude_vms, so connection variables set on that group in the
         # inventory - a key, a port - apply here as they do to just deploy --only configure.
+        # Into claude_vms first, and nothing more: what its groups give it, the claude_vms group's common args among
+        # them, is read from it below.
+        - name: Put the VM in claude_vms
+          ansible.builtin.add_host:
+            name: "{{ claude_vm_names[0] }}"
+            groups: claude_vms
+          changed_when: false
+
         - name: Reach the VM the way just deploy --only configure does
           ansible.builtin.add_host:
             name: "{{ claude_vm_names[0] }}"
@@ -508,16 +516,22 @@
             ansible_python_interpreter: "{{ claude_vm_python }}"
             # Its host key held in the project's own known_hosts file, under its identity from Proxmox, never
             # the address it reports; no agent forwarded (vm_ssh_args).
-            # Common args, for sftp and scp too, the configured ones after them, and a shared-connection socket
-            # of its identity's own (discover.yml says why).
+            # Common args, for sftp and scp too, the VM's own after them, and a shared-connection socket of its
+            # identity's own (discover.yml says why).
             claude_vm_host_key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
+            claude_vm_ssh_given: "{{ code_ssh_given_now }}"
             ansible_ssh_common_args: >-
               {{ claude_vm_addressed[0].key_alias | default('')
                  | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-                 plugin_type='connection', plugin_name='ssh')) }}
+              {{ code_ssh_given_now }}
             ansible_control_path: >-
               %(directory)s/{{ claude_vm_addressed[0].key_alias | default('') | vm_control_name(code_reach) }}-%%r-%%p
+          vars:
+            code_ssh_given_now: >-
+              {{ hostvars[claude_vm_names[0]].claude_vm_ssh_given
+                 | default(hostvars[claude_vm_names[0]].ansible_ssh_common_args
+                           | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                            plugin_name='ssh'))) }}
           changed_when: false
 
         # Before anything connects: a key kept before 2.6 by address.

@@ -251,7 +251,11 @@ def test_a_vms_address_and_id_are_where_the_engine_reads_them():
         for item in _items(_load_yaml(REPO / "playbooks" / "discover.yml"))
         for action in ADD_HOST & set(item)
     ]
-    assert added and all({"ansible_host", "proxmox_vm_id"} <= set(each) for each in added), added
+    # Discovery puts each VM in claude_vms first, alone, for its group's own to be read from it: the engine passes
+    # such a one by.
+    giving = [each for each in added if set(each) != {"name", "groups"}]
+    assert giving and len(giving) < len(added), added
+    assert all({"ansible_host", "proxmox_vm_id"} <= set(each) for each in giving), added
     set_facts = _set_facts(_items(_load_yaml(REPO / "playbooks" / "tasks" / "vm_addresses.yml")))
     assert "claude_vm_addressed" in set_facts, set_facts
 

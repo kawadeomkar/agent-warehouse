@@ -660,10 +660,12 @@ Host alpha
 ```
 
 **The host key.** Every connection to a VM - Ansible's (each `add_host` that publishes one sets
-`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then the common args configured: a
-variable, else `ANSIBLE_SSH_COMMON_ARGS` or `ansible.cfg`'s, which the host var would otherwise outrank),
-`just status`'s, the sign-in's forward, destroy's save, and the alias above that the editors and `ssh` use - looks the
-VM's key up, and files a new one, in the project's own `~/.ssh/agent-warehouse.known_hosts`
+`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then the common args configured: the
+VM's own as its groups give it - the `claude_vms` group's too, read once a task before has put the VM in the group,
+and kept from its first publish in the run - else `ANSIBLE_SSH_COMMON_ARGS` or `ansible.cfg`'s, which the host var
+would otherwise outrank), `just status`'s, the sign-in's forward, destroy's save, and the alias above that the
+editors and `ssh` use - looks the VM's key up, and files a new one, in the project's own
+`~/.ssh/agent-warehouse.known_hosts`
 (`claude_ssh_known_hosts_file`, beside the managed file) under `agent-warehouse-<SMBIOS UUID>`: Proxmox makes the
 UUID anew for every VM and clone, and the VM cannot
 change it, where its address is the VM's own report. So a VM cannot have this machine forget another host's key, a
