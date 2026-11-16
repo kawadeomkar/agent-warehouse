@@ -711,10 +711,18 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§7.7](docs/architecture/custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status)
   first.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
-      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only, no redirect followed), not GitHub
-      or Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
+      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs, and where the route to the VMs is the
+      host, SSH connections to it that run nothing and carry forwards, no redirect followed), not GitHub or
+      Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
       `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
-      options, port and key after them - no alias, nothing in `~/.ssh` or `~/.claude`.
+      options, port and key after them, and the hop's own ssh given `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`
+      and `BatchMode=yes` outright - no alias, nothing in `~/.ssh` or `~/.claude`.
+    - Through the Proxmox host (`vm_ssh_route`) the engine makes the hop's login each run, before its probes start,
+      through the core (`lib/claude_vm/route.py`), never for the API's sections alone. The route is worked out at each
+      run, never kept in the snapshot; the hop's settings are (`HOP`, the Proxmox host's own). A hop that cannot be
+      used is one line, its VMs not read for its sake. For VMs that did not answer through it, one forward of its
+      own: answered there, the shared connection was stale, told `-O stop` - never `-O exit`, which cuts another
+      run's tasks - and those VMs read again; otherwise the hop's words are that VM's line, for three at most.
     - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
       `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
       vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.

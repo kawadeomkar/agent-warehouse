@@ -637,7 +637,9 @@ through `filter_plugins/status.py`) and by `just status`, which works out the sa
 **`status/engine.py`** — the run: the screen (`Screen`, the outline, then each VM as what is read of it lands, in the
 region every live output shares, §7.8, the lines its frame leaves out said to be "shown when the run ends"), the
 Proxmox GETs (`Proxmox`, eight at a time, each result in the shape a `uri` task registers, so the model reads either),
-and the order of it all. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+and the order of it all - through the Proxmox host, the hop's login before the probes and its words after them for a
+VM that did not answer (`settle_route`, `recheck`;
+[§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
 run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
 settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
 finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on

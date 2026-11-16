@@ -12,9 +12,11 @@ import argparse
 import getpass
 import json
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -97,6 +99,45 @@ def test_a_change_to_a_file_the_settings_are_made_from_asks_ansible_again(tmp_pa
     done = _run_with_cache(root, cache, vault, "-X", "importtime")
     assert _imports_ansible(done)
     assert any("the settings ask for 4 cores" in it["text"] for it in json.loads(done.stdout)["attention"])
+
+
+def test_the_hop_s_settings_are_kept_and_the_route_worked_out_again_at_each_run(tmp_path, fake_pve) -> None:
+    # The Proxmox host's own settings for the hop are kept; whether auto goes through it is read each run, by address
+    # (lib/claude_vm/route.py), so a laptop that moved never reads a route another network made.
+    from test_route import STAND_IN
+
+    sockets = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        root = status_root(tmp_path, fake_pve, {"vm_ssh_route": "auto"})
+        hop = tmp_path / "hop"
+        hop.mkdir()
+        (hop / "ssh").write_text(STAND_IN)
+        (hop / "ssh").chmod(0o755)
+        (hop / "mode").write_text("open")
+        pve = {
+            "ansible_host": "100.64.0.7",
+            "ansible_user": "root",
+            "ansible_ssh_executable": str(hop / "ssh"),
+            "ansible_control_path_dir": sockets,
+        }
+        inventory = {"claude_vms": {"hosts": {}, "vars": {"vm_user": "dev"}}, "proxmox": {"hosts": {"pve": pve}}}
+        (root / "hosts.yml").write_text(yaml.safe_dump(inventory))
+        cache, vault = tmp_path / "cache", _plain_vault(root)
+        first = _run_with_cache(root, cache, vault)
+        assert first.returncode in (0, 1, 2), first.stderr[-2000:]
+        kept = json.loads((cache / "settings.json").read_text())
+        kept = (json.loads(kept) if isinstance(kept, str) else kept)["config"]
+        assert kept["hop"]["host"] == "100.64.0.7" and kept["hop"]["user"] == "root"
+        assert kept["fleet"]["route"] == "auto" and "addresses" not in json.dumps(kept)
+        logins = (hop / "calls").read_text().count(" -O check ")
+        second = _run_with_cache(root, cache, vault, "-X", "importtime")
+        assert second.returncode == first.returncode and not _imports_ansible(second), second.stderr[-2000:]
+        # Worked out again, and the hop's login made again: ssh -G for the host, then -O check.
+        calls = (hop / "calls").read_text()
+        assert calls.count(" -O check ") > logins
+        assert sum(1 for line in calls.splitlines() if line.startswith("-G ")) == 2
+    finally:
+        shutil.rmtree(sockets, ignore_errors=True)
 
 
 def test_extra_vars_neither_read_nor_write_a_snapshot(tmp_path, fake_pve) -> None:
@@ -628,7 +669,8 @@ def test_a_vm_s_proxmox_and_ssh_parts_are_both_kept_whichever_lands_first() -> N
             screen.land("alpha", part, merge=True)
         assert screen.found["alpha"] == {**proxmox, **ssh}
     source = (REPO / "lib" / "claude_vm" / "status" / "engine.py").read_text()
-    assert source.count("self.screen.land(name,") == source.count("merge=True)") == 2
+    # The probe's two, and a VM not read for the hop's sake (unread_through).
+    assert source.count("self.screen.land(name,") == source.count("merge=True)") == 3
 
 
 @pytest.mark.parametrize(

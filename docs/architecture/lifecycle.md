@@ -392,6 +392,23 @@ the same things directly ([§7.7](custom-code.md#77-libclaude_vmstatus-and-tools
 screen in a quarter of a second and a finished report in about two, against five and twenty-one over a tunnel
 ([§15.7](decisions.md#157-just-status-runs-no-playbook) has the measurements and what else was tried).
 
+**Through the Proxmox host** ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), the reads of the VMs
+go through the host's sshd, and status's SSH to the host runs nothing and carries forwards. Only where it opens SSH at
+all: the API's sections alone check nothing. The route is worked out at each run, never kept; the hop's settings - the
+Proxmox host's user, port, key and ssh program, as Ansible resolves them for it (`HOP`) - are kept in the snapshot.
+Before the probes start, the engine makes the hop's login through the core, its ssh given `StrictHostKeyChecking=yes`,
+`UpdateHostKeys=no` and `BatchMode=yes` outright, so no key is taken; with more than one host each host's child makes
+its own. A hop that cannot be used is one line under PROXMOX, said once with what takes the host's key (any run that
+configures, or `ssh` to it by hand), and the VMs are each not read for its sake, never with a VM's own words. Each VM's
+options gain the hop after `vm_ssh_args`, its socket named with the hop; a VM given a jump of its own takes none, and
+one whose options hold another proxy option beside the hop is not read. Over the shared connection a closed port and
+a forbidden forward both read "Connection closed by UNKNOWN port 65535", and a silent far end a time-out, so after
+the probes, for the VMs still unread for either, one forward of its own goes to the first by name: answered there,
+the shared connection had gone stale (a laptop that slept) and is told `-O stop` - never `-O exit`, which would cut
+the forwards another run has on it - opened again, and those VMs read once more; otherwise what the hop said is that
+VM's line (refused there, no route, no answer, or forbidden for that address), two more VMs get a forward of their
+own, and the rest are said as not having answered through it. Lines that say `ssh` to a VM gain its `-J`.
+
 **The order of a run.**
 
 1. The report's outline is drawn at once, each section with a spinner, before anything has been read.
