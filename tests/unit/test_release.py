@@ -1200,6 +1200,11 @@ COMMON_CONFIGURED = (
     "{{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',"
     " plugin_type='connection', plugin_name='ssh')) }}"
 )
+# What a VM of claude_vms is given: its own as the run first published it, else as its groups give it, else Ansible's.
+GIVEN_CONFIGURED = (
+    "{{{{ hostvars[{vm}].claude_vm_ssh_given | default(hostvars[{vm}].ansible_ssh_common_args"
+    " | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection', plugin_name='ssh'))) }}}}"
+)
 
 
 def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_identity():
@@ -1223,8 +1228,24 @@ def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_i
                         task["name"],
                     )
                     # The common args configured after them: this host var outranks ANSIBLE_SSH_COMMON_ARGS and
-                    # ansible.cfg's, which reach the VMs only through it.
-                    assert COMMON_CONFIGURED in " ".join(str(added["ansible_ssh_common_args"]).split()), path.stem
+                    # ansible.cfg's, which reach the VMs only through it - and, for a VM of claude_vms, the group's
+                    # own, read from the VM once a task before has put it in the group, as 2.5 applied them.
+                    common = " ".join(str(added["ansible_ssh_common_args"]).split())
+                    if added.get("groups") == "claude_vms":
+                        given = next(name for name in task["vars"] if name.endswith("ssh_given_now"))
+                        assert common.endswith("{{ " + given + " }}"), path.stem
+                        assert added["claude_vm_ssh_given"] == "{{ " + given + " }}", path.stem
+                        vm = added["name"].removeprefix("{{ ").removesuffix(" }}")
+                        assert " ".join(task["vars"][given].split()) == GIVEN_CONFIGURED.format(vm=vm), path.stem
+                        before = tasks[: tasks.index(task)]
+                        assert [
+                            t["ansible.builtin.add_host"]
+                            for t in before
+                            if set(t.get("ansible.builtin.add_host") or {}) == {"name", "groups"}
+                            and t["ansible.builtin.add_host"]["name"] == added["name"]
+                        ] == [{"name": added["name"], "groups": "claude_vms"}], path.stem
+                    else:
+                        assert COMMON_CONFIGURED in common, path.stem
                     assert "ansible_ssh_extra_args" not in added, (path.stem, task["name"])
                     control = " ".join(str(added.get("ansible_control_path", "")).split())
                     assert control.startswith("%(directory)s/{{ ") and control.endswith(" }}-%%r-%%p"), path.stem
@@ -1370,6 +1391,36 @@ def test_a_vm_destroy_reaches_gets_the_common_args_configured_and_a_socket_of_it
     known = next(at for at, word in enumerate(words) if word.startswith("UserKnownHostsFile="))
     assert known < words.index("ProxyJump=jump.invalid") and any(word.startswith("HostKeyAlias=") for word in words)
     assert re.fullmatch(r"%\(directory\)s/aw-[0-9a-f]{12}-%%r-%%p", control), control
+
+
+def test_the_claude_vms_group_s_common_args_follow_the_project_s_own_once(tmp_path):
+    # 2.5 gave a VM no ssh options of its own, so ansible_ssh_common_args set on the claude_vms group - a jump host -
+    # reached every run's connection; 2.6.0's host var outranked it and dropped it unsaid. A publisher reads it from
+    # the VM once a task before has put it in the group, after the project's own, which ssh keeps since they come
+    # first - and once, however often a run publishes the VM.
+    for base in _fake_pve(tmp_path):
+        _pve_vm(base, 9020, "grouped", running=True)
+        root = tmp_path / "run"
+        _pve_vars(root, base)
+        (root / "group_vars" / "claude_vms.yml").write_text(
+            yaml.safe_dump({"ansible_ssh_common_args": "-o ProxyJump=jump.invalid"})
+        )
+        discover = {"ansible.builtin.import_playbook": str(REPO / "playbooks" / "discover.yml")}
+        say = {
+            "name": "Say what the VM is given",
+            "hosts": "claude_vms",
+            "gather_facts": False,
+            "tasks": [{"name": "Given", "ansible.builtin.debug": {"var": "ansible_ssh_common_args"}}],
+        }
+        playbook = root / "discover_twice.yml"
+        playbook.write_text(yaml.safe_dump([discover, discover, say]))
+        report = _run(root, playbook, {}, "-e", json.dumps({"vm_name": "grouped"}), timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    (common,) = [result["ansible_ssh_common_args"] for name, _, result in _results(report) if name == "Given"]
+    words = shlex.split(common)
+    assert words[-2:] == ["-o", "ProxyJump=jump.invalid"] and words.count("ProxyJump=jump.invalid") == 1, words
+    known = [at for at, word in enumerate(words) if word.startswith("UserKnownHostsFile=")]
+    assert len(known) == 1 and known[0] < words.index("ProxyJump=jump.invalid"), words
 
 
 def test_a_vm_whose_options_an_extra_var_outranks_is_refused_before_destroy_reaches_it(tmp_path, fake_pve):

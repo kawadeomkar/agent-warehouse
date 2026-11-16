@@ -34,6 +34,18 @@
     # rather than taking discovery down for the whole fleet, and never added
     # with a guessed address: without its NIC's MAC the agent's first address
     # could be a bridge the guest grew later (docker0).
+    # Into claude_vms first, and nothing more: what its groups give it, the
+    # claude_vms group's common args among them, is read from it below.
+    - name: Put the reachable ones in claude_vms
+      ansible.builtin.add_host:
+        name: "{{ claude_vm_found.name }}"
+        groups: claude_vms
+      changed_when: false
+      loop: "{{ claude_vm_addressed | selectattr('address') | list }}"
+      loop_control:
+        loop_var: claude_vm_found
+        label: "{{ claude_vm_found.name }}"
+
     - name: Add the reachable ones to the inventory
       ansible.builtin.add_host:
         name: "{{ claude_vm_found.name }}"
@@ -55,15 +67,23 @@
         # socket of its identity's own: one by address alone would let a VM
         # that reports another's address ride that one's open connection, on
         # which no host key is checked again. The common args configured
-        # follow them - a variable, else ANSIBLE_SSH_COMMON_ARGS or
-        # ansible.cfg's, which this host var would otherwise outrank.
+        # follow them - the VM's own as its groups give it, the claude_vms
+        # group's included, else ANSIBLE_SSH_COMMON_ARGS or ansible.cfg's,
+        # which this host var would otherwise outrank - kept from the first
+        # time the run published it (claude_vm_ssh_given).
         claude_vm_host_key_alias: "{{ claude_vm_found.key_alias | default('') }}"
+        claude_vm_ssh_given: "{{ claude_vm_ssh_given_now }}"
         ansible_ssh_common_args: >-
           {{ claude_vm_found.key_alias | default('') | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-          {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-             plugin_type='connection', plugin_name='ssh')) }}
+          {{ claude_vm_ssh_given_now }}
         ansible_control_path: >-
           %(directory)s/{{ claude_vm_found.key_alias | default('') | vm_control_name(claude_vm_found.address) }}-%%r-%%p
+      vars:
+        claude_vm_ssh_given_now: >-
+          {{ hostvars[claude_vm_found.name].claude_vm_ssh_given
+             | default(hostvars[claude_vm_found.name].ansible_ssh_common_args
+                       | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                        plugin_name='ssh'))) }}
       changed_when: false
       loop: "{{ claude_vm_addressed | selectattr('address') | list }}"
       loop_control:

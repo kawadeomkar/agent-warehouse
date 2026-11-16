@@ -237,6 +237,18 @@
     # Publishing those would hand configure.yml a host it cannot reach, and
     # reading the missing fact would crash this play - skipping configuration
     # for every VM that did come up.
+    # Into claude_vms first, and nothing more: what its groups give it, the
+    # claude_vms group's common args among them, is read from it below.
+    - name: Put each VM in the claude_vms group
+      ansible.builtin.add_host:
+        name: "{{ claude_vm_name_item }}"
+        groups: claude_vms
+      changed_when: false
+      when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
+      loop: "{{ claude_vm_names }}"
+      loop_control:
+        loop_var: claude_vm_name_item
+
     - name: Add each VM to the claude_vms group
       ansible.builtin.add_host:
         name: "{{ claude_vm_name_item }}"
@@ -266,18 +278,23 @@
         # identity from Proxmox - the config the role read, the lookup's for a
         # VM that was there, the one after the clone for a VM this run made -
         # never the address it reports; no agent forwarded (vm_ssh_args).
-        # Common args, for sftp and scp too, the configured ones after them,
-        # and a shared-connection socket of its identity's own (discover.yml
-        # says why).
+        # Common args, for sftp and scp too, the VM's own after them, and a
+        # shared-connection socket of its identity's own (discover.yml says
+        # why).
         claude_vm_host_key_alias: "{{ claude_vm_publish_alias }}"
+        claude_vm_ssh_given: "{{ claude_vm_ssh_given_now }}"
         ansible_ssh_common_args: >-
           {{ claude_vm_publish_alias | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-          {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-             plugin_type='connection', plugin_name='ssh')) }}
+          {{ claude_vm_ssh_given_now }}
         ansible_control_path: >-
           %(directory)s/{{ claude_vm_publish_alias
              | vm_control_name(hostvars[claude_vm_name_item].proxmox_vm_address) }}-%%r-%%p
       vars:
+        claude_vm_ssh_given_now: >-
+          {{ hostvars[claude_vm_name_item].claude_vm_ssh_given
+             | default(hostvars[claude_vm_name_item].ansible_ssh_common_args
+                       | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                        plugin_name='ssh'))) }}
         claude_vm_publish_alias: >-
           {{ (((hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms
                 if hostvars[claude_vm_name_item].proxmox_vm_exists | default(false) | bool

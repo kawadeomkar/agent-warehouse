@@ -546,9 +546,12 @@ class Engine(commands.Drawn):
         if result.task.action in ADD_HOST:
             for item in [result.result, *(result.result.get("results") or [])]:
                 added = item.get("add_host") if isinstance(item, dict) else None
-                if isinstance(added, dict):
-                    hostvars = added.get("host_vars") or {}
-                    found.append((added.get("host_name"), hostvars.get("ansible_host"), hostvars.get("proxmox_vm_id")))
+                hostvars = (added.get("host_vars") or {}) if isinstance(added, dict) else {}
+                given = [hostvars.get(key) for key in ("ansible_host", "proxmox_vm_id")]
+                # One that only puts a VM in its group, as discovery does before the one that gives it all, says
+                # nothing of it, and blanks no ID.
+                if any(one is not None for one in given):
+                    found.append((added.get("host_name"), *given))
         addressed = (result.result.get("ansible_facts") or {}).get("claude_vm_addressed")
         for entry in addressed if isinstance(addressed, list) else []:
             if isinstance(entry, dict):

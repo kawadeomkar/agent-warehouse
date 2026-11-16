@@ -76,7 +76,8 @@ The independent security review of 2026-11-10 brought these; an install made bef
   machine wants the new file beside it. `claude_ssh_options` may no longer set any option the block writes itself
   (`ForwardAgent` is `claude_ssh_forward_agent`), but a stricter `StrictHostKeyChecking`, and an
   `ansible_ssh_common_args` set for a VM where it outranks the project's own is refused: set
-  `ansible_ssh_extra_args` for options of yours.
+  `ansible_ssh_extra_args` for options of yours. Set on the `claude_vms` group, it follows the project's own, as
+  through 2.5: 2.6.0 dropped it without a word, and 2.6.1 gives it back.
 
 ## The project is called agent-warehouse
 
