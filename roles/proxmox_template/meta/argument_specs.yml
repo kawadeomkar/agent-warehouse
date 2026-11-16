@@ -23,6 +23,23 @@ argument_specs:
       proxmox_template_image_checksum:
         type: str
         description: get_url checksum spec. Set to an empty string to skip verification.
+      proxmox_template_image_signature:
+        type: str
+        description:
+          - The URL of Ubuntu's detached signature of the checksum list (SHA256SUMS.gpg), which the list is held to,
+            by Ubuntu's cloud image key, before the image is held to the list. Made from the checksum for a list of
+            Ubuntu's own; empty, as for any other image, the checksum alone holds the image.
+      proxmox_template_image_key:
+        type: str
+        description:
+          - The armored OpenPGP key the signature is by. Ubuntu's cloud image key, vendored in the role's
+            files/ubuntu-cloudimage.asc, unless an image of your own is signed by a key of yours.
+      proxmox_template_image_fingerprint:
+        type: str
+        default: D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81
+        description:
+          - The fingerprint of that key, which the verifier finds it by among the key's packets - never by the key ID
+            the signature names.
       proxmox_template_image_dir:
         type: path
         default: /var/lib/vz/agent-warehouse

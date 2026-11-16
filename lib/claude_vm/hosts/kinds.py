@@ -64,6 +64,11 @@ KINDS: Final[Mapping[str, Kind]] = {
             "proxmox_api_url",
             "proxmox_api_headers",
             "proxmox_api_module_defaults",
+            # The certificate checking: the host's trust file beside its hosts.yml, and what is made of it.
+            "proxmox_trust_file",
+            "proxmox_trust_kept",
+            "proxmox_api_validate",
+            "proxmox_api_ca_path",
         ),
         shown=(("NODE", "proxmox_node"),),
     ),

@@ -36,7 +36,7 @@
       {{ common_masked_units | select('match', 'snapd[.]') | list
          if common_masked_units_snaps.matched | default(0) > 0 else [] }}
     common_masked_units_doomed: "{{ common_masked_units_present | difference(common_masked_units_kept) }}"
-    common_masked_units_triggers: "{{ common_masked_units_doomed | select('search', '[.](timer|socket|path)$') | list }}"
+    common_masked_units_triggers: "{{ common_masked_units_doomed | select('search', '[.](timer|socket|path)\\Z') | list }}"
   when: common_masked_units_doomed | length > 0
   block:
     - name: masked_units | Stop each unit, timers, sockets and paths first

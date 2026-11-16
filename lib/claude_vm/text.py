@@ -48,6 +48,26 @@ _SEQUENCES = re.compile(
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
+# A word systemd reads as it is in a unit's ExecStart=: nothing it splits on, quotes, escapes or expands.
+# A word systemd and a shell both take as it is: shlex.quote's own, but for %, which systemd expands even in quotes.
+_SYSTEMD_WORD = re.compile(r"[A-Za-z0-9_@:,./+=-]+")
+_ANY_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def systemd_arg(value):
+    """``value`` as one argument of a systemd unit's ExecStart=, which systemd reads by rules of its own, not a
+    shell's: a plain word as it is, so a unit made of plain words renders as it always did; anything else in double
+    quotes with backslash and quote escaped, and % and $ doubled, since systemd expands its specifiers and variables
+    whatever the quotes. A control character is refused: no quoting carries a newline into a unit."""
+    text = "" if value is None else str(value)
+    if _ANY_CONTROL.search(text):
+        raise ValueError(f"{text!r} holds a control character, which a systemd unit's argument cannot")
+    if _SYSTEMD_WORD.fullmatch(text):
+        return text
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
+    return f'"{escaped}"'
+
+
 def plain_text(text):
     """Return ``text`` without escape sequences or control characters; tab and newline stay."""
     if text is None:
@@ -89,7 +109,7 @@ def one_line(text, limit=120):
     return cleaned if len(cleaned) <= limit else cleaned[: limit - 1].rstrip() + "…"
 
 
-_SENTENCE_END = re.compile(r"[.!?]$")
+_SENTENCE_END = re.compile(r"[.!?]\Z")
 
 
 def full_stop(text):

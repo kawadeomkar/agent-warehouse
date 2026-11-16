@@ -13,7 +13,13 @@ a sibling node looks free to it; before building, the role reads pmxcfs's cluste
 ran to `qm create` - after the download and `virt-customize` - and died there with
 `VM 9000 already exists on node 'pve2'`.
 
-1. Download Ubuntu Noble's minimal cloud image, checksummed against Ubuntu's published `SHA256SUMS`, into
+1. Download Ubuntu Noble's minimal cloud image, held to its digest in Ubuntu's `SHA256SUMS` once that list verifies
+   by Ubuntu's signature (`SHA256SUMS.gpg`, by the vendored key `files/ubuntu-cloudimage.asc`, found by
+   `proxmox_template_image_fingerprint`; `tasks/image_signature.yml`, [§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)):
+   the node reads the list and the signature with `uri`, this machine verifies them, and `get_url` is given
+   `sha256:<digest>`. `proxmox_template_image_signature` is made from the checksum when that is a list of Ubuntu's
+   own on `cloud-images.ubuntu.com`, so any Ubuntu cloud image is held so, and is empty for any other image, whose
+   checksum alone holds it. Into
    `proxmox_template_image_dir` (`/var/lib/vz/agent-warehouse`, created `0755`; the build first moves
    `/var/lib/vz/claude-on-proxmox`, its 1.x name, there, so the download is not fetched again). Not a content
    directory of the `local` storage: under `template/iso` Proxmox listed the image as an ISO. The
@@ -71,16 +77,13 @@ check and `absent.yml`, both only for a VM that exists.
 The read-then-assert pairs exist so a failure reports *what to fix* (check that the API token holds
 `VM.Monitor` on PVE 8, `VM.GuestAgent.Audit` on PVE 9) instead of Ansible's generic retry timeout.
 
-**`tasks/absent.yml`** — ask the agent for the address *while the VM still exists* (the NIC's MAC comes
-from the config the lookup already holds), stop, delete
+**`tasks/absent.yml`** — stop, delete
 with `force: true` (which also covers a VM restarted between the two calls) and
 `destroy_unreferenced_disks: true` (a disk that still carries the VMID but that the configuration no
 longer lists goes with the VM - these VMs are deleted often, and the tag check has already
-established the VMID is this project's), then one housekeeping
-step: remove the address from `known_hosts`. It matters because names and DHCP leases are reused,
-and a stale host key produces `HOST KEY VERIFICATION FAILED` with no hint why. If no address could
-be determined, a warning says so and names the `ssh-keygen -R` fix. There are no cached facts to
-clear: the project has no fact cache ([§13](toolchain.md)).
+established the VMID is this project's). No SSH host key is forgotten: the VM's is filed under its identity, which no
+VM made later has, so it only refuses any other VM given it ([§4.5](lifecycle.md#45-playbooksdestroyyml--confirm-release-delete)).
+There are no cached facts to clear: the project has no fact cache ([§13](toolchain.md)).
 
 **`vars/main.yml`** holds the role's lazily-evaluated internals — see [§6.3](variables.md#63-computed-internals).
 
@@ -225,22 +228,40 @@ of two install paths:
 
 - **native** (default): probe `claude --version`; install when missing, or when `claude_code_version`
   is an exact `x.y.z` that differs from what is installed. `stable`/`latest` self-update, so they are
-  installed once and never reinstalled. The installer script is downloaded to a tempfile in a `block`
-  with an `always:` cleanup.
+  installed once and never reinstalled. Never through Anthropic's installer script, which checks the binary
+  only against a manifest from the same server and verifies no signature: the VM reads the version a channel
+  names (`{base}/stable`), that release's `manifest.json` and Anthropic's detached signature of it
+  (`manifest.json.sig`) with `uri`, from `claude_code_download_url`; this machine verifies the signature with
+  the vendored key, `files/claude-code.asc`, found by `claude_code_release_fingerprint` (the
+  `openpgp_verified` filter, [§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here));
+  and the VM downloads the binary for its platform (`linux-x64` or `linux-arm64`, from the gathered
+  architecture) held by `get_url` to the digest the verified manifest gives, into the user's own
+  `~/.claude/downloads` (a `/tmp` mounted `noexec` would refuse to run it) in a `block` with an `always:` cleanup,
+  and runs its own `install <the release verified>` - never the channel's name, which the binary could resolve and
+  fetch again for itself - then holds what `~/.local/bin/claude` resolves to to the same digest. The channel is the
+  `autoUpdatesChannel` setting `settings.yml` writes. It carries no signature and needs none: the version it names
+  must have a manifest that verifies, be that version's (the manifest names it), and be `claude_code_signed_since`
+  (2.1.89, the first release Anthropic signed) or later, so whoever serves the channel can only pick among
+  Anthropic's signed releases. An exact version older than that is refused. The reads have a timeout, retries and
+  a size bound, and run under `--check`. What the role verifies is what it installs: the binary's own updates
+  after that are its own, from Anthropic's servers, and a VM installed before 2.6 is not compared with anything.
 - **npm**: `community.general.npm` with `version: omit` for `stable`/`latest`.
 
 ### Managed settings
 
 `settings.yml` merges managed settings *over* whatever is on the VM (`slurp` with
 `failed_when: false`, `combine(recursive=True)`), so a user's own edits to `~/.claude/settings.json`
-survive a re-run. Every task there is `no_log: true` because the API key passes through.
+survive a re-run. Every task there is `no_log: true` because the API key passes through. For a native install on
+`stable` or `latest` it also writes `autoUpdatesChannel`, the channel the binary updates on; a pinned version sets
+none.
 
 A merge can only add, so the role owns `env.ANTHROPIC_API_KEY` explicitly: when nothing managed
 sets it, a key found on disk is stale and is removed, along with an `env` block it leaves empty.
 Without that, clearing `claude_code_anthropic_api_key` changed nothing on the VM — the key an earlier
 run wrote went on outranking the claude.ai login. The file is therefore read on every run, even with
 nothing to manage, but parsed only when something is managed or its text contains the key — so with
-nothing managed, a hand-broken file the role has no business with does not fail the run. Once
+nothing managed, a hand-broken file the role has no business with does not fail the run. A native install on
+`stable` or `latest`, the default, always manages `autoUpdatesChannel`, so there the file is parsed. Once
 something is managed the file has to be parsed: an empty or whitespace-only one counts as `{}`, and
 one that is not a JSON object fails in a `block` whose `rescue` names the file, rather than as a
 `from_json` traceback hidden by `no_log`. A key set through `claude_code_settings.env` counts as
@@ -587,9 +608,10 @@ Remote Control's decision (§5.5): derived from what the VM holds, never from a 
    command is `gh` the way gh itself does, so a second run changes nothing. The helpers are read
    whenever gh is signed in, `github_auth` or not.
 5. **Say what is missing** on a signed-out VM: the device-flow command (or, under `just deploy`,
-   `github_projects_sign_in_follows`, that the deploy signs it in next), which adds `-s workflow` to
-   gh's default scopes (`repo`, `read:org`, `gist`) so that a push changing `.github/workflows/` is
-   not refused, and that private repositories are not listed until then.
+   `github_projects_sign_in_follows`, that the deploy signs it in next), which adds
+   `github_projects_login_scopes` to gh's default scopes (`repo`, `read:org`, `gist`) with `-s` - none by
+   default, since `workflow` lets a push change `.github/workflows/`, the road to a repository's Actions
+   secrets - and that private repositories are not listed until then.
 
 ### Listing and cloning: `clone.yml`
 
@@ -635,7 +657,8 @@ on, the checkouts that existed before the run are pulled one at a time with `ans
 gh's state as `auth.yml` does, the user's home included (the marker lives under it; when only `main.yml`
 looked it up, the entry point's first real run found it missing), decides from the same vars and
 reports how a VM is signed in - and, for a
-device-flow login that lacks the `workflow` scope, the `gh auth refresh` that adds it. It names only
+device-flow login that lacks the `workflow` scope `github_projects_login_scopes` asks for, the `gh auth refresh`
+that adds it. It names only
 what can run there: with `github_auth: false` nothing, and for a vault token not applied yet the
 `just deploy ... --tags github_projects` that applies it. Given names, any number, it runs the device
 flow itself (`device_flow.yml`) for each VM signed out, then, after the last approval, the whole role
@@ -876,8 +899,17 @@ plan's research record.
   is set (half of one is said by name and never sent), else `none`; `none`, `token` and `oauth` name one.
   `token` is an API access token, `oauth` an OAuth client, exchanged at `/api/v2/oauth/token` for a
   one-hour token (it needs `devices:core`). `GET /api/v2/device/<Self.ID>` first, then `DELETE` only when
-  the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`: the VM reports the ID,
-  and the credential can delete any device. The ID goes into the path, and `urlencode` leaves `/` alone, so
+  the device's MagicDNS name's first label is `tailscale_hostname` or `<it>-<n>`, and that is not the name
+  another VM joins as: `destroy.yml` passes the names of the fleet's other VMs from Proxmox's listing, and of the
+  checkout's other hosts' VMs from their aliases (`tailscale_release_other_vms`), and `tailscale_sibling_labels`
+  makes each the machine name it joins as, by the same `tailscale_label` rule, with whatever this VM's
+  `tailscale_hostname` has around its own (`dev-web-2` beside `dev-web`). Where nothing tells the devices apart -
+  a `tailscale_hostname` with no label of the VM's name in it, one name for every VM, or two VMs whose names make
+  the same label (`alpha.lab` and `alpha-lab`) - no device of the name is deleted, and the release says so. The VM
+  reports the ID, can read its peers' in its own `tailscale status`, and the credential can delete any
+  device. A stronger rule - the node's ID recorded in Proxmox at the join, and only that one deleted - would
+  need a record of its own (an ID is mixed case, which a tag is not) and readers of it; it is the way to go
+  if a VM compromised after its join must name no device at all. The ID goes into the path, and `urlencode` leaves `/` alone, so
   one that is not letters and digits (`tailscale_node_id_pattern`) is said, and no call is made with it. A 404 is a device already gone. Every call is `no_log` and
   `delegate_to: localhost`; the file is always included and its tasks carry the condition, so no register
   is an earlier run's. Run by the `release` entry point, which

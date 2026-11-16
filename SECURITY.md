@@ -16,10 +16,11 @@ what it stores. How each part below is enforced is the
 - **The custom modules**: `roles/github_projects/library/github_repos.py`, which handles a GitHub token, and
   the five in `playbooks/library/` that `just code`, `just status` and `just destroy` run, on a VM or on this
   machine - among them `claude_sessions_fetch`, which unpacks here the tar stream a VM sends.
-- **Supply chain**: the vendored apt signing keys in `roles/dev_tools/files/` and
-  `roles/tailscale/files/`, and every other download a VM gets - the uv release, the Ubuntu cloud image,
-  the Claude Code installer - each verified as [What the VM trusts](docs/guides/what-the-vm-trusts.md)
-  says.
+- **Supply chain**: the vendored signing keys - apt's in `roles/dev_tools/files/` and
+  `roles/tailscale/files/`, Anthropic's release key in `roles/claude_code/files/` and Ubuntu's cloud image key in
+  `roles/proxmox_template/files/` - the verifier that checks the last two's signatures on this machine
+  (`lib/claude_vm/openpgp.py`), and every other download a VM gets - the uv release, the Ubuntu cloud image,
+  Claude Code - each verified as [What the VM trusts](docs/guides/what-the-vm-trusts.md) says.
 - **Credential handling**: the Proxmox API token, the GitHub token, the Anthropic API key and the Tailscale
   auth key and API credential, which live in an ansible-vault file, and the Claude sign-in's one-time code.
   Every task that renders one is `no_log`, none is put on a command line or in a file, and the tests grep
@@ -52,7 +53,8 @@ what it stores. How each part below is enforced is the
   membership. Turned off, the rule goes with the one cloud-init writes and the groups that reach root
   without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: what
-  [On the controller](docs/architecture/security-model.md#on-the-controller) lists - `~/.ssh/known_hosts`,
+  [On the controller](docs/architecture/security-model.md#on-the-controller) lists - the VMs' SSH host keys in
+  `~/.ssh/agent-warehouse.known_hosts`, the Proxmox host's in `~/.ssh/known_hosts`,
   the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
   the checkout's own folder outside it (`tools/env-run --data`), VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
@@ -74,16 +76,38 @@ a VM lives with in [What the VM trusts](docs/guides/what-the-vm-trusts.md), how 
 [docs/architecture/security-model.md](docs/architecture/security-model.md) - and reports that only
 restate them are not treated as vulnerabilities:
 
-- `proxmox_validate_certs` defaults to `false`, because a stock Proxmox install presents a self-signed
-  certificate, so every run sends the API token to whatever answers at the host's address on port 8006.
-  [Proxmox access](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-  explains how to trust the Proxmox CA and turn it on; a later release will have `just init` fetch the CA
-  and turn validation on by default. Until you turn it on, count the project's own VMs among the devices
-  that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
+- **Opening a VM in your editor trusts that VM with this machine.** `just code`, and the last step of
+  `just deploy` (`deploy_code`, on by default), open a VS Code Remote - SSH or Zed window on a VM where an
+  agent runs with passwordless sudo. Microsoft says of Remote - SSH: "A compromised remote could use the VS
+  Code Remote connection to execute code on your local machine" ([its Security Note](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)). VS Code's
+  server on the VM is in the same trust boundary as the window ([vscode-remote-release#6608](https://github.com/microsoft/vscode-remote-release/issues/6608)), the
+  VM's root can replace it, and published research has a server open a terminal on the client and type into
+  it, in default settings; no VS Code setting, profile or Workspace Trust prevents that. Zed says nothing
+  either way of what its remote server can do to the client. So a window on a VM whose agent was talked into
+  something - by a repository, a web page, a tool's output - can run commands here, as you, while it is open.
+  Open a window only on a VM you would let do that, and close it when you are not working in it;
+  `deploy_code: false` keeps `just deploy` from opening one. Remote Control (claude.ai/code and the Claude
+  apps, which `just deploy` sets up by default) and plain `ssh <vm>` keep the VM at arm's length
+  ([What a window on a VM trusts](docs/guides/vscode.md#what-a-window-on-a-vm-trusts)). This is the largest
+  of these trade-offs, and no code of this project's can close it.
+- **The API's certificate is checked once `just init` has set it up.** A stock Proxmox install presents a
+  certificate of its own CA, which nothing here trusts, so `proxmox_validate_certs` defaults to `false`. `just
+  init` works out, before the token is sent anywhere, what makes the certificate verify - this machine's trust
+  store, or the host's CA or its node's certificate read over root SSH - and keeps it beside `hosts.yml` with
+  checking on for every run against the host
+  ([Trusting the Proxmox certificate](docs/getting-started/proxmox-access.md#trusting-the-proxmox-certificate)).
+  Where the address presents none of the host's certificates while root SSH reaches the host - another, or none it
+  can read - `just init` sends no token. A certificate that changes is trusted in place of the old one only on a yes
+  that shows both fingerprints, never through a run with checking off. Every recipe warns until then, `just status`
+  too for each host it reads, and the default itself turns on in the next major release. Until checking is
+  on, every run sends the API token to whatever answers at the host's address on port 8006, so count the
+  project's own VMs among the devices that could answer there. They sit on the bridge you choose (`proxmox_bridge`), by default `vmbr0`, the
   bridge the host's own address is usually on, with no Proxmox firewall on their network device. So that
   network always has a device you cannot fully trust on it: root on any VM - an agent with passwordless
   sudo, or another user's VM on a shared host - can try to answer for the host's address and read the
-  token, which reaches every VM on the host (below).
+  token, which reaches every VM on the host (below). A network of the VMs' own keeps them off the host's
+  address and your other machines
+  ([The VMs on a network of their own](docs/getting-started/proxmox-access.md#the-vms-on-a-network-of-their-own)).
 - **The API token's reach.** `tools/proxmox-access.sh` grants the `AnsibleVM` role on `/vms`, and the grant
   propagates to every VM on the host. The token can set the SSH keys cloud-init installs on any VM there,
   restart it into them, and delete it - this project's VMs or not - and so can anyone who obtains the token,
@@ -117,8 +141,29 @@ restate them are not treated as vulnerabilities:
   root on one VM can make its sudo ask and read the password from the next run. With it, that VM's root
   has the password to every other VM's console and, on the tighter box, to every other VM's sudo. Make it
   one you use nowhere else; a password of each VM's own is not built yet.
+- `.vault_pass`, which `just init` makes so that every run opens the vault without asking, sits beside the
+  vault in the checkout: a backup, a sync or anything that reads the checkout as you has both files, and the
+  vault's encryption then protects only what leaves the machine without the password. A password kept in
+  the system's keychain, with a script that asks it, takes it out of backups and of the reach of anything
+  that only reads files
+  ([Keeping the vault password in your keychain](docs/getting-started/first-deploy.md#keeping-the-vault-password-in-your-keychain));
+  a process that can run commands as you can still ask the keychain for it.
+- **One GitHub login for every VM.** A token in the vault is every VM's, and a device-flow login leaves a
+  token on its VM that does not expire, with gh's scopes (`repo`, `read:org`, `gist`): the agent on any VM can
+  read and push to every repository that login reaches. [A narrower GitHub login](docs/guides/github.md#a-narrower-github-login)
+  gathers the ways to bound it - a fine-grained token with chosen repositories and an expiry, no `workflow`
+  scope (the default), no login on a VM that should push nothing; a token of each VM's own is not built.
 - SSH host keys are accepted on first contact (`StrictHostKeyChecking=accept-new`) so a freshly cloned VM
-  can be reached without manual steps. Changed keys are still refused.
+  can be reached without manual steps. Changed keys are still refused. Each VM's key is kept in the project's own
+  `~/.ssh/agent-warehouse.known_hosts` under the VM's identity - `agent-warehouse-<its SMBIOS UUID>`, which
+  Proxmox holds and makes anew for every VM, the `HostKeyAlias` every connection and alias names - never under
+  the address the VM reports: a VM cannot have this machine forget another host's key, a recycled address means
+  nothing for a VM already known, and a VM that reports a sibling's address is refused there, since the sibling
+  does not hold its key - each VM's shared connection is kept on a socket of its identity's own, so it cannot ride
+  the sibling's open one either, and two VMs that report one address are both left out. A deleted VM's key stays,
+  so a VM later given its identity is refused rather than trusted. A new VM's first connection is still trust on
+  first use, and so is the first run after upgrading for a VM this machine held no key for by address; the key it
+  did hold is copied over once, for the address the VM reports at that moment.
 - The `vscode_server` role keeps `AllowTcpForwarding` on, which VS Code's Remote - SSH, Claude's sign-in in the
   browser and Zed's port forwards use, and OpenSSH defaults to anyway; the VM user can forward ports, as a user with passwordless sudo always could.
   SSH agent forwarding to the VM is off by default and documented as a choice, because the VM user is
@@ -126,7 +171,8 @@ restate them are not treated as vulnerabilities:
 - In VS Code, `just code` opens a workspace file whose tasks start `claude` in a terminal, and a shell beside
   it, when the window opens (`editor_claude_terminal`, on by default). The file is written by this project
   beside the repositories, never in one, and what its tasks run is fixed
-  ([In the editor](docs/architecture/security-model.md#in-the-editor)). VS Code still runs
+  ([In the editor](docs/architecture/security-model.md#in-the-editor)) - against a repository, not against the
+  VM: the file is on the VM, where its root can rewrite it as it can replace VS Code Server (above). VS Code still runs
   it only in a window you have trusted and once you have allowed automatic tasks; the project reads
   that setting to explain what will happen, and never writes it, sets trust, or relaxes either check.
   Allowing automatic tasks is a VS Code-wide choice: it also lets a trusted repository's own
@@ -181,21 +227,23 @@ restate them are not treated as vulnerabilities:
   transcripts holding whatever their tools printed, in 0600 files and 0700 folders readable by you alone,
   ignored by git and refused by the tracked-file guard. They stay until you delete them; `false` deletes
   them with the VM. What the VM sends is not trusted, since a VM's root can make up anything: only plain
-  files and folders under the names Claude Code gives its own are written, never a link and never outside
-  that folder, and nothing on this machine is read or changed through one. A saved transcript is still the
+  files and folders under the names Claude Code gives its own are written - no name that starts with a dot,
+  and none a bare repository needs (`HEAD`), so no repository a later git command would read - never a link
+  and never outside that folder, and nothing on this machine is read or changed through one. A save holds at
+  most `destroy_sessions_max_size` (4G); a VM that sends more, an archive built to fill this machine's memory
+  (no global header, and no entry kept once it is written), or one that stops sending for five minutes or
+  takes an hour, fails the save and is kept. A saved transcript is still the
   VM's writing - treat what it says, and what resuming it here asks to run, as you would the VM itself.
-- Deleting a VM also removes its host key from `known_hosts`, which re-opens that first-contact window
-  for its address. The address goes back into the DHCP pool, so whatever answers there next is trusted
-  once - and the next `just deploy` then sends it your SSH keys, GitHub token and Anthropic API key. The
-  sign-ins hand it more: `just deploy` and `just login` run `claude auth login` and `gh auth login`
-  there and ask you to authorise what they print, so an impostor that prints
+- A new VM's first contact is trust on first use: whatever answers at the address its guest agent reports, when
+  the VM is first reached, is trusted - and `just deploy` then sends it your SSH keys, GitHub token and
+  Anthropic API key. The sign-ins hand it more: `just deploy` and `just login` run `claude auth login` and
+  `gh auth login` there and ask you to authorise what they print, so an impostor that prints
   a genuine sign-in page or device code of its own receives a claude.ai login, or a GitHub OAuth token
-  with gh's scopes (`repo`, `read:org`, `gist`) and `workflow` that does not expire until revoked - with
+  with gh's scopes (`repo`, `read:org`, `gist`), and any `github_login_scopes` adds, that does not expire until
+  revoked - with
   no GitHub token in the vault as much as with one. Authorise only a page or code for a VM you have just
   created or know to be yours; a run that says gh on the VM named another page, not GitHub's own, is one
-  more sign that the VM is not. Keeping
-  the key instead would only trade this for a failure every time a lease is recycled, so the removal is
-  deliberate. On a network where you do not trust every device, put the VMs on a bridge that only
+  more sign that the VM is not. On a network where you do not trust every device, put the VMs on a bridge that only
   trusted devices can reach (`proxmox_bridge`, set before `just deploy --only template`, since every clone inherits
   the template's NIC). A fixed address from `vm_ipconfig`, outside the DHCP pool, keeps the
   address from being leased to anything else, but only for a single VM: that one value applies to every
@@ -215,10 +263,15 @@ restate them are not treated as vulnerabilities:
   what the VM reports - and the VM runs an agent with sudo. The Tailscale node ID the device is deleted by
   is the VM's to report, and the API credential can delete any device in the tailnet, so the device is
   looked up first and deleted only when its name is the one this project asked the VM to join as
-  (`tailscale_hostname`, or that name with Tailscale's `-<n>`); anything else is said, not deleted. A VM
-  whose address was recycled since is released wherever that address
-  now answers - an SSH host key it does not hold fails the connection first, and nothing is sent to it but
-  the release's own commands.
+  (`tailscale_hostname`, or that name with Tailscale's `-<n>`, unless that is the name another VM joins as:
+  `web` can report the ID of `web-2`'s device). The other VMs are the host's fleet and the checkout's other
+  hosts' VMs it has aliases for, each named as `tailscale_hostname` names this one (`dev-web-2` beside
+  `dev-web`); where nothing tells two VMs' names apart - one `tailscale_hostname` for every VM, or `alpha.lab`
+  beside `alpha-lab` - no device is deleted. Anything else is said, not deleted. What is left is a device of
+  none of those VMs that happens to be named `<vm>-<digits>`, such as one of a VM on a Proxmox host this
+  checkout does not have. The address the release connects to is the VM's own report too, but the
+  host key it is held to is the one kept under the VM's identity: a VM that reports another machine's address,
+  or whose address was recycled since, fails the connection there, and nothing is sent to it.
 - **The Claude sign-in's forward.** While Claude's browser sign-in waits, one port on this machine's
   loopback, on both its addresses (`ssh -L 127.0.0.1:<port>:… -L [::1]:<port>:…`), reaches claude's callback
   on the VM's own `127.0.0.1`, so any process on this machine can reach that callback for those minutes - as

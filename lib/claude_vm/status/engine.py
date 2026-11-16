@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import proxmox as proxmox_reads
+from ..checks import vm_control_name, vm_ssh_args
 from ..text import one_line
 from ..tui import live_region as live
 from ..tui import status as status_view
@@ -419,6 +420,8 @@ class Run:
                     "check proxmox_api_user, proxmox_api_token_id and vault_proxmox_api_token_secret"
                     " (docs/getting-started/proxmox-access.md)",
                 )
+            elif untrusted := proxmox_reads.proxmox_untrusted_hint(listing["msg"], self.fleet.get("trust_file", "")):
+                self.unread(f"Proxmox's certificate did not verify: {listing['msg']}", untrusted)
             else:
                 self.unread(
                     f"Proxmox did not answer: {listing['msg'] or 'no response'}",
@@ -507,11 +510,18 @@ class Run:
     def reach_vm(self, vm, requested, config, network):
         """One VM's probe, at the address its config and agent answer give."""
         entry = next((one for one in requested if one.get("vmid") == vm["vmid"]), vm)
-        address = proxmox_reads.guest_addresses([entry], [config], [network], self.fleet["nic"])[0]["address"]
+        row = proxmox_reads.guest_addresses([entry], [config], [network], self.fleet["nic"])[0]
+        address = row["address"]
         if not address:
             return
         name = vm["name"]
         how = {**settings.reach_for(self.config, name), "host": address}
+        # Its host key held where every run holds it: the project's own file, under the VM's identity from Proxmox,
+        # never the address it reports (status_ssh_args, first, still takes no new key).
+        how["ssh_args"] = f"{how['ssh_args']} {vm_ssh_args(row['key_alias'], how['known_hosts'])}"
+        # A shared connection of its identity's own: one by address alone would let a VM that reports another's
+        # address ride that one's, on which no host key is checked again.
+        how["control_name"] = vm_control_name(row["key_alias"], address)
         joined = self.fleet["tailscale_tag_pattern"]
         tags = str(entry.get("tags") or "")
         before = bool(re.search(joined, tags))

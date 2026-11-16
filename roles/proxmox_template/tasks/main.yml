@@ -127,11 +127,14 @@
         group: root
         mode: "0755"
 
+    - name: Hold the image to Ubuntu's signature of its checksum list
+      ansible.builtin.include_tasks: image_signature.yml
+
     - name: Download cloud image
       ansible.builtin.get_url:
         url: "{{ proxmox_template_image_url }}"
         dest: "{{ proxmox_template_image_dir }}/{{ proxmox_template_image_url | basename }}"
-        checksum: "{{ proxmox_template_image_checksum | default(omit, true) }}"
+        checksum: "{{ proxmox_template_image_signed }}"
         owner: root
         group: root
         mode: "0644"

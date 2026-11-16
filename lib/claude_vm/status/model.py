@@ -23,6 +23,7 @@ from ..proxmox import (
     proxmox_tags,
     scsi0_storage,
     ssh_config_blocks,
+    ssh_host_key_alias,
 )
 from ..proxmox import proxmox_read_grant as grant
 from ..refs import NAME
@@ -41,7 +42,8 @@ LINE_KEYS = frozenset({"line", "grant"})
 GIB = 1024**3
 LEVELS = ("unread", "problem", "todo")
 # The configuration keys the report reads from a VM's config: nothing else, cipassword among what is left out. The
-# tags say whether the VM is sized, whose size proxmox_vm_drift then calls no drift.
+# tags say whether the VM is sized, whose size proxmox_vm_drift then calls no drift; smbios1 holds the identity its
+# host key is filed under.
 CONFIG_KEYS = (
     "cores",
     "sockets",
@@ -57,6 +59,7 @@ CONFIG_KEYS = (
     "meta",
     "lock",
     "tags",
+    "smbios1",
 )
 
 
@@ -187,7 +190,7 @@ def status_fleet(
     disk_ctimes = {}
     for volumes in contents.values():
         for volume in volumes if isinstance(volumes, list) else []:
-            if not isinstance(volume, dict) or not re.search(r":(base|vm)-\d+-disk-\d+$", str(volume.get("volid"))):
+            if not isinstance(volume, dict) or not re.search(r":(base|vm)-\d+-disk-\d+\Z", str(volume.get("volid"))):
                 continue
             try:
                 vmid, ctime = int(volume.get("vmid")), int(volume.get("ctime"))
@@ -266,6 +269,8 @@ def status_fleet(
                 "uptime": entry.get("uptime"),
                 "maxdisk": entry.get("maxdisk"),
                 "address": found.get("address", ""),
+                # The name its host key is filed under, from its config's SMBIOS UUID: never the address it reports.
+                "key_alias": ssh_host_key_alias(config),
                 "unfinished": bool(
                     {f"{t}-unfinished" for t in owned} & {t.lower() for t in proxmox_tags(entry.get("tags"))}
                 ),
@@ -770,19 +775,23 @@ def _ssh_refusal(vm, ssh, settings):
     on = _host_flag(settings)
     said = ssh.get("unreachable") or ""
     kind = ssh.get("refusal") or status_refusal(said)
+    alias = vm.get("key_alias") or ""
+    held = f"{alias} in {settings.get('known_hosts') or 'the project known_hosts file'}" if alias else address
     if kind == "changed":
+        forget = f"ssh-keygen -R {alias} -f {settings.get('known_hosts')}" if alias else f"ssh-keygen -R {address}"
         return (
-            f"not read: the SSH host key at {address} is not the one this machine holds. {name} was rebuilt or"
-            " renamed, or another machine answers at that address",
-            f"find out which first. If {name} was rebuilt or renamed: ssh-keygen -R {address}, then just deploy"
+            f"not read: the SSH host key at {address} is not the one this machine holds for {name}. {name} was"
+            " renamed, another machine answers at that address, or another VM has its identity (a backup restored"
+            " without --unique)",
+            f"find out which first. If {name} was renamed, its host keys are new: {forget}, then just deploy"
             f" {name} --only configure{on}",
         )
     if kind == "unknown":
         return (
-            f"not read: this machine holds no SSH host key for {address}, and status adds none. Its address"
-            " changed, or nothing here has connected to it yet",
-            f"just deploy {name} --only configure{on} takes a new VM's key, as every run does; or ssh {user}@{address}"
-            " true, which shows you the fingerprint and asks first",
+            f"not read: this machine holds no SSH host key for {name} ({held}), and status adds none. Nothing here"
+            f" has connected to it since its key was filed under its identity: just deploy {name} --only"
+            f" ssh-config{on} carries over one this machine kept by its address before 2.6",
+            f"just deploy {name} --only configure{on} takes a new VM's key, as every run does",
         )
     if kind == "timeout":
         return (f"not read: it did not answer SSH at {address}", f"check {name} in Proxmox's console")
@@ -1085,6 +1094,16 @@ def status_report(found, read_at="", now=None, live=False):
     items = []
     if proxmox.get("unread"):
         _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
+    elif not proxmox.get("off") and settings.get("api_checked") is False:
+        # Every recipe warns of it for the host its files name; a host of several that is read here, with its token,
+        # is said here too.
+        _add(
+            items,
+            "proxmox",
+            "todo",
+            "the API's certificate is not checked, so the token goes to whatever answers at the host's address",
+            f"just init{_host_flag(settings)} sets checking up",
+        )
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
         text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"

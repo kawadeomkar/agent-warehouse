@@ -1,5 +1,6 @@
 """Ansible's filters of lib/claude_vm/text.py: plain_text, one_line and banner, and the words messages are built with,
-full_stop, retry_line and and_list (docs/architecture/custom-code.md §7.4).
+full_stop, retry_line and and_list, and systemd_arg, a value as a systemd unit reads one
+(docs/architecture/custom-code.md §7.4).
 
 An adapter: it imports the core only when a filter is called (§7.10).
 """
@@ -11,7 +12,7 @@ _LIB = str(Path(__file__).resolve().parents[1] / "lib")
 if _LIB not in sys.path:
     sys.path.insert(0, _LIB)  # the controller's package first (docs/architecture/custom-code.md §7.10)
 
-FILTERS = ("plain_text", "one_line", "banner", "full_stop", "retry_line", "and_list")
+FILTERS = ("plain_text", "one_line", "banner", "full_stop", "retry_line", "and_list", "systemd_arg")
 
 
 class FilterModule:

@@ -11,6 +11,15 @@ just code alpha --editor zed         # this once
 
 One editor at a time: the `editor` setting picks it, VS Code by default (see [VS Code](vscode.md)).
 
+## What a window on a VM trusts
+
+What is true of a VS Code window ([What a window on a VM trusts](vscode.md#what-a-window-on-a-vm-trusts)) is
+the safe reading of a Zed one: Zed's remote server runs on the VM, in the VM user's `~/.zed_server`, where the
+VM's root - an agent with passwordless sudo - can replace it, and Zed documents nothing of what that server can
+make the window on this machine do. Open a Zed window only on a VM you would let run commands on your machine,
+close it when you are not working in it, and use Remote Control or plain `ssh` to keep the agent at arm's
+length.
+
 ## What `just code` does
 
 Everything up to the window is as it is for VS Code - the VM found and reached, its alias refreshed in

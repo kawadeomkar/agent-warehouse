@@ -20,8 +20,8 @@
 #   tools/check settings <bin> [--asking] <file>...
 #                                        no setting under a name 1.0 renamed, in local.yml or hosts.yml, nor
 #                                        one 2.1 removed with WireGuard; a name 1.1 gave a new one is still
-#                                        read, and said; and no VPN chosen is said, but --asking (just init,
-#                                        which asks)
+#                                        read, and said; and no VPN chosen, and the API's certificate not
+#                                        checked, are said, but --asking (just init, which sets both up)
 set -eu
 # The character sets below are spelt out rather than written as ranges, so
 # no locale can widen them (a UTF-8 one may collate accented letters into
@@ -261,7 +261,9 @@ settings)
   # refused too, naming them: its rows are literal data in the defaults. So is
   # a setting 2.1 removed with WireGuard, and vpn: wireguard. Where the files
   # set neither vpn nor tailscale_enabled, since 2.1 no VPN is chosen: said, as
-  # a warning, but where the caller asks the question itself (--asking).
+  # a warning, but where the caller asks the question itself (--asking). So is
+  # an API certificate nothing checks: proxmox_validate_certs not set true, and
+  # no proxmox-trust.pem beside the host's hosts.yml, which just init writes.
   bin=$2
   shift 2
   asking=
@@ -293,6 +295,10 @@ RENAMED = {
 
 # Each setting 2.1 removed with WireGuard (docs/guides/upgrading.md), still set in local.yml or hosts.yml, would
 # be read by nothing, without a word. vpn_reach: lan, which changed nothing, is only warned of.
+# Read by nothing since 2.6, which installs Claude Code from its signed release rather than the installer script:
+# warned of, since a file that sets it changed what was installed through 2.5, and changes nothing now.
+REPLACED = {"claude_code_installer_url": "claude_code_download_url, where releases are read from"}
+
 RETIRED = (
     "vpn_reach",
     "wireguard_hub",
@@ -368,6 +374,9 @@ try:
 except (OSError, yaml.YAMLError):
     DEFAULTS = {}
 chosen = False
+# Whether the API's certificate is checked: the last of the files, in their order, to set proxmox_validate_certs; a
+# template is taken to check it, since only Ansible can say.
+validate = None
 for path in sys.argv[2:]:
     try:
         with open(path, encoding="utf-8") as stream:
@@ -388,6 +397,9 @@ for path in sys.argv[2:]:
         continue
     named = {name for name, _ in settings(data)}
     chosen = chosen or bool(named & {"vpn", "tailscale_enabled"})
+    for name, value in settings(data):
+        if name == "proxmox_validate_certs" and value not in ("", None):
+            validate = value is True or (isinstance(value, str) and ("{{" in value or value.lower() == "true"))
     for name, value in settings(data):
         if name in NAMED_ANEW and value not in ("", None):
             if NAMED_ANEW[name] in named:
@@ -419,6 +431,9 @@ for path in sys.argv[2:]:
             print(f"error: {path} sets {name}, which 2.1 removed with WireGuard: take it out "
                   "(docs/guides/upgrading.md)", file=sys.stderr)
             found = True
+        if name in REPLACED and value not in ("", None):
+            print(f"warning: {path} sets {name}, which 2.6 reads no more: Claude Code is installed from its signed "
+                  f"release, {REPLACED[name]} (docs/guides/upgrading.md)", file=sys.stderr)
         if name in RENAMED and value not in ("", None):
             new, what = RENAMED[name]
             print(f"error: {path} sets {name}, which is {new} from 1.0: {what} (docs/guides/upgrading.md)",
@@ -431,6 +446,14 @@ if not chosen and not os.environ.get("ASKING") and any(os.path.exists(path) for 
     print(f"warning: {local} sets no vpn: since 2.1 that is none - no VM gets Tailscale, and a VM it is on keeps it,"
           " unmanaged. Set vpn: tailscale or vpn: none to choose, or answer just init's question (docs/guides/"
           "upgrading.md)", file=sys.stderr)
+# The API's certificate not checked, once a host's hosts.yml is there: every run sends the token to whatever answers at
+# its address. Said until just init sets it up - never by just init, which does (docs/getting-started/proxmox-access.md).
+hosts = [path for path in sys.argv[2:] if os.path.basename(path) == "hosts.yml" and os.path.exists(path)]
+trusted = hosts and os.path.exists(os.path.join(os.path.dirname(hosts[-1]), "proxmox-trust.pem"))
+if hosts and not validate and not trusted and not os.environ.get("ASKING"):
+    print(f"warning: nothing checks the certificate of the Proxmox API in {hosts[-1]}, so every run sends its token to "
+          "whatever answers at that address: just init sets checking up (docs/getting-started/proxmox-access.md)",
+          file=sys.stderr)
 sys.exit(1 if found else 0)
 PYTHON
   ;;

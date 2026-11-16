@@ -131,9 +131,10 @@ are `tasks/vms_requested.yml`, which the alias refresh opens with too (§4.8).
    so a single powered-off node in a cluster broke discovery for VMs on all the others. The listing
    already carries `name`, `vmid`, `node`, `status`, `template` and `tags`. The task is `no_log`
    because the request carries the token, so a second task asserts on the status and shows only it
-   and the reason. `REQUESTS_CA_BUNDLE` is passed as `ca_path`, so the certificate recipe in
-   [Proxmox access](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)
-   covers this request too. It is `check_mode: false`: `uri` does not support check mode, so under
+   and the reason, or, for a certificate that did not verify, what to do (the `proxmox_untrusted_hint` filter).
+   It checks the certificate as every request to the API does, by `proxmox_api_validate`, against
+   `proxmox_api_ca_path`: the trust file `just init` keeps, or `REQUESTS_CA_BUNDLE`
+   ([Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)). It is `check_mode: false`: `uri` does not support check mode, so under
    `just deploy --check` it would skip itself and discovery would find nothing.
 2. `claude_vm_tagged` (a lazily-evaluated group var) filters to the tagged QEMU VMs. Proxmox omits
    `tags` for an untagged guest, hence its `selectattr('tags', 'defined')`.
@@ -308,7 +309,10 @@ delegated here, then runs `tar -cf - -T -` on the VM over SSH as Ansible reaches
 itself into `destroy_sessions_dir` (`.sessions/` in the checkout, git-ignored and refused by the
 tracked-file guard), `<vm>-<YYYYMMDD-HHMMSS>/projects/` laid out as on the VM and edited in nothing:
 plain files and folders only, 0600 and 0700, at the names asked for or inside one, never through a link,
-never outside that folder. A link, hard link, device or pipe in the archive is left out and counted;
+never outside that folder, and none with a part that starts with a dot or holds a control character. It takes
+at most `destroy_sessions_max_size` of files (4G, held to a size before any VM starts), and bounds the
+stream, the entries, a header's size and sparse files too, since `tarfile` reads a pax header or a GNU long
+name whole into memory: past one, the save fails. A link, hard link, device or pipe in the archive is left out and counted;
 rsync made the VM's links here as links, and the `chmod -R` after it followed them out of the folder. A
 `sessions.json` beside them names the Proxmox host the VM was on, and each session, the Claude Code
 version that wrote it and the newest of them, says that what they hold is the VM's and unchecked, and gives the `claude --resume <path>` that continues
@@ -316,7 +320,7 @@ each here: given a
 transcript's path, Claude Code resumes it where it lies and writes to it there, whatever this machine
 holds of the same ID (the `configure` scenario holds that against the real claude). Not best effort like
 the releases: a failed save - SSH or tar failing, an archive cut short, a name asked for that did not
-arrive, or the VM no longer answering, which its VM tasks take with `ignore_unreachable` and an assert,
+arrive, more than a save may hold, or the VM no longer answering, which its VM tasks take with `ignore_unreachable` and an assert,
 never leaving the run unseen - sets `claude_vm_delete_failure`, and `claude_vm_save_error` with the
 failed task and its message alone, starts Remote Control again (`release_resume`) and ends the host, so
 the VM is neither released nor deleted and the last play fails the run with why. Its VM tasks run as the VM user, never through sudo, whose files they read. With
@@ -329,7 +333,8 @@ writes, `~/.config/agent-warehouse/gh-device-login`, tells its token from the va
 marker says, and from one pasted by hand) and
 `tailscale` (start a stopped `tailscaled`, read `Self.ID`, `tailscale logout`, then with the API
 credential the vault holds look the device up and delete it from the controller, only when its name is
-`tailscale_hostname` or `<it>-<n>`, since the VM reports the ID). Each runs in a block whose rescue
+`tailscale_hostname` or `<it>-<n>` and that is no other VM's of the listing, since the VM reports the ID).
+Each runs in a block whose rescue
 records the failure: a release never stops a deletion. Each leaves one clause in a `*_release_said` fact,
 set on every run of its file.
 
@@ -339,9 +344,12 @@ kept, its sessions unsaved, ends first. The role with `proxmox_vm_state: absent`
 placeholders, fanning out over `forks`; it looks each VM up again and applies the ownership check per
 VM. It runs in a block: `claude_vm_deleted` after it marks a VM gone, and a deletion that fails is
 rescued - a play in which every VM fails ends the run - into `claude_vm_delete_failure` and
-`claude_vm_delete_error`, its reason alone, raised by the last play. Its `known_hosts` task is `throttle: 1`, because parallel deletes would otherwise each rewrite
-the same file and restore a key another had just removed. It never forgets the Proxmox host's key, or another
-inventory host's (`proxmox_vm_known_hosts_kept`), under any name, whatever address the VM reported last.
+`claude_vm_delete_error`, its reason alone, raised by the last play. No SSH host key is forgotten: the VM's is
+filed under its identity, its SMBIOS UUID, which no VM made after it has, so it can only ever match that VM again - its
+backup, restored with its keys - and refuses any other VM given that UUID, which anyone who may change a VM's hardware
+on a shared host can set, where a forgotten key would let such a VM in on first use and forget the key of another VM
+restored with the same UUID. Nothing is ever forgotten by an address, which the VM reports, and
+`~/.ssh/known_hosts` is never written for a VM.
 
 **Play 3 — forget the alias (localhost).** `tasks/ssh_config.yml` with `state: absent` for the VMs
 that are actually gone: the delete play sets `claude_vm_deleted` only after the role, which a host that
@@ -462,9 +470,13 @@ with `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, OpenSSH's default bein
 since ssh keeps the first value it is given for an option. What else a VM is given follows them, as it did the hosts
 discovery added: `ansible_ssh_common_args` and `ansible_ssh_extra_args` (a jump host), `ansible_port` and
 `ansible_ssh_private_key_file`, a VM's own `host_vars` file included, or where the inventory says nothing, the same
-settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like). A VM whose key this machine does not hold - rebuilt,
-renamed, its address changed - is "not read", naming `just deploy <vm> --only configure`, which takes a new VM's key
-as every run does, or the `ssh` that shows the fingerprint and asks.
+settings in `ansible.cfg` or the environment (`ANSIBLE_SSH_COMMON_ARGS`, `ANSIBLE_PRIVATE_KEY_FILE` and the like),
+and after them `vm_ssh_args` for its identity, on a shared connection of its own. A VM whose key this machine does not
+hold under its identity - made since, or kept by address before 2.6 and not carried over yet - is "not read", naming
+`just deploy <vm> --only ssh-config`, which carries a kept key over, and `just deploy <vm> --only configure`, which
+takes a new VM's key as every run does. One whose key differs - renamed, another machine at its address, or another
+VM with its identity - is "not read", with `ssh-keygen -R <identity> -f <the project's file>` once the cause is
+known. Its address changing changes nothing: the key is filed by identity.
 
 **What a VM supplies is not trusted.** `status_clean` makes every string of what a VM sent one line of plain text
 (`one_line`, [§7.4](custom-code.md#74-filter_pluginsdesktoppy-and-filter_pluginstextpy)) before anything keeps it: a
@@ -506,7 +518,8 @@ deleted at any time:
 
 - **`settings.json`.** Asking Ansible for the settings takes most of a second, and they change only when a file
   does. The answer is kept, keyed by the name, size and time of every file it is made from: `ansible.cfg`,
-  `inventory/`, the roles' `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
+  `inventory/` (another host's `hosts.yml`, `group_vars/` and the `proxmox-trust.pem` beside them), the roles'
+  `defaults/` and `vars/`, the filters and `lib/claude_vm/` they are rendered through, the
   installed ansible-core, `requirements.yml` and the collections installed, the `~/.ssh/*.pub` the default keys come
   from, the vault's password files, and the
   environment's `ANSIBLE_*`, `HOME`, `PATH` and `REQUESTS_CA_BUNDLE`. It holds no secret: the API token is a mark
@@ -622,9 +635,9 @@ recipe chooses the playbook from an `--only` its pattern has checked.
 
 ## 4.8 `playbooks/ssh_config.yml` and `playbooks/tasks/ssh_config.yml`
 
-The aliases are the one thing this project writes on the controller besides `known_hosts`, and
+The aliases are the one thing this project writes on the controller besides the host keys, and
 every writer goes through one task file so the block format cannot drift. Inputs: a list of
-`{name, address, user, workspace?}` and a state; `workspace` only feeds the connect line, and only
+`{name, address, user, key_alias?, workspace?}` and a state; `workspace` only feeds the connect line, and only
 `configure`, which has read it on the VM, passes it. The managed file,
 `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`), holds one `blockinfile` block per VM,
 with what ssh reads and one comment ssh skips, the host the VM was found on - no other state of this
@@ -636,9 +649,50 @@ project's is kept in a user's ssh config:
 Host alpha
     HostName 192.0.2.51          ← or alpha.<claude_ssh_host_domain>
     User dev
+    HostKeyAlias agent-warehouse-<uuid>   ← the VM's SMBIOS UUID, from Proxmox
+    UserKnownHostsFile "~/.ssh/agent-warehouse.known_hosts"
+    CheckHostIP no
+    UpdateHostKeys no
+    StrictHostKeyChecking accept-new   ← yes or ask through claude_ssh_options, never no
+    ForwardAgent no              ← yes only with claude_ssh_forward_agent
     ServerAliveInterval 30       ← claude_ssh_options, verbatim
 # END agent-warehouse: alpha
 ```
+
+**The host key.** Every connection to a VM - Ansible's (each `add_host` that publishes one sets
+`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then the common args configured: a
+variable, else `ANSIBLE_SSH_COMMON_ARGS` or `ansible.cfg`'s, which the host var would otherwise outrank),
+`just status`'s, the sign-in's forward, destroy's save, and the alias above that the editors and `ssh` use - looks the
+VM's key up, and files a new one, in the project's own `~/.ssh/agent-warehouse.known_hosts`
+(`claude_ssh_known_hosts_file`, beside the managed file) under `agent-warehouse-<SMBIOS UUID>`: Proxmox makes the
+UUID anew for every VM and clone, and the VM cannot
+change it, where its address is the VM's own report. So a VM cannot have this machine forget another host's key, a
+lease handed on means nothing for a VM already known, and a VM that reports a sibling's address is refused there,
+since the sibling holds another key. A shared connection is kept on a socket named for the VM's identity
+(`ansible_control_path`, `vm_control_name`; `just status`'s the same), since a session over an open master does
+no key exchange, and one named for the address alone let such a VM ride the sibling's. Two VMs that report one
+address are both left out of the run, said (`guest_addresses`, `tasks/vm_addresses.yml`). `CheckHostIP no` keeps
+the address out of the file, `UpdateHostKeys no` keeps a VM from adding keys to it, and `ForwardAgent no` and
+`StrictHostKeyChecking accept-new` override a `Host *` of the user's own further down; `claude_ssh_options` may set
+none of what the block writes, but a stricter `StrictHostKeyChecking`. Deleting a VM forgets nothing
+([§4.5](#45-playbooksdestroyyml--confirm-release-delete)). A VM of the inventory's own (`claude_vm_discovery` off)
+is reached at the inventory's address, which is no VM's word, with its key where its connection keeps it - the user's
+file - and its block says the same.
+
+**The carry-over.** A key kept in `~/.ssh/known_hosts` by address before 2.6 is copied in under the VM's identity
+before a run first connects (`tasks/host_keys.yml`, after each publisher's `add_host`, and in `just deploy --only
+ssh-config` before the aliases are written), once: a comment, `# agent-warehouse carried <identity>`, which ssh skips
+and `ssh-keygen -R` keeps, marks the VM done, so a key removed by hand - a VM renamed in Proxmox has new keys - is
+never put back from the user's file, whose lines by address stay. A VM the run created gets the mark alone: what the
+user's file holds for its address is another machine's, one that had the lease before. What is copied is the key
+kept for the address the VM reports at that moment, so a VM already hostile then could be handed a sibling's key; a
+VM with nothing kept is said to be taken on first use. The writes run in check mode too, since a dry run's
+connections take keys on first use as a run's do. The task refuses a VM whose effective `ansible_ssh_common_args`
+lost the project's options to a host var or an extra var of the same name, each VM a publisher added, destroy's too;
+the golden build refuses its build VM the same way. The user's file is only read: which address a VM reports is its
+own to say, so nothing is removed from that file by it. Two runs at once from two checkouts each
+write the project's file whole, `known_hosts` and `lineinfile` replacing it as ssh appends: a key one adds as the
+other writes can be lost, and is then taken again on the next connection.
 
 **The origin.** Each block records the host its VM was found on (`claude_ssh_origin`, the first host of the
 inventory's `proxmox` group, from 2.5), since a run reaches one host's listing and nothing of another's. A
@@ -648,9 +702,9 @@ before 2.5 wrote them. A block with no record, or one recording a host the check
 the next write of that VM records this run's host. One recording another of the checkout's hosts
 (`claude_hosts_other`, which the host resolver hands each run) is that host's VM's alias, and a VM name belongs
 to one host: a write that names the VM is refused before anything is written, and `tasks/vm_names.yml` refuses
-the name before anything is created; fleet-wide the VM is left out and said. `destroy.yml` removes the alias,
-and forgets the `<name>.<domain>` host key, only of a VM whose block records no other host
-(`claude_ssh_names_elsewhere`): a block recording another host is that host's VM's, and stays.
+the name before anything is created; fleet-wide the VM is left out and said. `destroy.yml` removes the alias
+only of a VM whose block records no other host (`claude_ssh_names_elsewhere`): a block recording another host is
+that host's VM's, and stays; its host key is under its own identity, which no deletion here names.
 
 Through 1.x the managed file was `~/.ssh/claude-on-proxmox.conf`, its markers `claude-on-proxmox`
 (`claude_ssh_config_legacy_file`, beside the default only). The first run of this task file in 2.0, writing
@@ -1205,7 +1259,7 @@ checks run next and say what comes after.
 password looked for when the recipe runs, since the questions may have just made `.vault_pass` - so it sees
 the settings exactly as `just deploy` will. The recipe skips it, with one line, when the vault is
 encrypted and neither `.vault_pass` nor `ANSIBLE_VAULT_PASSWORD_FILE` can open it. One play on `localhost`,
-every task a read (held by `tests/unit/test_init_check.py`) but the settings it writes. For another host
+every task a read (held by `tests/unit/test_init_check.py`) but the settings and the trust file it writes. For another host
 (`init_host`), the run reads that host's sources over the shared ones, as every run against it, and once every check
 has passed writes into the host's `local.yml` each setting the host sets for itself that it does not set yet - the
 node, the storage and the bridge as the checks settled them, the rest as this run reads them - and its default VM's
@@ -1214,29 +1268,51 @@ name, `<name>-default`; the host's name was given on the command line, a value g
 1. **Configured yet?** With the address or the secret still the example's, it says what is missing and ends:
    nothing is checked, and that is no problem.
 2. **The vault** is encrypted: only whether its text starts as a vault does is kept.
-3. **The API**: `GET /version`, `no_log` since the header carries the token, as `tasks/cluster_vms.yml` does,
-   with `ca_path`. 200 is `ok`, with the version; a 401 or 403 names the token; a connection that fails,
-   the address; a certificate error, the CA steps.
-4. **Privileges on `/vms`**: `GET /access/permissions?path=/vms`, against `init_token_privileges.vms` and the
+3. **The certificate**, before the first request that carries the token, every probe with none
+   (`lib/claude_vm/trust.py`). What checking uses now - the trust file `proxmox_trust_file` beside the host's
+   `hosts.yml`, or the trust store with `proxmox_validate_certs` - is asked first (`proxmox_trust_holds`); where it
+   verifies, nothing more. Else the host's CA and the certificate pveproxy serves are looked for over root SSH (`stat`,
+   then `slurp` of a file no larger than a certificate file is, `no_log`, delegated, `ignore_unreachable`), and
+   `proxmox_trust_pick` tries the trust store - the standard library's and certifi's, or `REQUESTS_CA_BUNDLE`'s -
+   the CA and the node's own certificate without its chain, each through `ssl` as `uri` and urllib3 verify, while
+   `proxmox_trust_presented` reads what the address presents and whether it is the host's. The first that verifies
+   is kept at a terminal, or for `--certificate`'s fingerprint (`init_given.certificate`): the store's as
+   `proxmox_validate_certs: true` in `local.yml`, the CA's or the node's in the trust file by `copy`, with
+   `proxmox_validate_certs: true` where `local.yml` does not set it, and a `set_fact` of it for the rest of the run.
+   Not kept - no terminal, and no fingerprint given - what verifies still checks the rest of the run: the store's by
+   that `set_fact`, the CA's or the node's from a copy in the checkout's `.cache/init/` (`init_trust_run_file`, as
+   `proxmox_api_ca_path`, since `uri` reads a CA from a file), removed before the report. A file that no longer
+   verifies is replaced (`force` only then) on a `y` to a question that shows both fingerprints
+   (`tasks/init_ask.yml`), or for the new one's fingerprint given; else it is kept, a problem. Nothing verifying and
+   the host's own presented is a `note` (a name to fix); while root SSH read the host's, anything else presented, or
+   no certificate read at all, is a problem; and either problem holds the token (`init_token_held`), so the API is not
+   asked. The certificate alone decides: what answers sees which request carries no token, and could say nothing to
+   the probe and take the token from the next request.
+4. **The API**, unless the token is held: `GET /version`, `no_log` since the header carries the token, as
+   `tasks/cluster_vms.yml` does, with `ca_path` and no redirect followed (`follow_redirects: none`, as every request
+   that carries it). 200 is `ok`, with the version; a 401 or 403 names the token; a connection that fails,
+   the address; a certificate that did not verify, what to do (`proxmox_untrusted_hint`): with the trust file, to
+   delete it and run `just init` again.
+5. **Privileges on `/vms`**: `GET /access/permissions?path=/vms`, against `init_token_privileges.vms` and the
    guest agent's, by `/version`'s major: `VM.Monitor` on 8, `VM.GuestAgent.Audit` on 9. A privilege is
    granted when it is listed, and reaches the VMs under `/vms`, where Proxmox checks it, only with 1, its
    propagate flag: a 0 is said with the `-propagate 1` that fixes it, and a token holding none at all with
    the privilege separation that usually explains it. Storage and bridge are not checked: their names may
    still be the defaults, wrong for the host.
-5. **The template**, from the cluster listing, as `deploy.yml` finds it: a VM named `proxmox_template_name`
+6. **The template**, from the cluster listing, as `deploy.yml` finds it: a VM named `proxmox_template_name`
    that is a template. Found, it must be on `proxmox_node`, where the clones are made. Missing, deploy builds
    it at `proxmox_template_vmid`, so a guest there - any, on any node, one that is down included - is a
    problem naming it. A listing that fails is a problem said with the rest. Found, its config is read and
    compared with what its settings would build, through `roles/proxmox_template`'s `drift` entry point as
    `deploy.yml` does ([§4.1](#41-playbookstemplateyml--built-and-rebuilt-when-it-differs)): one that differs is
    said with each difference, and deploy rebuilds it, unless `proxmox_template_rebuild` is off.
-6. **Root SSH**, only while the template is missing or will be rebuilt (or the listing would not say):
+7. **Root SSH**, only while the template is missing or will be rebuilt (or the listing would not say):
    `hostname -s`, delegated
    to the `proxmox` group's host with `ignore_unreachable`, which proves the connection the build will use
    and reads the host's short name, its node name (`init_ssh_node`), which must be `proxmox_node`, since the
    template is built there. No host in the group is a problem too. `accept-new` may add its host key to
-   `~/.ssh/known_hosts`, one of the two files the project writes there.
-7. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
+   `~/.ssh/known_hosts`, the one file of the user's the project has ssh write in `~/.ssh`.
+8. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
    or the node root SSH said the host is. Equal to `proxmox_node`, it is `ok`. While `proxmox_node` is the
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
    question, since there is nothing to choose - and set there, a node that differs is a problem naming both.
@@ -1245,7 +1321,7 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    `local.yml` is read as a template by every later run, and with the certificate not checked and the host key
    taken on first contact, the answer is whoever's sits in the path, so `{{ ... }}` in a name there would run on
    the controller. A reported name that is no node's is said, as JSON, and never written.
-8. **The storage and the bridge**, on that node, through `tasks/init_choose.yml`: the storages for VM disks
+9. **The storage and the bridge**, on that node, through `tasks/init_choose.yml`: the storages for VM disks
    (`GET /nodes/<node>/storage?content=images&enabled=1`) and, while there is no template, the bridges
    (`GET /nodes/<node>/network?type=any_local_bridge`), both filtered by Proxmox to what the token may see,
    each with its own permission read (`Datastore.AllocateSpace` and `Datastore.Audit` on `/storage/<name>`,
@@ -1264,17 +1340,18 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    storage's (`pve-storage-id`) or bridge's is shown as JSON and never offered, and the root-SSH listing of
    `init_access.yml` is held the same way; `tasks/init_local_setting.yml`, which every write of `local.yml` goes
    through, refuses a value that opens a template whatever its source.
-9. **A key for the VMs**: `vm_ssh_public_keys`. `vault_vm_password` alone is a problem - it is for the Proxmox
+10. **A key for the VMs**: `vm_ssh_public_keys`. `vault_vm_password` alone is a problem - it is for the Proxmox
    console, and deploy configures the VMs over SSH, which takes a key; with neither, the public keys in
    `~/.ssh` are listed and the `local.yml` line suggested. A `vm_password` that holds a password, its name
    before 1.0, is a problem too: nothing reads it, and the fix is to rename it in `vault.yml`.
 
-Each result is `ok`, `!!` with its fix, or `--` not checked, printed together at the end, and the run fails
-when any is `!!`. NEXT STEPS (`claude_vm_next`, under the key `just init`, matter `init_check`) then gives
+Each result is `ok`, `!!` with its fix, `--` not checked, or `note`, printed together at the end, and the run
+fails when any is `!!`. NEXT STEPS (`claude_vm_next`, under the key `just init`, matter `init_check`) then gives
 each `!!` line with its fix; with none, what could not be checked; with neither, `just deploy alpha`, which
 the report's last line says too - unless the GitHub username is still the example's, which the questions'
-NEXT STEPS names. A run that ended at step 1 records nothing. It writes `local.yml` alone, through
-`tasks/init_local_setting.yml`, and only at a terminal or for a value given; without either, it reports.
+NEXT STEPS names - and after any of them each `note`, which fails nothing: the certificate not checked. A run that
+ended at step 1 records nothing. It writes `local.yml`, through `tasks/init_local_setting.yml`, and the trust file
+alone, and only at a terminal or for a value given; without either, it reports.
 
 ## 4.14 `playbooks/golden.yml` — the golden template new VMs clone
 

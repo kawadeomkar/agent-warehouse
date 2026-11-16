@@ -39,15 +39,17 @@ VALUES = [
         "{{ [claude_vm_tag | lower] + ([claude_vm_tag_1x] if claude_vm_tag_1x | length > 0 else []) }}",
     ),
     ("inventory/group_vars/all/defaults.yml", "proxmox_vm_tags_1x", "{{ claude_vm_tags_owned[1:] }}"),
+    # 2.6 ends them at the end of the text (\Z) where they ended at a newline that ends it ($): Proxmox's tags end in
+    # none, so they match every tag they matched, and strand no VM.
     (
         "inventory/group_vars/all/defaults.yml",
         "claude_vm_tag_pattern",
-        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|$)",
+        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})([;,]|\\Z)",
     ),
     (
         "inventory/group_vars/all/defaults.yml",
         "claude_vm_tailscale_tag_pattern",
-        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|$)",
+        "(?i)(^|[;,])({{ claude_vm_tags_owned | map('regex_escape') | join('|') }})-tailscale([;,]|\\Z)",
     ),
     (
         "roles/proxmox_vm/vars/main.yml",

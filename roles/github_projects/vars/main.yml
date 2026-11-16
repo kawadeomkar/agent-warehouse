@@ -55,7 +55,7 @@ github_projects_token_said: >-
 # without --show-token, and omitted.
 github_projects_login_kind: >-
   {{ 'none' if not github_projects_signed_in | bool
-     else 'env' if (github_projects_auth_account.tokenSource | default('')) is match('.*_TOKEN$')
+     else 'env' if (github_projects_auth_account.tokenSource | default('')) is match('.*_TOKEN\Z')
      else 'pat' if github_projects_stored_token is match('(ghp_|github_pat_)')
      else 'oauth' if github_projects_stored_token is match('gho_')
      else 'other' }}
@@ -141,7 +141,7 @@ github_projects_login_code: >-
 # sign in to GitHub. gh signs in to github.com alone (github_projects_login_args),
 # so this is the one page the pattern matches.
 github_projects_login_page: https://github.com/login/device
-github_projects_login_page_pattern: '^https://github[.]com/login/device$'
+github_projects_login_page_pattern: '^https://github[.]com/login/device\Z'
 # Internal: every page gh printed that the pattern does not match, each once,
 # and whether there is one, which the message showing the code says: never
 # shown or opened, and quoted only as the placeholder below. gh on a VM you made
@@ -287,7 +287,7 @@ github_projects_candidates: >-
 # than /usr/bin counts too. Read whenever gh is signed in: a login made by
 # hand under github_auth: false may have set it up.
 github_projects_gh_helper: >-
-  {{ github_projects_helpers.stdout_lines | default([]) | select('search', '^!([^ ]*/)?gh( |$)') | list | length > 0 }}
+  {{ github_projects_helpers.stdout_lines | default([]) | select('search', '^!([^ ]*/)?gh( |\Z)') | list | length > 0 }}
 
 # A private repository the listing shows but git has no credential for would
 # fail to clone, so it is skipped and named instead. Over ssh, a key of the
@@ -392,11 +392,14 @@ github_projects_release_summary: >-
            ~ ' if it is a personal access token, or under GitHub CLI at https://github.com/settings/applications,'
            ~ ' which signs out every gh you have') }}
 
-# Whether gh's login is a device-flow one without the workflow scope, which
-# GitHub refuses a push that changes .github/workflows/ for: said by
-# login_report.yml, with the gh auth refresh that adds it, and left to do.
+# Whether gh's login is a device-flow one without the workflow scope that
+# github_projects_login_scopes asks for, which GitHub refuses a push that
+# changes .github/workflows/ for: said by login_report.yml, with the gh auth
+# refresh that adds it, and left to do. Not asked for, as by default, it is
+# nothing to do.
 github_projects_login_lacks_workflow: >-
-  {{ github_projects_login_kind == 'oauth' and 'workflow' not in (github_projects_auth_account.scopes | default('')) }}
+  {{ 'workflow' in github_projects_login_scopes and github_projects_login_kind == 'oauth'
+     and 'workflow' not in (github_projects_auth_account.scopes | default('')) }}
 
 # What login_report.yml says of gh's login, and whether it is something left to do, which NEXT STEPS records and just
 # status says: the core's words (lib/claude_vm/status/lines.py), one definition for both, from what the registers

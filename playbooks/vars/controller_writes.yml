@@ -8,7 +8,8 @@
 # expanded: the notes go to the VM. Each entry:
 #   id          the test's name for it
 #   path        where it is, a code span
-#   setting     the setting that moves it, whose value the notes show instead
+#   setting     the variable that holds its place - a setting, or one made from
+#               settings - whose value the notes show instead
 #   editor      the one editor whose windows make it: the notes of another's
 #               leave it out
 #   what        what it is
@@ -20,16 +21,36 @@
 code_controller_writes:
   - id: known_hosts
     path: "`~/.ssh/known_hosts`"
-    what: each VM's SSH host key, and the Proxmox host's
-    writer: ssh, on first contact (`StrictHostKeyChecking=accept-new`)
-    when: every run that reaches a VM or the Proxmox host
-    removed_by: "`just destroy`: the VM's lines, never the Proxmox host's"
+    what: the Proxmox host's SSH host key - never a VM's
+    writer: ssh, on the first root SSH to the host (`StrictHostKeyChecking=accept-new`)
+    when: "`just init`'s checks, and a template build"
+    removed_by: "nothing: it is yours"
+    sources:
+      - ansible.cfg
+    invariant: "`~/.ssh/known_hosts`"
+  - id: vm_known_hosts
+    path: "`~/.ssh/agent-warehouse.known_hosts`"
+    setting: claude_ssh_known_hosts_file
+    what: "each VM's SSH host key, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`), never its address"
+    writer: >-
+      ssh, on first contact with a VM (`StrictHostKeyChecking=accept-new`, with the file and the identity every
+      connection names); a VM's key kept by address in `~/.ssh/known_hosts` before 2.6, copied in once, and a
+      comment line marking each VM's copy made (`playbooks/tasks/host_keys.yml`)
+    when: every run that reaches a VM
+    removed_by: >-
+      nothing: a deleted VM's key stays under its identity, which no VM made later has, so that any VM given it
+      again is refused, never taken on first use. `ssh-keygen -R <identity> -f ~/.ssh/agent-warehouse.known_hosts`
+      takes one out
     sources:
       - ansible.cfg
       - roles/claude_code/vars/main.yml
       - playbooks/library/claude_sessions_fetch.py
-      - roles/proxmox_vm/tasks/absent.yml
-    invariant: "`~/.ssh/known_hosts`"
+      - playbooks/tasks/host_keys.yml
+      - playbooks/discover.yml
+      - playbooks/provision.yml
+      - playbooks/destroy.yml
+      - playbooks/code.yml
+    invariant: "`~/.ssh/agent-warehouse.known_hosts`"
   - id: ssh_config
     path: "`~/.ssh/agent-warehouse.conf`"
     setting: claude_ssh_config_file

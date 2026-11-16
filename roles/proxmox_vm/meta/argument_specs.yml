@@ -40,7 +40,13 @@ argument_specs:
             same reason as proxmox_vm_api_host.
       proxmox_vm_validate_certs:
         type: bool
-        description: Verify the API's TLS certificate. Turn it on once the controller trusts the Proxmox CA.
+        description: Verify the API's TLS certificate, against proxmox_vm_ca_path where it is set.
+      proxmox_vm_ca_path:
+        type: str
+        default: ""
+        description:
+          - The certificate the API is checked against while proxmox_vm_validate_certs is on - the trust file just init
+            keeps for the host. Empty, this machine's trust store.
       proxmox_vm_api_timeout:
         type: int
         default: 30
@@ -98,19 +104,6 @@ argument_specs:
           - Allow state=absent to delete a VM that does not carry the ownership
             tag. Off by default so a name collision cannot destroy a VM this
             project never created.
-      proxmox_vm_known_hosts_domain:
-        type: str
-        description:
-          - The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain).
-            state=absent forgets the host key recorded under <name>.<domain> too, besides the one under the address. Set
-            through claude_ssh_host_domain in local.yml.
-      proxmox_vm_known_hosts_kept:
-        type: list
-        elements: str
-        description:
-          - Addresses whose host key state=absent never forgets, whatever address the VM's guest agent reported, or
-            <name>.<domain> it is reached by - the inventory's other hosts'. The Proxmox host's (proxmox_vm_api_host)
-            is never forgotten either way. Wired from the inventory's hosts in group_vars/all.
       proxmox_vm_name:
         type: str
         description: VM name in Proxmox. Defaults to the inventory hostname.

@@ -109,7 +109,7 @@ def github_found(part, settings, host):
     unchecked = state == "error" and not re.match(r"HTTP 40[13]", error)
     if not signed_in:
         kind = "none"
-    elif re.match(r".*_TOKEN$", str(account.get("tokenSource") or "")):
+    elif re.match(r".*_TOKEN\Z", str(account.get("tokenSource") or "")):
         kind = "env"
     else:
         kind = part.get("kind") if part.get("kind") in ("pat", "oauth") else "other"
@@ -124,7 +124,9 @@ def github_found(part, settings, host):
             "account": account.get("login") or "",
             "kind": kind,
             "is_ours": is_ours,
-            "lacks_workflow": kind == "oauth" and "workflow" not in str(account.get("scopes") or ""),
+            "lacks_workflow": bool(settings["workflow_asked"])
+            and kind == "oauth"
+            and "workflow" not in str(account.get("scopes") or ""),
             "user": settings["user"],
             "host": host,
             "auth": settings["auth"],
@@ -218,7 +220,7 @@ def tailscale_found(part, settings, name, joined_before):
             "ipv4": ipv4,
             "joined_now": False,
             "login_ours": login_ours,
-            "name_taken": bool(re.match("^" + re.escape(label) + "-[0-9]+$", dns.split(".")[0])),
+            "name_taken": bool(re.match("^" + re.escape(label) + r"-[0-9]+\Z", dns.split(".")[0])),
             "set_changed": False,
             "set_cmd": [],
             "from_login": False,

@@ -7,7 +7,10 @@ node name, or a host on ssh with a stand-in `ssh` first on PATH that records
 its call and exits 255. No run reaches a real ssh: ansible.cfg's accept-new
 would add a host key to the developer's ~/.ssh/known_hosts, and
 test_no_run_reaches_a_real_ssh holds every run to one of the two. The vault
-file and the directory searched for a public key are the test's too.
+file and the directory searched for a public key are the test's too, and so
+are the host's certificates read over root SSH, and the trust file beside the
+test's inventory. The certificate's step runs only in the tests that ask for it,
+against a fake Proxmox serving one made as Proxmox makes them (pki.py).
 """
 
 from __future__ import annotations
@@ -44,6 +47,9 @@ from harness import (
     _text,
 )
 from harness import REFUSING_SSH as SSH_STAND_IN
+from pki import proxmox_pki
+
+from claude_vm import trust
 
 PLAYBOOK = REPO / "playbooks" / "init_check.yml"
 CLUSTER_VMS = REPO / "playbooks" / "tasks" / "cluster_vms.yml"
@@ -70,6 +76,8 @@ cat "$(dirname "$0")/hostname-is" 2>/dev/null || echo pve
 """
 LOCAL_EXAMPLE = REPO / "inventory" / "group_vars" / "all" / "local.yml.example"
 DEPLOY_NEXT = "Next: just deploy alpha, which creates a VM named alpha (any name will do)."
+# Python 3.13 and later verify strictly: a CA without keyUsage is refused, and the node's own certificate is an anchor.
+STRICT = sys.version_info >= (3, 13)
 
 
 @pytest.fixture
@@ -83,11 +91,20 @@ def _port(base: str) -> int:
 
 
 def _inventory_of(
-    root: Path, base: str, pve: str, settings: dict | None, vault: str, host: str, proxmox_host: bool = True
+    root: Path,
+    base: str,
+    pve: str,
+    settings: dict | None,
+    vault: str,
+    host: str,
+    proxmox_host: bool = True,
+    trust: dict | None = None,
+    hosts_file: Path | None = None,
 ) -> tuple[dict, dict]:
     """The test's inventory under root - the project's defaults.yml, and local.yml: the example, then the
-    settings - and the Proxmox host; returns the extra vars pointing the playbook at root's files, and the
-    environment of the run."""
+    settings - and the Proxmox host, in hosts_file where given, as another host's hosts/<name>/hosts.yml is laid
+    over the shared inventory; returns the extra vars pointing the playbook at root's files, and the environment of
+    the run."""
     assert pve in ("local", "ssh"), pve
     group_vars = root / "group_vars" / "all"
     group_vars.mkdir(parents=True, exist_ok=True)
@@ -118,8 +135,27 @@ def _inventory_of(
         # The refusing ssh first on PATH (SSH_STAND_IN).
         env = _refusing_ssh(root)
     hosts = {"pve": hostvars} if proxmox_host else {}
+    if hosts_file:
+        hosts_file.parent.mkdir(parents=True, exist_ok=True)
+        hosts_file.write_text(yaml.safe_dump({"proxmox": {"hosts": hosts}}))
+        hosts = {}
     (root / "proxmox.yml").write_text(yaml.safe_dump({"proxmox": {"hosts": hosts}}))
     paths = {"init_vault_file": str(vault_file), "init_ssh_dir": str(root / "ssh"), "init_local_file": str(local)}
+    # The host's certificates, as root SSH reads them: the test's own files, and the step that reads them only where
+    # the test gives them (trust, by kind: ca, node, custom).
+    etc = root / "pve-etc"
+    paths["init_trust_paths"] = {
+        "ca": str(etc / "pve-root-ca.pem"),
+        "custom": str(etc / "local" / "pveproxy-ssl.pem"),
+        "node": str(etc / "local" / "pve-ssl.pem"),
+    }
+    # The copy a run is checked against where it keeps nothing: never the checkout's .cache.
+    paths["init_trust_run_file"] = str(root / "cache" / "init" / "proxmox-trust.pem")
+    for kind, text in (trust or {}).items():
+        Path(paths["init_trust_paths"][kind]).parent.mkdir(parents=True, exist_ok=True)
+        Path(paths["init_trust_paths"][kind]).write_text(text)
+    if trust is None:
+        paths["init_trust_wanted"] = False
     return paths, env
 
 
@@ -134,16 +170,30 @@ def _check(
     extra: dict | None = None,
     env: dict | None = None,
     proxmox_host: bool = True,
+    trust: dict | None = None,
+    hosts_file: Path | None = None,
 ) -> dict:
-    """init_check.yml with the fake Proxmox at base, with no terminal; pve is "local" (a stand-in host) or "ssh"."""
-    paths, run_env = _inventory_of(root, base, pve, settings, vault, host, proxmox_host)
+    """init_check.yml with the fake Proxmox at base, with no terminal; pve is "local" (a stand-in host) or "ssh". With
+    trust (the host's certificates, by kind, {} for none), the certificate's step runs; with hosts_file, the Proxmox
+    host is defined there (_inventory_of)."""
+    paths, run_env = _inventory_of(root, base, pve, settings, vault, host, proxmox_host, trust, hosts_file)
     extra_vars = json.dumps(paths | (extra or {}))
-    return _run(root, PLAYBOOK, {}, "-i", str(root / "proxmox.yml"), "-e", extra_vars, *args, env=(env or {}) | run_env)
+    sources = ["-i", str(root / "proxmox.yml"), *(["-i", str(hosts_file)] if hosts_file else [])]
+    return _run(root, PLAYBOOK, {}, *sources, "-e", extra_vars, *args, env=(env or {}) | run_env)
 
 
-def _check_at_a_terminal(root: Path, base: str, pve: str, settings: dict | None, steps, extra: dict | None = None):
-    """init_check.yml at a pseudo-terminal, init_ask on, typing steps; rc, output, log."""
-    paths, run_env = _inventory_of(root, base, pve, settings, VAULT_HEADER, "127.0.0.1")
+def _check_at_a_terminal(
+    root: Path,
+    base: str,
+    pve: str,
+    settings: dict | None,
+    steps,
+    extra: dict | None = None,
+    trust: dict | None = None,
+):
+    """init_check.yml at a pseudo-terminal, init_ask on, typing steps; rc, output, log. With trust, the certificate's
+    step runs, as _check's."""
+    paths, run_env = _inventory_of(root, base, pve, settings, VAULT_HEADER, "127.0.0.1", trust=trust)
     return _run_at_a_terminal(
         root,
         PLAYBOOK,
@@ -780,6 +830,364 @@ def test_next_steps_say_what_could_not_be_checked_when_nothing_is_wrong(tmp_path
     }
 
 
+# -------------------------------------------------------------- the certificate ---
+# Before the token goes anywhere: what makes the API's certificate verify, kept beside the inventory (here the test's
+# own folder, where proxmox.yml is) in proxmox-trust.pem with proxmox_validate_certs on; a certificate that changed put
+# in its place only on a yes or the fingerprint given; and nothing that carries the token where what answers is not
+# the host.
+KEPT = "inventory/proxmox-trust.pem"
+
+
+def _pki_pve(tmp_path: Path, **made):
+    """The fake Proxmox serving a node's certificate under a CA made as Proxmox makes one (pki.py's ``made``): its
+    base URL, and the certificates as the host keeps them."""
+    pki = proxmox_pki(tmp_path / "pki", **made)
+    for base in _fake_pve(tmp_path, (pki["cert"], pki["key"])):
+        yield base, pki
+
+
+@pytest.fixture
+def pve_8(tmp_path):
+    """Its CA has no keyUsage, as every Proxmox VE 8 host's."""
+    yield from _pki_pve(tmp_path)
+
+
+@pytest.fixture
+def pve_9(tmp_path):
+    """Its CA has keyUsage, as a Proxmox VE 9 host's from pve-cluster 9.1.2."""
+    yield from _pki_pve(tmp_path, key_usage=True)
+
+
+def _host_files(pki: dict) -> dict:
+    return {"ca": pki["ca"], "node": pki["node"]}
+
+
+TRUST_READS = (
+    "Look for the host's certificates over root SSH",
+    "Read Proxmox's CA over root SSH",
+    "Read the certificate the node serves over root SSH",
+)
+
+
+def _trust_read(report: dict) -> list[str]:
+    """The reads of the host's certificates a run made, by task name, once each."""
+    return list(
+        dict.fromkeys(name for name, _, result in _results(report) if name in TRUST_READS and not result.get("skipped"))
+    )
+
+
+def _local_settings(root: Path) -> dict:
+    return yaml.safe_load((root / "group_vars" / "all" / "local.yml").read_text()) or {}
+
+
+def _token_sent(directory: Path) -> bool:
+    """Whether the fake Proxmox in directory was sent any request that carried a token."""
+    return any(call.get("token") for call in _pve_requests(directory))
+
+
+def test_the_certificate_that_verifies_is_kept_and_checked_from_then_on(tmp_path: Path, pve_8) -> None:
+    base, pki = pve_8
+    root = tmp_path / "run"
+    report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(pki))
+    assert report["rc"] == 0, _failures(report)
+    # Where Python is strict, Proxmox VE 8's CA is refused and the node's own certificate is the one that verifies.
+    expected, kind = (pki["node"], "the node's own certificate") if STRICT else (pki["ca"], "its CA")
+    assert (root / "proxmox-trust.pem").read_text() == expected
+    # And the setting on, so that a copy of the checkout without the file refuses rather than sends the token.
+    assert _local_settings(root)["proxmox_validate_certs"] is True
+    said = _said(report)
+    assert (
+        f"ok   Proxmox's certificate verifies against {kind} (SHA-256 {trust.pem_fingerprint(expected)}), read over"
+        f" root SSH and kept in {KEPT} with proxmox_validate_certs on: every run checks it"
+    ) in said
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in said
+    assert "note" not in said and _init_next(report) == {"init_check": DEPLOY_NEXT}
+    # Checked from then on: the next run finds it verifies, and reads nothing over root SSH.
+    again = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(pki))
+    assert again["rc"] == 0, _failures(again)
+    assert f"ok   Proxmox's certificate verifies against {KEPT}: every run checks it" in _said(again)
+    assert _trust_read(again) == []
+
+
+def test_another_host_s_certificate_is_kept_in_that_host_s_own_folder(tmp_path: Path, pve_9) -> None:
+    # just init --host nuc: the host is hosts/nuc/hosts.yml laid over the shared inventory, and its file goes beside
+    # it, said there - never into the folder of the first host's, whose runs would then check nuc's certificate.
+    base, pki = pve_9
+    root = tmp_path / "run"
+    hosts_file = root / "hosts" / "nuc" / "hosts.yml"
+    extra = {"init_ask": True, "init_host": HOST | {"hosts_said": "hosts/nuc/hosts.yml"}}
+    report = _check(root, base, "local", extra=extra, trust=_host_files(pki), hosts_file=hosts_file)
+    assert report["rc"] == 0, _failures(report)
+    assert (hosts_file.parent / "proxmox-trust.pem").read_text() == pki["ca"]
+    assert not (root / "proxmox-trust.pem").exists()
+    assert "read over root SSH and kept in hosts/nuc/proxmox-trust.pem with proxmox_validate_certs on" in _said(report)
+
+
+def test_a_ca_with_key_usage_is_the_one_kept(tmp_path: Path, pve_9) -> None:
+    base, pki = pve_9
+    root = tmp_path / "run"
+    report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(pki))
+    assert report["rc"] == 0, _failures(report)
+    assert (root / "proxmox-trust.pem").read_text() == pki["ca"]
+    assert "ok   Proxmox's certificate verifies against its CA (SHA-256 " in _said(report)
+
+
+def test_a_custom_certificate_is_read_in_place_of_the_one_proxmox_made_and_kept_without_its_chain(
+    tmp_path: Path, pve_8
+) -> None:
+    # pveproxy serves pveproxy-ssl.pem where there is one, the one Proxmox made then no anchor of it; and a chain served
+    # with it is left out of what is kept, since each certificate of a trust file is an anchor of its own.
+    base, pki = pve_8
+    other = proxmox_pki(tmp_path / "other")
+    root = tmp_path / "run"
+    files = {"ca": other["ca"], "node": other["node"], "custom": pki["node"] + other["ca"]}
+    report = _check(root, base, "local", extra={"init_ask": True}, trust=files)
+    assert report["rc"] == 0, _failures(report)
+    if STRICT:
+        assert (root / "proxmox-trust.pem").read_text() == pki["node"]
+    else:
+        # Python 3.12 takes no certificate but a CA's as an anchor, and the custom certificate's CA is not the host's:
+        # what it presents is still the host's own, so it is said as a name or a chain to fix, and nothing is held.
+        assert not (root / "proxmox-trust.pem").exists()
+        assert "note Proxmox's certificate is not checked: what https://" in _said(report)
+
+
+def test_without_a_terminal_the_certificate_is_said_and_nothing_written(tmp_path: Path, pve_9) -> None:
+    base, pki = pve_9
+    root = tmp_path / "run"
+    report = _check(root, base, "local", trust=_host_files(pki))
+    assert report["rc"] == 0, _failures(report)
+    assert not (root / "proxmox-trust.pem").exists() and "proxmox_validate_certs" not in _local_settings(root)
+    fingerprint = trust.pem_fingerprint(pki["ca"])
+    note = (
+        f"Proxmox's certificate verifies against its CA (SHA-256 {fingerprint}), read over root SSH, and this run"
+        f" checked it, but nothing keeps it for the next: just init at a terminal keeps it in {KEPT}, and so does"
+        f" just init --certificate {fingerprint}"
+    )
+    assert f"note {note}" in _said(report)
+    # Nothing kept, but the token never goes out unchecked with a certificate that verifies in hand: the rest of the
+    # run is checked against a copy of its own, removed as it ends.
+    run_copy = root / "cache" / "init" / "proxmox-trust.pem"
+    facts = {name: result.get("ansible_facts") for name, _, result in _results(report)}
+    assert facts["Check it against the run's copy"] == {"proxmox_api_ca_path": str(run_copy)}
+    assert facts["Check the API's certificate for the rest of the run"] == {"proxmox_validate_certs": True}
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in _said(report)
+    assert not run_copy.exists()
+    # A note fails nothing, and is kept for NEXT STEPS whatever else is.
+    assert _init_next(report) == {"init_check": f"{DEPLOY_NEXT}\n  note {note}"}
+
+
+def test_the_fingerprint_given_keeps_the_certificate_with_no_terminal_and_another_keeps_nothing(
+    tmp_path: Path, pve_9
+) -> None:
+    base, pki = pve_9
+    fingerprint = trust.pem_fingerprint(pki["ca"])
+    wrong = ":".join(["AB"] * 32)
+    root = tmp_path / "wrong"
+    report = _check(root, base, "local", extra={"init_given": {"certificate": wrong}}, trust=_host_files(pki))
+    assert report["rc"] == 0, _failures(report)
+    assert not (root / "proxmox-trust.pem").exists()
+    assert f"(--certificate {wrong} is not it, so nothing was kept)" in _said(report)
+    root = tmp_path / "given"
+    # As typed, in lowercase: a fingerprint is compared as openssl prints it.
+    report = _check(
+        root, base, "local", extra={"init_given": {"certificate": fingerprint.lower()}}, trust=_host_files(pki)
+    )
+    assert report["rc"] == 0, _failures(report)
+    assert (root / "proxmox-trust.pem").read_text() == pki["ca"]
+    assert _local_settings(root)["proxmox_validate_certs"] is True
+
+
+def test_a_certificate_that_is_the_host_s_under_another_name_is_said_and_checking_left_off(tmp_path: Path) -> None:
+    pki = proxmox_pki(tmp_path / "pki", key_usage=True, address="127.0.0.2")
+    root = tmp_path / "run"
+    for base in _fake_pve(tmp_path, (pki["cert"], pki["key"])):
+        report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(pki))
+    assert report["rc"] == 0, _failures(report)
+    assert not (root / "proxmox-trust.pem").exists()
+    said = _said(report)
+    assert (
+        f"note Proxmox's certificate is not checked: what https://127.0.0.1:{_port(base)} presents is the host's own"
+        f" (SHA-256 {trust.pem_fingerprint(pki['node'])}), but nothing makes it verify there (this machine's trust"
+        " store: "
+    ) in said
+    assert "; its CA: " in said and "Usually the certificate does not name the address in inventory/hosts.yml" in said
+    # The host itself, as root SSH says: the token goes to it, unchecked as before.
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in said
+
+
+def test_what_answers_with_none_of_the_host_s_certificates_is_never_sent_the_token(tmp_path: Path) -> None:
+    # D1's own case: root SSH reaches the host and reads its certificates, while something else answers on the API's
+    # port, with a certificate of its own.
+    host, impostor = proxmox_pki(tmp_path / "host", key_usage=True), proxmox_pki(tmp_path / "impostor", key_usage=True)
+    root = tmp_path / "run"
+    for base in _fake_pve(tmp_path, (impostor["cert"], impostor["key"])):
+        report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(host))
+    assert report["rc"] != 0
+    said = _said(report)
+    presented = trust.pem_fingerprint(impostor["node"])
+    assert (
+        f"!!   https://127.0.0.1:{_port(base)} presents a certificate (SHA-256 {presented})"
+        " that is none of the host's, as root SSH to 127.0.0.1 reads them, so something other than the Proxmox host"
+        " answers there, and the token was not sent"
+    ) in said
+    assert "--   the API is not asked, and nothing that needs it is checked" in said
+    assert not _token_sent(tmp_path) and not (root / "proxmox-trust.pem").exists()
+
+
+def test_what_says_nothing_to_a_request_without_a_token_is_never_sent_the_token(tmp_path: Path) -> None:
+    # Something in the host's place sees which request carries no token: it says nothing to every probe, waiting for
+    # the request that carries one. Its certificate alone decides.
+    host, impostor = proxmox_pki(tmp_path / "host", key_usage=True), proxmox_pki(tmp_path / "impostor", key_usage=True)
+    root = tmp_path / "run"
+    for base in _fake_pve(tmp_path, (impostor["cert"], impostor["key"])):
+        _pve(base, "PUT", "fake/tokenless", answer="none")
+        before = len(_pve_requests(tmp_path))
+        report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(host))
+    assert report["rc"] != 0
+    said = _said(report)
+    presented = trust.pem_fingerprint(impostor["node"])
+    assert (
+        f"!!   https://127.0.0.1:{_port(base)} presents a certificate (SHA-256 {presented})"
+        " that is none of the host's, as root SSH to 127.0.0.1 reads them"
+    ) in said
+    assert "--   the API is not asked, and nothing that needs it is checked" in said
+    assert not [call for call in _pve_requests(tmp_path)[before:] if call.get("token")]
+    assert not (root / "proxmox-trust.pem").exists()
+
+
+def test_no_certificate_read_where_root_ssh_read_the_host_s_is_never_sent_the_token(
+    tmp_path: Path, fake_pve: str
+) -> None:
+    # Nothing to read at the address, while root SSH reads the host's: nothing shows that the host answers there,
+    # whatever the reason - nothing listening, or something that finishes no handshake but the token's.
+    pki = proxmox_pki(tmp_path / "pki", key_usage=True)
+    root = tmp_path / "run"
+    closed = _free_port()
+    report = _check(
+        root, fake_pve, "local", {"proxmox_api_port": closed}, extra={"init_ask": True}, trust=_host_files(pki)
+    )
+    assert report["rc"] != 0
+    said = _said(report)
+    assert f"!!   https://127.0.0.1:{closed} presented no certificate to read (" in said
+    assert "so nothing shows that the Proxmox host answers there, and the token was not sent" in said
+    assert "--   the API is not asked, and nothing that needs it is checked" in said
+    assert not _token_sent(tmp_path)
+
+
+def test_without_root_ssh_the_way_to_copy_it_by_hand_is_said(tmp_path: Path, fake_pve: str) -> None:
+    root = tmp_path / "run"
+    report = _check(root, fake_pve, "ssh", extra={"init_ask": True}, trust={})
+    assert report["rc"] == 0, _failures(report)
+    said = _said(report)
+    assert "note Proxmox's certificate is not checked" in said and "just init could not read it over root SSH (" in said
+    assert ": install your key with ssh-copy-id root@127.0.0.1 and run just init again, or copy it by hand" in said
+    # Root SSH tried, and nothing read once the host is unreachable.
+    assert _ssh_calls(root)
+    assert _trust_read(report) == ["Look for the host's certificates over root SSH"]
+
+
+def test_without_a_proxmox_host_the_way_to_copy_it_by_hand_is_said(tmp_path: Path, fake_pve: str) -> None:
+    root = tmp_path / "run"
+    report = _check(root, fake_pve, "ssh", {"proxmox_api_host": "127.0.0.1"}, proxmox_host=False, trust={})
+    assert report["rc"] == 0, _failures(report)
+    said = _said(report)
+    assert "note Proxmox's certificate is not checked" in said
+    assert "inventory/hosts.yml names no Proxmox host to read it from over root SSH: copy it by hand" in said
+    assert _trust_read(report) == [] and _ssh_calls(root) == ""
+
+
+def test_a_certificate_the_run_s_clients_trust_turns_the_setting_on_and_writes_no_file(tmp_path: Path, pve_9) -> None:
+    # A certificate from a public CA, as ACME's: the bundle every client of the run is handed - here the CA, as
+    # REQUESTS_CA_BUNDLE, which uri is given as its ca_path and requests reads itself - verifies it, and
+    # proxmox_validate_certs is turned on in local.yml instead.
+    base, pki = pve_9
+    store = tmp_path / "store.pem"
+    store.write_text(pki["ca"])
+    root = tmp_path / "run"
+    env = {"REQUESTS_CA_BUNDLE": str(store)}
+    report = _check(root, base, "local", extra={"init_ask": True}, trust={}, env=env)
+    assert report["rc"] == 0, _failures(report)
+    assert not (root / "proxmox-trust.pem").exists()
+    assert _local_settings(root)["proxmox_validate_certs"] is True
+    said = _said(report)
+    assert (
+        "ok   Proxmox's certificate verifies against this machine's trust store, and proxmox_validate_certs is on"
+        in said
+    )
+    # Checked for the rest of the run too, which read local.yml before the write.
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in said
+    again = _check(root, base, "local", extra={"init_ask": True}, trust={}, env=env)
+    assert again["rc"] == 0, _failures(again)
+    assert "ok   Proxmox's certificate verifies against this machine's trust store: every run checks it" in _said(again)
+    assert _local_settings(root)["proxmox_validate_certs"] is True
+    assert (root / "group_vars" / "all" / "local.yml").read_text().count("proxmox_validate_certs:") == 1
+
+
+def test_a_store_only_the_standard_library_trusts_is_not_taken_for_one_the_modules_trust(tmp_path: Path, pve_9) -> None:
+    # SSL_CERT_FILE reaches the standard library's store, which uri uses, and not certifi's, which every
+    # community.proxmox module verifies against: taken for this machine's store, the first deploy would fail.
+    base, pki = pve_9
+    store = tmp_path / "store.pem"
+    store.write_text(pki["ca"])
+    root = tmp_path / "run"
+    report = _check(root, base, "local", extra={"init_ask": True}, trust={}, env={"SSL_CERT_FILE": str(store)})
+    assert report["rc"] == 0, _failures(report)
+    assert "proxmox_validate_certs" not in _local_settings(root)
+    assert "this machine's trust store, and proxmox_validate_certs is on" not in _said(report)
+
+
+def test_a_certificate_that_changed_is_never_trusted_in_its_place_unasked_and_the_token_held(tmp_path: Path) -> None:
+    first, second = proxmox_pki(tmp_path / "first", key_usage=True), proxmox_pki(tmp_path / "second", key_usage=True)
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "proxmox-trust.pem").write_text(first["ca"])
+    for base in _fake_pve(tmp_path, (second["cert"], second["key"])):
+        report = _check(root, base, "local", extra={"init_ask": True}, trust=_host_files(second))
+    assert report["rc"] != 0
+    said = _said(report)
+    new = trust.pem_fingerprint(second["ca"])
+    assert (
+        f"!!   Proxmox's certificate no longer verifies against {KEPT} (SHA-256 {trust.pem_fingerprint(first['ca'])})"
+        in said
+        and f"and its CA, read over root SSH, does (SHA-256 {new}), so the token was not sent: just init at a terminal"
+        f" asks whether to trust it in its place, and just init --certificate {new} puts it there"
+        in said
+    ), said
+    # Never turned off, never replaced unasked, and nothing sent with the token to what answers.
+    assert "validate_certs: false" not in said and "set it back to false" not in said
+    assert (root / "proxmox-trust.pem").read_text() == first["ca"] and not _token_sent(tmp_path)
+
+
+def test_a_certificate_that_changed_is_put_in_place_for_its_fingerprint_given(tmp_path: Path) -> None:
+    first, second = proxmox_pki(tmp_path / "first", key_usage=True), proxmox_pki(tmp_path / "second", key_usage=True)
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "proxmox-trust.pem").write_text(first["ca"])
+    given = {"init_given": {"certificate": trust.pem_fingerprint(second["ca"])}}
+    for base in _fake_pve(tmp_path, (second["cert"], second["key"])):
+        report = _check(root, base, "local", extra=given, trust=_host_files(second))
+    assert report["rc"] == 0, _failures(report)
+    assert (root / "proxmox-trust.pem").read_text() == second["ca"]
+    said = _said(report)
+    assert f"ok   Proxmox's certificate no longer verified against {KEPT} (SHA-256 " in said
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in said
+
+
+def test_a_certificate_that_changed_is_put_in_place_on_a_yes_that_showed_both_fingerprints(tmp_path: Path) -> None:
+    first, second = proxmox_pki(tmp_path / "first", key_usage=True), proxmox_pki(tmp_path / "second", key_usage=True)
+    root = tmp_path / "run"
+    root.mkdir()
+    (root / "proxmox-trust.pem").write_text(first["ca"])
+    for base in _fake_pve(tmp_path, (second["cert"], second["key"])):
+        rc, output, _ = _check_at_a_terminal(
+            root, base, "local", None, [(b"Trust it in its place? y or n", b"y\n")], trust=_host_files(second)
+        )
+    assert rc == 0, output
+    assert trust.pem_fingerprint(first["ca"]) in output and trust.pem_fingerprint(second["ca"]) in output
+    assert (root / "proxmox-trust.pem").read_text() == second["ca"]
+
+
 # ------------------------------------------------------------------- static ---
 READ_ONLY = {
     "ansible.builtin.uri",
@@ -805,7 +1213,22 @@ TASK_KEYS = {
 }  # fmt: skip
 CHOOSE = REPO / "playbooks" / "tasks" / "init_choose.yml"
 INCLUDED = {"tasks/cluster_vms.yml", "tasks/init_choose.yml", "tasks/init_local_setting.yml", "init_ask.yml",
-            "init_local_setting.yml"}  # fmt: skip
+            "init_local_setting.yml", "tasks/init_ask.yml"}  # fmt: skip
+
+
+RUN_COPY = {
+    "Make the folder the run's copy of the certificate goes in": {
+        "path": "{{ init_trust_run_file | dirname }}",
+        "state": "directory",
+        "mode": "0700",
+    },
+    "Copy the certificate that verifies for this run alone": {
+        "content": "{{ init_trust.pem }}",
+        "dest": "{{ init_trust_run_file }}",
+        "mode": "0600",
+    },
+    "Remove the run's copy of the certificate": {"path": "{{ init_trust_run_file }}", "state": "absent"},
+}
 
 
 def test_every_task_is_a_read_but_the_settings_written():
@@ -819,6 +1242,28 @@ def test_every_task_is_a_read_but_the_settings_written():
             assert set(task) <= TASK_KEYS | {"block", "rescue", "always"}, task["name"]
             continue
         modules = set(task) - TASK_KEYS
+        if (
+            len(modules) == 1
+            and modules <= {"ansible.builtin.copy", "ansible.builtin.file"}
+            and task["name"] in RUN_COPY
+        ):
+            # The copy of a certificate that verifies but is not kept, which the rest of the run is checked against,
+            # its folder and its removal: in a file of the run's own, never the trust file.
+            assert task[next(iter(modules))] == RUN_COPY[task["name"]], task["name"]
+            assert task["when"] == "init_trust_run_copy | default(false) | bool", task["name"]
+            continue
+        if modules == {"ansible.builtin.copy"}:
+            # The trust file, from the certificate kept: over one there only where it replaces one that no longer
+            # verifies, which the run settled on a yes or the fingerprint given (init_trust_keep_file).
+            assert task["name"] == "Keep the certificate the API is checked against from now on", task["name"]
+            assert task["ansible.builtin.copy"] == {
+                "content": "{{ init_trust.pem }}",
+                "dest": "{{ proxmox_trust_file }}",
+                "mode": "0644",
+                "force": "{{ init_trust_replacing | bool }}",
+            }
+            assert "init_trust_keep_file | bool" in task["when"]
+            continue
         assert len(modules) == 1 and modules <= READ_ONLY, (task["name"], modules)
         module = modules.pop()
         if module == "ansible.builtin.uri":
@@ -845,13 +1290,21 @@ def test_a_setting_is_written_only_at_a_terminal_or_as_given():
         for path in (PLAYBOOK, CHOOSE)
         for task in _every_task(yaml.safe_load(path.read_text()))
         if str(task.get("ansible.builtin.include_tasks", "")).endswith("init_local_setting.yml")
+        or ("ansible.builtin.copy" in task and task["name"] not in RUN_COPY)
     }
     assert sorted(writers) == [
+        "Keep the certificate the API is checked against from now on",
+        "Turn checking on in local.yml",
         "Write proxmox_node into local.yml",
         "Write what the host sets for itself into its local.yml",
         "init_choose | Write into local.yml {{ init_choose_setting }}",
     ]
     assert writers["Write proxmox_node into local.yml"].startswith("(init_ask | bool) and ")
+    # The certificate's: a terminal, or the fingerprint given (--certificate) being the certificate's that verifies.
+    for name in ("Keep the certificate the API is checked against from now on", "Turn checking on in local.yml"):
+        assert writers[name].startswith("(init_ask | bool or init_trust_given_matches | default(false) | bool) and "), (
+            name
+        )
     # Another host's own settings: its name given on the command line, just init --host.
     assert writers["Write what the host sets for itself into its local.yml"].startswith(
         "(init_host_name | length > 0) and "

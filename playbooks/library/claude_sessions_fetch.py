@@ -18,8 +18,15 @@ description:
     one of O(names) or inside one, named without C(..), an absolute path or an empty component, and
     never through a link: nothing here is a link, since a link, a hard link, a device or a pipe in the
     archive is left out and named. Nothing is ever written outside O(dest).
-  - Fails, having written nothing outside O(dest), when SSH or tar fails, when the archive ends early, or
-    when an entry asked for did not arrive. just destroy then keeps the VM (playbooks/tasks/session_save.yml).
+  - A name is held to what Claude Code writes there too - no part that starts with a dot or holds a control
+    character, none longer than a file name can be, and no path deeper than 16 - and such an entry is left out.
+  - What one save may hold is bounded, whatever the VM sends - O(max_bytes) of files, twice that and 64 MiB of
+    archive in all, 200000 entries, and a header (a pax header, a GNU long name) of 1 MiB, which tarfile reads
+    whole into memory - and so is a sparse file, which tar sends only when asked to. Past one of them the
+    save fails, what arrived before kept in O(dest).
+  - Fails, having written nothing outside O(dest), when SSH or tar fails, when the archive ends early, when an
+    entry asked for did not arrive, or past a bound. just destroy then keeps the VM
+    (playbooks/tasks/session_save.yml).
   - Nothing of what the files hold is returned, only how many and the names left out.
 options:
   dest:
@@ -38,6 +45,22 @@ options:
     type: list
     elements: str
     required: true
+  max_bytes:
+    description:
+      - The most the files written may hold in all, in bytes: destroy_sessions_max_size.
+    type: int
+    default: 4294967296
+  idle_seconds:
+    description:
+      - How long the VM may send nothing before the save is ended, failed: a VM that sends a block and stops would
+        otherwise hold just destroy, and the run lock, until someone pressed Ctrl-C.
+    type: int
+    default: 300
+  most_seconds:
+    description:
+      - How long the whole save may take before it is ended, failed.
+    type: int
+    default: 3600
   ssh:
     description:
       - How to reach the VM, as Ansible reaches it. Without it, the VM is this machine, as in the tests.
@@ -97,15 +120,16 @@ left_out_count:
   type: int
 """
 
+import errno
 import os
 import re
 import shlex
-import shutil
 import stat
 import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 
 from ansible.module_utils.agent_warehouse import SESSION_ID
 from ansible.module_utils.basic import AnsibleModule
@@ -114,6 +138,27 @@ from ansible.module_utils.basic import AnsibleModule
 NAME = re.compile(rf"[A-Za-z0-9-]+/(?:{SESSION_ID.pattern}(?:\.jsonl)?|memory)")
 # How many of the entries left out are named: a VM can send any number.
 LISTED = 50
+# What one save may hold, whatever the VM sends, beside the files' bytes (max_bytes, destroy_sessions_max_size): the
+# archive's entries - a projects folder of months is a few thousand - and a header that is not an entry's own, a pax
+# header or a GNU long name, which tarfile reads whole into memory before the entry it is for.
+MOST_BYTES = 4 << 30
+MOST_ENTRIES = 200_000
+MOST_HEADER = 1 << 20
+LONG_HEADERS = (
+    tarfile.XHDTYPE,
+    tarfile.XGLTYPE,
+    tarfile.SOLARIS_XHDTYPE,
+    tarfile.GNUTYPE_LONGNAME,
+    tarfile.GNUTYPE_LONGLINK,
+)
+# A name as Claude Code writes them in its folders: no part that starts with a dot - a .git planted in a memory folder
+# would be read by a git run inside it - or holds a control character, none longer than a file name may be, and no
+# path deeper than a session's folder needs.
+PART = re.compile(r"[^.\x00-\x1f\x7f][^\x00-\x1f\x7f]*")
+PART_BYTES = 255
+DEPTH = 16
+# How much of a name left out the result says.
+NAME_SAID = 200
 # A host or user that ssh could read as an option, or that is not one word. fullmatch: an anchored match takes a word
 # with a newline at its end.
 WORD = re.compile(r"[^\s-]\S*")
@@ -121,6 +166,43 @@ WORD = re.compile(r"[^\s-]\S*")
 
 class Refused(Exception):
     """An entry of the archive that is not written; the run goes on without it."""
+
+
+class Stopped(RuntimeError):
+    """What ends the save: more than one save may hold, or what tar sends only when asked. Never one of tarfile's own
+    errors, some of which its reader takes for the archive's end."""
+
+
+def _size(count):
+    """``count`` bytes as a setting writes a size: 4G, 512M."""
+    for unit, size in (("T", 1 << 40), ("G", 1 << 30), ("M", 1 << 20), ("K", 1 << 10)):
+        if count >= size:
+            return f"{count / size:g}{unit}"
+    return f"{count} bytes"
+
+
+class _Header(tarfile.TarInfo):
+    """An entry's header, refused before tarfile reads more of it than a header needs. _proc_member is where tarfile
+    reads each header, a pax header's or a long name's own included (its documented place for a subclass's work); a
+    test fails if a Python moves it."""
+
+    def _proc_member(self, tarfile_):
+        # A global header's records go on every entry after it, each a copy: a few thousand entries after one of a
+        # megabyte is gigabytes, inside every bound below. tar writes one only when asked.
+        if self.type == tarfile.XGLTYPE:
+            raise Stopped("the VM sent a global header, which its tar writes only when asked to")
+        if self.type in LONG_HEADERS and self.size > MOST_HEADER:
+            raise Stopped(f"the VM sent a header of {_size(self.size)}, more than the {_size(MOST_HEADER)} one needs")
+        if self.type == tarfile.GNUTYPE_SPARSE:
+            raise Stopped("the VM sent a sparse file, which its tar makes only when asked to")
+        member = super()._proc_member(tarfile_)
+        if member.sparse is not None:
+            raise Stopped("the VM sent a sparse file, which its tar makes only when asked to")
+        return member
+
+    def _proc_gnusparse_10(self, next_, pax_headers, tarfile_):
+        # Its map is read from the entry's data, as long as the VM makes it.
+        raise Stopped("the VM sent a sparse file, which its tar makes only when asked to")
 
 
 def ssh_argv(ssh, command):
@@ -154,6 +236,16 @@ def _relative(name):
     parts = path.split("/")
     if any(part in ("", ".", "..") for part in parts):
         raise Refused("not a path inside the folder")
+    if len(parts) > DEPTH:
+        raise Refused("deeper than a session's folder goes")
+    for part in parts:
+        if not PART.fullmatch(part) or len(part.encode("utf-8", "surrogateescape")) > PART_BYTES:
+            raise Refused("not named as Claude Code names its own")
+        # With a HEAD beside objects/ and refs/, a folder is a bare repository to git, whose config a git run inside
+        # it - a shell prompt's, an editor's - reads; Claude Code names nothing HEAD. Any case: a folder on a file
+        # system that ignores it takes head for HEAD.
+        if part.upper() == "HEAD":
+            raise Refused("named as git names a repository's own")
     return parts
 
 
@@ -171,16 +263,23 @@ def _folder(top, parts):
     return path
 
 
-def unpack(stream, dest, names):
-    """Unpack the tar ``stream`` into the folder ``dest`` (there already, empty): (files, left_out, arrived).
+def unpack(stream, dest, names, most=MOST_BYTES):
+    """Unpack the tar ``stream`` into the folder ``dest`` (there already, empty): (files, left_out, left_out_count,
+    arrived).
 
     Only plain files and folders, and only at ``names`` or inside one of the folders among them: a
-    transcript is a file, and nothing is inside it. Everything else is left out.
+    transcript is a file, and nothing is inside it. Everything else is left out. Past ``most`` bytes of
+    files, or one of the bounds above, Stopped.
     """
     wanted = {tuple(name.split("/")): name.endswith(".jsonl") for name in names}
-    files, left_out, arrived = 0, [], set()
-    with tarfile.open(fileobj=stream, mode="r|") as archive:
+    files, written, entries, left_out, refused, arrived = 0, 0, 0, [], 0, set()
+    with tarfile.open(fileobj=stream, mode="r|", tarinfo=_Header) as archive:
         for member in archive:
+            # tarfile keeps every entry it read: one of each was a few hundred bytes, of a few hundred thousand.
+            archive.members.clear()
+            entries += 1
+            if entries > MOST_ENTRIES:
+                raise Stopped(f"the VM sent more than {MOST_ENTRIES} entries")
             try:
                 parts = _relative(member.name)
                 top = next((key for key in wanted if tuple(parts[: len(key)]) == key), None)
@@ -194,7 +293,13 @@ def unpack(stream, dest, names):
                 elif member.isreg():
                     if exact and not wanted[top]:
                         raise Refused("a file where a folder is asked for")
-                    _write(_folder(dest, parts[:-1]), parts[-1], archive.extractfile(member), member.mtime)
+                    if written + member.size > most:
+                        raise Stopped(
+                            f"the VM sent more than the {_size(most)} of files destroy_sessions_max_size allows"
+                        )
+                    written += _write(
+                        _folder(dest, parts[:-1]), parts[-1], archive.extractfile(member), member.mtime, most - written
+                    )
                     files += 1
                 elif member.issym() or member.islnk():
                     raise Refused("a link")
@@ -202,36 +307,56 @@ def unpack(stream, dest, names):
                     raise Refused("not a plain file or folder")
                 if exact:
                     arrived.add("/".join(top))
-            except Refused as why:
-                left_out.append({"name": member.name, "why": str(why)})
-    return files, left_out, arrived
+            except (Refused, OSError) as why:
+                # A path within every bound above can still be longer than this machine's file system takes: that
+                # entry is left out, not the whole save failed.
+                if isinstance(why, OSError):
+                    if why.errno != errno.ENAMETOOLONG:
+                        raise
+                    why = Refused("a path longer than this machine takes")
+                refused += 1
+                if len(left_out) < LISTED:
+                    # A name may be a megabyte: the result keeps its start, as plain text.
+                    name = "".join(ch if ch.isprintable() else "?" for ch in member.name[:NAME_SAID])
+                    left_out.append({"name": name, "why": str(why)})
+    return files, left_out, refused, arrived
 
 
-def _write(folder, name, data, mtime):
-    """Write ``data`` to a new file ``name`` in ``folder``, 0600, with ``mtime``; never through a link."""
+def _write(folder, name, data, mtime, room):
+    """Write ``data`` to a new file ``name`` in ``folder``, 0600, with ``mtime``; never through a link, and never
+    more than ``room`` bytes. The bytes written."""
     try:
         handle = os.open(os.path.join(folder, name), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     except FileExistsError:
         raise Refused("named twice, or a folder of that name came first") from None
+    size = 0
     with os.fdopen(handle, "wb") as out:
-        shutil.copyfileobj(data, out, 1 << 20)
+        while block := data.read(1 << 20):
+            size += len(block)
+            if size > room:
+                raise Stopped("the VM sent more of a file than its header said")
+            out.write(block)
         out.flush()
         os.fchmod(out.fileno(), 0o600)
         try:
             os.utime(out.fileno(), (mtime, mtime))
         except (OverflowError, ValueError, OSError):
             pass
+    return size
 
 
 class _Counted:
-    """A stream that counts what is read from it: a whole archive is a number of 512-byte blocks."""
+    """A stream that counts what is read from it, a whole archive being a number of 512-byte blocks, and stops at
+    ``most``: what the VM sends of entries left out, and of headers, is read too."""
 
-    def __init__(self, stream):
-        self.stream, self.count = stream, 0
+    def __init__(self, stream, most):
+        self.stream, self.count, self.most = stream, 0, most
 
     def read(self, size=-1):
         data = self.stream.read(size)
         self.count += len(data)
+        if self.count > self.most:
+            raise Stopped(f"the VM sent more than {_size(self.most)} in all")
         return data
 
 
@@ -254,8 +379,42 @@ def _said(errors):
     return f": {text}" if text else ""
 
 
-def fetch(dest, root, names, ssh=None):
-    """Bring ``names`` of ``root`` into ``dest``: the result, or raise RuntimeError with what went wrong."""
+class _Watch:
+    """Ends ``process`` when ``counted`` has read nothing for ``idle`` seconds, or ``whole`` have gone: a VM that sends
+    one block and stops, or sends a byte a second, would hold the save, and the run, for as long as it liked."""
+
+    def __init__(self, process, counted, idle, whole):
+        self.process, self.counted, self.idle, self.whole = process, counted, idle, whole
+        self.why, self._done = "", threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def __enter__(self):
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._done.set()
+        self._thread.join()
+
+    def _run(self):
+        started = last_at = time.monotonic()
+        last = self.counted.count
+        while not self._done.wait(1):
+            now = time.monotonic()
+            if self.counted.count != last:
+                last, last_at = self.counted.count, now
+            if now - last_at > self.idle:
+                self.why = f"the VM sent nothing for {self.idle} s"
+            elif now - started > self.whole:
+                self.why = f"the save took more than {self.whole} s"
+            if self.why:
+                self.process.kill()
+                return
+
+
+def fetch(dest, root, names, ssh=None, most=MOST_BYTES, idle=300, whole=3600):
+    """Bring ``names`` of ``root`` into ``dest``, at most ``most`` bytes of files, within ``idle`` seconds of silence
+    and ``whole`` in all: the result, or raise RuntimeError with what went wrong."""
     for name in names:
         if not NAME.fullmatch(name):
             raise RuntimeError(f"{name!r} is not a Claude Code transcript, a session's folder or a memory folder.")
@@ -275,35 +434,47 @@ def fetch(dest, root, names, ssh=None):
             target=_feed, args=(process.stdin, "".join(f"./{name}\n" for name in names).encode()), daemon=True
         )
         feeder.start()
-        stream = _Counted(process.stdout)
-        try:
-            files, left_out, arrived = unpack(stream, dest, names)
-            # What follows the archive's end is tar's padding: read to the end, so that ssh never
-            # writes to a pipe already closed, but no further than a record's worth would need.
-            extra = 0
-            while extra <= 1 << 20:
-                block = stream.read(1 << 16)
-                if not block:
-                    break
-                extra += len(block)
-            if extra > 1 << 20:
+        # Twice the files' bytes, and room for every entry's headers.
+        stream = _Counted(process.stdout, 2 * most + (64 << 20))
+        with _Watch(process, stream, idle, whole) as watch:
+            try:
+                files, left_out, refused, arrived = unpack(stream, dest, names, most)
+                # What follows the archive's end is tar's padding: read to the end, so that ssh never
+                # writes to a pipe already closed, but no further than a record's worth would need.
+                extra = 0
+                while extra <= 1 << 20:
+                    block = stream.read(1 << 16)
+                    if not block:
+                        break
+                    extra += len(block)
+                if extra > 1 << 20:
+                    process.kill()
+                    process.wait()
+                    raise RuntimeError("the VM sent more than the archive")
+                # tarfile reads an archive cut short after its first header as one that ended.
+                if stream.count % 512:
+                    raise tarfile.ReadError("it stops part way through a block")
+            except tarfile.TarError as error:
                 process.kill()
                 process.wait()
-                raise RuntimeError("the VM sent more than the archive")
-            # tarfile reads an archive cut short after its first header as one that ended.
-            if stream.count % 512:
-                raise tarfile.ReadError("it stops part way through a block")
-        except tarfile.TarError as error:
-            process.kill()
+                # Ended by the watch, the stream stops where it was: said as what ended it.
+                if watch.why:
+                    raise RuntimeError(f"{watch.why}; what arrived before is in {dest}") from None
+                raise RuntimeError(f"what came back is not a whole archive ({error}){_said(errors)}") from None
+            except Stopped as error:
+                process.kill()
+                process.wait()
+                raise RuntimeError(f"{error}; what arrived before is in {dest}") from None
+            except BaseException:
+                process.kill()
+                process.wait()
+                raise
+            finally:
+                process.stdout.close()
+                feeder.join()
+        if watch.why:
             process.wait()
-            raise RuntimeError(f"what came back is not a whole archive ({error}){_said(errors)}") from None
-        except BaseException:
-            process.kill()
-            process.wait()
-            raise
-        finally:
-            process.stdout.close()
-            feeder.join()
+            raise RuntimeError(f"{watch.why}; what arrived before is in {dest}")
         rc = process.wait()
         said = _said(errors)
     # 255 is ssh's own failure. GNU tar, the VM's, exits 2 for a name it cannot find and sends the
@@ -315,7 +486,7 @@ def fetch(dest, root, names, ssh=None):
         raise RuntimeError(f"{', '.join(missing)} did not arrive{said}")
     if rc not in (0, 1):
         raise RuntimeError(f"tar exited {rc}{said}")
-    return {"files": files, "left_out": left_out[:LISTED], "left_out_count": len(left_out)}
+    return {"files": files, "left_out": left_out, "left_out_count": refused}
 
 
 def main():
@@ -324,6 +495,9 @@ def main():
             "dest": {"type": "path", "required": True},
             "root": {"type": "str", "required": True},
             "names": {"type": "list", "elements": "str", "required": True},
+            "max_bytes": {"type": "int", "default": MOST_BYTES},
+            "idle_seconds": {"type": "int", "default": 300},
+            "most_seconds": {"type": "int", "default": 3600},
             "ssh": {
                 "type": "dict",
                 "options": {
@@ -341,7 +515,19 @@ def main():
     if module.check_mode:
         module.exit_json(changed=True, files=0, left_out=[], left_out_count=0)
     try:
-        result = fetch(params["dest"], params["root"], params["names"], params["ssh"])
+        if params["max_bytes"] < 1:
+            raise ValueError(f"max_bytes must be a number of bytes above 0, not {params['max_bytes']}")
+        if params["idle_seconds"] < 1 or params["most_seconds"] < 1:
+            raise ValueError("idle_seconds and most_seconds must be a number of seconds above 0")
+        result = fetch(
+            params["dest"],
+            params["root"],
+            params["names"],
+            params["ssh"],
+            params["max_bytes"],
+            params["idle_seconds"],
+            params["most_seconds"],
+        )
     except (RuntimeError, ValueError, OSError) as error:
         module.fail_json(msg=f"The sessions could not be brought here: {error}")
     module.exit_json(changed=True, **result)

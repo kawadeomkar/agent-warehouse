@@ -57,14 +57,19 @@ tailscale_oauth_client_id: ""
 tailscale_oauth_client_secret: ""
 # Tailscale's API. Tests point it at a stand-in.
 tailscale_api_url: https://api.tailscale.com
+# The names of the fleet's other VMs, which destroy's release passes from
+# Proxmox's listing, the one list a VM cannot change, and from the aliases of
+# the checkout's other hosts' VMs. A device under the ID a VM reports that is
+# named <tailscale_hostname>-<n> is that VM's own only when it is not the
+# machine name another of them joins as (web and web-2), made from its name as
+# tailscale_hostname is made from this VM's.
+tailscale_release_other_vms: []
 
 # The machine name asked for: the VM's name made one DNS label, as Tailscale
 # requires ("alpha.lab" and "my_vm" become "alpha-lab" and "my-vm"). One that
 # is already taken in the tailnet gets "-1" from Tailscale, which the report
 # names.
-tailscale_hostname: >-
-  {{ (inventory_hostname | lower | regex_replace('[^a-z0-9-]+', '-') | regex_replace('^-+|-+$', ''))[:63]
-     | regex_replace('-+$', '') }}
+tailscale_hostname: "{{ inventory_hostname | tailscale_label }}"
 
 # Tailscale SSH: connections to port 22 on the tailnet address go to
 # Tailscale's SSH server instead of sshd, authenticated by the tailnet's

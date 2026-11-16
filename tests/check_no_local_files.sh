@@ -40,6 +40,9 @@ patterns=(
   # address, its settings and its vault, and hosts/current. Whatever a folder
   # holds, and the folder of that name only at the top, where just looks for it.
   '^hosts/'
+  # The certificate just init trusts the Proxmox API's by, beside each host's
+  # hosts.yml: it names the host and its address.
+  '(^|/)proxmox-trust\.pem$'
   # Credentials.
   '(^|/)\.vault_pass'
   '(^|/)\.env'
@@ -58,6 +61,8 @@ patterns=(
   # address.
   '(^|/)\.cache/run\.lock$'
   '(^|/)\.cache/mcp/'
+  # A certificate just init checked a run against without keeping it: it names the Proxmox host's address.
+  '(^|/)\.cache/init/'
   # A build VM's host key, by its address, while a golden template is built.
   '(^|/)\.cache/golden/'
   # Working documents beside the wiki: a plan, a review or a smoke runbook

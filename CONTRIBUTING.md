@@ -89,6 +89,13 @@ secret gets a canned value and a place in those searches.
   [docs/development/docs.md](docs/development/docs.md) lists - and run `just docs`, which the commit hook
   runs too.
 - **Idempotence** is not optional. A task that reports `changed` on a second run will fail CI.
+- **A pattern that holds a value to a shape ends at the end of the text**: `\Z`, or Python's `fullmatch`, never `$`,
+  which also matches just before a newline that ends the text, so `'^[a-z]+$'` takes `"web\n"`. Ansible's `match`,
+  `search` and `regex` tests and Python's `re.match` and `re.search` all take it so, and some of these values a VM
+  supplies. Only a pattern read over a text's lines (`re.M`, `multiline=True`, `(?m)`) and lineinfile's `regexp`
+  end with `$`. A pattern that must hold the whole value is anchored at both ends: one with no end anchor holds only
+  its start. `tests/unit/test_anchors.py` holds every pattern written in a test, in Python or in a `*_pattern`
+  variable.
 - **A moment the run waits for the person is set apart.** A `pause` or `vars_prompt` passes its text
   through the `banner` filter (`'…' | banner('USER INPUT REQUIRED', host=inventory_hostname,
   topic='…') ~ 'Code'`), and a debug task that shows a page to approve, or a retried task that waits on

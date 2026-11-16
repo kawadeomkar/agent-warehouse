@@ -73,8 +73,8 @@ rebuild it when its settings change.
 everything else, with only the rights it needs, shows the commands it would run on the host, and runs them
 only if you answer `y`. To create them yourself instead, answer `n` and run
 [`tools/proxmox-access.sh`](tools/proxmox-access.sh) on the host. [Proxmox access](docs/getting-started/proxmox-access.md)
-says how, and explains a datacenter setting that can block the project's tag and validating the host's
-certificate.
+says how, explains a datacenter setting that can block the project's tag, and how `just init` has every run
+check the host's certificate.
 
 **2. Get the project, and answer `just init`.**
 
@@ -96,6 +96,7 @@ the vault encrypted, with its password in `.vault_pass`: keep that file.
 | `inventory/hosts.yml` | The address of your Proxmox host, which `just init` asks for. VMs are **not** listed here |
 | `inventory/group_vars/all/vault.yml` | Encrypted: your GitHub username, which `just init` asks for, and the token's secret, which it writes when it makes the token and asks for otherwise; a Tailscale auth key, which it asks for once you choose `tailscale`. Optionally `vault_github_token`, `vault_anthropic_api_key`, and a Tailscale API token or OAuth client, with which `just destroy` takes the VM off your tailnet - with `just vault` |
 | `inventory/group_vars/all/local.yml` | Only your preferences - VM size, which repositories to clone - and what `just init` writes there: `vpn` from your answer, a token not named `ansible@pve!ansible`, and the node, storage and bridge when the defaults (`pve`, `local-lvm`, `vmbr0`) do not fit your host |
+| `inventory/proxmox-trust.pem` | The certificate the Proxmox API is checked against, which `just init` writes and nothing else: delete it to have `just init` trust a new one |
 
 Every setting the two files take, with its default, is in the [settings reference](docs/reference/settings.md);
 `just settings --all` shows the value each has now, and `just vault` edits the vault.
@@ -121,6 +122,8 @@ The run stops for you at most three times, each at a page it opens in your brows
 Then your editor opens on the VM, in `~/projects`. In VS Code, the default, Claude runs in a terminal; the
 first time, VS Code asks you to trust the folder and to allow automatic tasks, both yours to answer. In Zed
 (`just settings editor --value zed`), Claude is a task of the window you start ([Zed](docs/guides/zed.md)).
+A window on a VM trusts that VM with your machine
+([What a window on a VM trusts](docs/guides/vscode.md#what-a-window-on-a-vm-trusts)).
 [Your first deploy](docs/getting-started/first-deploy.md) walks through each stop, and what to do when
 one is skipped or fails.
 

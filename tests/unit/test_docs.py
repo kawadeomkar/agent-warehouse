@@ -164,6 +164,9 @@ def test_every_setting_that_reaches_a_role_is_in_an_example_file():
         "proxmox_template_base": "made from proxmox_template_custom and proxmox_template_name: what new VMs clone",
         "vault_host_proxmox_api_token_secret": "a host's own token, in its vault in hosts/<name>/",
         "claude_host_flag": "made from the run's host and the others: --host <name> where there is more than one",
+        "claude_ssh_known_hosts_file": "beside claude_ssh_config_file: the VMs' host keys, each under its identity",
+        "proxmox_api_validate": "made from proxmox_validate_certs and the trust file just init keeps beside hosts.yml",
+        "proxmox_api_ca_path": "the trust file just init keeps beside hosts.yml, or REQUESTS_CA_BUNDLE",
     }
     missing = [
         source

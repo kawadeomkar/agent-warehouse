@@ -744,6 +744,7 @@ GITHUB = {
     "token_set": False,
     "configure_command": "just deploy x --tags github_projects",
     "login_command": "just login x --only github",
+    "workflow_asked": False,
 }
 ALL_SETTINGS = {
     "claude": {},
@@ -781,6 +782,24 @@ def test_the_whole_probe_failing_is_each_read_s_reason() -> None:
 
 def test_an_early_read_shows_a_spinner_only_where_apt_is_working() -> None:
     assert S.status_system_read({"upgrades_pending": True, "unread": {}})["upgrades_pending"] is True
+
+
+def _device_flow_read() -> dict:
+    status = {
+        "hosts": {"github.com": [{"active": True, "state": "success", "login": "octocat", "scopes": "gist, repo"}]}
+    }
+    return {"user": {"github": {"found": True, "kind": "oauth", "status": {"rc": 0, "stdout": json.dumps(status)}}}}
+
+
+@pytest.mark.parametrize(("asked", "lacks"), [(False, False), (True, True)])
+def test_a_device_flow_login_lacks_the_workflow_scope_only_where_the_settings_ask_for_it(asked, lacks) -> None:
+    settings_ = {**ALL_SETTINGS, "github": {**GITHUB, "workflow_asked": asked}}
+    part = found.ssh_found({**_device_flow_read(), "root": {}}, settings_, "x", "h", ["sign-ins"], False)
+    assert ("lacks the workflow scope" in part["github"]["line"]) is lacks, part["github"]
+
+
+def test_the_engine_asks_whether_the_login_scopes_name_workflow() -> None:
+    assert settings.VM["github"]["workflow_asked"] == "{{ 'workflow' in github_projects_login_scopes }}"
 
 
 def test_garbage_from_a_vm_is_said_not_raised() -> None:

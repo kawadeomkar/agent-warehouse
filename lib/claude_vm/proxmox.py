@@ -122,14 +122,21 @@ def guest_addresses(vms, configs, networks, nic="net0"):
     ``/agent/network-get-interfaces``. Returns the entries with an ``address``
     key added: the IPv4 the agent reports on the interface whose MAC is the
     config's ``nic``, so a bridge the guest grew later (docker0) is never
-    returned. ``nic`` is the one setting that decides this, which is why the
-    caller passes ``proxmox_nic``.
+    returned; and a ``key_alias``, the name its SSH host key is filed under
+    (ssh_host_key_alias), "" for a config without an SMBIOS UUID. ``nic`` is
+    the one setting that decides the address, which is why the caller passes
+    ``proxmox_nic``.
 
     Anything that leaves one VM without an address - its request failed or was
     skipped, the VM is stopped, the agent has not answered, the VM has no such
     NIC, an answer of another shape - gives that VM "", never an error: the
     caller sweeps a whole fleet and skips that VM rather than abort for every
     other one, and never guesses an address without the MAC.
+
+    So do two VMs that report one address, each given "" and that address as
+    ``shared_address``: an address is the VM's own to report, and a VM that
+    reports another's would have the run's work done there. Which of them is
+    telling the truth, nothing here can know, so neither is reached.
     """
     if not isinstance(vms, list) or not isinstance(configs, list) or not isinstance(networks, list):
         raise ValueError("guest_addresses expects three lists")
@@ -149,8 +156,43 @@ def guest_addresses(vms, configs, networks, nic="net0"):
         reported = interfaces.get("result") if isinstance(interfaces, dict) else None
         address = (guest_ipv4(reported, mac) or "") if mac and isinstance(reported, list) else ""
         repos = proxmox_notes_repos(settings.get("description")) if isinstance(settings, dict) else {"own": False}
-        rows.append({**vm, "address": address, **({"repos": repos} if repos["own"] else {})})
-    return rows
+        alias = ssh_host_key_alias(settings) if isinstance(settings, dict) else ""
+        rows.append({**vm, "address": address, "key_alias": alias, **({"repos": repos} if repos["own"] else {})})
+    reported = Counter(row["address"] for row in rows if row["address"])
+    return [
+        {**row, "address": "", "shared_address": row["address"]} if reported[row["address"]] > 1 else row
+        for row in rows
+    ]
+
+
+# What Python's ssl, and requests and urllib around it, say of an API certificate that did not verify: not trusted, or
+# not naming the address it was reached at.
+UNTRUSTED_RE = re.compile(r"CERTIFICATE_VERIFY_FAILED|certificate verify failed", re.I)
+MISMATCH_RE = re.compile(r"[Hh]ostname mismatch|match target host|not valid for|doesn't match", re.I)
+
+
+def proxmox_untrusted_hint(msg, trust_file=""):
+    """What to do when a request to the API failed because its certificate did not verify (``msg``, the error), or ""
+    for any other failure. ``trust_file`` is the file it was checked against, just init's (proxmox_trust_file), or ""
+    for this machine's trust store. Never "turn checking off": just init reads the host's certificates over root SSH
+    with checking on, and puts one that verifies in place only on a yes that shows both fingerprints, or the new one's
+    given (docs/getting-started/proxmox-access.md). A certificate that stopped verifying is also what someone answering
+    in the host's place presents."""
+    msg = str(msg or "")
+    if not (UNTRUSTED_RE.search(msg) or MISMATCH_RE.search(msg)):
+        return ""
+    against = str(trust_file or "") or "this machine's trust store"
+    if MISMATCH_RE.search(msg):
+        return (
+            "Proxmox's certificate does not name the address in proxmox_api_host: reach it by a name or address the"
+            " certificate holds"
+        )
+    return (
+        f"Proxmox presents a certificate that does not verify against {against}. If Proxmox renewed it, the host was"
+        " reinstalled, or this machine's Python changed (3.12 and 3.13 trust a Proxmox VE 8 certificate differently),"
+        " just init reads the host's own over root SSH and asks before it trusts one in its place; if not, something"
+        " else may answer at that address"
+    )
 
 
 def proxmox_access_denied(msg):
@@ -308,6 +350,45 @@ def vms_not_named(vms, names):
     return [vm for vm in vms if not (isinstance(vm, dict) and "name" in vm and vm["name"] in taken)]
 
 
+# A VM's SMBIOS UUID as its config gives it (smbios1's uuid=): Proxmox makes one anew for each VM it creates and each
+# clone, where a VM ID is used again - the lowest free one - for a VM made after one was deleted.
+_SMBIOS_UUID_RE = re.compile(r"(?:^|,)uuid=([0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})(?:,|\Z)")
+
+
+def smbios_uuid(config):
+    """The SMBIOS UUID a VM's config (a mapping of its keys) gives it, in lowercase, or "" where it gives none."""
+    value = config.get("smbios1") if isinstance(config, dict) else None
+    found = _SMBIOS_UUID_RE.search(str(value or ""))
+    return found.group(1).lower() if found else ""
+
+
+def provisioned_vms(names, hostvars):
+    """The VMs provision.yml published (``names``, each a host of ``hostvars``), as the host-key carry-over takes them:
+    {name, address, key_alias, created}, ``created`` where the role's lookup found no VM of the name before it cloned
+    one - a VM this run made, which nothing could have kept a key for."""
+    vms = []
+    for name in names or []:
+        host = (hostvars or {}).get(name) or {}
+        vms.append(
+            {
+                "name": str(name),
+                "address": str(host.get("ansible_host") or ""),
+                "key_alias": str(host.get("claude_vm_host_key_alias") or ""),
+                "created": str(host.get("proxmox_vm_exists", True)).strip().lower() in ("false", "0", "no"),
+            }
+        )
+    return vms
+
+
+def ssh_host_key_alias(config):
+    """The name a VM's SSH host key is filed under in the project's known_hosts file (claude_ssh_known_hosts_file):
+    agent-warehouse-<its SMBIOS UUID>, from its config, whatever address it is reached at - the address is the VM's own
+    report, and a key filed under it was one a VM could have this machine forget, or a sibling answer for. "" for a
+    config that gives no UUID: that VM's key is filed by its address."""
+    uuid = smbios_uuid(config)
+    return f"agent-warehouse-{uuid}" if uuid else ""
+
+
 def built_template(vms, name):
     """The built template named ``name`` among ``vms`` (the cluster listing's entries, or proxmox_vm_info's), or {}.
 
@@ -346,7 +427,7 @@ def duplicate_names(vms):
     return sorted((name for name, count in counts.items() if count > 1), key=lambda name: str(name).lower())
 
 
-_SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*$", re.I)
+_SIZE_RE = re.compile(r"^\s*([0-9.]+)\s*([KMGT])?B?\s*\Z", re.I)
 
 
 def _size_bytes(text):
@@ -438,7 +519,7 @@ TEMPLATE_RECORD = "Built by agent-warehouse:"
 # rebuilds none for the record's name alone, and written as TEMPLATE_RECORD by the next build.
 TEMPLATE_RECORD_1X = "Built by claude-on-proxmox:"
 _TEMPLATE_RECORD_RE = re.compile(
-    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)$"
+    "(?:" + re.escape(TEMPLATE_RECORD) + "|" + re.escape(TEMPLATE_RECORD_1X) + r")\s*(.*)\Z"
 )
 # What the record holds, in its order: the build steps' version, the image's URL, the packages put into it (empty
 # when none were), and the image's SHA-256, kept to say which image it was but never compared.
@@ -508,7 +589,7 @@ def qm_config(text):
     agent-warehouse%3A build=1" on Proxmox VE 9.2) - which the API gives decoded, and so does this."""
     config, key = {}, None
     for line in str(text or "").splitlines():
-        match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)$", line)
+        match = re.match(r"^([a-z][a-z0-9_-]*): ?(.*)\Z", line)
         if match:
             key = match.group(1)
             config[key] = match.group(2)
@@ -901,7 +982,7 @@ def os_release_debian(text):
 # default where a VM names none.
 _NO_AVX2 = re.compile(
     r"^(|kvm64|kvm32|qemu64|qemu32|486|athlon|phenom|pentium.*|coreduo|core2duo|conroe|penryn|nehalem.*|westmere.*"
-    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)$",
+    r"|sandybridge.*|ivybridge.*|opteron_g[1-5].*|x86-64-v2.*)\Z",
     re.I,
 )
 
@@ -927,7 +1008,7 @@ def custom_template_problems(listing, configs, name, node, disk, nic, owned):
         return [f'the config of "{name}" could not be read']
     vmid, problems = template["vmid"], []
     if not any(
-        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+$", key)
+        "cloudinit" in str(value) for key, value in config.items() if re.match(r"(ide|scsi|sata|virtio)\d+\Z", key)
     ):
         problems.append(f"it has no cloud-init drive: qm set {vmid} --ide2 <storage>:cloudinit")
     if _option(config.get("agent"), "enabled") != "1":

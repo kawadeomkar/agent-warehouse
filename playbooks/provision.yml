@@ -121,7 +121,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/cluster/nextid"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: claude_vm_nextid
       no_log: true
@@ -148,7 +149,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/cluster/resources?type=node"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
       register: claude_vm_size_node_read
       no_log: true
@@ -260,12 +262,41 @@
         # Whether it was cloned from a golden template in this run, which
         # configure then holds its own image options to.
         claude_vm_golden_cloned: "{{ hostvars[claude_vm_name_item].claude_vm_golden_template | length > 0 }}"
+        # Its host key held in the project's own known_hosts file, under its
+        # identity from Proxmox - the config the role read, the lookup's for a
+        # VM that was there, the one after the clone for a VM this run made -
+        # never the address it reports; no agent forwarded (vm_ssh_args).
+        # Common args, for sftp and scp too, the configured ones after them,
+        # and a shared-connection socket of its identity's own (discover.yml
+        # says why).
+        claude_vm_host_key_alias: "{{ claude_vm_publish_alias }}"
+        ansible_ssh_common_args: >-
+          {{ claude_vm_publish_alias | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
+          {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+             plugin_type='connection', plugin_name='ssh')) }}
+        ansible_control_path: >-
+          %(directory)s/{{ claude_vm_publish_alias
+             | vm_control_name(hostvars[claude_vm_name_item].proxmox_vm_address) }}-%%r-%%p
+      vars:
+        claude_vm_publish_alias: >-
+          {{ (((hostvars[claude_vm_name_item].proxmox_vm_lookup.proxmox_vms
+                if hostvars[claude_vm_name_item].proxmox_vm_exists | default(false) | bool
+                else hostvars[claude_vm_name_item].proxmox_vm_config.proxmox_vms | default([], true))
+               | default([], true) | first | default({}, true)).config | default({}, true)) | ssh_host_key_alias }}
       changed_when: false
       when: hostvars[claude_vm_name_item].proxmox_vm_address | default('') | length > 0
       loop: "{{ claude_vm_names }}"
       loop_control:
         loop_var: claude_vm_name_item
         label: "{{ claude_vm_name_item }}"
+
+    # Before configure connects: a VM that was there may have a key kept before 2.6 by address; one this run made has
+    # none, whatever was kept for the address it was given.
+    - name: Carry each VM's host key over to its identity
+      ansible.builtin.import_tasks: tasks/host_keys.yml
+      vars:
+        claude_host_keys_vms: >-
+          {{ claude_vm_names | select('in', groups['claude_vms'] | default([])) | list | provisioned_vms(hostvars) }}
 
     - name: Show each VM and the address it was given
       ansible.builtin.debug:

@@ -18,12 +18,21 @@
 # key. Each check reports ok, a problem, or why it was skipped, and the run
 # fails when any found a problem - a scripted just init then exits non-zero -
 # though "not configured yet" is none. NEXT STEPS then gives each problem with
-# its fix, or, once there is none, just deploy.
+# its fix, or, once there is none, just deploy; and a note, which fails
+# nothing, while the API's certificate is not checked.
 #
-# It writes only local.yml, through tasks/init_local_setting.yml, and only at
-# a terminal (init_ask) or for a value given on the command line (--storage,
-# --bridge): the node when the default is not it, the storage or bridge chosen.
-# Everything else is a read (tests/unit/test_init_check.py holds both), and
+# Before the first request that carries the token, while nothing checks the
+# API's certificate, it works out what makes the certificate verify and keeps
+# it in the host's trust file (proxmox_trust_file), which turns checking on.
+#
+# It writes only local.yml, through tasks/init_local_setting.yml, and that
+# trust file, and only at a terminal (init_ask) or for a value given on the
+# command line (--storage, --bridge): the node when the default is not it, the
+# storage or bridge chosen, proxmox_validate_certs where this machine's trust
+# store verifies the API. A certificate that verifies but is not kept is
+# copied into the checkout's .cache for the rest of the run to be checked
+# against, and removed. Everything else is a read (tests/unit/test_init_check.py
+# holds both) - over root SSH, hostname -s and the host's two certificates - and
 # root SSH may add the host's key to ~/.ssh/known_hosts, as the template build
 # would, one of the two files the project writes there. Every name it sets
 # starts with init_, like init_settings.yml's, whose init_ask, init_given,
@@ -67,6 +76,27 @@
          else proxmox_api_host }}:{{ proxmox_api_port }}
     init_token: "{{ proxmox_api_user }}!{{ proxmox_api_token_id }}"
     init_proxmox_host: "{{ groups['proxmox'][0] if groups['proxmox'] | default([]) else '' }}"
+    # The certificate (lib/claude_vm/trust.py), worked out at every run, before
+    # the token goes anywhere; a test that is not about it turns it off. The
+    # files read over root SSH (a test points them into its own directory):
+    # Proxmox's CA, and the node's certificate pveproxy serves - a custom or ACME
+    # one where that is there, else the one Proxmox made - each only up to the
+    # size a certificate file is.
+    init_trust_wanted: true
+    init_trust_most: 65536
+    init_trust_given: "{{ init_given.certificate | default('') | upper }}"
+    init_trust_paths:
+      ca: /etc/pve/pve-root-ca.pem
+      custom: /etc/pve/local/pveproxy-ssl.pem
+      node: /etc/pve/local/pve-ssl.pem
+    # Where a certificate that verifies but is not kept is copied for the rest of the run to be checked against, since
+    # uri reads a CA from a file: in the checkout's .cache, removed as the run ends (a test points it into its own
+    # directory).
+    init_trust_run_file: "{{ playbook_dir | dirname }}/.cache/init/proxmox-trust.pem"
+    init_trust_said: "{{ init_hosts_said | dirname }}/proxmox-trust.pem"
+    init_trust_read: "{{ init_trust_ca.content is defined or init_trust_node.content is defined }}"
+    init_trust_kind: "{{ {'ca': 'its CA', 'node': \"the node's own certificate\"}[init_trust.name] | default('') }}"
+    init_trust_store_set: "{{ 'proxmox_validate_certs' in init_local_settings }}"
     init_missing: >-
       {{ (['the Proxmox host address (' ~ init_hosts_said ~ ')']
           if proxmox_api_host | default('') in ['', init_host_placeholder] else [])
@@ -164,6 +194,9 @@
     # not check, which is no problem of its own, its cause usually one.
     init_problems: "{{ init_results | default([]) | rejectattr('ok') | rejectattr('skipped', 'defined') | list }}"
     init_unchecked: "{{ init_results | default([]) | selectattr('skipped', 'defined') | list }}"
+    # What is no problem for just deploy but is said with what to do: the API's
+    # certificate not checked. It goes in NEXT STEPS whatever else does.
+    init_notes: "{{ init_results | default([]) | selectattr('note', 'defined') | list }}"
     # The one value init_settings.yml asks for that just deploy needs and no
     # check here reads: while it is the example's, init_settings.yml's NEXT
     # STEPS names it, and just deploy is not next.
@@ -193,6 +226,9 @@
       {% elif init_github_set | bool %}
       {{ init_deploy_next }}
       {% endif %}
+      {% for result in init_notes %}
+        note {{ result.text }}
+      {% endfor %}
   tasks:
     - name: Say what is not set yet
       ansible.builtin.debug:
@@ -226,20 +262,346 @@
              'vault.yml is encrypted' if init_vault_encrypted | bool
              else 'vault.yml is not encrypted, and every recipe refuses it: just vault encrypts it'}] }}
 
+    # -------------------------------------------------------- the certificate ---
+    # Before the token is sent anywhere: whether the API's certificate is
+    # checked, and against what (docs/getting-started/proxmox-access.md,
+    # lib/claude_vm/trust.py). No probe here sends the token. First, what
+    # checking uses now - the host's trust file beside its hosts.yml
+    # (proxmox_trust_file), or this machine's trust store with
+    # proxmox_validate_certs - and where that verifies, nothing more. Else the
+    # host's CA and node certificate are read over root SSH, the one channel to
+    # the host already trusted, and tried with the trust store: Python 3.13 and
+    # later refuse Proxmox's CA where it has no keyUsage (every Proxmox VE 8
+    # host's) and take the node's certificate as an anchor of its own. The first
+    # that verifies is kept: in a new file at a terminal (init_ask), or for the
+    # fingerprint given (--certificate), with proxmox_validate_certs turned on
+    # where local.yml does not set it, so that a copy of the checkout without the
+    # file refuses rather than sends the token unchecked; in place of a file that
+    # no longer verifies only on a yes that shows both fingerprints, or the new
+    # one given. Checking is never turned off for it. Where nothing verifies, what
+    # the address presents is compared with the host's own: the host's under
+    # another name is a name to fix, and anything else - another certificate, or
+    # none read - is not shown to be the host, so no task that carries the token
+    # runs (init_token_held), as none does while a kept certificate no longer
+    # verifies. Settled once, here: a file written turns checking on.
+    - name: Settle whether the certificate is to be worked out, and against what it is checked now
+      ansible.builtin.set_fact:
+        init_trust_working: "{{ init_trust_wanted | bool }}"
+        init_trust_checked: "{{ proxmox_api_validate | bool }}"
+        init_trust_had_file: "{{ proxmox_trust_kept | bool }}"
+
+    - name: Read the certificate the API is checked against now
+      ansible.builtin.slurp:
+        src: "{{ proxmox_trust_file }}"
+      register: init_trust_kept_read
+      check_mode: false
+      when: init_trust_working | bool and init_trust_had_file | bool
+
+    - name: Find whether the API's certificate verifies as it is checked now
+      ansible.builtin.set_fact:
+        init_trust_now: >-
+          {{ (init_trust_kept_read.content | b64decode if init_trust_had_file | bool else '')
+             | proxmox_trust_holds(proxmox_api_url) }}
+      when: init_trust_working | bool and init_trust_checked | bool
+
+    - name: Settle whether the host's certificates are needed
+      ansible.builtin.set_fact:
+        init_trust_fine: "{{ init_trust_checked | bool and init_trust_now.verified | default(false) | bool }}"
+        init_trust_reading: >-
+          {{ init_trust_working | bool and init_proxmox_host | length > 0
+             and not (init_trust_checked | bool and init_trust_now.verified | default(false) | bool) }}
+
+    # A file larger than a certificate file is no certificate file, and is never read whole.
+    - name: Look for the host's certificates over root SSH
+      ansible.builtin.stat:
+        path: "{{ init_trust_path }}"
+        get_checksum: false
+      delegate_to: "{{ init_proxmox_host | default('localhost', true) }}"
+      register: init_trust_files
+      check_mode: false
+      failed_when: false
+      ignore_unreachable: true
+      loop: "{{ [init_trust_paths.ca, init_trust_paths.custom, init_trust_paths.node] if init_trust_reading | bool else [] }}"
+      loop_control:
+        loop_var: init_trust_path
+
+    # pveproxy serves the custom certificate where there is one, else the one Proxmox made.
+    - name: Settle which of the host's files to read
+      vars:
+        init_trust_found: >-
+          {{ init_trust_files.results | default([]) | selectattr('stat', 'defined') | selectattr('stat.exists')
+             | selectattr('stat.size', 'le', init_trust_most) | map(attribute='init_trust_path') | list }}
+      ansible.builtin.set_fact:
+        init_trust_reached: >-
+          {{ init_trust_files.results | default([]) | selectattr('unreachable', 'defined') | selectattr('unreachable')
+             | list | length == 0 and init_trust_reading | bool }}
+        init_trust_ca_path: "{{ init_trust_found | select('equalto', init_trust_paths.ca) | first | default('') }}"
+        init_trust_node_path: >-
+          {{ (init_trust_found | select('equalto', init_trust_paths.custom) | list
+              + init_trust_found | select('equalto', init_trust_paths.node) | list) | first | default('') }}
+
+    # no_log: what is kept of them is their certificates alone (pem_certificates), never anything else they hold.
+    - name: Read Proxmox's CA over root SSH
+      ansible.builtin.slurp:
+        src: "{{ init_trust_ca_path }}"
+      # Rendered even when the task is skipped: never empty.
+      delegate_to: "{{ init_proxmox_host | default('localhost', true) }}"
+      register: init_trust_ca
+      check_mode: false
+      failed_when: false
+      ignore_unreachable: true
+      no_log: true
+      when: init_trust_reached | bool and init_trust_ca_path | length > 0
+
+    - name: Read the certificate the node serves over root SSH
+      ansible.builtin.slurp:
+        src: "{{ init_trust_node_path }}"
+      delegate_to: "{{ init_proxmox_host | default('localhost', true) }}"
+      register: init_trust_node
+      check_mode: false
+      failed_when: false
+      ignore_unreachable: true
+      no_log: true
+      when: init_trust_reached | bool and init_trust_node_path | length > 0
+
+    - name: Find what makes Proxmox's certificate verify here, and what the address presents
+      vars:
+        init_trust_candidates: >-
+          {{ [{'name': 'store', 'pem': none},
+              {'name': 'ca', 'pem': init_trust_ca.content | default('') | b64decode | pem_certificates},
+              {'name': 'node', 'pem': init_trust_node.content | default('') | b64decode | pem_first}] }}
+      ansible.builtin.set_fact:
+        init_trust: "{{ init_trust_candidates | proxmox_trust_pick(proxmox_api_url) }}"
+        init_trust_presented: "{{ init_trust_candidates | proxmox_trust_presented(proxmox_api_url) }}"
+      when: init_trust_working | bool and not init_trust_fine | bool
+
+    # Whether this run may keep what it found, and whether that replaces a file that no longer verifies.
+    - name: Settle what the certificate's step may do
+      ansible.builtin.set_fact:
+        init_trust_found_host: "{{ init_trust.name | default('') in ['ca', 'node'] }}"
+        init_trust_replacing: >-
+          {{ init_trust_had_file | bool and init_trust.name | default('') in ['ca', 'node']
+             and init_trust.fingerprint | default('') != init_trust_now.fingerprint | default('') }}
+        init_trust_given_matches: >-
+          {{ init_trust_given | length > 0 and init_trust_given == init_trust.fingerprint | default('') }}
+      when: init_trust_working | bool and not init_trust_fine | bool
+
+    - name: Ask whether to trust the certificate that verifies in place of the one kept
+      ansible.builtin.include_tasks: tasks/init_ask.yml
+      vars:
+        init_ask_name: proxmox_trust_replace
+        init_ask_label: Trust it in its place? y or n
+        init_ask_kind: yes_no
+        init_ask_hidden: false
+        init_ask_given: ""
+        init_ask_flag: ""
+        init_ask_text: >-
+          {{ ["Proxmox's API at " ~ init_endpoint ~ ' no longer verifies against ' ~ init_trust_said
+              ~ ', whose certificate is', '  SHA-256 ' ~ init_trust_now.fingerprint,
+              (init_trust_now.why | plain_text | trim | truncate(200)) ~ '. ' ~ init_trust_kind[:1] | upper
+              ~ init_trust_kind[1:] ~ ', read just now over root SSH, verifies:', '  SHA-256 ' ~ init_trust.fingerprint,
+              'Proxmox renews the node certificate within two years, and a reinstalled host has a new CA; a'
+              ~ ' certificate that changed is also what someone answering in its place would present. Compare it with'
+              ~ ' what the host prints: openssl x509 -noout -fingerprint -sha256 -in ' ~ init_trust_paths.node ~ '.',
+              'y puts it in place of the one kept; n, or Enter, keeps the old one, and the token is not sent.'] }}
+      when: >-
+        init_trust_working | bool and not init_trust_fine | bool and init_trust_replacing | default(false) | bool
+        and not init_trust_given_matches | default(false) | bool and init_ask | bool
+
+    - name: Settle what is written
+      vars:
+        init_trust_replace_ok: >-
+          {{ init_trust_given_matches | default(false) | bool
+             or (init_answers | default({})).proxmox_trust_replace | default('') == 'y' }}
+      ansible.builtin.set_fact:
+        init_trust_keep_file: >-
+          {{ init_trust_found_host | default(false) | bool and proxmox_trust_file | length > 0
+             and (init_trust_replace_ok | bool if init_trust_replacing | default(false) | bool
+                  else (init_ask | bool or init_trust_given_matches | default(false) | bool)) }}
+        init_trust_keep_store: >-
+          {{ init_trust.name | default('') == 'store' and init_ask | bool and not init_trust_checked | bool
+             and not init_trust_store_set | bool }}
+      when: init_trust_working | bool and not init_trust_fine | bool
+
+    - name: Keep the certificate the API is checked against from now on
+      ansible.builtin.copy:
+        content: "{{ init_trust.pem }}"
+        dest: "{{ proxmox_trust_file }}"
+        mode: "0644"
+        force: "{{ init_trust_replacing | bool }}"
+      when: >-
+        (init_ask | bool or init_trust_given_matches | default(false) | bool) and init_trust_working | bool
+        and not init_trust_fine | bool and init_trust_keep_file | bool
+
+    # So that a copy of this checkout without the file - another worktree, another machine - refuses the run rather
+    # than send the token unchecked; never over a value local.yml sets.
+    - name: Turn checking on in local.yml
+      ansible.builtin.include_tasks: tasks/init_local_setting.yml
+      vars:
+        init_setting_key: proxmox_validate_certs
+        init_setting_value: true
+      when: >-
+        (init_ask | bool or init_trust_given_matches | default(false) | bool) and init_trust_working | bool
+        and not init_trust_fine | bool and (init_trust_keep_file | bool or init_trust_keep_store | bool)
+        and not init_trust_store_set | bool
+
+    # Not kept - no terminal, and no --certificate - what verifies still checks the rest of this run, which would
+    # otherwise send the token unchecked: the store as it is, the CA or the node's certificate from a copy for the run.
+    - name: Settle what checks the rest of the run where nothing is kept
+      ansible.builtin.set_fact:
+        init_trust_run_copy: >-
+          {{ not init_trust_checked | bool and init_trust_found_host | default(false) | bool
+             and not init_trust_keep_file | bool }}
+        init_trust_run_store: >-
+          {{ not init_trust_checked | bool and init_trust.name | default('') == 'store'
+             and not init_trust_keep_store | bool }}
+      when: init_trust_working | bool and not init_trust_fine | bool
+
+    - name: Make the folder the run's copy of the certificate goes in
+      ansible.builtin.file:
+        path: "{{ init_trust_run_file | dirname }}"
+        state: directory
+        mode: "0700"
+      when: init_trust_run_copy | default(false) | bool
+
+    - name: Copy the certificate that verifies for this run alone
+      ansible.builtin.copy:
+        content: "{{ init_trust.pem }}"
+        dest: "{{ init_trust_run_file }}"
+        mode: "0600"
+      when: init_trust_run_copy | default(false) | bool
+
+    # And for the rest of this run, which read local.yml before it was written.
+    - name: Check the API's certificate for the rest of the run
+      ansible.builtin.set_fact:
+        proxmox_validate_certs: true
+      when: >-
+        init_trust_working | bool and not init_trust_fine | bool
+        and (init_trust_keep_file | bool or init_trust_keep_store | bool
+             or init_trust_run_copy | default(false) | bool or init_trust_run_store | default(false) | bool)
+
+    - name: Check it against the run's copy
+      ansible.builtin.set_fact:
+        proxmox_api_ca_path: "{{ init_trust_run_file }}"
+      when: init_trust_run_copy | default(false) | bool
+
+    - name: Record the certificate's result
+      ansible.builtin.set_fact:
+        init_results: "{{ init_results + [init_trust_result] }}"
+        init_token_held: "{{ init_trust_hold | bool }}"
+      vars:
+        # Root SSH read the host's certificates, nothing verified, and what answers was not shown to be the host:
+        # whether a certificate was read there or not, since what answers may say nothing to a request with no token.
+        init_trust_unshown: >-
+          {{ not init_trust_fine | bool and init_trust.name | default('') == '' and init_trust_read | bool
+             and not init_trust_presented.host | default(false) | bool }}
+        init_trust_impostor: >-
+          {{ init_trust_unshown | bool and init_trust_presented.fingerprint | default('') | length > 0 }}
+        init_trust_hold: >-
+          {{ init_trust_unshown | bool
+             or (init_trust_checked | bool and not init_trust_fine | bool and not init_trust_keep_file | bool) }}
+        init_trust_kept_where: "{{ init_trust_said if init_trust_had_file | bool else \"this machine's trust store\" }}"
+        init_trust_off_said: >-
+          {{ '; local.yml sets proxmox_validate_certs: false, so a copy of this checkout without the file checks'
+             ~ ' nothing: set it to true' if init_trust_store_set | bool and not proxmox_validate_certs | bool else '' }}
+        init_trust_given_said: >-
+          {{ ' (--certificate ' ~ init_trust_given ~ ' is not it, so nothing was kept)'
+             if init_trust_given | length > 0 and not init_trust_given_matches | default(false) | bool else '' }}
+        init_trust_result: >-
+          {{ {'ok': true, 'text': "Proxmox's certificate verifies against " ~ init_trust_kept_where
+               ~ ': every run checks it'}
+             if init_trust_fine | bool else
+             {'ok': false, 'text': 'https://' ~ init_endpoint ~ ' presents a certificate (SHA-256 '
+               ~ init_trust_presented.fingerprint ~ ") that is none of the host's, as root SSH to " ~ init_ssh_address
+               ~ ' reads them, so something other than the Proxmox host answers there, and the token was not sent.'
+               ~ ' Check the address in ' ~ init_hosts_said ~ ', and what answers at it'}
+             if init_trust_impostor | bool else
+             {'ok': true, 'text': "Proxmox's certificate no longer verified against " ~ init_trust_said ~ ' (SHA-256 '
+               ~ init_trust_now.fingerprint ~ '), and ' ~ init_trust_kind ~ ', read over root SSH, does (SHA-256 '
+               ~ init_trust.fingerprint ~ '): kept in its place' ~ init_trust_off_said}
+             if init_trust_replacing | default(false) | bool and init_trust_keep_file | bool else
+             {'ok': false, 'text': "Proxmox's certificate no longer verifies against " ~ init_trust_kept_where
+               ~ (' (SHA-256 ' ~ init_trust_now.fingerprint ~ ')' if init_trust_had_file | bool else '') ~ ' ('
+               ~ (init_trust_now.why | default('') | plain_text | trim | truncate(200)) ~ '), and ' ~ init_trust_kind
+               ~ ', read over root SSH, does (SHA-256 ' ~ init_trust.fingerprint ~ '), so the token was not sent: just'
+               ~ ' init at a terminal asks whether to trust it in its place, and just init --certificate '
+               ~ init_trust.fingerprint ~ ' puts it there once you have compared it with what the host prints'
+               ~ init_trust_given_said}
+             if init_trust_checked | bool and init_trust_found_host | default(false) | bool
+                and not init_trust_keep_file | bool else
+             {'ok': false, 'text': "Proxmox's certificate no longer verifies against " ~ init_trust_kept_where ~ ' ('
+               ~ (init_trust_now.why | default('') | plain_text | trim | truncate(200)) ~ ')'
+               ~ (', and nothing read over root SSH verifies it either (' ~ init_trust | proxmox_trust_said ~ ')'
+                  if init_trust_read | bool else ", and just init could not read the host's certificates over root"
+                  ~ ' SSH to find one that does')
+               ~ ', so the token was not sent: docs/getting-started/proxmox-access.md says what to do'}
+             if init_trust_checked | bool else
+             {'ok': true, 'text': "Proxmox's certificate verifies against " ~ init_trust_kind ~ ' (SHA-256 '
+               ~ init_trust.fingerprint ~ '), read over root SSH and kept in ' ~ init_trust_said
+               ~ ' with proxmox_validate_certs on: every run checks it' ~ init_trust_off_said}
+             if init_trust_keep_file | bool else
+             {'ok': true, 'note': true, 'text': "Proxmox's certificate verifies against " ~ init_trust_kind
+               ~ ' (SHA-256 ' ~ init_trust.fingerprint ~ '), read over root SSH, and this run checked it, but nothing'
+               ~ ' keeps it for the next: just init at a terminal keeps it in ' ~ init_trust_said ~ ', and so does'
+               ~ ' just init --certificate ' ~ init_trust.fingerprint ~ init_trust_given_said}
+             if init_trust_found_host | default(false) | bool else
+             {'ok': true, 'text': "Proxmox's certificate verifies against this machine's trust store, and"
+               ~ ' proxmox_validate_certs is on: every run checks it'}
+             if init_trust_keep_store | bool else
+             {'ok': true, 'note': true, 'text': "Proxmox's certificate verifies against this machine's trust store,"
+               ~ ' and this run checked it, but nothing keeps checking on: '
+               ~ ('just init at a terminal turns proxmox_validate_certs on'
+               if not init_ask | bool else 'set proxmox_validate_certs: true in ' ~ init_local_said)}
+             if init_trust.name | default('') == 'store' else
+             {'ok': true, 'note': true, 'text': "Proxmox's certificate is not checked: what https://" ~ init_endpoint
+               ~ " presents is the host's own (SHA-256 " ~ init_trust_presented.fingerprint ~ '), but nothing makes it'
+               ~ ' verify there (' ~ init_trust | proxmox_trust_said ~ '). Usually the certificate does not name the'
+               ~ ' address in ' ~ init_hosts_said ~ ': reach the host by a name or address it holds, as'
+               ~ ' docs/getting-started/proxmox-access.md says'}
+             if init_trust_read | bool and init_trust_presented.host | default(false) | bool else
+             {'ok': false, 'text': 'https://' ~ init_endpoint ~ ' presented no certificate to read ('
+               ~ init_trust_presented.why | default('') | plain_text | trim | truncate(200) ~ "), so nothing shows"
+               ~ ' that the Proxmox host answers there, and the token was not sent. Check the address in '
+               ~ init_hosts_said ~ ', and that the host is up'}
+             if init_trust_unshown | bool else
+             {'ok': true, 'note': true, 'text': "Proxmox's certificate is not checked, so every run sends the token"
+               ~ ' to whatever answers at ' ~ init_endpoint ~ ', and ' ~ init_hosts_said ~ ' names no Proxmox host'
+               ~ ' to read it from over root SSH: copy it by hand as docs/getting-started/proxmox-access.md says'}
+             if init_proxmox_host | length == 0 else
+             {'ok': true, 'note': true, 'text': "Proxmox's certificate is not checked, so every run sends the token"
+               ~ ' to whatever answers at ' ~ init_endpoint ~ ', and just init could not read it over root SSH'
+               ~ ((' (' ~ (init_trust_files.results | default([]) | map(attribute='msg', default='') | select
+                           | first | default('') | plain_text | trim | truncate(200)) ~ ')')
+                  if init_trust_files.results | default([]) | map(attribute='msg', default='') | select | list else '')
+               ~ ': install your key with ssh-copy-id root@' ~ init_ssh_address ~ ' and run just init again, or'
+               ~ ' copy it by hand as docs/getting-started/proxmox-access.md says'} }}
+      when: init_trust_working | bool
+
     # ---------------------------------------------------------------- the API ---
     # The request carries the token, so it is no_log; what is said comes from
     # its status and message alone.
+    # Not where the certificate's step held the token (init_token_held): what
+    # answers is not the host, or a certificate kept no longer verifies.
     - name: Ask Proxmox for its version
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/version"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_version
       check_mode: false
       failed_when: false
       no_log: true
+      when: not init_token_held | default(false) | bool
+
+    - name: Record that the API was not asked
+      ansible.builtin.set_fact:
+        init_results: >-
+          {{ init_results + [{'ok': true, 'skipped': true, 'text': 'the API is not asked, and nothing that needs it'
+             ~ ' is checked: the token is not sent while its certificate is as the line above says'}] }}
+      when: init_token_held | default(false) | bool
 
     - name: Record the API's result
       ansible.builtin.set_fact:
@@ -253,16 +615,14 @@
              ~ ' a token named otherwise goes in local.yml as proxmox_api_user and proxmox_api_token_id, and'
              ~ ' just vault fixes a wrong secret'
              if init_version.status | default(0) in [401, 403] else
-             "https://" ~ init_endpoint ~ "'s certificate names another host (" ~ init_api_message ~ '): reach'
-             ~ ' Proxmox by a name or address its certificate holds, or leave proxmox_validate_certs off'
-             if init_api_message is search('mismatch|match target host|not valid for') else
-             "https://" ~ init_endpoint ~ "'s certificate is not trusted (" ~ init_api_message ~ '): trust the'
-             ~ ' Proxmox CA as docs/getting-started/proxmox-access.md says, or leave proxmox_validate_certs off'
-             if init_api_message is search('CERTIFICATE_VERIFY_FAILED|certificate verify failed') else
+             "https://" ~ init_endpoint ~ "'s certificate did not verify (" ~ init_api_message ~ '): '
+             ~ init_api_message | proxmox_untrusted_hint(init_trust_said if proxmox_trust_kept | bool else '')
+             if init_api_message | proxmox_untrusted_hint | length > 0 else
              'nothing answered at https://' ~ init_endpoint ~ ' (' ~ init_api_message ~ '): check the address in '
              ~ init_hosts_said ~ ', and that this machine reaches it'
              if init_version.status | default(-1) == -1 else
              'Proxmox at ' ~ init_endpoint ~ ' answered ' ~ init_version.status ~ ': ' ~ init_api_message }}
+      when: not init_token_held | default(false) | bool
 
     # ----------------------------------------------------------- privileges ---
     # The privileges in effect at /vms, inherited ones included. The 1 or 0 by
@@ -271,7 +631,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/access/permissions?path=/vms"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_permissions
@@ -332,7 +693,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_nodes
@@ -347,7 +709,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ init_template.node }}/qemu/{{ init_template.vmid }}/config"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_template_config
@@ -488,7 +851,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ init_node }}/storage?content=images&enabled=1"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_storages
@@ -501,7 +865,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/access/permissions?path=/storage/{{ item.storage | urlencode }}"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_storage_privileges
@@ -519,7 +884,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/nodes/{{ init_node }}/network?type=any_local_bridge"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_bridges
@@ -532,7 +898,8 @@
       ansible.builtin.uri:
         url: "{{ proxmox_api_url }}/access/permissions?path=/sdn/zones/localnetwork/{{ item.iface | urlencode }}"
         headers: "{{ proxmox_api_headers }}"
-        validate_certs: "{{ proxmox_validate_certs }}"
+        follow_redirects: none
+        validate_certs: "{{ proxmox_api_validate }}"
         ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
         timeout: 10
       register: init_bridge_privileges
@@ -739,11 +1106,18 @@
       when: (init_host_name | length > 0) and init_problems | length == 0 and init_unchecked | length == 0
 
     # ---------------------------------------------------------------- the end ---
+    - name: Remove the run's copy of the certificate
+      ansible.builtin.file:
+        path: "{{ init_trust_run_file }}"
+        state: absent
+      when: init_trust_run_copy | default(false) | bool
+
     - name: Say what each check found
       ansible.builtin.debug:
         msg: |-
           {% for result in init_results %}
-          {{ '  --   ' if result.skipped | default(false) else '  ok   ' if result.ok else '  !!   ' }}{{ result.text }}
+          {{ '  --   ' if result.skipped | default(false) else '  note ' if result.note | default(false)
+             else '  ok   ' if result.ok else '  !!   ' }}{{ result.text }}
           {% endfor %}
           {% if init_problems | length == 0 and init_unchecked | length == 0 and init_github_set | bool %}
           {{ init_deploy_next }}

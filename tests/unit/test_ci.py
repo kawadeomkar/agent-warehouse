@@ -454,3 +454,15 @@ def test_the_interface_a_version_promises_is_the_justfiles():
     assert _promised(r"the role names `just deploy --tags` takes: (.*?);") == set(roles)
     settings = set(re.findall(r"^([A-Z_]+) := env\('\1'", justfile, re.M))
     assert _promised(r"from the environment or before its name: (.*?);") == settings - UNPROMISED_SETTINGS
+
+
+def test_no_checkout_leaves_the_workflow_s_token_in_git_s_config():
+    # actions/checkout writes the job's token into .git/config unless told not to, where every later step - and
+    # whatever a test, a hook or a dependency runs - can read it. No step after a checkout fetches or pushes.
+    checkouts = []
+    for workflow in sorted((REPO / ".github" / "workflows").glob("*.yml")):
+        for name, job in yaml.safe_load(workflow.read_text())["jobs"].items():
+            for step in job.get("steps", []):
+                if str(step.get("uses", "")).startswith("actions/checkout@"):
+                    checkouts.append((workflow.name, name, (step.get("with") or {}).get("persist-credentials")))
+    assert checkouts and all(kept is False for _, _, kept in checkouts), checkouts

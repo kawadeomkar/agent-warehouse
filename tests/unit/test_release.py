@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import shlex
 import stat
 import urllib.parse
 import urllib.request
@@ -116,6 +118,13 @@ CASES = {
     "gone": {"node": "nGONE", "api": "token"},
     # A VM reporting another device's ID - a laptop's: never deleted.
     "liar": {"node": "nLAPTOP", "api": "token"},
+    # A VM reporting the ID of web-2's device, which it can read in its own tailscale status: web-2 is a VM of the
+    # fleet, so web-2 is that VM's name, never Tailscale's renaming of web's.
+    "web": {"node": "nWEB2", "api": "token", "others": ["web-2", "db"]},
+    # The same with a machine name of the user's own: VM prefixed-2 joins as dev-prefixed-2, made as dev-prefixed is.
+    "prefixed": {"node": "nDEVPREFIXED2", "api": "token", "others": ["prefixed-2"], "hostname": "dev-prefixed"},
+    # Two VMs whose names make one machine name: nothing tells their devices apart, so neither is deleted.
+    "twin-lab": {"node": "nTWIN", "api": "token", "others": ["twin.lab"]},
     # A VM reporting an ID that is a path: it never reaches the API.
     "traversal": {"node": "../../tailnet/-/keys", "api": "token"},
     # The same, as long as the VM likes: said cut, as other text a VM chose is.
@@ -251,6 +260,8 @@ def _hosts(root: Path, cases: dict, github: str, tailscale: str) -> dict:
             **({"destroy_test_undeletable": True} if case.get("undeletable") else {}),
             **({"destroy_test_lost": True} if case.get("lost") else {}),
             **({"destroy_save_sessions": case["save"]} if "save" in case else {}),
+            **({"claude_vm_release_others": case["others"]} if "others" in case else {}),
+            **({"tailscale_hostname": case["hostname"]} if "hostname" in case else {}),
             **({"vscode_workspaces_dir": str(home / "ws")} if case.get("workspaces") else {}),
             "claude_vm_release_address": case.get("address", "192.0.2.10"),
             "github_projects_home": str(home),
@@ -351,6 +362,9 @@ DEVICES = {
     "nBOTH": "both",
     "nHALF": "half-oauth",
     "nLAPTOP": "laptop",
+    "nWEB2": "web-2",
+    "nDEVPREFIXED2": "dev-prefixed-2",
+    "nTWIN": "twin-lab",
 }
 
 
@@ -474,6 +488,39 @@ def test_a_device_is_deleted_only_under_the_name_this_project_asked_the_vm_to_jo
         "liar: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
         ' reported is named "laptop", not "liar", so it is not this VM\'s; find this VM\'s own device at'
         f" {ADMIN} and delete it."
+    )
+
+
+def test_a_device_named_as_another_vm_of_the_fleet_joins_is_never_deleted(released):
+    # by-hand's by-hand-1 is deleted: no VM of the fleet is named so, so it is Tailscale's renaming of a name taken.
+    _, report, _, deleted = released
+    assert "nWEB2" not in deleted and "nBYHAND" in deleted
+    assert _said(report)["web"] == (
+        "web: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        " reported is named \"web-2\", the name another VM of yours joins as, so it may be that VM's; find this VM's"
+        f" own device at {ADMIN} and delete it."
+    )
+
+
+def test_the_other_vms_machine_names_are_made_as_this_vm_s_is_made_from_its_name(released):
+    # dev-prefixed-2 is prefixed's own name and -2 to the pattern: compared with the bare prefixed-2, it was deleted.
+    _, report, _, deleted = released
+    assert "nDEVPREFIXED2" not in deleted
+    assert _said(report)["prefixed"] == (
+        "prefixed: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        ' reported is named "dev-prefixed-2", the name another VM of yours joins as, so it may be that VM\'s; find'
+        f" this VM's own device at {ADMIN} and delete it."
+    )
+
+
+def test_a_device_two_vms_may_join_under_is_never_deleted(released):
+    # twin-lab and twin.lab both join as twin-lab, the second as twin-lab-1: the device may be either's.
+    _, report, _, deleted = released
+    assert "nTWIN" not in deleted
+    assert _said(report)["twin-lab"] == (
+        "twin-lab: released - Tailscale: logged out, but its device was not deleted - the device under the ID the VM"
+        ' reported is named "twin-lab", a name another VM of yours may join as too, so it may be that VM\'s; find'
+        f" this VM's own device at {ADMIN} and delete it."
     )
 
 
@@ -804,6 +851,31 @@ def test_a_vm_the_run_lost_part_way_through_its_release_is_said_not_deleted_with
 
 
 @pytest.fixture(scope="module")
+def overfull(tmp_path_factory, fake_github, fake_tailscale):
+    """A VM with sessions of its own, more of them than destroy_sessions_max_size lets a save hold."""
+    root = tmp_path_factory.mktemp("overfull")
+    hosts = _hosts(root, {"overfull": {"claude": True, "sessions": True}}, fake_github, fake_tailscale)
+    extra = {"ansible_become": False, "destroy_sessions_max_size": "0.1K"}
+    return root, _run(root, _destroy_tail(root), hosts, "-e", json.dumps(extra))
+
+
+def test_a_vm_that_sends_more_than_a_save_may_hold_is_neither_released_nor_deleted(overfull):
+    root, report = overfull
+    assert (root / "overfull" / ".claude" / ".credentials.json").exists()
+    assert "auth logout" not in _calls(root, "overfull", *CLAUDE_CALLS)
+    (why,) = [
+        result["ansible_facts"]["claude_vm_delete_failure"]
+        for name, host, result in _results(report)
+        if name == "Keep the VM, whose sessions could not be saved"
+    ]
+    assert (
+        "the VM sent more than the 102 bytes of files destroy_sessions_max_size allows; what arrived before is in"
+        in (why)
+    )
+    assert MARKER not in json.dumps(report)
+
+
+@pytest.fixture(scope="module")
 def unreleased(tmp_path_factory, fake_github, fake_tailscale):
     """destroy_release: false, the save on: a VM signed in to Claude, with sessions of its own."""
     root = tmp_path_factory.mktemp("unreleased")
@@ -1039,6 +1111,7 @@ def test_a_run_that_fails_before_deleting_stops_again_what_it_started():
         "List the VMs again, with the ones just started",
         "Read the address of each VM to release",
         "Add each VM as a host to delete",
+        "Carry each VM's host key over to its identity",
     ]
     # Straight after the start: nothing between them that could fail.
     assert names.index("Remember which VMs this run started") == (
@@ -1123,6 +1196,44 @@ def test_every_add_host_that_publishes_a_vm_pins_the_vm_s_python():
     assert sorted(publishing) == ["code", "destroy", "discover", "golden_build", "provision"], publishing
 
 
+COMMON_CONFIGURED = (
+    "{{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',"
+    " plugin_type='connection', plugin_name='ssh')) }}"
+)
+
+
+def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_identity():
+    # The address is the VM's own report: a key filed under it was one the VM could have this machine forget, and a
+    # VM that reported a sibling's address had a run sent there. Every publisher of a fleet VM files the key in the
+    # project's own file under the VM's identity, as common args (ssh, sftp and scp all get them), with a shared
+    # connection's socket of the identity's own - by address alone, a VM reporting a sibling's address rode the
+    # sibling's open connection, on which no key is checked - and carries over a key kept by address before 2.6
+    # before anything connects. The golden build's VM has a file of its own (.cache/golden/), and is no VM of the fleet.
+    publishing = {}
+    for path in [REPO / "deploy.yml", *sorted((REPO / "playbooks").glob("*.yml"))]:
+        for play in yaml.safe_load(path.read_text()) or []:
+            tasks = list(_every_task(play.get("tasks") or []))
+            for task in tasks:
+                added = task.get("ansible.builtin.add_host")
+                if isinstance(added, dict) and "ansible_host" in added and added.get("groups") != "claude_vm_build":
+                    publishing.setdefault(path.stem, []).append(task["name"])
+                    assert "claude_vm_host_key_alias" in added, (path.stem, task["name"])
+                    assert "vm_ssh_args(claude_ssh_known_hosts_file" in str(added.get("ansible_ssh_common_args")), (
+                        path.stem,
+                        task["name"],
+                    )
+                    # The common args configured after them: this host var outranks ANSIBLE_SSH_COMMON_ARGS and
+                    # ansible.cfg's, which reach the VMs only through it.
+                    assert COMMON_CONFIGURED in " ".join(str(added["ansible_ssh_common_args"]).split()), path.stem
+                    assert "ansible_ssh_extra_args" not in added, (path.stem, task["name"])
+                    control = " ".join(str(added.get("ansible_control_path", "")).split())
+                    assert control.startswith("%(directory)s/{{ ") and control.endswith(" }}-%%r-%%p"), path.stem
+                    assert "| vm_control_name(" in control, path.stem
+                    imports = [t.get("ansible.builtin.import_tasks") for t in tasks]
+                    assert "tasks/host_keys.yml" in imports, path.stem
+    assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
+
+
 @pytest.mark.parametrize("extra", [{}, {"vm_name": "alpha"}, {"vm_name": "alpha, beta,"}])
 def test_with_no_terminal_destroy_takes_no_for_an_answer_whatever_names_it_is_given(tmp_path, extra):
     # The prompt is templated before any host is in scope, even when -e
@@ -1200,8 +1311,9 @@ def fake_pve(tmp_path):
         yield base
 
 
-def _head(tmp_path, fake_pve):
-    """A directory to run destroy.yml's first play from against the fake, and that play with the addresses after it."""
+def _head(tmp_path, fake_pve, var="claude_vm_release_address"):
+    """A directory to run destroy.yml's first play from against the fake, and that play with each VM's ``var`` after
+    it, its address by default."""
     root = tmp_path / "run"
     _pve_vars(root, fake_pve)
     plays = yaml.safe_load(DESTROY.read_text())
@@ -1216,7 +1328,7 @@ def _head(tmp_path, fake_pve):
                     "name": "Say where each VM would be released",
                     "hosts": "claude_vm_doomed",
                     "gather_facts": False,
-                    "tasks": [{"name": "Address", "ansible.builtin.debug": {"var": "claude_vm_release_address"}}],
+                    "tasks": [{"name": "Address", "ansible.builtin.debug": {"var": var}}],
                 },
             ]
         )
@@ -1241,6 +1353,84 @@ def test_a_vm_destroy_starts_is_released_though_the_listing_still_says_it_is_sto
     # The listing did lag: the run's own relisting still showed it stopped.
     calls = _pve_requests(tmp_path)
     assert [c["path"] for c in calls].count("/api2/json/cluster/resources") >= 2
+
+
+def test_a_vm_destroy_reaches_gets_the_common_args_configured_and_a_socket_of_its_own(tmp_path, fake_pve):
+    # The host var a publisher sets outranks ANSIBLE_SSH_COMMON_ARGS and ansible.cfg's ssh_common_args: it hands
+    # them on, after the project's own, which ssh keeps since they come first.
+    said = "[ansible_ssh_common_args, ansible_control_path]"
+    root, playbook = _head(tmp_path, fake_pve, said)
+    extra = {"vm_name": "parked", "confirm_destroy": "yes", "claude_vm_release_agent_delay": 0.2}
+    env = {"ANSIBLE_SSH_COMMON_ARGS": "-o ProxyJump=jump.invalid"}
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120, env=env)
+    assert report["rc"] == 0, _failures(report)
+    ((common, control),) = [result[said] for name, _, result in _results(report) if name == "Address"]
+    words = shlex.split(common)
+    assert words[-2:] == ["-o", "ProxyJump=jump.invalid"], words
+    known = next(at for at, word in enumerate(words) if word.startswith("UserKnownHostsFile="))
+    assert known < words.index("ProxyJump=jump.invalid") and any(word.startswith("HostKeyAlias=") for word in words)
+    assert re.fullmatch(r"%\(directory\)s/aw-[0-9a-f]{12}-%%r-%%p", control), control
+
+
+def test_a_vm_whose_options_an_extra_var_outranks_is_refused_before_destroy_reaches_it(tmp_path, fake_pve):
+    # destroy's VMs are in claude_vm_doomed, not claude_vms: the refusal reads every group a publisher adds to.
+    root, playbook = _head(tmp_path, fake_pve)
+    extra = {
+        "vm_name": "parked",
+        "confirm_destroy": "yes",
+        "claude_vm_release_agent_delay": 0.2,
+        "ansible_ssh_common_args": "-o ProxyJump=jump.invalid",
+    }
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] != 0
+    assert (
+        "and deleted nothing: parked: ansible_ssh_common_args is set for it somewhere that outranks the project's own"
+    ) in _failures(report)["localhost"]
+    assert not [name for name, _, _ in _results(report) if name == "Address"]
+
+
+def test_each_vm_released_is_told_the_names_of_the_fleet_s_other_vms_from_the_listing(tmp_path, fake_pve):
+    _pve_vm(fake_pve, 9010, "web-2")
+    _pve_vm(fake_pve, 9011, "elsewhere", tags="someone-else")
+    root, playbook = _head(tmp_path, fake_pve, "claude_vm_release_others")
+    # The checkout's other host's VMs, by the aliases that record it: one joins the same tailnet as readily. A block
+    # recording a host the checkout no longer has is no one's.
+    aliases = root / ".ssh" / "agent-warehouse.conf"
+    aliases.parent.mkdir(parents=True, exist_ok=True)
+    aliases.write_text(
+        "".join(
+            f"# BEGIN agent-warehouse: {name}\n# origin: {origin}\nHost {name}\n# END agent-warehouse: {name}\n"
+            for name, origin in (("db-nuc", "nuc"), ("gone-host", "old"))
+        )
+    )
+    extra = {
+        "vm_name": "parked",
+        "confirm_destroy": "yes",
+        "destroy_release": False,
+        "destroy_save_sessions": False,
+        "claude_hosts_other": [{"name": "nuc", "address": "192.0.2.20"}],
+        "claude_ssh_config_file": str(aliases),
+    }
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] == 0, _failures(report)
+    said = {
+        host: result.get("claude_vm_release_others") for name, host, result in _results(report) if name == "Address"
+    }
+    # The fake's container carries the tag too, and is no VM; the VM it deletes is not its own sibling.
+    assert list(said) == ["parked"] and {"web-2", "db-nuc"} <= set(said["parked"])
+    assert not {"parked", "elsewhere", "ours-container", "gone-host"} & set(said["parked"])
+
+
+# "", 0 and false too, which took the default's 4G in their place without a word.
+@pytest.mark.parametrize("cap", ["lots", "0", "-1G", "", 0, False])
+def test_a_cap_on_the_saved_sessions_that_is_no_size_is_refused_before_anything_starts(tmp_path, cap):
+    root, playbook = _head(tmp_path, "https://127.0.0.1:9")
+    extra = {"vm_name": "parked", "confirm_destroy": "yes", "destroy_sessions_max_size": cap}
+    report = _run(root, playbook, {}, "-e", json.dumps(extra), timeout=120)
+    assert report["rc"] != 0
+    (failure,) = _failures(report).values()
+    assert failure.startswith("Refuse a cap on the saved sessions that is not a size: destroy_sessions_max_size is")
+    assert not [name for name, _, _ in _results(report) if name.startswith("cluster_vms |")]
 
 
 @pytest.mark.parametrize("folder", ["saved-sessions", "./saved"])

@@ -106,7 +106,9 @@ def command(how: dict, as_root: bool = True, password: bool = False) -> list[str
     directory = os.path.expanduser(how["control_dir"])
     os.makedirs(directory, mode=0o700, exist_ok=True)
     options = shlex.split(how["ssh_args"])
-    options += ["-o", f"ControlPath={directory}/%C", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_SECONDS}"]
+    # A VM's as every run names it (vm_control_name); ssh's own digest for any other host.
+    socket = f"{directory}/{how['control_name']}-%r-%p" if how.get("control_name") else f"{directory}/%C"
+    options += ["-o", f"ControlPath={socket}", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={CONNECT_SECONDS}"]
     if how.get("port"):
         options += ["-p", str(how["port"])]
     if how.get("key"):

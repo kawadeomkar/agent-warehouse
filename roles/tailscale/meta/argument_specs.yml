@@ -242,6 +242,14 @@ argument_specs:
         type: str
         default: https://api.tailscale.com
         description: Tailscale's API. Tests point it at a stand-in.
+      tailscale_release_other_vms:
+        type: list
+        elements: str
+        default: []
+        description:
+          - The names of the fleet's other VMs, from Proxmox's listing and the other hosts' aliases. A device named this
+            VM's machine name and -<n> is deleted only when that is not the machine name one of them joins as, made from
+            its name as tailscale_hostname is made from this VM's; none is deleted when two VMs' could be the same.
       tailscale_login_server:
         type: str
         default: ""

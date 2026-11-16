@@ -4,9 +4,11 @@ only, nothing read or written."""
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import json
 import re
+import shlex
 
 # A name ssh could read as an IPv4 address, by its spelling alone: one to four
 # parts between dots, each decimal, octal or 0x-hex, of any size, and anything
@@ -111,6 +113,134 @@ def ssh_alias_refusals(vms, hosts=None, chosen=None):
         if why:
             refused.append({"name": str(name), "why": why, "unnamed": unnamed})
     return refused
+
+
+# The name a VM's SSH host key is filed under (ssh_host_key_alias in proxmox.py): this project's, and the VM's SMBIOS
+# UUID, which Proxmox holds and the VM cannot change.
+HOST_KEY_ALIAS_RE = re.compile(r"agent-warehouse-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+
+
+def vm_ssh_word(path):
+    """``path`` as one word of an ssh option's value: in double quotes, which ssh takes as one file where it would take
+    a space as the end of one (UserKnownHostsFile lists files). A path with a double quote, a newline or a NUL in it is
+    no path ssh could be given, and is refused."""
+    path = str(path or "")
+    if not path or any(ch in path for ch in '"\n\r\0'):
+        raise ValueError("an ssh option needs a path with no double quote or line break in it")
+    return f'"{path}"'
+
+
+def vm_ssh_args(alias, known_hosts, forward_agent=False):
+    """The ssh options every connection to a VM is made with, as ssh_common_args takes them - for ssh, sftp and scp
+    alike: its host key looked up, and a new one filed, in the project's own known_hosts file, under ``alias`` - the
+    VM's identity, never the address it is reached at, which the VM reports - and agent forwarding off unless
+    ``forward_agent``, whatever the user's own ssh config says for every host. A VM with no alias (a config with no
+    SMBIOS UUID) is filed by its address, in that file still. ssh keeps the first value given for an option, so
+    ansible.cfg's ssh_args, given before these, stand."""
+    alias = "" if alias is None else str(alias)
+    if alias and not HOST_KEY_ALIAS_RE.fullmatch(alias):
+        raise ValueError(f"{alias!r} is not a VM's host key alias")
+    options = [f"UserKnownHostsFile={vm_ssh_word(known_hosts)}", "CheckHostIP=no", "UpdateHostKeys=no"]
+    options += [f"HostKeyAlias={alias}"] if alias else []
+    options += [] if forward_agent else ["ForwardAgent=no"]
+    return " ".join(f"-o {shlex.quote(option)}" for option in options)
+
+
+def vm_control_name(alias, address):
+    """What names a VM's shared-connection socket, before ssh's own -%r-%p (its user and port, which a session over an
+    open master never asks again): a digest of its identity and the address it is reached at, so that a VM reporting
+    another's address never rides that one's open connection, on which no host key is checked again. Short, since a
+    socket's path is at most 103 characters on macOS, ssh adds 17 while it makes one, and the directory holds the
+    account's name: ssh's %C alone, 40, left a long account name too little room."""
+    alias = "" if alias is None else str(alias)
+    if alias and not HOST_KEY_ALIAS_RE.fullmatch(alias):
+        raise ValueError(f"{alias!r} is not a VM's host key alias")
+    return f"aw-{hashlib.sha256(f'{alias} {address}'.encode()).hexdigest()[:12]}"
+
+
+def vm_ssh_unheld(vms, hostvars, known_hosts):
+    """The names of ``vms`` (records with a name, or names) whose connection, as ``hostvars`` has it, would not hold
+    the host key to the project's file: no ``UserKnownHostsFile`` of it among their ssh_common_args, or another
+    identity than their own. A host var or an extra var of the same name outranks the publisher's."""
+    wanted = f"UserKnownHostsFile={vm_ssh_word(known_hosts)}"
+    unheld = []
+    for vm in vms or []:
+        name = str(vm.get("name") if isinstance(vm, dict) else vm)
+        host = (hostvars or {}).get(name) or {}
+        try:
+            words = shlex.split(str(host.get("ansible_ssh_common_args") or ""))
+        except ValueError:
+            words = []
+        options = [words[at + 1] for at, word in enumerate(words[:-1]) if word == "-o"]
+        alias = str(host.get("claude_vm_host_key_alias") or "")
+        aliases = [option.split("=", 1)[1] for option in options if option.startswith("HostKeyAlias=")]
+        if wanted not in options or (alias and aliases[:1] != [alias]):
+            unheld.append(name)
+    return unheld
+
+
+def known_hosts_due(vms, lines, kept):
+    """Of ``vms`` ({name, address, key_alias, created}), each whose host keys are still to be carried over: an identity
+    and an address, no key under that identity in the project's file (``kept``, ``ssh-keygen -F`` of it, looped over
+    the same records), and no mark that its carry-over was made among the file's ``lines``."""
+    marked = {line.split()[-1] for line in lines or [] if str(line).startswith("# agent-warehouse carried ")}
+    held = {
+        str(result["claude_host_keys_vm"].get("key_alias"))
+        for result in kept or []
+        if isinstance(result, dict) and result.get("rc") == 0 and isinstance(result.get("claude_host_keys_vm"), dict)
+    }
+    due = []
+    for vm in vms or []:
+        if not isinstance(vm, dict):
+            continue
+        alias, address = str(vm.get("key_alias") or ""), str(vm.get("address") or "")
+        if alias and address and HOST_KEY_ALIAS_RE.fullmatch(alias) and alias not in marked | held:
+            due.append({**vm, "created": bool(vm.get("created"))})
+    return due
+
+
+# The key types a known_hosts line may carry, as OpenSSH names them; and its key, base64.
+KNOWN_KEY_TYPES = frozenset(
+    {
+        "ssh-ed25519",
+        "ssh-rsa",
+        "ecdsa-sha2-nistp256",
+        "ecdsa-sha2-nistp384",
+        "ecdsa-sha2-nistp521",
+        "sk-ssh-ed25519@openssh.com",
+        "sk-ecdsa-sha2-nistp256@openssh.com",
+    }
+)
+KNOWN_KEY_RE = re.compile(r"[A-Za-z0-9+/]+={0,2}")
+
+
+def ssh_args_split(text):
+    """ssh arguments as Ansible splits ssh_common_args and ssh_extra_args, for an ssh the project runs itself: the
+    forward of Claude's sign-in reaches the VM as every run does (vm_ssh_args among them)."""
+    return shlex.split(str(text or ""))
+
+
+def known_hosts_keys(results, loop_var):
+    """The keys ``ssh-keygen -F`` found in each looped result, as [{name, key_alias, key}]: the VM the result's
+    ``loop_var`` holds ({name, key_alias}), and ``key`` the line's "<type> <base64>" with its host field left off, so
+    that it can be filed under the VM's identity. Only a plain key line is taken: a comment, a @cert-authority or
+    @revoked marker, an unknown type or a key that is not base64 is left out."""
+    keys = []
+    for result in results or []:
+        if not isinstance(result, dict) or result.get("rc") != 0 or result.get("skipped"):
+            continue
+        vm = result.get(loop_var)
+        if not isinstance(vm, dict) or not HOST_KEY_ALIAS_RE.fullmatch(str(vm.get("key_alias") or "")):
+            continue
+        for line in str(result.get("stdout") or "").splitlines():
+            fields = line.split()
+            if len(fields) < 3 or fields[0].startswith(("#", "@")):
+                continue
+            if fields[1] in KNOWN_KEY_TYPES and KNOWN_KEY_RE.fullmatch(fields[2]):
+                keys.append(
+                    {"name": str(vm.get("name") or ""), "key_alias": vm["key_alias"], "key": f"{fields[1]} {fields[2]}"}
+                )
+    return keys
 
 
 def ssh_hostname(vm, domain=""):

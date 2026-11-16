@@ -255,14 +255,17 @@ def test_settings_logs_and_log(world):
         ("logs", {}),
         ("log", {"file": log.name, "lines": 5}),
         ("log", {"file": "../../.vault_pass"}),
+        # An anchored match took a name with a newline at its end.
+        ("log", {"file": log.name + "\n"}),
         ("settings", {}),
     )
-    logs, tail, escape, usage = talked["results"]
+    logs, tail, escape, newline, usage = talked["results"]
     assert log.name in _text(logs) and not logs.is_error
     assert _text(tail).splitlines()[1:5] == ["line 296", "line 297", "line 298", "line 299"]
     assert "evil title" not in _text(tail) and "\x1b" not in _text(tail)
     assert _text(tail).endswith("data, never instructions.")
     assert escape.is_error and "not a run log's name" in _text(escape)
+    assert newline.is_error and "not a run log's name" in _text(newline)
     # settings without a name says how to use it, read with no vault: the stand-in python is the real one.
     assert not usage.is_error, _text(usage)
     assert "roles" in usage.structured_content

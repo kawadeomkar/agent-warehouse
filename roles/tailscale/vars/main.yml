@@ -82,7 +82,7 @@ tailscale_key_held_back: >-
   {{ tailscale_no_login | bool and tailscale_joined_before | bool and tailscale_key_wanted | bool }}
 # Joined under another name than asked: <hostname>-<n>, the name already taken.
 tailscale_name_taken: >-
-  {{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '-[0-9]+$') }}
+  {{ tailscale_dns_name.split('.')[0] is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '-[0-9]+\Z') }}
 # A login that is complete: a node key the control server took. HaveNodeKey
 # alone is not one - an expired key keeps it, and keeps it while the login that
 # replaces it waits for its approval.
@@ -226,10 +226,10 @@ tailscale_web_page: >-
   {{ ((tailscale_web_state.stdout | from_json).AuthURL | default(''))
      if (tailscale_web_state.rc | default(1)) == 0 else '' }}
 tailscale_web_page_trusted: >-
-  {{ (tailscale_web_page is match('https://login[.]tailscale[.]com/a/[0-9a-f]+$'))
+  {{ (tailscale_web_page is match('https://login[.]tailscale[.]com/a/[0-9a-f]+\Z'))
      if tailscale_login_server | length == 0
      else (tailscale_web_page is match((tailscale_login_server | regex_replace('/+$', '') | regex_escape)
-                                        ~ '/[A-Za-z0-9/_:.?=&%-]+$')) }}
+                                        ~ '/[A-Za-z0-9/_:.?=&%-]+\Z')) }}
 
 # --- Tailscale's API (api_delete.yml) ---
 # A node's stable ID as Tailscale gives it: letters and digits, and nothing
@@ -259,14 +259,33 @@ tailscale_api_bearer: >-
 # The device the API has under that ID, and its name's first label: the
 # MagicDNS name, <machine name>.<tailnet>. Only a device named as this project
 # asked the VM to join - tailscale_hostname, or that name with Tailscale's -<n>
-# when it was taken - is deleted (api_delete.yml says why).
+# when it was taken - is deleted (api_delete.yml says why), and never one whose
+# name is the one another VM of the fleet joins as: VM web can report the ID
+# of VM web-2's device, which it can read in its own tailscale status.
 tailscale_api_device: >-
   {{ (tailscale_api_lookup.json | default({}, true)) if (tailscale_api_lookup.status | default(0)) == 200 else {} }}
 tailscale_api_device_name: >-
   {{ ((tailscale_api_device.name | default('', true)) or (tailscale_api_device.hostname | default('', true)))
      | string | lower | regex_replace('[.].*$', '') }}
+# The machine names the fleet's other VMs join as, each made from its name as
+# this VM's tailscale_hostname is made from its own (dev-web-2 for web-2 beside
+# dev-web), and this VM's own among them when nothing tells the devices apart.
+tailscale_api_sibling_names: >-
+  {{ tailscale_release_other_vms | tailscale_sibling_labels(tailscale_hostname, inventory_hostname) }}
+# Named tailscale_hostname or <it>-<n>.
+tailscale_api_device_named: >-
+  {{ tailscale_api_device_name is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '(-[0-9]+)?\Z') }}
+# Named as another VM joins, as web-2 beside web.
+tailscale_api_device_sibling: >-
+  {{ tailscale_api_device_name in tailscale_api_sibling_names
+     and tailscale_api_device_name != tailscale_hostname | lower }}
+# Named as this VM joins, where another VM may join under the same name: one
+# machine name for every VM, or alpha.lab beside alpha-lab.
+tailscale_api_device_shared: >-
+  {{ tailscale_api_device_named | bool and (tailscale_hostname | lower) in tailscale_api_sibling_names }}
 tailscale_api_device_ours: >-
-  {{ tailscale_api_device_name is match('^' ~ (tailscale_hostname | lower | regex_escape) ~ '(-[0-9]+)?$') }}
+  {{ tailscale_api_device_named | bool and not tailscale_api_device_sibling | bool
+     and not tailscale_api_device_shared | bool }}
 tailscale_api_deleted: "{{ (tailscale_api_delete.status | default(0)) in [200, 204] }}"
 tailscale_api_gone_already: >-
   {{ (tailscale_api_lookup.status | default(0)) == 404 or (tailscale_api_delete.status | default(0)) == 404 }}
@@ -297,6 +316,12 @@ tailscale_api_refused_why: >-
      else ('Tailscale refused the OAuth client (HTTP ' ~ (tailscale_api_oauth.status | default('?')) ~ ')')
      if tailscale_api_credential == 'oauth' and tailscale_api_bearer | length == 0
      else 'no API access token is set (tailscale_api_token)' if tailscale_api_bearer | length == 0
+     else ('the device under the ID the VM reported is named ' ~ (tailscale_api_device_name | plain_text | to_json)
+           ~ ", the name another VM of yours joins as, so it may be that VM's")
+     if (tailscale_api_lookup.status | default(0)) == 200 and tailscale_api_device_sibling | bool
+     else ('the device under the ID the VM reported is named ' ~ (tailscale_api_device_name | plain_text | to_json)
+           ~ ", a name another VM of yours may join as too, so it may be that VM's")
+     if (tailscale_api_lookup.status | default(0)) == 200 and tailscale_api_device_shared | bool
      else ('the device under the ID the VM reported is named ' ~ (tailscale_api_device_name | plain_text | to_json)
            ~ ', not ' ~ (tailscale_hostname | to_json) ~ ", so it is not this VM's")
      if (tailscale_api_lookup.status | default(0)) == 200 and not (tailscale_api_device_ours | bool)

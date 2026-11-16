@@ -11,6 +11,23 @@ proxmox_template_name: ubuntu-24.04-cloudinit
 # file; get_url looks up the image filename inside it.
 proxmox_template_image_url: https://cloud-images.ubuntu.com/minimal/releases/noble/release/ubuntu-24.04-minimal-cloudimg-amd64.img
 proxmox_template_image_checksum: sha256:https://cloud-images.ubuntu.com/minimal/releases/noble/release/SHA256SUMS
+# Ubuntu's signature of that list, SHA256SUMS.gpg beside it: the list is held
+# to it, by Ubuntu's cloud image key, before the image is held to the list.
+# Made from the checksum when that is a list of Ubuntu's own, so every Ubuntu
+# cloud image is verified so; empty for any other image, whose checksum is
+# yours to vouch for. "" turns it off.
+proxmox_template_image_signature: >-
+  {{ (proxmox_template_image_checksum | regex_replace('^sha256:', '')) ~ '.gpg'
+     if proxmox_template_image_checksum | default('', true) is match('sha256:https?://cloud-images[.]ubuntu[.]com/\S*/SHA256SUMS\Z')
+     else '' }}
+# The key that signature is by, as an armored OpenPGP key, and its fingerprint,
+# which the verifier finds the key by: Ubuntu's cloud image key, "UEC Image
+# Automatic Signing Key <cdimage@ubuntu.com>", vendored (files/ubuntu-cloudimage.asc,
+# which tests/unit/test_pins.py holds to the fingerprint), unless an image of
+# your own is signed by a key of yours - or Ubuntu changes its key before a
+# release of this project does.
+proxmox_template_image_key: "{{ lookup('ansible.builtin.file', 'ubuntu-cloudimage.asc') }}"
+proxmox_template_image_fingerprint: D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81
 # Where the download is kept on the node. Not a content directory of the
 # `local` storage (template/iso, say): Proxmox lists whatever it finds there in
 # the UI, so the pristine image showed up as an ISO. The customised copy that

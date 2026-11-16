@@ -22,7 +22,11 @@
 # proxmox_api_user: ansible@pve
 # proxmox_api_token_id: ansible
 # proxmox_api_port: 8006
-# Set to true after trusting the PVE CA on the controller
+# Check the API's certificate: against the certificate just init keeps beside
+# hosts.yml, in proxmox-trust.pem, or without one against this machine's
+# trust store, as a certificate from a public CA needs. just init writes this
+# itself, with the file it keeps or where the trust store verifies it; set
+# false while the file is there, the file alone still turns checking on
 # (docs/getting-started/proxmox-access.md).
 # proxmox_validate_certs: true
 # The template every VM is cloned from. On a cluster, build one per node with a
@@ -107,9 +111,12 @@
 # github_auth_method: auto
 # just deploy starts the device flow by itself; false asks first, VM by VM.
 # github_login_auto_start: true
-# Scopes the device flow asks for on top of gh's own (repo, read:org, gist);
-# workflow lets a push change .github/workflows/.
-# github_login_scopes: [workflow]
+# Scopes the device flow asks for on top of gh's own (repo, read:org, gist).
+# None by default: [workflow] lets the VM's agent push a change to
+# .github/workflows/, which is the road to a repository's Actions secrets;
+# without it GitHub refuses such a push, naming the scope. A login made
+# before keeps the scopes it has (gh auth refresh -r workflow drops one).
+# github_login_scopes: []
 # The git identity on each VM. Empty: your GitHub display name (or login) and
 # GitHub's noreply address for your account, so no private email lands in
 # commits by default.
@@ -201,8 +208,10 @@
 # vscode_user_settings_file: ""
 
 # ------------------------------------------------------------ Claude Code ---
-# Claude Code release channel: stable, latest, or an exact version like 2.1.41
-# (the oldest with `claude auth`, which the Claude terminal relies on)
+# Claude Code release channel: stable, latest, or an exact version of 2.1.89
+# or later, the first release Anthropic signs, like 2.1.311. A channel is the
+# update setting written into ~/.claude/settings.json; what is installed is
+# always the release it names, its signature checked here.
 # claude_code_version: stable
 # Extra user-level settings merged into ~/.claude/settings.json
 # claude_code_settings:
@@ -268,6 +277,9 @@
 # or one starting with ~. Empty: .sessions/ in this checkout (git-ignored).
 # The transcripts hold whatever their tools printed, and stay until you delete them.
 # destroy_sessions_dir: ""
+# The most one VM's save may write, whatever the VM sends (4G, 500M): past it
+# the save fails and the VM is kept, what arrived before left in its folder.
+# destroy_sessions_max_size: 4G
 # Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run
 # only prints them, for a controller with no desktop.
 # login_desktop: true

@@ -71,6 +71,28 @@ unnamed}`, `unnamed` where only the dot stops it: what a fleet-wide refresh leav
 resolves VM names (`claude_ssh_host_domain`), else the address its guest agent reported. The alias's block, the
 check that the user's ssh config reaches the managed file, and `just code`'s own connection all read it, so the
 editor and Ansible connect to the same place.
+**`ssh_host_key_alias(config)`** — the name a VM's SSH host key is filed under, `agent-warehouse-<its SMBIOS
+UUID>`, from its config (`smbios_uuid`), which Proxmox holds and makes anew for every VM and clone; `""` for a
+config without one. `guest_addresses` adds it to each row as `key_alias`, provision's publish reads it from the
+role's registers, and `just status`'s model from each VM's config; and two VMs that report one address are each
+given none there, with `shared_address`, since nothing can tell which is telling the truth. **`vm_ssh_args(alias,
+known_hosts, forward_agent)`** — the ssh options of every connection to a VM, as `ansible_ssh_common_args` takes
+them (ssh, sftp and scp alike): `UserKnownHostsFile` (the project's own, `claude_ssh_known_hosts_file`, in double
+quotes, `vm_ssh_word`, so a space is no second file), `HostKeyAlias` (refused unless it is one `ssh_host_key_alias`
+makes), `CheckHostIP=no`, `UpdateHostKeys=no` and `ForwardAgent=no` unless asked for, each shell-quoted. ansible.cfg's
+`ssh_args` come before them on ssh's command line and stand, ssh keeping the first value of an option.
+**`vm_control_name(alias, address)`** names a VM's shared-connection socket, before ssh's own `-%r-%p`, with a digest
+of its identity and address: one named by the address alone let a VM that reported a sibling's address ride the
+sibling's open connection, on which no key is checked again. It is short, since a socket's path is at most 103
+characters on macOS, ssh adds 17 while it makes one, and the directory holds the account's name: a prefix before ssh's
+40-character `%C` left an account name 12. **`vm_ssh_unheld(vms, hostvars, known_hosts)`** names the VMs whose
+effective common args lost those options - a host var or `-e` outranks a publisher's. **`ssh_args_split(text)`**
+splits `ansible_ssh_common_args` and `ansible_ssh_extra_args` as Ansible does, for the ssh Claude's sign-in forward
+runs itself;
+**`known_hosts_due(vms, lines, kept)`** says which VMs' keys are still to be carried over - an identity and an address,
+no key under the identity, no mark - and **`known_hosts_keys(results, loop_var)`** takes the plain key lines
+`ssh-keygen -F` found in a loop's results, `{name, key_alias, key}` with the host field left off, so
+`tasks/host_keys.yml` can file a key kept by address before 2.6 under the VM's identity, once.
 **`sshd_match_spec(ssh_connection, user)`** — what `sshd -T -C` evaluates its `Match` blocks for: the
 user's sessions from where Ansible's own connection comes, read from its `SSH_CONNECTION` (client address
 and port, local address and port), or the loopback address where there is none (a container, a local run).
@@ -227,8 +249,15 @@ URL or a command stays whole to copy, and a last newline, so that a prompt's las
 screen as a backslash and an `n`. Every part goes through `plain_text`. The prompts call it as a filter,
 the stdout callback (§7.5) by importing it. Covered by `tests/unit/test_text_filter.py`.
 
+**`systemd_arg(value)`** — a value as one argument of a systemd unit's `ExecStart=`, for Remote Control's unit:
+systemd reads a unit by rules of its own, not a shell's, and expands `%` specifiers and `$` variables inside
+quotes too, so a shell's quoting (`quote`) is the wrong one. A plain word stays as it is, so every unit of
+plain words renders as it always did; anything else is put in double quotes with `\` and `"` escaped and `%`
+and `$` doubled. A control character is a `ValueError`: no quoting carries a newline into a unit. Covered by
+`tests/unit/test_text_filter.py`.
+
 These are `lib/claude_vm/text.py`'s (§7.10), stdlib only; `filter_plugins/text.py` is the adapter that gives
-Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line` and `and_list` as filters, and the
+Ansible `plain_text`, `one_line`, `banner`, `full_stop`, `retry_line`, `and_list` and `systemd_arg` as filters, and the
 callbacks, the engines, `just status`'s model and `tools/settings` import the module itself. `page_opener` and
 `controller_run` with its state are `lib/claude_vm/desktop.py`'s, and `filter_plugins/desktop.py` their adapter.
 
@@ -509,11 +538,17 @@ VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, w
 where the VM is this machine, as in the tests), the names on stdin each after `./`, so that none reads
 as an option, and the stream unpacked by Python's `tarfile` into a folder it creates: plain files and
 folders only, at the names asked for - `<folder>/<id>.jsonl`, `<folder>/<id>`, `<folder>/memory` -
-or inside one of the folders, with no `..`, absolute path or empty component, never through a link
+or inside one of the folders, with no `..`, absolute path or empty component, no part that starts with a
+dot or holds a control character, none over 255 bytes and none deeper than 16, never through a link
 (`O_EXCL | O_NOFOLLOW`, in folders it made), 0600 and 0700, with the archive's times. A link, hard link,
-device or pipe is left out and named in `left_out`. It fails on SSH or tar failing, an archive cut short
-(a byte count that is no number of 512-byte blocks: `tarfile` reads one cut after its first header as
-one that ended) or a name asked for that did not arrive. Nothing of the content is returned.
+device or pipe is left out and named in `left_out`, the first 50 of them. It fails on SSH or tar failing,
+an archive cut short (a byte count that is no number of 512-byte blocks: `tarfile` reads one cut after its
+first header as one that ended), a name asked for that did not arrive, or past a bound: `max_bytes` of
+files written (`destroy_sessions_max_size`, made bytes by the `claude_sessions_cap` filter), twice that and
+64 MiB of stream, 200 000 entries, a pax header or GNU long name over 1 MiB - `tarfile` reads one whole into
+memory, so a `TarInfo` subclass refuses it in `_proc_member`, before it is read - and a sparse file, whose
+map can be as long as the VM makes it. Its own error, `Stopped`, is no `tarfile` error, some of which
+`TarFile.next()` takes for the archive's end. Nothing of the content is returned.
 
 **`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm)`** —
 the decision as data: `sessions` to copy, each with the checkout it continues in and the memory folder
@@ -548,7 +583,9 @@ up - is left out and counted in `refused`, never handed to tar. Returns `files` 
 `claude_sessions_fetch`; `sessions` for `sessions.json`, each with its first directory, branch, last
 write, the version that wrote it (its digits alone), whether it began on the VM, and the `claude --resume
 <path>` that continues it, the path quoted; `newest`, the newest version, which resuming them needs at
-least; `started` and `continued`; and the `memory` folders.
+least; `started` and `continued`; and the `memory` folders. **`claude_sessions_cap(size)`** is
+`destroy_sessions_max_size` in bytes, a size as `vm_disk_size` is written (a number alone is gigabytes),
+and 0 for a value that is none, which `destroy.yml` refuses before any VM starts.
 
 Covered by `tests/unit/test_session_handoff.py`, with real git checkouts and canned transcripts, by
 the window step's runs in `tests/unit/test_code_session.py`, and by destroy's release play, run in
@@ -1067,7 +1104,11 @@ and `tests/unit/test_choices.py` holds the three equal.
   as `tasks/vm_marks.yml` never failed a run. `tasks/vpn_members.yml` builds the inputs from what Proxmox and the
   roles left and refuses what the plan refuses; `tasks/vpn_apply.yml` applies it: each VM's marks through
   `tasks/vm_marks.yml`, what it says, and its NEXT STEPS records (`vpn_next`), a step outside the project said as it
-  is (`NextStep.text`).
+  is (`NextStep.text`). `tailscale.py` also holds `tailscale_label(name)`, a VM's name made the one DNS label the
+  `tailscale` role asks Tailscale for: the role's `tailscale_hostname` default, `just status`'s engine and destroy's
+  release, which compares a device's name with the fleet's other VMs' (`tailscale_sibling_labels`, each made as
+  this VM's `tailscale_hostname` is made from its name), all call it, so the three cannot drift
+  (`filter_plugins/vpn.py` gives Ansible the filters).
 - **Marks** are what a VM must not be able to change about itself, kept by the host's OS: on Proxmox, a tag beside
   the ownership tag, `<ownership tag>-<mark>` - `tailscale` once a VM's Tailscale has held a login; any other tag
   under it, such as the WireGuard address 2.0 kept (`wg-<address>`), is no mark and is read as none. Discovery,
@@ -1201,7 +1242,8 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   held run lock before it asks anything. `settings_set` changes only the settings on `ALLOWED`; `REFUSED` names every
   other setting of `local.yml.example`, so a new one is a decision, and a role variable in no example is refused
   too - an agent steered by what it read must not move `github_projects_api_url`, which the vault's token is sent
-  to, or `claude_code_installer_url`, which every VM runs as root. Where a setting's type lets more through, `VALUES`
+  to, or `claude_code_download_url`, which every VM
+  downloads Claude Code from. Where a setting's type lets more through, `VALUES`
   holds its value: `claude_code_version` is `stable`, `latest` or a version, since with npm as the install method it
   is the version npm installs, and npm takes any spec there - another package, a repository - as root on every VM.
   What `tools/settings` refuses still applies under it. `init` takes no `--token-secret-file`: the file's contents would go into the vault and to the Proxmox host as
@@ -1312,16 +1354,16 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   status`'s (`--read-only`),
   which writes only into `.cache/status/`. Nor may a settings file or a vault set what the inventory defaults make
   from the run's host (the kind's `from_host`: `proxmox_api_host`, `proxmox_api_token_secret`, `proxmox_api_url`,
-  `proxmox_api_headers`, `proxmox_api_module_defaults`), which would outrank the rule for every host: beside another
+  `proxmox_api_headers`, `proxmox_api_module_defaults`, and the certificate's `proxmox_trust_file`,
+  `proxmox_trust_kept`, `proxmox_api_validate` and `proxmox_api_ca_path`), which would outrank the rule for every host: beside another
   host, each is refused in every file a run reads. The kind's always-written settings (for Proxmox, the node,
   storage, bridge, API user, token ID, port, certificate checking and template VMID) are refused missing from the
   host's `local.yml`, naming `just init --host`; and a setting of one network (`vm_ipconfig`, `vm_nameservers`,
   `proxmox_template_custom`, `claude_ssh_host_domain`) the shared `local.yml` sets and the host's does not is refused,
   naming the line to add.
-- **The other hosts stay protected.** With one host in each run's inventory, three guards would lose sight of the
-  others: `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with them `proxmox_vm_known_hosts_kept`
-  add `claude_hosts_other`, so no VM is named after another host, no alias takes its address, and destroy never
-  forgets its key.
+- **The other hosts stay protected.** With one host in each run's inventory, two guards would lose sight of the
+  others: `claude_vm_inventory_hosts` and `claude_vm_inventory_addresses` add `claude_hosts_other`, so no VM is named
+  after another host and no alias takes its address. Destroy forgets no VM's key, and never one by an address.
 - **`just host`** lists the hosts from their files alone, replaces `hosts/current` whole (`store.replace`) under the
   run lock, so a run under way ends on the host it started on. With `--json`, `--for` and `--host` ask which host a
   run given those names and that `--host` would reach (`where`, `choose.where`): `choose` made public, no vault opened,
@@ -1354,3 +1396,75 @@ host. `hosts/current` names the current host; `hosts/` is git-ignored and refuse
   (`host_flag`), where each command ends and before what it then says, and destroy's question and `sessions.json`
   name the host. `tests/unit/test_hosts.py` reads every playbook, role and template for a `just` line naming a VM, or a
   host's fleet or template, without it.
+
+## 7.15 `lib/claude_vm/openpgp.py` — a vendor's signature, checked here
+
+What a VM downloads that its vendor signs is verified on this machine before a digest from it is handed to the
+target: Claude Code's release manifest (`roles/claude_code/tasks/install_native.yml`, signed by Anthropic from 2.1.89)
+and Ubuntu's `SHA256SUMS` (`roles/proxmox_template/tasks/image_signature.yml`, signed by Ubuntu's cloud image key).
+The target reads the file and its detached signature with `uri`, so nothing is written and no run reports a change;
+the `openpgp_verified(data, signature, keys, fingerprint)` filter (`filter_plugins/openpgp.py`) hands back the data
+once the signature verifies, or fails the task saying why; and the target downloads the binary or the image held by
+`get_url` to the digest the verified file gives.
+
+It is the standard library alone, and only as much of OpenPGP (RFC 4880, the version 4 parts of RFC 9580) as those two
+files need; anything else is refused by name rather than half understood: one ASCII-armored signature, its checksum
+held to its body and nothing but whitespace around it; a version 4 signature of a binary document (type `0x00`) by an
+RSA key over SHA-256 or SHA-512, with a creation time no later than a day ahead of this machine's clock, and an
+issuer - a whole fingerprint, or a whole key ID, hashed or not - that is the key given; never an expired signature,
+and no critical subpacket it does not know. The key is found in the vendored file by its version 4 fingerprint,
+computed from its own packet, never by the key ID a signature names, and must be RSA of 2048 bits or more, neither
+revoked nor expired by a signature of its own over it (a certification by another key says nothing of its life). The
+RSA step builds the PKCS #1 v1.5 block the digest must give and compares it whole, in constant time, with what the
+signature raises to the key's exponent - building and comparing, never parsing what came out, which is the way past
+Bleichenbacher's forgery against a parser that stops after the digest. The keys are each role's own `files/` (the
+golden rules allow a lookup of those alone), found by a fingerprint - in `claude_code`'s `vars/main.yml`, and in
+`proxmox_template`'s `defaults/main.yml`, beside the key, since a custom image may name another - and
+`tests/unit/test_pins.py` holds both to the vendors' published fingerprints.
+
+`gpgv` or `sqv` on the target would have done the cryptography with no code of the project's, but Proxmox VE 8 has
+`gpgv`, 9 has `sqv`, which refuses the older copy of Ubuntu's key, and a VM's base has neither: one verifier here is
+one behaviour everywhere, tested offline against the real signatures. Covered by `tests/unit/test_openpgp.py`, against
+the vendors' files (`tests/unit/openpgp/`) and signatures a key made for the test (`tests/unit/signing.py`) gets wrong
+one way at a time, and `tests/unit/test_signed_downloads.py`, which runs both task files against stand-in hosts and a
+stand-in for the download server (`tests/molecule/fake_downloads.py`).
+
+## 7.16 `lib/claude_vm/trust.py` — the certificate the Proxmox API is checked against
+
+`just init` keeps the certificate that makes the API's verify, before the token is sent anywhere
+(`playbooks/init_check.yml`, [§4.13](lifecycle.md#413-playbooksinit_checkyml)), and every request reads it after
+(`proxmox_api_validate` and `proxmox_api_ca_path` in the inventory defaults). Which certificate that is depends on
+this machine's Python as much as on the host, so it is tried, never assumed: Python 3.13 and later verify with
+`VERIFY_X509_STRICT`, which refuses a CA without `keyUsage` - every Proxmox VE 8 host's, and every 9 host's made before
+pve-cluster 9.1.2 and not issued again by 9.1.8 - and with `VERIFY_X509_PARTIAL_CHAIN`, which takes the node's own
+certificate as an anchor; 3.12 does neither. No probe here sends the token: each that asks whether a certificate
+verifies is a `HEAD /version`, which Proxmox answers 501 at once, and any HTTP answer means the certificate verified.
+Never a `GET`: Proxmox holds the 401 of one with no token back three seconds, which made the certificate's step of
+`just init` take nine.
+
+- **`proxmox_trust_holds(pem, url)`** asks whether what checking uses now verifies: the trust file's text, or the
+  trust store for none.
+- **`proxmox_trust_pick(candidates, url)`** tries each candidate as Ansible's `uri` and urllib3 (requests, every
+  `community.proxmox` module) do, through `ssl.create_default_context` with the candidate as its only CA data - this
+  machine's trust store first, as both clients have it (the standard library's store and certifi's, or the bundle
+  `REQUESTS_CA_BUNDLE` names, which both are handed), then the host's CA, then the node's own certificate without its
+  chain (`pem_first`) - and hands back the first that verifies, with its SHA-256 fingerprint as `openssl x509
+  -fingerprint -sha256` prints it, and why each before it did not, which `proxmox_trust_said` makes one line of plain
+  text. `strict` forces Python 3.13's flags on or off, so that the tests run both on either Python.
+- **`proxmox_trust_presented(candidates, url)`** reads what the address presents with a context that checks nothing,
+  and says whether it is the host's: the node's certificate itself, or one that chains to the host's CA or node
+  certificate whatever name it holds. The store proves no host, since any public CA signs anyone's. The step tells a
+  name to fix from something else answering at the address by it. The certificate alone decides, read with nothing
+  sent after the handshake: what answers sees which request carries no token, and could say nothing to this one. So
+  where root SSH read the host's certificates and none verified, `just init` holds the token unless what is presented
+  is the host's, a certificate read or not.
+
+Only `-----BEGIN CERTIFICATE-----` blocks of what was read from the host are ever kept or tried (`pem_certificates`),
+and a file larger than a certificate file is none. A trust file there turns checking on, whatever
+`proxmox_validate_certs` says - another host's `local.yml` holds the value its first run wrote - and `just init` writes
+`proxmox_validate_certs: true` beside a file it keeps where `local.yml` sets none, so that a copy of the checkout
+without the file refuses rather than sends the token unchecked. A certificate that changed is said where the API's
+failures are put into words (`proxmox_untrusted_hint` in `lib/claude_vm/proxmox.py`: `tasks/cluster_vms.yml`,
+`init_check.yml` and `just status`), never retried without checking. Covered by `tests/unit/test_proxmox_trust.py`,
+against a local TLS server serving a node's certificate under a CA made as Proxmox makes one (`tests/unit/pki.py`),
+and `tests/unit/test_init_check.py`, which runs the step against the fake Proxmox serving the same.

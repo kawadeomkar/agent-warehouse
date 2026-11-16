@@ -13,7 +13,8 @@
     url: "{{ proxmox_api_url }}/nodes/{{ claude_vm_item.node }}/qemu/{{ claude_vm_item.vmid }}/status/stop"
     method: POST
     headers: "{{ proxmox_api_headers }}"
-    validate_certs: "{{ proxmox_validate_certs }}"
+    follow_redirects: none
+    validate_certs: "{{ proxmox_api_validate }}"
     ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
   register: claude_vm_restopped
   changed_when: true

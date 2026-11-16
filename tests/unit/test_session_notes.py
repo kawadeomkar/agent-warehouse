@@ -240,7 +240,7 @@ def test_the_vm_s_facts_and_the_commands_with_its_name(notes):
         "`just login alpha --only github`",
         "`just login alpha --only tailscale`",
         "`just destroy alpha`",
-        "`ssh-keygen -R 192.0.2.51`",
+        "`ssh-keygen -R 192.0.2.51 -f ~/.ssh/agent-warehouse.known_hosts`",
         "`systemctl status claude-remote-control`",
     ):
         assert command in text, command

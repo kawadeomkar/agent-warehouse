@@ -30,6 +30,54 @@ host changes nothing, but:
   the host into `inventory/hosts.yml`, or set it up as another host with `just init --host`. Beside a second host,
   an exported `ANSIBLE_INVENTORY` is refused: each run reads its host's own.
 
+## What 2.6 verifies and bounds
+
+The independent security review of 2026-11-10 brought these; an install made before needs nothing for most of them:
+
+- **The Proxmox API's certificate is checked once `just init` has set it up.** Run `just init` once: before the token
+  goes anywhere, it works out what makes the certificate verify - this machine's trust store, or the host's CA or
+  its node's certificate read over root SSH - and keeps it in `inventory/proxmox-trust.pem` (`hosts/<name>/` for
+  another host) with `proxmox_validate_certs: true`, which has every run against the host check it. Every recipe
+  warns until then, and `just status` says so of each host. The `REQUESTS_CA_BUNDLE` and `proxmox_validate_certs:
+  true` set up by hand still work, and where they no longer verify `just init` finds what does, with checking on:
+  with Python 3.13 or later and a CA made before pve-cluster 9.1.2, the file to trust is the node's own certificate,
+  not the CA. Every request to the API now follows no redirect
+  ([Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate)).
+- **Claude Code is installed from Anthropic's signed release**, never through the installer script: the VM reads the
+  release's manifest and Anthropic's signature of it, this machine verifies the signature, and the binary is held to
+  the digest the manifest gives. A pinned `claude_code_version` older than 2.1.89, the first signed release, is
+  refused: set `stable`, `latest` or 2.1.89 or later. The exact release verified is what is installed, and what
+  `~/.local/bin/claude` then is must be it; the channel is written as `autoUpdatesChannel` in
+  `~/.claude/settings.json`. `claude_code_installer_url` is read no more, and every recipe says so while it is set:
+  `claude_code_download_url` names where releases are read from. Each golden template is built again once, since
+  what it is built from changed. Should Anthropic or Ubuntu change their signing key before a release of this
+  project does, `claude_code_install_method: npm` installs Claude Code from npm's registry without the signature,
+  and `proxmox_template_image_key` with `proxmox_template_image_fingerprint` name a key of your own for the image.
+- **The cloud image is held to Ubuntu's signature** of its `SHA256SUMS`. A template already built is not rebuilt.
+- **gh's device flow asks for no `workflow` scope** (`github_login_scopes: []`): a push from a VM that changes
+  `.github/workflows/` is refused by GitHub, naming the scope, until `github_login_scopes: [workflow]` and a new
+  sign-in. A login made before keeps the scope, and no run says so: `gh auth refresh -h github.com -r workflow` on
+  each such VM drops it.
+- **A session save is bounded**: at most `destroy_sessions_max_size` (4G) of files, no more than five minutes
+  without a byte and an hour in all. A VM that goes past a bound is kept by `just destroy`, neither released nor
+  deleted: raise the setting, or set `destroy_save_sessions: false` to delete it unsaved.
+- **`just destroy` leaves a Tailscale device another VM may join under**: one named as another VM of the host, or
+  of another host the checkout has, would join (`web-2` beside `web`), and every one where one `tailscale_hostname`
+  names every VM or two VMs' names make one machine name (`alpha.lab` and `alpha-lab`). The run says so, with where
+  to delete it by hand.
+- **The VMs' SSH host keys move to `~/.ssh/agent-warehouse.known_hosts`**, each under the VM's identity
+  (`agent-warehouse-<SMBIOS UUID>`) rather than its address. The first run that reaches a VM - `--check` too -
+  copies the key `~/.ssh/known_hosts` holds for its address into the new file, once, and says so, or says that
+  there was none and the key is taken on first use; nothing is removed from `~/.ssh/known_hosts`, whose lines for
+  the VMs are read no more (`ssh-keygen -R <address>` takes one out). Each alias block gains `HostKeyAlias`,
+  `UserKnownHostsFile`, `CheckHostIP no`, `UpdateHostKeys no`, `StrictHostKeyChecking accept-new` and
+  `ForwardAgent no` at its next write: `just deploy --only ssh-config` writes them all, and carries the keys over
+  first. `just status` reads a VM only once its key is in the new file. A copy of the managed SSH config on another
+  machine wants the new file beside it. `claude_ssh_options` may no longer set any option the block writes itself
+  (`ForwardAgent` is `claude_ssh_forward_agent`), but a stricter `StrictHostKeyChecking`, and an
+  `ansible_ssh_common_args` set for a VM where it outranks the project's own is refused: set
+  `ansible_ssh_extra_args` for options of yours.
+
 ## The project is called agent-warehouse
 
 From 2.0 the project is called agent-warehouse, since it is to run more models than Claude Code and more

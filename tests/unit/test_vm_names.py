@@ -271,10 +271,10 @@ def test_destroy_keeps_the_alias_and_the_name_key_of_another_hosts_vm(tmp_path, 
     said = _messages(report, "Say which aliases stay with another host")["localhost"]
     assert said.startswith("Kept the SSH alias of beta (it records nuc): the alias of a name is the VM of the host")
 
-    # And the delete play forgets <name>.<domain> only for this host's: the role's input, as that play sets it.
+    # And the delete play forgets no key by a name: each VM's key is under its own identity, which another host's VM
+    # of the same name does not share (roles/proxmox_vm/tasks/absent.yml).
     delete = next(play for play in plays if play.get("name") == "Delete the VMs on Proxmox")
-    domain = delete["vars"]["proxmox_vm_known_hosts_domain"]
-    assert "inventory_hostname in claude_ssh_names_elsewhere" in domain and "claude_ssh_host_domain" in domain
+    assert "proxmox_vm_known_hosts_domain" not in delete["vars"]
 
 
 @pytest.mark.parametrize("playbook", ["deploy.yml", "provision.yml"])

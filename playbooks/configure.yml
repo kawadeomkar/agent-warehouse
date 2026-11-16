@@ -312,6 +312,9 @@
   tags: [always]
 
   tasks:
+    # `held`: a VM a publisher reached holds its key in the project's file; one
+    # of the inventory's own (claude_vm_discovery off), at the address the
+    # inventory gives, where its connection keeps it (tasks/ssh_config.yml).
     - name: Collect each configured VM's name, address and workspace
       vars:
         claude_ssh_vm_vars: "{{ hostvars[claude_ssh_host] }}"
@@ -322,6 +325,8 @@
                'address': claude_ssh_vm_vars.ansible_host | default(claude_ssh_host),
                'user': claude_ssh_vm_vars.vm_user | default(vm_user),
                'workspace': claude_ssh_vm_vars.claude_vm_workspace,
+               'key_alias': claude_ssh_vm_vars.claude_vm_host_key_alias | default(''),
+               'held': claude_ssh_vm_vars.claude_vm_host_key_alias is defined,
              }] }}
       loop: "{{ groups['claude_vms'] | default([]) }}"
       loop_control:

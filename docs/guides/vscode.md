@@ -11,6 +11,30 @@ VS Code is the editor `just code` and `just deploy` open by default. The `editor
 open, one at a time (`just settings editor`), and `just code alpha --editor <editor>` picks it for one run;
 the other is [Zed](zed.md).
 
+## What a window on a VM trusts
+
+A window on a VM trusts that VM with this machine. VS Code's server runs on the VM and the window here does
+what it says, and Microsoft's note for Remote - SSH is plain: "A compromised remote could use the VS Code
+Remote connection to execute code on your local machine" ([Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)). No setting, profile or
+Workspace Trust changes that. The VM runs an agent with passwordless sudo, so a VM whose agent was talked into
+something - by a repository, a web page, a tool's output - can run commands here, as you, while its window is
+open. So:
+
+- Open a window only on a VM you would let run commands on your machine, and close it when you are not
+  working in it. `just deploy` opens one at its end: `just settings deploy_code --value false` stops that.
+- To keep the agent at arm's length, use Remote Control - `just deploy` sets it up, and you reach it in
+  claude.ai/code or the Claude apps - or plain `ssh alpha` in a terminal. Neither runs here what the VM sends,
+  with two caveats for ssh: the alias says `ForwardAgent no` (`claude_ssh_forward_agent` turns it on), which
+  outranks a `Host *` of your own only where the `Include` comes before it, as the one the project adds at the
+  top does; and the terminal shows what the VM prints as it is, escape sequences and all, some of which a
+  terminal acts on (setting the clipboard, for one).
+- These narrow what a hostile VM reaches without closing the channel: a VS Code profile with no other
+  extensions for these windows (VS Code's own commands stay in reach), and `"remote.autoForwardPorts": false`
+  in your settings, so that no port the VM opens is forwarded here by itself.
+
+`just code` does not repeat this on every run: [SECURITY.md](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md) and [What the VM trusts](what-the-vm-trusts.md)
+say it once.
+
 ## Opening a VM
 
 ```bash
@@ -63,7 +87,9 @@ says to run `just deploy --only configure` first.
 
 In `~/.ssh/agent-warehouse.conf`, one block per VM, included from the
 top of `~/.ssh/config` with a single `Include` line. That file and that line are the only things this
-project writes in `~/.ssh` besides `known_hosts`; the body of `~/.ssh/config` is never touched, its
+project writes in `~/.ssh` besides the VMs' host keys, kept in a file of the project's own beside it,
+`~/.ssh/agent-warehouse.known_hosts`, each under the VM's identity (the block's `HostKeyAlias`) rather than its
+address; the body of `~/.ssh/config` is never touched, its
 permissions are left as they are, and the `Include` stays once added (an `Include` of a missing file
 is harmless). An `Include` of the same file that you already have, as `~/.ssh/agent-warehouse.conf`,
 `${HOME}/...` or the bare name, counts if your ssh reads it - the question is put to `ssh -G` rather
@@ -97,8 +123,8 @@ Host alpha
 ## Keeping it current
 
 `just deploy` and `just deploy --only configure` write the alias of each VM they finish,
-`just destroy` removes it with the VM (as it already forgets the host key; a VM whose deletion
-fails keeps its alias, since it is still there), and `just deploy --only ssh-config`
+`just destroy` removes it with the VM (a VM whose deletion
+fails keeps its alias, since it is still there; its host key stays, under an identity no VM made later has), and `just deploy --only ssh-config`
 brings the whole fleet back in step at any time: a lease that moved, a VM deleted in the Proxmox UI,
 a second machine. Fleet-wide it also prunes the aliases of VMs that no longer exist. Pruning only
 ever removes blocks from the managed file, never VMs, and a block is only ever written for a VM
@@ -147,9 +173,11 @@ installs it on every VM you open.
 
 A connection that hangs or a server that will not start is reset with
 *Remote-SSH: Kill VS Code Server on Host* (or `rm -rf ~/.vscode-server` on the VM); a `HOST KEY
-VERIFICATION FAILED` after a rebuild means a lease was reused by a VM that `just destroy` did not
-delete, and `ssh-keygen -R <address>` clears it. If Ansible runs somewhere other than the machine
-VS Code is on, copy the managed file and the key there; a VS Code on Windows reads
+VERIFICATION FAILED` means the machine at the VM's address does not hold the VM's key - another machine
+answers there, or the VM was renamed in Proxmox, which gives it new host keys at its next boot - and for a
+rename, `ssh-keygen -R agent-warehouse-<uuid> -f ~/.ssh/agent-warehouse.known_hosts` (the alias's
+`HostKeyAlias`, which the VM's session notes print whole) clears it. If Ansible runs somewhere other than the machine
+VS Code is on, copy the managed file, the known_hosts file beside it and the key there; a VS Code on Windows reads
 `%USERPROFILE%\.ssh\config`, not WSL's, so point `remote.SSH.configFile` at the managed file
 (`\\wsl.localhost\<distro>\home\<you>\.ssh\agent-warehouse.conf`) and keep the key readable from
 Windows.

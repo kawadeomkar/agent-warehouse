@@ -22,7 +22,7 @@
     # configuration; the VM's own files decide it, so it is checked, not trusted.
     - name: ssh_path | Fail when that PATH cannot be written into sshd's configuration
       ansible.builtin.assert:
-        that: common_ssh_path is match('^[A-Za-z0-9_.,+@/:-]+$')
+        that: common_ssh_path is match('^[A-Za-z0-9_.,+@/:-]+\Z')
         fail_msg: >-
           The PATH for {{ common_user }}'s ssh sessions, "{{ common_ssh_path | plain_text }}", has a character
           sshd's configuration cannot take as it is (a space, a quote, a #). It is built from {{ common_user }}'s

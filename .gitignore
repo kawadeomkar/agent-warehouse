@@ -35,6 +35,8 @@ vault*.json
 # The checkout's hosts but the first (just host, just init --host): each one's
 # address, settings and token, and which is current.
 /hosts/
+# The certificate just init trusts the Proxmox API's by, beside each host's hosts.yml.
+proxmox-trust.pem
 # Credentials.
 .vault_pass*
 .env*

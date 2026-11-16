@@ -65,7 +65,7 @@ RSA or ECDSA gets the role's actionable "set vm_ssh_public_keys" message rather 
 ## 6.3 Computed internals
 
 `roles/proxmox_vm/vars/main.yml` holds the role's computed internals - the VM's config, MAC, node, address and
-tags as the lookup found them, whether it needs configuring, the names its host key is forgotten under - most of
+tags as the lookup found them, whether it needs configuring, the identity its host key is forgotten under - most of
 them reading registers set by tasks. Its [reference page](../reference/roles/proxmox_vm.md#internal-values)
 lists each, generated from the file with the comment that says what it is for. They are **vars, not facts**, and
 that is load-bearing:

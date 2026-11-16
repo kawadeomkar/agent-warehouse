@@ -178,6 +178,15 @@ credentials in the vault unused. Its default, `auto`, is what this section descr
 
 A deletion Tailscale refuses is said, with the device to delete by hand, and the rest of the run goes on.
 
+Which device is deleted is decided here, not by the VM: the VM reports its node's ID, and the device under
+it is deleted only when it is named as this project asked the VM to join - `alpha`, or `alpha-1` where
+Tailscale renamed a name taken - and never when that name is the one another VM joins as, of this host or
+of another the checkout has: `web` deleted is never `web-2`'s device, whatever ID `web` reports. With a
+`tailscale_hostname` of your own, the other VMs' names are made as it makes this VM's (`dev-web-2` beside
+`dev-web`); one that names every VM alike, or two VMs whose names make one machine name (`alpha.lab` and
+`alpha-lab`), leaves the device to delete by hand. Anything else is said, with where to find the VM's own
+device.
+
 ## Rebuilding a VM
 
 Delete the old device first - `just destroy` does with a credential above, and says

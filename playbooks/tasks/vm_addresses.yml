@@ -28,7 +28,8 @@
   ansible.builtin.uri:
     url: "{{ proxmox_api_url }}/nodes/{{ claude_vm_item.node }}/qemu/{{ claude_vm_item.vmid }}/config"
     headers: "{{ proxmox_api_headers }}"
-    validate_certs: "{{ proxmox_validate_certs }}"
+    follow_redirects: none
+    validate_certs: "{{ proxmox_api_validate }}"
     ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
     timeout: "{{ claude_vm_api_timeout }}"
   register: claude_vm_configs
@@ -47,7 +48,8 @@
   ansible.builtin.uri:
     url: "{{ proxmox_api_url }}/nodes/{{ claude_vm_item.node }}/qemu/{{ claude_vm_item.vmid }}/agent/network-get-interfaces"
     headers: "{{ proxmox_api_headers }}"
-    validate_certs: "{{ proxmox_validate_certs }}"
+    follow_redirects: none
+    validate_certs: "{{ proxmox_api_validate }}"
     ca_path: "{{ proxmox_api_ca_path | default(omit, true) }}"
     timeout: "{{ claude_vm_api_timeout }}"
   register: claude_vm_networks
@@ -91,3 +93,15 @@
       {{ claude_vm_query | guest_addresses(claude_vm_configs.results | default([], true),
                                            claude_vm_networks.results | default([], true),
                                            proxmox_nic) }}
+
+# Two VMs that report one address are each given none (guest_addresses): the address is the VM's own word, and a VM
+# that reports another's would have the run's work done there. Said, and left out of whatever the run reaches.
+- name: vm_addresses | Say each VM left out for an address another VM reports
+  vars:
+    claude_vm_address_shared: "{{ claude_vm_addressed | selectattr('shared_address', 'defined') | list }}"
+  ansible.builtin.debug:
+    msg: >-
+      {{ claude_vm_address_shared | map(attribute='name', default='?') | join(', ') }} report one address
+      ({{ claude_vm_address_shared | map(attribute='shared_address') | unique | join(', ') }}), so none of them is
+      reached: nothing here can tell which is telling the truth. Look at each one's address in Proxmox's console.
+  when: claude_vm_addressed | selectattr('shared_address', 'defined') | list | length > 0

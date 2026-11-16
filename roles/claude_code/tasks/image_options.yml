@@ -7,4 +7,4 @@
       claude_code_user: "{{ claude_code_user }}"
       claude_code_install_method: "{{ claude_code_install_method }}"
       claude_code_version: "{{ claude_code_version }}"
-      claude_code_installer_url: "{{ claude_code_installer_url }}"
+      claude_code_download_url: "{{ claude_code_download_url }}"

@@ -402,7 +402,8 @@ def settings_on_disk(tmp_path_factory):
         "whitespace": ("\n  \n", managed),
         "broken": ('{"theme": ', managed),
         # Nothing managed: the role has no business with the file, and never
-        # parses it.
+        # parses it. A pinned version, since a native install on a channel
+        # writes the channel (autoUpdatesChannel).
         "broken-unmanaged": ('{"theme": ', {}),
     }
     hosts = _stand_in_hosts(root, {name: LOGINS["claude-ai"] for name in cases})
@@ -411,6 +412,7 @@ def settings_on_disk(tmp_path_factory):
         claude_dir.mkdir()
         (claude_dir / "settings.json").write_text(text)
         hosts[name]["claude_code_settings"] = settings
+    hosts["broken-unmanaged"]["claude_code_version"] = "2.1.89"
     return _check_run(root, "settings", hosts)
 
 

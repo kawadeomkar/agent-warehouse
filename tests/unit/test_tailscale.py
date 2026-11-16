@@ -1784,3 +1784,71 @@ def test_destroy_names_the_device_left_of_each_vm_it_could_not_release():
     assert report["loop"] == "{{ groups['claude_vm_doomed'] | default([]) }}"
     assert "https://login.tailscale.com/admin/machines" in report["vars"]["claude_release_where"]
     assert "<name>-1" in report["vars"]["claude_release_left"]
+
+
+@pytest.mark.parametrize(
+    ("name", "label"),
+    [
+        ("alpha", "alpha"),
+        ("Alpha.Lab", "alpha-lab"),
+        ("my_vm", "my-vm"),
+        ("x..y", "x-y"),
+        ("--a--", "a"),
+        ("a" * 70, "a" * 63),
+        # Cut to 63, then no "-" left at its end.
+        ("a" * 62 + "-b", "a" * 62),
+    ],
+)
+def test_a_vm_s_name_is_made_one_dns_label(name, label):
+    from claude_vm.status import settings
+    from claude_vm.vpn.tailscale import tailscale_label
+
+    assert tailscale_label(name) == label == settings.dns_label(name)
+
+
+def test_the_machine_name_is_made_by_the_one_rule_destroy_s_release_compares_with():
+    # The role's default, the status engine and the machine names of the other VMs destroy's release compares a
+    # device's name with: one function, the others' made from their names, which destroy passes as they are.
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    assert defaults["tailscale_hostname"] == "{{ inventory_hostname | tailscale_label }}"
+    variables = yaml.safe_load((ROLE / "vars" / "main.yml").read_text())
+    assert (
+        "tailscale_release_other_vms | tailscale_sibling_labels(tailscale_hostname, inventory_hostname)"
+        in (variables["tailscale_api_sibling_names"])
+    )
+    destroy = (REPO / "playbooks" / "destroy.yml").read_text()
+    assert 'tailscale_release_other_vms: "{{ claude_vm_release_others | default([]) }}"' in destroy
+
+
+@pytest.mark.parametrize(
+    ("others", "hostname", "name", "labels"),
+    [
+        # The default: each other VM's own label.
+        (["web-2", "DB"], "web", "web", ["db", "web-2"]),
+        # A machine name of the user's own, with this VM's label inside it: the same around each other's.
+        (["web-2"], "dev-web", "web", ["dev-web-2"]),
+        (["web-2"], "web-lab", "web", ["web-2-lab"]),
+        (["Web.2"], "Dev-Web", "web", ["dev-web-2"]),
+        # This VM's label in two places: either may be where the name went.
+        (["y"], "x-lab-x", "x", ["x-lab-y", "y-lab-x"]),
+        # Two VMs' names that make one machine name: this VM's own is among the others'.
+        (["alpha.lab"], "alpha-lab", "alpha-lab", ["alpha-lab"]),
+        # A machine name with no label of the VM's name in it, one for every VM: nothing tells them apart.
+        (["db"], "devbox", "web", ["devbox"]),
+        (["db"], "devbox", "--", ["devbox"]),
+        # No other VM: nothing to compare.
+        ([], "devbox", "web", []),
+        (["--"], "devbox", "web", []),
+    ],
+)
+def test_the_other_vms_machine_names_are_made_as_this_vm_s(others, hostname, name, labels):
+    from claude_vm.vpn.tailscale import tailscale_sibling_labels
+
+    assert tailscale_sibling_labels(others, hostname, name) == labels
+
+
+def test_the_other_vms_names_are_a_list():
+    from claude_vm.vpn.tailscale import tailscale_sibling_labels
+
+    with pytest.raises(ValueError, match="as a list"):
+        tailscale_sibling_labels("web-2", "web", "web")

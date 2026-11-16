@@ -70,9 +70,30 @@
             ansible_user: "{{ vm_user }}"
             ansible_python_interpreter: "{{ claude_vm_python }}"
             ansible_become_password: ""
-            ansible_ssh_extra_args: >-
-              -o UserKnownHostsFile={{ proxmox_template_build_vm.known_hosts }} -o StrictHostKeyChecking=accept-new
+            # Its key in a file of the build's own, by its address: the VM lives
+            # for the build alone. No agent forwarded, as no VM of the fleet is
+            # (vm_ssh_args); ssh, sftp and scp alike, the configured common args
+            # after them (discover.yml says why).
+            ansible_ssh_common_args: >-
+              {{ '' | vm_ssh_args(proxmox_template_build_vm.known_hosts) }} -o StrictHostKeyChecking=accept-new
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                 plugin_type='connection', plugin_name='ssh')) }}
           changed_when: false
+          when: (proxmox_template_build_vm | default({})).name is defined
+
+        # A host var or an extra var of the same name outranks the options above, and would reach the build VM on the
+        # user's own file without a word, as tasks/host_keys.yml refuses for a VM of the fleet.
+        - name: Refuse a build VM whose connection would not check its host key as the build files it
+          vars:
+            claude_vm_build_unheld: >-
+              {{ [proxmox_template_build_vm.name] | vm_ssh_unheld(hostvars, proxmox_template_build_vm.known_hosts) }}
+          ansible.builtin.assert:
+            that: claude_vm_build_unheld | length == 0
+            fail_msg: >-
+              ansible_ssh_common_args is set somewhere that outranks the build VM's own (a host var or -e), so the
+              connection would not hold its host key to {{ proxmox_template_build_vm.known_hosts }}. Set
+              ansible_ssh_extra_args for options of your own instead.
+            quiet: true
           when: (proxmox_template_build_vm | default({})).name is defined
       rescue:
         - name: Delete what the build made

@@ -67,11 +67,11 @@ The API user and token, as just init or tools/proxmox-access.sh makes them ([doc
 | `proxmox_api_token_id` | `ansible` | Sets `proxmox_vm_api_token_id` ([`proxmox_vm`](roles/proxmox_vm.md)): Name of the API token, the part after the ! in user!token. |
 | `proxmox_api_port` | `8006` | Sets `proxmox_vm_api_port` ([`proxmox_vm`](roles/proxmox_vm.md)): Port of the Proxmox VE API. |
 
-Set to true after trusting the PVE CA on the controller ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)).
+Check the API's certificate: against the certificate just init keeps beside hosts.yml, in proxmox-trust.pem, or without one against this machine's trust store, as a certificate from a public CA needs. just init writes this itself, with the file it keeps or where the trust store verifies it; set false while the file is there, the file alone still turns checking on ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)).
 
 | Setting | Default | Notes |
 |---|---|---|
-| `proxmox_validate_certs` | `false` | Sets `proxmox_vm_validate_certs` ([`proxmox_vm`](roles/proxmox_vm.md)): Verify the API's TLS certificate. For example `true`. |
+| `proxmox_validate_certs` | `false` | For example `true`. |
 
 The template every VM is cloned from. On a cluster, build one per node with a VMID and a name of its own ([docs/getting-started/requirements.md](../getting-started/requirements.md)).
 
@@ -176,11 +176,11 @@ just deploy starts the device flow by itself; false asks first, VM by VM.
 |---|---|---|
 | `github_login_auto_start` | `true` |  |
 
-Scopes the device flow asks for on top of gh's own (repo, read:org, gist); workflow lets a push change .github/workflows/.
+Scopes the device flow asks for on top of gh's own (repo, read:org, gist). None by default: [workflow] lets the VM's agent push a change to .github/workflows/, which is the road to a repository's Actions secrets; without it GitHub refuses such a push, naming the scope. A login made before keeps the scopes it has (gh auth refresh -r workflow drops one).
 
 | Setting | Default | Notes |
 |---|---|---|
-| `github_login_scopes` | `[workflow]` | Sets `github_projects_login_scopes` ([`github_projects`](roles/github_projects.md)): Scopes the device flow asks for on top of gh's own (repo, read:org, gist). |
+| `github_login_scopes` | `[]` | Sets `github_projects_login_scopes` ([`github_projects`](roles/github_projects.md)): Scopes the device flow asks for on top of gh's own (repo, read:org, gist). |
 
 The git identity on each VM. Empty: your GitHub display name (or login) and GitHub's noreply address for your account, so no private email lands in commits by default.
 
@@ -233,7 +233,7 @@ Point aliases at &lt;name&gt;.&lt;domain&gt; instead of the address, on a networ
 
 | Setting | Default | Notes |
 |---|---|---|
-| `claude_ssh_host_domain` | `""` | Sets `proxmox_vm_known_hosts_domain` ([`proxmox_vm`](roles/proxmox_vm.md)): The DNS domain SSH reaches the VMs by on this machine, when not their address (claude_ssh_host_domain). For example `lan`. |
+| `claude_ssh_host_domain` | `""` | For example `lan`. |
 
 The key each alias names (IdentityFile). Empty lets ssh pick, which finds the default key vm_ssh_public_keys reads.
 
@@ -300,7 +300,7 @@ The VS Code settings read (never written) to say whether the terminal starts on 
 
 ### Claude Code
 
-Claude Code release channel: stable, latest, or an exact version like 2.1.41 (the oldest with `claude auth`, which the Claude terminal relies on)
+Claude Code release channel: stable, latest, or an exact version of 2.1.89 or later, the first release Anthropic signs, like 2.1.311. A channel is the update setting written into ~/.claude/settings.json; what is installed is always the release it names, its signature checked here.
 
 | Setting | Default | Notes |
 |---|---|---|
@@ -381,6 +381,12 @@ A folder per VM and run, &lt;name&gt;-&lt;YYYYMMDD-HHMMSS&gt;, 0700, in an absol
 | Setting | Default | Notes |
 |---|---|---|
 | `destroy_sessions_dir` | `""` |  |
+
+The most one VM's save may write, whatever the VM sends (4G, 500M): past it the save fails and the VM is kept, what arrived before left in its folder.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `destroy_sessions_max_size` | `4G` |  |
 
 Open the sign-in pages (and copy GitHub's code) on this machine. Off, the run only prints them, for a controller with no desktop.
 
@@ -501,7 +507,7 @@ GitHub account whose repositories get cloned onto the VM.
 |---|---|
 | `vault_github_username` | Sets `github_projects_username` ([`github_projects`](roles/github_projects.md)): GitHub account to list repositories for. |
 
-Optional. With it, private repositories are listed and cloned and gh on each VM is signed in with it, so git push and gh pr create work there. A classic token needs repo, workflow and read:org; a fine-grained one Metadata (read) and Contents, Pull requests and Workflows (read and write) on all repositories. Leave it empty to sign in once per VM by GitHub's device flow instead (just login &lt;name&gt; --only github), with no secret here: that run clones the private repositories too, and later runs list with the token gh stored. [docs/guides/github.md](../guides/github.md).
+Optional. With it, private repositories are listed and cloned and gh on each VM is signed in with it, so git push and gh pr create work there. A classic token needs repo and read:org; a fine-grained one Metadata (read) and Contents and Pull requests (read and write) on all repositories. Add workflow (classic) or Workflows (fine-grained) only if the VM's agent should change .github/workflows/, the road to a repository's Actions secrets. Leave it empty to sign in once per VM by GitHub's device flow instead (just login &lt;name&gt; --only github), with no secret here: that run clones the private repositories too, and later runs list with the token gh stored. [docs/guides/github.md](../guides/github.md).
 
 | Secret, in `vault.yml` | Notes |
 |---|---|

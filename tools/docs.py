@@ -182,7 +182,7 @@ def commands() -> str:
 
 def first_sentence(description) -> str:
     text = " ".join(description) if isinstance(description, list) else str(description or "")
-    m = re.match(r"(.+?\.)(?:\s|$)", text.strip())
+    m = re.match(r"(.+?\.)(?:\s|\Z)", text.strip())
     return (m.group(1) if m else text).strip()
 
 
@@ -289,12 +289,12 @@ def internals(role: str) -> str:
 
 
 # A comment's banner ("# --- the browser sign-in ---"), which heads a group rather than describing a value.
-COMMENT_BANNER = re.compile(r"^#\s*-{3,}.*-{3,}\s*$")
+COMMENT_BANNER = re.compile(r"^#\s*-{3,}.*-{3,}\s*\Z")
 # What a vars file's comments open with, which says nothing of the value: "Internal, not meant to be overridden:".
 COMMENT_INTERNAL = re.compile(r"^Internal(?:, not meant to be overridden)?[:.]\s*")
 # A sentence's end: a full stop before a space and the next sentence, or at the end - not one in a name
 # (api.anthropic.com), a quotation ("Login successful.") or before an ellipsis ("Invalid code. ...").
-SENTENCE = re.compile(r"(.+?\.)(?=\s+[^\s.]|\s*$)")
+SENTENCE = re.compile(r"(.+?\.)(?=\s+[^\s.]|\s*\Z)")
 
 
 def _purposes(text: str) -> dict[str, str]:

@@ -69,6 +69,12 @@ every VM's root disk is 11 GiB used of 31. A clone's config carries the
 template's meta ctime, as Proxmox VE 9.2's did when it was checked against a real
 clone; the moment it was made is its disk's ctime, in the storage's content, which
 PUT /api2/json/fake/disk-ctime?vmid=&ctime= sets for a fixture's VM made earlier.
+The template's config has a SMBIOS UUID (smbios1), and each clone one of its own, so a VM made again at the same ID
+has another, as Proxmox gives them: what the runs file a VM's SSH host key under.
+
+A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
+request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
+host's place, which can tell the probes just init sends with no token from the request that carries one.
 
 Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_secret>
 """
@@ -79,6 +85,7 @@ import re
 import ssl
 import sys
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -135,6 +142,8 @@ VMS = {
             "scsi0": "local-lvm:base-9000-disk-0,discard=on,size=3584M",
             "ide2": "local-lvm:vm-9000-cloudinit,media=cdrom",
             "net0": "virtio=BC:24:11:00:23:28,bridge=vmbr0",
+            # Every VM's own, as Proxmox gives one to each VM it creates: what a VM's SSH host key is filed under.
+            "smbios1": "uuid=9a0e1c2d-3b4f-4a5b-8c6d-7e8f90a1b2c3",
             # As a 1.x build recorded it, on purpose: every scenario's deploy then holds that 2.0 rebuilds no template
             # for its record's 1.x name alone.
             "description": "Built by claude-on-proxmox: build=1;"
@@ -205,6 +214,7 @@ STALE = {}
 # What /version reports, and each token's privileges by path where a fixture
 # set them: {(token id, path): [privilege, ...]}.
 VERSION = {"version": "8.2.4"}
+TOKENLESS = {"answer": "401"}
 PRIVILEGES = {}
 # Each node's storages for VM disks, with their type and free bytes, and its bridges.
 STORAGES = {NODE: [{"storage": "local-lvm", "type": "lvmthin", "avail": 412 * 1024**3}]}
@@ -404,6 +414,11 @@ class Handler(BaseHTTPRequestHandler):
             }
             log.write(json.dumps(entry) + "\n")
 
+        if not token and TOKENLESS["answer"] == "none":
+            self.close_connection = True
+            return None
+        if method == "HEAD":
+            return self._reply_empty(501, "method 'HEAD' not available")
         if not token or token.group(3) != TOKEN_SECRET:
             # Real pveproxy sends 401 with an *empty* body, deliberately
             # withholding the reason; the detail survives only in the HTTP
@@ -415,6 +430,10 @@ class Handler(BaseHTTPRequestHandler):
         if token.group(2) == NOAGENT_TOKEN_ID and "agent" in parts:
             vmid = parts[parts.index("agent") - 1]
             return self._reply(403, None, f"Permission check failed (/vms/{vmid}, VM.GuestAgent.Audit)")
+        if parts[:2] == ["fake", "tokenless"] and method == "PUT":
+            # Not a PVE endpoint: a fixture's answer to a request with no token.
+            TOKENLESS["answer"] = params["answer"]
+            return self._reply(200, dict(TOKENLESS))
         if parts[:2] == ["fake", "version"] and method == "PUT":
             # Not a PVE endpoint: a fixture's Proxmox version.
             VERSION["version"] = params["version"]
@@ -648,6 +667,8 @@ class Handler(BaseHTTPRequestHandler):
                     "name": params.get("name"),
                     "scsi0": vm["config"]["scsi0"].replace(f"base-{vmid}", f"vm-{newid}"),
                     "net0": f"virtio={mac_for(newid)},bridge=vmbr0",
+                    # As Proxmox: every clone a SMBIOS UUID of its own, a VM made again at the same ID another.
+                    "smbios1": f"uuid={uuid.uuid4()}",
                 },
                 # Its config keeps the template's meta; its disk is made now.
                 "disk_ctime": int(time.time()),
@@ -770,6 +791,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self._handle("GET")
+
+    def do_HEAD(self):
+        self._handle("HEAD")
 
     def do_POST(self):
         self._handle("POST")

@@ -92,8 +92,8 @@
     msg: >-
       {{ inventory_hostname }}: gh did not sign in with vault_github_token
       ({{ github_projects_token_said }}), so the token only lists the repositories,
-      and git push on the VM will fail. Add read:org (and workflow, for pushes that change
-      .github/workflows/) to the token and run {{ github_projects_configure_command }}; or set
+      and git push on the VM will fail. Add read:org to the token (and workflow only for pushes
+      that change .github/workflows/) and run {{ github_projects_configure_command }}; or set
       github_auth_method: web and sign gh in by the device flow with {{ github_projects_login_command }}
   register: github_projects_token_short_reported
   when: github_projects_token_short | bool

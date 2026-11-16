@@ -175,6 +175,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       rebuild destroys it; a custom image URL needs its checksum.
     - A base outside the Debian family is refused by name: an image before it is built on (`virt-cat`), and every VM
       first in configure, by a `raw` task that needs no Python.
+- **What a VM installs that its vendor signs is held to the signature, checked on this machine.** Read
+  [§7.15](docs/architecture/custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here) first.
+    - Claude Code's native install reads the release's manifest and Anthropic's detached signature of it, verifies
+      them here (`openpgp_verified`, `files/claude-code.asc` found by `claude_code_release_fingerprint`), downloads the
+      binary held to the manifest's digest, runs its `install` of that exact release - never a channel's name, which
+      it could resolve and fetch again - and holds what `~/.local/bin/claude` resolves to to the same digest. The
+      channel is `autoUpdatesChannel`, written by `settings.yml`. Never the installer script, which verifies no
+      signature.
+    - The cloud image is held to its digest in Ubuntu's `SHA256SUMS` once the list's signature verifies
+      (`proxmox_template_image_key` and `_fingerprint`, the vendored key by default); an image with no checksum to hold
+      it to is refused, never downloaded unchecked.
+    - `lib/claude_vm/openpgp.py` is the standard library alone: one v4 RSA signature of a binary document, the key found
+      by its own packet's fingerprint, never revoked or expired by its own self-signature, a signature no later than a
+      day ahead. `tests/unit/test_pins.py` holds every armored block of each vendored key file to its vendor's
+      fingerprints; `test_signed_downloads.py` runs both task files against `fake_downloads.py` with keys of its own.
 - **Idempotence.** Molecule's idempotence stage re-runs converge and fails on any `changed` task.
 - **An API key and Remote Control are mutually exclusive.** `ANTHROPIC_API_KEY` outranks the
   claude.ai login in Claude Code's credential precedence, and only that login can establish a
@@ -358,14 +373,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       a helper variable beside it, which a git-ignored file could set; the resolver refuses either name in the
       other's vault, and, beside another host, any settings file or vault a run reads that sets what the defaults make
       from the run's host (the kind's `from_host`: the token's secret, the API's address, URL, headers and module
-      defaults), which would outrank the rule for every host.
+      defaults, and the certificate's trust file and checking), which would outrank the rule for every host.
     - Only a host's `hosts.yml` is inventory in its folder: Ansible reads every `.yml`, `.yaml` and `.json` there,
       and every folder but `group_vars` and `host_vars`, so the resolver refuses another. What a host's files say is
       that host's problem, said in its place, never a traceback, and a run against another goes on.
     - The kinds table (`lib/claude_vm/hosts/kinds.py`) names each host's always-written settings, which the
       resolver requires, and those of one network, which it never lets the shared files supply.
     - `claude_hosts_other` (the other hosts' names and addresses, from the resolver) feeds
-      `claude_vm_inventory_hosts`, `claude_vm_inventory_addresses` and with it `proxmox_vm_known_hosts_kept`.
+      `claude_vm_inventory_hosts` and `claude_vm_inventory_addresses`.
     - `just host <name>` switches under the run lock; no agent changes the current host. `just init` alone works on
       the current host, as every command does; another host's init takes no exported token secret, which may be the
       first host's, and no value of the shared files'.
@@ -383,17 +398,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_hosts.py` runs the resolver on made-up layouts, the token rule through ansible-playbook, and
       the project's playbooks through an overlay against two fake Proxmox hosts with different secrets; the
       `provision` scenario's `second_host.yml` provisions, aliases and destroys a VM through one.
-- **The project writes exactly three things outside the repo on the controller, and has VS Code's own CLI
-  write a fourth, and Claude Code's own CLI a fifth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
+- **The project writes exactly four things outside the repo on the controller, and has VS Code's own CLI
+  write a fifth, and Claude Code's own CLI a sixth.** Read [On the controller](docs/architecture/security-model.md#on-the-controller) and
   [§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml) first.
     - `playbooks/vars/controller_writes.yml` is the one list of them, with the editor's own records of the windows it
       opens and what the tools keep for themselves: every VM's session notes show it and the security model renders
       it. `tests/unit/test_controller_writes.py` finds each row's write where it is made, and fails on a place its
       row does not name.
-    - The fifth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
+    - The sixth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
       `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
-    - The three: `~/.ssh/known_hosts`, the managed SSH config `~/.ssh/agent-warehouse.conf` (plus one `Include`
-      line at the top of `~/.ssh/config` that is added once and never removed), and the checkout's own folder,
+    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first root SSH, and never a
+      VM's; `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`, beside the managed config), every
+      VM's key, filed under the VM's identity, `agent-warehouse-<SMBIOS UUID>` from Proxmox, which every connection to
+      a VM names (`vm_ssh_args`: the file, `HostKeyAlias`, and `ForwardAgent=no` unless asked for); the managed SSH
+      config `~/.ssh/agent-warehouse.conf`
+      (plus one `Include` line at the top of `~/.ssh/config` that is added once and never removed), and the
+      checkout's own folder,
       `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/checkouts/<folder>-<cksum of its path>`
       (`tools/env-run --data`: the Galaxy collections, and the Python environment when the user brings no
       virtualenv), which `just clean env` deletes, and nothing beside it. Nothing else in `~/.ssh` is ever
@@ -404,7 +424,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       again; `just status` and the prune read the 1.x file while it is the one there, and `just clean env`
       deletes a 1.x folder left behind. The Claude Code sessions `just destroy` saves go into the checkout's `.sessions/`, inside the repo,
       unless the user points `destroy_sessions_dir` elsewhere.
-    - The fourth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
+    - The fifth: when `code --list-extensions` lacks the Remote - SSH extension, `just code` and `just deploy`'s
       window step run `code --install-extension ms-vscode-remote.remote-ssh` (`playbooks/tasks/vscode_check.yml`):
       no other extension, and no VS Code setting.
     - Every SSH write goes through `playbooks/tasks/ssh_config.yml`, which validates each write with `ssh -G` and
@@ -415,8 +435,24 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `guest_ipv4` accepts only what `ipaddress.IPv4Address` parses, because a newline and a `ProxyCommand`
       after a valid address pass `ssh -G` and run on this machine, and never `0.0.0.0`, multicast or the
       reserved range.
-    - Deleting a VM never forgets the Proxmox host's key, or another inventory host's
-      (`proxmox_vm_known_hosts_kept`), whatever address the VM reported last.
+    - A VM's host key is never filed or looked up by an address, which the VM reports, and never forgotten. Every
+      `add_host` that publishes a VM gives it `claude_vm_host_key_alias`, `ansible_ssh_common_args` from `vm_ssh_args`
+      (ssh, sftp and scp alike) and a shared connection's socket of its identity's own (`ansible_control_path`,
+      `vm_control_name`; `just status`'s too), so a VM that reports a sibling's address is refused there, never
+      riding the sibling's open connection; two VMs that report one address are both left out (`guest_addresses`).
+      Deleting a VM keeps its key: under an identity no VM made later has, it can only match that VM again, and
+      refuses any other given it. `~/.ssh/known_hosts` is never edited.
+    - A key kept there by address before 2.6 is copied in under the VM's identity once, before anything connects -
+      in check mode too, whose connections take keys on first use - by `playbooks/tasks/host_keys.yml`, which every
+      publisher and `just deploy --only ssh-config` import: then a comment, `# agent-warehouse carried <identity>`,
+      marks it done, so a key removed by hand is never put back. A VM the run created gets the mark alone. The
+      user's file is only read. That task refuses a VM whose effective `ansible_ssh_common_args` lost the
+      project's options (a host var or `-e` of the same name), destroy's too, and the golden build its build VM.
+      `tests/unit/test_host_keys.py` runs it for real.
+    - The alias block pins what a `Host *` of the user's could loosen: `ForwardAgent`, `CheckHostIP`,
+      `UpdateHostKeys` and `StrictHostKeyChecking accept-new` (stricter only, through `claude_ssh_options`, which
+      may set none of the others). A VM of the inventory's own (`claude_vm_discovery` off), whose address is the
+      inventory's, keeps its key where its connection does, on the user's file.
     - A block is only ever written for a tagged VM and holds only what ssh reads, and its origin: one comment,
       `# origin: <host>` (`claude_ssh_origin`), the host its VM was found on. Pruning removes blocks, never
       VMs, and only this host's: a block recording another host is never pruned, re-pointed or removed by a run
@@ -486,8 +522,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Nothing the VM sends is trusted: a folder or ID not named as Claude Code names them is left out, and
       `claude_sessions_fetch` (delegated here) runs `tar` there over SSH as Ansible reaches the VM and unpacks
       the stream itself - plain files and folders only, at the names asked for, never through a link or outside
-      the folder. Never rsync, which made the VM's links here as links, nor a `file` with `recurse`, whose
-      `follow` chmodded their targets.
+      the folder, and no name that starts with a dot or holds a control character. Never rsync, which made the
+      VM's links here as links, nor a `file` with `recurse`, whose `follow` chmodded their targets.
+    - What one save takes is bounded before it is read: `destroy_sessions_max_size` of files (4G), the stream,
+      the entries, a header's size (`tarfile` reads a pax header or a GNU long name whole into memory, so a
+      `tarinfo` subclass refuses a large one first), and no sparse file. Past a bound the save fails, never an
+      entry quietly left out, and the module's own error is never one of `tarfile`'s, some of which it takes for
+      the archive's end.
     - `destroy_sessions_dir` is absolute or `~`, refused otherwise before any VM starts; the default,
       `.sessions/<vm>-<time>/` in the checkout, is git-ignored and refused by `tests/check_no_local_files.sh`.
       What is saved is edited in nothing, 0700/0600.
@@ -585,10 +626,27 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `tailscale` is chosen (or `on` given, or `vpn: tailscale` or `tailscale_enabled: true` set), hidden, and
       never taken from the command line.
     - `playbooks/init_check.yml` changes nothing but `local.yml`, through `tasks/init_local_setting.yml` and under
-      `init_ask` or a value given; every other task is a read, its one command `hostname -s` over root SSH.
+      `init_ask` or a value given, and the host's trust file (`proxmox_trust_file`, beside its `hosts.yml`), by one
+      `copy` under `init_ask` or `--certificate`'s fingerprint being the certificate's, and, where a certificate
+      verifies but is not kept, a copy of it in `.cache/init/` (refused by `tests/check_no_local_files.sh`) that the
+      rest of that run is checked against, removed before the report; every other task is a read - over root SSH,
+      `hostname -s` and the host's two certificates, each looked at before it is read.
+    - The certificate is worked out at every run before the first request that carries the token, by probes that send
+      none (`lib/claude_vm/trust.py`): what checking uses now first, then the host's certificates read over root SSH.
+      A file kept holds only certificates, the node's without its chain, and comes with `proxmox_validate_certs: true`
+      where `local.yml` sets none, so a copy of the checkout without the file refuses; the file's being there turns
+      checking on too (`proxmox_api_validate`, which every caller reads, never `proxmox_validate_certs` alone, and
+      `test_proxmox_trust.py` holds). One that no longer verifies is replaced only on a `y` that shows both
+      fingerprints or the new one given, never through a run with checking off, and no hint ever says to turn it off
+      (`proxmox_untrusted_hint`). Where root SSH read the host's certificates, nothing verifies and the address is not
+      shown to present one of them - another certificate, or none read, since what answers sees which request
+      carries no token - no task that carries the token runs (`init_token_held`). Every request that carries it is
+      `follow_redirects: none`. The file is git-ignored, refused by `tests/check_no_local_files.sh`, and in
+      `ansible.cfg`'s `inventory_ignore_extensions` as `.pem`.
     - Every test points the four `init_*_file` vars into its own directory, through `_init` and
       `_init_at_a_terminal` in `tests/unit/test_init_settings.py`, which holds that statically, and gives the
-      Proxmox host a local stand-in or a refusing `ssh`, never a real one (`tests/unit/test_init_check.py`).
+      Proxmox host a local stand-in or a refusing `ssh`, never a real one (`tests/unit/test_init_check.py`), and
+      the host's certificates as files of its own (`init_trust_paths`), the step off but where a test gives them.
 - **`just init`'s offer to make the API token is the one change the project makes on Proxmox outside its
   template and VMs, and only on a `y`.** Read [§4.12](docs/architecture/lifecycle.md#412-playbooksinit_settingsyml)
   and [Proxmox access](docs/getting-started/proxmox-access.md#letting-just-init-set-it-up) first.
@@ -748,9 +806,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   the host (`add_host`), and the delete play forces `ansible_connection: local`. GitHub's release only signs gh
   out and revokes no token: revoking the one this project's device flow made ended every GitHub CLI sign-in of
   the account. Tailscale's device is deleted from the controller by the node's `Self.ID`, held to
-  `tailscale_node_id_pattern` before it goes into the API's path. The pre-check honours
-  `proxmox_vm_allow_untagged_delete` but never admits a template, and deletion runs in parallel, which is why
-  `absent.yml`'s `known_hosts` task is `throttle: 1`.
+  `tailscale_node_id_pattern` before it goes into the API's path, and only when its name is the VM's or Tailscale's
+  `-<n>` of it that is not the name another VM joins as - one of the listing's, or the other hosts' aliases'
+  (`tailscale_release_other_vms`), made from its name as `tailscale_hostname` is made from this VM's - and no other VM
+  may join under the VM's own (`tailscale_sibling_labels`). The pre-check honours
+  `proxmox_vm_allow_untagged_delete` but never admits a template, and deletion runs in parallel: `absent.yml`
+  writes nothing here, its VM's host key kept under its identity
+  ([§4.8](docs/architecture/lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)).
 - **`deploy.yml` configures only what provisioning published** (`claude_vm_discovery: false`): discovery without
   `vm_name` means every tagged VM, and provisioning without it the one default VM. `just deploy --only configure`,
   `--check` and `--only ssh-config`, `just status` and `just login` stay fleet-wide without names
@@ -837,6 +899,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
 ## Things that have bitten this repo
 
 - **ansible-core 2.21**: a non-boolean conditional is a fatal error, not a warning.
+- **`$` lets a trailing newline through.** A pattern that holds a value to a shape ends with `\Z` (or is used with
+  `fullmatch`): `'^[a-z]+$'` takes `"web\n"` under Ansible's `match`, `search` and `regex` tests and Python's
+  `re.match` and `re.search`, and a VM supplies some of these values - `--session`'s folder, Tailscale's page, what
+  gh printed. Only a pattern read line by line (`re.M`, `multiline=True`, `(?m)`, lineinfile's `regexp`) ends with
+  `$`. `tests/unit/test_anchors.py` scans every pattern written in a test, in Python, or in a `*_pattern` variable,
+  a `$` last in a closing group included; CONTRIBUTING.md has the rule.
 - **An Ansible tool's stdout is more than its output once verbosity or debugging is on.** With
   `ANSIBLE_VERBOSITY` or `ANSIBLE_DEBUG` exported (or set in `ansible.cfg`), `ansible-vault decrypt --output -`
   prints `Using ... as config file` and more after the vault's text, which `just init` read as the vault's:

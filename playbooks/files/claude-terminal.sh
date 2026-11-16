@@ -6,7 +6,7 @@
 # sign-in here ends with where the claude_code role's path unit watches for the
 # login, and so starts Remote Control, and the line where nothing does; that
 # unit's file; GitHub's line, empty to leave GitHub alone; the git protocol and
-# the scopes for gh; the VM's name; the session notes' helper, their path, the
+# the scopes for gh, empty for gh's own alone; the VM's name; the session notes' helper, their path, the
 # Remote Control unit and the time zone, the helper empty without notes -
 # reached by shift; and --session, empty without one, read first as the last
 # argument.
@@ -71,11 +71,19 @@ if ! claude auth status >/dev/null 2>&1; then
   [ -z "$said" ] || printf '%s\n' "$said"
   refresh=1
 fi
+# gh's device flow over the git protocol, with the scopes asked for on top of gh's own, none by default.
+gh_login() {
+  if [ -n "$2" ]; then
+    gh auth login -h github.com -p "$1" -w -s "$2" --skip-ssh-key
+  else
+    gh auth login -h github.com -p "$1" -w --skip-ssh-key
+  fi
+}
 if [ -n "$5" ] && command -v gh >/dev/null 2>&1 && ! gh auth status --hostname github.com --active >/dev/null 2>&1; then
   printf '%s %s\n' "Signing in to GitHub next, so that git push and gh work here; Ctrl-C skips this." \
     "Your browser opens github.com/login/device; enter the code below there."
   trap ':' INT
-  if gh auth login -h github.com -p "$6" -w -s "$7" --skip-ssh-key </dev/null 2>&1 | while IFS= read -r line; do
+  if gh_login "$6" "$7" </dev/null 2>&1 | while IFS= read -r line; do
       case "$line" in
         *"one-time code: "*)
           read -r _ _ _ _ _ _ code <<<"$line"

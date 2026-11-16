@@ -155,7 +155,7 @@
     # is, an argument no editor quotes for a shell: an absolute path of
     # letters, digits, ".", "_", "-" and "/". Its own, never the folder
     # pattern an editor's URL takes, which allows more.
-    code_helper_path_pattern: '^/[A-Za-z0-9._/-]+$'
+    code_helper_path_pattern: '^/[A-Za-z0-9._/-]+\Z'
     # The editor's window as a plan (lib/claude_vm/editors/, docs/architecture/custom-code.md §7.10): what it
     # refuses, writes in just code's directory on the VM, copies there, opens and says, made by the editor's family
     # from these inputs and held by the core to its rules; tasks/editor_open.yml applies it. A lazy play var, never
@@ -189,7 +189,7 @@
       github_signed_in: >-
         {{ github_projects_auth | default(true) | bool and github_projects_auth_method | default('auto') != 'token' }}
       clone_protocol: "{{ github_projects_clone_protocol | default('https') }}"
-      login_scopes: "{{ github_projects_login_scopes | default(['workflow']) | join(',') }}"
+      login_scopes: "{{ github_projects_login_scopes | default([]) | join(',') }}"
       remote_control_unit: "{{ code_remote_control_unit }}"
       timezone: "{{ code_timezone }}"
     code_plan: "{{ code_editor | editor_open_plan(code_editors, code_open_inputs) }}"
@@ -250,7 +250,7 @@
       {{ [code_tz_env, code_localtime | realpath,
           lookup('ansible.builtin.file', code_timezone_file, errors='ignore') if code_timezone_file is file else '']
          | map('default', '', true) | map('trim') | map('regex_replace', '^:?(?:.*/zoneinfo/)?(?:posix/|right/)?', '')
-         | select('match', '^[A-Za-z0-9_+-]{1,32}(?:/[A-Za-z0-9_+-]{1,32}){0,3}$') | first | default('UTC', true) }}
+         | select('match', '^[A-Za-z0-9_+-]{1,32}(?:/[A-Za-z0-9_+-]{1,32}){0,3}\Z') | first | default('UTC', true) }}
 
     code_here_home: "{{ lookup('ansible.builtin.env', 'HOME') }}"
     # What the window step says of the session handoff, whichever editor opens the window.
@@ -423,7 +423,7 @@
             code_asked: "{{ vm_project | default('', true) | string }}"
           ansible.builtin.assert:
             that:
-              - code_asked is match('^[A-Za-z0-9._-]{1,100}$')
+              - code_asked is match('^[A-Za-z0-9._-]{1,100}\Z')
               - code_asked not in ['.', '..']
             fail_msg: >-
               --project names one project folder on the VM, the way a GitHub repository is named: up to 100
@@ -506,7 +506,25 @@
             # The VM's own Python, as every add_host that publishes a VM gives it: the VM user's ssh sessions
             # have ~/.local/bin first on PATH, where interpreter discovery would take a uv-installed one.
             ansible_python_interpreter: "{{ claude_vm_python }}"
+            # Its host key held in the project's own known_hosts file, under its identity from Proxmox, never
+            # the address it reports; no agent forwarded (vm_ssh_args).
+            # Common args, for sftp and scp too, the configured ones after them, and a shared-connection socket
+            # of its identity's own (discover.yml says why).
+            claude_vm_host_key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
+            ansible_ssh_common_args: >-
+              {{ claude_vm_addressed[0].key_alias | default('')
+                 | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                 plugin_type='connection', plugin_name='ssh')) }}
+            ansible_control_path: >-
+              %(directory)s/{{ claude_vm_addressed[0].key_alias | default('') | vm_control_name(code_reach) }}-%%r-%%p
           changed_when: false
+
+        # Before anything connects: a key kept before 2.6 by address.
+        - name: Carry the VM's host key over to its identity
+          ansible.builtin.import_tasks: tasks/host_keys.yml
+          vars:
+            claude_host_keys_vms: "{{ [claude_vm_addressed[0] | combine({'address': code_reach})] }}"
 
         # Where the code lives, read on the VM as configure reads it: the VM
         # user's home, so nothing is guessed from this machine. Not needed when
@@ -624,6 +642,7 @@
               - name: "{{ claude_vm_addressed[0].name }}"
                 address: "{{ claude_vm_addressed[0].address }}"
                 user: "{{ vm_user }}"
+                key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
                 workspace: "{{ code_root }}"
                 editor_flag: "{{ code_editor_flag }}"
             claude_vm_names_chosen: "{{ claude_vm_names }}"
@@ -665,7 +684,7 @@
             code_names: >-
               {{ code_listing.files | default([]) | map(attribute='path') | map('basename') | map('plain_text') | sort | list }}
             code_close: >-
-              {{ code_names | select('match', '(?i)^' ~ (code_project | regex_escape) ~ '$') | list }}
+              {{ code_names | select('match', '(?i)^' ~ (code_project | regex_escape) ~ '\Z') | list }}
             # find lists a path that does not exist under skipped_paths.
             code_root_there: >-
               {{ code_listing is not skipped

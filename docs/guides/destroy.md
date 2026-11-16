@@ -42,7 +42,11 @@ They go into `.sessions/<vm>-<YYYYMMDD-HHMMSS>/` in this checkout (`destroy_sess
 path or one starting with `~` when you set it), which git ignores, laid out as the VM's
 `~/.claude/projects/` and changed in nothing, readable by you alone. What arrives is what the VM sends,
 so nothing of it is trusted: only plain files and folders are written, under the names Claude Code gives
-its own, never a link or anything outside that folder, and the run counts what it left out. The run's
+its own - none that starts with a dot, and no `HEAD`, which would make a folder a repository to git - never a
+link or anything outside that folder, and the run counts what it left out, naming the first 50. One VM's save
+holds at most `destroy_sessions_max_size` (4G by default; `500M`, or `4096B` in bytes - an empty value or 0 is
+refused, never taken for the default): a VM that sends more, sends nothing for five minutes, or takes more than an
+hour, fails its save, and is kept, neither released nor deleted, with what arrived before in its folder. The run's
 line for the VM says how many it saved and where, and the `sessions.json` there names the Proxmox host
 the VM was on, and each session with
 its directory, branch, last write and the Claude Code version that wrote it - resuming it needs one at

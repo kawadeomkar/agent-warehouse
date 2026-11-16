@@ -368,7 +368,11 @@ pytest over `tests/unit/`, file by file:
   check mode, and what of a VM's sessions destroy saves - every one with `all`, just code's copies told
   apart by the manifest, the memory folders, names the VM made up left out, the command that continues
   each, its path quoted - and how: archives with absolute paths, `..`, links, hard links, devices and
-  names not asked for unpacked into nothing outside the folder, an archive cut short, GNU tar's exit 2
+  names not asked for unpacked into nothing outside the folder, a name Claude Code never writes (a dot, a
+  `HEAD`, a control character, too deep or too long) left out and said by its start, a path too long for
+  this machine left out rather than the save failed, the bounds - the cap in bytes, every entry, a header of
+  exactly the bound and one past it, a global header, a sparse file, no entry kept once written, a VM gone
+  silent - an archive cut short, GNU tar's exit 2
   for a name it cannot find said as that name, a failing or a stand-in `ssh` given the port, key and
   arguments. In `test_code_session.py`, the window step's session tasks between two real checkouts,
   the VM's with a GitHub origin: the copies and their edits, a second run changing nothing, the sync
@@ -506,15 +510,33 @@ pytest over `tests/unit/`, file by file:
   (`_pve_vm`), a run's `group_vars` pointed at it (`_pve_vars`), its request log (`_pve_requests`) and the
   fleet `just status`'s tests read (`fake_fleet`) live in `tests/unit/harness.py`, shared by every module that
   runs against the fake; each file keeps its own `fake_pve` fixture.
+- **The Proxmox API's certificate** (`test_proxmox_trust.py`, and the certificate's step in `test_init_check.py`):
+  `lib/claude_vm/trust.py` against made-up PKIs served on loopback, Python's strict checking forced on and off
+  whatever this Python's own: the certificate that makes the API verify picked from this machine's store, the
+  host's CA and its node's own certificate, a CA without key usage refused where checking is strict, a key or a
+  block that is no certificate never kept, and what the address presents told from the host's own. The step at
+  a terminal and as given: the file kept and checking turned on, in another host's own folder for that host; a
+  changed certificate never trusted unasked, and its address sent no token. The HTTP client the modules use
+  verifying against the file kept, every API request that carries the token following no redirect, and `just
+  status` saying a certificate that changed, or a host whose certificate nothing checks.
 - **The managed SSH config** (`test_ssh_config.py`): `tasks/ssh_config.yml` for real against a
   temporary home, resolved with `ssh -G` - the refusal of a name or address that is not one plain word,
   the guard that every scenario and the Vagrantfile keep the managed file out of `~/.ssh`, that no
   playbook sets the task file's inputs as facts, and that the user's own Include and file mode are left
   alone, a group the user is not in included (macOS).
+- **Patterns and units**: `test_anchors.py` (every pattern that holds a value to a shape - in a `match`, `search` or
+  `regex` test, in Python, or in a `*_pattern` variable - ends at `\Z`, never a `$` a trailing newline gets past, a `$`
+  last in a closing group included; and the values a VM or a setting supplies refuse one), `test_remote_control_unit.py`
+  (Remote Control's two units, rendered by Ansible's template module beside the ones 2.5 shipped, kept verbatim in
+  `tests/unit/units/`, byte for byte alike for a VM's values, since a unit that changed is restarted; a value systemd
+  would split or expand quoted as systemd reads it).
 - **Smaller ones**: `test_configure_tags.py` (`--tags claude_code` still runs discovery and the alias
   play), `test_deploy_report.py` (deploy's opening message, rendered by its own tasks, naming only the
   sign-ins that open a page and the VMs as a list), `test_proxmox_vm_absent.py` (deleting a VM
-  forgets its host key under its address and `<name>.<domain>`), `test_var_names.py` (no task var
+  touches no known_hosts file), `test_host_keys.py` (every connection to a VM holds its key under its identity, on a
+  shared connection of its identity's own; a key kept by address before 2.6 is copied in once per identity, never
+  for a VM the run created and never put back once removed by hand, in check mode too; a VM whose options were
+  outranked is refused; the user's file only read), `test_var_names.py` (no task var
   named like a register or fact, in any playbook or role), `test_cloud_init_wait.py` (a first boot
   that failed is said with what failed and how to build the VM again), `test_gathered_facts.py` (no
   tracked file reads a fact by its top-level name, and every `ansible.cfg` a run reads, the tests' own
@@ -786,6 +808,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 | `fake_tailscale_api.py` | Tailscale's API | the OAuth client exchange, and a device looked up and deleted by node ID, each device with the name it was started with; 403 and 404 on cue, and `/fake/deleted` lists what went |
 | `fake_gh.sh` | `gh` | the auth commands only, installed ahead of the real one on PATH; one login per user, in a file under HOME, with every call logged; a login whose check never reached GitHub, and one GitHub refused, as gh 2.103.0 reports them; `fake-page` in its state directory makes the device flow name a page that is not GitHub's, and `fake-quit` end unapproved right after naming it |
 | `fake_tailscale.sh` | `tailscale` | output that is Tailscale's own, as the research and a Headscale run recorded it, for the commands the role runs, against a node whose state is files under HOME: `status --json` and `debug prefs` shaped as a Running and a signed-out node really print, a join with a canned key on stdin, a refused or slow key, the web login's page and an approval that lands after `up` has exited (by the clock, `approve-after`, or at the Nth status read after the page, `approve-at-read`, which no loaded machine can outrun; `up-waits` shortens `up`'s own wait), `NeedsMachineAuth`, a taken name, `NoState` reads after a start, logout resetting the prefs, a node ID (`node-id`), and with `real-daemon` an answer only while the real daemon's socket exists; a key is never written, and `calls.log` shows `KEY` in its place |
+| `fake_downloads.py` | Claude Code's and Ubuntu's download servers | static files under a directory, every request logged: a release laid out as Anthropic lays one out (the channels, a manifest and its detached signature, the binaries) and an image beside its checksum list and Ubuntu's signature of it, each signed by a key `tests/unit/signing.py` made, never a vendor's |
 | `fake_anthropic_api.py` | the Anthropic Messages API | for the real `claude` in the `configure` scenario: one short answer to every request, streamed or not, on 127.0.0.1 only, with each request's body logged, so a test reads the system prompt and the history a resume sent |
 | `fake_claude.sh` | `claude` | `auth status` and `auth login` as probed against Claude Code: the page, the `Paste code here if prompted >` prompt, then `Login successful.`, `Login failed: ...` or `Invalid code` for the line read from stdin, writing `~/.claude/.credentials.json` on success; given `BROWSER`, it hands it the page that redirects to its own callback on `127.0.0.1` and takes a code from there as from stdin; `auth logout`; `fake-refusal`, `fake-no-page`, `fake-gone` and `fake-foreign-page` in its state directory make it refuse in other words, print an error in place of the page, exit before reading a code, or hand its browser a page that is not Claude's |
 

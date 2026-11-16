@@ -27,6 +27,7 @@ from pathlib import Path
 
 from .. import vault, wiring
 from ..hosts.kinds import KINDS
+from ..vpn.tailscale import tailscale_label
 from . import model
 
 REPO = Path(__file__).resolve().parents[3]
@@ -44,8 +45,10 @@ ROLES = ("proxmox_vm", "proxmox_template", "claude_code", "github_projects", "ta
 API = {
     "url": "{{ proxmox_api_url }}",
     "headers": "{{ proxmox_api_headers }}",
-    "validate": "{{ proxmox_validate_certs | bool }}",
+    "validate": "{{ proxmox_api_validate | bool }}",
     "ca_path": "{{ proxmox_api_ca_path | default('', true) }}",
+    # The file it is checked against, just init's, said when the certificate no longer verifies.
+    "trust_file": "{{ proxmox_trust_file if proxmox_trust_kept | bool else '' }}",
     "timeout": "{{ status_api_timeout }}",
 }
 # The run's settings: what the fleet is read with, and the report's own settings, but for the names and sections, which
@@ -83,7 +86,12 @@ FLEET = {
         "tailscale_off": "{{ (tailscale_off_setting.name ~ ' is ' ~ tailscale_off_setting.value)"
         " if tailscale_off_setting is defined else 'vpn is none' }}",
         "vm_user": "{{ vm_user }}",
+        # Where the VMs' host keys are kept, each under its VM's identity: what a refusal of a key tells you to edit.
+        "known_hosts": "{{ claude_ssh_known_hosts_file }}",
         "discovery": "{{ claude_vm_discovery | bool }}",
+        # Whether every request to the API checks its certificate: while it does not, the token goes to whatever
+        # answers at the host's address, and the report says so, with what sets it up.
+        "api_checked": "{{ proxmox_api_validate | bool }}",
         # The editor just code opens, by its key and its name, for the line under ACCESS.
         "editor": "{{ claude_editor_key }}",
         "editor_name": "{{ ((claude_editors | default({}))[claude_editor_key] | default({})).name"
@@ -130,6 +138,7 @@ VM = {
         "token_set": "{{ github_projects_token_set | bool }}",
         "configure_command": "{{ github_projects_configure_command }}",
         "login_command": "{{ github_projects_login_command }}",
+        "workflow_asked": "{{ 'workflow' in github_projects_login_scopes }}",
     },
     "tailscale": {
         "wanted": "{{ tailscale_wanted | bool }}",
@@ -203,6 +212,8 @@ REACH = {
     "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file status_private_key", "private_key_file"),
     "python": "{{ claude_vm_python }}",
     "ssh_args": "{{ status_ssh_args }} " + _SSH_MORE,
+    # Where the VMs' host keys are kept, each under its VM's identity (vm_ssh_args, which the engine adds per VM).
+    "known_hosts": "{{ claude_ssh_known_hosts_file }}",
     "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
     "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
     "become": "{{ ansible_become | default(true) | bool }}",
@@ -397,7 +408,8 @@ class Ansible:
 def _inventory_files(source: Path):
     """An inventory source and what Ansible reads beside it."""
     folder = source if source.is_dir() else source.parent
-    yield from [source] if source.is_file() else folder.glob("*")
+    # A hosts file's folder holds the certificate just init keeps (proxmox_trust_file), which turns checking on.
+    yield from [source, folder / "proxmox-trust.pem"] if source.is_file() else folder.glob("*")
     yield from (folder / "group_vars").rglob("*")
     yield from (folder / "host_vars").rglob("*")
 
@@ -634,8 +646,7 @@ def load(opts, say=None) -> dict:
 
 def dns_label(name: str) -> str:
     """A VM's name made one DNS label, as tailscale_hostname makes it."""
-    label = re.sub(r"[^a-z0-9-]+", "-", name.lower())
-    return re.sub(r"-+$", "", re.sub(r"^-+|-+$", "", label)[:63])
+    return tailscale_label(name)
 
 
 def _named(value, name: str, label: str):

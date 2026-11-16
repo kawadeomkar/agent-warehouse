@@ -17,6 +17,7 @@ hosts/
     hosts.yml                      its address: the one host of the proxmox group, named nuc
     group_vars/all/local.yml       its own settings, which outrank the shared ones for a run against it
     group_vars/all/vault.yml       its token, as vault_host_proxmox_api_token_secret, encrypted with .vault_pass
+    proxmox-trust.pem              the certificate its API is checked against, which just init --host keeps
 ```
 
 `hosts/` is git-ignored. A host's name is lowercase letters, digits and `-`, at most 31, and none of `current`,

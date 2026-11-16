@@ -93,6 +93,7 @@ GITHUB_SIGNING_IN = (
 )
 GITHUB_STATUS = "gh auth status --hostname github.com --active"
 GITHUB_LOGIN = "gh auth login -h github.com -p https -w -s workflow --skip-ssh-key"
+GITHUB_LOGIN_OWN = "gh auth login -h github.com -p https -w --skip-ssh-key"
 GITHUB_PAGE = "browser https://github.com/login/device"
 GITHUB_FAILED = "Not signed in to GitHub. From your machine: just login alpha --only github"
 GITHUB_CODE = "FAKE-C0DE"
@@ -211,6 +212,7 @@ def _terminal(
     continue_sleep=None,
     session="",
     resume_rc=None,
+    scopes="workflow",
 ) -> tuple[list[str], dict]:
     """The script's command line and environment, with the stand-ins in place."""
     bin_dir = tmp_path / "bin"
@@ -243,7 +245,7 @@ def _terminal(
         "RESUME_RC": "" if resume_rc is None else str(resume_rc),
     }
     # Then the session notes' four, off here, and --session, last as the task passes them.
-    return [*argv, "https", "workflow", "alpha", "", "", "claude-remote-control", "UTC", session], env
+    return [*argv, "https", scopes, "alpha", "", "", "claude-remote-control", "UTC", session], env
 
 
 def _asked(tmp_path: Path) -> list[str]:
@@ -420,6 +422,13 @@ TERMINAL_CASES = [
         SIGNED_OUT_OF_GITHUB,
         GITHUB_FLOW + "Logged in as octo\n" + GITHUB_SIGNED_IN + "\n",
         id="a-vm-signed-out-of-github-signs-in-there-and-makes-gh-git-s-helper",
+    ),
+    # No scope asked for on top of gh's own, as by default: no -s at all, never an empty one.
+    pytest.param(
+        {"status_rc": 0, "gh_status_rc": 1, "scopes": ""},
+        [GITHUB_LOGIN_OWN if call == GITHUB_LOGIN else call for call in SIGNED_OUT_OF_GITHUB],
+        GITHUB_FLOW + "Logged in as octo\n" + GITHUB_SIGNED_IN + "\n",
+        id="with-no-scopes-set-gh-asks-for-its-own-alone",
     ),
     pytest.param(
         {"status_rc": 0, "gh_status_rc": 1, "gh_login_rc": 1},
@@ -1409,8 +1418,8 @@ def test_zed_s_claude_task_is_fixed_text_in_just_code_s_own_directory():
     assert "ZED_" not in json.dumps(ZED_TASK)
     # The helper's path reaches Zed only held to a pattern of its own, never the folder's, which takes more: the
     # one code.yml decides the task's writing by, and the core's.
-    assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+$"
-    assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}$"
+    assert _play()["vars"]["code_helper_path_pattern"] == "^/[A-Za-z0-9._/-]+\\Z"
+    assert _play()["vars"]["code_helper_path_pattern"] == f"^{editors_common.HELPER_PATH.pattern}\\Z"
 
 
 # The Zed window with its writes, on a "VM" that is a directory of the test's own, reached locally: what it writes
@@ -1856,7 +1865,7 @@ def test_the_terminal_is_handed_the_lines_for_this_vm(windows):
     )
     assert watch == "/etc/systemd/system/claude-remote-control.path"
     assert github.endswith("run on your machine: just deploy alpha --tags github_projects")
-    assert (protocol, scopes, vm) == ("https", "workflow", "alpha")
+    assert (protocol, scopes, vm) == ("https", "", "alpha")
     assert "signing in to Claude and to GitHub first if alpha has not been" in run["opened"]
 
 
@@ -1961,10 +1970,18 @@ EDITOR_WRITES = {
     "{{ code_ws_dir }}/{{ code_plan_file.path }}",
 }
 # The task files code.yml imports that other playbooks import too, each held to its own tests: the
-# Proxmox API reads, the alias (test_ssh_config.py) and the refusal of a VM named after an inventory
-# host (test_vm_names.py). Every other import is code.yml's own, and its tasks are held to everything
+# Proxmox API reads, the alias (test_ssh_config.py), the refusal of a VM named after an inventory
+# host (test_vm_names.py) and the host key's carry-over (test_host_keys.py). Every other import is
+# code.yml's own, and its tasks are held to everything
 # here as code.yml's are.
-SHARED = {"tasks/cluster_vms.yml", "tasks/vm_addresses.yml", "tasks/ssh_config.yml", "tasks/vm_names.yml"}
+SHARED = {
+    "tasks/cluster_vms.yml",
+    "tasks/vm_addresses.yml",
+    "tasks/ssh_config.yml",
+    "tasks/vm_names.yml",
+    # The VM's host key carried over to its identity: test_host_keys.py.
+    "tasks/host_keys.yml",
+}
 
 
 def _tasks(items, imports_from=None):
@@ -2248,7 +2265,7 @@ def test_the_session_s_checkout_folder_is_held_to_what_project_takes():
     project = next(
         t for t in _tasks(_the_window(_play())["block"]) if t["name"] == "Refuse a project that is not one folder name"
     )
-    pattern = "'^[A-Za-z0-9._-]{1,100}$'"
+    pattern = "'^[A-Za-z0-9._-]{1,100}\\Z'"
     assert any(pattern in str(that) for that in check["ansible.builtin.assert"]["that"])
     assert any(pattern in str(that) for that in project["ansible.builtin.assert"]["that"])
 

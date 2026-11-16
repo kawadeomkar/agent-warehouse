@@ -9,7 +9,7 @@ with; this is the mechanism.
 Authentication is API tokens only, never a password: a dedicated `ansible@pve` token rather than `root@pam`,
 holding only the VM privileges the `proxmox_vm` role uses ([Proxmox access](../getting-started/proxmox-access.md)).
 What the token reaches, what a shared host means and what to do about it, and the certificate it is sent to
-unchecked by default are trade-offs
+unchecked until `just init` sets checking up are trade-offs
 [SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities),
 with what to do in [Sharing the host](../getting-started/proxmox-access.md#sharing-the-host) and
 [Trusting the Proxmox certificate](../getting-started/proxmox-access.md#trusting-the-proxmox-certificate).
@@ -19,6 +19,18 @@ the role, to which it appends a privilege it lacks (never taking one away) - for
 to, as one person's `y` reaches all who share it ([Sharing the host](../getting-started/proxmox-access.md#sharing-the-host)) - and
 the token's secret goes from the script's stdout into the encrypted vault under `no_log` - never on the screen or
 a command line. A vault it cannot write deletes the token again, since its secret, shown once, would be lost.
+
+Before the token is sent anywhere, `just init` asks the API, with no token, whether its certificate verifies as
+checking stands; where it does not, it works out what makes it verify and keeps it: the host's CA or its node's own
+certificate, read over root SSH - the one channel to the host already trusted - in the trust file beside `hosts.yml`
+with `proxmox_validate_certs: true`, or that setting alone where this machine's trust store verifies it, as both
+`uri`'s and the modules' clients have it. Where nothing verifies, what the address presents is compared with the
+host's certificates: anything but the host's own holds the token. Every request to the API then checks it
+(`proxmox_api_validate`, with `proxmox_api_ca_path` - the modules' `module_defaults`, each `uri`, and `just status`)
+and follows no redirect; a certificate that changed fails the run with what to do, and nothing retries without
+checking. The file holds only certificates (`pem_certificates`, the node's without its chain), is git-ignored and
+refused by `tests/check_no_local_files.sh`, and is written at a terminal or for `--certificate`'s fingerprint,
+over one there only on a yes, or the new fingerprint given, once it no longer verifies.
 
 ## Tailscale
 
@@ -121,9 +133,13 @@ environments pre-commit builds for them are not. It installs each Python hook's 
 (`ruamel.yaml` for pre-commit-hooks, and the setuptools that builds it) unpinned and unhashed, outside
 `uv.lock`, and, on a machine with no Go, downloads a Go toolchain for gitleaks with no checksum - once, when
 the git hook or `just lint` first needs them, on the machine that holds the vault. apt signing
-keys are vendored in-repo. The uv release is pinned by version *and* per-architecture SHA-256, stored
+keys are vendored in-repo, and each file is held to its vendor's published fingerprints, computed from its own
+packets (`tests/unit/test_pins.py`), so a key changed or added fails the tests. The uv release is pinned by version *and* per-architecture SHA-256, stored
 separately from the download, and is never older than the uv the controller's lock pins, which Dependabot
-moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. The
+moves (`tests/unit/test_pins.py`): a pin nothing moved kept every VM on a uv with published advisories. Claude
+Code's native install and the Ubuntu cloud image are each held to their vendor's signature, checked on this machine
+with a vendored key before the target is handed a digest
+([§7.15](custom-code.md#715-libclaude_vmopenpgppy--a-vendors-signature-checked-here)). The
 Molecule base image is pinned by digest, with an unpinned weekly canary. What verifies each download a VM gets is listed in
 [What the VM trusts](../guides/what-the-vm-trusts.md).
 
@@ -208,9 +224,12 @@ there: `tools/molecule-lanes` writes each one's whole output, without colour, to
 
 ## On the controller
 
-The project writes exactly three things outside the repository, and has VS Code's own CLI write a fourth and
-Claude Code's own CLI a fifth:
-`~/.ssh/known_hosts` and the managed SSH config, plus one `Include` line at the top of
+The project writes exactly four things outside the repository, and has VS Code's own CLI write a fifth and
+Claude Code's own CLI a sixth:
+the SSH host keys - the Proxmox host's in `~/.ssh/known_hosts`, and every VM's in a file of the project's own,
+`~/.ssh/agent-warehouse.known_hosts`, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`) rather than the
+address it reports, so a VM can neither have this machine forget another host's key nor send a run to a sibling -
+and the managed SSH config, plus one `Include` line at the top of
 `~/.ssh/config` ([§4.8](lifecycle.md#48-playbooksssh_configyml-and-playbookstasksssh_configyml)); and the
 checkout's own folder (`tools/env-run --data`), where `just install` puts the Galaxy collections and, when you
 bring no virtualenv, the Python environment ([§13](toolchain.md)) - and, only where you point
@@ -227,7 +246,8 @@ the tools keep for themselves:
 
 | Where | What | Written by | When | Taken out by |
 |---|---|---|---|---|
-| `~/.ssh/known_hosts` | each VM's SSH host key, and the Proxmox host's | ssh, on first contact (`StrictHostKeyChecking=accept-new`) | every run that reaches a VM or the Proxmox host | `just destroy`: the VM's lines, never the Proxmox host's |
+| `~/.ssh/known_hosts` | the Proxmox host's SSH host key - never a VM's | ssh, on the first root SSH to the host (`StrictHostKeyChecking=accept-new`) | `just init`'s checks, and a template build | nothing: it is yours |
+| `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`) | each VM's SSH host key, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`), never its address | ssh, on first contact with a VM (`StrictHostKeyChecking=accept-new`, with the file and the identity every connection names); a VM's key kept by address in `~/.ssh/known_hosts` before 2.6, copied in once, and a comment line marking each VM's copy made (`playbooks/tasks/host_keys.yml`) | every run that reaches a VM | nothing: a deleted VM's key stays under its identity, which no VM made later has, so that any VM given it again is refused, never taken on first use. `ssh-keygen -R <identity> -f ~/.ssh/agent-warehouse.known_hosts` takes one out |
 | `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`) | one `Host` block per VM, so `ssh <vm>` reaches it, recording the host the VM is on | `just deploy`, `just code` (`playbooks/tasks/ssh_config.yml`) | `claude_ssh_config` on (the default) | `just deploy --only ssh-config` prunes a VM that is gone from its host; `just destroy` the VM's |
 | one `Include` line at the top of `~/.ssh/config` (`claude_ssh_user_config`) | makes ssh read the file above | the same, once | `claude_ssh_config_include` on, while ssh does not reach the file yet | nothing: it is yours to remove |
 | `~/.local/share/agent-warehouse/checkouts/<folder>-<checksum>` (under `$XDG_DATA_HOME` when set) | this checkout's Galaxy collections, and its Python environment when you bring no virtualenv | `just install` | always | `just clean env` |
@@ -349,6 +369,26 @@ and calls its commands. What that changes:
   `~/.claude.json`, the fifth row of [On the controller](#on-the-controller); the server itself writes nothing.
 
 ## In the editor
+
+Opening a VM in an editor trusts the VM with this machine, and nothing in this project can change that. VS
+Code's Remote - SSH runs a server on the VM that the window here obeys: the extension's own Security Note says
+"A compromised remote could use the VS Code Remote connection to execute code on your local machine"
+([Remote - SSH](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-ssh)), the VS Code team counts that server inside the client's trust boundary
+([vscode-remote-release#6608](https://github.com/microsoft/vscode-remote-release/issues/6608), open since 2022), and published research (Calif, August 2025) has an
+extension on the server open a terminal on the client (`workbench.action.terminal.newLocal`) and type into it,
+in default settings. Workspace Trust is about a folder's content, not the host, and a profile or a user-data
+directory of its own is still the same user. The VM's root - an agent with passwordless sudo - can replace VS
+Code Server, in the VM user's home, and Zed's remote server, in `~/.zed_server`; Zed documents nothing of what
+that server can make the client do. Two details follow: the workspace file `just code` writes is on the VM,
+0644 in the VM user's directory, where its root can rewrite the tasks it runs there; and in the window's
+terminals `BROWSER` is VS Code's helper, which has this machine open any http or https page the VM names,
+behind VS Code's trusted-domains prompt alone - no pattern of this project's checks it. What the project keeps
+apart from the VM - escape sequences stripped, addresses validated, a sign-in page opened only when it is the
+service's own - is beside this one channel. The guides say it where the choice is made
+([What a window on a VM trusts](../guides/vscode.md#what-a-window-on-a-vm-trusts)), and a browser-based editor,
+which would be the boundary this lacks, is
+[§15.4](decisions.md#154-more-than-one-editor-and-hypervisor-one-of-each-at-a-time)'s answer if the trade-off
+is ever judged too much.
 
 In VS Code, `just code`'s workspace file starts a terminal running `claude` when the window
 opens, which is exactly the kind of code-on-open VS Code guards with Workspace Trust and the

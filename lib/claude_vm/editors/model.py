@@ -109,7 +109,7 @@ class OpenInputs(Checked):
     remote_control: bool = True
     github_signed_in: bool = True
     clone_protocol: str = "https"
-    login_scopes: str = "workflow"
+    login_scopes: str = ""
     remote_control_unit: str = "claude-remote-control"
     timezone: str = "UTC"
 

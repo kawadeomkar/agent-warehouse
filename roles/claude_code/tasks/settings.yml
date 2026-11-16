@@ -1,13 +1,20 @@
 ---
+# The update channel a native install follows, stable or latest, is this
+# setting's (autoUpdatesChannel): the role installs the exact release it
+# verified, never the channel's name, so the channel is written here instead.
+# A pinned version sets none.
 - name: settings | Build managed settings
   ansible.builtin.set_fact:
     claude_code_managed_settings: >-
       {{ claude_code_settings
          | combine({'env': {'ANTHROPIC_API_KEY': claude_code_anthropic_api_key}} if claude_code_anthropic_api_key else {},
-                   recursive=True) }}
+                   recursive=True)
+         | combine({'autoUpdatesChannel': claude_code_version}
+                   if claude_code_install_method == 'native' and claude_code_version in ['stable', 'latest'] else {}) }}
   no_log: true
 
-# Read even when there is nothing to manage, which is the default. A key an
+# Read even when there is nothing to manage (no settings, no key, a pinned
+# version or npm: a native install on a channel writes the channel). A key an
 # earlier run wrote has to come out again once claude_code_anthropic_api_key
 # is cleared: left in the env block it still outranks the claude.ai login, so
 # Remote Control could never start, and the key stays on a VM its owner

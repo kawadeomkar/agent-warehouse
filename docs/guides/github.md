@@ -28,10 +28,12 @@ on the VM, one of two ways:
   `gh` in on the VM where gh is signed out or signed in by this project, so one `just deploy` ends with
   everything cloned and a VM that pushes. A login you made on the VM yourself stays, and the token only
   lists there; each run says so, and `github_auth_method: token` puts the token over it. As a classic
-  token it needs `repo`, `workflow` and `read:org` (with `repo` alone it only lists, and the run says which
-  scopes to add); as a fine-grained one, Metadata (read), Contents,
-  Pull requests and Workflows (read and write) on all repositories - a token limited to selected
-  repositories lists and clones only those. The same token serves every VM.
+  token it needs `repo` and `read:org` (with `repo` alone it only lists, and the run says which
+  scopes to add); as a fine-grained one, Metadata (read), Contents and
+  Pull requests (read and write) on all repositories - a token limited to selected
+  repositories lists and clones only those. Add `workflow` (classic) or Workflows (fine-grained) only if the
+  agent should change `.github/workflows/`, which is the road to a repository's Actions secrets. The same
+  token serves every VM.
 - **Without one**, `just deploy` signs the VM in itself, with no question first (`github_login_auto_start`;
   `just login alpha --only github` does the same for a VM that exists). It runs GitHub's device flow for
   you, as far as GitHub allows: gh
@@ -70,7 +72,10 @@ which on a VM already signed in runs the clone straight away.
 `github_auth_method` picks between the two: `auto` (the default) is the token when there is one and the
 device flow otherwise, `web` is the device flow always, with a token used for the listing only, and
 `token` is the token only, where an empty vault fails by name instead of falling back. `github_login_scopes`
-is what the device flow asks for on top of gh's own, `workflow` by default.
+is what the device flow asks for on top of gh's own, nothing by default: `[workflow]` lets the VM's agent
+push a change to `.github/workflows/`, which runs with the repository's Actions secrets, and without it GitHub
+refuses such a push and names the scope. A login made before 2.6 keeps the `workflow` scope it was given,
+and no run or `just status` says so: `gh auth refresh -h github.com -r workflow` on each such VM drops it.
 
 ### Pushing from the VM
 
@@ -86,6 +91,27 @@ as signed out on every run. `github_auth: false` in `local.yml` leaves `gh` and 
 token then only lists. A private repository is cloned over HTTPS only where git can ask gh for it - gh
 signed in and made git's credential helper, by this role or by you (`gh auth setup-git`) - and is
 otherwise skipped and named rather than failed; over SSH your key clones it either way.
+
+## A narrower GitHub login
+
+Whatever signs gh in on a VM, the agent there has: it can read and push to every repository that login
+reaches, on every VM it is on. Ways to narrow it, from the least change:
+
+- **No extra scopes for the device flow**, the default since 2.6 (`github_login_scopes: []`): gh's own `repo`,
+  `read:org` and `gist`, which reach every repository of the account and do not expire, but cannot change
+  `.github/workflows/`, where a repository's Actions secrets are within reach.
+- **A fine-grained token in the vault**, limited to the repositories the VMs need and given an expiry:
+  `vault_github_token` (`just vault`), with Metadata (read) and Contents and Pull requests (read and write) on
+  those repositories, and `github_auth_method: token`, so that it is the one login and a device flow never
+  adds another. It lists and clones only those repositories, and stops working on the date you chose. It is
+  still one token on every VM: a token of each VM's own is not built.
+- **No login at all**, where the VMs should push nothing: `github_auth: false` - one setting for every VM a
+  run reaches, not a choice of one VM's - and no token in the vault. Public repositories are still cloned; gh
+  on the VM is left as it is.
+
+A device-flow login a VM already holds keeps its scopes until you sign it out or refresh it, as above;
+`just destroy` signs it out, and revoking it is under GitHub's Authorized OAuth Apps, which ends every GitHub
+CLI sign-in of the account.
 
 ## Commit identity
 

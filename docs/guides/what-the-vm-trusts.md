@@ -22,24 +22,44 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   restarts or the VM does. The password is one for every VM, and the playbooks hand it to any VM whose sudo
   asks for it: root on one VM can make its sudo ask, and then holds the sudo password of every other tighter
   box. Make it one you use nowhere else.
+- A window on a VM - `just code`, and the end of `just deploy` - trusts that VM with this machine: VS Code's
+  and Zed's servers run on the VM, where its root can replace them, and Microsoft says a compromised remote
+  can run code on your machine through Remote - SSH. Open a window only on a VM you would let do that, and
+  keep the agent at arm's length with Remote Control or plain `ssh`
+  ([What a window on a VM trusts](vscode.md#what-a-window-on-a-vm-trusts)).
+- Remote Control's sessions start in the projects directory with Claude Code's question whether to trust it
+  already answered yes, since a server has no one to ask: Claude Code asks it of no repository cloned there,
+  and a repository's own `.claude/settings.json` hooks and `.mcp.json` servers apply to a session opened in it
+  as they would after a yes. The permission mode is still `default`, so the session asks before a tool runs that
+  no rule allows - but a repository's own `.claude/settings.json` is among those rules: its allow rules let the
+  tools they name run unasked, and its hooks run without a question at all. A repository whose name starts with a
+  dot is never cloned.
 - A VM with a [list of repositories of its own](vms.md#repositories) holds the same GitHub login as any other: the list
   narrows what is cloned onto it, not what `gh` there can reach.
 - A device-flow login keeps nothing in the vault shared by every VM, but the token it leaves on the VM
-  does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus `workflow`, broader than a
+  does not expire and carries gh's scopes (`repo`, `read:org`, `gist`) plus any `github_login_scopes` adds -
+  none by default; `workflow` would let the agent rewrite a repository's Actions workflows - broader than a
   fine-grained token limited to chosen repositories with an expiry. It is revoked under GitHub's
   Authorized OAuth Apps, which ends every GitHub CLI sign-in of the account, so `just destroy` leaves
-  that to you ([Tearing down](destroy.md)).
+  that to you ([Tearing down](destroy.md)). [A narrower GitHub login](github.md#a-narrower-github-login) puts the
+  ways to bound it in one place.
 - The device-flow code is the VM's to choose: its root decides what `gh` prints there. The page the run opens
   is always GitHub's own, `https://github.com/login/device`, but a code could be one for an OAuth app of the
   VM's choosing, with scopes of its own: before authorising, check that GitHub's page names GitHub CLI. When
   the run says gh on the VM named another page, not GitHub's own, the VM may not be the one you made:
   authorise nothing for it unless you know it is yours.
-- Downloads are verified, though not yet everywhere the vendor makes it possible: the uv release by a
-  pinned SHA256 and apt repositories by vendored signing keys, but the Ubuntu cloud image only against the
-  `SHA256SUMS` from the same server, whose signature (`SHA256SUMS.gpg`) is not checked. The Claude Code
-  installer script is fetched over TLS from `claude.ai` and checks the binary against a release manifest from
-  the same place; Anthropic signs that manifest (from 2.1.89) and publishes a signed apt repository, but this
-  project verifies neither yet, so whoever can serve those addresses can serve the VMs another Claude Code.
+- Downloads are verified: the uv release by a pinned SHA256; apt repositories by vendored signing keys; the
+  Ubuntu cloud image by its digest in Ubuntu's `SHA256SUMS`, once Ubuntu's signature of that list
+  (`SHA256SUMS.gpg`) verifies by Ubuntu's cloud image key; and Claude Code's native install by its digest in the
+  release's manifest, once Anthropic's signature of the manifest verifies by Anthropic's release key - never
+  through the installer script, which verifies no signature. Both signatures are checked on this machine, with keys
+  vendored in the repository and held to the vendors' fingerprints, so whoever can serve those addresses can only
+  pick among releases the vendor signed: a pinned Claude Code older than 2.1.89, the first signed release, is
+  refused. That holds for what the role installs, whose installed binary is held to the signed digest. On the
+  `stable` and `latest` channels Claude Code then updates itself, from Anthropic's servers, under its own checks,
+  not the project's; a VM installed before 2.6 keeps the binary it had, compared with no manifest until a pinned
+  version is installed over it. Neither the list nor the manifest is held to be the newest: an older signed one
+  served in its place verifies too, back to 2.1.89 for Claude Code. `claude_code_install_method: npm` takes Claude Code from npm's registry instead, trusted over TLS.
   With `dev_tools_install_rust` on,
   rustup comes from Ubuntu's archive, and the Rust toolchain it installs is fetched over TLS from `static.rust-lang.org` and checked against
   the hashes in the channel manifest, which comes from the same place.

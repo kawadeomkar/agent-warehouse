@@ -50,11 +50,11 @@ STAGES_ENV = "AGENT_WAREHOUSE_LIVE_STAGES"
 RUN_ENV = (LIVE_ENV, STATE_ENV, STAGES_ENV)
 LOGGED = "--logged"
 # A stage's or step's label as a declaration writes one; a recipe's name as the title's first word.
-LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$")
-RECIPE = re.compile(r"^[a-z][a-z-]{0,19}$")
+LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}\Z")
+RECIPE = re.compile(r"^[a-z][a-z-]{0,19}\Z")
 # A log's name as the justfile builds one: a recipe's, and the parts its patterns checked (test-unit-provision).
-LOG_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,79}$")
-VERBOSE = re.compile(r"(^|\s)(-v+|--verbose)(?=\s|$)")
+LOG_NAME = re.compile(r"^[a-z][a-z0-9_-]{0,79}\Z")
+VERBOSE = re.compile(r"(^|\s)(-v+|--verbose)(?=\s|\Z)")
 
 
 def _arguments(argv):

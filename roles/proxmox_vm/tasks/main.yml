@@ -17,7 +17,7 @@
     that:
       - proxmox_vm_name | length > 0
       - proxmox_vm_name | length <= 63
-      - proxmox_vm_name is match('^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$')
+      - proxmox_vm_name is match('^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\Z')
     fail_msg: >-
       "{{ proxmox_vm_name }}" is not usable as a VM name. Use 1-63 characters,
       letters, digits, dots and hyphens only, starting and ending with a letter
@@ -63,7 +63,7 @@
 # which Ansible validates before the first task runs.
 - name: Validate the VM ID
   ansible.builtin.assert:
-    that: proxmox_vm_id | string | length == 0 or proxmox_vm_id | string is match('^[1-9][0-9]{2,}$')
+    that: proxmox_vm_id | string | length == 0 or proxmox_vm_id | string is match('^[1-9][0-9]{2,}\Z')
     fail_msg: >-
       proxmox_vm_id, when set at all, must be a number >= 100
       (got "{{ proxmox_vm_id }}"). Leave it empty to let Proxmox choose.
@@ -79,6 +79,8 @@
       api_token_secret: "{{ proxmox_vm_api_token_secret }}"
       validate_certs: "{{ proxmox_vm_validate_certs }}"
       api_timeout: "{{ proxmox_vm_api_timeout }}"
+      # Empty, it is left out: community.proxmox reads ca_path only when it is set.
+      ca_path: "{{ proxmox_vm_ca_path }}"
   delegate_to: localhost
   block:
     - name: Look up Proxmox VM {{ proxmox_vm_name }}
