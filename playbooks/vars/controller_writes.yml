@@ -25,7 +25,9 @@ code_controller_writes:
     writer: >-
       ssh, on the first SSH to the host (`StrictHostKeyChecking=accept-new`): root's, or the hop's through it to the
       VMs (`vm_ssh_route`)
-    when: "`just init`'s checks, a template build, and every run whose route to the VMs is the Proxmox host"
+    when: >-
+      `just init`'s checks, a template build, and every run but `just status`, which takes none, whose route to the VMs
+      is the Proxmox host
     removed_by: "nothing: it is yours"
     sources:
       - ansible.cfg

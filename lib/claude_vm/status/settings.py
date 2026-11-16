@@ -222,7 +222,9 @@ REACH = {
     "become": "{{ ansible_become | default(true) | bool }}",
     "become_exe": "{{ ansible_become_exe | default('sudo') }}",
 }
-# What the VM's options hold of the user's own, apart: a jump there is its route, and it takes no hop.
+# Status's own options and what the VM's options hold of the user's own, apart: through the Proxmox host the hop goes
+# between the two, as a run has it, and a jump in what the VM is given is its route, so it takes no hop.
+REACH["own"] = "{{ status_ssh_args }}"
 REACH["given"] = _SSH_MORE
 # The hop through the Proxmox host, where the VMs are reached through it: the host's own settings, as Ansible's ssh
 # resolves each for it, and the account vm_ssh_jump names on its own entry.
@@ -231,9 +233,11 @@ HOP = {
     "host": "{{ ansible_host | default(inventory_hostname) }}",
     "user": _ssh_option("ansible_user ansible_ssh_user", "remote_user"),
     "port": _ssh_option("ansible_port ansible_ssh_port", "port"),
-    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file", "private_key_file"),
+    # The key a run gives it, --private-key in ANSIBLE_ARGS among them; and the control directory as Ansible's ssh
+    # resolves it, ansible.cfg and the environment too, so that status and a run share the hop's socket.
+    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file status_private_key", "private_key_file"),
     "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
-    "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
+    "control_dir": _ssh_option("ansible_control_path_dir", "control_path_dir"),
     "jump": "{{ vm_ssh_jump | default('', true) }}",
 }
 # A host of the inventory, with discovery off: however it says it is reached.

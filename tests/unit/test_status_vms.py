@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from harness import FAKES, GETENT, REPO, _local_hosts, _pve_vars, _run, fake_fleet, load_module
+from harness import FAKES, GETENT, REPO, _local_hosts, _pve_vars, _pve_vm, _run, fake_fleet, load_module
 from test_status import PROMISED_KEYS, S, T, _status_run, status_root
 from test_status_work import _commit, _git
 from test_tailscale import DPKG_QUERY, NODE, _joined
@@ -859,6 +859,200 @@ def test_a_stale_connection_is_stopped_never_exited_and_the_vms_read_again(tmp_p
     assert _hop_calls(hop) == ["check", "open", "check", "forward 192.0.2.60:22", "stop", "check", "open", "check"]
     assert "-O exit" not in (hop / "calls").read_text()
     assert len(_vm_ssh(tmp_path)) == 2
+
+
+ROUTED = {"vm_ssh_route": "host"}
+
+
+def _proxmox_items(model: dict) -> list[dict]:
+    return [it for it in model["attention"] if it["vm"] == "proxmox"]
+
+
+def test_the_hop_s_own_ssh_takes_no_key_asks_nothing_and_says_what_it_says(tmp_path, fleet, through):
+    hop, named = through
+    report, _ = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    for line in (hop / "calls").read_text().splitlines():
+        for word in ("BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "LogLevel=INFO"):
+            assert word in line, (word, line)
+
+
+def test_a_vm_given_a_jump_of_its_own_is_read_by_it_whatever_the_hop_and_none_logs_in(tmp_path, fleet, through):
+    # Every VM brings a jump of its own: the hop is never needed, so never logged in to, refused as it would be.
+    hop, named = through
+    (hop / "mode").write_text("refused")
+    settings = {**ROUTED, "ansible_ssh_common_args": "-o ProxyJump=jump.invalid"}
+    report, model = _status_run(tmp_path, fleet, *named, settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert _hop_calls(hop) == []
+    assert not [it for it in _proxmox_items(model) if "hop" in it["text"]]
+    argvs = _vm_ssh(tmp_path)
+    assert len(argvs) == 2 and all("ProxyJump=jump.invalid" in argv for argv in argvs), argvs
+    assert not any(word.startswith("ProxyCommand=") for argv in argvs for word in argv)
+
+
+def test_a_vm_with_a_jump_of_its_own_is_read_beside_a_hop_that_cannot_be_used(tmp_path, fleet, through):
+    hop, named = through
+    (hop / "mode").write_text("refused")
+    root = status_root(tmp_path, fleet, ROUTED)
+    (root / "host_vars").mkdir()
+    (root / "host_vars" / "alpha.yml").write_text("ansible_ssh_common_args: -o ProxyJump=jump.invalid\n")
+    report, model = _status_run(tmp_path, fleet, *named, settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    (argv,) = _vm_ssh(tmp_path)
+    assert "ProxyJump=jump.invalid" in argv and argv[-2] == "192.0.2.60"
+    beta = [it["text"] for it in model["attention"] if it["vm"] == "beta" and it["level"] == "unread"]
+    assert beta and "which could not be used as the hop" in beta[0], beta
+    assert _hop_calls(hop) == ["check", "open", "check"]
+
+
+def test_a_run_with_no_vm_to_read_over_ssh_makes_no_login(tmp_path, fleet, through):
+    hop, named = through
+    (hop / "mode").write_text("refused")
+    report, model = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "gamma"}), settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert _hop_calls(hop) == [] and not [it for it in _proxmox_items(model) if "hop" in it["text"]]
+
+
+def test_a_vm_s_own_refusal_through_the_hop_is_its_own_and_asks_the_hop_nothing(tmp_path, fleet, through):
+    # The VM's sshd spoke: its words are the VM's, and the shared connection, which carried them, is left alone.
+    hop, named = through
+    root = status_root(tmp_path, fleet, ROUTED)
+    (root / "ssh-says").write_text(
+        "Received disconnect from UNKNOWN port 65535:2: Too many authentication failures\n"
+        "Disconnected from UNKNOWN port 65535\n"
+    )
+    report, model = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert _hop_calls(hop) == ["check", "open", "check"]
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert "Too many authentication failures" in item["text"], item
+
+
+@pytest.mark.parametrize(
+    ("said", "unanswered"),
+    [
+        (CLOSED, True),
+        ("Connection timed out during banner exchange", True),
+        ("Connection to UNKNOWN port 65535 timed out", True),
+        ("Stdio forwarding request failed: Session open refused by peer", True),
+        ("kex_exchange_identification: Connection closed by remote host", True),
+        ("Received disconnect from UNKNOWN port 65535:2: Too many authentication failures", False),
+        ("Received disconnect from UNKNOWN port 65535:11: Bye\n" + CLOSED, False),
+        # The engine's own line for a VM that took the connection and said nothing: its sshd is up.
+        ("it took the connection and said nothing for 20 s: timed out", False),
+        ("Permission denied (publickey).", False),
+    ],
+)
+def test_only_ssh_s_words_for_a_connection_that_ended_before_the_vm_spoke_ask_the_hop(said, unanswered):
+    assert S.hop_unanswered(said) is unanswered
+
+
+def test_a_vm_that_is_down_first_by_name_hides_no_stale_connection_behind_it(tmp_path, fleet, through):
+    # alpha is down (the host's forward to it is refused); beta's answers: the connection was stale.
+    hop, named = through
+    (hop / "forward-192.0.2.60").write_text("closed")
+    root = status_root(tmp_path, fleet, ROUTED)
+    (root / "ssh-says").write_text(CLOSED + "\n")
+    report, _ = _status_run(tmp_path, fleet, *named, settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    calls = _hop_calls(hop)
+    assert calls[3:] == ["forward 192.0.2.60:22", "forward 192.0.2.61:22", "stop", "check", "open", "check"], calls
+    assert len(_vm_ssh(tmp_path)) == 4
+
+
+def test_vms_that_do_not_answer_get_the_hop_s_words_three_at_most(tmp_path, through):
+    hop, named = through
+    (tmp_path / "many").mkdir()
+    for base in fake_fleet(tmp_path / "many"):
+        for vmid, name in ((9013, "delta"), (9014, "eps"), (9015, "zeta")):
+            _pve_vm(base, vmid, name, running=True, tags="agent-warehouse", ciuser="dev", onboot="1")
+        (hop / "forward").write_text("closed")
+        root = status_root(tmp_path, base, ROUTED)
+        (root / "ssh-says").write_text(CLOSED + "\n")
+        report, model = _status_run(tmp_path, base, *named, settings=ROUTED)
+        assert report["rc"] == 0, report["stderr"][-2000:]
+        assert [call for call in _hop_calls(hop) if call.startswith("forward")] == [
+            "forward 192.0.2.60:22",
+            "forward 192.0.2.61:22",
+            "forward 192.0.2.63:22",
+        ]
+        said = {it["vm"]: it["text"] for it in model["attention"] if it["text"].startswith("not read")}
+        assert "did not take the connection: Connection refused" in said["delta"], said
+        assert said["eps"] == f"not read: it did not answer through pve (root@{HOP_ADDRESS})", said
+
+
+def test_a_forbidden_forward_s_hint_is_the_host_s_own(tmp_path, fleet, through):
+    hop, named = through
+    (hop / "forward").write_text("prohibited")
+    root = status_root(tmp_path, fleet, ROUTED)
+    (root / "ssh-says").write_text(CLOSED + "\n")
+    report, model = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=ROUTED)
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert item["command"].startswith("allow forwarding to the VMs in the host's sshd"), item
+    assert "check alpha" not in item["command"]
+
+
+def test_a_none_the_vm_is_given_comes_after_the_hop_as_in_a_run_and_is_left_alone(tmp_path, fleet, through):
+    hop, named = through
+    settings = {**ROUTED, "ansible_ssh_common_args": "-o ProxyCommand=none"}
+    report, model = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    (argv,) = _vm_ssh(tmp_path)
+    (proxy,) = [word for word in argv if word.startswith("ProxyCommand=") and word != "ProxyCommand=none"]
+    assert argv.index(proxy) < argv.index("ProxyCommand=none")
+    # Asked of ssh first, with no config read, by the line the probe is: its options and the VM's address.
+    (shown,) = [json.loads(line) for line in (tmp_path / "run" / "ssh-G.log").read_text().splitlines()]
+    assert shown[:3] == ["-G", "-F", "/dev/null"] and shown[3:] == argv[:-1], (shown, argv)
+
+
+def test_a_line_ssh_refuses_is_not_read_and_says_what_ssh_said(tmp_path, fleet, through):
+    # -J none after the hop: ssh will not take the line, so no probe is started.
+    hop, named = through
+    settings = {**ROUTED, "ansible_ssh_common_args": "-J none"}
+    report, model = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert _vm_ssh(tmp_path) == []
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert "ssh refused its options: Cannot specify -J with ProxyCommand" in item["text"], item
+
+
+def test_through_the_host_a_vm_s_socket_is_named_with_the_hop(tmp_path, fleet, through):
+    hop, named = through
+    report, _ = _status_run(tmp_path, fleet, *named, "-e", json.dumps({"vm_name": "alpha"}), settings=ROUTED)
+    (through_argv,) = _vm_ssh(tmp_path)
+    shutil.rmtree(tmp_path / "run")
+    report, _ = _status_run(tmp_path, fleet, "-e", json.dumps({"vm_name": "alpha"}))
+    (direct_argv,) = _vm_ssh(tmp_path)
+
+    def socket(argv):
+        return next(word for word in argv if word.startswith("ControlPath="))
+
+    assert socket(through_argv) != socket(direct_argv) and len(socket(through_argv)) == len(socket(direct_argv))
+
+
+@pytest.mark.parametrize("hop_too", [False, True])
+def test_the_certificate_note_beside_an_unread_proxmox_and_beside_an_unusable_hop(tmp_path, fleet, through, hop_too):
+    # Unread, the API says nothing of its certificate: one PROXMOX item, as before the route. Read, with the hop's
+    # login refused: the hop's line and the note both.
+    hop, named = through
+    if hop_too:
+        (hop / "mode").write_text("refused")
+        report, model = _status_run(tmp_path, fleet, *named, settings={**ROUTED, "proxmox_validate_certs": False})
+        texts = [it["text"] for it in _proxmox_items(model)]
+        assert any("could not log in" in text for text in texts), texts
+        assert any("certificate is not checked" in text for text in texts), texts
+    else:
+        report, model = _status_run(tmp_path, "https://127.0.0.1:9", settings={"proxmox_validate_certs": False})
+        assert len(_proxmox_items(model)) == 1, _proxmox_items(model)
+
+
+def test_the_hop_takes_the_key_given_on_the_command_line(tmp_path, fleet, through):
+    hop, named = through
+    extra = ["-e", json.dumps({"vm_name": "alpha"}), "--private-key", "/keys/run-key"]
+    report, _ = _status_run(tmp_path, fleet, *named, *extra, settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    assert all(" -i /keys/run-key " in line for line in (hop / "calls").read_text().splitlines())
 
 
 def test_only_the_api_sections_check_no_hop(tmp_path, fleet, through):

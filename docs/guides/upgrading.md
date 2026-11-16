@@ -22,7 +22,9 @@ naming `just install`, while one differs. They live in the checkout's own folder
   start, with forwarding off at the first step that reaches a VM - for `just deploy` of a new VM, once its template is
   built and the VM created. Set `vm_ssh_route: direct` once if a VPN of yours routes the VMs' network.
 - **A jump of your own** in `ansible_ssh_common_args` or `ansible_ssh_extra_args`, for every host or for the
-  `claude_vms` group, stays the VMs' route, and the run says so. One in `ssh_args` (`ansible.cfg`), or in
+  `claude_vms` group, stays the VMs' route, and the run says so - but in `just status`, which reads a VM in a group
+  of its own, `status_vms`, so that a jump on `claude_vms` reaches none there: set it for every host, or in a VM's
+  own `host_vars`, for status to read it through that jump. One in `ssh_args` (`ansible.cfg`), or in
   `ssh_extra_args` from `ansible.cfg` or the environment, is refused beside the hop: move it to one of those two, or
   set `vm_ssh_route: direct`.
 - **`claude_ssh_host_domain`** is not used through the host, whose sshd would resolve the name: the aliases point

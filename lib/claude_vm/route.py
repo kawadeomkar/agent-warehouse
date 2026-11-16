@@ -49,7 +49,12 @@ _SSH_VALUED = set("BbcDEeFIiJLlmOoPpQRSWw")
 
 
 class HopRefused(ValueError):
-    """A setting of the hop that is not one plain word, said by name."""
+    """A setting of the hop that is not one plain word, said by name: ``reason``, and ``way_out``, what to change."""
+
+    def __init__(self, reason, way_out=""):
+        super().__init__(f"{reason}: {way_out}" if way_out else reason)
+        self.reason = reason
+        self.way_out = way_out
 
 
 def tailnet(address) -> bool:
@@ -130,7 +135,7 @@ WAY_OUT = {
 
 def _refused(said: str, setting: str) -> HopRefused:
     return HopRefused(
-        f"{said}: set {WAY_OUT[setting]} on the Proxmox host's entry to one that is, or set vm_ssh_route: direct"
+        said, f"set {WAY_OUT[setting]} on the Proxmox host's entry to one that is, or set vm_ssh_route: direct"
     )
 
 
@@ -184,8 +189,9 @@ def hop_settings(ssh="ssh", user="", host="", port=None, key="", control_dir="~/
     path = f"{directory}/awh-{digest}"
     if len(path.encode()) > SOCKET_MOST:
         raise HopRefused(
-            f"the hop's socket, {path}, is longer than {SOCKET_MOST} bytes, which macOS cannot bind: set"
-            " ansible_control_path_dir to a shorter directory, or set vm_ssh_route: direct"
+            f"the hop's socket, {path}, is longer than {SOCKET_MOST} bytes, the most a socket's path may be here (macOS"
+            " binds none longer)",
+            "set ansible_control_path_dir to a shorter directory, or set vm_ssh_route: direct",
         )
     reached = f"{user}@{host}" if user else host
     label = f"{name} ({reached})" if name and name != reached else reached
@@ -653,18 +659,22 @@ def unheld_said(settled, unheld) -> str:
     )
 
 
-def _plain(said) -> str:
-    """What ssh said, as one line: its last lines, where the most is said, and never its banner of @s - a changed host
-    key's warning is 400 characters before "Host key for ... has changed"."""
+def ssh_said(said, limit=400) -> str:
+    """What ssh said, as one line of at most ``limit`` characters: its last lines, where the most is said, and never
+    its banner of @s - a changed host key's warning is 400 characters before "Host key for ... has changed"."""
     from .text import one_line
 
     lines = [line for line in str(said or "").splitlines() if line.strip() and not line.lstrip().startswith("@")]
     kept: list[str] = []
     for line in reversed(lines):
-        if kept and len(" ".join([line, *kept])) > 400:
+        if kept and len(" ".join([line, *kept])) > limit:
             break
         kept.insert(0, line)
-    return one_line(" ".join(kept), 400).rstrip(".") or "no reason given"
+    return one_line(" ".join(kept), limit)
+
+
+def _plain(said) -> str:
+    return ssh_said(said).rstrip(".") or "no reason given"
 
 
 def _direct_tail(settled) -> str:

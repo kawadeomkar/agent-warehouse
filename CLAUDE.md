@@ -466,8 +466,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§7.17](docs/architecture/custom-code.md#717-libclaude_vmroutepy--how-this-machine-reaches-a-hosts-vms) first.
     - `vm_ssh_route` is `direct`, `host` or `auto`: `host` where every address ssh dials for the Proxmox host (`ssh -G`
       of its `ansible_host`, then that name's addresses here, at run time) is a tailnet one, `direct` otherwise. A rule
-      with no fallback either way: a hop that cannot be used stops the run, naming `vm_ssh_route: direct`. Never kept
-      in `just status`'s snapshot, never inherited by another host, refused to the MCP server's `settings_set`.
+      with no fallback either way: a hop that cannot be used stops the run, naming `vm_ssh_route: direct`. Read from a
+      `local.yml`, never a `hosts.yml` (`tools/check settings` refuses it there); what `auto` makes of it is never kept
+      in `just status`'s snapshot, which keeps the setting as written; never inherited by another host, refused to the
+      MCP server's `settings_set`.
     - The hop is the Proxmox host as Ansible's ssh plugin resolves it, or an account on it, `vm_ssh_jump` on the
       host's own entry in `hosts.yml` alone - an account, never `user@host` - which `tools/check settings` refuses
       anywhere else and `just settings` never writes. Every value of its command is held to one fixed set of
@@ -730,12 +732,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
       options, port and key after them, and the hop's own ssh given `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`
       and `BatchMode=yes` outright - no alias, nothing in `~/.ssh` or `~/.claude`.
-    - Through the Proxmox host (`vm_ssh_route`) the engine makes the hop's login each run, before its probes start,
-      through the core (`lib/claude_vm/route.py`), never for the API's sections alone. The route is worked out at each
-      run, never kept in the snapshot; the hop's settings are (`HOP`, the Proxmox host's own). A hop that cannot be
-      used is one line, its VMs not read for its sake. For VMs that did not answer through it, one forward of its
-      own: answered there, the shared connection was stale, told `-O stop` - never `-O exit`, which cuts another
-      run's tasks - and those VMs read again; otherwise the hop's words are that VM's line, for three at most.
+    - Through the Proxmox host (`vm_ssh_route`) the hop's login is made through the core (`lib/claude_vm/route.py`)
+      once a run, by the first VM that takes the hop, the others waiting on it: never for the API's sections alone,
+      nor where every VM is stopped or brings a jump of its own, which is read by it whatever the hop's state. What
+      `auto` makes of the setting is worked out at each run, never kept in the snapshot; the hop's settings are (`HOP`,
+      the Proxmox host's own). A hop that cannot be used is one line, its VMs not read for its sake. Before each probe
+      the VM's ssh is asked (`ssh -G -F /dev/null` and the probe's line) whether it takes the hop, or its own jump.
+      For VMs whose connection ended before their sshd spoke (`model.hop_unanswered`), one forward of its own to each
+      of the first three by name: one answered there, the shared connection was stale, told `-O stop` - never `-O
+      exit`, which cuts another run's tasks - and those VMs read again, through the pool; otherwise the hop's words
+      are each one's line.
     - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
       `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
       vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.

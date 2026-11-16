@@ -398,20 +398,27 @@ screen in a quarter of a second and a finished report in about two, against five
 
 **Through the Proxmox host** ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), the reads of the VMs
 go through the host's sshd, and status's SSH to the host runs nothing and carries forwards. Only where it opens SSH at
-all: the API's sections alone check nothing. The route is worked out at each run, never kept; the hop's settings - the
-Proxmox host's user, port, key and ssh program, as Ansible resolves them for it (`HOP`) - are kept in the snapshot.
-Before the probes start, the engine makes the hop's login through the core, its ssh given `StrictHostKeyChecking=yes`,
-`UpdateHostKeys=no` and `BatchMode=yes` outright, so no key is taken; with more than one host each host's child makes
-its own. A hop that cannot be used is one line under PROXMOX, said once with what takes the host's key (any run that
-configures, or `ssh` to it by hand), and the VMs are each not read for its sake, never with a VM's own words. Each VM's
-options gain the hop after `vm_ssh_args`, its socket named with the hop; a VM given a jump of its own takes none, and
-one whose options hold another proxy option beside the hop is not read. Over the shared connection a closed port and
-a forbidden forward both read "Connection closed by UNKNOWN port 65535", and a silent far end a time-out, so after
-the probes, for the VMs still unread for either, one forward of its own goes to the first by name: answered there,
-the shared connection had gone stale (a laptop that slept) and is told `-O stop` - never `-O exit`, which would cut
-the forwards another run has on it - opened again, and those VMs read once more; otherwise what the hop said is that
-VM's line (refused there, no route, no answer, or forbidden for that address), two more VMs get a forward of their
-own, and the rest are said as not having answered through it. Lines that say `ssh` to a VM gain its `-J`.
+all: the API's sections alone check nothing. What `auto` makes of the setting is worked out at each run, never kept;
+the setting as written is, and the hop's settings - the Proxmox host's user, port, key, ssh program and control
+directory, as Ansible resolves them for it, `--private-key` in `ANSIBLE_ARGS` among them (`HOP`). A VM given a jump of
+its own is read by it, whatever the hop's state. The first VM that takes the hop makes its login through the core, the
+others waiting on it, and a run with none - every VM stopped or bringing its own jump - makes none; the hop's ssh is
+given `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`, `BatchMode=yes` and `LogLevel=INFO` outright, so no key is
+taken; with more than one host each host's child makes its own. A hop that cannot be used is one line under PROXMOX,
+the reason first, with where to look by what ssh said - the host's key, which any run that configures or `ssh` to it by
+hand takes, or the login, tried with the hop's own port and key - and the VMs that take it are each not read for its
+sake, never with a VM's own words. Each VM's options are status's own, `vm_ssh_args`, the hop, then what the VM is
+given, as a run has them, its socket named with the hop; one whose own options hold another proxy is not read, and
+before each probe its ssh is asked (`ssh -G -F /dev/null` and the probe's whole line) whether it takes the hop's
+command word for word, or, for a VM given a jump, some proxy: one it would not, or a line ssh refuses, is not read,
+with what ssh showed. Over the shared connection a closed port and a forbidden forward both read "Connection closed by
+UNKNOWN port 65535", and a silent far end a time-out, so after the probes, for the VMs whose connection ended before
+their sshd spoke - those words, `kex_exchange_identification`, a refused stdio forward, never a refusal the VM's sshd
+made - one forward of its own goes to each of the first three by name: one answered there, and the shared connection
+had gone stale (a laptop that slept), is told `-O stop` - never `-O exit`, which would cut the forwards another run has
+on it - opened again, and every such VM read once more, through the pool; otherwise what the hop said is each one's
+line (refused there, no route, no answer, or forbidden for that address), and the rest are said as not having
+answered through it. Lines that say `ssh` to a VM gain its `-J`.
 
 **The order of a run.**
 
@@ -480,7 +487,8 @@ The lines the roles say are the roles' own, one function both call (`lib/claude_
 STEPS give; `tests/unit/test_status_vms.py` runs the roles' own tasks and the engine on the same stand-in VMs, state
 by state, and holds the two equal.
 
-**Read-only, and how that is held.** The engine makes GETs and nothing else, and follows no redirect, which would
+**Read-only, and how that is held.** The engine makes GETs to Proxmox and nothing else - through the host, SSH to it
+that runs nothing: `-O check`, the open, `-O stop` and forwards - and follows no redirect, which would
 carry the token elsewhere. The probe runs nothing but the fixed list of `ALLOWED` in its source, each a read, opens
 every file to read, and writes only to its own standard output: `tests/unit/test_status_vms.py` holds all of that
 statically and runs it against stand-in VMs whose every file must be unchanged after. `gh`'s token never leaves the

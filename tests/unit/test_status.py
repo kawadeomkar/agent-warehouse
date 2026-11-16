@@ -710,9 +710,30 @@ def fake_pve(tmp_path):
 
 # The ssh every status run in a test is given: it records how it was called, one JSON line each, and refuses with
 # what ssh-says holds (ssh's own words for a refused connection, unless a test says otherwise). No test reaches a
-# real VM, or this machine's ssh.
+# real VM, or this machine's ssh. Asked -G - through the Proxmox host, which proxy a probe's line takes - it shows the
+# first proxy among its words, as ssh does, none for a none, refuses a -J after a ProxyCommand as ssh does, and records
+# that apart, in ssh-G.log.
 SSH = """#!/bin/sh
 here=$(dirname "$0")
+if [ "$1" = -G ]; then
+  "$here/python" -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@" >> "$here/ssh-G.log"
+  exec "$here/python" -c '
+import sys
+words = sys.argv[1:]
+shown = ""
+for at, word in enumerate(words):
+    if word == "-J" and at + 1 < len(words):
+        if shown.startswith("proxycommand"):
+            sys.exit("Cannot specify -J with ProxyCommand")
+        shown = shown or "proxyjump " + words[at + 1]
+    found = [key for key in ("ProxyCommand=", "ProxyJump=") if word.startswith(key)]
+    if found and not shown:
+        value = word[len(found[0]):]
+        shown = found[0][:-1].lower() + " " + value if value.lower() != "none" else "none"
+if shown and shown != "none":
+    print(shown)
+' "$@"
+fi
 "$here/python" -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@" >> "$here/ssh.log"
 # Held while ssh-holds exists, for a minute at most: a live test acts on a frame while the run waits here.
 n=0

@@ -767,6 +767,24 @@ def status_refusal(said):
     return ""
 
 
+# What ssh says, over the hop's shared connection, of a connection that ended before the VM's sshd spoke: a VM that
+# did not answer through the host, whose own words ssh never had. Never a refusal the VM's sshd made ("Received
+# disconnect"), nor the engine's own line for a VM that took the connection and said nothing.
+HOP_UNANSWERED = (
+    "connection closed by unknown port 65535",
+    "connection timed out during banner exchange",
+    "connection to unknown port 65535 timed out",
+    "stdio forwarding request failed",
+    "kex_exchange_identification",
+)
+
+
+def hop_unanswered(said):
+    """Whether ssh's words for a VM reached through the hop say the connection ended before the VM's sshd spoke."""
+    low = str(said or "").lower()
+    return "received disconnect" not in low and any(words in low for words in HOP_UNANSWERED)
+
+
 def _ssh_refusal(vm, ssh, settings):
     """What ssh's refusal of a VM means, and what to do about it: (text, command)."""
     name = vm.get("name")
@@ -1099,9 +1117,6 @@ def status_report(found, read_at="", now=None, live=False):
     items = []
     if proxmox.get("unread"):
         _add(items, "proxmox", "unread", proxmox["unread"], settings.get("proxmox_hint", ""))
-    # Through the Proxmox host: a hop that could not be used, once, the VMs then each not read for its sake.
-    if settings.get("hop_said") and ssh_wanted:
-        _add(items, "proxmox", "problem", settings["hop_said"], settings.get("hop_hint", ""))
     elif not proxmox.get("off") and settings.get("api_checked") is False:
         # Every recipe warns of it for the host its files name; a host of several that is read here, with its token,
         # is said here too.
@@ -1112,6 +1127,9 @@ def status_report(found, read_at="", now=None, live=False):
             "the API's certificate is not checked, so the token goes to whatever answers at the host's address",
             f"just init{_host_flag(settings)} sets checking up",
         )
+    # Through the Proxmox host: a hop that could not be used, once, the VMs then each not read for its sake.
+    if settings.get("hop_said") and ssh_wanted:
+        _add(items, "proxmox", "problem", settings["hop_said"], settings.get("hop_hint", ""))
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
         text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"
