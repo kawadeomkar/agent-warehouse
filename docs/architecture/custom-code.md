@@ -1150,7 +1150,10 @@ of its own its modules name. Why: [§15.6](decisions.md#156-agents-run-the-recip
   checkout's folder, and the collections Ansible loads from it; `CLAUDE_CONFIG_DIR`, where the Claude Code the server
   is registered in keeps its sessions, which `code`'s session is looked for among and `just code` copies - `TERM=dumb` and `NO_COLOR=1`, and the vault password file and browser the arguments name:
   nothing of Ansible's, Python's, `just`'s or Claude Code's - its messaging token among them, which an editor's
-  terminals would inherit.
+  terminals would inherit. `SHELL` is the account's own, read from the account database (`login_shell`), or `/bin/sh`
+  where that names none that can be run, and never the session's: ssh starts a `ProxyCommand`, a `ProxyJump` and a
+  `Match exec` with `$SHELL`, so a jump host in the inventory or in the user's ssh config would run a program the
+  calling project named. `test_mcp_jobs.py` holds it, with the real `ssh` and a proxy command that connects nowhere.
 - **`checkout.py`: the head, the branch guard, the change notice, the vault.** Every result names the checkout's
   branch and commit. `run_refusal` is the guard a run that changes something checks: `main` with no tracked change,
   unless `--any-branch`. A digest of what the server runs, from its start: the justfile its tools are made from,

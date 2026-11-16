@@ -328,6 +328,9 @@ and calls its commands. What that changes:
   the command `just mcp` recorded, a run's environment is an allow list with the `PATH`, `HOME` and `XDG_DATA_HOME`
   recorded there - the last two decide which collections Ansible loads - and every
   setting the justfile reads with `env()` is given on `just`'s command line, where it outranks the environment.
+  `SHELL` is not the session's either: ssh starts a `ProxyCommand`, a `ProxyJump` and a `Match exec` with it, so where
+  the VMs are reached through a jump host a project's `SHELL` would be a program of its own, run on this machine. A
+  run's is the account's, read from the account database.
 - **A value never meets a shell.** Each goes to `just` as one argv word, an option as `--long=value`, and `just` holds
   it to the option's pattern before the recipe's first line, as at a terminal; a word that starts with `-`, which
   `just` would read as an option, is refused before `just` runs.
