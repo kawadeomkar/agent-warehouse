@@ -256,7 +256,7 @@ the tools keep for themselves:
 | the `agent-warehouse` MCP server's entry in `~/.claude.json` | what lets Claude Code sessions in every project, or the one `--project-dir` names, run these commands | Claude Code's own CLI, when you run `just mcp` | only after `just mcp` | `just mcp --remove` |
 | `destroy_sessions_dir` | the Claude Code sessions `just destroy` saved from a VM | `just destroy` | only where you point it outside the checkout (by default `.sessions/`, inside it) | you |
 
-- Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp` - the shared connection through the Proxmox host's among them, where the VMs are reached through it - and `~/.ansible/galaxy_cache`.
+- Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp` - the shared connection through the Proxmox host's among them, where the VMs are reached through it, which a run and `just status` make, and remove where nothing listens at it - and `~/.ansible/galaxy_cache`.
 - uv's cache, `~/.cache/uv`, and the Python it downloads for the checkout's own environment, in `~/.local/share/uv/python`.
 - For contributors: pre-commit's `~/.cache/pre-commit`, ansible-lint's `~/.cache/ansible-compat`, Molecule's `~/.cache/molecule`, and the Docker images the scenarios build.
 - Not files: the sign-in pages opened in your browser, and GitHub's device code put on the clipboard.

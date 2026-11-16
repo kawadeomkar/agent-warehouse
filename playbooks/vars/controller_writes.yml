@@ -130,7 +130,8 @@ code_controller_writes:
 code_controller_also:
   - >-
     Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp` - the shared connection
-    through the Proxmox host's among them, where the VMs are reached through it - and `~/.ansible/galaxy_cache`.
+    through the Proxmox host's among them, where the VMs are reached through it, which a run and `just status` make,
+    and remove where nothing listens at it - and `~/.ansible/galaxy_cache`.
   - >-
     uv's cache, `~/.cache/uv`, and the Python it downloads for the checkout's
     own environment, in `~/.local/share/uv/python`.

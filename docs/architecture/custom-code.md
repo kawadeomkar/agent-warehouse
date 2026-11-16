@@ -1483,25 +1483,39 @@ that takes, and runs nothing of Ansible's.
 - **The rule.** `route_rule(setting, addresses)`: `direct` or `host` as named, and under `auto`, `host` where every
   address ssh dials for the Proxmox host is a tailnet one (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and there is at
   least one, `direct` otherwise - never a fallback either way. `route_settle` works out those addresses: the host as
-  `ssh -G` shows it, so a `HostName` of the user's counts, else as written; then its addresses here, now.
+  `ssh -G` shows it, so a `HostName` of the user's counts, else as written; then its addresses here, now, a lookup
+  that gets no answer within 5 s being a name that does not resolve.
 - **The hop.** `hop_settings` holds each of its settings - the ssh program, user, host, port, key file, the control
-  directory - to one fixed set of characters, never quoted, and refuses any other by name: ssh runs a `ProxyCommand`
-  through the shell after its own `%` expansion. Its shared connection's socket is named by a digest of the hop, held
+  directory - to one fixed set of characters, never quoted, and refuses any other by name, with the variable to change
+  on the host's entry: ssh runs a `ProxyCommand` through the shell after its own `%` expansion, and a path may not
+  start with `-` (an option) or `=` (which zsh expands). Its shared connection's socket is named by a digest of the hop, held
   to 86 bytes, macOS's 103 less the 17 ssh adds while it binds one. `hop_argv` is its command, to one IPv4 address and
   nothing else, the one value a VM supplies: `-W <address>:%p`, never `%h`, which the far end would resolve.
   `ControlPath` and `ControlPersist` are both in it, so that Ansible, which scans a VM's words for the second, still
-  adds the VM's own `ControlPath`. The host key policy is the caller's.
-- **What a VM is given.** `ssh_proxies` finds every proxy option among ssh arguments in any of ssh's spellings,
-  `-o Name=value`, `-oName=value`, `-o 'Name value'`, and `-J` among flags run together. `vm_hop(route, address,
-  given, extra)` is a VM's hop: the words its common args gain, its socket's part of the name, and `-J user@host` for a
-  person's own ssh - none where the route is direct, the VM has no address, or it brings a jump of its own
-  (`ssh_jump`: a `ProxyCommand` of `none` is no jump). The filters of `filter_plugins/route.py`.
+  adds the VM's own `ControlPath`. `LogLevel=INFO` is pinned, since what ssh says is read: under a user's `LogLevel
+  ERROR` a refused forward and a closed port both read "stdio forwarding failed". The host key policy is the caller's.
+- **What a VM is given.** `ssh_proxies` finds every proxy option among ssh arguments, split as Ansible splits them,
+  in ssh's spellings: `-o Name=value`, `-oName=value`, `-o 'Name value'`, a keyword in quotes or after a `=`, and `-J`
+  among flags run together. `vm_hop(route, address, given, extra)` is a VM's hop: the words its common args gain, its
+  socket's part of the name, and `-J user@host` for a person's own ssh - none where the route is direct, the VM has no
+  address, or it brings a jump of its own (`ssh_jump`: a proxy of `none`, in any case, is no jump). The filters of
+  `filter_plugins/route.py`. The finder decides which VM brings a jump and the words a run says; it need not be
+  complete, since what ssh will take is asked of ssh itself.
+- **What ssh itself shows.** `ssh_shown(ssh, words, destination)` asks ssh (`-G`, 5 s) which proxy a connection with
+  a VM's whole line would take, with `-F /dev/null` first, so the line decides and nothing of the user's config is
+  read or run. `vm_route_refusal` holds it to the route: a VM that takes the hop shows the hop's command to its
+  address, word for word, and nothing else; one given a jump shows some proxy on its whole line and on its common and
+  extra args alone; anything else, a line ssh refuses, or an ssh that cannot be asked, is a refusal in words.
 - **The hop's own ssh, under a hard limit.** `hop_check` (`-O check`, 5 s), `hop_held` (making sure of the shared
-  connection: `-O check` first, since `-N` beside a live connection starts a session on the host; then an open with
-  `ClearAllForwardings`, ended at 20 s or as soon as it says it lost the race to another, which it never returns from;
-  then `-O check` again), `hop_stop` (`-O stop`, never `-O exit`, which cuts the forwards another run has on it) and
-  `hop_forward` (one forward on a connection of its own, 15 s). Each reads ssh's exit status and standard error, never
-  its standard output: what a forward carries is the far end's to write. `forward_verdict` says the hop unusable only
+  connection: `-O check` first, then, where the check found a socket file nothing listens at, that file removed -
+  never where the check was ended at its limit - then the open, `hop_open_argv`: `ControlMaster=yes`, its master or
+  nothing, since a client with `-N` asks the host for a session, a shell on a full account; the keepalives that end it
+  45 s after its far side goes quiet; `ClearAllForwardings`; ended at 20 s or as soon as it says another's socket
+  exists, which it never returns from; then `-O check` again), `hop_stop` (`-O stop`, never `-O exit`, which cuts the
+  forwards another run has on it) and `hop_forward` (one forward on a connection of its own, 15 s). Each reads ssh's
+  exit status and standard error, never its standard output: what a forward carries is the far end's to write. A
+  caller ended meanwhile ends that ssh and waits for it; a failure to make the control directory is said, never
+  raised. `forward_verdict` says the hop unusable only
   for `administratively prohibited` or ssh's own failure; a far end that refused or said nothing is the far end's
   doing.
 - **What playbooks reach.** The action `vm_route` (`playbooks/action_plugins/vm_route.py`) settles the route - the

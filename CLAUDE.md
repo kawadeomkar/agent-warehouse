@@ -477,10 +477,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       core, which `test_controller_writes.py` counts for the host's row.
     - Every ssh run for the hop itself - `-O check`, the open, `-O stop`, the forward check - is the core's, under a
       hard limit, reached from playbooks through the `vm_route` action, never a `command` task: an open that loses a
-      race never returns. Never `-N` beside a live connection (a session on the host), never `-O exit` (it cuts
-      another run's tasks), no `ansible_ssh_retries` (the Tailscale key goes once). The forward check reads ssh's exit
-      status and standard error, never what arrives on the forward, and stops a run only on `administratively
-      prohibited` or ssh's own failure.
+      race never returns. The open is the connection's master or nothing (`ControlMaster=yes`: a client with `-N` asks
+      for a session on the host), with the keepalives that end it once its far side goes quiet; a socket file nothing
+      listens at ("Connection refused" to the check) is removed first, never one whose check ran out its time. Never
+      `-O exit` (it cuts another run's tasks), no `ansible_ssh_retries` (the Tailscale key goes once), and
+      `LogLevel=INFO` pinned, since ssh's words are read. The forward check reads ssh's exit status and standard
+      error, never what arrives on the forward, and stops a run only on `administratively prohibited` or ssh's own
+      failure.
     - Each publisher puts the VM in its group first, then imports `tasks/vm_route.yml` (the login if put off, one
       forward), then its `add_host`: `vm_ssh_args`, the hop (`vm_hop`, made afresh, never in `claude_vm_ssh_given`),
       what the VM is given, the hop in `vm_control_name`'s third argument, `claude_vm_ssh_via`; then
@@ -736,7 +739,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (`lib/claude_vm/status/lines.py`). The state the engine works out for itself (`found.py`) is held equal to the
       roles' own tasks and vars, state by state, by `tests/unit/test_status_vms.py`: change a role's state and that
       test says which of the engine's to change.
-    - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log.
+    - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log,
+      and ssh into Ansible's control directory: the VMs' sockets, and through the Proxmox host the hop's, which status
+      makes, and removes where nothing listens at it.
       Two files there, each only a way to work the same thing out sooner: `settings.json`, keyed by every file the
       settings are made from (the filters, ansible-core and the collections too), which holds no secret (the token
       is a mark, read from the vault at each run; a snapshot that would hold anything else the vault holds but its

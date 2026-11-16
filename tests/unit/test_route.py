@@ -104,6 +104,7 @@ def test_a_route_named_asks_nothing(tmp_path):
         ({"key": "/keys/it's"}, "key file"),
         ({"key": "$HOME/.ssh/id"}, "key file"),
         ({"key": "-i"}, "key file"),
+        ({"key": "=ssh/id_ed25519"}, "key file"),  # zsh, an account's shell, expands a leading =
         ({"ssh": "/usr/bin/ssh;id"}, "ssh program"),
         ({"control_dir": "/Users/Jo Smith/.ansible/cp"}, "control directory"),
         ({"control_dir": "/tmp/%C"}, "control directory"),
@@ -129,11 +130,22 @@ def test_the_hop_s_command_word_for_word():
     assert route.hop_argv(hop, "192.0.2.77", "accept-new") == [
         "/usr/bin/ssh",
         *("-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"),
-        *("-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no"),
+        *("-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no", "-o", "LogLevel=INFO"),
         *("-o", "ControlMaster=auto", "-o", f"ControlPath={hop['socket']}", "-o", "ControlPersist=120"),
         *("-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"),
         *("-p", "2222", "-i", "/k/id_ed25519"),
         *("-W", "192.0.2.77:%p", "forwarder@100.64.0.7"),
+    ]
+    # The open makes the shared connection and is never a client of one; it carries the keepalives that end it once its
+    # far side is gone, and none of the user's forwards.
+    assert route.hop_open_argv(hop, "accept-new") == [
+        "/usr/bin/ssh",
+        *("-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new"),
+        *("-o", "UpdateHostKeys=no", "-o", "ForwardAgent=no", "-o", "LogLevel=INFO"),
+        *("-o", "ControlMaster=yes", "-o", f"ControlPath={hop['socket']}", "-o", "ControlPersist=120"),
+        *("-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3"),
+        *("-p", "2222", "-i", "/k/id_ed25519"),
+        *("-o", "ClearAllForwardings=yes", "-N", "forwarder@100.64.0.7"),
     ]
     unshared = route.hop_argv(hop, "192.0.2.77", "yes", port=22, shared=False)
     assert "ControlPath=none" in unshared and "ControlPersist=120" not in unshared
@@ -191,9 +203,19 @@ def test_a_person_s_ssh_is_given_the_hop_as_one_jump():
         ("-AqJ jump.example", "-J jump.example"),
         ("-o ServerAliveInterval=5 -J a,b", "-J a,b"),
         (["-o", "ProxyJump=jump.example"], "ProxyJump jump.example"),
+        ("-o '\"ProxyJump\" jump.example'", "ProxyJump jump.example"),  # a keyword in quotes
+        ("-o=ProxyJump=jump.example", "ProxyJump jump.example"),  # a leading =
         ("-o ProxyCommand=none", ""),
+        ("-o ProxyCommand=NONE", ""),  # ssh reads none in any case
+        ("-o ProxyCommand=None", ""),
         ("-o ProxyJump=none", ""),
         ("-o ProxyJump=NONE", ""),
+        ("-o ProxyJump=None", ""),
+        ("-J none", ""),
+        ("-J NONE", ""),
+        ("-o '\"ProxyCommand\" none'", ""),
+        ("-o=ProxyCommand=none", ""),
+        ("-o '' ProxyCommand=none", ""),  # a blank word, which Ansible's split drops
         ("-o ServerAliveInterval=5", ""),
         ("-i /k/-J -o Port=22", ""),  # a value that looks like the option is a value
         ("", ""),
@@ -237,6 +259,28 @@ def test_a_none_the_vm_is_given_comes_after_the_hop_and_is_left_alone():
     assert route.vm_hop(ROUTE, "192.0.2.77", "-o ProxyCommand=none")["option"]
 
 
+def test_which_vms_go_through_the_hop_and_which_bring_a_jump():
+    # By name, each with its address, a jump the VM is given in its common or extra args: as its groups give them for
+    # a VM published already in its group, else as every host is given them; a name takes the address provision.yml's
+    # play left on it, and a VM with no address is reached by nothing.
+    hostvars = {
+        "alpha": {"proxmox_vm_address": "192.0.2.70"},
+        "beta": {"claude_vm_ssh_given": "-o ProxyJump=jump.example", "proxmox_vm_address": "192.0.2.71"},
+        "gamma": {"ansible_ssh_extra_args": "-J other.example"},
+        "delta": {"proxmox_vm_address": ""},
+    }
+    vms = ["beta", "alpha", "delta", {"name": "gamma", "address": "192.0.2.72"}, {"name": "zeta", "address": ""}]
+    assert route.vm_route_vms(vms, hostvars) == [
+        {"name": "alpha", "address": "192.0.2.70", "jump": ""},
+        {"name": "beta", "address": "192.0.2.71", "jump": "ProxyJump jump.example"},
+        {"name": "gamma", "address": "192.0.2.72", "jump": "-J other.example"},
+    ]
+    # Not yet in its group: what every host is given.
+    assert route.vm_route_vms([{"name": "eps", "address": "192.0.2.73"}], {}, "-o ProxyJump=all.example") == [
+        {"name": "eps", "address": "192.0.2.73", "jump": "ProxyJump all.example"}
+    ]
+
+
 @pytest.mark.parametrize("value", ["forwarder", "", None])
 def test_vm_ssh_jump_is_one_account(value):
     assert route.account(value) == (value or "")
@@ -257,19 +301,32 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 
 
 # A stand-in for the hop's ssh, playing OpenSSH's control commands and its forward by a mode file: it logs each call,
-# a master is a file at the socket's path, an open makes one unless the mode says otherwise, and a forward ends as the
-# file "forward" says, else as the mode does.
+# a master is a file at the socket's path - one that holds "stale" is a socket nothing listens at - an open makes one
+# unless the mode says otherwise, and a forward ends as the file "forward" says, else as the mode does. An open beside
+# a live master is a client with ControlMaster=auto, which asks the host for a session (logged in "sessions"), and
+# with ControlMaster=yes says the socket exists and goes on as a connection of its own; at a stale one, auto takes the
+# path over and yes says it exists.
 STAND_IN = r"""#!/bin/sh
 here=$(dirname "$0")
 printf '%s\n' "$*" >> "$here/calls"
 socket=$(printf '%s\n' "$@" | sed -n 's/^ControlPath=//p' | head -1)
+master=$(printf '%s\n' "$@" | sed -n 's/^ControlMaster=//p' | head -1)
 mode=$(cat "$here/mode" 2>/dev/null)
 forward=$(cat "$here/forward" 2>/dev/null || printf '%s' "$mode")
 case " $* " in
-*" -O check "*) [ -e "$socket" ] && { echo "Master running (pid=1)" >&2; exit 0; }
+*" -O check "*) [ -e "$socket" ] && [ "$(cat "$socket")" = stale ] && {
+        echo "Control socket connect($socket): Connection refused" >&2; exit 255; }
+    [ -e "$socket" ] && { echo "Master running (pid=1)" >&2; exit 0; }
+    # appears: another run's open lands right after this check.
+    [ "$mode" = appears ] && : > "$socket"
     echo "Control socket connect($socket): No such file or directory" >&2; exit 255 ;;
 *" -O stop "*) rm -f "$socket"; echo "Stop listening request sent." >&2; exit 0 ;;
-*" -N "*) case $mode in
+*" -N "*) if [ -e "$socket" ] && [ "$master" = yes ]; then
+        echo "ControlSocket $socket already exists, disabling multiplexing" >&2; exec sleep 60
+    elif [ -e "$socket" ] && [ "$(cat "$socket")" != stale ]; then
+        echo "a session, by a client" >> "$here/sessions"; exit 0
+    fi
+    case $mode in
     race) : > "$socket"; echo "ControlSocket $socket already exists, disabling multiplexing" >&2; exec sleep 60 ;;
     hang-then-opened) : > "$socket"; exec sleep 60 ;;
     refused) echo "root@pve: Permission denied (publickey)." >&2; exit 255 ;;
@@ -348,6 +405,70 @@ def test_making_sure_never_opens_beside_a_live_connection(hop_at, tmp_path):
     assert "ClearAllForwardings=yes" in (tmp_path / "calls").read_text().splitlines()[1]
 
 
+def test_an_open_beside_a_connection_that_came_up_after_its_check_starts_no_session(hop_at, tmp_path):
+    # Another run's open lands between this one's check and its open: the open is that connection's master or nothing,
+    # never its client, which with -N would ask the host for a session (a shell on a full account).
+    started = time.monotonic()
+    assert route.hop_held(hop_at("appears"), "accept-new")["ok"]
+    assert time.monotonic() - started < 10
+    assert not (tmp_path / "sessions").exists()
+    assert "ControlMaster=yes" in (tmp_path / "calls").read_text().splitlines()[1]
+
+
+def test_a_socket_nothing_listens_at_is_removed_and_opened_again(hop_at, tmp_path, short_dir):
+    # A connection that ended without removing its socket: a master never takes a path over, so the file goes first.
+    hop = hop_at("open")
+    Path(hop["socket"]).write_text("stale")
+    assert route.hop_held(hop, "accept-new") == {"ok": True, "opened": True, "said": ""}
+    assert Path(hop["socket"]).read_text() == "" and not (tmp_path / "sessions").exists()
+
+
+def test_a_socket_whose_check_was_ended_at_its_limit_is_left(tmp_path, short_dir):
+    slow = _program(tmp_path / "ssh", "#!/bin/sh\necho 'Connection refused' >&2\nexec sleep 30\n")
+    hop = route.hop_settings(ssh=slow, user="root", host="pve", control_dir=short_dir)
+    Path(hop["socket"]).write_text("held by a check that never answered")
+    held = route.hop_held(hop, "accept-new", {"check": 0.5, "open": 0.5})
+    assert not held["ok"] and Path(hop["socket"]).exists()
+
+
+def test_a_control_directory_that_cannot_be_made_is_said_never_raised(tmp_path, short_dir):
+    (Path(short_dir) / "file").write_text("")
+    hop = route.hop_settings(ssh="/bin/false", user="root", host="pve", control_dir=f"{short_dir}/file/cp")
+    held = route.hop_held(hop, "accept-new")
+    assert not held["ok"] and held["said"].startswith(f"the control directory {short_dir}/file/cp: ")
+
+
+def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeypatch):
+    pid_file = tmp_path / "pid"
+    program = _program(tmp_path / "slow", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    real_sleep = time.sleep
+
+    def interrupted(seconds):
+        if pid_file.exists() and pid_file.read_text().strip():
+            raise KeyboardInterrupt
+        real_sleep(seconds)
+
+    monkeypatch.setattr(route.time, "sleep", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        route._run([program], 30)
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+
+
+def test_a_name_that_gets_no_answer_in_time_does_not_resolve(monkeypatch):
+    monkeypatch.setattr(route.socket, "getaddrinfo", lambda *args, **kwargs: time.sleep(5) or [])
+    started = time.monotonic()
+    assert route.addresses_of("pve.example", limit=0.3) == []
+    assert time.monotonic() - started < 2
+
+
+def test_a_refused_setting_of_the_hop_names_where_to_change_it():
+    with pytest.raises(route.HopRefused) as refused:
+        route.hop_settings(host="pve", key="/keys/a b", control_dir="/tmp/cp")
+    assert "set ansible_ssh_private_key_file on the Proxmox host's entry" in str(refused.value)
+    assert str(refused.value).endswith("or set vm_ssh_route: direct")
+
+
 def test_an_open_that_lost_the_race_is_ended_at_once_and_the_winner_s_connection_found(hop_at):
     started = time.monotonic()
     assert route.hop_held(hop_at("race"), "accept-new", {"open": 30})["ok"]
@@ -386,12 +507,15 @@ def test_a_program_that_is_not_there_is_ssh_s_failure_said(tmp_path):
     assert verdict["why"] == "failed" and "absent" in verdict["said"]
 
 
-def test_the_real_ssh_hands_the_hop_s_command_its_port_and_nothing_else(tmp_path):
+@pytest.mark.parametrize("shell", ["/bin/sh", "/bin/bash", "/bin/dash", "/bin/zsh", "/usr/bin/zsh"])
+def test_the_real_ssh_hands_the_hop_s_command_its_port_and_nothing_else(tmp_path, shell):
     # ssh -G cannot hold this: it passes a ProxyCommand with a bad token. The real ssh runs it, through the shell,
     # after its own expansion; the hop's ssh is a stand-in that records what it was given.
     ssh = shutil.which("ssh")
     if not ssh:
         pytest.skip("no ssh client here")
+    if not os.access(shell, os.X_OK):
+        pytest.skip(f"no {shell} here")
     record = tmp_path / "argv"
     recorder = f'#!/bin/sh\nfor a in "$@"; do printf "%s\\n" "$a"; done > {record}\nexit 1\n'
     inner = _program(tmp_path / "inner-ssh", recorder)
@@ -400,7 +524,8 @@ def test_the_real_ssh_hands_the_hop_s_command_its_port_and_nothing_else(tmp_path
     words = shlex.split(route.hop_option(hop, "192.0.2.77", "accept-new"))
     argv = [ssh, "-F", str(tmp_path / "ssh_config"), "-o", "BatchMode=yes", "-o", "UserKnownHostsFile=/dev/null"]
     argv += ["-o", "GlobalKnownHostsFile=/dev/null", *words, "-p", "2222", "dev@192.0.2.77", "true"]
-    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path), "SHELL": "/bin/sh"}
+    # ssh runs a ProxyCommand through the account's shell: each that a person may have, the words the same.
+    env = {"PATH": os.environ.get("PATH", ""), "HOME": str(tmp_path), "SHELL": shell}
     subprocess.run(argv, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=30, check=False)
     assert record.read_text().splitlines() == [*route.hop_argv(hop, "192.0.2.77", "accept-new", port=2222)[1:]]
 
@@ -433,3 +558,101 @@ def test_the_words_of_a_hop_that_cannot_be_used_name_every_reply_and_the_way_out
     # Under host, no word of auto's.
     assert "vm_ssh_route: direct" not in forbidden
     assert route.forward_said(ROUTE, "alpha", "192.0.2.77", {"why": "answered"}) == ""
+
+
+def test_the_login_s_words_name_the_hop_s_own_port_and_key():
+    hop = route.hop_settings(user="forwarder", host="100.64.0.7", port=2222, key="/k/id_ed25519", control_dir="/tmp/cp")
+    login = route.login_said({"route": "host", "hop": hop, "policy": "accept-new"}, "Permission denied (publickey).")
+    assert "`ssh -p 2222 -i /k/id_ed25519 forwarder@100.64.0.7` here shows which" in login
+
+
+def test_a_changed_host_key_is_said_by_ssh_s_last_lines_without_its_banner():
+    said = "\n".join(
+        [
+            "@" * 59,
+            "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @",
+            "@" * 59,
+            "IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!",
+            "Someone could be eavesdropping on you right now (man-in-the-middle attack)!",
+            "It is also possible that a host key has just been changed.",
+            "The fingerprint for the ED25519 key sent by the remote host is",
+            "SHA256:" + "A" * 43 + ".",
+            "Please contact your system administrator.",
+            "Add correct host key in /home/dev/.ssh/known_hosts to get rid of this message.",
+            "Offending ED25519 key in /home/dev/.ssh/known_hosts:3",
+            "  remove with:",
+            "  ssh-keygen -f '/home/dev/.ssh/known_hosts' -R '100.64.0.7'",
+            "Host key for 100.64.0.7 has changed and you have requested strict checking.",
+            "Host key verification failed.",
+        ]
+    )
+    login = route.login_said(ROUTE, said)
+    assert "@" * 3 not in login and "WARNING" not in login
+    assert "Host key for 100.64.0.7 has changed and you have requested strict checking. Host key verification" in login
+    assert "ssh-keygen -f '/home/dev/.ssh/known_hosts' -R '100.64.0.7'" in login
+
+
+def _real_ssh() -> str:
+    ssh = shutil.which("ssh")
+    if not ssh:
+        pytest.skip("no ssh client here")
+    return ssh
+
+
+def test_ssh_itself_shows_the_hop_s_command_word_for_word():
+    shown = route.ssh_shown(_real_ssh(), shlex.split(route.hop_option(HOP, "192.0.2.77", "accept-new")), "192.0.2.77")
+    assert shown["ok"] and shown["proxyjump"] == ""
+    assert shown["proxycommand"] == " ".join(route.hop_argv(HOP, "192.0.2.77", "accept-new"))
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", True, shown) == ""
+
+
+# What ssh takes, for a VM given the hop after these words: each before the hop wins, or none leaves no proxy at all.
+@pytest.mark.parametrize(
+    ("before", "why"),
+    [
+        (["-o", "ProxyCommand=none"], "ssh would take no proxy for it, dialling it from here, not through the hop"),
+        (["-o", "ProxyCommand=NONE"], "ssh would take no proxy for it, dialling it from here, not through the hop"),
+        (["-o", '"ProxyCommand" none'], "ssh would take no proxy for it, dialling it from here, not through the hop"),
+        (["-o=ProxyCommand=none"], "ssh would take no proxy for it, dialling it from here, not through the hop"),
+        (["-o", "ProxyJump=bastion"], "ssh would take ProxyJump bastion for it, not the hop"),
+        (["-o", "ProxyCommand=nc %h %p"], "ssh would take ProxyCommand nc %h %p for it, not the hop"),
+    ],
+)
+def test_a_proxy_before_the_hop_is_what_ssh_itself_shows_and_refused(before, why):
+    words = [*before, *shlex.split(route.hop_option(HOP, "192.0.2.77", "accept-new"))]
+    shown = route.ssh_shown(_real_ssh(), words, "192.0.2.77")
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", True, shown) == why
+
+
+def test_a_jump_after_the_hop_is_ssh_s_refusal_of_the_line():
+    words = [*shlex.split(route.hop_option(HOP, "192.0.2.77", "accept-new")), "-J", "none"]
+    shown = route.ssh_shown(_real_ssh(), words, "192.0.2.77")
+    assert not shown["ok"] and "Cannot specify -J with ProxyCommand" in shown["said"]
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", True, shown).startswith("ssh refused its options: ")
+
+
+def test_a_vm_given_a_jump_must_show_one_on_its_whole_line_and_on_its_own_args_alone():
+    ssh = _real_ssh()
+    jump = route.ssh_shown(ssh, ["-o", "ProxyJump=bastion"], "192.0.2.77")
+    assert jump["proxyjump"] == "bastion"
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", False, jump, alone=jump) == ""
+    # ssh_args holds a none, which ssh reads before the jump the VM is given.
+    beaten = route.ssh_shown(ssh, ["-o", "ProxyCommand=None", "-o", "ProxyJump=bastion"], "192.0.2.77")
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", False, beaten, alone=jump) == (
+        "it is given a jump of its own, and ssh would take none, dialling it from here"
+    )
+    plain = route.ssh_shown(ssh, [], "192.0.2.77")
+    assert "common and extra args alone" in route.vm_route_refusal(ROUTE, "192.0.2.77", False, jump, alone=plain)
+
+
+def test_a_vm_whose_ansible_host_is_a_name_is_refused_by_name():
+    shown = {"ok": True, "proxycommand": "", "proxyjump": "", "said": ""}
+    assert route.vm_route_refusal(ROUTE, "vm01.lan", True, shown) == (
+        "its ansible_host, vm01.lan, is not the address it was published with"
+    )
+
+
+def test_an_ssh_that_cannot_be_asked_is_a_refusal(tmp_path):
+    shown = route.ssh_shown(str(tmp_path / "absent"), [], "192.0.2.77")
+    assert not shown["ok"] and "absent" in shown["said"]
+    assert route.vm_route_refusal(ROUTE, "192.0.2.77", False, shown).startswith("ssh refused its options: ")
