@@ -1471,3 +1471,37 @@ failures are put into words (`proxmox_untrusted_hint` in `lib/claude_vm/proxmox.
 `init_check.yml` and `just status`), never retried without checking. Covered by `tests/unit/test_proxmox_trust.py`,
 against a local TLS server serving a node's certificate under a CA made as Proxmox makes one (`tests/unit/pki.py`),
 and `tests/unit/test_init_check.py`, which runs the step against the fake Proxmox serving the same.
+
+## 7.17 `lib/claude_vm/route.py` — how this machine reaches a host's VMs
+
+Where this machine reaches the Proxmox host but not the network its VMs are on - the host on a tailnet, no subnet
+router - every SSH connection to a VM can be carried through the host's own sshd, as a forward. The module holds what
+that takes, and runs nothing of Ansible's.
+
+- **The rule.** `route_rule(setting, addresses)`: `direct` or `host` as named, and under `auto`, `host` where every
+  address ssh dials for the Proxmox host is a tailnet one (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and there is at
+  least one, `direct` otherwise - never a fallback either way. `route_settle` works out those addresses: the host as
+  `ssh -G` shows it, so a `HostName` of the user's counts, else as written; then its addresses here, now.
+- **The hop.** `hop_settings` holds each of its settings - the ssh program, user, host, port, key file, the control
+  directory - to one fixed set of characters, never quoted, and refuses any other by name: ssh runs a `ProxyCommand`
+  through the shell after its own `%` expansion. Its shared connection's socket is named by a digest of the hop, held
+  to 86 bytes, macOS's 103 less the 17 ssh adds while it binds one. `hop_argv` is its command, to one IPv4 address and
+  nothing else, the one value a VM supplies: `-W <address>:%p`, never `%h`, which the far end would resolve.
+  `ControlPath` and `ControlPersist` are both in it, so that Ansible, which scans a VM's words for the second, still
+  adds the VM's own `ControlPath`. The host key policy is the caller's.
+- **What a VM is given.** `ssh_proxies` finds every proxy option among ssh arguments in any of ssh's spellings,
+  `-o Name=value`, `-oName=value`, `-o 'Name value'`, and `-J` among flags run together. `vm_hop(route, address,
+  given, extra)` is a VM's hop: the words its common args gain, its socket's part of the name, and `-J user@host` for a
+  person's own ssh - none where the route is direct, the VM has no address, or it brings a jump of its own
+  (`ssh_jump`: a `ProxyCommand` of `none` is no jump). The filters of `filter_plugins/route.py`.
+- **The hop's own ssh, under a hard limit.** `hop_check` (`-O check`, 5 s), `hop_held` (making sure of the shared
+  connection: `-O check` first, since `-N` beside a live connection starts a session on the host; then an open with
+  `ClearAllForwardings`, ended at 20 s or as soon as it says it lost the race to another, which it never returns from;
+  then `-O check` again), `hop_stop` (`-O stop`, never `-O exit`, which cuts the forwards another run has on it) and
+  `hop_forward` (one forward on a connection of its own, 15 s). Each reads ssh's exit status and standard error, never
+  its standard output: what a forward carries is the far end's to write. `forward_verdict` says the hop unusable only
+  for `administratively prohibited` or ssh's own failure; a far end that refused or said nothing is the far end's
+  doing.
+
+Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, and one run
+of the real ssh, given no config, whose `ProxyCommand` reaches a recorder.

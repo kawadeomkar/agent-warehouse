@@ -170,6 +170,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   library alone (§7.15);
                                   trust.py, which certificate makes the Proxmox API's verify, as the run's own clients
                                   verify it, for just init to keep (§7.16);
+                                  route.py, how this machine reaches a host's VMs: the rule, the hop through the
+                                  Proxmox host's sshd, the proxy options a VM is given, the hop's own ssh under hard
+                                  limits (§7.17);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
@@ -236,6 +239,8 @@ filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and check
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one;
                                   and of trust.py: proxmox_trust_pick and proxmox_trust_said, the certificate kept
                                   and why the others did not verify (§7.16)
+filter_plugins/route.py           the adapter of lib/claude_vm/route.py: vm_hop, a VM's hop through the Proxmox
+                                  host; ssh_jump and ssh_proxy_any, the proxy options among ssh arguments (§7.17)
 filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
                                   signature checked with a vendored key, here (§7.15)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
