@@ -211,18 +211,20 @@ lock | unheld)
       busy
     fi
     # Its process is gone: taken over - the record removed, and written anew
-    # above - by one run at a time, mkdir being the mutex, and only while the
-    # record is still there and its process still gone. Under the mutex no
-    # other run removes it, so none can have written its own in its place
-    # between that check and the removal; an empty record is one being
-    # written, never taken over.
-    if mkdir "$file.takeover" 2>/dev/null; then
+    # above - by one run at a time, and only while the record is still there
+    # and its process still gone. The mutex is <file>.takeover, created O_EXCL
+    # (set -C) as the record is, never by mkdir: uutils' (Ubuntu 26.04's
+    # coreutils) says it made a directory to two runs that race to make it,
+    # and both took the lock over. Under the mutex no other run removes the
+    # record, so none can have written its own in its place between that check
+    # and the removal; an empty record is one being written, never taken over.
+    if (set -C; : > "$file.takeover") 2>/dev/null; then
       taken=
       if [ -s "$file" ] && ! holder; then
         rm -f "$file"
         taken=yes
       fi
-      rmdir "$file.takeover"
+      rm -f "$file.takeover"
       [ -z "$taken" ] || continue
     fi
     sleep 0.1

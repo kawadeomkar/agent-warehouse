@@ -18,6 +18,7 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
 from test_justfile import JUST, REPO, _env, _just, _output, _recording, _runs, _stand_in
 
 CHECK = REPO / "tools" / "check"
@@ -144,6 +145,14 @@ def _gone(lock: Path) -> None:
     _record(lock, gone.pid, "Thu Jan  1 00:00:00 1970")
 
 
+def test_the_takeover_s_mutex_is_made_by_the_shell_never_by_mkdir():
+    # uutils' mkdir (Ubuntu 26.04's coreutils, 0.10.0) said it made a directory to more than one of eight runs racing
+    # to make it, in 172 rounds of 300: a mutex of it let two runs take one stale record over. The shell's set -C
+    # opens O_EXCL, as the record is written.
+    lock = CHECK.read_text().split("lock | unheld)", 1)[1].split("\n  ;;\n", 1)[0]
+    assert 'mkdir "$file.takeover"' not in lock and '(set -C; : > "$file.takeover")' in lock
+
+
 def test_a_stale_record_is_taken_over_by_one_run_alone(tmp_path):
     # Runs that start together all find the record stale: one takes it over and the rest find it held - never two
     # holding it, as when one removed the record another had just written in the stale one's place.
@@ -168,14 +177,17 @@ def test_a_stale_record_is_taken_over_by_one_run_alone(tmp_path):
             holder.wait()
 
 
-def test_a_takeover_left_half_way_is_said_and_a_record_being_written_never_taken_over(tmp_path):
+@pytest.mark.parametrize("left", ["file", "directory"])
+def test_a_takeover_left_half_way_is_said_and_a_record_being_written_never_taken_over(tmp_path, left):
+    # The mutex is a file; a directory is what an earlier version left there.
     lock = tmp_path / "run.lock"
     _gone(lock)
-    (tmp_path / "run.lock.takeover").mkdir()
+    mutex = tmp_path / "run.lock.takeover"
+    mutex.write_text("") if left == "file" else mutex.mkdir()
     result = subprocess.run([str(CHECK), "lock", str(lock), str(os.getpid()), "deploy"], capture_output=True, text=True)
     assert result.returncode != 0 and "run.lock.takeover" in result.stderr
     # An empty record is one whose run has created it and not yet written it.
-    (tmp_path / "run.lock.takeover").rmdir()
+    mutex.unlink() if left == "file" else mutex.rmdir()
     lock.write_text("")
     result = subprocess.run([str(CHECK), "lock", str(lock), str(os.getpid()), "deploy"], capture_output=True, text=True)
     assert result.returncode != 0 and lock.read_text() == ""
