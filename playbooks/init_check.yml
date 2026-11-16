@@ -32,9 +32,11 @@
 # store verifies the API. A certificate that verifies but is not kept is
 # copied into the checkout's .cache for the rest of the run to be checked
 # against, and removed. Everything else is a read (tests/unit/test_init_check.py
-# holds both) - over root SSH, hostname -s and the host's two certificates - and
-# root SSH may add the host's key to ~/.ssh/known_hosts, as the template build
-# would, one of the two files the project writes there. Every name it sets
+# holds both) - over root SSH, hostname -s and the host's two certificates; and
+# where the VMs will be reached through the host (vm_ssh_route), the hop's
+# login, an SSH connection that runs nothing - and root SSH, or the hop's, may
+# add the host's key to ~/.ssh/known_hosts, as the template build would, one of
+# the two files the project writes there. Every name it sets
 # starts with init_, like init_settings.yml's, whose init_ask, init_given,
 # files, placeholders and reads of local.yml and the vault it shares through
 # vars/init.yml.
@@ -728,6 +730,24 @@
         proxmox_template_drift_config: "{{ init_template_config.json.data | default({}) }}"
       when: init_template_built | bool and init_template_config.status | default(0) == 200
 
+    # ------------------------------------------------------------- the route ---
+    # How just deploy will reach the VMs (vm_ssh_route, lib/claude_vm/route.py):
+    # through the Proxmox host, its login is checked below, after root SSH, as a
+    # run's start makes it. No forward: no VM's address is read here, and the
+    # first run that has one makes it. A hop setting that is not one plain word
+    # (vm_ssh_jump with an @ in it) is a problem of its own.
+    - name: Settle how just deploy will reach the VMs
+      vm_route:
+        do: settle
+        setting: "{{ vm_ssh_route | default('auto') }}"
+        host: "{{ init_proxmox_host }}"
+        jump: >-
+          {{ hostvars[init_proxmox_host].vm_ssh_jump | default('', true) if init_proxmox_host | length > 0 else '' }}
+        policy: accept-new
+      register: init_route
+      check_mode: false
+      failed_when: false
+
     - name: Record the template's result
       ansible.builtin.set_fact:
         init_results: "{{ init_results + [init_template_result] }}"
@@ -736,6 +756,9 @@
           {{ init_vmid_holder.node | default('') ~ (', which is down' if init_vmid_holder.node | default('')
              in init_down_nodes else '') }}
         init_template_differences: "{{ proxmox_template_drift | default([]) | join('; ') }}"
+        # Through the Proxmox host, just deploy reaches it over SSH all the same, as the VMs' hop.
+        init_hop_beside: >-
+          {{ ' but the hop to the VMs' if (init_route.route | default({})).route | default('direct') == 'host' else '' }}
         init_template_result: >-
           {{ {'ok': false,
               'text': 'the template ' ~ proxmox_template_name ~ ' on ' ~ init_template.node ~ ' keeps no record of'
@@ -749,11 +772,11 @@
              {'ok': true,
               'text': 'the template ' ~ proxmox_template_name ~ ' on ' ~ init_template.node ~ ' differs from its'
                       ~ ' settings (' ~ init_template_differences ~ '), and is kept as it is since'
-                      ~ ' proxmox_template_rebuild is false, so just deploy needs no root SSH'}
+                      ~ ' proxmox_template_rebuild is false, so just deploy needs no root SSH' ~ init_hop_beside}
              if init_template_built | bool and init_template_differences | length > 0 else
              {'ok': true,
               'text': 'the template ' ~ proxmox_template_name ~ ' is on ' ~ init_template.node
-                      ~ ', so just deploy needs no root SSH'}
+                      ~ ', so just deploy needs no root SSH' ~ init_hop_beside}
              if init_template_built | bool else
              {'ok': false,
               'text': 'there is no template ' ~ proxmox_template_name ~ ' yet, and VMID ' ~ proxmox_template_vmid
@@ -810,6 +833,32 @@
         # A boolean already, so read as it is: under | bool, ansible-lint, which cannot render it, saw a string.
         init_ssh_ok: "{{ not (init_ssh.unreachable | default(false)) and init_ssh.rc | default(1) == 0 }}"
       when: init_ssh_wanted | bool
+
+    # --------------------------------------------------------------- the hop ---
+    # Where the route is the Proxmox host, its login as a run's start makes it:
+    # unusable, just deploy would stop at its first step, so it is a problem.
+    - name: Log in to the Proxmox host as the VMs' hop
+      vm_route:
+        do: login
+        route: "{{ init_route.route }}"
+      register: init_hop
+      check_mode: false
+      failed_when: false
+      when: (init_route.route | default({})).route | default('direct') == 'host'
+
+    # From the action's own verdict (ok): failed_when false clears the result's failed.
+    - name: Record the route's result
+      ansible.builtin.set_fact:
+        init_results: >-
+          {{ init_results + [{'ok': false, 'text': init_route.msg | default('the route could not be settled')
+                                                  | plain_text | trim}]
+             if init_route.route is not defined else
+             init_results + [{'ok': init_hop.ok | default(true) | bool,
+                              'text': (init_hop.msg | default('') | plain_text | trim)
+                                      if not init_hop.ok | default(true) | bool
+                                      else 'the VMs are reached through ' ~ init_route.route.hop.label
+                                           ~ ' (vm_ssh_route: ' ~ init_route.route.setting ~ '), and its login works'}]
+             if init_hop is not skipped else init_results }}
 
     # --------------------------------------------------------------- the node ---
     - name: Record the node's result

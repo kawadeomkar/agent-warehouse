@@ -670,7 +670,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `copy` under `init_ask` or `--certificate`'s fingerprint being the certificate's, and, where a certificate
       verifies but is not kept, a copy of it in `.cache/init/` (refused by `tests/check_no_local_files.sh`) that the
       rest of that run is checked against, removed before the report; every other task is a read - over root SSH,
-      `hostname -s` and the host's two certificates, each looked at before it is read.
+      `hostname -s` and the host's two certificates, each looked at before it is read; and where the VMs will be
+      reached through the host (`vm_ssh_route`), the hop's login through the `vm_route` action, an SSH connection that
+      runs nothing, never a forward. A login that fails is a problem line, which fails `just init`.
     - The certificate is worked out at every run before the first request that carries the token, by probes that send
       none (`lib/claude_vm/trust.py`): what checking uses now first, then the host's certificates read over root SSH.
       A file kept holds only certificates, the node's without its chain, and comes with `proxmox_validate_certs: true`

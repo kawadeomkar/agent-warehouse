@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import ast
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -113,6 +115,9 @@ def _inventory_of(
     local = group_vars / "local.yml"
     if not local.exists():
         test_settings = {
+            # Straight to each VM: auto would ask this machine's ssh where it dials the host. A test of the route
+            # through it sets its own.
+            "vm_ssh_route": "direct",
             "proxmox_api_port": _port(base),
             "vault_proxmox_api_token_secret": PVE_SECRET,
             "vault_github_username": "octocat",
@@ -289,6 +294,45 @@ def test_every_check_passes_on_a_host_with_its_template_and_every_default_fits(t
     # The one step left, said last and kept for NEXT STEPS.
     assert said.rstrip().endswith("\n" + DEPLOY_NEXT)
     assert _init_next(report) == {"init_check": DEPLOY_NEXT}
+
+
+@pytest.mark.parametrize("login", ["works", "refused"])
+def test_where_the_vms_are_reached_through_the_host_its_login_is_checked(tmp_path, fake_pve, login) -> None:
+    # As a run's start makes it, through the vm_route action: an SSH connection that runs nothing, and no forward. A
+    # login that fails is a problem, since just deploy would stop at its first step.
+    from test_route import STAND_IN
+
+    sockets = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        hop = tmp_path / "hop"
+        hop.mkdir()
+        _executable(hop / "ssh", STAND_IN)
+        (hop / "mode").write_text("open" if login == "works" else "refused")
+        settings = {
+            "vm_ssh_route": "host",
+            "ansible_ssh_executable": str(hop / "ssh"),
+            "ansible_control_path_dir": sockets,
+        }
+        root = tmp_path / "run"
+        report = _check(root, fake_pve, "ssh", settings, extra={"init_ask": True})
+    finally:
+        shutil.rmtree(sockets, ignore_errors=True)
+    said = _said(report)
+    assert said, _failures(report)
+    calls = (hop / "calls").read_text()
+    assert " -W " not in calls and " -O check " in calls
+    assert (
+        "ok   the template ubuntu-24.04-cloudinit is on pve, so just deploy needs no root SSH but the hop to the VMs"
+        in said
+    )
+    if login == "works":
+        assert report["rc"] == 0, _failures(report)
+        assert "ok   the VMs are reached through pve (root@127.0.0.1) (vm_ssh_route: host), and its login works" in said
+    else:
+        assert report["rc"] != 0
+        assert (
+            "!!   VMs are reached through pve (root@127.0.0.1) (vm_ssh_route: host), and ssh could not log in" in said
+        )
 
 
 def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
@@ -1190,6 +1234,7 @@ def test_a_certificate_that_changed_is_put_in_place_on_a_yes_that_showed_both_fi
 
 # ------------------------------------------------------------------- static ---
 READ_ONLY = {
+    "vm_route",
     "ansible.builtin.uri",
     "ansible.builtin.command",
     "ansible.builtin.find",
@@ -1271,6 +1316,9 @@ def test_every_task_is_a_read_but_the_settings_written():
             assert task[module].get("method", "GET") == "GET" and "dest" not in task[module], task["name"]
         if module == "ansible.builtin.command":
             assert task[module] == {"argv": ["hostname", "-s"]}, task["name"]
+        if module == "vm_route":
+            # The route settled, and the hop's login: an SSH connection that runs nothing. Never a forward.
+            assert task[module]["do"] in ("settle", "login"), task["name"]
         if module in ("ansible.builtin.import_tasks", "ansible.builtin.include_tasks"):
             assert task[module] in INCLUDED, task["name"]
         if module == "ansible.builtin.include_role":
