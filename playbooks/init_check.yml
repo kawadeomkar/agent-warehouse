@@ -735,11 +735,15 @@
     # through the Proxmox host, its login is checked below, after root SSH, as a
     # run's start makes it. No forward: no VM's address is read here, and the
     # first run that has one makes it. A hop setting that is not one plain word
-    # (vm_ssh_jump with an @ in it) is a problem of its own.
+    # (vm_ssh_jump with an @ in it) is a problem of its own. Another host's is
+    # its own local.yml's, never the shared one's, which no run against it may
+    # read (a setting of one network: lib/claude_vm/hosts/kinds.py).
     - name: Settle how just deploy will reach the VMs
       vm_route:
         do: settle
-        setting: "{{ vm_ssh_route | default('auto') }}"
+        setting: >-
+          {{ (init_local_settings.vm_ssh_route | default('auto', true)) if init_host_name | length > 0
+             else vm_ssh_route | default('auto') }}
         host: "{{ init_proxmox_host }}"
         jump: >-
           {{ hostvars[init_proxmox_host].vm_ssh_jump | default('', true) if init_proxmox_host | length > 0 else '' }}
@@ -836,7 +840,22 @@
 
     # --------------------------------------------------------------- the hop ---
     # Where the route is the Proxmox host, its login as a run's start makes it:
-    # unusable, just deploy would stop at its first step, so it is a problem.
+    # unusable, just deploy would stop, so it is a problem. Where every host is
+    # given a jump of its own (as localhost reads what every host is given), a
+    # run's start puts the login off, and a VM that brings its own takes no
+    # hop: only the aliases go through it, unless claude_ssh_options names a
+    # jump too, when nothing needs the hop at all and no login is made.
+    - name: Work out what needs the hop
+      ansible.builtin.set_fact:
+        init_every_jump: >-
+          {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                                                      plugin_type='connection', plugin_name='ssh'))
+             | ssh_jump(ansible_ssh_extra_args | default('')) }}
+        init_alias_jump: >-
+          {{ (claude_ssh_options | default({})).keys() | map('lower') | select('in', ['proxyjump', 'proxycommand'])
+             | list | length > 0 }}
+      check_mode: false
+
     - name: Log in to the Proxmox host as the VMs' hop
       vm_route:
         do: login
@@ -844,20 +863,34 @@
       register: init_hop
       check_mode: false
       failed_when: false
-      when: (init_route.route | default({})).route | default('direct') == 'host'
+      when:
+        - (init_route.route | default({})).route | default('direct') == 'host'
+        - not (init_every_jump | length > 0 and init_alias_jump | bool)
 
     # From the action's own verdict (ok): failed_when false clears the result's failed.
     - name: Record the route's result
+      vars:
+        init_route_through: >-
+          {{ init_route.route.hop.label | default('') ~ ' (vm_ssh_route: ' ~ init_route.route.setting | default('')
+             ~ ')' }}
+        init_route_jumped: >-
+          {{ 'the VMs are reached by the jump every host is given (' ~ init_every_jump | one_line(120) ~ ')' }}
       ansible.builtin.set_fact:
         init_results: >-
           {{ init_results + [{'ok': false, 'text': init_route.msg | default('the route could not be settled')
                                                   | plain_text | trim}]
              if init_route.route is not defined else
+             init_results + [{'ok': true, 'text': init_route_jumped ~ ', and the aliases by the one claude_ssh_options'
+                                                  ~ ' names, so just deploy needs no hop through ' ~ init_route_through}]
+             if init_hop is skipped and (init_route.route | default({})).route | default('direct') == 'host' else
              init_results + [{'ok': init_hop.ok | default(true) | bool,
                               'text': (init_hop.msg | default('') | plain_text | trim)
                                       if not init_hop.ok | default(true) | bool
-                                      else 'the VMs are reached through ' ~ init_route.route.hop.label
-                                           ~ ' (vm_ssh_route: ' ~ init_route.route.setting ~ '), and its login works'}]
+                                      else (init_route_jumped ~ ', and only the aliases go through '
+                                            ~ init_route_through ~ ', whose login works')
+                                      if init_every_jump | length > 0
+                                      else 'the VMs are reached through ' ~ init_route_through
+                                           ~ ', and its login works'}]
              if init_hop is not skipped else init_results }}
 
     # --------------------------------------------------------------- the node ---

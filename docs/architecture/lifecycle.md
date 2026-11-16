@@ -1349,8 +1349,11 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    **The route**: where `just deploy` will reach the VMs through the host
    ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), the hop's login, as a run's start makes it - an
    SSH connection that runs nothing, through the `vm_route` action. A login that fails is a problem (`!!`): `just
-   deploy` would stop at its first step. No forward is made, since no VM's address is read here; the first run that
-   has one makes it. Through the host, a template already built leaves `just deploy` no root SSH but the hop's.
+   deploy` would stop. Where every host is given a jump of its own, only the aliases go through the hop, and the line
+   says so; where `claude_ssh_options` names a jump too, nothing needs the hop and no login is made. Another host's
+   route is its own `local.yml`'s, never the shared one's. No forward is made, since no VM's address is read here; the
+   first run that has one makes it. Through the host, a template already built leaves `just deploy` no root SSH but
+   the hop's.
 8. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
    or the node root SSH said the host is. Equal to `proxmox_node`, it is `ok`. While `proxmox_node` is the
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
