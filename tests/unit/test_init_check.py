@@ -149,6 +149,8 @@ def _inventory_of(
         "custom": str(etc / "local" / "pveproxy-ssl.pem"),
         "node": str(etc / "local" / "pve-ssl.pem"),
     }
+    # The copy a run is checked against where it keeps nothing: never the checkout's .cache.
+    paths["init_trust_run_file"] = str(root / "cache" / "init" / "proxmox-trust.pem")
     for kind, text in (trust or {}).items():
         Path(paths["init_trust_paths"][kind]).parent.mkdir(parents=True, exist_ok=True)
         Path(paths["init_trust_paths"][kind]).write_text(text)
@@ -958,10 +960,19 @@ def test_without_a_terminal_the_certificate_is_said_and_nothing_written(tmp_path
     assert not (root / "proxmox-trust.pem").exists() and "proxmox_validate_certs" not in _local_settings(root)
     fingerprint = trust.pem_fingerprint(pki["ca"])
     note = (
-        f"Proxmox's certificate verifies against its CA (SHA-256 {fingerprint}), read over root SSH, but nothing"
-        f" checks it: just init at a terminal keeps it in {KEPT}, and so does just init --certificate {fingerprint}"
+        f"Proxmox's certificate verifies against its CA (SHA-256 {fingerprint}), read over root SSH, and this run"
+        f" checked it, but nothing keeps it for the next: just init at a terminal keeps it in {KEPT}, and so does"
+        f" just init --certificate {fingerprint}"
     )
     assert f"note {note}" in _said(report)
+    # Nothing kept, but the token never goes out unchecked with a certificate that verifies in hand: the rest of the
+    # run is checked against a copy of its own, removed as it ends.
+    run_copy = root / "cache" / "init" / "proxmox-trust.pem"
+    facts = {name: result.get("ansible_facts") for name, _, result in _results(report)}
+    assert facts["Check it against the run's copy"] == {"proxmox_api_ca_path": str(run_copy)}
+    assert facts["Check the API's certificate for the rest of the run"] == {"proxmox_validate_certs": True}
+    assert f"ok   Proxmox VE 8.2.4 at 127.0.0.1:{_port(base)} accepted ansible@pve!ansible" in _said(report)
+    assert not run_copy.exists()
     # A note fails nothing, and is kept for NEXT STEPS whatever else is.
     assert _init_next(report) == {"init_check": f"{DEPLOY_NEXT}\n  note {note}"}
 
@@ -1205,6 +1216,21 @@ INCLUDED = {"tasks/cluster_vms.yml", "tasks/init_choose.yml", "tasks/init_local_
             "init_local_setting.yml", "tasks/init_ask.yml"}  # fmt: skip
 
 
+RUN_COPY = {
+    "Make the folder the run's copy of the certificate goes in": {
+        "path": "{{ init_trust_run_file | dirname }}",
+        "state": "directory",
+        "mode": "0700",
+    },
+    "Copy the certificate that verifies for this run alone": {
+        "content": "{{ init_trust.pem }}",
+        "dest": "{{ init_trust_run_file }}",
+        "mode": "0600",
+    },
+    "Remove the run's copy of the certificate": {"path": "{{ init_trust_run_file }}", "state": "absent"},
+}
+
+
 def test_every_task_is_a_read_but_the_settings_written():
     # A task reads, records for NEXT STEPS, or includes the cluster listing, a
     # choice, a question or local.yml's writer - the one thing that writes, a
@@ -1216,6 +1242,16 @@ def test_every_task_is_a_read_but_the_settings_written():
             assert set(task) <= TASK_KEYS | {"block", "rescue", "always"}, task["name"]
             continue
         modules = set(task) - TASK_KEYS
+        if (
+            len(modules) == 1
+            and modules <= {"ansible.builtin.copy", "ansible.builtin.file"}
+            and task["name"] in RUN_COPY
+        ):
+            # The copy of a certificate that verifies but is not kept, which the rest of the run is checked against,
+            # its folder and its removal: in a file of the run's own, never the trust file.
+            assert task[next(iter(modules))] == RUN_COPY[task["name"]], task["name"]
+            assert task["when"] == "init_trust_run_copy | default(false) | bool", task["name"]
+            continue
         if modules == {"ansible.builtin.copy"}:
             # The trust file, from the certificate kept: over one there only where it replaces one that no longer
             # verifies, which the run settled on a yes or the fingerprint given (init_trust_keep_file).
@@ -1254,7 +1290,7 @@ def test_a_setting_is_written_only_at_a_terminal_or_as_given():
         for path in (PLAYBOOK, CHOOSE)
         for task in _every_task(yaml.safe_load(path.read_text()))
         if str(task.get("ansible.builtin.include_tasks", "")).endswith("init_local_setting.yml")
-        or "ansible.builtin.copy" in task
+        or ("ansible.builtin.copy" in task and task["name"] not in RUN_COPY)
     }
     assert sorted(writers) == [
         "Keep the certificate the API is checked against from now on",

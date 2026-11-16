@@ -131,8 +131,9 @@ PROXMOX_ELSEWHERE = {
     "playbooks/configure.yml": 1,
     "playbooks/destroy.yml": 17,
     "playbooks/discover.yml": 2,
-    # With the certificate's step, before the first request that carries the token.
-    "playbooks/init_check.yml": 49,
+    # With the certificate's step, before the first request that carries the token, and the rest of a run checked
+    # against a certificate that verifies but is not kept (proxmox_api_ca_path).
+    "playbooks/init_check.yml": 50,
     "playbooks/init_settings.yml": 12,
     "playbooks/provision.yml": 28,
     "playbooks/ssh_config.yml": 2,

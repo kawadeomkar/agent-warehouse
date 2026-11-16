@@ -1278,8 +1278,11 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    `proxmox_trust_presented` reads what the address presents and whether it is the host's. The first that verifies
    is kept at a terminal, or for `--certificate`'s fingerprint (`init_given.certificate`): the store's as
    `proxmox_validate_certs: true` in `local.yml`, the CA's or the node's in the trust file by `copy`, with
-   `proxmox_validate_certs: true` where `local.yml` does not set it, and a `set_fact` of it for the rest of the run. A
-   file that no longer verifies is replaced (`force` only then) on a `y` to a question that shows both fingerprints
+   `proxmox_validate_certs: true` where `local.yml` does not set it, and a `set_fact` of it for the rest of the run.
+   Not kept - no terminal, and no fingerprint given - what verifies still checks the rest of the run: the store's by
+   that `set_fact`, the CA's or the node's from a copy in the checkout's `.cache/init/` (`init_trust_run_file`, as
+   `proxmox_api_ca_path`, since `uri` reads a CA from a file), removed before the report. A file that no longer
+   verifies is replaced (`force` only then) on a `y` to a question that shows both fingerprints
    (`tasks/init_ask.yml`), or for the new one's fingerprint given; else it is kept, a problem. Nothing verifying and
    the host's own presented is a `note` (a name to fix); while root SSH read the host's, anything else presented, or
    no certificate read at all, is a problem; and either problem holds the token (`init_token_held`), so the API is not

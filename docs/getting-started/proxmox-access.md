@@ -213,8 +213,9 @@ The first that verifies is kept in the host's trust file - `inventory/proxmox-tr
 refuses the run rather than send the token unchecked; the run says which certificate, with its SHA-256 fingerprint.
 It keeps it at a terminal, or for `just init --certificate <fingerprint>`, which keeps it only when its fingerprint is
 the one given - the one the host prints, `openssl x509 -noout -fingerprint -sha256 -in /etc/pve/local/pve-ssl.pem`;
-without either it says what it found and writes nothing. A CA kept accepts any certificate it signs for the name: any
-node of the cluster, which is what a cluster's CA is for.
+without either it keeps nothing and says what it found, but still checks the rest of that run against it, so the token
+never goes out unchecked with a certificate that verifies in hand. A CA kept accepts any certificate it signs for the
+name: any node of the cluster, which is what a cluster's CA is for.
 
 It is tried rather than assumed because no one file works everywhere: Python 3.13 and later - the environment `just
 install` makes - check certificates strictly, and refuse Proxmox's CA where it has no `keyUsage`, as every Proxmox VE 8

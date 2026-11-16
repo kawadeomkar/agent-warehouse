@@ -61,6 +61,8 @@ patterns=(
   # address.
   '(^|/)\.cache/run\.lock$'
   '(^|/)\.cache/mcp/'
+  # A certificate just init checked a run against without keeping it: it names the Proxmox host's address.
+  '(^|/)\.cache/init/'
   # A build VM's host key, by its address, while a golden template is built.
   '(^|/)\.cache/golden/'
   # Working documents beside the wiki: a plan, a review or a smoke runbook

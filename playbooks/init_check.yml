@@ -29,7 +29,9 @@
 # trust file, and only at a terminal (init_ask) or for a value given on the
 # command line (--storage, --bridge): the node when the default is not it, the
 # storage or bridge chosen, proxmox_validate_certs where this machine's trust
-# store verifies the API. Everything else is a read (tests/unit/test_init_check.py
+# store verifies the API. A certificate that verifies but is not kept is
+# copied into the checkout's .cache for the rest of the run to be checked
+# against, and removed. Everything else is a read (tests/unit/test_init_check.py
 # holds both) - over root SSH, hostname -s and the host's two certificates - and
 # root SSH may add the host's key to ~/.ssh/known_hosts, as the template build
 # would, one of the two files the project writes there. Every name it sets
@@ -87,6 +89,10 @@
       ca: /etc/pve/pve-root-ca.pem
       custom: /etc/pve/local/pveproxy-ssl.pem
       node: /etc/pve/local/pve-ssl.pem
+    # Where a certificate that verifies but is not kept is copied for the rest of the run to be checked against, since
+    # uri reads a CA from a file: in the checkout's .cache, removed as the run ends (a test points it into its own
+    # directory).
+    init_trust_run_file: "{{ playbook_dir | dirname }}/.cache/init/proxmox-trust.pem"
     init_trust_said: "{{ init_hosts_said | dirname }}/proxmox-trust.pem"
     init_trust_read: "{{ init_trust_ca.content is defined or init_trust_node.content is defined }}"
     init_trust_kind: "{{ {'ca': 'its CA', 'node': \"the node's own certificate\"}[init_trust.name] | default('') }}"
@@ -439,13 +445,45 @@
         and not init_trust_fine | bool and (init_trust_keep_file | bool or init_trust_keep_store | bool)
         and not init_trust_store_set | bool
 
+    # Not kept - no terminal, and no --certificate - what verifies still checks the rest of this run, which would
+    # otherwise send the token unchecked: the store as it is, the CA or the node's certificate from a copy for the run.
+    - name: Settle what checks the rest of the run where nothing is kept
+      ansible.builtin.set_fact:
+        init_trust_run_copy: >-
+          {{ not init_trust_checked | bool and init_trust_found_host | default(false) | bool
+             and not init_trust_keep_file | bool }}
+        init_trust_run_store: >-
+          {{ not init_trust_checked | bool and init_trust.name | default('') == 'store'
+             and not init_trust_keep_store | bool }}
+      when: init_trust_working | bool and not init_trust_fine | bool
+
+    - name: Make the folder the run's copy of the certificate goes in
+      ansible.builtin.file:
+        path: "{{ init_trust_run_file | dirname }}"
+        state: directory
+        mode: "0700"
+      when: init_trust_run_copy | default(false) | bool
+
+    - name: Copy the certificate that verifies for this run alone
+      ansible.builtin.copy:
+        content: "{{ init_trust.pem }}"
+        dest: "{{ init_trust_run_file }}"
+        mode: "0600"
+      when: init_trust_run_copy | default(false) | bool
+
     # And for the rest of this run, which read local.yml before it was written.
     - name: Check the API's certificate for the rest of the run
       ansible.builtin.set_fact:
         proxmox_validate_certs: true
       when: >-
         init_trust_working | bool and not init_trust_fine | bool
-        and (init_trust_keep_file | bool or init_trust_keep_store | bool)
+        and (init_trust_keep_file | bool or init_trust_keep_store | bool
+             or init_trust_run_copy | default(false) | bool or init_trust_run_store | default(false) | bool)
+
+    - name: Check it against the run's copy
+      ansible.builtin.set_fact:
+        proxmox_api_ca_path: "{{ init_trust_run_file }}"
+      when: init_trust_run_copy | default(false) | bool
 
     - name: Record the certificate's result
       ansible.builtin.set_fact:
@@ -503,15 +541,16 @@
                ~ ' with proxmox_validate_certs on: every run checks it' ~ init_trust_off_said}
              if init_trust_keep_file | bool else
              {'ok': true, 'note': true, 'text': "Proxmox's certificate verifies against " ~ init_trust_kind
-               ~ ' (SHA-256 ' ~ init_trust.fingerprint ~ '), read over root SSH, but nothing checks it: just init at a'
-               ~ ' terminal keeps it in ' ~ init_trust_said ~ ', and so does just init --certificate '
-               ~ init_trust.fingerprint ~ init_trust_given_said}
+               ~ ' (SHA-256 ' ~ init_trust.fingerprint ~ '), read over root SSH, and this run checked it, but nothing'
+               ~ ' keeps it for the next: just init at a terminal keeps it in ' ~ init_trust_said ~ ', and so does'
+               ~ ' just init --certificate ' ~ init_trust.fingerprint ~ init_trust_given_said}
              if init_trust_found_host | default(false) | bool else
              {'ok': true, 'text': "Proxmox's certificate verifies against this machine's trust store, and"
                ~ ' proxmox_validate_certs is on: every run checks it'}
              if init_trust_keep_store | bool else
              {'ok': true, 'note': true, 'text': "Proxmox's certificate verifies against this machine's trust store,"
-               ~ ' but nothing checks it: ' ~ ('just init at a terminal turns proxmox_validate_certs on'
+               ~ ' and this run checked it, but nothing keeps checking on: '
+               ~ ('just init at a terminal turns proxmox_validate_certs on'
                if not init_ask | bool else 'set proxmox_validate_certs: true in ' ~ init_local_said)}
              if init_trust.name | default('') == 'store' else
              {'ok': true, 'note': true, 'text': "Proxmox's certificate is not checked: what https://" ~ init_endpoint
@@ -1067,6 +1106,12 @@
       when: (init_host_name | length > 0) and init_problems | length == 0 and init_unchecked | length == 0
 
     # ---------------------------------------------------------------- the end ---
+    - name: Remove the run's copy of the certificate
+      ansible.builtin.file:
+        path: "{{ init_trust_run_file }}"
+        state: absent
+      when: init_trust_run_copy | default(false) | bool
+
     - name: Say what each check found
       ansible.builtin.debug:
         msg: |-
