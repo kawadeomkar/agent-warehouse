@@ -42,6 +42,30 @@
 
     - name: Build the golden template
       block:
+        # What the run knows before the clone, it refuses before the clone:
+        # the aliases go on past a hop they found unusable (tasks/vm_route.yml
+        # records it), and a build VM that would go through it - none of the
+        # run's VMs' own jumps is its - would be cloned, started and deleted
+        # for nothing. Its own forward is made once it has an address, below.
+        - name: Refuse a build VM that would go through a Proxmox host this run could not use
+          vars:
+            claude_vm_build_jump: >-
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                                                          plugin_type='connection', plugin_name='ssh'))
+                 | ssh_jump(ansible_ssh_extra_args | default('')) }}
+          ansible.builtin.assert:
+            that: >-
+              (claude_vm_route | default({})).route | default('') != 'host'
+              or claude_vm_build_jump | length > 0
+              or 'failed' not in [claude_vm_route.login | default(''), claude_vm_route.forward | default('')]
+            fail_msg: >-
+              The build VM would be reached through {{ claude_vm_route.hop.label | default('the Proxmox host') }},
+              which this run found could not be used as the hop (said above), so none was cloned.
+            quiet: true
+          when:
+            - claude_vm_golden_wanted | bool
+            - not (proxmox_template_build_busy | default(false) | bool)
+
         - name: Build its VM
           ansible.builtin.include_role:
             name: proxmox_template
@@ -66,26 +90,6 @@
           ansible.builtin.import_tasks: tasks/vm_route.yml
           vars:
             claude_vm_route_vms: "{{ [proxmox_template_build_vm] }}"
-          when: (proxmox_template_build_vm | default({})).name is defined
-
-        # The aliases go on past a hop they found unusable (tasks/vm_route.yml
-        # records it): a build VM that would go through it is never added, so
-        # the build fails here, not after a 300 s wait.
-        - name: Refuse a build VM that would go through a Proxmox host this run could not use
-          vars:
-            claude_vm_build_through: >-
-              {{ claude_vm_route | default({})
-                 | vm_hop(proxmox_template_build_vm.address, ansible_ssh_common_args | default(lookup(
-                          'ansible.builtin.config', 'ssh_common_args', plugin_type='connection', plugin_name='ssh')),
-                          ansible_ssh_extra_args | default('')) }}
-          ansible.builtin.assert:
-            that: >-
-              claude_vm_build_through.via | length == 0
-              or 'failed' not in [claude_vm_route.login | default(''), claude_vm_route.forward | default('')]
-            fail_msg: >-
-              The build VM is reached through {{ claude_vm_route.hop.label | default('the Proxmox host') }}, which
-              this run found could not be used as the hop (said above).
-            quiet: true
           when: (proxmox_template_build_vm | default({})).name is defined
 
         # How to reach it goes on the host, never on a play (CLAUDE.md). An

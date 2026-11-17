@@ -13,7 +13,8 @@ a race to another never returns, and a forward to an address that drops packets 
 - ``do: held`` makes sure of the shared connection, and never fails: a hop that is gone shows as each VM not answering.
 - ``do: check`` holds each VM of ``names`` to the route before anything connects to it, by what its own ssh shows
   (``ssh -G``) of its whole line - ssh_args, then its common args, then its extra args, as its connection resolves
-  each - and fails naming each VM that would not go where the route says.
+  each - and, for a VM given a jump of its own outside its common args, of the lines sftp and scp are given; and fails
+  naming each VM that would not go where the route says, or whose ssh could not be asked.
 - ``do: stop`` tells the shared connection to take no new sessions (``-O stop``, never ``-O exit``) and makes sure of
   it again: for a VM that answered a forward of its own but not the run's connection.
 
@@ -37,8 +38,18 @@ if _LIB not in sys.path:
 
 # The Proxmox host's ssh settings the hop is made of, by the ssh connection plugin's own option names.
 _OPTIONS = ("host", "remote_user", "port", "private_key_file", "ssh_executable", "control_path_dir")
-# A VM's: where its connection goes, and the words of its command line that decide its proxy.
-_LINE = ("host", "port", "ssh_executable", "ssh_args", "ssh_common_args", "ssh_extra_args")
+# A VM's: where its connection goes, and the words of its command line that decide its proxy - ssh's, sftp's and
+# scp's, each of which Ansible gives ssh_args and the common args, then extra args of its own.
+_LINE = (
+    "host",
+    "port",
+    "ssh_executable",
+    "ssh_args",
+    "ssh_common_args",
+    "ssh_extra_args",
+    "sftp_extra_args",
+    "scp_extra_args",
+)
 
 
 def _ssh_options(host_vars, options=_OPTIONS) -> dict:
@@ -150,17 +161,33 @@ class ActionModule(ActionBase):
                 continue
             line = _ssh_options(host_vars, _LINE)
             address = str(line["host"] or "")
+            head = [*_split(line["ssh_args"]), *_split(line["ssh_common_args"])]
             given = [*_split(line["ssh_common_args"]), *_split(line["ssh_extra_args"])]
             words = [*_split(line["ssh_args"]), *given]
             takes_hop = bool(host_vars.get("claude_vm_ssh_via"))
             # The port and user change no proxy; the VM's address is where ssh would go.
             ssh = line["ssh_executable"] or "ssh"
             shown = route.ssh_shown(ssh, words, address)
-            alone = None if takes_hop else route.ssh_shown(ssh, given, address)
-            why = route.vm_route_refusal(settled, address, takes_hop, shown, alone)
+            if not shown["ok"] and not route.ssh_shown(ssh, [], address)["ok"]:
+                # Not the line: the program itself, which could not be asked at all.
+                said = route.ssh_said(shown["said"], 200).rstrip(".") or "no reason given"
+                why = f"its ssh, {ssh} (ansible_ssh_executable), could not be asked with -G which proxy it takes"
+                unheld.append({"name": str(name), "why": f"{why}: {said}", "asked": False})
+                continue
+            alone = transfers = None
+            if not takes_hop:
+                alone = route.ssh_shown(ssh, given, address)
+                first = route.ssh_shown(ssh, head, address)
+                # Its jump outside what every line starts with: sftp and scp end theirs with words of their own.
+                if not (first["ok"] and (first["proxyjump"] or first["proxycommand"])):
+                    transfers = {
+                        variable: route.ssh_shown(ssh, [*head, *_split(line[variable])], address)
+                        for variable in ("sftp_extra_args", "scp_extra_args")
+                    }
+            why = route.vm_route_refusal(settled, address, takes_hop, shown, alone, transfers)
             if why:
                 detail = route.unheld_detail(settled, address, takes_hop, line)
-                unheld.append({"name": str(name), "why": f"{why} ({detail})" if detail else why})
+                unheld.append({"name": str(name), "why": f"{why} ({detail})" if detail else why, "asked": True})
         return unheld
 
     def _settle(self, route, args, task_vars) -> dict:

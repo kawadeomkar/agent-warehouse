@@ -8,8 +8,9 @@
 #   - the login: the hop's shared connection made sure of (-O check first, then an open), its errors read. Made at a
 #     run's start where the route is the host and what every host is given holds no jump; otherwise put off to the
 #     first import that has a VM going through the hop, and never made where every VM brings its own jump;
-#   - one forward of its own to the first such VM by name, read from ssh's exit status and standard error only: only
-#     the host refusing to forward, or ssh's own failure, stops the run. A VM that says nothing fails alone later.
+#   - one forward of its own to the first such VM by name, read from ssh's exit status and standard error: only the
+#     host refusing to forward, or ssh's own failure, stops the run. A VM that says nothing fails alone later; a login
+#     for the forward that did not finish (stalled) checked nothing, and is said.
 #
 # Every task runs in check mode too (a dry run connects as a run does) and is tagged always. Inputs, as `vars:` on the
 # import, never facts of the same names:
@@ -104,8 +105,8 @@
       VMs are reached through {{ claude_vm_route.hop.label }}, and {{ ('ssh_args holds ' ~ claude_vm_route_before
       ~ ', which ssh would take before the hop') if claude_vm_route_before else ('ssh_extra_args, from ansible.cfg or
       the environment, holds ' ~ claude_vm_route_beside ~ ' beside it') }}: ssh would follow one of the two without a
-      word, or stop. Set a jump of your own as ansible_ssh_common_args or ansible_ssh_extra_args - with an empty value
-      on the Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct.
+      word, or stop. Set a jump of your own as ansible_ssh_common_args, which ssh, sftp and scp all get - with an
+      empty value on the Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct.
     quiet: true
   check_mode: false
   tags: [always]
@@ -148,14 +149,15 @@
     - claude_vm_route_login.ok | default(true) | bool
     - claude_vm_route_through | rejectattr('jump') | list | length > 0
 
-# A VM that said nothing to the forward is said once, and fails alone at its first contact.
+# A VM that said nothing to the forward is said once, and fails alone at its first contact; a login for the forward
+# that did not finish, said once, checked nothing.
 - name: vm_route | Say a VM that did not answer through the host
   ansible.builtin.debug:
     msg: "{{ claude_vm_route_forward.said_plain }}"
   tags: [always]
   when:
     - claude_vm_route_forward is not skipped
-    - claude_vm_route_forward.why | default('') == 'silent'
+    - claude_vm_route_forward.why | default('') in ['silent', 'stalled']
 
 # Where an unusable hop is no failure, it is said: no alias is written through it. Read from the action's own
 # verdicts, ok and usable: a failed_when that lets the run go on clears the result's failed.

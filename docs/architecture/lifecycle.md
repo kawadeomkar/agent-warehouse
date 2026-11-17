@@ -288,9 +288,8 @@ above, never play vars, which would apply to the release's delegated calls to Ta
 them, credential included, on the VM - all VMs at once: a VM with no address, or one a `ping` with
 `ignore_unreachable` and no sudo finds unreachable or failing (`failed_when: false`: a failed host leaves
 the run, and a play in which every host fails ends it), is ended and deleted as it is - but through the
-Proxmox host, where one forward of its own to the VM shows the hop at fault, not the VM: then it is reached
-once more on a connection made again, or kept, neither released nor deleted
-([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)). A second `ping`, as
+Proxmox host, where a VM that was unreachable is kept, neither released nor deleted, while the road is still what
+fails for it ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)). A second `ping`, as
 root, in a block: a sudo that asks for a password or refuses is an error `failed_when` never sees, and
 would take the host out of the run unsaved and unreported, so the rescue records it
 (`claude_vm_release_blocked`), and that VM is saved, then ended before any release, and deleted, the report
@@ -1464,7 +1463,10 @@ tags), its notes replaced whole by one line under a marker of its own, so nothin
 back, and only then converted. A template with a `ciuser` would make every clone look configured
 ([Existence is not convergence](convergence.md#existence-is-not-convergence)), so one is never made.
 
-**Nothing here fails a deploy.** A build that fails, at any step, deletes its VM, said once. A build of the same key
+**Nothing here fails a deploy.** A build that fails, at any step, deletes its VM, said once. Where the build VM would
+go through a Proxmox host this run already found could not be used as the hop - the aliases go on past one, and record
+it - the build is refused before its VM is cloned, so none is cloned, started and deleted for nothing; its own forward
+is made once it has an address ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)). A build of the same key
 another run started under 30 minutes ago means this run builds none, and one of another key started as recently, or
 one whose notes could not be read, is left alone; an older one is left over and deleted, whether golden templates are
 on or off, so a run stopped during its build leaves nothing for long. **Old goldens** go by age only: past 14 days, twice the age one is selected at, so
@@ -1483,7 +1485,8 @@ through the host, and `auto`, the default, is a rule with no fallback either way
 for the Proxmox host - its `ansible_host` as `ssh -G` shows it, a `HostName` of the user's counted, then that name's
 addresses here, at run time - is a tailnet one (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `direct` otherwise. By
 address, never by spelling: what `auto` makes of it is never kept in `just status`'s snapshot. The setting is read
-from `local.yml`, never a `hosts.yml`, where `tools/check settings` refuses it by name. A VPN that reaches only the host (WireGuard to
+from `local.yml`, never a hosts file, where `tools/check settings` refuses it by name, anywhere in one and in a
+`hosts.yaml` beside the `hosts.yml` too. A VPN that reaches only the host (WireGuard to
 it alone) is not recognised: set `host`. VMs of the inventory's own, which no publisher adds, get no hop.
 
 **The hop** is the Proxmox host as the inventory reaches it - address, user, port, key, each as Ansible resolves an
@@ -1546,14 +1549,30 @@ the repositories), destroy's release, the build VM's - `run_once`, delegated her
 shows as each VM not answering. It lives 120 s past its last use. No retries: `ansible_ssh_retries` runs the whole
 command again on any exit 255, and the Tailscale key goes once.
 
-**`just destroy`, through the host.** A VM that does not answer the release play may be the road's fault, not its
-own: a shared connection gone quiet or dropped, a host that forwards to some addresses only. So each VM that went
-through the hop and did not answer gets one forward of its own (`run_once`, delegated here, failing no host): answered
-there, the run's connection was at fault, so it is told `-O stop` (never `-O exit`), made sure of again, and the VM
-reached once more; the host refusing to forward, or ssh's own failure, is the hop's fault, and the VM is kept -
-neither released nor deleted, stopped again if the run started it, its line naming `just status <vm>` - as one whose
-save failed, and the run fails at its end; a far end that refused the connection or said nothing is the VM's own, and
-it is deleted, said unsaved with what the host's forward showed, as under `direct`.
+**`just destroy`, through the host.** Its VMs go into `claude_vms` first, as a publisher's do, so that a jump the
+group or a VM's own `host_vars` gives it is read for the route and for its connection, as deploy reads it. A VM that
+is unreachable in the release play may be the road's fault, not its own: a shared connection gone quiet or dropped,
+a host that forwards to some addresses only, a second login to the host that waits. One whose connection worked and
+whose module failed (no Python) is its own, and is not asked about. Each of the rest gets one forward of its own (its
+own task, delegated here, so the forks ask about them at once, failing no host), and the VM is kept - neither released
+nor deleted, stopped again if the run started it, as one whose save failed, and the run fails at its end - only where
+the road is still what fails:
+
+| What the forward of its own says | Then |
+|---|---|
+| `prohibited`, `failed` or `stalled`: the host refused to forward, ssh could not use it, or its login did not finish | kept |
+| `refused` or `silent`: the far end refused the host's connection, or said nothing to it | deleted, said unsaved with what the forward showed, as under `direct` |
+| `answered` | the shared connection told `-O stop` (never `-O exit`, `run_once`) and made sure of again, its result kept; the VM reached once more |
+| ... the connection could not be made again | kept |
+| ... the reach ended again before the VM's sshd spoke (`hop_unanswered`) | kept |
+| ... any other failure: its sshd spoke (a login refused, a host key that does not match), or a module failed | the VM's own: deleted, said unsaved, as under `direct` |
+
+The second reach's result replaces the first, so the report says the later words. Never decided by the first reach's
+words: there a login to the hop inside the VM's own `ProxyCommand`, where the shared connection was gone, says what a
+VM's refusal says; only once a forward of its own answered and the connection was made again is no login to the hop
+left in the VM's connection. A kept VM's line names `just status <vm>` and the way out that works:
+`destroy_release: false` and `destroy_save_sessions: false` together, which delete it as it is, neither released nor
+saved; the kept aliases' line says the host was at fault only for a VM it refused or could not be logged in to.
 
 **What a person is told.** A first contact that fails through the hop says the VM did not answer through the host, and
 that `just status <vm>` says what the host reports for it; under `direct` it names `vm_ssh_route: host`. A printed

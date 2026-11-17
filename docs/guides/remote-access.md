@@ -60,8 +60,10 @@ wherever your laptop is. Where a VPN of yours routes the VMs' network, or you re
   way. A `ProxyJump` carries no key: where the inventory names one for the host
   (`ansible_ssh_private_key_file`), a run says the lines to add to `~/.ssh/config` if your ssh would not offer it
   there. `claude_ssh_options` with a `ProxyJump` of your own writes none.
-- **A jump of your own** - a `ProxyJump`, `-J` or `ProxyCommand` in `ansible_ssh_common_args` or
-  `ansible_ssh_extra_args` for a VM - is that VM's route, and the run says so; the project adds no hop to it.
+- **A jump of your own** - a `ProxyJump`, `-J` or `ProxyCommand` in `ansible_ssh_common_args` for a VM - is that
+  VM's route, and the run says so; the project adds no hop to it. Ansible gives sftp and scp the common args and
+  extra args of their own, so a jump in `ansible_ssh_extra_args` alone is refused, the VM's file transfers dialled
+  from here, unless `ansible_sftp_extra_args` and `ansible_scp_extra_args` hold it too.
 - **Names.** Through the host a VM is reached at its address: `claude_ssh_host_domain` is not used, since the host's
   sshd would resolve the name.
 - **What it needs on the host.** Forwarding allowed to the VMs (`AllowTcpForwarding`, `PermitOpen`), and the host
@@ -71,8 +73,11 @@ wherever your laptop is. Where a VPN of yours routes the VMs' network, or you re
 - **A VM that does not answer** through the host shows as a closed connection or a time-out; `just status <vm>` says
   what the host reports for it. A run started within 60 seconds of your laptop waking can find the VMs not answering
   once, on a connection that has not noticed it is gone. `just destroy` asks the host about such a VM before it
-  deletes it: one that answers the host but not the run, or that the host will not forward to, is kept, neither
-  released nor deleted.
+  deletes it: one the host will not forward to, whose login there does not finish, or that answers the host and
+  still closes the run's connection before its own sshd speaks, is kept, neither released nor deleted, and its line
+  says so; `destroy_release: false` and `destroy_save_sessions: false` together delete it as it is. One that answers
+  the host and then refuses the run itself - a login, a host key - is the VM's own fault, and deleted unsaved, as
+  under `direct`.
 - **`tailscale_accept_routes`** on, where the host advertises the VMs' own network to the tailnet: each VM then
   routes that network through Tailscale, its replies to the host's address on it among them, so a connection through
   the host breaks. Leave it off for such VMs.

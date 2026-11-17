@@ -405,20 +405,24 @@ def test_a_build_vm_through_the_host_is_published_with_the_hop_and_held_to_it(tm
     assert f"-W {address}:22" in calls and " -O check " in calls
 
 
-def test_a_build_vm_through_a_host_this_run_could_not_use_is_never_added(tmp_path, fake, hop):
-    # The aliases went on past a login that failed: the build fails at once, its VM deleted, and nothing reaches it.
+@pytest.mark.parametrize(("login", "forward"), [("failed", ""), ("held", "failed")])
+def test_a_build_vm_through_a_host_this_run_could_not_use_is_never_cloned(tmp_path, fake, hop, login, forward):
+    # The aliases went on past a login or a forward that failed: what the run knows before the clone, it refuses
+    # before the clone - no build VM made, started or deleted, and nothing reaches the hop.
     folder, settled = hop
-    report = _golden(tmp_path, fake, "alpha", **_through(settled, "failed", ""))
+    report = _golden(tmp_path, fake, "alpha", **_through(settled, login, forward))
     said = [
         str(result.get("msg", ""))
         for _, _, result in _results(report)
         if "could not be built" in str(result.get("msg"))
     ]
-    assert said and "which this run found could not be used as the hop" in said[0], said
+    assert said and "which this run found could not be used as the hop (said above), so none was cloned" in said[0]
     assert not [
         name for name, _, result in _results(report) if name == "Add the build VM as a host" and "add_host" in result
     ]
     assert not (folder / "calls").exists()
+    changes = [f"{one['method']} {one['path']}" for one in _pve_requests(tmp_path) if one["method"] != "GET"]
+    assert not [change for change in changes if change.endswith(("/clone", "/status/start", "/status/stop"))], changes
     assert not [vm for vm in _vms(fake) if vm.get("name", "").startswith((PREFIX, BUILD_PREFIX))]
 
 

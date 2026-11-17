@@ -314,8 +314,10 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 # else the mode. An open beside a live master is a client with ControlMaster=auto, which asks the host for a session
 # (logged in "sessions"), and with ControlMaster=yes says the socket exists and goes on as a connection of its own; at
 # a stale one, auto takes the path over and yes says it exists. "lost" plays an open whose master another caller's
-# unlink took the path from, "lost-once" that the first time only. At LogLevel=VERBOSE a forward whose login is done
-# says so first, as OpenSSH does: every forward but "stalled", which waits before any login, and "login", refused it.
+# unlink took the path from, "lost-once" that the first time only. A master whose socket holds "quiet" says it runs
+# and carries nothing, as one whose far side froze: a forward over it fails as its client does. At LogLevel=VERBOSE a
+# forward whose login is done says so first, as OpenSSH does: every forward but "stalled", which waits before any
+# login, and "login", refused it.
 STAND_IN = r"""#!/bin/sh
 here=$(dirname "$0")
 printf '%s\n' "$*" >> "$here/calls"
@@ -345,7 +347,9 @@ case " $* " in
     lost-once) [ -e "$here/lost" ] && { : > "$socket"; exit 0; }; : > "$here/lost"; exit 0 ;;
     *) : > "$socket"; exit 0 ;;
     esac ;;
-*" -W "*) case $forward in stalled|login) ;; *) case " $* " in *" LogLevel=VERBOSE "*)
+*" -W "*) case " $* " in *" ControlPath=none "*) ;; *) [ -e "$socket" ] && [ "$(cat "$socket")" = quiet ] && {
+        echo "mux_client_request_session: read from master failed: Broken pipe" >&2; exit 255; } ;; esac
+    case $forward in stalled|login) ;; *) case " $* " in *" LogLevel=VERBOSE "*)
         for last in "$@"; do :; done
         echo "Authenticated to ${last#*@} ([${last#*@}]:22) using \"publickey\"." >&2 ;; esac ;; esac
     case $forward in
@@ -839,16 +843,40 @@ def test_remote_control_s_printed_line_names_the_hop_s_words_after_ssh():
 
 
 def test_the_words_of_a_vm_destroy_keeps_and_of_one_it_deletes():
-    # Kept: the hop at fault, named; deleted: the VM's own fault, what the host's forward showed, never just status.
-    assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": "answered"}) == (
+    # Kept only where the road is still what fails, named; deleted: the VM's own fault, what the host's forward
+    # showed, never just status.
+    answered = {"why": "answered"}
+    made = {"ok": True, "said": ""}
+    ended = "Failed to connect to the host via ssh: Connection closed by UNKNOWN port 65535"
+    closed = {"unreachable": True, "msg": ended}
+    assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", answered, made, closed) == (
         "it answered a forward of its own through pve (root@pve.example.ts.net), but not this run's connection, made"
         " again"
     )
+    # Its sshd spoke - a login refused, a host key that does not match - or its module failed: its own.
+    for again in (
+        {"unreachable": True, "msg": "Failed to connect to the host via ssh: dev@192.0.2.77: Permission denied."},
+        {"unreachable": True, "msg": "Failed to connect to the host via ssh: Host key verification failed."},
+        {"failed": True, "msg": "The module interpreter '/usr/bin/python3' was not found."},
+        {"ping": "pong"},
+    ):
+        assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", answered, made, again) == "", again
+    # The connection could not be made again: the hop's, whatever the reach would have said.
+    unmade = {"ok": False, "said": "root@pve: Permission denied (publickey)."}
+    assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", answered, unmade, {}) == (
+        "it answered a forward of its own through pve (root@pve.example.ts.net), and the connection through the host"
+        " could not be made again: root@pve: Permission denied (publickey)"
+    )
+    # A making sure that never ran says nothing of the connection.
+    skipped = {"skipped": True, "changed": False}
+    assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", answered, skipped, closed).startswith("it answered")
     forbidden = route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": "prohibited", "said": "administratively"})
     assert forbidden.startswith("pve (root@pve.example.ts.net) refused to forward to alpha at 192.0.2.77")
+    stalled = route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": "stalled", "said": ""})
+    assert stalled.startswith("the login to pve (root@pve.example.ts.net) for a forward of its own to alpha")
     for why in ("refused", "silent", None):
-        assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": why}) == "", why
-    assert route.vm_kept_said({"route": "direct"}, "alpha", "192.0.2.77", {"why": "answered"}) == ""
+        assert route.vm_kept_said(ROUTE, "alpha", "192.0.2.77", {"why": why}, made, closed) == "", why
+    assert route.vm_kept_said({"route": "direct"}, "alpha", "192.0.2.77", answered, made, closed) == ""
     via = "-J root@pve.example.ts.net"
     refused = {"why": "refused", "said": "channel 0: open failed: connect failed: No route to host"}
     assert route.vm_gone_said(ROUTE, via, refused) == (
@@ -857,6 +885,11 @@ def test_the_words_of_a_vm_destroy_keeps_and_of_one_it_deletes():
     )
     assert route.vm_gone_said(ROUTE, via, {"why": "silent"}).endswith("it said nothing to the host within 15 s.")
     assert route.vm_gone_said(ROUTE, via) == "It did not answer through pve (root@pve.example.ts.net)."
+    assert route.vm_gone_said(ROUTE, via, {"why": "answered"}).startswith(
+        "It answered a forward of its own through pve (root@pve.example.ts.net), so the fault is the VM's own"
+    )
+    # Not asked: its connection worked, and nothing of the hop is said.
+    assert route.vm_gone_said(ROUTE, via, {"skipped": True}) == ""
     assert route.vm_gone_said(ROUTE, "") == "" and "just status" not in route.vm_gone_said(ROUTE, via, refused)
     assert "vm_ssh_route: host" in route.vm_gone_said({"route": "direct"}, "")
 
@@ -990,3 +1023,18 @@ def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
     finally:
         for server in servers:
             server.close()
+
+
+def test_a_vm_refused_before_it_connects_is_told_the_way_out_that_works_for_it():
+    asked = route.unheld_said(ROUTE, [{"name": "alpha", "why": "ssh would take no proxy for it", "asked": True}])
+    assert asked.endswith(
+        "Set a jump of your own as ansible_ssh_common_args, which ssh, sftp and scp all get, where the VM is given it"
+        " - with an empty value on the Proxmox host's own entry where it is set for every host, or set vm_ssh_route:"
+        " direct."
+    )
+    assert "ansible_ssh_extra_args" not in asked
+    unasked = route.unheld_said(
+        ROUTE, [{"name": "alpha", "why": "its ssh, /opt/wrapper, could not be asked", "asked": False}]
+    )
+    assert "Set ansible_ssh_executable to an OpenSSH ssh, which is asked with -G" in unasked
+    assert "a jump of your own" not in unasked and unasked.endswith(", or set vm_ssh_route: direct.")

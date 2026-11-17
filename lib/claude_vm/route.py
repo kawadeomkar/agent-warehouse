@@ -672,12 +672,14 @@ def _shown_proxy(shown: dict) -> str:
     return ""
 
 
-def vm_route_refusal(settled, address, takes_hop, shown, alone=None) -> str:
+def vm_route_refusal(settled, address, takes_hop, shown, alone=None, transfers=None) -> str:
     """Why a VM's connection would not go where the route says, from what ssh showed of its whole line (ssh_shown);
     "" where it would. One that takes the hop must show the hop's command to ``address``, word for word, and nothing
     else; one given a jump of its own, some proxy - and on ``alone`` too, what ssh shows of its common and extra args
-    alone, the line Claude's sign-in forward and destroy's fetch are given. Never neither: nothing is dialled from
-    here."""
+    alone, the line Claude's sign-in forward and destroy's fetch are given, and on each of ``transfers``, by the
+    variable whose words end the line (``{sftp_extra_args: shown, scp_extra_args: shown}``), the lines sftp and scp
+    are given, asked only where the jump is not in what every line starts with. Never neither: nothing is dialled
+    from here."""
     from .text import one_line
 
     if not shown["ok"]:
@@ -693,6 +695,12 @@ def vm_route_refusal(settled, address, takes_hop, shown, alone=None) -> str:
                 "it is given a jump of its own, and ssh would take none on its common and extra args alone, which"
                 " Claude's sign-in forward and destroy's fetch are given"
             )
+        for variable, line in (transfers or {}).items():
+            if not line["ok"] or not _shown_proxy(line):
+                return (
+                    f"its jump is not in ansible_ssh_common_args, and ssh would take none on the line {variable} ends,"
+                    " dialling its file transfers from here"
+                )
         return ""
     try:
         wanted = " ".join(hop_argv(settled["hop"], address, settled["policy"]))
@@ -765,12 +773,24 @@ def unheld_detail(settled, address, takes_hop, line) -> str:
 
 
 def unheld_said(settled, unheld) -> str:
-    """Why the VMs ``unheld`` (``{name, why}``) are refused before anything connects to them, and the ways out."""
+    """Why the VMs ``unheld`` (``{name, why, asked}``) are refused before anything connects to them, and the ways out:
+    for a VM whose ssh was asked, a jump of its own in the one variable ssh, sftp and scp all get; for one whose ssh
+    could not be asked at all (``asked`` false), the program."""
     each = "; ".join(f"{vm['name']}: {vm['why']}" for vm in unheld)
+    ways = []
+    if any(vm.get("asked", True) for vm in unheld):
+        ways.append(
+            "set a jump of your own as ansible_ssh_common_args, which ssh, sftp and scp all get, where the VM is given"
+            " it - with an empty value on the Proxmox host's own entry where it is set for every host"
+        )
+    if not all(vm.get("asked", True) for vm in unheld):
+        ways.append(
+            "set ansible_ssh_executable to an OpenSSH ssh, which is asked with -G which proxy a VM's line takes"
+        )
+    ways_out = "; or ".join(ways)
     return (
-        f"VMs are reached through {settled['hop']['label']}, and {each}. Set a jump of your own as"
-        " ansible_ssh_common_args or ansible_ssh_extra_args where the VM is given them - with an empty value on the"
-        " Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct."
+        f"VMs are reached through {settled['hop']['label']}, and {each}. {ways_out[:1].upper()}{ways_out[1:]}, or set"
+        " vm_ssh_route: direct."
     )
 
 
@@ -894,32 +914,41 @@ def vm_unanswered(settled, via, name, host_flag="") -> str:
     )
 
 
-def vm_kept_said(settled, name, address, verdict) -> str:
-    """Why ``just destroy`` keeps a VM that did not answer through the hop, from a forward of its own to it
-    (forward_verdict): the hop is at fault, not the VM, so nothing of it is deleted unsaved. "" where the VM's own
-    fault is what the forward showed (it refused the connection, or said nothing): that one goes, as under direct."""
+def vm_kept_said(settled, name, address, verdict, held=None, again=None) -> str:
+    """Why ``just destroy`` keeps a VM that was unreachable through the hop, where the road is still what fails: from a
+    forward of its own to it (forward_verdict) - the host refused to forward, ssh could not use it, or its login did
+    not finish - and, for a VM that answered that forward, from the making sure of the shared connection that followed
+    (``held``, the result of making it again) and the reach after it (``again``): a connection that could not be made
+    again, or a reach that ended again before the VM's sshd spoke (hop_unanswered). "" where the VM is at fault itself
+    - it refused the host's connection or said nothing, or its sshd spoke and refused this run (a login, a host key),
+    or its connection worked and a module failed - and it goes, as under direct."""
     why = verdict.get("why") if isinstance(verdict, dict) else None
-    if (
-        not isinstance(settled, dict)
-        or settled.get("route") != "host"
-        or why not in ("answered", "prohibited", "failed")
-    ):
+    if not isinstance(settled, dict) or settled.get("route") != "host":
         return ""
-    if why == "answered":
+    if why in ("prohibited", "failed", "stalled"):
+        said = forward_said(settled, name, address, verdict).rstrip(".")
+        return said[:1].lower() + said[1:] if why == "stalled" else said
+    if why != "answered":
+        return ""
+    label = settled["hop"]["label"]
+    if isinstance(held, dict) and held and not held.get("skipped") and not held.get("ok", False):
         return (
-            f"it answered a forward of its own through {settled['hop']['label']}, but not this run's connection, made"
-            " again"
+            f"it answered a forward of its own through {label}, and the connection through the host could not be made"
+            f" again: {_plain(held.get('said') or held.get('msg'))}"
         )
-    return forward_said(settled, name, address, verdict).rstrip(".")
+    if isinstance(again, dict) and again.get("unreachable") and hop_unanswered(again.get("msg")):
+        return f"it answered a forward of its own through {label}, but not this run's connection, made again"
+    return ""
 
 
 def vm_gone_said(settled, via, verdict=None) -> str:
     """What the report of a VM deleted though it did not answer adds: through the hop, what the host's forward to it
     showed - the VM's own fault - and never `just status`, which cannot read a VM that is gone; under direct, the
-    setting that would go through the host; nothing for a VM that brings its own jump."""
+    setting that would go through the host; nothing for a VM that brings its own jump, nor for one the host was not
+    asked about (``verdict`` a skipped result: its connection worked, and what failed was on the VM)."""
     if not isinstance(settled, dict) or settled.get("route") != "host":
         return vm_unanswered(settled, via, "")
-    if not via:
+    if not via or (isinstance(verdict, dict) and verdict.get("skipped")):
         return ""
     label = settled["hop"]["label"]
     why = verdict.get("why") if isinstance(verdict, dict) else None
@@ -929,6 +958,11 @@ def vm_gone_said(settled, via, verdict=None) -> str:
         return f"It did not answer through {label}: the host's connection to it was refused{refused}."
     if why == "silent":
         return f"It did not answer through {label}: it said nothing to the host within {LIMITS['forward']} s."
+    if why == "answered":
+        return (
+            f"It answered a forward of its own through {label}, so the fault is the VM's own: this run's connection to"
+            " it, made again, reached it and failed there, as it would under vm_ssh_route: direct."
+        )
     return f"It did not answer through {label}."
 
 

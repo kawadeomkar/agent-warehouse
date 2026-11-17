@@ -467,7 +467,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `vm_ssh_route` is `direct`, `host` or `auto`: `host` where every address ssh dials for the Proxmox host (`ssh -G`
       of its `ansible_host`, then that name's addresses here, at run time) is a tailnet one, `direct` otherwise. A rule
       with no fallback either way: a hop that cannot be used stops the run, naming `vm_ssh_route: direct`. Read from a
-      `local.yml`, never a `hosts.yml` (`tools/check settings` refuses it there); what `auto` makes of it is never kept
+      `local.yml`, never a hosts file (`tools/check settings` refuses it anywhere in one, a `hosts.yaml` beside the
+      `hosts.yml` too); what `auto` makes of it is never kept
       in `just status`'s snapshot, which keeps the setting as written; never inherited by another host, refused to the
       MCP server's `settings_set`.
     - The hop is the Proxmox host as Ansible's ssh plugin resolves it, or an account on it, `vm_ssh_jump` on the
@@ -498,7 +499,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       ssh reads spellings it would miss. `tests/unit/test_release.py` and `test_vm_route.py` hold every publisher to
       it.
     - A VM given a jump of its own (a `ProxyJump`, `-J` or a `ProxyCommand` other than `none` in what it is given)
-      gets no hop, decided per VM. The login is made at a run's start only where what every host is given holds none.
+      gets no hop, decided per VM - destroy's too, which puts its VMs in `claude_vms` first, as the publishers do, to
+      read it. The jump must reach the lines sftp and scp are given too: one outside `ansible_ssh_common_args` is
+      refused unless `ansible_sftp_extra_args` and `ansible_scp_extra_args` hold it. The login is made at a run's
+      start only where what every host is given holds none.
     - The later plays that reach the VMs at once make sure of the shared connection in one local task first,
       `run_once`, delegated here, failing no host - the two after a serial sign-in among them, which may have waited
       minutes on a person.
@@ -589,8 +593,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `release_pause`, `release_resume` on a VM kept), and a VM that stops answering part way fails into the
       rescue (`ignore_unreachable` and an assert), never out of the run unseen.
     - A failed save keeps the VM, neither released nor deleted; an unreachable VM is deleted and said to have
-      gone unsaved - but through the Proxmox host, where one forward of its own shows the hop at fault, not the
-      VM, it is reached once more on a connection made again, or kept, as a failed save keeps it;
+      gone unsaved - but through the Proxmox host, where it is kept, as a failed save keeps it, only while the road
+      is still what fails: a forward of its own `prohibited`, `failed` or `stalled`, or `answered` and then the
+      connection not made again (`-O stop`, its result kept) or the reach ended again before the VM's sshd spoke
+      (`route.hop_unanswered`). A VM whose sshd spoke, or whose module failed (never asked), goes as under `direct`;
+      never decided by the first reach's words, and a kept VM's line names `destroy_release: false` with
+      `destroy_save_sessions: false`;
       `destroy_release: false` still saves; a VM whose sudo fails is saved, then deleted unreleased,
       said so - sudo is asked for in a block before the save, since a failed sudo is an error `failed_when` never
       sees.

@@ -1533,12 +1533,16 @@ that takes, and runs nothing of Ansible's.
   hop's settings the Proxmox host's own, resolved by Ansible's ssh connection plugin's options, so a host var, then
   `ansible.cfg`, then the environment - and runs the login, the forward (at the VM's port, as its connection resolves
   it), the making sure, the stop that makes the connection again, and the check of each VM published, by what its own
-  ssh shows of its whole line (`ssh_shown`, `vm_route_refusal`); a failure of any is the result's, in words, never an
-  exception. `tasks/vm_route.yml` and `tasks/vm_route_held.yml` are where the runs reach it
+  ssh shows of its whole line (`ssh_shown`, `vm_route_refusal`) - and, for a VM given a jump outside its common args,
+  of the lines sftp and scp are given, which Ansible ends with extra args of their own; an ssh that cannot be asked
+  with `-G` at all is named as the program, never met with advice about a jump; a failure of any is the result's, in
+  words, never an exception. `tasks/vm_route.yml` and `tasks/vm_route_held.yml` are where the runs reach it
   ([§4.15](lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host)). `vm_route_vms` says which VMs about
   to be published go through the hop and which bring a jump, and `route_said`, `login_said`, `forward_said`,
   `unheld_said`, `vm_unanswered`, `vm_kept_said` and `vm_gone_said` put each into words, what ssh said through
-  `one_line`, its last lines and never a banner.
+  `one_line`, its last lines and never a banner. `vm_kept_said` is `just destroy`'s rule too: a VM unreachable through
+  the hop is kept only where the road is still what fails - the forward `prohibited`, `failed` or `stalled`, or
+  `answered` and then the connection not made again, or the reach after it ended before the VM's sshd spoke.
 
 Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, one run
 of the real ssh, given no config, whose `ProxyCommand` reaches a recorder, and each forward's verdict from the real ssh

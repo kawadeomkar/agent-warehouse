@@ -391,7 +391,15 @@ chosen = False
 # Whether the API's certificate is checked: the last of the files, in their order, to set proxmox_validate_certs; a
 # template is taken to check it, since only Ansible can say.
 validate = None
+# A hosts.yml's folder is an inventory source, which Ansible reads a hosts.yaml of too: one beside it is looked at as
+# it is.
+paths = []
 for path in sys.argv[2:]:
+    paths.append(path)
+    beside = os.path.join(os.path.dirname(path), "hosts.yaml")
+    if os.path.basename(path) == "hosts.yml" and os.path.exists(beside) and beside not in sys.argv[2:]:
+        paths.append(beside)
+for path in paths:
     try:
         with open(path, encoding="utf-8") as stream:
             data = yaml.load(stream, Loader=Loader)
@@ -413,16 +421,19 @@ for path in sys.argv[2:]:
     chosen = chosen or bool(named & {"vpn", "tailscale_enabled"})
     # The hop's account is the Proxmox host's own: anywhere else - a local.yml, a group's vars - every host would read
     # it as its own, with one host as with two (docs/guides/hosts.md).
+    hosts_file = os.path.basename(path) in ("hosts.yml", "hosts.yaml")
     jumps = sum(1 for name, _ in settings(data) if name == "vm_ssh_jump")
-    if jumps > (jumps_on_the_host(data) if os.path.basename(path) == "hosts.yml" else 0):
+    if jumps > (jumps_on_the_host(data) if hosts_file else 0):
         print(f"error: {path} sets vm_ssh_jump other than on the Proxmox host's own entry in hosts.yml, which is the one"
               " place it is read from (docs/guides/hosts.md)", file=sys.stderr)
         found = True
-    # The route is the run's, read where localhost reads it: a local.yml, never a hosts.yml, where it would be taken
-    # for this host's and read by nothing.
-    if os.path.basename(path) == "hosts.yml" and "vm_ssh_route" in named:
-        print(f"error: {path} sets vm_ssh_route, which is read from local.yml - the shared one for the first host,"
-              " hosts/<name>/group_vars/all/local.yml for another - and from nowhere in hosts.yml: move it there"
+    # The route is the run's, set in one place: a local.yml, where localhost reads it. Refused anywhere in a hosts
+    # file, though Ansible gives localhost one in its all: vars: on the Proxmox host's own entry, or its group's, it
+    # would be taken for that host's and read by nothing.
+    if hosts_file and "vm_ssh_route" in named:
+        print(f"error: {path} sets vm_ssh_route, which is set in local.yml - the shared one for the first host,"
+              " hosts/<name>/group_vars/all/local.yml for another - and refused anywhere in a hosts file, since on the"
+              " Proxmox host's own entry, or its group's, nothing would read it: move it to local.yml"
               " (docs/guides/remote-access.md)", file=sys.stderr)
         found = True
     for name, value in settings(data):

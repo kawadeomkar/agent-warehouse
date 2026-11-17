@@ -464,6 +464,59 @@ def test_each_vm_is_held_to_the_route_by_what_its_own_ssh_shows(routed, case, gi
         assert _given(report) == {}
 
 
+@pytest.mark.parametrize(
+    ("given", "refused"),
+    [
+        # Ansible gives sftp sftp_extra_args and scp scp_extra_args where ssh gets ssh_extra_args: a jump there alone
+        # leaves the VM's file transfers dialled from here.
+        ({"ansible_ssh_extra_args": "-o ProxyJump=jump.invalid"}, "sftp_extra_args"),
+        ({"ansible_ssh_extra_args": "-J jump.invalid", "ansible_sftp_extra_args": "-J jump.invalid"}, "scp_extra_args"),
+        (
+            {
+                "ansible_ssh_extra_args": "-o ProxyJump=jump.invalid",
+                "ansible_sftp_extra_args": "-o ProxyJump=jump.invalid",
+                "ansible_scp_extra_args": "-o ProxyJump=jump.invalid",
+            },
+            None,
+        ),
+    ],
+)
+def test_a_jump_of_its_own_must_reach_the_vm_s_file_transfers_too(routed, given, refused):
+    root, hop = routed
+    (root / "group_vars" / "claude_vms.yml").write_text(yaml.safe_dump(given))
+    report = _discover(root, SAY)
+    if refused is None:
+        assert report["rc"] == 0, _failures(report)
+        assert _given(report)["alpha"]["via"] == ""
+        return
+    assert report["rc"] != 0
+    failure = json.dumps(_failures(report))
+    assert (
+        "alpha: its jump is not in ansible_ssh_common_args, and ssh would take none on the line"
+        f" {refused} ends, dialling its file transfers from here" in failure
+    ), failure
+    assert "Set a jump of your own as ansible_ssh_common_args, which ssh, sftp and scp all get" in failure
+    assert _given(report) == {}
+
+
+def test_an_ssh_that_knows_no_g_is_named_as_the_program_and_never_the_jump_advice(routed, tmp_path):
+    root, _ = routed
+    wrapper = tmp_path / "wrapper"
+    refusing = 'case " $* " in *" -G "*) echo "wrapper: unknown option -G" >&2; exit 2 ;; esac'
+    wrapper.write_text(f"#!/bin/sh\n{refusing}\nexit 0\n")
+    wrapper.chmod(0o755)
+    (root / "group_vars" / "claude_vms.yml").write_text(yaml.safe_dump({"ansible_ssh_executable": str(wrapper)}))
+    report = _discover(root, SAY)
+    assert report["rc"] != 0
+    failure = json.dumps(_failures(report))
+    assert (
+        f"alpha: its ssh, {wrapper} (ansible_ssh_executable), could not be asked with -G which proxy it takes:"
+        " wrapper: unknown option -G" in failure
+    ), failure
+    assert "Set ansible_ssh_executable to an OpenSSH ssh, which is asked with -G" in failure
+    assert "a jump of your own" not in failure
+
+
 def test_a_vm_whose_ansible_host_another_variable_outranks_with_a_name_is_refused_by_name(routed):
     root, _ = routed
     (root / "host_vars").mkdir()
