@@ -33,6 +33,13 @@ naming `just install`, while one differs. They live in the checkout's own folder
 - **`claude_ssh_host_domain`** is not used through the host, whose sshd would resolve the name: the aliases point
   at each VM's address again.
 
+## The session copy, bounded from 2.7
+
+`just code`, and `just deploy`'s editor step, copied every session of the last 30 days of the VM's repositories. One
+copy now sends at most `claude_sessions_sync_max_size` (256M): the newest first, each with its tool results while it
+fits, and the run says how many stayed here. Set it to `0` in `local.yml` to copy them all, as before. Copies already
+on a VM stay there ([VS Code](vscode.md#this-machines-claude-sessions-on-the-vm)).
+
 ## More than one host, from 2.5
 
 2.5 lets one checkout drive more than one Proxmox host ([More than one Proxmox host](hosts.md)). A checkout of one
