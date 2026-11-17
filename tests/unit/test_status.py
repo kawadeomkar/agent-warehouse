@@ -1532,13 +1532,22 @@ REFUSED = {
     "refused": "ssh: connect to host x port 22: Connection refused",
     "denied": "dev@x: Permission denied (publickey).",
     "other": "kex_exchange_identification: read: Connection reset by peer",
+    "no-route": "ssh: connect to host x port 22: No route to host",
+}
+# A VM's route beside ssh's words: a jump it is given, and the hop it went through.
+ROUTED_REFUSALS = {
+    "own-jump": (
+        "Connection closed by UNKNOWN port 65535",
+        {"jump": "ProxyJump root@a-host-of-a-long-name.example.ts.net"},
+    ),
+    "slow-hop": ("Timeout, server x not responding.", {"via": "-J root@pve.example.ts.net"}),
 }
 
 
 def _every_state():
     """A report holding every state status can say, each VM's name as long as a recipe takes."""
     listing, found = [], {}
-    names = list(SSH_STATES) + [f"no-ssh-{k}" for k in REFUSED]
+    names = list(SSH_STATES) + [f"no-ssh-{k}" for k in REFUSED] + [f"no-ssh-{k}" for k in ROUTED_REFUSALS]
     for i, name in enumerate(names):
         vmname = f"{name}-with-a-name-long-enough-to-cut"
         listing.append(
@@ -1558,8 +1567,8 @@ def _every_state():
             }
         )
         if name.startswith("no-ssh-"):
-            said = REFUSED[name[len("no-ssh-") :]]
-            ssh = {"reached": False, "unreachable": said, "refusal": S.status_refusal(said), "unread": {}}
+            said, route = ROUTED_REFUSALS.get(name[len("no-ssh-") :]) or (REFUSED[name[len("no-ssh-") :]], {})
+            ssh = {"reached": False, "unreachable": said, "refusal": S.status_refusal(said), "unread": {}, **route}
         else:
             parts = SSH_STATES[name]
             ssh = {
@@ -1591,7 +1600,13 @@ def _every_state():
         tagged=tagged,
         requested=tagged,
         addressed=[dict(e, address=f"192.0.2.{100 + i}") for i, e in enumerate(listing)],
-        settings={**SETTINGS, "vm_user": "a-long-user-name", "names": []},
+        settings={
+            **SETTINGS,
+            "vm_user": "a-long-user-name",
+            "names": [],
+            "hop_label": "pve (root@pve.example.ts.net)",
+            "direct_route": True,
+        },
         aliases=[],
     )
     found["localhost"] = {"fleet": fleet}
@@ -1621,10 +1636,15 @@ def test_every_line_of_a_report_of_every_state_fits_100_columns() -> None:
         "refused SSH",
         "refused this machine's SSH key",
         "SSH to 192.0.2",
+        "by a jump of its own, ProxyJump root@",
+        "it did not answer in time",
         "was not read",
         "the settings ask for",
     ):
         assert words in said, words
+    # Straight to their addresses with a Proxmox host to go through: the setting that would, where to look.
+    hints = " ".join(it["command"] for it in model["attention"])
+    assert hints.count("vm_ssh_route: host carries every connection") == 2, hints
 
 
 def test_the_longest_footer_and_kernel_fit_100_columns() -> None:

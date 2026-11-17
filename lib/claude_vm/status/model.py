@@ -16,6 +16,7 @@ import re
 import time
 from datetime import UTC, datetime
 
+from .. import route as routes
 from ..proxmox import (
     NO_TEMPLATE_RECORD,
     built_template,
@@ -750,6 +751,10 @@ def work_said(repository):
     return f"{repository.get('name')}: {', '.join(parts)}" if parts else ""
 
 
+# What ssh says of an address this machine has no way to: no route there, or the network down here.
+NO_ROUTE_RE = re.compile(r"no route to host|network is unreachable|host is down", re.I)
+
+
 def status_refusal(said):
     """What kind of refusal ssh's message is, read from the whole of it before anything is cut: "changed" (a host
     key other than the one this machine holds), "unknown" (none held), "timeout", "refused", "denied", or ""."""
@@ -796,8 +801,30 @@ def _ssh_refusal(vm, ssh, settings):
             f" ssh-config{on} carries over one this machine kept by its address before 2.6",
             f"just deploy {name} --only configure{on} takes a new VM's key, as every run does",
         )
+    # By a jump it is given, ssh's words are the jump's as much as the VM's, and the route is none of the project's:
+    # said, with where such a jump comes from - one exported for another command reads as any other.
+    jump = ssh.get("jump") or ""
+    if jump:
+        return (
+            f"not read: SSH to {address} by a jump of its own, {one_line(jump, 80)}, failed: {one_line(said, 120)}",
+            "a jump in ansible_ssh_common_args or ansible_ssh_extra_args - the inventory's, ansible.cfg's or the"
+            " environment's (ANSIBLE_SSH_COMMON_ARGS, ANSIBLE_SSH_EXTRA_ARGS) - is its route, never the hop through the"
+            " Proxmox host: check that jump, or take it out",
+        )
+    console = f"check {name} in Proxmox's console"
+    # Through the hop, a time-out is the VM's answer coming too late - status's own limit or ssh's - over a link that
+    # may be slow, never its address dialled from here.
+    hop = settings.get("hop_label") if ssh.get("via") else ""
+    if kind == "timeout" and hop:
+        return (
+            f"not read: through {hop}, it did not answer in time: {one_line(said, 120)}",
+            f"over a slow link to the Proxmox host a read can take longer than status waits: just status {name}{on}"
+            f" again, then {console}",
+        )
+    # Straight to its address with a Proxmox host to go through: the setting that would, as the playbooks say it.
+    direct = routes.vm_unanswered({"route": "direct"}, "", "") if settings.get("direct_route") else ""
     if kind == "timeout":
-        return (f"not read: it did not answer SSH at {address}", f"check {name} in Proxmox's console")
+        return (f"not read: it did not answer SSH at {address}", f"{console}. {direct}" if direct else console)
     if kind == "refused":
         return (
             f"not read: it refused SSH at {address}: sshd is not running there",
@@ -808,7 +835,10 @@ def _ssh_refusal(vm, ssh, settings):
             f"not read: it refused this machine's SSH key as {user}",
             "check vm_ssh_public_keys in local.yml against the key this machine offers",
         )
-    return (f"not read: SSH to {address} failed: {one_line(said, 160)}", "")
+    return (
+        f"not read: SSH to {address} failed: {one_line(said, 160)}",
+        direct if NO_ROUTE_RE.search(str(said)) else "",
+    )
 
 
 def _when(stamp, now):

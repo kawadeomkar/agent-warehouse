@@ -3099,6 +3099,11 @@ def _off(root: Path) -> dict:
     return {"world": world, "off": _handoff(world, "off", sessions=False)}
 
 
+def _bounded(root: Path, size: str) -> dict:
+    world = _world(root)
+    return {"world": world, "run": _handoff(world, "run", claude_sessions_sync_max_size=size)}
+
+
 def _head(path: Path) -> tuple[str, str]:
     """Where a checkout is: its commit, and its branch or "" for a detached HEAD."""
     branch = subprocess.run(
@@ -3283,6 +3288,8 @@ def _every_handoff(root: Path) -> dict:
         for name, place in MOVES.items():
             runs[name] = pool.submit(_moved, root / re.sub(r"\W+", "-", name), place)
         runs["sync fails"] = pool.submit(_sync_failing, root / "sync-fails")
+        runs["bounded"] = pool.submit(_bounded, root / "bounded", "1B")
+        runs["no size"] = pool.submit(_bounded, root / "no-size", "lots")
         for name, (place, _) in SYNCS.items():
             runs[name] = pool.submit(_sync_with, root / re.sub(r"\W+", "-", name), place)
     return {name: run.result() for name, run in runs.items()}
@@ -3317,6 +3324,35 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
     assert run["shown"] == [str(world["vm"] / "projects"), ""]
+
+
+def test_the_sync_says_how_many_sessions_and_how_much_before_it_sends(handoffs):
+    # rsync shows nothing while it sends: live, a first copy over a slow link sat for minutes, unsaid.
+    output = handoffs["sync"]["first"]["output"]
+    said = re.search(r"Copying 1 of this machine's Claude Code sessions to alpha, ([0-9.]+ \w+) in all", output)
+    assert said, output[-3000:]
+    assert "claude_sessions_sync: false copies none, claude_sessions_sync_max_size bounds it." in output
+    assert output.index("Copying 1 of") < output.index("TASK [session_write | Send the sessions to the VM]")
+
+
+def test_a_session_past_the_bound_stays_here_and_is_said(handoffs):
+    world, run = handoffs["bounded"]["world"], handoffs["bounded"]["run"]
+    assert run["reached"] and run["rc"] == 0, run["output"]
+    assert not (world["vm"] / ".claude" / "projects" / world["folder"].name / f"{SESSION_ID}.jsonl").exists()
+    assert "No Claude Code session of this machine was copied to alpha." in run["opened"]
+    assert "is of a repository alpha has checked out" not in run["opened"]
+    said = r" 1 more session, [0-9.]+ \w+, stayed here, past claude_sessions_sync_max_size \(1B\)\."
+    assert re.search(said, run["opened"]), run["opened"]
+
+
+def test_a_bound_that_is_no_size_is_refused_before_anything_is_read(handoffs):
+    run = handoffs["no size"]["run"]
+    assert run["rc"] != 0, run["output"]
+    assert (
+        "claude_sessions_sync_max_size is the most one copy of this machine's Claude Code sessions sends"
+        in (run["output"])
+    )
+    assert "TASK [session_read | Read the Claude Code sessions on this machine]" not in run["output"]
 
 
 def test_a_second_sync_of_unchanged_sessions_changes_nothing(handoffs):

@@ -183,9 +183,12 @@ def proxmox_untrusted_hint(msg, trust_file=""):
         return ""
     against = str(trust_file or "") or "this machine's trust store"
     if MISMATCH_RE.search(msg):
+        # The address is the Proxmox host's ansible_host, proxmox_api_host's default and no setting of its own: the
+        # one a person changes. Proxmox's own certificate names the node's name and LAN address, never a tailnet's.
         return (
-            "Proxmox's certificate does not name the address in proxmox_api_host: reach it by a name or address the"
-            " certificate holds"
+            "Proxmox's certificate does not name the address it was reached at, the Proxmox host's ansible_host in"
+            " its hosts.yml: give that a name or address the certificate holds - on a tailnet, the node's own name,"
+            " which MagicDNS resolves there (docs/guides/remote-access.md)"
         )
     return (
         f"Proxmox presents a certificate that does not verify against {against}. If Proxmox renewed it, the host was"

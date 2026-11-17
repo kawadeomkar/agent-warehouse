@@ -198,7 +198,17 @@ def _checkout(repo, by_repo, project):
 
 
 def claude_sessions_plan(
-    sessions, here, there, version, repo_paths=None, dest="", wanted="", project="", vm="the VM", open_there=None
+    sessions,
+    here,
+    there,
+    version,
+    repo_paths=None,
+    dest="",
+    wanted="",
+    project="",
+    vm="the VM",
+    open_there=None,
+    cap=0,
 ):
     """Decide which of this machine's sessions go to which checkout on the VM.
 
@@ -220,6 +230,11 @@ def claude_sessions_plan(
     <id>`` could not choose between) and ``open`` are the sessions left out for a reason worth saying;
     one of no repository the VM has cloned is in none. ``session`` is --session's own entry, with
     ``problem`` the reason it cannot be opened, or "".
+
+    ``cap`` (claude_sessions_sync_max_size in bytes, 0 for none) bounds what one copy sends: the newest
+    sessions first, each kept while its transcript and tool results fit in what is left, --session's own
+    always. ``bytes`` is what the sessions kept hold, ``over`` the IDs left out for the bound and
+    ``over_bytes`` what they hold.
     """
     here = {item["path"]: item for item in here or [] if item.get("path")}
     by_repo = {}
@@ -235,8 +250,10 @@ def claude_sessions_plan(
         "ambiguous": [],
         "twice": [],
         "open": [],
+        "over": [],
         "session": {},
     }
+    kept = []
     folders_of = {}
     for session in sessions or []:
         folders_of.setdefault(session.get("id"), set()).add(session.get("folder"))
@@ -271,26 +288,48 @@ def claude_sessions_plan(
             plan["open"].append(session["id"])
             continue
         if checkout and not newer:
-            plan["sessions"].append(
-                {
-                    "id": session["id"],
-                    "folder": session["folder"],
-                    "checkout": checkout["path"],
-                    "memory": f"{dest}/projects/{claude_project_folder(checkout['path'])}/memory/",
-                }
-            )
-            plan["files"].append(f"{session['folder']}/{session['id']}.jsonl")
-            if session.get("tools"):
-                plan["files"].append(f"{session['folder']}/{session['id']}/tool-results")
-            repositories.add(repo)
+            kept.append((session, checkout, repo, own))
         elif checkout:
             plan["newer"].append(session["id"])
         elif why != "none":
             plan["ambiguous"].append({"id": session["id"], "repository": repo, "names": why})
+    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap)
+    for session, checkout, repo, _own in kept:
+        if session["id"] in plan["over"]:
+            continue
+        plan["sessions"].append(
+            {
+                "id": session["id"],
+                "folder": session["folder"],
+                "checkout": checkout["path"],
+                "memory": f"{dest}/projects/{claude_project_folder(checkout['path'])}/memory/",
+            }
+        )
+        plan["files"].append(f"{session['folder']}/{session['id']}.jsonl")
+        if session.get("tools"):
+            plan["files"].append(f"{session['folder']}/{session['id']}/tool-results")
+        repositories.add(repo)
     if wanted:
         plan["session"]["problem"] = _session_problem(plan["session"], sessions, wanted, by_repo, project, version, vm)
     plan["repositories"] = sorted(repositories)
     return plan
+
+
+def _within(kept, cap):
+    """Which of ``kept`` (session, checkout, repository, whether it is --session's) one copy sends under ``cap``
+    bytes, 0 for no bound: (the IDs left out, the bytes sent, the bytes left out). --session's own first, then the
+    newest; one that does not fit in what is left is left out, and an older one that does is kept."""
+    out, sent, over = [], 0, 0
+    for session, _checkout, _repo, own in sorted(
+        kept, key=lambda item: (not item[3], -float(item[0].get("mtime") or 0))
+    ):
+        size = int(session.get("size") or 0)
+        if cap and not own and sent + size > cap:
+            out.append(session["id"])
+            over += size
+            continue
+        sent += size
+    return out, sent, over
 
 
 def _session_problem(entry, sessions, wanted, by_repo, project, version, vm):

@@ -417,12 +417,14 @@ class Run:
         host = how["host"]
         sections = self.sections
         via = how.get("via") or ""
+        jump = how.get("jump") or ""
         # The words a person's own ssh needs for it through the hop, in every line that says ssh to it.
         vm_settings = {**vm_settings, "github": {**vm_settings["github"], "via": via}} if via else vm_settings
+        route = {**({"via": via} if via else {}), **({"jump": jump} if jump else {})}
 
         def land(read):
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
-            self.screen.land(name, model.status_clean({"ssh": {**part, **({"via": via} if via else {})}}), merge=True)
+            self.screen.land(name, model.status_clean({"ssh": {**part, **route}}), merge=True)
 
         def early(read):
             try:
@@ -657,6 +659,12 @@ class Run:
         # The route, before the first probe starts; the API's reads go on meanwhile. The hop's login waits for a VM
         # that takes the hop.
         self.route = self.settle_route()
+        # What a VM's line says of the route: the hop it went through, or that it was dialled straight with a
+        # Proxmox host to go through. A mark, never the words, which status_clean would cut as a setting's.
+        if self.route:
+            self.settings["hop_label"] = self.route["label"]
+        elif self.config.get("hop"):
+            self.settings["direct_route"] = True
         running = [vm for vm in vms if vm.get("status") == "running"]
         # Each running VM's config and agent answer, by the VM's place in running.
         place = {vm["vmid"]: at for at, vm in enumerate(running)}
@@ -702,6 +710,9 @@ class Run:
             if hop is None:
                 return
         how["via"] = hop["via"]
+        # A jump it is given - the inventory's, ansible.cfg's or the environment's - is its route either way: said in
+        # its line, which would otherwise read as the hop's or its own address's.
+        how["jump"] = routes.ssh_jump(how.get("given") or "")
         # A shared connection of its identity's own, and its hop's: one by address alone would let a VM that reports
         # another's address ride that one's, on which no host key is checked again.
         how["control_name"] = vm_control_name(row["key_alias"], address, hop["name"])

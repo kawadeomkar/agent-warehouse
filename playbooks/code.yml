@@ -213,6 +213,10 @@
     code_session_id: "{{ vm_session | default('', true) | string }}"
     code_session_on: "{{ code_sessions or code_session_id | length > 0 }}"
     code_session_days: 30
+    # The most one copy sends, in bytes (claude_sessions_sync_max_size; 0, an
+    # empty value or false for no bound, and session_read.yml refuses one that
+    # is no size): the newest sessions first, --session's own always.
+    code_session_cap: "{{ claude_sessions_sync_max_size | default('256M') | claude_sessions_cap }}"
     code_session_here: >-
       {{ code_session_source_dir | default('', true)
          or lookup('ansible.builtin.env', 'CLAUDE_CONFIG_DIR') or code_here_home ~ '/.claude' }}
@@ -299,10 +303,15 @@
                 ~ ' and then Ctrl+A lists them.')
                if code_copies | length > 0
                else 'No Claude Code session of this machine was copied to ' ~ claude_vm_names[0] ~ '.'
-               if code_sessions_listed | length > 0
+               if code_sessions_listed | length > 0 or code_session_plan.over | default([]) | length > 0
                else "No Claude Code session of this machine's from the last " ~ code_session_days
                     ~ ' days is of a repository ' ~ claude_vm_names[0] ~ ' has checked out, so none was copied.')
               ~ code_sessions_listed
+              ~ ((' ' ~ code_session_plan.over | length ~ ' more '
+                  ~ ('session' if code_session_plan.over | length == 1 else 'sessions') ~ ', '
+                  ~ code_session_plan.over_bytes | human_readable ~ ', stayed here, past claude_sessions_sync_max_size ('
+                  ~ claude_sessions_sync_max_size | default('256M') ~ ').')
+                 if code_session_plan.over | default([]) | length > 0 else '')
               ~ (' rsync could not send them all to ' ~ claude_vm_names[0] ~ ' (it exited '
                  ~ code_session_sent.rc | default('') ~ (': ' ~ code_sync_why if code_sync_why else '')
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
