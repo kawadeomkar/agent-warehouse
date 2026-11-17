@@ -238,6 +238,8 @@ def test_every_setting_of_the_example_is_allowed_or_refused_and_never_both():
     names = {m.group(1) for m in re.finditer(r"(?m)^#? ?([a-z][a-z0-9_]*):", example)}
     assert set(confirm.ALLOWED) & confirm.REFUSED == set()
     assert names == set(confirm.ALLOWED) | confirm.REFUSED, "classify each new setting in lib/claude_vm/mcp/confirm.py"
+    # direct is what dials a VM's address from wherever the laptop is.
+    assert "vm_ssh_route" in confirm.REFUSED
     # Where a credential goes, or what runs on every VM: never an agent's to change, in an example or not.
     for name in ("github_projects_api_url", "tailscale_api_url", "claude_code_download_url"):
         assert name not in confirm.ALLOWED

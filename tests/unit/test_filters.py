@@ -590,6 +590,12 @@ class TestSshdMatchSpec:
         spec = checks.sshd_match_spec("192.0.2.5 50022 192.0.2.51 22", "dev")
         assert spec == "user=dev,host=192.0.2.5,addr=192.0.2.5,laddr=192.0.2.51,lport=22"
 
+    def test_through_the_proxmox_host_the_host_s_address_is_the_client_for_ansible_and_the_editor_alike(self):
+        # vm_ssh_route through the host: Ansible's connection and the editor's (the alias's ProxyJump) both arrive at
+        # the VM from the host's own address on the VMs' network, so what sshd is asked about is still the editor's.
+        through = checks.sshd_match_spec("192.0.2.1 41022 192.0.2.51 22", "dev")
+        assert through == "user=dev,host=192.0.2.1,addr=192.0.2.1,laddr=192.0.2.51,lport=22"
+
     @pytest.mark.parametrize("connection", ["", None, "192.0.2.5 50022"])
     def test_without_a_whole_connection_the_loopback_address_stands_in(self, connection):
         # A container or a local run has no SSH_CONNECTION.

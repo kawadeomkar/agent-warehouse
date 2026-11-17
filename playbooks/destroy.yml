@@ -168,6 +168,16 @@
           it is not clear which one to delete, and nothing was. Rename or remove the duplicates, then run this again.
         quiet: true
 
+    # How this machine reaches the VMs, only while it reaches one: through the
+    # Proxmox host, a login it cannot make stops the run here, before any VM is
+    # started (tasks/vm_route.yml). With the release and the save both off it
+    # reaches no VM, and needs no SSH.
+    - name: Settle how the VMs are reached
+      ansible.builtin.import_tasks: tasks/vm_route.yml
+      vars:
+        claude_vm_route_start: true
+      when: claude_vm_reaching | bool
+
     # Releasing a VM - signing it out of Claude and GitHub, taking it off the
     # tailnet - happens on the VM, over SSH, since what it signed in with is on
     # its disk: a stopped VM is started for it. One that does not start is
@@ -273,6 +283,30 @@
             claude_vm_just_started: "{{ claude_vm_release_started | map(attribute='vmid') | list }}"
           when: claude_vm_reaching | bool
 
+        # Into claude_vms first, and nothing more, as a publisher puts a VM
+        # there: what its groups give it - the claude_vms group's common args,
+        # a jump of the user's among them - is read from it below, for the
+        # route and for its connection, as deploy reads it (discover.yml).
+        - name: Put each VM in claude_vms
+          ansible.builtin.add_host:
+            name: "{{ claude_vm_name_item }}"
+            groups: claude_vms
+          changed_when: false
+          loop: "{{ claude_vm_names }}"
+          loop_control:
+            loop_var: claude_vm_name_item
+            label: "{{ claude_vm_name_item }}"
+
+        # Through the Proxmox host: its login if it was put off, and one forward to
+        # the first VM that goes through it. A host that forbids forwarding fails
+        # the run here, which stops the VMs it started and deletes nothing.
+        - name: Check the route to each VM
+          ansible.builtin.import_tasks: tasks/vm_route.yml
+          vars:
+            claude_vm_route_vms: >-
+              {{ claude_vm_addressed | default([]) | selectattr('name', 'in', claude_vm_names) | list }}
+          when: claude_vm_reaching | bool
+
         # How the release play below reaches the VM: host variables, never
         # play variables. A play's vars apply to its delegated tasks too, so SSH
         # settings set there sent the release's calls to Tailscale's API - and
@@ -287,6 +321,16 @@
             claude_vm_release_alias: >-
               {{ claude_vm_addressed | default([]) | selectattr('name', 'equalto', claude_vm_name_item)
                  | map(attribute='key_alias', default='') | first | default('', true) }}
+            # What the VM itself is given, as its groups give it (the claude_vms
+            # group's among them), else ANSIBLE_SSH_COMMON_ARGS or ansible.cfg's.
+            claude_vm_release_given: >-
+              {{ hostvars[claude_vm_name_item].ansible_ssh_common_args
+                 | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                  plugin_name='ssh')) }}
+            claude_vm_release_hop: >-
+              {{ claude_vm_route | default({})
+                 | vm_hop(claude_vm_release_here, claude_vm_release_given,
+                          hostvars[claude_vm_name_item].ansible_ssh_extra_args | default('')) }}
           ansible.builtin.add_host:
             name: "{{ claude_vm_name_item }}"
             groups: claude_vm_doomed
@@ -299,16 +343,18 @@
             # Its host key held in the project's own known_hosts file, under its
             # identity from Proxmox, never the address it reports: a VM that
             # reports a sibling's address is refused, not released there.
-            # Common args, for sftp and scp too, the configured ones after
-            # them, and a shared-connection socket of its identity's own
-            # (discover.yml says why).
+            # Common args, for sftp and scp too, the ones the VM is given after
+            # them, and a shared-connection socket of its identity's own;
+            # through the Proxmox host, the hop between the two (discover.yml
+            # says why).
             claude_vm_host_key_alias: "{{ claude_vm_release_alias }}"
+            claude_vm_ssh_via: "{{ claude_vm_release_hop.via }}"
             ansible_ssh_common_args: >-
               {{ claude_vm_release_alias | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-                 plugin_type='connection', plugin_name='ssh')) }}
+              {{ (claude_vm_release_hop.option ~ ' ') if claude_vm_release_hop.option else '' }}{{ claude_vm_release_given }}
             ansible_control_path: >-
-              %(directory)s/{{ claude_vm_release_alias | vm_control_name(claude_vm_release_here) }}-%%r-%%p
+              %(directory)s/{{ claude_vm_release_alias
+                 | vm_control_name(claude_vm_release_here, claude_vm_release_hop.name) }}-%%r-%%p
             # The fleet's other VMs, from the listing, which no VM can change,
             # and those of the checkout's other hosts, by their aliases: a
             # Tailscale device named as one of them joins is never this VM's.
@@ -329,6 +375,13 @@
             claude_host_keys_vms: >-
               {{ claude_vm_addressed | default([]) | selectattr('name', 'in', claude_vm_names) | selectattr('address')
                  | list if claude_vm_reaching | bool else [] }}
+
+        # Each VM goes where the route says, and through the host the shared
+        # connection is there before the release reaches them all at once.
+        - name: Hold each VM to the route
+          ansible.builtin.import_tasks: tasks/vm_route_held.yml
+          vars:
+            claude_vm_route_held: "{{ claude_vm_names if claude_vm_reaching | bool else [] }}"
       rescue:
         - name: Stop again each VM this run started, since it deletes nothing
           ansible.builtin.import_tasks: tasks/vm_stop.yml
@@ -352,6 +405,22 @@
   become: true
 
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once (tasks/vm_route.yml). Fails no host: a hop that is
+    # gone shows as each VM not answering, which this play already handles.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     - name: Leave a VM with no address as it is
       ansible.builtin.meta: end_host
       when: claude_vm_release_address | default('', true) | length == 0
@@ -366,6 +435,97 @@
       register: claude_vm_release_reached
       ignore_unreachable: true
       failed_when: false
+
+    # Through the Proxmox host, a VM that was unreachable may be the road's
+    # fault, not its own: a shared connection gone quiet or dropped, a host that
+    # forwards to some addresses only, a login to it that waits - and under
+    # direct those words mean the VM is down. A VM whose connection worked and a
+    # module failed (no Python) is its own, and is not asked about. One forward
+    # of its own to each of the rest tells them apart (lib/claude_vm/route.py's
+    # forward_verdict): the host refusing to forward, ssh's own failure, or a
+    # login to it that did not finish is the hop's, and the VM is kept, neither
+    # released nor deleted, as one whose save failed; a VM that refused the
+    # host's connection or said nothing is its own, and it goes, unsaved, as
+    # under direct. Answered there, the run's connection may be at fault, so it
+    # takes no new sessions (-O stop, never -O exit), is made sure of again, and
+    # the VM is reached once more: kept where the connection could not be made
+    # again, or where the reach ended again before the VM's sshd spoke; any
+    # other failure is the VM's own (its sshd spoke: a login refused, a host key
+    # that does not match), and it goes, as under direct. Never decided by the
+    # first reach's words, which a login to the hop inside the VM's own
+    # connection shares with a VM's refusal.
+    - name: Remember whether the VM was unreachable through the Proxmox host
+      ansible.builtin.set_fact:
+        claude_vm_release_silent: >-
+          {{ (claude_vm_ssh_via | default('') | length > 0
+              and claude_vm_release_reached.unreachable | default(false) | bool) | bool }}
+
+    # Each VM's own, delegated here, so that the forks ask about them at once.
+    - name: Ask the Proxmox host about the VM
+      vm_route:
+        do: forward
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+        name: "{{ inventory_hostname }}"
+        address: "{{ hostvars[inventory_hostname].ansible_host }}"
+      register: claude_vm_release_verdict
+      delegate_to: localhost
+      become: false
+      check_mode: false
+      failed_when: false
+      when: claude_vm_release_silent | bool
+
+    - name: Make sure of the connection through the Proxmox host again
+      vm_route:
+        do: stop
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      register: claude_vm_release_made_again
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts | map('extract', hostvars) | map(attribute='claude_vm_release_verdict', default={})
+        | map(attribute='why', default='') | select('equalto', 'answered') | list | length > 0
+
+    - name: Reach again a VM that answered the Proxmox host
+      ansible.builtin.ping:
+      become: false
+      register: claude_vm_release_reached_again
+      ignore_unreachable: true
+      failed_when: false
+      when:
+        - claude_vm_release_verdict.why | default('') == 'answered'
+        - claude_vm_release_made_again.ok | default(false) | bool
+
+    # Whatever it said, so the report says the later words.
+    - name: Remember what the second reach said
+      ansible.builtin.set_fact:
+        claude_vm_release_reached: "{{ claude_vm_release_reached_again }}"
+      when: claude_vm_release_reached_again is not skipped
+
+    - name: Keep a VM the road through the Proxmox host is still what fails for
+      vars:
+        claude_vm_release_kept_why: >-
+          {{ hostvars['localhost'].claude_vm_route | default({})
+             | vm_kept_said(inventory_hostname, hostvars[inventory_hostname].ansible_host, claude_vm_release_verdict,
+                            claude_vm_release_made_again | default({}), claude_vm_release_reached) }}
+      ansible.builtin.set_fact:
+        claude_vm_release_hop_kept: "{{ claude_vm_release_kept_why }}"
+        # The host refused it or could not be logged in to, then or again:
+        # never for a VM that answered the host and not this run.
+        claude_vm_release_hop_fault: >-
+          {{ claude_vm_release_verdict.why | default('') != 'answered'
+             or (claude_vm_release_made_again is not skipped
+                 and not claude_vm_release_made_again.ok | default(false) | bool) }}
+        claude_vm_delete_failure: >-
+          {{ inventory_hostname }} was neither released nor deleted: {{ claude_vm_release_kept_why }}.
+          `just status {{ inventory_hostname }}{{ claude_host_flag | default('') }}` says what the host reports for it;
+          run just destroy again once it answers, or set destroy_release: false and destroy_save_sessions: false,
+          which delete it as it is, neither released nor saved.
+      when:
+        - claude_vm_release_silent | bool
+        - claude_vm_release_kept_why | length > 0
 
     - name: Leave a VM that did not answer as it is
       ansible.builtin.meta: end_host
@@ -509,7 +669,8 @@
   # in which every VM fails ends the run, and the play below would never stop
   # again a VM this run started, nor say what is left of the rest.
   tasks:
-    # Kept by the release play: its sessions could not be saved.
+    # Kept by the release play: its sessions could not be saved, or the road
+    # through the Proxmox host was still what failed for it.
     - name: Leave a VM whose sessions could not be saved as it is
       ansible.builtin.meta: end_host
       when: claude_vm_delete_failure is defined
@@ -642,6 +803,13 @@
              if (claude_release_vm.claude_vm_release_reached | default({})).unreachable | default(false) | bool
                 or (claude_release_vm.claude_vm_release_reached | default({})).ping | default('') != 'pong'
              else '' }}
+        # What a VM deleted though it did not answer adds: through the Proxmox host, what the host's forward to
+        # it showed, never just status, which cannot read a VM that is gone, and nothing where the host was not
+        # asked (its connection worked); under direct, the setting that goes through the host.
+        claude_release_unanswered: >-
+          {{ (claude_vm_route | default({}) | vm_gone_said(claude_release_vm.claude_vm_ssh_via | default(''),
+              claude_release_vm.claude_vm_release_verdict | default({})))
+             if claude_release_unreached == 'could not be reached' else '' }}
         claude_release_left: >-
           {{ 'its Tailscale device, if it was on your tailnet, stays until you delete it ' ~ claude_release_where
              ~ ' (or a VM built again under its name joins as <name>-1); a GitHub token its sign-in made stays valid until'
@@ -674,6 +842,13 @@
               ~ claude_host_flag | default('')
               ~ ' again once that is fixed, or set destroy_save_sessions: false to delete it without them.')
              if claude_release_vm.claude_vm_save_error is defined
+             else ('kept' ~ claude_release_alias ~ ', neither released nor deleted - '
+                   ~ claude_release_vm.claude_vm_release_hop_kept ~ '. `just status ' ~ claude_release_name
+                   ~ claude_host_flag | default('') ~ '` says what the host reports for it; run just destroy '
+                   ~ claude_release_name ~ claude_host_flag | default('') ~ ' again once it answers, or set'
+                   ~ ' destroy_release: false and destroy_save_sessions: false, which delete it as it is, neither'
+                   ~ ' released nor saved.')
+             if claude_release_vm.claude_vm_release_hop_kept is defined
              else ('not deleted - ' ~ claude_release_not_deleted ~ ', so it is still there' ~ claude_release_alias
                    ~ ': run just destroy '
                    ~ claude_release_name ~ claude_host_flag | default('') ~ ' again once that is fixed.'
@@ -684,7 +859,8 @@
              else 'released - it had nothing signed in to end.' if claude_release_vm.claude_vm_released | default(false) | bool
              else ('deleted without being released (destroy_release: false): ' ~ claude_release_left)
              if not (claude_release_vm.destroy_release | default(true) | bool)
-             else ((claude_release_unreached or 'could not be reached') ~ ', so it was not released: ' ~ claude_release_left) }}
+             else ((claude_release_unreached or 'could not be reached') ~ ', so it was not released: ' ~ claude_release_left
+                   ~ ((' ' ~ claude_release_unanswered) if claude_release_unanswered else '')) }}
       loop: "{{ groups['claude_vm_doomed'] | default([]) }}"
       loop_control:
         loop_var: claude_release_name
@@ -715,8 +891,9 @@
         label: "{{ claude_release_item.claude_release_name }}"
 
     # Each VM still there keeps its alias, under the reason it is still there:
-    # its deletion failed; a save that failed kept it, its deletion never
-    # tried; or the run lost it before its deletion.
+    # its deletion failed; a save that failed kept it, or the Proxmox host
+    # failed it, its deletion never tried; or the run lost it before its
+    # deletion.
     - name: Say which aliases were kept, and why
       vars:
         claude_ssh_kept: "{{ claude_vm_kept_vars | map(attribute='inventory_hostname') | list }}"
@@ -724,7 +901,15 @@
           {{ claude_vm_kept_vars | selectattr('claude_vm_delete_error', 'defined') | map(attribute='inventory_hostname') | list }}
         claude_ssh_unsaved: >-
           {{ claude_vm_kept_vars | selectattr('claude_vm_save_error', 'defined') | map(attribute='inventory_hostname') | list }}
-        claude_ssh_lost: "{{ claude_ssh_kept | reject('in', claude_ssh_undeleted + claude_ssh_unsaved) | list }}"
+        claude_ssh_hop_failed: >-
+          {{ claude_vm_kept_vars | selectattr('claude_vm_release_hop_kept', 'defined')
+             | selectattr('claude_vm_release_hop_fault') | map(attribute='inventory_hostname') | list }}
+        claude_ssh_unanswered: >-
+          {{ claude_vm_kept_vars | selectattr('claude_vm_release_hop_kept', 'defined')
+             | rejectattr('claude_vm_release_hop_fault') | map(attribute='inventory_hostname') | list }}
+        claude_ssh_lost: >-
+          {{ claude_ssh_kept | reject('in', claude_ssh_undeleted + claude_ssh_unsaved + claude_ssh_hop_failed
+                                             + claude_ssh_unanswered) | list }}
         claude_ssh_kept_why: >-
           {{ ([claude_ssh_undeleted | join(', ') ~ ': '
                ~ ('its deletion failed above, so the VM is' if claude_ssh_undeleted | length == 1
@@ -734,6 +919,19 @@
                     else 'their Claude Code sessions could not be saved, so the VMs were')
                  ~ ' neither released nor deleted, and ' ~ ('is' if claude_ssh_unsaved | length == 1 else 'are')
                  ~ ' still there'] if claude_ssh_unsaved else [])
+             + ([claude_ssh_hop_failed | join(', ') ~ ': '
+                 ~ ('it did not answer through the Proxmox host, which was at fault, so the VM was'
+                    if claude_ssh_hop_failed | length == 1
+                    else 'they did not answer through the Proxmox host, which was at fault, so the VMs were')
+                 ~ ' neither released nor deleted, and ' ~ ('is' if claude_ssh_hop_failed | length == 1 else 'are')
+                 ~ ' still there'] if claude_ssh_hop_failed else [])
+             + ([claude_ssh_unanswered | join(', ') ~ ': '
+                 ~ ("it answered a forward of its own through the Proxmox host but not this run's connection, so the"
+                    ~ " VM was" if claude_ssh_unanswered | length == 1
+                    else "they answered a forward of their own through the Proxmox host but not this run's"
+                         ~ " connection, so the VMs were")
+                 ~ ' neither released nor deleted, and ' ~ ('is' if claude_ssh_unanswered | length == 1 else 'are')
+                 ~ ' still there'] if claude_ssh_unanswered else [])
              + ([claude_ssh_lost | join(', ') ~ ': '
                  ~ ('the run lost it before its deletion, so the VM is' if claude_ssh_lost | length == 1
                     else 'the run lost them before their deletion, so the VMs are') ~ ' still there'] if claude_ssh_lost else []) }}

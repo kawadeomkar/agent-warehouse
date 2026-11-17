@@ -129,6 +129,7 @@ def github_found(part, settings, host):
             and "workflow" not in str(account.get("scopes") or ""),
             "user": settings["user"],
             "host": host,
+            "via": settings.get("via", ""),
             "auth": settings["auth"],
             "auth_method": settings["auth_method"],
             "token_wanted": settings["token_wanted"],

@@ -179,6 +179,7 @@ REFUSED = frozenset(
         "vm_projects_dir",
         "vm_searchdomain",
         "vm_ssh_public_keys",
+        "vm_ssh_route",
         "vm_user",
         "vpn",
         "vscode_claude_sessions",

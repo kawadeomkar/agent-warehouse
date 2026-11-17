@@ -1601,6 +1601,39 @@ def test_the_notes_of_a_run_whose_editor_is_not_the_setting_s_name_it(zed_writes
     assert "`just code alpha`" not in text, text
 
 
+def test_the_notes_say_each_way_to_reach_the_vm_on_a_line_of_its_own(zed_writes):
+    # A run's notes, the route direct: the alias's row and the address's, each a row of the table.
+    run = zed_writes["one project"]
+    (notes,) = run["vm"].rglob("session/alpha-session.md")
+    lines = notes.read_text().splitlines()
+    at = lines.index("| SSH, by alias | `ssh alpha` |")
+    assert lines[at + 1].startswith("| SSH, by address | `ssh dev@") and lines[at + 1].count("| SSH, ") == 1
+
+
+@pytest.mark.parametrize(
+    ("via", "rows"),
+    [
+        ("", ["| SSH, by alias | `ssh alpha` |", "| SSH, by address | `ssh dev@192.0.2.77` |", "| next | row |"]),
+        # Through the Proxmox host, the alias alone: nothing of the hop's account where the VM's root reads it.
+        ("-J root@pve.example.ts.net", ["| SSH, by alias | `ssh alpha` |", "| next | row |"]),
+    ],
+)
+def test_the_notes_rows_by_alias_and_address_keep_a_line_each_by_the_route(via, rows):
+    import jinja2
+
+    text = (CODE.parent / "templates" / "vm_session.md.j2").read_text()
+    piece = text[text.index("| SSH, by alias |") : text.index("{% if tailscale_wanted")] + "| next | row |\n"
+    # As Ansible's template lookup renders it: trim_blocks on.
+    rendered = (
+        jinja2.Environment(trim_blocks=True, keep_trailing_newline=True)
+        .from_string(piece)
+        .render(
+            name="alpha", vm_user="dev", vm={"address": "192.0.2.77"}, hostvars={"alpha": {"claude_vm_ssh_via": via}}
+        )
+    )
+    assert rendered.splitlines() == rows
+
+
 def test_just_code_s_directory_outside_the_projects_directory_gets_no_task_and_no_word_of_one(zed_writes):
     run = zed_writes["outside the projects directory"]
     assert run["reached"], run["output"]
@@ -1971,8 +2004,8 @@ EDITOR_WRITES = {
 }
 # The task files code.yml imports that other playbooks import too, each held to its own tests: the
 # Proxmox API reads, the alias (test_ssh_config.py), the refusal of a VM named after an inventory
-# host (test_vm_names.py) and the host key's carry-over (test_host_keys.py). Every other import is
-# code.yml's own, and its tasks are held to everything
+# host (test_vm_names.py), the host key's carry-over (test_host_keys.py) and the route to the VM
+# (test_vm_route.py). Every other import is code.yml's own, and its tasks are held to everything
 # here as code.yml's are.
 SHARED = {
     "tasks/cluster_vms.yml",
@@ -1981,6 +2014,9 @@ SHARED = {
     "tasks/vm_names.yml",
     # The VM's host key carried over to its identity: test_host_keys.py.
     "tasks/host_keys.yml",
+    # How the VM is reached, and the VM held to it: test_vm_route.py.
+    "tasks/vm_route.yml",
+    "tasks/vm_route_held.yml",
 }
 
 

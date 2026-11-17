@@ -42,6 +42,30 @@
 
     - name: Build the golden template
       block:
+        # What the run knows before the clone, it refuses before the clone:
+        # the aliases go on past a hop they found unusable (tasks/vm_route.yml
+        # records it), and a build VM that would go through it - none of the
+        # run's VMs' own jumps is its - would be cloned, started and deleted
+        # for nothing. Its own forward is made once it has an address, below.
+        - name: Refuse a build VM that would go through a Proxmox host this run could not use
+          vars:
+            claude_vm_build_jump: >-
+              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
+                                                          plugin_type='connection', plugin_name='ssh'))
+                 | ssh_jump(ansible_ssh_extra_args | default('')) }}
+          ansible.builtin.assert:
+            that: >-
+              (claude_vm_route | default({})).route | default('') != 'host'
+              or claude_vm_build_jump | length > 0
+              or 'failed' not in [claude_vm_route.login | default(''), claude_vm_route.forward | default('')]
+            fail_msg: >-
+              The build VM would be reached through {{ claude_vm_route.hop.label | default('the Proxmox host') }},
+              which this run found could not be used as the hop (said above), so none was cloned.
+            quiet: true
+          when:
+            - claude_vm_golden_wanted | bool
+            - not (proxmox_template_build_busy | default(false) | bool)
+
         - name: Build its VM
           ansible.builtin.include_role:
             name: proxmox_template
@@ -59,6 +83,15 @@
             mode: "0700"
           when: (proxmox_template_build_vm | default({})).name is defined
 
+        # Through the Proxmox host: its login, if this run put it off, and its
+        # forward, where the run's VMs made none (each brought a jump of its
+        # own). A hop either found unusable fails into the rescue here.
+        - name: Check the route to the build VM
+          ansible.builtin.import_tasks: tasks/vm_route.yml
+          vars:
+            claude_vm_route_vms: "{{ [proxmox_template_build_vm] }}"
+          when: (proxmox_template_build_vm | default({})).name is defined
+
         # How to reach it goes on the host, never on a play (CLAUDE.md). An
         # empty become password: cloud-init's own rule covers the build, and the
         # vault's password is never sent to it.
@@ -73,11 +106,24 @@
             # Its key in a file of the build's own, by its address: the VM lives
             # for the build alone. No agent forwarded, as no VM of the fleet is
             # (vm_ssh_args); ssh, sftp and scp alike, the configured common args
-            # after them (discover.yml says why).
+            # after them (discover.yml says why). Through the Proxmox host, the
+            # hop between the two and a socket named with it; otherwise none of
+            # its own, which Ansible reads as its own default.
+            claude_vm_ssh_via: "{{ claude_vm_build_hop.via }}"
             ansible_ssh_common_args: >-
               {{ '' | vm_ssh_args(proxmox_template_build_vm.known_hosts) }} -o StrictHostKeyChecking=accept-new
-              {{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',
-                 plugin_type='connection', plugin_name='ssh')) }}
+              {{ (claude_vm_build_hop.option ~ ' ') if claude_vm_build_hop.option else '' }}{{ ansible_ssh_common_args
+                 | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
+                                  plugin_name='ssh')) }}
+            ansible_control_path: >-
+              {{ '%(directory)s/' ~ ('' | vm_control_name(proxmox_template_build_vm.address, claude_vm_build_hop.name))
+                 ~ '-%%r-%%p' if claude_vm_build_hop.name else '' }}
+          vars:
+            claude_vm_build_hop: >-
+              {{ claude_vm_route | default({})
+                 | vm_hop(proxmox_template_build_vm.address, ansible_ssh_common_args | default(lookup(
+                          'ansible.builtin.config', 'ssh_common_args', plugin_type='connection', plugin_name='ssh')),
+                          ansible_ssh_extra_args | default('')) }}
           changed_when: false
           when: (proxmox_template_build_vm | default({})).name is defined
 
@@ -94,6 +140,12 @@
               connection would not hold its host key to {{ proxmox_template_build_vm.known_hosts }}. Set
               ansible_ssh_extra_args for options of your own instead.
             quiet: true
+          when: (proxmox_template_build_vm | default({})).name is defined
+
+        - name: Hold the build VM to the route
+          ansible.builtin.import_tasks: tasks/vm_route_held.yml
+          vars:
+            claude_vm_route_held: "{{ [proxmox_template_build_vm.name] }}"
           when: (proxmox_template_build_vm | default({})).name is defined
       rescue:
         - name: Delete what the build made
@@ -116,6 +168,22 @@
   # A build VM that stops answering is the build failed, never the deploy.
   ignore_unreachable: true
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once (tasks/vm_route.yml). Fails no host: a hop that is
+    # gone shows as each VM not answering, which this play already handles.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     # claude_vm_golden_image false, for the tests alone, skips what reaches
     # the VM, so the plays around it can be run against the fake Proxmox
     # (tests/unit/test_golden_play.py); the image is the image scenario's.
@@ -206,12 +274,21 @@
               The golden template could not be made ({{ ansible_failed_task.name | default('') }}:
               {{ ansible_failed_result.msg | default('no reason') | plain_text }}). The VMs are not affected.
 
+    # A build VM that never answered, through the Proxmox host: that it did not
+    # answer there, read from the build VM's own variables, and never just
+    # status, which cannot read a build VM.
     - name: Say the image could not be built
+      vars:
+        claude_vm_golden_failure_said: >-
+          {{ hostvars[claude_vm_golden_build_host].claude_vm_golden_failure | default('the build VM stopped answering') }}
       ansible.builtin.debug:
         msg: >-
-          The golden template's image could not be built
-          ({{ hostvars[claude_vm_golden_build_host].claude_vm_golden_failure
-              | default('the build VM stopped answering') }}). The VMs are not affected.
+          The golden template's image could not be built ({{ claude_vm_golden_failure_said }}). The VMs are not affected.
+          {{ claude_vm_route | default({}) | vm_gone_said(hostvars[claude_vm_golden_build_host].claude_vm_ssh_via
+                                                          | default(''))
+             if hostvars[claude_vm_golden_build_host].claude_vm_golden_failure is not defined
+                or claude_vm_golden_failure_said is search('^Wait for the build VM to accept connections')
+             else '' }}
       when:
         - claude_vm_golden_build_host | length > 0
         - not (claude_vm_golden_image_built | bool)

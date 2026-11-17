@@ -2,13 +2,15 @@
 
 The project reaches the Proxmox host two ways: over SSH as root for the one-time template build, and
 through the API, with a token, for everything after it. The token is one `just init` offers to make for
-you, over that same root SSH.
+you, over that same root SSH. Where your machine reaches the host but not its VMs' network - the host on your
+tailnet - every connection to a VM also goes through the host's sshd, as root or as an account of its own that may
+only forward ([Remote access](../guides/remote-access.md#your-proxmox-host-on-your-tailnet-and-no-subnet-router)).
 
 ## Root SSH for the template build
 
 `just deploy --only template` connects to the host over SSH as root, because importing a disk image needs `qm`.
-Everything after that uses the API token instead. Install your key so the one SSH step is not
-password-prompted:
+Everything after that uses the API token instead - but the connections to the VMs, where they are reached through
+the host (`vm_ssh_route`). Install your key so the SSH steps are not password-prompted:
 
 ```bash
 ssh-copy-id root@<proxmox-host>

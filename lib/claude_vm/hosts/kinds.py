@@ -55,7 +55,13 @@ KINDS: Final[Mapping[str, Kind]] = {
             "proxmox_validate_certs",
             "proxmox_template_vmid",
         ),
-        never_inherited=("vm_ipconfig", "vm_nameservers", "proxmox_template_custom", "claude_ssh_host_domain"),
+        never_inherited=(
+            "vm_ipconfig",
+            "vm_nameservers",
+            "proxmox_template_custom",
+            "claude_ssh_host_domain",
+            "vm_ssh_route",
+        ),
         secret_shared="vault_proxmox_api_token_secret",
         secret_host="vault_host_proxmox_api_token_secret",
         from_host=(

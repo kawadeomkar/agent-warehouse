@@ -100,6 +100,8 @@
       failed, so {{ code_editor_name }} could not connect either:
       {{ code_ssh.msg | default('no reason given') | one_line(none) }}
       A VM that has just booted can need another minute; `ssh {{ claude_vm_names[0] }}` shows why.
+      {{ claude_vm_route | default({}) | vm_unanswered(hostvars[claude_vm_names[0]].claude_vm_ssh_via | default(''),
+         claude_vm_names[0], claude_host_flag | default('')) }}
     # Each setting by its name from 1.1, else by its name in 1.0, which the
     # inventory defaults feed it from - and a run without them, from -e.
     code_terminal: "{{ editor_claude_terminal | default(vscode_claude_terminal | default(true)) | bool }}"
@@ -263,6 +265,12 @@
     code_sync_failed: "{{ code_session_sent.rc | default(0) != 0 }}"
     code_sync_why: >-
       {{ (code_session_sent.stderr | default('', true) or code_session_sent.msg | default('', true)) | one_line(none) }}
+    # rsync goes over the alias, whose jump through the Proxmox host reads the user's own ssh config for its key:
+    # where the alias step said it may not be offered, the lines that offer it, again.
+    code_sync_hop_key: >-
+      {{ (' Its jump through ' ~ claude_vm_route.hop.label ~ ' may lack its key: add to ' ~ claude_ssh_user_config
+          ~ ' the lines Host ' ~ claude_vm_route.hop.host ~ ' and IdentityFile ' ~ claude_vm_route.hop.key ~ '.')
+         if claude_ssh_hop_key_said is defined and claude_ssh_hop_key_said is not skipped else '' }}
     # The sessions the sync left out, list by list: what is said before their IDs, the IDs, and after.
     code_sessions_left: >-
       {{ [[' Left as they are, continued on ' ~ claude_vm_names[0] ~ ' since they were copied: ',
@@ -298,7 +306,7 @@
               ~ (' rsync could not send them all to ' ~ claude_vm_names[0] ~ ' (it exited '
                  ~ code_session_sent.rc | default('') ~ (': ' ~ code_sync_why if code_sync_why else '')
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
-                 if code_sync_failed | bool else '')
+                 ~ code_sync_hop_key if code_sync_failed | bool else '')
               ~ ' claude_sessions_sync: false turns the copying off.' }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-
@@ -471,13 +479,21 @@
           vars:
             claude_vm_query: "{{ code_vm_tagged }}"
 
+        # How this machine reaches the VM, before where: through the Proxmox host
+        # a VM is named by its address, never <name>.<domain>, which the host's
+        # sshd would resolve (tasks/vm_route.yml).
+        - name: Settle how the VM is reached
+          ansible.builtin.import_tasks: tasks/vm_route.yml
+          vars:
+            claude_vm_route_start: true
+
         # What the editor will connect to is the alias's HostName - the address, or
         # <name>.<domain> (ssh_hostname) - and this run connects to the same, so the
         # two cannot disagree about whether the VM is reachable. The status is a
         # fact, as the rescue reads it too.
         - name: Settle where the VM is reached
           ansible.builtin.set_fact:
-            code_reach: "{{ claude_vm_addressed[0] | ssh_hostname(claude_ssh_host_domain | default('')) }}"
+            code_reach: "{{ claude_vm_addressed[0] | ssh_hostname(claude_ssh_reach_domain) }}"
             code_status: "{{ claude_vm_addressed[0].status | default('unknown') }}"
 
         # A stopped VM is refused even when its name still resolves. One line
@@ -505,6 +521,13 @@
             groups: claude_vms
           changed_when: false
 
+        # Through the Proxmox host: its login if it was put off, and one forward
+        # to the VM where it goes through it.
+        - name: Check the route to the VM
+          ansible.builtin.import_tasks: tasks/vm_route.yml
+          vars:
+            claude_vm_route_vms: "{{ [{'name': claude_vm_names[0], 'address': code_reach}] }}"
+
         - name: Reach the VM the way just deploy --only configure does
           ansible.builtin.add_host:
             name: "{{ claude_vm_names[0] }}"
@@ -517,21 +540,27 @@
             # Its host key held in the project's own known_hosts file, under its identity from Proxmox, never
             # the address it reports; no agent forwarded (vm_ssh_args).
             # Common args, for sftp and scp too, the VM's own after them, and a shared-connection socket of its
-            # identity's own (discover.yml says why).
+            # identity's own; through the Proxmox host, the hop between the two (discover.yml says why).
             claude_vm_host_key_alias: "{{ claude_vm_addressed[0].key_alias | default('') }}"
             claude_vm_ssh_given: "{{ code_ssh_given_now }}"
+            claude_vm_ssh_via: "{{ code_hop_now.via }}"
             ansible_ssh_common_args: >-
               {{ claude_vm_addressed[0].key_alias | default('')
                  | vm_ssh_args(claude_ssh_known_hosts_file, claude_ssh_forward_agent | bool) }}
-              {{ code_ssh_given_now }}
+              {{ (code_hop_now.option ~ ' ') if code_hop_now.option else '' }}{{ code_ssh_given_now }}
             ansible_control_path: >-
-              %(directory)s/{{ claude_vm_addressed[0].key_alias | default('') | vm_control_name(code_reach) }}-%%r-%%p
+              %(directory)s/{{ claude_vm_addressed[0].key_alias | default('')
+                 | vm_control_name(code_reach, code_hop_now.name) }}-%%r-%%p
           vars:
             code_ssh_given_now: >-
               {{ hostvars[claude_vm_names[0]].claude_vm_ssh_given
                  | default(hostvars[claude_vm_names[0]].ansible_ssh_common_args
                            | default(lookup('ansible.builtin.config', 'ssh_common_args', plugin_type='connection',
                                             plugin_name='ssh'))) }}
+            code_hop_now: >-
+              {{ claude_vm_route | default({}) | vm_hop(code_reach, code_ssh_given_now,
+                                                        hostvars[claude_vm_names[0]].ansible_ssh_extra_args
+                                                        | default('')) }}
           changed_when: false
 
         # Before anything connects: a key kept before 2.6 by address.
@@ -539,6 +568,12 @@
           ansible.builtin.import_tasks: tasks/host_keys.yml
           vars:
             claude_host_keys_vms: "{{ [claude_vm_addressed[0] | combine({'address': code_reach})] }}"
+
+        # The VM goes where the route says, the shared connection made sure of.
+        - name: Hold the VM to the route
+          ansible.builtin.import_tasks: tasks/vm_route_held.yml
+          vars:
+            claude_vm_route_held: "{{ [claude_vm_names[0]] }}"
 
         # Where the code lives, read on the VM as configure reads it: the VM
         # user's home, so nothing is guessed from this machine. Not needed when
@@ -660,6 +695,8 @@
                 workspace: "{{ code_root }}"
                 editor_flag: "{{ code_editor_flag }}"
             claude_vm_names_chosen: "{{ claude_vm_names }}"
+            # The window opens through the alias: a hop it cannot go through fails here.
+            claude_ssh_hop_stop: true
 
         - name: Look for the folder on the VM
           ansible.builtin.stat:

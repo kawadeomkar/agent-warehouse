@@ -68,6 +68,7 @@ import http.client
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -1469,6 +1470,59 @@ def test_the_harness_keeps_the_sign_in_off_this_machine(tmp_path):
     hosts = _hosts(tmp_path, {"probe": {}})
     assert hosts["probe"]["claude_code_login_desktop"] is False
     assert hosts["probe"]["claude_code_remote_control"] is False
+
+
+def _role_vars(tmp_path, host: dict, names: list[str], extra: dict | None = None) -> dict:
+    """Each of names as the role's defaults and vars render it for a VM with host's variables."""
+    playbook = tmp_path / "vars.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "alpha",
+                    "gather_facts": False,
+                    "vars_files": [str(ROLE / "defaults" / "main.yml"), str(ROLE / "vars" / "main.yml")],
+                    "tasks": [{"name": f"Say {name}", "ansible.builtin.debug": {"var": name}} for name in names],
+                }
+            ]
+        )
+    )
+    report = _run(tmp_path, playbook, {"alpha": host}, "-e", json.dumps(extra or {}))
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    return {name.removeprefix("Say "): result[name.removeprefix("Say ")] for name, _, result in _results(report)}
+
+
+def test_the_forward_takes_the_hop_through_the_proxmox_host_as_one_word(tmp_path):
+    # Through the Proxmox host a VM's common args carry the hop as one ProxyCommand (vm_hop), which the forward's own
+    # ssh takes as Ansible does: whole.
+    hop = "ProxyCommand=ssh -o BatchMode=yes -o ControlPersist=120 -W 192.0.2.10:%p root@pve.example.ts.net"
+    host = {
+        "ansible_connection": "local",
+        "ansible_host": "192.0.2.10",
+        "ansible_user": "dev",
+        "ansible_ssh_common_args": "-o UpdateHostKeys=no -o " + shlex.quote(hop),
+    }
+    extra = {
+        "claude_code_login_callback_port": "4242",
+        "claude_code_login_forward_pidfile": "/run/forward.pid",
+        "claude_code_login_approval_timeout": 30,
+    }
+    argv = _role_vars(tmp_path, host, ["claude_code_login_forward_argv"], extra)["claude_code_login_forward_argv"]
+    assert argv[argv.index(hop) - 1] == "-o" and argv.count(hop) == 1, argv
+
+
+@pytest.mark.parametrize("via", ["", "-J root@pve.example.ts.net"])
+def test_a_printed_ssh_line_gains_the_hop_s_words_after_ssh_and_nothing_else(tmp_path, via):
+    host = {"ansible_connection": "local", "ansible_host": "192.0.2.10"}
+    extra = {"claude_code_user": "dev", "claude_code_ssh_via": via, "claude_code_login_other_claude": "4321"}
+    said = _role_vars(
+        tmp_path, host, ["claude_code_login_end_command", "claude_code_remote_control_login_command"], extra
+    )
+    words = f" {via}" if via else ""
+    assert said["claude_code_login_end_command"] == f"ssh{words} dev@192.0.2.10 kill 4321"
+    assert said["claude_code_remote_control_login_command"] == (
+        f"ssh{words} -t dev@192.0.2.10 \"bash -lc 'claude auth login'\""
+    )
 
 
 def test_the_forward_reaches_the_vm_with_the_ssh_arguments_every_run_does(tmp_path):

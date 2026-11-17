@@ -637,7 +637,13 @@ through `filter_plugins/status.py`) and by `just status`, which works out the sa
 **`status/engine.py`** — the run: the screen (`Screen`, the outline, then each VM as what is read of it lands, in the
 region every live output shares, §7.8, the lines its frame leaves out said to be "shown when the run ends"), the
 Proxmox GETs (`Proxmox`, eight at a time, each result in the shape a `uri` task registers, so the model reads either),
-and the order of it all. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+and the order of it all - through the Proxmox host, the route settled before the probes, the hop's login by the first
+VM that takes it, each VM's line asked of its ssh before its probe, and the hop's words after them for a VM that did
+not answer (`settle_route`, `hop_login`, `through`, `held_to_route`, `recheck`;
+[§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). The login's line, which a pool thread writes into the
+settings, may land after the fleet first does: the fleet is landed again on the main thread once the probes are
+joined. A VM's options that cannot be split into words are its own line, never the run's end, and a Ctrl-C ends every
+ssh of the hop's (`route.end_all`) before the run ends at once. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
 run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
 settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
 finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on
@@ -1471,3 +1477,77 @@ failures are put into words (`proxmox_untrusted_hint` in `lib/claude_vm/proxmox.
 `init_check.yml` and `just status`), never retried without checking. Covered by `tests/unit/test_proxmox_trust.py`,
 against a local TLS server serving a node's certificate under a CA made as Proxmox makes one (`tests/unit/pki.py`),
 and `tests/unit/test_init_check.py`, which runs the step against the fake Proxmox serving the same.
+
+## 7.17 `lib/claude_vm/route.py` — how this machine reaches a host's VMs
+
+Where this machine reaches the Proxmox host but not the network its VMs are on - the host on a tailnet, no subnet
+router - every SSH connection to a VM can be carried through the host's own sshd, as a forward. The module holds what
+that takes, and runs nothing of Ansible's.
+
+- **The rule.** `route_rule(setting, addresses)`: `direct` or `host` as named, and under `auto`, `host` where every
+  address ssh dials for the Proxmox host is a tailnet one (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`) and there is at
+  least one, `direct` otherwise - never a fallback either way. `route_settle` works out those addresses: the host as
+  `ssh -G` shows it, so a `HostName` of the user's counts, else as written; then its addresses here, now, a lookup
+  that gets no answer within 5 s being a name that does not resolve.
+- **The hop.** `hop_settings` holds each of its settings - the ssh program, user, host, port, key file, the control
+  directory - to one fixed set of characters, never quoted, and refuses any other by name, with the variable to change
+  on the host's entry: ssh runs a `ProxyCommand` through the shell after its own `%` expansion, and a path may not
+  start with `-` (an option) or `=` (which zsh expands). Its shared connection's socket is named by a digest of the hop, held
+  to 86 bytes, macOS's 103 less the 17 ssh adds while it binds one. `hop_argv` is its command, to one IPv4 address and
+  nothing else, the one value a VM supplies: `-W <address>:%p`, never `%h`, which the far end would resolve.
+  `ControlPath` and `ControlPersist` are both in it, so that Ansible, which scans a VM's words for the second, still
+  adds the VM's own `ControlPath`. `LogLevel=INFO` is pinned, since what ssh says is read: under a user's `LogLevel
+  ERROR` a refused forward and a closed port both read "stdio forwarding failed". The forward check alone runs at
+  `VERBOSE`, never a VM's `ProxyCommand`, whose words are in every VM's failure. The host key policy is the caller's.
+- **What a VM is given.** `ssh_proxies` finds every proxy option among ssh arguments, split as Ansible splits them,
+  in ssh's spellings: `-o Name=value`, `-oName=value`, `-o 'Name value'`, a keyword in quotes or after a `=`, and `-J`
+  among flags run together. `vm_hop(route, address, given, extra)` is a VM's hop: the words its common args gain, its
+  socket's part of the name, and `-J user@host` for a person's own ssh - none where the route is direct, the VM has no
+  address, or it brings a jump of its own (`ssh_jump`: a proxy of `none`, in any case, is no jump). The filters of
+  `filter_plugins/route.py`. The finder decides which VM brings a jump and the words a run says; it need not be
+  complete, since what ssh will take is asked of ssh itself.
+- **What ssh itself shows.** `ssh_shown(ssh, words, destination)` asks ssh (`-G`, 5 s) which proxy a connection with
+  a VM's whole line would take, with `-F /dev/null` first, so the line decides and nothing of the user's config is
+  read or run. `vm_route_refusal` holds it to the route: a VM that takes the hop shows the hop's command to its
+  address, word for word, and nothing else; one given a jump shows some proxy on its whole line and on its common and
+  extra args alone; anything else, a line ssh refuses, or an ssh that cannot be asked, is a refusal in words - the
+  hop's own command to another address than the VM's as its `ansible_host` not being the address it was published
+  with.
+- **The hop's own ssh, under a hard limit.** `hop_check` (`-O check`, 5 s), `hop_held` (making sure of the shared
+  connection: `-O check` first, then, where the check found a socket file nothing listens at, that file removed -
+  never where the check was ended at its limit - then the open, `hop_open_argv`: `ControlMaster=yes`, its master or
+  nothing, since a client with `-N` asks the host for a session, a shell on a full account; the keepalives that end it
+  60 s after its far side goes quiet - a keepalive after 15 s of silence, the fourth unanswered one ends it;
+  `ClearAllForwardings`; ended at 20 s or as soon as it says another's socket exists, which it never returns from; then
+  `-O check` again, and where the open ended by itself and no connection answers, all of it once more, since another
+  caller's unlink took its path; a failure always in words), `hop_stop` (`-O stop`, never `-O exit`, which cuts the
+  forwards another run has on it) and `hop_forward` (one forward on a connection of its own, 15 s, at `LogLevel=VERBOSE`,
+  where ssh says `Authenticated to` once its login is done). Each reads ssh's exit status and standard error, and of
+  the forward's standard output only whether its first bytes are an SSH banner, read as it comes and dropped, kept as a
+  yes or no: what a forward carries is the far end's to write. A caller ended meanwhile ends that ssh and waits for it,
+  and `end_all` ends every one still running, for a caller about to end at once (`just status`'s Ctrl-C); a failure to
+  make the control directory is said, never raised. `forward_verdict` says the hop unusable only for `administratively
+  prohibited` or ssh's own failure; a far end that refused or said nothing once the login was done is the far end's
+  doing, and a forward ended before it, `stalled`, the login's: a second login that waits (a key touched once) beside a
+  shared connection that works stops no run, and is never read as the VM's silence. What `VERBOSE` adds is taken out
+  of the words (`VERBOSE_ONLY`), so they read as at `INFO`. `hop_unanswered` reads ssh's words for a VM reached
+  through the hop - the connection ended before the VM's sshd spoke - for `just status` and `just destroy` alike.
+- **What playbooks reach.** The action `vm_route` (`playbooks/action_plugins/vm_route.py`) settles the route - the
+  hop's settings the Proxmox host's own, resolved by Ansible's ssh connection plugin's options, so a host var, then
+  `ansible.cfg`, then the environment - and runs the login, the forward (at the VM's port, as its connection resolves
+  it), the making sure, the stop that makes the connection again, and the check of each VM published, by what its own
+  ssh shows of its whole line (`ssh_shown`, `vm_route_refusal`) - and, for a VM given a jump outside its common args,
+  of the lines sftp and scp are given, which Ansible ends with extra args of their own; an ssh that cannot be asked
+  with `-G` at all is named as the program, never met with advice about a jump; a failure of any is the result's, in
+  words, never an exception. `tasks/vm_route.yml` and `tasks/vm_route_held.yml` are where the runs reach it
+  ([§4.15](lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host)). `vm_route_vms` says which VMs about
+  to be published go through the hop and which bring a jump, and `route_said`, `login_said`, `forward_said`,
+  `unheld_said`, `vm_unanswered`, `vm_kept_said` and `vm_gone_said` put each into words, what ssh said through
+  `one_line`, its last lines and never a banner. `vm_kept_said` is `just destroy`'s rule too: a VM unreachable through
+  the hop is kept only where the road is still what fails - the forward `prohibited`, `failed` or `stalled`, or
+  `answered` and then the connection not made again, or the reach after it ended before the VM's sshd spoke.
+
+Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, one run
+of the real ssh, given no config, whose `ProxyCommand` reaches a recorder, and each forward's verdict from the real ssh
+against a throwaway sshd of the test's own on the loopback, its words at `VERBOSE` held to those at `INFO`; the task
+files and the publishers by `tests/unit/test_vm_route.py`.

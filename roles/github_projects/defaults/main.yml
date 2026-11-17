@@ -78,6 +78,9 @@ github_projects_login_role_follows: false
 # What ends each line naming a just command for this VM: " --host <name>" where
 # the checkout has more than one Proxmox host (wired from claude_host_flag).
 github_projects_host_flag: ""
+# The words a person's own ssh needs for this VM beyond its address: -J and the
+# Proxmox host, where the VM is reached through it (wired from claude_vm_ssh_via).
+github_projects_ssh_via: ""
 # Read by just deploy --only configure's message for a signed-out VM: true under just
 # deploy, whose sign-ins come next in the same run, so it says so rather than
 # naming just login --only github.

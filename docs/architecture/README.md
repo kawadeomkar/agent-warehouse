@@ -57,7 +57,7 @@ Four actors:
 | Actor | What runs there | How it is reached |
 |---|---|---|
 | **Controller** | Ansible, all Proxmox API calls | local |
-| **Proxmox host** | `qm`, `virt-customize`, the template build | SSH (`playbooks/template.yml` only) |
+| **Proxmox host** | `qm`, `virt-customize`, the template build; the hop to the VMs, where they are reached through it | SSH (`playbooks/template.yml`, and every connection to a VM through the host: `vm_ssh_route`) |
 | **VMs** | everything `configure.yml` installs | SSH, at a DHCP address discovered at runtime |
 | **The editor** (VS Code or Zed), on the controller | the window; its server and terminal run on the VM, VS Code's extensions too | SSH, through an alias this project keeps in `~/.ssh/agent-warehouse.conf` |
 
@@ -71,7 +71,8 @@ flowchart TB
     end
     subgraph P["Proxmox VE host"]
         API["REST API :8006<br/>token auth"]
-        QM["qm / virt-customize<br/>(SSH, template build only)"]
+        QM["qm / virt-customize<br/>(SSH, template build)"]
+        SSHD["sshd<br/>(the hop, where VMs are reached through the host)"]
         TPL["template 9000<br/>ubuntu-24.04-cloudinit"]
         VM1["VM: alpha<br/>tag agent-warehouse"]
         VM2["VM: beta<br/>tag agent-warehouse"]
@@ -91,6 +92,8 @@ flowchart TB
     API -->|"address"| A
     A -->|"SSH: configure"| VM1
     A -->|"SSH: configure"| VM2
+    A -.->|"or through the host: vm_ssh_route"| SSHD
+    SSHD -.->|"forward"| VM1
     INV --> A
     A -->|"alias per VM"| SSHC
     SSHC --> VSC

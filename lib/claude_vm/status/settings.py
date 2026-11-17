@@ -67,6 +67,9 @@ FLEET = {
     "template_wanted": "{{ proxmox_template_wanted }}",
     # No more VMs read at once than Ansible would reach at once.
     "forks": "{{ lookup('ansible.builtin.config', 'DEFAULT_FORKS') }}",
+    # How this machine reaches the VMs, as set: the route auto makes of it is worked out at each run, by address, and
+    # never kept (lib/claude_vm/route.py).
+    "route": "{{ vm_ssh_route | default('auto') }}",
     "settings": {
         "tag": "{{ claude_vm_tag }}",
         # Every tag a VM of the project's carries as its own, its 1.x name too: what the unfinished tag is read under.
@@ -218,6 +221,24 @@ REACH = {
     "control_dir": "{{ ansible_control_path_dir | default('~/.ansible/cp') }}",
     "become": "{{ ansible_become | default(true) | bool }}",
     "become_exe": "{{ ansible_become_exe | default('sudo') }}",
+}
+# Status's own options and what the VM's options hold of the user's own, apart: through the Proxmox host the hop goes
+# between the two, as a run has it, and a jump in what the VM is given is its route, so it takes no hop.
+REACH["own"] = "{{ status_ssh_args }}"
+REACH["given"] = _SSH_MORE
+# The hop through the Proxmox host, where the VMs are reached through it: the host's own settings, as Ansible's ssh
+# resolves each for it, and the account vm_ssh_jump names on its own entry.
+HOP = {
+    "name": "{{ inventory_hostname }}",
+    "host": "{{ ansible_host | default(inventory_hostname) }}",
+    "user": _ssh_option("ansible_user ansible_ssh_user", "remote_user"),
+    "port": _ssh_option("ansible_port ansible_ssh_port", "port"),
+    # The key a run gives it, --private-key in ANSIBLE_ARGS among them; and the control directory as Ansible's ssh
+    # resolves it, ansible.cfg and the environment too, so that status and a run share the hop's socket.
+    "key": _ssh_option("ansible_ssh_private_key_file ansible_private_key_file status_private_key", "private_key_file"),
+    "ssh_executable": _ssh_option("ansible_ssh_executable", "ssh_executable"),
+    "control_dir": _ssh_option("ansible_control_path_dir", "control_path_dir"),
+    "jump": "{{ vm_ssh_jump | default('', true) }}",
 }
 # A host of the inventory, with discovery off: however it says it is reached.
 REACH_INVENTORY = {
@@ -586,6 +607,13 @@ def _from_ansible(opts, say=None) -> dict:
     placeholder = ansible.on_host(PLACEHOLDER)
     config["vm"] = ansible.render(VM, placeholder)
     config["reach"] = ansible.render(REACH, placeholder)
+    # The Proxmox host's own settings, for the hop through it: only where the API is read, whose VMs it carries.
+    proxmox = ansible.inventory.get_groups_dict().get("proxmox") or []
+    config["hop"] = (
+        ansible.render(HOP, ansible.on_host(proxmox[0], inventory_host=True))
+        if fleet["settings"]["discovery"] and proxmox
+        else {}
+    )
     password = str(ansible.render(BECOME, placeholder))
     # The VMs whose sudo password is not every VM's. Never kept: a run with one asks Ansible.
     own = {}

@@ -25,6 +25,13 @@
   gather_facts: false
 
   tasks:
+    # How this machine reaches the VMs, settled first: through the Proxmox host
+    # the aliases carry it. This run connects to no VM, so the host is checked
+    # only before the first alias written through it, and an unusable one stops
+    # nothing here (tasks/vm_route.yml).
+    - name: Settle how the VMs are reached
+      ansible.builtin.import_tasks: tasks/vm_route.yml
+
     - name: Stop when the managed file is switched off
       ansible.builtin.debug:
         msg: claude_ssh_config is false, so this project keeps no SSH aliases on this machine. Nothing to do.
@@ -67,7 +74,7 @@
       loop_control:
         loop_var: claude_ssh_vm
         label: "{{ claude_ssh_vm.name }}"
-      when: claude_ssh_vm.address | length > 0 or claude_ssh_host_domain | default('') | length > 0
+      when: claude_ssh_vm.address | length > 0 or claude_ssh_reach_domain | length > 0
 
     # Before the aliases point ssh and the editors at the project's file: a key
     # kept before 2.6 by address goes there under the VM's identity, as every
@@ -118,7 +125,7 @@
         claude_ssh_unaddressed: >-
           {{ claude_vm_addressed | selectattr('name', 'defined') | selectattr('address', 'equalto', '')
              | map(attribute='name') | list
-             if claude_ssh_host_domain | default('') | length == 0 else [] }}
+             if claude_ssh_reach_domain | length == 0 else [] }}
       ansible.builtin.debug:
         msg: |-
           {% set claude_ssh_count = claude_ssh_refreshed | length %}

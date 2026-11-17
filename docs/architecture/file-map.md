@@ -75,6 +75,8 @@ playbooks/
                                   here as plain files and folders only)
   action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
                                   for the menu the live engine asks it as (§7.8)
+  action_plugins/vm_route.py      the route to the VMs settled, and the hop's own ssh run here under hard limits: the
+                                  login, one forward, the shared connection made sure of (§7.17)
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude; git_checkouts.py, reading a checkout without changing it;
@@ -113,6 +115,10 @@ playbooks/
   tasks/ssh_config.yml            one blockinfile block per VM in ~/.ssh/agent-warehouse.conf, Include once
   tasks/host_keys.yml             a VM's host key kept by address before 2.6, copied into ~/.ssh/agent-warehouse.known_hosts
                                   under the VM's identity, the user's own file only read (§4.8)
+  tasks/vm_route.yml              how this machine reaches the VMs, settled once a run; through the Proxmox host, its
+                                  login and one forward, each checked at most once (§4.15)
+  tasks/vm_route_held.yml         each VM a publisher added held to the route - the hop, or a jump of its own, never
+                                  neither - then the shared connection made sure of (§4.15)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/session_save.yml          destroy's save of what of a VM's Claude sessions is only there, into .sessions/
@@ -170,6 +176,9 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   library alone (§7.15);
                                   trust.py, which certificate makes the Proxmox API's verify, as the run's own clients
                                   verify it, for just init to keep (§7.16);
+                                  route.py, how this machine reaches a host's VMs: the rule, the hop through the
+                                  Proxmox host's sshd, the proxy options a VM is given, the hop's own ssh under hard
+                                  limits (§7.17);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
@@ -236,6 +245,8 @@ filter_plugins/settings.py        the adapter of lib/claude_vm/init.py and check
                                   proxmox_name(s), a node's, storage's or bridge's name as Proxmox gives one;
                                   and of trust.py: proxmox_trust_pick and proxmox_trust_said, the certificate kept
                                   and why the others did not verify (§7.16)
+filter_plugins/route.py           the adapter of lib/claude_vm/route.py: vm_hop, a VM's hop through the Proxmox
+                                  host; ssh_jump and ssh_proxy_any, the proxy options among ssh arguments (§7.17)
 filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
                                   signature checked with a vendored key, here (§7.15)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to

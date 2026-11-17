@@ -13,3 +13,6 @@ claude_ssh_config_file: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DI
 claude_ssh_user_config: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/ssh_config"
 claude_ssh_config_include: false
 vm_user: dev
+# Straight to each VM: auto would ask this machine's ssh where it dials the
+# Proxmox host, through the developer's own ssh config (tests/unit/test_vm_route.py).
+vm_ssh_route: direct

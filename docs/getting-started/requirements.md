@@ -3,7 +3,7 @@
 | Where | What |
 |-------|------|
 | Controller (your machine) | [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13.4+ (earlier ones trust a root certificate whose intermediates' keys are compromised), which downloads the Python the project runs on (or a virtualenv of Python 3.12+ of your own, `PYTHON=`), [just](https://github.com/casey/just) 1.59+ (from its own releases: `brew install just`, `cargo install just`, or the release archive, checked against its `SHA256SUMS`), `git`, SSH key at `~/.ssh/id_ed25519.pub` (or set `vm_ssh_public_keys`); VS Code with the `code` command on `PATH`, or Zed with `zed` (`zeditor` on some Linux distributions), for `just code` (optional), and `rsync` for the Claude Code sessions it copies to the VM (macOS has it; a Linux controller may need `apt install rsync`) |
-| Proxmox VE 9.x | Root SSH access (template build only) and an API token, see [Proxmox access](proxmox-access.md) |
+| Proxmox VE 9.x | Root SSH access (the template build, and every connection to a VM where the VMs are reached through the host: `vm_ssh_route`) and an API token, see [Proxmox access](proxmox-access.md) |
 | Testing (optional) | Docker Engine for Molecule; Vagrant + VirtualBox for a full VM test |
 
 Proxmox VE 8.x is not supported: it reached its end of life in August 2026, and nothing here is tested on it.
@@ -26,7 +26,7 @@ VMs with a repository that fails `apt update`, or with static addresses and no D
 | The host can run VMs | hardware virtualization is on |
 | A bridge exists, and something on it hands out DHCP leases | every VM takes its address from DHCP |
 | A storage for VM disks, named in `proxmox_storage` | the template and every clone go there |
-| Root SSH once, then an API token that can read the guest agent (`VM.GuestAgent.Audit`) | [Proxmox access](proxmox-access.md) |
+| Root SSH once - or for good, where the VMs are reached through the host ([Remote access](../guides/remote-access.md#your-proxmox-host-on-your-tailnet-and-no-subnet-router)) - then an API token that can read the guest agent (`VM.GuestAgent.Audit`) | [Proxmox access](proxmox-access.md) |
 | VMs may be created, tagged, started and deleted | the token's privileges |
 
 A freshly installed host needs the ordinary post-install setup first; the

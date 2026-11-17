@@ -372,3 +372,37 @@ guest agent over the API right after the clone (`agent/file-read` of `/etc/ssh/s
 anything untrusted has run there, and the first connection made with `StrictHostKeyChecking=yes`. It needs the API's
 certificate validated, or the API is no better a channel than the LAN, and on Proxmox VE 9 a privilege the token does
 not have (`VM.GuestAgent.FileRead`).
+
+## 15.10 The VMs are reached through the Proxmox host where it is on a tailnet
+
+*Decided November 2026, for 2.7.*
+
+A person off the LAN often reaches only the Proxmox host - over Tailscale, with no subnet router - and `just deploy`
+then created the VM and died at configure's first connection, so Tailscale, the one thing that would have made the VM
+reachable, was never installed. Four ways in were weighed:
+
+- **A forward through the host's sshd** (`ssh -W`, as a `ProxyCommand`): what the host already runs, every connection
+  the project makes takes it with the VM's own options, and the VM's key is still checked end to end, under its
+  identity, in the project's file. Chosen.
+- **The guest agent**, bootstrapping Tailscale through `agent/exec`: it needs `VM.GuestAgent.Unrestricted`, root in
+  every VM on the host, helps only a VM that joins a tailnet, and does again what the role does.
+- **The `community.proxmox` `proxmox_qemu_api` connection**: no pipelining, no standard input, root on the VM.
+- **A subnet router**, which is the person's to set up, and is what `direct` already uses.
+
+**`auto` with no fallback.** The route is a rule, not a probe: through the host where ssh dials it at a tailnet
+address, direct otherwise, checked before anything starts - and a hop that cannot be used stops the run, naming
+`vm_ssh_route: direct`, rather than dialling a VM's address from wherever a laptop is.
+
+**The hop is always the hypervisor.** `vm_ssh_jump` names an account on it, never another machine: a hop elsewhere
+could answer for a VM at its first contact. The guide recommends a forwarding-only account, with no shell, to owners
+too, since the shared connection's socket otherwise runs commands as root for any process of the user while it lives.
+
+**Every ssh the project runs for the hop has a hard limit**, run by the core, never a command task: an open that loses
+a race to another never returns, and a forward to an address that drops packets says nothing for minutes. The forward
+check reads ssh's exit status and standard error only, and stops a run only for a refusal to forward: one VM that
+drops packets must not stop a fleet-wide run, or its own `just destroy`.
+
+**The alias carries it** as one `ProxyJump` line, with no socket of the project's, wherever the rule says `host`, so a
+`just code` or `--only ssh-config` writes the same line a deploy does.
+
+**Later, its own change.** The alias preferring a VM's tailnet address once it has joined (the roaming rebuild).

@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import ast
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -113,6 +115,9 @@ def _inventory_of(
     local = group_vars / "local.yml"
     if not local.exists():
         test_settings = {
+            # Straight to each VM: auto would ask this machine's ssh where it dials the host. A test of the route
+            # through it sets its own.
+            "vm_ssh_route": "direct",
             "proxmox_api_port": _port(base),
             "vault_proxmox_api_token_secret": PVE_SECRET,
             "vault_github_username": "octocat",
@@ -289,6 +294,119 @@ def test_every_check_passes_on_a_host_with_its_template_and_every_default_fits(t
     # The one step left, said last and kept for NEXT STEPS.
     assert said.rstrip().endswith("\n" + DEPLOY_NEXT)
     assert _init_next(report) == {"init_check": DEPLOY_NEXT}
+
+
+@pytest.mark.parametrize("asking", [True, False])
+@pytest.mark.parametrize("login", ["works", "refused"])
+def test_where_the_vms_are_reached_through_the_host_its_login_is_checked(tmp_path, fake_pve, login, asking) -> None:
+    # As a run's start makes it, through the vm_route action: an SSH connection that runs nothing, and no forward. A
+    # login that fails is a problem, since just deploy would stop at its first step.
+    from test_route import STAND_IN
+
+    sockets = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        hop = tmp_path / "hop"
+        hop.mkdir()
+        _executable(hop / "ssh", STAND_IN)
+        (hop / "mode").write_text("open" if login == "works" else "refused")
+        settings = {
+            "vm_ssh_route": "host",
+            "ansible_ssh_executable": str(hop / "ssh"),
+            "ansible_control_path_dir": sockets,
+        }
+        root = tmp_path / "run"
+        report = _check(root, fake_pve, "ssh", settings, extra={"init_ask": asking})
+    finally:
+        shutil.rmtree(sockets, ignore_errors=True)
+    said = _said(report)
+    assert said, _failures(report)
+    calls = (hop / "calls").read_text()
+    assert " -W " not in calls and " -O check " in calls
+    assert (
+        "ok   the template ubuntu-24.04-cloudinit is on pve, so just deploy needs no root SSH but the hop to the VMs"
+        in said
+    )
+    if login == "works":
+        assert report["rc"] == 0, _failures(report)
+        assert "ok   the VMs are reached through pve (root@127.0.0.1) (vm_ssh_route: host), and its login works" in said
+    else:
+        assert report["rc"] != 0
+        assert (
+            "!!   VMs are reached through pve (root@127.0.0.1) (vm_ssh_route: host), and ssh could not log in" in said
+        )
+
+
+def _hop_stand_in(tmp_path: Path, sockets: str, mode: str = "open") -> dict:
+    from test_route import STAND_IN
+
+    hop = tmp_path / "hop"
+    hop.mkdir()
+    _executable(hop / "ssh", STAND_IN)
+    (hop / "mode").write_text(mode)
+    return {"ansible_ssh_executable": str(hop / "ssh"), "ansible_control_path_dir": sockets}
+
+
+@pytest.mark.parametrize("aliases", ["their own jump", "through the hop"])
+def test_where_every_host_brings_a_jump_the_hop_s_login_is_made_only_for_the_aliases(tmp_path, fake_pve, aliases):
+    # A run's start puts the login off where every host is given a jump: only the aliases go through the hop, unless
+    # claude_ssh_options names a jump too, when nothing does and init asks nothing of it.
+    sockets = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        settings = {
+            "vm_ssh_route": "host",
+            "ansible_ssh_common_args": "-o ProxyJump=jump.invalid",
+            **_hop_stand_in(tmp_path, sockets),
+            **({"claude_ssh_options": {"ProxyJump": "jump.invalid"}} if aliases == "their own jump" else {}),
+        }
+        report = _check(tmp_path / "run", fake_pve, "ssh", settings)
+    finally:
+        shutil.rmtree(sockets, ignore_errors=True)
+    said = _said(report)
+    calls = tmp_path / "hop" / "calls"
+    jumped = "ok   the VMs are reached by the jump every host is given (ProxyJump jump.invalid), and"
+    if aliases == "their own jump":
+        assert not calls.exists()
+        assert f"{jumped} the aliases by the one claude_ssh_options names, so just deploy needs no hop" in said, said
+    else:
+        assert " -O check " in calls.read_text()
+        assert (
+            f"{jumped} only the aliases go through pve (root@127.0.0.1) (vm_ssh_route: host), whose login works" in said
+        ), said
+
+
+def test_another_host_s_route_is_its_own_never_the_shared_files(tmp_path, fake_pve):
+    # A file read after nuc's own local.yml says host, as the shared one is read beside it; nuc's own says direct (the
+    # harness's pin): its route is its own, so no login is made through the host - whose shared value no run against
+    # nuc may read.
+    root = tmp_path / "run"
+    (root / "group_vars" / "all").mkdir(parents=True)
+    (root / "group_vars" / "all" / "shared.yml").write_text("vm_ssh_route: host\n")
+    report = _check(root, fake_pve, "ssh", extra={"init_host": HOST})
+    said = _said(report)
+    assert said, _failures(report)
+    assert "vm_ssh_route" not in said and "hop" not in said, said
+
+
+def test_a_host_named_on_a_tailnet_goes_through_it_under_auto_and_its_login_is_checked(tmp_path, fake_pve):
+    # ssh -G cannot show it here (the refusing stand-in): the host as written, 100.64.0.7, is a tailnet address.
+    settings = {"vm_ssh_route": "auto", "proxmox_api_host": "127.0.0.1"}
+    report = _check(tmp_path / "run", fake_pve, "ssh", settings, host="100.64.0.7")
+    said = _said(report)
+    assert (
+        "!!   VMs are reached through pve (root@100.64.0.7) (vm_ssh_route: auto), and ssh could not log in there:"
+        in said
+    ), said
+    assert "set vm_ssh_route: direct: under auto, a host reached on a tailnet is a hop" in said
+
+
+def test_a_hop_setting_that_is_not_one_account_is_a_problem_of_its_own(tmp_path, fake_pve):
+    report = _check(tmp_path / "run", fake_pve, "ssh", {"vm_ssh_route": "host", "vm_ssh_jump": "forwarder@other"})
+    said = _said(report)
+    assert report["rc"] != 0
+    assert (
+        "!!   vm_ssh_jump 'forwarder@other' names more than an account: set vm_ssh_jump on the host's entry to one"
+        " account on that host, or vm_ssh_route: direct" in said
+    ), said
 
 
 def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
@@ -1190,6 +1308,7 @@ def test_a_certificate_that_changed_is_put_in_place_on_a_yes_that_showed_both_fi
 
 # ------------------------------------------------------------------- static ---
 READ_ONLY = {
+    "vm_route",
     "ansible.builtin.uri",
     "ansible.builtin.command",
     "ansible.builtin.find",
@@ -1271,6 +1390,9 @@ def test_every_task_is_a_read_but_the_settings_written():
             assert task[module].get("method", "GET") == "GET" and "dest" not in task[module], task["name"]
         if module == "ansible.builtin.command":
             assert task[module] == {"argv": ["hostname", "-s"]}, task["name"]
+        if module == "vm_route":
+            # The route settled, and the hop's login: an SSH connection that runs nothing. Never a forward.
+            assert task[module]["do"] in ("settle", "login"), task["name"]
         if module in ("ansible.builtin.import_tasks", "ansible.builtin.include_tasks"):
             assert task[module] in INCLUDED, task["name"]
         if module == "ansible.builtin.include_role":

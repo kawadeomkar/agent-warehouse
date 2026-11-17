@@ -32,6 +32,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import proxmox as proxmox_reads
+from .. import route as routes
 from ..checks import vm_control_name, vm_ssh_args
 from ..text import one_line
 from ..tui import live_region as live
@@ -287,6 +288,50 @@ def _second_wave(requested, template, storages, reading):
     return items
 
 
+def _hop_words(name, hop, address, verdict):
+    """What the hop said of one VM's address, from one forward of its own: (its line, where to look); a VM that got no
+    forward of its own said as not having answered through it."""
+    label = hop["label"]
+    console = f"check {name} in Proxmox's console"
+    if verdict is None:
+        return f"it did not answer through {label}", console
+    why, said = verdict.get("why"), routes.ssh_said(verdict.get("said"), 80)
+    # ssh's own reason, as the host had it: "connect failed: Connection refused", "No route to host".
+    reason = re.search(r"connect failed: ([^\n]*)", verdict.get("said") or "")
+    if why == "prohibited":
+        return (
+            f"{label} refused to forward to {address}",
+            "allow forwarding to the VMs in the host's sshd (AllowTcpForwarding, PermitOpen), or name an account that"
+            " may (vm_ssh_jump)",
+        )
+    if why == "refused":
+        why_not = one_line(reason.group(1), 60) if reason else said
+        return f"through {label}, {address} did not take the connection: {why_not}", console
+    if why == "silent":
+        return f"no answer from {address} through {label} within {routes.LIMITS['forward']} s", console
+    if why == "failed":
+        return f"ssh could not use {label} as a hop to {address}: {said}", ""
+    if why == "stalled":
+        # The login's, never the VM's: the far end was never asked.
+        return (
+            f"the login to {label} for a forward of its own to {address} did not finish within"
+            f" {routes.LIMITS['forward']} s",
+            f"{routes.hop_login_line(hop)} here shows why",
+        )
+    if not verdict.get("banner"):
+        return f"through {label}, {address} took the connection and closed it without a word", console
+    return f"it answered a forward through {label}, but not the read", ""
+
+
+def _login_hint(hop, said):
+    """Where to look when the hop's login failed, by what ssh said: the host's key, which status never takes, or the
+    login itself, tried by hand with the hop's own port and key."""
+    tried = routes.hop_login_line(hop)
+    if model.status_refusal(said) in ("changed", "unknown"):
+        return f"{tried} by hand, or any run that configures, takes the host's key: status takes none"
+    return f"{tried} here shows why"
+
+
 def _picked(results, kind):
     return [one for one in results if one["item"].get("kind") == kind]
 
@@ -342,6 +387,13 @@ class Run:
         self.lock = threading.Lock()
         self.password_lock = threading.Lock()
         self.passwords: dict = {}
+        # Through the Proxmox host (lib/claude_vm/route.py): the route, worked out at each run; the hop's login, made
+        # once, by the first VM that takes the hop (None until then); and each VM that did not answer through the hop,
+        # for the hop's own words after the probes.
+        self.route: dict | None = None
+        self.hop_lock = threading.Lock()
+        self.hop_ok: bool | None = None
+        self.unanswered: dict = {}
 
     # --- a read of one VM -----------------------------------------------------------------------------------------
     def password(self, name):
@@ -364,10 +416,13 @@ class Run:
         what the VM has, beside its Proxmox part, whichever lands first."""
         host = how["host"]
         sections = self.sections
+        via = how.get("via") or ""
+        # The words a person's own ssh needs for it through the hop, in every line that says ssh to it.
+        vm_settings = {**vm_settings, "github": {**vm_settings["github"], "via": via}} if via else vm_settings
 
         def land(read):
             part = vm_found.ssh_found(read, vm_settings, name, host, sections, joined_before)
-            self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
+            self.screen.land(name, model.status_clean({"ssh": {**part, **({"via": via} if via else {})}}), merge=True)
 
         def early(read):
             try:
@@ -381,6 +436,11 @@ class Run:
         except Exception as error:  # noqa: BLE001 - a failure, or what its root sent, is that VM's, said as not read
             read = {"failed": True, "msg": str(error) or type(error).__name__}
             land(read)
+        # Through the hop, a connection that ended before the VM's sshd spoke is all ssh says of a VM that does not
+        # answer: the hop's own words for it are read after the probes (recheck).
+        if via and read.get("unreachable") and routes.hop_unanswered(read.get("msg")):
+            with self.lock:
+                self.unanswered[name] = (how, vm_settings, joined_before, key)
         system = (read.get("user") or {}).get("system") if isinstance(read.get("user"), dict) else None
         if isinstance(system, dict) and isinstance(system.get("upgrades"), int) and system.get("upgrades_key"):
             with self.lock:
@@ -389,6 +449,109 @@ class Run:
                     "upgrades": system["upgrades"],
                     "security": system.get("security"),
                 }
+
+    def unread_through(self, name, how, vm_settings, joined_before, said, hint=""):
+        """A VM not read for the hop's sake, said as the hop's, never with a VM's own words."""
+        part = vm_found.ssh_found(
+            {"unreachable": True, "msg": said}, vm_settings, name, how["host"], self.sections, joined_before
+        )
+        part.update(refusal="hop", hop_hint=hint)
+        self.screen.land(name, model.status_clean({"ssh": part}), merge=True)
+
+    # --- the route through the Proxmox host ------------------------------------------------------------------------
+    def settle_route(self):
+        """The route to the VMs, worked out at each run before any probe starts: None where the VMs are reached
+        directly. Status takes no host key: the hop's ssh holds it to what this machine knows
+        (StrictHostKeyChecking=yes). No login here: the first VM that takes the hop makes it (hop_login), and a run
+        with none makes none."""
+        given = self.config.get("hop") or {}
+        setting = str(self.fleet.get("route") or "auto")
+        if not self.over_ssh or not given or setting == "direct":
+            return None
+        try:
+            hop = routes.hop_settings(
+                ssh=given.get("ssh_executable") or "ssh",
+                user=routes.account(given.get("jump")) or given.get("user") or "",
+                host=given.get("host"),
+                port=given.get("port") or None,
+                key=given.get("key") or "",
+                control_dir=given.get("control_dir") or "~/.ansible/cp",
+                name=given.get("name") or "",
+            )
+        except routes.HopRefused as refused:
+            if setting == "auto" and routes.route_rule("auto", routes.addresses_of(given.get("host"))) == "direct":
+                return None
+            label = given.get("name") or "the Proxmox host"
+            return {
+                "route": "host",
+                "setting": setting,
+                "hop": None,
+                "policy": "yes",
+                "label": label,
+                "refused": refused,
+            }
+        if routes.route_settle(setting, hop)["route"] != "host":
+            return None
+        return {"route": "host", "setting": setting, "hop": hop, "policy": "yes", "label": hop["label"]}
+
+    def hop_login(self):
+        """Whether the hop can be used: its shared connection made sure of once, by the first VM that takes the hop,
+        the others waiting on it. One that cannot be used is one line of the report."""
+        with self.hop_lock:
+            if self.hop_ok is None:
+                self.hop_ok = self._hop_login()
+            return self.hop_ok
+
+    def _hop_login(self):
+        route = self.route
+        refused = route.get("refused")
+        if refused is not None:
+            # The reason first, cut where it must be; the way out whole, as the hint.
+            self.settings.update(
+                hop_said=f"the VMs' hop through {route['label']} cannot be used: {refused.reason}",
+                hop_hint=f"{refused.way_out} (vm_ssh_route: {route['setting']})" if refused.way_out else "",
+            )
+            return False
+        hop = route["hop"]
+        held = routes.hop_held(hop, "yes")
+        if held["ok"]:
+            return True
+        self.settings.update(
+            hop_said=f"ssh could not log in to {hop['label']}, the VMs' hop: {routes.ssh_said(held['said'], 80)}",
+            hop_hint=_login_hint(hop, held["said"]),
+        )
+        return False
+
+    def recheck(self, pool):
+        """After the probes, the VMs that did not answer through the hop: one forward of its own to each of the first
+        three by name. Where any answered there as an SSH server does, its banner first, the shared connection had gone
+        stale: told to take no new sessions (-O stop, never -O exit, which would cut another run's tasks), made sure of
+        again, and every such VM read once more, through the pool - one that again does not answer said in the hop's
+        words. A far end that takes the connection and closes it without a word is no stale connection, and stops none.
+        Otherwise what the hop said is each one's line, and the rest are said as not having answered through it."""
+        route, unanswered = self.route, dict(self.unanswered)
+        self.unanswered.clear()
+        if not route or not route.get("hop") or not unanswered:
+            return
+        hop, names = route["hop"], sorted(unanswered)
+        verdicts = {}
+        for name in names[:3]:
+            how = unanswered[name][0]
+            verdicts[name] = routes.hop_forward(hop, how["host"], "yes", port=how.get("port") or 22)
+            if verdicts[name]["why"] == "answered" and verdicts[name].get("banner"):
+                routes.hop_stop(hop, "yes")
+                routes.hop_held(hop, "yes")
+                for job in [pool.submit(self.probe, one, *unanswered[one]) for one in names]:
+                    job.result()
+                # Each that still did not answer: the hop's words for it, as the others get them.
+                unanswered = dict(self.unanswered)
+                self.unanswered.clear()
+                names = sorted(unanswered)
+                break
+        for name in names:
+            how, vm_settings, joined_before, _ = unanswered[name]
+            said, hint = _hop_words(name, hop, how["host"], verdicts.get(name))
+            self.unread_through(name, how, vm_settings, joined_before, said, hint)
 
     def probes(self, count):
         """The pool the probes run in: no more connections at once than Ansible's forks would open."""
@@ -469,12 +632,19 @@ class Run:
                 reach.end_all()
                 self.unread(denied, "check the privileges of the token's role (docs/getting-started/proxmox-access.md)")
                 return
-            self.fill(data, tagged, requested, lists, results, vms)
+            whole = self.fill(data, tagged, requested, lists, results, vms)
             for job in jobs:
                 job.result()
+            # The hop's login is made by the first VM that takes the hop, on a thread of the pool, and may fail after
+            # fill landed the fleet: landed again here, once the probes are joined, so the hop's line is there for
+            # each VM that points at it - never from the login's own thread, which could land before fill's copy.
+            if self.settings.get("hop_said") and not whole.get("hop_landed"):
+                self.screen.land("localhost", {"fleet": self.fleet_whole(*whole["args"])})
+            self.recheck(pool)
         except BaseException:
-            # A failure, or a Ctrl-C: no probe is left running, nor started after.
+            # A failure, or a Ctrl-C: no probe is left running, nor started after, nor any ssh of the hop's.
             reach.end_all()
+            routes.end_all()
             raise
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -484,6 +654,9 @@ class Run:
         refusal for a VM, said, with no probe started after it, or ""; the probes)."""
         if not self.over_ssh:
             return "", []
+        # The route, before the first probe starts; the API's reads go on meanwhile. The hop's login waits for a VM
+        # that takes the hop.
+        self.route = self.settle_route()
         running = [vm for vm in vms if vm.get("status") == "running"]
         # Each running VM's config and agent answer, by the VM's place in running.
         place = {vm["vmid"]: at for at, vm in enumerate(running)}
@@ -519,16 +692,95 @@ class Run:
         # Its host key held where every run holds it: the project's own file, under the VM's identity from Proxmox,
         # never the address it reports (status_ssh_args, first, still takes no new key).
         how["ssh_args"] = f"{how['ssh_args']} {vm_ssh_args(row['key_alias'], how['known_hosts'])}"
-        # A shared connection of its identity's own: one by address alone would let a VM that reports another's
-        # address ride that one's, on which no host key is checked again.
-        how["control_name"] = vm_control_name(row["key_alias"], address)
         joined = self.fleet["tailscale_tag_pattern"]
         tags = str(entry.get("tags") or "")
         before = bool(re.search(joined, tags))
-        self.probe(name, how, settings.for_vm(self.config, name), before, f"{name}/{vm['vmid']}")
+        vm_settings = settings.for_vm(self.config, name)
+        hop = {"name": "", "option": "", "via": ""}
+        if self.route:
+            hop = self.through(name, how, vm_settings, before, address, row)
+            if hop is None:
+                return
+        how["via"] = hop["via"]
+        # A shared connection of its identity's own, and its hop's: one by address alone would let a VM that reports
+        # another's address ride that one's, on which no host key is checked again.
+        how["control_name"] = vm_control_name(row["key_alias"], address, hop["name"])
+        if self.route:
+            refused, hint = self.held_to_route(how, address, bool(hop["via"]))
+            if refused:
+                self.unread_through(name, how, vm_settings, before, refused, hint)
+                return
+        self.probe(name, how, vm_settings, before, f"{name}/{vm['vmid']}")
+
+    def through(self, name, how, vm_settings, before, address, row):
+        """A VM's hop, through the Proxmox host: ``{name, option, via}`` - none for a VM given a jump of its own, read
+        by it whatever the hop's state - its ssh args made as a run's are, the hop right after status's own options
+        and before what the VM is given; None where the VM is not read, said why."""
+        none = {"name": "", "option": "", "via": ""}
+        if routes.ssh_jump(how.get("given") or ""):
+            return none
+        if not self.hop_login():
+            said = (
+                f"it is reached through {self.route['label']}, which could not be used as the hop (said under PROXMOX)"
+            )
+            self.unread_through(name, how, vm_settings, before, said)
+            return None
+        # Before the hop, only status's own options and the project's: another proxy there would be the one ssh takes.
+        other = routes.ssh_proxy_any(how.get("own") or "")
+        if other:
+            said = f"status_ssh_args holds {other}, which ssh would take before the hop through {self.route['label']}"
+            self.unread_through(
+                name, how, vm_settings, before, said, "take it out of ssh_args, or vm_ssh_route: direct"
+            )
+            return None
+        hop = routes.vm_hop(self.route, address)
+        # As a run has it: the project's own options, the hop, then what the VM is given.
+        known = vm_ssh_args(row["key_alias"], how["known_hosts"])
+        how["ssh_args"] = f"{how.get('own') or ''} {known} {hop['option']} {how.get('given') or ''}"
+        return hop
+
+    def held_to_route(self, how, address, takes_hop):
+        """Why the VM's ssh, given the whole line its probe will be, would not go where the route says, asked of ssh
+        itself (ssh -G, no config read), and where to look: ("", "") where it would. Options that cannot even be split
+        into words are that VM's line alone, as under direct, never the run's end."""
+        try:
+            argv = reach.command(how, as_root=False)
+        except ValueError as error:
+            return (
+                f"its ssh options could not be read: {one_line(str(error), 120)}",
+                "fix the ssh options the VM is given (ansible_ssh_common_args, ansible_ssh_extra_args)",
+            )
+        shown = routes.ssh_shown(argv[0], argv[1:-2], argv[-2])
+        why = routes.vm_route_refusal(self.route, address, takes_hop, shown)
+        if not why:
+            return "", ""
+        return (
+            f"its ssh would not go where the route says: {why}",
+            "set a jump of your own where the VM is given it, or vm_ssh_route: direct",
+        )
 
     def fill(self, data, tagged, requested, lists, results, vms):
-        """The whole fleet from every read, then each VM's Proxmox part."""
+        """The whole fleet from every read, then each VM's Proxmox part: ``{args, hop_landed}``, what the fleet was
+        made from, to land it again, and whether the hop's line was in the settings it was made with."""
+        args = (data, tagged, requested, lists, results)
+        landed = bool(self.settings.get("hop_said"))
+        whole = self.fleet_whole(*args)
+        for vm in vms:
+            name = vm["name"]
+            listed = next((one for one in whole["vms"] if one["name"] == name), vm)
+            vmid = listed["vmid"]
+            mine = [one for one in results if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid]
+            part = {
+                "api": model.status_vm_api(mine, time.time(), listed.get("created")),
+                "drift": proxmox_reads.proxmox_vm_drift(
+                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
+                ),
+            }
+            self.screen.land(name, model.status_clean(part), merge=True)
+        return {"args": args, "hop_landed": landed}
+
+    def fleet_whole(self, data, tagged, requested, lists, results):
+        """The whole fleet from every read, landed: what it landed."""
         # Copies: a probe's thread may still be reading the same answers for its address.
         configs = [{**one, "claude_vm_item": {"vmid": one["item"]["vmid"]}} for one in _picked(results, "config")]
         networks = _picked(results, "network")
@@ -559,18 +811,7 @@ class Run:
             )
         )
         self.screen.land("localhost", {"fleet": whole})
-        for vm in vms:
-            name = vm["name"]
-            listed = next((one for one in whole["vms"] if one["name"] == name), vm)
-            vmid = listed["vmid"]
-            mine = [one for one in results if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid]
-            part = {
-                "api": model.status_vm_api(mine, time.time(), listed.get("created")),
-                "drift": proxmox_reads.proxmox_vm_drift(
-                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
-                ),
-            }
-            self.screen.land(name, model.status_clean(part), merge=True)
+        return whole
 
     def from_inventory(self):
         """Discovery off: no Proxmox, the inventory's claude_vms each read as it says it is reached."""
@@ -603,7 +844,9 @@ class Run:
 
 
 def _end_for_an_interrupt(screen):
+    # Every ssh first, the hop's login on a thread of the pool among them: os._exit runs no thread's finally.
     reach.end_all()
+    routes.end_all()
     if screen:
         screen.out.finish()
     print("just status: interrupted", file=sys.stderr)
@@ -648,5 +891,6 @@ def run(opts) -> int:
             screen.out.finish()
         print(f"just status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
         reach.end_all()
+        routes.end_all()
         return 3
     return report["exit"] if report["exit"] in (0, 1, 2) else 3

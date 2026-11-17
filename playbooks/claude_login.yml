@@ -26,6 +26,22 @@
   gather_facts: false
 
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once (tasks/vm_route.yml). Fails no host: a hop that is
+    # gone shows as each VM not answering, which this play already handles.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     - name: Reach the VM
       ansible.builtin.ping:
       ignore_unreachable: true
@@ -39,7 +55,9 @@
         claude_vm_sign_in: claude
         claude_vm_sign_in_why: >-
           {{ inventory_hostname }} could not be reached, so it was not signed in:
-          {{ claude_vm_reach.msg | default('no answer', true) | one_line(none) }}
+          {{ claude_vm_reach.msg | default('no answer', true) | one_line(none) | full_stop }}
+          {{ hostvars['localhost'].claude_vm_route | default({})
+             | vm_unanswered(claude_vm_ssh_via | default(''), inventory_hostname, claude_host_flag | default('')) }}
       when: claude_vm_reach is unreachable
 
 # One VM at a time when a sign-in can prompt, since the prompt reads one
@@ -101,6 +119,23 @@
   gather_facts: false
 
   tasks:
+    # Through the Proxmox host, its shared connection made sure of before the
+    # VMs are reached at once, after a play that may have waited minutes on a
+    # person (tasks/vm_route.yml). Fails no host: a hop that is gone shows as
+    # each VM not answering.
+    - name: Make sure of the connection through the Proxmox host
+      vm_route:
+        do: held
+        route: "{{ hostvars['localhost'].claude_vm_route | default({}) }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      check_mode: false
+      failed_when: false
+      when: >-
+        ansible_play_hosts_all | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+        | select | list | length > 0
+
     - name: Start Remote Control as just deploy --only configure would
       when:
         - claude_vm_claude_login_failure is not defined

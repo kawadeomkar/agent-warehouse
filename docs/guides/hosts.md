@@ -34,10 +34,19 @@ setting are refused rather than taken from the shared files, since each describe
 - **What each host sets for itself**: `proxmox_node`, `proxmox_storage`, `proxmox_bridge`, `proxmox_api_user`,
   `proxmox_api_token_id`, `proxmox_api_port`, `proxmox_validate_certs` and `proxmox_template_vmid`. A host whose
   `local.yml` lacks one is refused, naming them.
-- **What is never inherited**: `vm_ipconfig`, `vm_nameservers`, `proxmox_template_custom` and
-  `claude_ssh_host_domain`. Where the shared `local.yml` sets one and the host's does not, a run is refused, naming
-  the line to add - the value, or the setting's default to say none here. A static address of the homelab's network
-  would otherwise be given to the NUC's VMs.
+- **What is never inherited**: `vm_ipconfig`, `vm_nameservers`, `proxmox_template_custom`,
+  `claude_ssh_host_domain` and `vm_ssh_route`. Where the shared `local.yml` sets one and the host's does not, a run is
+  refused, naming the line to add - the value, or the setting's default to say none here. A static address of the
+  homelab's network would otherwise be given to the NUC's VMs, and the way this machine reaches one host's VMs is
+  not another's.
+
+**The hop's account**, where a host's VMs are reached through it
+([Remote access](remote-access.md#your-proxmox-host-on-your-tailnet-and-no-subnet-router)), is `vm_ssh_jump` on the
+host's own entry in its `hosts.yml`, next to its address: `vm_ssh_jump: forwarder`. An account on that host only -
+`user@host` or a port is refused by name, since the hop is always the hypervisor - and read from there alone: in a
+`local.yml`, or on any other group or host, it would read as every host's own, and is refused, with one host as with
+two. `just settings` never writes it. Connections are named by each VM and the hop it goes through, so two hosts with
+one VM network never share one.
 
 The token is never the first host's: a host whose vault has no `vault_host_proxmox_api_token_secret` fails before
 anything is asked of it, and the first host's `vault_proxmox_api_token_secret` in a host's vault, or a host's name

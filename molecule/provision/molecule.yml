@@ -22,6 +22,8 @@ provisioner:
   env:
     ANSIBLE_ROLES_PATH: ${MOLECULE_PROJECT_DIRECTORY}/roles
     ANSIBLE_FILTER_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/filter_plugins
+    # The vm_route action, for a playbook at the checkout's top, which is not beside playbooks/action_plugins.
+    ANSIBLE_ACTION_PLUGINS: ${MOLECULE_PROJECT_DIRECTORY}/playbooks/action_plugins
     # The zone code.yml finds first, so the session notes' task is the same whatever this machine's is.
     TZ: Asia/Kolkata
   inventory:

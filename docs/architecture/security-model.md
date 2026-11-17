@@ -246,7 +246,7 @@ the tools keep for themselves:
 
 | Where | What | Written by | When | Taken out by |
 |---|---|---|---|---|
-| `~/.ssh/known_hosts` | the Proxmox host's SSH host key - never a VM's | ssh, on the first root SSH to the host (`StrictHostKeyChecking=accept-new`) | `just init`'s checks, and a template build | nothing: it is yours |
+| `~/.ssh/known_hosts` | the Proxmox host's SSH host key - never a VM's | ssh, on the first SSH to the host (`StrictHostKeyChecking=accept-new`): root's, or the hop's through it to the VMs (`vm_ssh_route`) | `just init`'s checks, a template build, and every run but `just status`, which takes none, whose route to the VMs is the Proxmox host | nothing: it is yours |
 | `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`) | each VM's SSH host key, under the VM's identity (`agent-warehouse-<SMBIOS UUID>`), never its address | ssh, on first contact with a VM (`StrictHostKeyChecking=accept-new`, with the file and the identity every connection names); a VM's key kept by address in `~/.ssh/known_hosts` before 2.6, copied in once, and a comment line marking each VM's copy made (`playbooks/tasks/host_keys.yml`) | every run that reaches a VM | nothing: a deleted VM's key stays under its identity, which no VM made later has, so that any VM given it again is refused, never taken on first use. `ssh-keygen -R <identity> -f ~/.ssh/agent-warehouse.known_hosts` takes one out |
 | `~/.ssh/agent-warehouse.conf` (`claude_ssh_config_file`) | one `Host` block per VM, so `ssh <vm>` reaches it, recording the host the VM is on | `just deploy`, `just code` (`playbooks/tasks/ssh_config.yml`) | `claude_ssh_config` on (the default) | `just deploy --only ssh-config` prunes a VM that is gone from its host; `just destroy` the VM's |
 | one `Include` line at the top of `~/.ssh/config` (`claude_ssh_user_config`) | makes ssh read the file above | the same, once | `claude_ssh_config_include` on, while ssh does not reach the file yet | nothing: it is yours to remove |
@@ -256,7 +256,7 @@ the tools keep for themselves:
 | the `agent-warehouse` MCP server's entry in `~/.claude.json` | what lets Claude Code sessions in every project, or the one `--project-dir` names, run these commands | Claude Code's own CLI, when you run `just mcp` | only after `just mcp` | `just mcp --remove` |
 | `destroy_sessions_dir` | the Claude Code sessions `just destroy` saved from a VM | `just destroy` | only where you point it outside the checkout (by default `.sessions/`, inside it) | you |
 
-- Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp`, and `~/.ansible/galaxy_cache`.
+- Ansible's own `~/.ansible/tmp`, its SSH connection sockets in `~/.ansible/cp` - the shared connection through the Proxmox host's among them, where the VMs are reached through it, which a run and `just status` make, and remove where nothing listens at it - and `~/.ansible/galaxy_cache`.
 - uv's cache, `~/.cache/uv`, and the Python it downloads for the checkout's own environment, in `~/.local/share/uv/python`.
 - For contributors: pre-commit's `~/.cache/pre-commit`, ansible-lint's `~/.cache/ansible-compat`, Molecule's `~/.cache/molecule`, and the Docker images the scenarios build.
 - Not files: the sign-in pages opened in your browser, and GitHub's device code put on the clipboard.
@@ -307,6 +307,34 @@ no IPv6 loopback, falls back to the paste, and `AddressFamily=any` on the comman
 exposes - on macOS, the loopback connections at that port to a program of the user's own that listens on
 every address, and the browser's `localhost` cookies that the redirect carries to the VM's port -
 [SECURITY.md lists](https://github.com/kawadeomkar/agent-warehouse/blob/main/SECURITY.md#known-trade-offs-not-vulnerabilities).
+
+## Through the Proxmox host
+
+Where the VMs are reached through the Proxmox host's sshd (`vm_ssh_route`,
+[§4.15](lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host)), what that changes:
+
+- **The host's account becomes something every run uses**, where root SSH was the template build's alone. A
+  forwarding-only account (`vm_ssh_jump`), with no shell and `AllowTcpForwarding local`, is recommended to owners
+  too ([Remote access](../guides/remote-access.md#your-proxmox-host-on-your-tailnet-and-no-subnet-router)); the
+  project never makes it.
+- **The shared connection's socket**, in `~/.ansible/cp`, runs commands on the host as the hop's account for any
+  process of the user while it lives - about three minutes after a run's last task, and renewed by each
+  `just status`, which through the MCP server asks nobody - with no key and no confirmation an agent or a hardware key
+  would ask for. With the forwarding-only account it is worth only forwards. The alias has none of the project's.
+- **No agent reaches the hop** (`ForwardAgent=no`), and `-W` opens no session there.
+- **Nothing a VM sends decides the route.** The forward check reads ssh's exit status and standard error, never what
+  arrives on the forward, which the far end writes, and a VM that does not answer cannot stop a run.
+- **The hypervisor as a deputy.** Through the host, the address a VM reports is dialled from the hypervisor, which may
+  reach what this machine cannot: other networks of the host, tailnet peers under the host's name. `guest_ipv4` refuses
+  loopback, link-local, unspecified, multicast and reserved addresses, not those. A VM whose key this machine holds
+  cannot use it: the far end must answer with that key, under the VM's identity. What is left is a first contact - a VM
+  just made from the project's own template - and a VM with no identity.
+- **A malicious hop** gains nothing the hypervisor's root lacks: the session to the VM is end to end, and its key is
+  checked by this machine's ssh under the VM's identity, in the project's file. This holds because the hop is always
+  the hypervisor.
+- **Never a direct dial by itself.** Neither `host` nor `auto` falls back, any option that would take the hop away is
+  refused, and a VM with neither the hop nor a jump of its own is refused before anything connects.
+- The host's key in `~/.ssh/known_hosts` is taken by any run whose route is the host, as root SSH takes it.
 
 ## Agents through MCP
 

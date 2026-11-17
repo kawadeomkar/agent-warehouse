@@ -777,6 +777,9 @@ def _ssh_refusal(vm, ssh, settings):
     kind = ssh.get("refusal") or status_refusal(said)
     alias = vm.get("key_alias") or ""
     held = f"{alias} in {settings.get('known_hosts') or 'the project known_hosts file'}" if alias else address
+    if kind == "hop":
+        # Through the Proxmox host: the hop's own words, never the VM's (the engine's recheck).
+        return (f"not read: {one_line(said, 240)}", ssh.get("hop_hint") or "")
     if kind == "changed":
         forget = f"ssh-keygen -R {alias} -f {settings.get('known_hosts')}" if alias else f"ssh-keygen -R {address}"
         return (
@@ -852,6 +855,8 @@ def _ssh_items(vm, settings, live, now):
     ssh = vm.get("ssh")
     if not vm.get("needs_ssh"):
         return items
+    # Through the Proxmox host, what a person's own ssh needs for the VM beyond its address: -J and the host.
+    via = f" {(ssh or {}).get('via')}" if (ssh or {}).get("via") else ""
     if ssh is None:
         if not live:
             add("unread", "not read over SSH: the run ended before it was")
@@ -906,7 +911,7 @@ def _ssh_items(vm, settings, live, now):
             add(
                 "todo",
                 f"{plural(system['security'], 'security upgrade')} {waits} to be installed",
-                f"ssh -t {user}@{vm.get('address') or name} sudo apt-get upgrade",
+                f"ssh{via} -t {user}@{vm.get('address') or name} sudo apt-get upgrade",
             )
     claude = ssh.get("claude")
     if claude:
@@ -926,7 +931,7 @@ def _ssh_items(vm, settings, live, now):
             add(
                 "problem",
                 f"Remote Control is not running: {unit} is {said}",
-                f"ssh {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then just deploy {name}"
+                f"ssh{via} {user}@{vm.get('address') or name} journalctl -u {unit} -n 50, then just deploy {name}"
                 f" --tags claude_code{on} starts it again",
             )
         elif state == "not-set-up":
@@ -1104,6 +1109,9 @@ def status_report(found, read_at="", now=None, live=False):
             "the API's certificate is not checked, so the token goes to whatever answers at the host's address",
             f"just init{_host_flag(settings)} sets checking up",
         )
+    # Through the Proxmox host: a hop that could not be used, once, the VMs then each not read for its sake.
+    if settings.get("hop_said") and ssh_wanted:
+        _add(items, "proxmox", "problem", settings["hop_said"], settings.get("hop_hint", ""))
     for name in fleet.get("unmatched") or []:
         nameless = fleet.get("nameless") or []
         text = f"no VM tagged {settings.get('tag', 'agent-warehouse')} is named {name}"

@@ -39,8 +39,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shlex
+import shutil
 import stat
 import urllib.parse
 import urllib.request
@@ -55,7 +57,9 @@ from harness import (
     STAND_INS,
     TAILSCALE_CALLS,
     _calls,
+    _desktop,
     _every_task,
+    _executable,
     _failures,
     _fake_pve,
     _leaked,
@@ -70,6 +74,7 @@ from harness import (
     _run,
     _run_at_a_terminal,
     _serve,
+    _unreachable,
 )
 
 DESTROY = REPO / "playbooks" / "destroy.yml"
@@ -850,6 +855,414 @@ def test_a_vm_the_run_lost_part_way_through_its_release_is_said_not_deleted_with
     )
 
 
+# What ssh says of a VM reached through the hop: the connection ended before its sshd spoke (route.hop_unanswered),
+# a VM that takes each connection and closes it without a word, and a VM's own sshd refusing the login.
+CLOSED = "Connection closed by UNKNOWN port 65535"
+WORDLESS = f"kex_exchange_identification: Connection closed by remote host\n{CLOSED}"
+DENIED = "dev@192.0.2.85: Permission denied (publickey)."
+
+# Through the Proxmox host, VMs the run's connection did not reach, each telling the hop's own forward something else
+# (lib/claude_vm/route.py's forward_verdict), and what ssh says of each: stale answers it, and the run again once the
+# shared connection was stopped and made again; still answers it and closes each of the run's connections without a
+# word, before its sshd speaks; forbidden is refused by the host; down refuses the host's connection itself; denied
+# answers it, and its own sshd refuses the run's login; stalled never got a forward, the login to the host for it
+# never finishing. And nopy, whose connection works and whose module fails: no Python where Ansible looks.
+THROUGH = {
+    "stale": ("192.0.2.81", "answer", CLOSED),
+    "still": ("192.0.2.82", "answer", WORDLESS),
+    "forbidden": ("192.0.2.83", "prohibited", CLOSED),
+    "down": ("192.0.2.84", "closed", CLOSED),
+    "denied": ("192.0.2.85", "answer", DENIED),
+    "stalled": ("192.0.2.86", "stalled", CLOSED),
+}
+
+
+def _ssh_saying(hostvars: dict, root: Path, name: str, said: str) -> None:
+    """A host of _local_hosts reached over ssh whose every connection fails as ssh says ``said``."""
+    _unreachable(hostvars, root)
+    program = root / "bin" / f"ssh-{name}"
+    program.write_text(f"#!/bin/sh\nprintf '%s\\n' {shlex.quote(said)} >&2\nexit 255\n")
+    program.chmod(0o755)
+    hostvars.update(ansible_ssh_executable=str(program), ansible_scp_executable=str(program))
+    hostvars.update(ansible_sftp_executable=str(program))
+
+
+@pytest.fixture(scope="module")
+def through(tmp_path_factory, fake_github, fake_tailscale):
+    """destroy's release, deletion and report for THROUGH, through a stand-in hop (test_route.py's)."""
+    import shutil
+    import tempfile
+
+    from test_route import STAND_IN
+
+    from claude_vm import route
+
+    root = tmp_path_factory.mktemp("through")
+    hop = root / "hop"
+    hop.mkdir()
+    ssh = hop / "ssh"
+    ssh.write_text(STAND_IN)
+    ssh.chmod(0o755)
+    (hop / "mode").write_text("open")
+    cases = {name: {"sessions": True} for name in THROUGH} | {"nopy": {"sessions": True, "answers": False}}
+    hosts = _hosts(root, cases, fake_github, fake_tailscale)
+    for name, (address, forward, said) in THROUGH.items():
+        (hop / f"forward-{address}").write_text(forward)
+        _ssh_saying(hosts[name], root, name, said)
+        hosts[name].update(
+            ansible_host=address,
+            claude_vm_release_address=address,
+            claude_vm_ssh_via="-J root@100.64.0.7",
+        )
+    hosts["nopy"].update(claude_vm_release_address="192.0.2.87", claude_vm_ssh_via="-J root@100.64.0.7")
+    # stale answers once the run's connection was stopped and made again: here, as a local connection.
+    hosts["stale"]["ansible_connection"] = (
+        "{{ 'local' if lookup('ansible.builtin.file', '" + str(hop / "calls") + "', errors='ignore')"
+        " is search(' -O stop ') else 'ssh' }}"
+    )
+    control = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        settled = route.hop_settings(ssh=str(ssh), user="root", host="100.64.0.7", control_dir=control, name="pve")
+        extra = {
+            "ansible_become": False,
+            "claude_vm_route": {"route": "host", "setting": "host", "hop": settled, "policy": "accept-new"},
+        }
+        report = _run(root, _destroy_tail(root), hosts, "-e", json.dumps(extra), ordered=True)
+    finally:
+        shutil.rmtree(control, ignore_errors=True)
+    return root, hop, report
+
+
+# Every line of a VM kept names a way out that works: both switches delete it as it is.
+WAY_OUT = (
+    " again once it answers, or set destroy_release: false and destroy_save_sessions: false, which delete it as it is,"
+    " neither released nor saved."
+)
+
+
+def test_through_the_host_a_vm_is_kept_only_where_the_road_is_still_what_fails(through):
+    root, hop, report = through
+    said = _said(report)
+    # Answered the hop, then the run once its connection was made again: released, saved and deleted as any VM.
+    assert said["stale"].startswith("stale: released - ")
+    assert (_saved(root, "stale") / "projects" / VM_FOLDER / f"{STARTED}.jsonl").exists()
+    # Answered the hop and closed the run's connection again before its sshd spoke: kept, and how to delete it anyway.
+    assert said["still"] == (
+        "still: kept, its SSH alias with it, neither released nor deleted - it answered a forward of its own through"
+        " pve (root@100.64.0.7), but not this run's connection, made again. `just status still` says what the host"
+        f" reports for it; run just destroy still{WAY_OUT}"
+    )
+    # The hop at fault: refused to forward, or its login for the forward never finished.
+    assert said["forbidden"].startswith(
+        "forbidden: kept, its SSH alias with it, neither released nor deleted - pve (root@100.64.0.7) refused to"
+        " forward to forbidden at 192.0.2.83: "
+    )
+    assert said["stalled"].startswith(
+        "stalled: kept, its SSH alias with it, neither released nor deleted - the login to pve (root@100.64.0.7) for a"
+        " forward of its own to stalled at 192.0.2.86 did not finish within 15 s, so forwarding there was not checked"
+    )
+    assert all(said[name].endswith(WAY_OUT) for name in ("still", "forbidden", "stalled"))
+    # Its own: deleted unsaved, as under direct, and never sent to just status, which cannot read a VM that is gone.
+    assert said["down"].startswith("down: could not be reached, so it was not released: ")
+    assert said["down"].endswith(
+        "It did not answer through pve (root@100.64.0.7): the host's connection to it was refused (Connection refused)."
+    )
+    assert said["denied"].startswith("denied: could not be reached, so it was not released: ")
+    assert said["denied"].endswith(
+        "It answered a forward of its own through pve (root@100.64.0.7), so the fault is the VM's own: this run's"
+        " connection to it, made again, reached it and failed there, as it would under vm_ssh_route: direct."
+    )
+    # Its connection worked: the host is not asked, and nothing of the hop is said.
+    assert said["nopy"].startswith("nopy: could not be reached, so it was not released: ")
+    assert "pve" not in said["nopy"]
+    assert all("just status" not in said[name] for name in ("down", "denied", "nopy"))
+    gone = [
+        host
+        for name, host, result in _results(report)
+        if name == "Record that the VM was deleted" and not result.get("skipped")
+    ]
+    assert sorted(gone) == ["denied", "down", "nopy", "stale"]
+    # What the last play fails the run with (the tail here stops before it).
+    kept = {
+        host: result["ansible_facts"]
+        for name, host, result in _results(report)
+        if name == "Keep a VM the road through the Proxmox host is still what fails for" and not result.get("skipped")
+    }
+    assert sorted(kept) == ["forbidden", "stalled", "still"]
+    failure = kept["still"]["claude_vm_delete_failure"]
+    assert failure.startswith("still was neither released nor deleted: it answered a forward of its own")
+    assert "`just status still` says what the host reports for it" in failure
+    assert failure.endswith("which delete it as it is, neither released nor saved.")
+    assert {name: facts["claude_vm_release_hop_fault"] for name, facts in kept.items()} == {
+        "forbidden": True,
+        "stalled": True,
+        "still": False,
+    }
+    # The aliases: the host at fault only where it was.
+    (aliases,) = [
+        result["msg"]
+        for name, _, result in _results(report)
+        if name == "Say which aliases were kept, and why" and "msg" in result
+    ]
+    assert "forbidden, stalled: they did not answer through the Proxmox host, which was at fault" in aliases, aliases
+    assert "still: it answered a forward of its own through the Proxmox host but not this run's connection" in aliases
+    # The hop: made sure of, one forward of its own to each VM that was unreachable, at VERBOSE, one stop and the
+    # connection made again; never -O exit, and nothing for nopy.
+    calls = (hop / "calls").read_text()
+    assert " -O exit " not in calls and calls.count(" -O stop ") == 1
+    asked = sorted(re.findall(r"-W (192\.0\.2\.8\d):22", calls))
+    assert asked == sorted(address for address, _, _ in THROUGH.values()) and "192.0.2.87" not in calls
+    own = [line for line in calls.splitlines() if " -W " in line]
+    assert all("ControlPath=none" in line and "LogLevel=VERBOSE" in line for line in own)
+
+
+# The whole of destroy.yml through a stand-in hop (test_route.py's), against the fake Proxmox: a DELETE is a VM
+# deleted. Each VM's ssh is a stand-in that runs the first ProxyCommand of its line as ssh runs one - %p its port,
+# nothing on its standard input, ended after 4 s - and a proxy that fails is a connection closed; then, by the VM's
+# mode, fails as ssh fails or runs the command here, as the VM: its modules run with the harness's stand-in Python, its
+# HOME a directory of the test's own. -G is the real ssh's: the route's check asks a VM's own ssh which proxy it takes.
+VM_SSH = r"""#!/bin/bash
+self=$(readlink -f "$0"); here=$(dirname "$self")
+for word in "$@"; do [ "$word" = -G ] && exec /usr/bin/ssh "$@"; done
+args=("$@"); n=${#args[@]}; i=0; dest=; proxy=; port=22
+while [ "$i" -lt "$n" ]; do
+  a=${args[$i]}
+  case $a in
+    -o) v=${args[$((i + 1))]}
+        case $v in ProxyCommand=*) [ -z "$proxy" ] && proxy=${v#ProxyCommand=} ;; Port=*) port=${v#Port=} ;; esac
+        i=$((i + 2)) ;;
+    -p) port=${args[$((i + 1))]}; i=$((i + 2)) ;;
+    -[JFilEeLRDWSbcmOQwBI]) i=$((i + 2)) ;;
+    -*) i=$((i + 1)) ;;
+    *) dest=$a; i=$((i + 1)); break ;;
+  esac
+done
+host=${dest##*@}
+printf '%s %s\n' "$dest" "$*" >> "$here/vm-ssh.log"
+if [ -n "$proxy" ] && [ "$proxy" != none ]; then
+  timeout 4 /bin/sh -c "${proxy//%p/$port}" < /dev/null > /dev/null 2>&1
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    [ "$rc" -eq 124 ] && echo "Connection timed out during banner exchange" >&2
+    echo "Connection closed by UNKNOWN port 65535" >&2
+    exit 255
+  fi
+fi
+case $(cat "$here/vm-$host" 2>/dev/null || echo ok) in
+  ok) ;;
+  denied) echo "$dest: Permission denied (publickey,password)." >&2; exit 255 ;;
+  hostkey) echo "Host key verification failed." >&2; exit 255 ;;
+  wordless) echo "kex_exchange_identification: Connection closed by remote host" >&2
+    echo "Connection closed by UNKNOWN port 65535" >&2; exit 255 ;;
+esac
+[ "$i" -lt "$n" ] || exit 0
+exec /bin/bash -c "${args[*]:$i}"
+"""
+
+
+def _address(vmid: int) -> str:
+    """The address the fake Proxmox's guest agent reports for a VM."""
+    return f"192.0.2.{vmid % 200 + 50}"
+
+
+def _destroy_through(at: dict, vms: dict, mode: str = "open", connection: str = "", **extra) -> tuple:
+    """destroy.yml for ``vms``, by name ``{name: {vmid, ssh, forward, python, sessions, running}}``, through the hop at
+    ``at`` (through_whole's): the hop's mode, the shared connection's state ("quiet": it says it runs and carries
+    nothing) and extra vars. (the report, the hop's calls, the VMs' ssh calls, the names of the VMs deleted)."""
+    from claude_vm import route
+
+    tmp_path, base, root, hop, vm_ssh = at["tmp"], at["base"], at["root"], at["hop"], at["vm_ssh"]
+    (hop / "mode").write_text(mode)
+    cases = {
+        name: {"sessions": vm.get("sessions", True), "answers": vm.get("python", True)} for name, vm in vms.items()
+    }
+    hosts = _hosts(tmp_path / "vms", cases, at["github"], at["tailscale"])
+    vmids = {}
+    for name, vm in vms.items():
+        _pve_vm(base, vm["vmid"], name, running=vm.get("running", True))
+        vmids[str(vm["vmid"])] = name
+        (vm_ssh / f"vm-{_address(vm['vmid'])}").write_text(vm.get("ssh", "ok"))
+        if vm.get("forward"):
+            (hop / f"forward-{_address(vm['vmid'])}").write_text(vm["forward"])
+        # What outranks the publisher's add_host is only its Python, the harness's wrapper, whose HOME is the VM's own
+        # directory: never a connection or an address of its own.
+        kept = {
+            key: value
+            for key, value in hosts[name].items()
+            if key not in ("ansible_connection", "claude_vm_release_address", "ansible_host")
+        }
+        (root / "host_vars" / f"{name}.yml").write_text(yaml.safe_dump(kept))
+    if connection:
+        settled = route.hop_settings(ssh=str(hop / "ssh"), user="root", host="100.64.0.7", control_dir=at["control"])
+        Path(settled["socket"]).write_text(connection)
+    extra = {
+        "vm_name": ",".join(vms),
+        "confirm_destroy": "yes",
+        "destroy_sessions_dir": str(tmp_path / "saved"),
+        "claude_vm_release_agent_delay": 0.2,
+        "ansible_become": False,
+        "tailscale_settle_seconds": 3,
+        # proxmox_vm validates a VM's login before it deletes one: a key of the test's, never ~/.ssh's.
+        "vm_ssh_public_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITestKeyDoNotUse test"],
+        **extra,
+    }
+    env = {"PATH": f"{vm_ssh}:{_desktop(root)}:{os.environ['PATH']}"}
+    args = ["-i", str(root / "proxmox.yml"), "-e", json.dumps(extra)]
+    report = _run(root, DESTROY, {}, *args, timeout=300, env=env)
+    deleted = sorted(
+        vmids.get(one["path"].rsplit("/", 1)[-1], one["path"])
+        for one in _pve_requests(tmp_path)
+        if one["method"] == "DELETE"
+    )
+    calls = (hop / "calls").read_text() if (hop / "calls").exists() else ""
+    vm_calls = (vm_ssh / "vm-ssh.log").read_text() if (vm_ssh / "vm-ssh.log").exists() else ""
+    return report, calls, vm_calls, deleted
+
+
+@pytest.fixture
+def through_whole(tmp_path, fake_github, fake_tailscale):
+    """destroy.yml against the fake Proxmox, the route through a stand-in hop: _destroy_through, ready to run."""
+    import functools
+    import tempfile
+
+    from test_route import STAND_IN
+
+    control = tempfile.mkdtemp(prefix="aw-", dir="/tmp")
+    try:
+        for base in _fake_pve(tmp_path):
+            _pve(base, "PUT", "fake/agent-ready-after", polls=0)
+            root = tmp_path / "run"
+            _pve_vars(root, base, {"vm_ssh_route": "host"})
+            hop, vm_ssh = tmp_path / "hop", tmp_path / "vm-ssh"
+            hop.mkdir()
+            vm_ssh.mkdir()
+            _executable(hop / "ssh", STAND_IN)
+            _executable(vm_ssh / "ssh", VM_SSH)
+            (hop / "forward").write_text("answer")
+            given = {
+                "ansible_ssh_executable": str(vm_ssh / "ssh"),
+                "ansible_ssh_transfer_method": "piped",
+                "ansible_control_path_dir": control,
+            }
+            (root / "group_vars" / "all" / "vm_ssh.yml").write_text(yaml.safe_dump(given))
+            pve = {
+                "ansible_host": "100.64.0.7",
+                "ansible_user": "root",
+                "ansible_ssh_executable": str(hop / "ssh"),
+                "ansible_control_path_dir": control,
+            }
+            (root / "proxmox.yml").write_text(yaml.safe_dump({"proxmox": {"hosts": {"pve": pve}}}))
+            (root / "host_vars").mkdir()
+            at = {
+                "tmp": tmp_path,
+                "base": base,
+                "root": root,
+                "hop": hop,
+                "vm_ssh": vm_ssh,
+                "control": control,
+                "github": fake_github,
+                "tailscale": fake_tailscale,
+            }
+            yield functools.partial(_destroy_through, at)
+    finally:
+        shutil.rmtree(control, ignore_errors=True)
+
+
+def test_a_login_to_the_hop_that_stalls_keeps_the_vm_and_a_connection_not_made_again_keeps_it(through_whole):
+    # The shared connection says it runs and carries nothing, and each VM is healthy: alpha's forward of its own is a
+    # login to the host that never finishes (a key that waits for a touch), never read as alpha saying nothing; beta
+    # answers it, and the connection cannot be made again (the host now refuses the login). Neither is deleted.
+    vms = {"alpha": {"vmid": 9020, "forward": "stalled"}, "beta": {"vmid": 9021}}
+    report, calls, _, deleted = through_whole(vms, mode="refused", connection="quiet")
+    assert report["rc"] == 2, _failures(report)
+    assert deleted == []
+    said = _said(report)
+    assert said["alpha"].startswith(
+        "alpha: kept, its SSH alias with it, neither released nor deleted - the login to pve (root@100.64.0.7) for a"
+        " forward of its own to alpha at 192.0.2.70 did not finish within 15 s"
+    )
+    assert said["beta"].startswith(
+        "beta: kept, its SSH alias with it, neither released nor deleted - it answered a forward of its own through pve"
+        " (root@100.64.0.7), and the connection through the host could not be made again: root@pve: Permission denied"
+    )
+    assert all(said[name].endswith(WAY_OUT) for name in ("alpha", "beta"))
+    # The start's forward to alpha checked nothing, and said so.
+    assert any(
+        "did not finish within 15 s, so forwarding there was not checked" in message
+        for message in _messages(report, "vm_route | Say a VM that did not answer through the host").values()
+    )
+    assert calls.count(" -O stop ") == 1 and " -O exit " not in calls
+
+
+def test_a_stale_connection_in_front_of_a_vm_that_refuses_the_login_ends_with_the_vm_deleted(through_whole):
+    # Both first reaches end at the stale connection; both VMs answer a forward of their own, and the connection is
+    # made again: good is released, saved and deleted; denied's own sshd then refuses the login, and it goes unsaved.
+    vms = {"denied": {"vmid": 9020, "ssh": "denied"}, "good": {"vmid": 9021}}
+    report, calls, _, deleted = through_whole(vms, connection="quiet")
+    assert report["rc"] == 0, _failures(report)
+    assert deleted == ["denied", "good"]
+    said = _said(report)
+    assert said["good"].startswith("good: released - ")
+    assert said["denied"].startswith("denied: could not be reached, so it was not released: ")
+    assert "so the fault is the VM's own" in said["denied"]
+    assert calls.count(" -O stop ") == 1
+
+
+def test_a_vm_at_fault_itself_through_the_host_goes_as_under_direct_and_one_that_closes_each_connection_is_kept(
+    through_whole,
+):
+    # The shared connection works. denied, hostkey and wordless are unreachable, each answers a forward of its own,
+    # and the connection is made again: denied's and hostkey's sshd spoke, their own fault, and they go, said
+    # unsaved; wordless closes each of the run's connections before its sshd speaks, and is kept. nopy's connection
+    # works and its module fails: never asked about, and it goes as under direct.
+    vms = {
+        "denied": {"vmid": 9021, "ssh": "denied"},
+        "hostkey": {"vmid": 9022, "ssh": "hostkey"},
+        "nopy": {"vmid": 9023, "python": False},
+        "wordless": {"vmid": 9024, "ssh": "wordless"},
+    }
+    report, calls, _, deleted = through_whole(vms)
+    assert report["rc"] == 2, _failures(report)
+    assert deleted == ["denied", "hostkey", "nopy"]
+    said = _said(report)
+    for name in ("denied", "hostkey", "nopy"):
+        assert said[name].startswith(f"{name}: could not be reached, so it was not released: "), said[name]
+        assert "Claude Code sessions: not saved" in said[name]
+    assert said["wordless"].endswith(WAY_OUT)
+    # Forwards of their own: the start's, to the first VM by name, then one to each VM that was unreachable.
+    own = [line for line in calls.splitlines() if " -W " in line and "ControlPath=none" in line]
+    assert sorted(re.search(r" -W (\S+):22 ", line).group(1) for line in own) == [
+        _address(9021),
+        _address(9021),
+        _address(9022),
+        _address(9024),
+    ]
+
+
+def test_a_vm_whose_module_fails_through_the_host_stops_no_connection(through_whole):
+    report, calls, _, deleted = through_whole({"nopy": {"vmid": 9023, "python": False}})
+    assert report["rc"] == 0, _failures(report)
+    assert deleted == ["nopy"]
+    # The start's forward to it, and nothing after: its connection worked.
+    own = [line for line in calls.splitlines() if " -W " in line and "ControlPath=none" in line]
+    assert len(own) == 1 and " -O stop " not in calls
+
+
+@pytest.mark.parametrize("forward", ["answer", "prohibited"])
+def test_destroy_reads_the_jump_a_vm_s_own_group_gives_it(through_whole, tmp_path, forward):
+    # Set where the run's refusal says to, on the claude_vms group: the VM is reached by it, and the host is asked
+    # nothing, whether or not it would forward.
+    group = tmp_path / "run" / "group_vars" / "claude_vms.yml"
+    group.write_text("ansible_ssh_common_args: -o ProxyJump=jump.invalid\n")
+    (tmp_path / "hop" / "forward").write_text(forward)
+    report, calls, vm_calls, deleted = through_whole({"alpha": {"vmid": 9020}})
+    assert report["rc"] == 0, _failures(report)
+    assert deleted == ["alpha"] and _said(report)["alpha"].startswith("alpha: released - ")
+    assert " -W " not in calls
+    lines = [line for line in vm_calls.splitlines() if line.startswith(f"dev@{_address(9020)} ")]
+    assert lines and all("ProxyJump=jump.invalid" in line and "ProxyCommand=" not in line for line in lines)
+
+
 @pytest.fixture(scope="module")
 def overfull(tmp_path_factory, fake_github, fake_tailscale):
     """A VM with sessions of its own, more of them than destroy_sessions_max_size lets a save hold."""
@@ -1110,8 +1523,13 @@ def test_a_run_that_fails_before_deleting_stops_again_what_it_started():
         "Wait for each started VM's guest agent and its NIC's address",
         "List the VMs again, with the ones just started",
         "Read the address of each VM to release",
+        # Into claude_vms alone, so that what its groups give it is read below, as the publishers read it.
+        "Put each VM in claude_vms",
+        # A host that forbids forwarding to them fails here, which stops what the run started and deletes nothing.
+        "Check the route to each VM",
         "Add each VM as a host to delete",
         "Carry each VM's host key over to its identity",
+        "Hold each VM to the route",
     ]
     # Straight after the start: nothing between them that could fail.
     assert names.index("Remember which VMs this run started") == (
@@ -1162,6 +1580,21 @@ def test_destroy_lists_the_cluster_again_whatever_it_started():
     assert "when" not in again
 
 
+def test_the_host_is_asked_about_every_vm_at_once():
+    # One run_once task looped over the VMs asked the host about them one
+    # after another, 15 s for each that said nothing. Each VM's own task,
+    # delegated here, is asked by the forks at once; only the stop of the
+    # shared connection is the run's.
+    plays = yaml.safe_load(DESTROY.read_text())
+    release = next(play for play in plays if play["name"] == "Release each VM from what it signed in to")
+    assert "serial" not in release
+    tasks = {task["name"]: task for task in _every_task(release["tasks"])}
+    ask = tasks["Ask the Proxmox host about the VM"]
+    assert ask["delegate_to"] == "localhost" and ask["vm_route"]["name"] == "{{ inventory_hostname }}"
+    assert not {"run_once", "loop", "with_items", "throttle"} & set(ask)
+    assert tasks["Make sure of the connection through the Proxmox host again"]["run_once"] is True
+
+
 def test_no_play_sets_how_to_reach_a_host_in_its_vars():
     # A play's vars apply to every task it delegates, so SSH settings there
     # send a task meant for this machine - and whatever it carries - to the
@@ -1200,6 +1633,11 @@ COMMON_CONFIGURED = (
     "{{ ansible_ssh_common_args | default(lookup('ansible.builtin.config', 'ssh_common_args',"
     " plugin_type='connection', plugin_name='ssh')) }}"
 )
+# What destroy's VM is given: as its groups give it, once a task before has put it in claude_vms, else Ansible's.
+DOOMED_GIVEN = (
+    "{{ hostvars[claude_vm_name_item].ansible_ssh_common_args | default(lookup('ansible.builtin.config',"
+    " 'ssh_common_args', plugin_type='connection', plugin_name='ssh')) }}"
+)
 # What a VM of claude_vms is given: its own as the run first published it, else as its groups give it, else Ansible's.
 GIVEN_CONFIGURED = (
     "{{{{ hostvars[{vm}].claude_vm_ssh_given | default(hostvars[{vm}].ansible_ssh_common_args"
@@ -1231,7 +1669,17 @@ def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_i
                     # ansible.cfg's, which reach the VMs only through it - and, for a VM of claude_vms, the group's
                     # own, read from the VM once a task before has put it in the group, as 2.5 applied them.
                     common = " ".join(str(added["ansible_ssh_common_args"]).split())
-                    if added.get("groups") == "claude_vms":
+                    if added.get("groups") == "claude_vm_doomed":
+                        assert common.endswith("{{ claude_vm_release_given }}"), path.stem
+                        assert " ".join(task["vars"]["claude_vm_release_given"].split()) == DOOMED_GIVEN, path.stem
+                        before = tasks[: tasks.index(task)]
+                        assert [
+                            t["ansible.builtin.add_host"]
+                            for t in before
+                            if set(t.get("ansible.builtin.add_host") or {}) == {"name", "groups"}
+                            and t["ansible.builtin.add_host"]["name"] == added["name"]
+                        ] == [{"name": added["name"], "groups": "claude_vms"}], path.stem
+                    elif added.get("groups") == "claude_vms":
                         given = next(name for name in task["vars"] if name.endswith("ssh_given_now"))
                         assert common.endswith("{{ " + given + " }}"), path.stem
                         assert added["claude_vm_ssh_given"] == "{{ " + given + " }}", path.stem
@@ -1250,8 +1698,21 @@ def test_every_add_host_that_publishes_a_fleet_vm_holds_its_host_key_under_its_i
                     control = " ".join(str(added.get("ansible_control_path", "")).split())
                     assert control.startswith("%(directory)s/{{ ") and control.endswith(" }}-%%r-%%p"), path.stem
                     assert "| vm_control_name(" in control, path.stem
+                    # Through the Proxmox host, the hop: made afresh from the route each time, never part of what the
+                    # VM is given, between the project's options and those; in its socket's name; and the words a
+                    # person's ssh needs, for the lines a run prints.
+                    hop = next(name for name in task["vars"] if name.endswith("hop_now") or name.endswith("_hop"))
+                    assert "| vm_hop(" in task["vars"][hop], path.stem
+                    words = "{{ (" + hop + ".option ~ ' ') if " + hop + ".option else '' }}{{ "
+                    assert words in common and common.index(words) > common.index("vm_ssh_args("), path.stem
+                    assert f", {hop}.name)" in control, path.stem
+                    assert added["claude_vm_ssh_via"] == "{{ " + hop + ".via }}", path.stem
                     imports = [t.get("ansible.builtin.import_tasks") for t in tasks]
                     assert "tasks/host_keys.yml" in imports, path.stem
+                    # The route checked before the VM is added, the VM held to it after its key is carried over.
+                    at = tasks.index(task)
+                    assert "tasks/vm_route.yml" in imports[:at], path.stem
+                    assert imports.index("tasks/host_keys.yml") < imports.index("tasks/vm_route_held.yml"), path.stem
     assert sorted(publishing) == ["code", "destroy", "discover", "provision"], publishing
 
 

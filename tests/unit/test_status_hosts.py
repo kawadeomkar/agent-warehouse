@@ -72,6 +72,8 @@ def _checkout(root: Path, ports: dict) -> list[dict]:
     proxmox = {"all": {"children": {"proxmox": {"hosts": {"pve": {"ansible_host": "127.0.0.1"}}}}}}
     (inventory / "hosts.yml").write_text(yaml.safe_dump(proxmox))
     shared = {
+        # Straight to each VM: auto would ask this machine's ssh where it dials the host (test_vm_route.py holds it).
+        "vm_ssh_route": "direct",
         "proxmox_api_port": ports["first"],
         "vault_proxmox_api_token_secret": FIRST_SECRET,
         "vm_user": "dev",
@@ -86,7 +88,11 @@ def _checkout(root: Path, ports: dict) -> list[dict]:
     (nuc / "group_vars" / "all").mkdir(parents=True)
     proxmox["all"]["children"]["proxmox"]["hosts"] = {"nuc": {"ansible_host": "127.0.0.1"}}
     (nuc / "hosts.yml").write_text(yaml.safe_dump(proxmox))
-    own = {"proxmox_api_port": ports["nuc"], "vault_host_proxmox_api_token_secret": NUC_SECRET}
+    own = {
+        "proxmox_api_port": ports["nuc"],
+        "vault_host_proxmox_api_token_secret": NUC_SECRET,
+        "vm_ssh_route": "direct",
+    }
     (nuc / "group_vars" / "all" / "fake_api.yml").write_text(yaml.safe_dump(own))
     _executable(root / "ssh", SSH)
     if not (root / "python").exists():

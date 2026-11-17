@@ -292,7 +292,7 @@
               {{ claude_code_remote_control_after.status.NRestarts | default('?') }} restarts
               (was {{ claude_code_remote_control_started.status.NRestarts | default('?') }}).
               Read the reason with
-              "ssh {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }}
+              "ssh{{ claude_code_ssh_words }} {{ claude_code_user }}@{{ ansible_host | default(inventory_hostname) }}
               sudo journalctl -u {{ claude_code_remote_control_service }} -n 40".
             quiet: true
 

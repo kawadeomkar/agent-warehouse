@@ -1173,6 +1173,9 @@ def _pve_vars(directory: Path, base: str, pinned: dict | None = None) -> Path:
         "vm_user": "dev",
         "claude_ssh_config_file": str(directory / ".ssh" / "agent-warehouse.conf"),
         "claude_ssh_user_config": str(directory / ".ssh" / "config"),
+        # Straight to each VM: auto would ask this machine's ssh, through the developer's own config, where it dials
+        # the fake's host. A test of the route through the host pins its own.
+        "vm_ssh_route": "direct",
     }
     (group_vars / "fake_api.yml").write_text(yaml.safe_dump({**api, **(pinned or {})}))
     return group_vars

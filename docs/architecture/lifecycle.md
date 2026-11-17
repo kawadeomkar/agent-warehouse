@@ -287,7 +287,9 @@ against 41 s.
 above, never play vars, which would apply to the release's delegated calls to Tailscale's API too and run
 them, credential included, on the VM - all VMs at once: a VM with no address, or one a `ping` with
 `ignore_unreachable` and no sudo finds unreachable or failing (`failed_when: false`: a failed host leaves
-the run, and a play in which every host fails ends it), is ended and deleted as it is. A second `ping`, as
+the run, and a play in which every host fails ends it), is ended and deleted as it is - but through the
+Proxmox host, where a VM that was unreachable is kept, neither released nor deleted, while the road is still what
+fails for it ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)). A second `ping`, as
 root, in a block: a sudo that asks for a password or refuses is an error `failed_when` never sees, and
 would take the host out of the run unsaved and unreported, so the rescue records it
 (`claude_vm_release_blocked`), and that VM is saved, then ended before any release, and deleted, the report
@@ -340,7 +342,7 @@ set on every run of its file.
 
 **Delete (`claude_vm_doomed`).** With play vars `ansible_connection: local` and this machine's Python
 (`ansible_playbook_python`), since its hosts now carry SSH settings for the release. A VM the release
-kept, its sessions unsaved, ends first. The role with `proxmox_vm_state: absent` across the
+kept - its sessions unsaved, or the Proxmox host at fault for it - ends first. The role with `proxmox_vm_state: absent` across the
 placeholders, fanning out over `forks`; it looks each VM up again and applies the ownership check per
 VM. It runs in a block: `claude_vm_deleted` after it marks a VM gone, and a deletion that fails is
 rescued - a play in which every VM fails ends the run - into `claude_vm_delete_failure` and
@@ -358,7 +360,8 @@ and which are still there is written once, in the play's vars (`claude_vm_gone`,
 which the stop, the alias removal, the reports and the last raise all read. A VM still there
 keeps its alias, because it is there to connect to, and the line that says so names its reason: its
 deletion failed - a stop that timed out, protection on, an API error (`claude_vm_delete_error`) - or a
-save that failed kept it, its deletion never tried (`claude_vm_save_error`), or the run lost it before
+save that failed kept it, its deletion never tried (`claude_vm_save_error`), or the Proxmox host failed it
+(`claude_vm_release_hop_kept`), or the run lost it before
 its deletion, a task failing on it or the VM no longer answering. Said "its deletion failed" for every
 VM kept, as it once was, it was wrong for a VM kept by its save. A run refused in play 1 never
 reaches play 3; removing a block that is not there is a no-op. A localhost play rather than a task in the role, so the role stays free of the controller's
@@ -391,6 +394,34 @@ dozen reads spent seven of its twenty seconds on the first reply. The engine, `l
 the same things directly ([§7.7](custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status)): VM rows on the
 screen in a quarter of a second and a finished report in about two, against five and twenty-one over a tunnel
 ([§15.7](decisions.md#157-just-status-runs-no-playbook) has the measurements and what else was tried).
+
+**Through the Proxmox host** ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), the reads of the VMs
+go through the host's sshd, and status's SSH to the host runs nothing and carries forwards. Only where it opens SSH at
+all: the API's sections alone check nothing. What `auto` makes of the setting is worked out at each run, never kept;
+the setting as written is, and the hop's settings - the Proxmox host's user, port, key, ssh program and control
+directory, as Ansible resolves them for it, `--private-key` in `ANSIBLE_ARGS` among them (`HOP`). A VM given a jump of
+its own is read by it, whatever the hop's state. The first VM that takes the hop makes its login through the core, the
+others waiting on it, and a run with none - every VM stopped or bringing its own jump - makes none; the hop's ssh is
+given `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`, `BatchMode=yes` and `LogLevel=INFO` outright, so no key is
+taken; with more than one host each host's child makes its own. A hop that cannot be used is one line under PROXMOX,
+the reason first, with where to look by what ssh said - the host's key, which any run that configures or `ssh` to it by
+hand takes, or the login, tried with the hop's own port and key - and the VMs that take it are each not read for its
+sake, never with a VM's own words. Each VM's options are status's own, `vm_ssh_args`, the hop, then what the VM is
+given, as a run has them, its socket named with the hop; one whose own options hold another proxy is not read, and
+before each probe its ssh is asked (`ssh -G -F /dev/null` and the probe's whole line) whether it takes the hop's
+command word for word, or, for a VM given a jump, some proxy: one it would not, or a line ssh refuses, is not read,
+with what ssh showed. Over the shared connection a closed port and a forbidden forward both read "Connection closed by
+UNKNOWN port 65535", and a silent far end a time-out, so after the probes, for the VMs whose connection ended before
+their sshd spoke - those words, `kex_exchange_identification`, a refused stdio forward, never a refusal the VM's sshd
+made - one forward of its own goes to each of the first three by name: one answered there with an SSH server's banner,
+and the shared connection had gone stale (a laptop that slept), is told `-O stop` - never `-O exit`, which would cut
+the forwards another run has on it - opened again, and every such VM read once more, through the pool, one that still
+does not answer said in the hop's words; a VM that takes each connection and closes it without a word is no stale
+connection, and stops none. Otherwise what the hop said is each one's line (refused there, no route, no answer,
+closed without a word, a login to the host for the forward that never finished, or forbidden for that address), and
+the rest are said as not having answered through it. Lines that say `ssh` to a VM gain its `-J`. The hop's line is in
+the report however late its login fails: the fleet is landed again once the probes are joined. A VM whose options
+cannot be split into words is that VM's line alone, and a Ctrl-C ends the hop's login with every other ssh.
 
 **The order of a run.**
 
@@ -459,7 +490,8 @@ The lines the roles say are the roles' own, one function both call (`lib/claude_
 STEPS give; `tests/unit/test_status_vms.py` runs the roles' own tasks and the engine on the same stand-in VMs, state
 by state, and holds the two equal.
 
-**Read-only, and how that is held.** The engine makes GETs and nothing else, and follows no redirect, which would
+**Read-only, and how that is held.** The engine makes GETs to Proxmox and nothing else - through the host, SSH to it
+that runs nothing: `-O check`, the open, `-O stop` and forwards - and follows no redirect, which would
 carry the token elsewhere. The probe runs nothing but the fixed list of `ALLOWED` in its source, each a read, opens
 every file to read, and writes only to its own standard output: `tests/unit/test_status_vms.py` holds all of that
 statically and runs it against stand-in VMs whose every file must be unchanged after. `gh`'s token never leaves the
@@ -580,7 +612,9 @@ facts: that saves a pointless gather on the *first* run, when the play does exec
 prevents the SSH connection on later runs.
 
 The result is that only the first run needs root SSH to the hypervisor. Every later `just deploy`
-is API and VM traffic only.
+is API and VM traffic only - but where the VMs are reached through the host
+([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), when every run logs in to it, as the
+VMs' hop.
 
 After configuration come the sign-ins and the window, for the hosts configuration reached: a VM left
 stopped is not in `claude_vms`, and a host that failed a role has been dropped from the plays after
@@ -660,7 +694,8 @@ Host alpha
 ```
 
 **The host key.** Every connection to a VM - Ansible's (each `add_host` that publishes one sets
-`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then the common args configured: the
+`ansible_ssh_common_args` from `vm_ssh_args`, which ssh, sftp and scp all get, then, through the Proxmox host, the
+hop ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), then the common args configured: the
 VM's own as its groups give it - the `claude_vms` group's too, read once a task before has put the VM in the group,
 and kept from its first publish in the run - else `ANSIBLE_SSH_COMMON_ARGS` or `ansible.cfg`'s, which the host var
 would otherwise outrank), `just status`'s, the sign-in's forward, destroy's save, and the alias above that the
@@ -1314,6 +1349,14 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    and reads the host's short name, its node name (`init_ssh_node`), which must be `proxmox_node`, since the
    template is built there. No host in the group is a problem too. `accept-new` may add its host key to
    `~/.ssh/known_hosts`, the one file of the user's the project has ssh write in `~/.ssh`.
+   **The route**: where `just deploy` will reach the VMs through the host
+   ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)), the hop's login, as a run's start makes it - an
+   SSH connection that runs nothing, through the `vm_route` action. A login that fails is a problem (`!!`): `just
+   deploy` would stop. Where every host is given a jump of its own, only the aliases go through the hop, and the line
+   says so; where `claude_ssh_options` names a jump too, nothing needs the hop and no login is made. Another host's
+   route is its own `local.yml`'s, never the shared one's. No forward is made, since no VM's address is read here; the
+   first run that has one makes it. Through the host, a template already built leaves `just deploy` no root SSH but
+   the hop's.
 8. **The node**, worked out, never chosen: the template's node; without a template, the only node there is,
    or the node root SSH said the host is. Equal to `proxmox_node`, it is `ok`. While `proxmox_node` is the
    default, the node is written into `local.yml` in place of its commented line - at a terminal only, with no
@@ -1424,9 +1467,132 @@ tags), its notes replaced whole by one line under a marker of its own, so nothin
 back, and only then converted. A template with a `ciuser` would make every clone look configured
 ([Existence is not convergence](convergence.md#existence-is-not-convergence)), so one is never made.
 
-**Nothing here fails a deploy.** A build that fails, at any step, deletes its VM, said once. A build of the same key
+**Nothing here fails a deploy.** A build that fails, at any step, deletes its VM, said once. Where the build VM would
+go through a Proxmox host this run already found could not be used as the hop - the aliases go on past one, and record
+it - the build is refused before its VM is cloned, so none is cloned, started and deleted for nothing; its own forward
+is made once it has an address ([§4.15](#415-playbookstasksvm_routeyml--through-the-proxmox-host)). A build of the same key
 another run started under 30 minutes ago means this run builds none, and one of another key started as recently, or
 one whose notes could not be read, is left alone; an older one is left over and deleted, whether golden templates are
 on or off, so a run stopped during its build leaves nothing for long. **Old goldens** go by age only: past 14 days, twice the age one is selected at, so
 none can be in use by a run of any checkout. Proxmox keeps one a linked clone still uses, which is said.
 Both ages are internals, since a checkout with a shorter one could delete another's choice.
+
+## 4.15 `playbooks/tasks/vm_route.yml` — through the Proxmox host
+
+Where this machine reaches the Proxmox host - on a tailnet, say - but not the network its VMs are on, `just deploy`
+created the VM and then could not configure it, so Tailscale was never installed and the VM never became reachable.
+Every SSH connection to a VM can instead be carried through the host's own sshd, as a forward
+([§15.10](decisions.md#1510-the-vms-are-reached-through-the-proxmox-host-where-it-is-on-a-tailnet)).
+
+**The setting.** `vm_ssh_route`, in `local.yml`: `direct` dials each VM's address, `host` carries every connection
+through the host, and `auto`, the default, is a rule with no fallback either way: `host` where every address ssh dials
+for the Proxmox host - its `ansible_host` as `ssh -G` shows it, a `HostName` of the user's counted, then that name's
+addresses here, at run time - is a tailnet one (`100.64.0.0/10`, `fd7a:115c:a1e0::/48`), `direct` otherwise. By
+address, never by spelling: what `auto` makes of it is never kept in `just status`'s snapshot. The setting is read
+from `local.yml`, never a hosts file, where `tools/check settings` refuses it by name, anywhere in one and in a
+`hosts.yaml` beside the `hosts.yml` too. A VPN that reaches only the host (WireGuard to
+it alone) is not recognised: set `host`. VMs of the inventory's own, which no publisher adds, get no hop.
+
+**The hop** is the Proxmox host as the inventory reaches it - address, user, port, key, each as Ansible resolves an
+ssh setting (the host's variables, then `ansible.cfg`, then the environment) - or another account on it,
+`vm_ssh_jump` on the host's own entry in `hosts.yml` (an account only: never `user@host`, so the hop is always the
+hypervisor). A VM's common args gain one `ProxyCommand` (`lib/claude_vm/route.py`,
+[§7.17](custom-code.md#717-libclaude_vmroutepy--how-this-machine-reaches-a-hosts-vms)): `ssh -o BatchMode=yes ... -o
+ControlPath=<socket> -o ControlPersist=120 -W <VM address>:%p <user>@<host>`, every value held to one fixed set of
+characters, the VM's address to one IPv4 address, `StrictHostKeyChecking=accept-new` for the host's own key in the
+user's `~/.ssh/known_hosts`, as root SSH takes it, and `LogLevel=INFO`, since what ssh says is read.
+
+**Two checks, each at most once in a run**, by the `vm_route` action (`playbooks/action_plugins/vm_route.py`) under
+hard limits, its state kept on localhost as `claude_vm_route`:
+
+- **The login**: the hop's shared connection made sure of, its errors read - the key not held or changed, the login
+  refused, the host's sshd not reached. Made at a run's start where the route is the host and what every host is given
+  holds no jump: `deploy.yml`'s first play, `provision.yml`'s, `discover.yml`'s first task, `code.yml` before it
+  settles where the VM is reached, and `destroy.yml` before it starts a stopped VM, only while it reaches one. Otherwise
+  put off to the first publisher that has a VM going through the hop, and never made where every VM brings its own
+  jump.
+- **One forward** of its own, to the first such VM by name, at its port as its connection resolves it, between the
+  task that puts the VMs in `claude_vms` and the `add_host` that publishes them. Decided from ssh's exit status and
+  standard error, ssh at `LogLevel=VERBOSE`, where it says when its login to the host is done - never what arrives on
+  the forward, which the far end writes, but whether it begins as an SSH server's words do. Only `administratively
+  prohibited` - forwarding refused, which the host says at once - or ssh's own failure stops the run, naming every
+  setting that gives that reply; a refused or silent far end is the VM's doing, said for the silent one, and that VM
+  fails alone at its first contact. A forward ended at its limit before its login was done (`stalled`: a key that
+  waits for a touch, a host that stops after its banner) checked nothing, and is said so, with the login to try by
+  hand: the shared connection, made sure of a moment before, still carries every VM.
+
+**A jump of the user's own**, decided for each VM from what it is given - its common args as its groups give them
+(`claude_vm_ssh_given`), else what every host is given, and its `ansible_ssh_extra_args`: a `ProxyJump`, a `-J` or a
+`ProxyCommand` other than `none`, in any case, there is the VM's route, said once, and it gets no hop. Beside the hop, a proxy option
+in `ssh_args`, which ssh would read first, or in `ssh_extra_args` from `ansible.cfg` or the environment, is refused:
+ssh's rules for two proxies are not safe to lean on, and neither place is read by Claude's sign-in forward or destroy's
+fetch.
+
+**At each publisher**, in order: #270's task puts the VM in its group and nothing more; `vm_route.yml`; the `add_host`,
+whose common args are `vm_ssh_args`, then the hop, then what the VM is given, with the hop in its socket's name
+(`vm_control_name`'s third argument), so two hosts with one VM range never share a connection, and
+`claude_vm_ssh_via` (`-J user@host`) for the lines a person's ssh runs; `tasks/host_keys.yml`; then
+`tasks/vm_route_held.yml`, which asks each VM's own ssh (`ssh -G`, with `-F /dev/null` first, so nothing of the user's
+config is read or run) which proxy its whole line - `ssh_args`, its common args, its extra args, as its connection
+resolves each - would take. One that takes the hop must show the hop's command to its address, word for word, and
+nothing else; one given a jump of its own, some proxy, on that line and on its common and extra args alone, which
+Claude's sign-in forward and destroy's fetch are given. Anything else - a host var or `-e` outranking the publisher's
+value, a `none` ssh reads first in any spelling, a line ssh refuses - is refused by name, with what ssh showed, before
+anything connects; then the shared connection is made sure of. That is what covers configure, whose play gathers facts before any task of its own. Through the host a VM
+is named by its address: `claude_ssh_host_domain` is not used (`claude_ssh_reach_domain`).
+
+**The shared connection.** Twenty connections at once through a hop with none each log in by themselves, and the
+host's `MaxStartups` drops some, so one is kept: `-O check`; where that found a socket file nothing listens at, the
+file removed (never where the check ran out its time); then, only where no connection answers, the open - its master
+or nothing (`ControlMaster=yes`: a client with `-N` asks the host for a session, a shell on a full account), with
+`ClearAllForwardings` and the keepalives that end it 60 s after its far side goes quiet - and `-O check` again, since
+an open that meets another's socket is ended at once. Made sure of at the login, right after VMs are added, and in one
+local task at the head of each later play that reaches the VMs at once - the sign-ins' "Reach each VM before its
+sign-in" and the two plays after a serial sign-in, which may have waited minutes on a person (Remote Control's start,
+the repositories), destroy's release, the build VM's - `run_once`, delegated here, failing no host: a hop that is gone
+shows as each VM not answering. It lives 120 s past its last use. No retries: `ansible_ssh_retries` runs the whole
+command again on any exit 255, and the Tailscale key goes once.
+
+**`just destroy`, through the host.** Its VMs go into `claude_vms` first, as a publisher's do, so that a jump the
+group or a VM's own `host_vars` gives it is read for the route and for its connection, as deploy reads it. A VM that
+is unreachable in the release play may be the road's fault, not its own: a shared connection gone quiet or dropped,
+a host that forwards to some addresses only, a second login to the host that waits. One whose connection worked and
+whose module failed (no Python) is its own, and is not asked about. Each of the rest gets one forward of its own (its
+own task, delegated here, so the forks ask about them at once, failing no host), and the VM is kept - neither released
+nor deleted, stopped again if the run started it, as one whose save failed, and the run fails at its end - only where
+the road is still what fails:
+
+| What the forward of its own says | Then |
+|---|---|
+| `prohibited`, `failed` or `stalled`: the host refused to forward, ssh could not use it, or its login did not finish | kept |
+| `refused` or `silent`: the far end refused the host's connection, or said nothing to it | deleted, said unsaved with what the forward showed, as under `direct` |
+| `answered` | the shared connection told `-O stop` (never `-O exit`, `run_once`) and made sure of again, its result kept; the VM reached once more |
+| ... the connection could not be made again | kept |
+| ... the reach ended again before the VM's sshd spoke (`hop_unanswered`) | kept |
+| ... any other failure: its sshd spoke (a login refused, a host key that does not match), or a module failed | the VM's own: deleted, said unsaved, as under `direct` |
+
+The second reach's result replaces the first, so the report says the later words. Never decided by the first reach's
+words: there a login to the hop inside the VM's own `ProxyCommand`, where the shared connection was gone, says what a
+VM's refusal says; only once a forward of its own answered and the connection was made again is no login to the hop
+left in the VM's connection. A kept VM's line names `just status <vm>` and the way out that works:
+`destroy_release: false` and `destroy_save_sessions: false` together, which delete it as it is, neither released nor
+saved; the kept aliases' line says the host was at fault only for a VM it refused or could not be logged in to.
+
+**What a person is told.** A first contact that fails through the hop says the VM did not answer through the host, and
+that `just status <vm>` says what the host reports for it; under `direct` it names `vm_ssh_route: host`. A printed
+`ssh user@address` line gains `claude_vm_ssh_via` after `ssh`, and nothing else (the roles' `<role>_ssh_via`). The
+session notes keep the alias row and drop the one by address, so nothing of the hop's account is written where the
+VM's root reads it.
+
+**The alias** gains `ProxyJump <user>@<host>` after `User` where the rule says `host` and `claude_ssh_options` names no
+jump of its own, whatever Ansible's variables give a VM: the alias is the person's and the editor's road, and they read
+none of them. No socket of the project's, no `ProxyCommand`. Never through a hop that was not checked: where it cannot
+be used, no alias is written through it, the blocks already there stay, the prune runs, and only `just code`, which
+opens its window through the alias, fails. Where the inventory names a key for the hop, `ssh -G` is asked whether this
+machine's ssh would offer it there, and the lines for `~/.ssh/config` are said where it would not.
+
+**Limits.** The host's sshd must allow forwarding to its VMs, and the host must reach them; a host running Tailscale's
+own SSH server answers port 22 itself, and its policy decides. A run started within 60 s of a laptop waking can find
+its VMs not answering once (`just destroy` keeps such a VM rather than delete it unsaved). `tailscale_accept_routes`
+on for VMs whose own network the host advertises makes a VM route that network through Tailscale, which breaks a
+connection from the host's address on it.

@@ -407,7 +407,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       row does not name.
     - The sixth: the `agent-warehouse` MCP server's entry in `~/.claude.json`, which only `just mcp` adds, through
       `claude mcp add` (user scope, or local scope for `--project-dir`), and `just mcp --remove` takes out.
-    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first root SSH, and never a
+    - The four: `~/.ssh/known_hosts`, the Proxmox host's key alone, which ssh adds on the first SSH to it - root's, or
+      the hop's where the VMs are reached through it - and never a
       VM's; `~/.ssh/agent-warehouse.known_hosts` (`claude_ssh_known_hosts_file`, beside the managed config), every
       VM's key, filed under the VM's identity, `agent-warehouse-<SMBIOS UUID>` from Proxmox, which every connection to
       a VM names (`vm_ssh_args`: the file, `HostKeyAlias`, and `ForwardAgent=no` unless asked for); the managed SSH
@@ -459,6 +460,60 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       against this one (`ssh_config_elsewhere`), and one with no record only while the checkout has one host.
       The `Include` is added only when `ssh -G` says the user's config does not reach the managed file
       yet, and never rewrites or changes the mode of the user's file.
+- **Where this machine reaches the Proxmox host but not its VMs' network, every connection to a VM goes through the
+  host's sshd, and never falls back to dialling the VM.** Read
+  [§4.15](docs/architecture/lifecycle.md#415-playbookstasksvm_routeyml--through-the-proxmox-host) and
+  [§7.17](docs/architecture/custom-code.md#717-libclaude_vmroutepy--how-this-machine-reaches-a-hosts-vms) first.
+    - `vm_ssh_route` is `direct`, `host` or `auto`: `host` where every address ssh dials for the Proxmox host (`ssh -G`
+      of its `ansible_host`, then that name's addresses here, at run time) is a tailnet one, `direct` otherwise. A rule
+      with no fallback either way: a hop that cannot be used stops the run, naming `vm_ssh_route: direct`. Read from a
+      `local.yml`, never a hosts file (`tools/check settings` refuses it anywhere in one, a `hosts.yaml` beside the
+      `hosts.yml` too); what `auto` makes of it is never kept
+      in `just status`'s snapshot, which keeps the setting as written; never inherited by another host, refused to the
+      MCP server's `settings_set`.
+    - The hop is the Proxmox host as Ansible's ssh plugin resolves it, or an account on it, `vm_ssh_jump` on the
+      host's own entry in `hosts.yml` alone - an account, never `user@host` - which `tools/check settings` refuses
+      anywhere else and `just settings` never writes. Every value of its command is held to one fixed set of
+      characters, never quoted (`lib/claude_vm/route.py`), and the VM's address to one IPv4 address: `-W
+      <address>:%p`, never `%h`. `ControlPath` and `ControlPersist` stay in the one word, or Ansible adds no
+      `ControlPath` of the VM's own. The literal `accept-new` is the playbooks' (`tasks/vm_route.yml`), handed to the
+      core, which `test_controller_writes.py` counts for the host's row.
+    - Every ssh run for the hop itself - `-O check`, the open, `-O stop`, the forward check - is the core's, under a
+      hard limit, reached from playbooks through the `vm_route` action, never a `command` task: an open that loses a
+      race never returns. The open is the connection's master or nothing (`ControlMaster=yes`: a client with `-N` asks
+      for a session on the host), with the keepalives that end it once its far side goes quiet; a socket file nothing
+      listens at ("Connection refused" to the check) is removed first, never one whose check ran out its time. Never
+      `-O exit` (it cuts another run's tasks), no `ansible_ssh_retries` (the Tailscale key goes once), and
+      `LogLevel=INFO` pinned, since ssh's words are read. The forward check alone runs at `VERBOSE`, where ssh says
+      its login is done (a forward ended before that is `stalled`, the login's, never the VM's silence), its words
+      read as at `INFO`; it reads ssh's exit status and standard error, and of what arrives on the forward only
+      whether it begins as an SSH banner, kept as a yes or no; it stops a run only on `administratively prohibited`
+      or ssh's own failure.
+    - Each publisher puts the VM in its group first, then imports `tasks/vm_route.yml` (the login if put off, one
+      forward), then its `add_host`: `vm_ssh_args`, the hop (`vm_hop`, made afresh, never in `claude_vm_ssh_given`),
+      what the VM is given, the hop in `vm_control_name`'s third argument, `claude_vm_ssh_via`; then
+      `tasks/host_keys.yml`, then `tasks/vm_route_held.yml`, which asks each VM's own ssh (`ssh -G -F /dev/null` and
+      its whole line, as its connection resolves it) which proxy it takes - the hop's command, word for word, or for a
+      VM given a jump some proxy, on its whole line and on its common and extra args alone - refusing any other before
+      anything connects, and makes sure of the shared connection. Never a second reading of ssh's arguments for that:
+      ssh reads spellings it would miss. `tests/unit/test_release.py` and `test_vm_route.py` hold every publisher to
+      it.
+    - A VM given a jump of its own (a `ProxyJump`, `-J` or a `ProxyCommand` other than `none` in what it is given)
+      gets no hop, decided per VM - destroy's too, which puts its VMs in `claude_vms` first, as the publishers do, to
+      read it. The jump must reach the lines sftp and scp are given too: one outside `ansible_ssh_common_args` is
+      refused unless `ansible_sftp_extra_args` and `ansible_scp_extra_args` hold it. The login is made at a run's
+      start only where what every host is given holds none.
+    - The later plays that reach the VMs at once make sure of the shared connection in one local task first,
+      `run_once`, delegated here, failing no host - the two after a serial sign-in among them, which may have waited
+      minutes on a person.
+    - The alias gains `ProxyJump` by the rule and `claude_ssh_options` alone, never through a hop that was not
+      checked: unusable, no alias is written through it, and only `just code` fails. Through the hop a VM is named by
+      its address (`claude_ssh_reach_domain`), and the session notes drop the row by address.
+    - Every harness and scenario that brings a Proxmox host pins `vm_ssh_route: direct` - `_pve_vars`,
+      `test_init_check.py`'s inventory, the two hosts' checkouts of `test_status_hosts.py` and `test_hosts.py`, the
+      scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
+      where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
+      the route sets its own, its sockets in a directory of the test's.
 - **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward aside,
   and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -501,7 +556,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       in one `block` whose `rescue` says any failure with the `just code` line and ends the play.
     - `tests/unit/test_code_session.py` holds every task `code.yml` reaches to an allowlist: read-only here, or one
       of eight writes, each under its exact condition in `WRITERS_WHEN` and delegated to the VM; a `shell`, a
-      writer in a `block` or a `connection` fails it by name. The `provision` scenario asserts the
+      writer in a `block` or a `connection` fails it by name. The task files it shares with other playbooks are
+      each held by their own tests (`SHARED`): the API's reads, the alias, the names, the host key's carry-over, and
+      the route's two, `tasks/vm_route.yml` and `tasks/vm_route_held.yml` (`test_vm_route.py`). The `provision` scenario asserts the
       `vscode_user_settings_file` it planted is untouched, bytes and mtime, after every run.
     - With `claude_sessions_sync` (on by default) it copies only this machine's sessions of the last 30 days
       whose first directory's git origin names a repository the VM has a checkout of (`owner/repo`, never by
@@ -536,7 +593,13 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `release_pause`, `release_resume` on a VM kept), and a VM that stops answering part way fails into the
       rescue (`ignore_unreachable` and an assert), never out of the run unseen.
     - A failed save keeps the VM, neither released nor deleted; an unreachable VM is deleted and said to have
-      gone unsaved; `destroy_release: false` still saves; a VM whose sudo fails is saved, then deleted unreleased,
+      gone unsaved - but through the Proxmox host, where it is kept, as a failed save keeps it, only while the road
+      is still what fails: a forward of its own `prohibited`, `failed` or `stalled`, or `answered` and then the
+      connection not made again (`-O stop`, its result kept) or the reach ended again before the VM's sshd spoke
+      (`route.hop_unanswered`). A VM whose sshd spoke, or whose module failed (never asked), goes as under `direct`;
+      never decided by the first reach's words, and a kept VM's line names `destroy_release: false` with
+      `destroy_save_sessions: false`;
+      `destroy_release: false` still saves; a VM whose sudo fails is saved, then deleted unreleased,
       said so - sudo is asked for in a block before the save, since a failed sudo is an error `failed_when` never
       sees.
 - **Tests never read or write the developer's `~/.claude`.** `just code` reads this machine's sessions
@@ -630,7 +693,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `copy` under `init_ask` or `--certificate`'s fingerprint being the certificate's, and, where a certificate
       verifies but is not kept, a copy of it in `.cache/init/` (refused by `tests/check_no_local_files.sh`) that the
       rest of that run is checked against, removed before the report; every other task is a read - over root SSH,
-      `hostname -s` and the host's two certificates, each looked at before it is read.
+      `hostname -s` and the host's two certificates, each looked at before it is read; and where the VMs will be
+      reached through the host (`vm_ssh_route`), the hop's login through the `vm_route` action, an SSH connection that
+      runs nothing, never a forward. A login that fails is a problem line, which fails `just init`.
     - The certificate is worked out at every run before the first request that carries the token, by probes that send
       none (`lib/claude_vm/trust.py`): what checking uses now first, then the host's certificates read over root SSH.
       A file kept holds only certificates, the node's without its chain, and comes with `proxmox_validate_certs: true`
@@ -671,10 +736,24 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§7.7](docs/architecture/custom-code.md#77-libclaude_vmstatus-and-toolsstatus--just-status)
   first.
     - Not the VMs (reads over SSH only: no sign-in, no start or stop, no install, never `claude` itself until a
-      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs only, no redirect followed), not GitHub
-      or Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
+      real VM shows `claude auth status` refreshes nothing), not Proxmox (GETs, and where the route to the VMs is the
+      host, SSH connections to it that run nothing and carry forwards, no redirect followed), not GitHub or
+      Tailscale, not this machine: no host key - each VM is reached with `status_ssh_args`, `ansible.cfg`'s with
       `StrictHostKeyChecking=yes` and `UpdateHostKeys=no`, first on ssh's command line, the inventory's own ssh
-      options, port and key after them - no alias, nothing in `~/.ssh` or `~/.claude`.
+      options, port and key after them, and the hop's own ssh given `StrictHostKeyChecking=yes`, `UpdateHostKeys=no`
+      and `BatchMode=yes` outright - no alias, nothing in `~/.ssh` or `~/.claude`.
+    - Through the Proxmox host (`vm_ssh_route`) the hop's login is made through the core (`lib/claude_vm/route.py`)
+      once a run, by the first VM that takes the hop, the others waiting on it: never for the API's sections alone,
+      nor where every VM is stopped or brings a jump of its own, which is read by it whatever the hop's state. What
+      `auto` makes of the setting is worked out at each run, never kept in the snapshot; the hop's settings are (`HOP`,
+      the Proxmox host's own). A hop that cannot be used is one line, its VMs not read for its sake. Before each probe
+      the VM's ssh is asked (`ssh -G -F /dev/null` and the probe's line) whether it takes the hop, or its own jump.
+      For VMs whose connection ended before their sshd spoke (`route.hop_unanswered`), one forward of its own to each
+      of the first three by name: one answered there with an SSH server's banner, the shared connection was stale,
+      told `-O stop` - never `-O exit`, which cuts another run's tasks - and those VMs read again, through the pool;
+      otherwise, and for one still unanswered after, the hop's words are each one's line. The login's line, written
+      from a pool thread, is landed again on the main thread once the probes are joined, and a Ctrl-C ends the
+      hop's ssh too (`route.end_all`).
     - With more than one host it reads every host at once, a child of `tools/status` each (`--emit`,
       `lib/claude_vm/status/hosts.py`): the engine is not safe twice in one process. Each child has its host's sources,
       vaults and `.cache/status/<host>/`; a host not answering fails the run only as the current host.
@@ -686,7 +765,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       (`lib/claude_vm/status/lines.py`). The state the engine works out for itself (`found.py`) is held equal to the
       roles' own tasks and vars, state by state, by `tests/unit/test_status_vms.py`: change a role's state and that
       test says which of the engine's to change.
-    - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log.
+    - It writes only into `.cache/status/` (git-ignored, refused by `tests/check_no_local_files.sh`) and the log,
+      and ssh into Ansible's control directory: the VMs' sockets, and through the Proxmox host the hop's, which status
+      makes, and removes where nothing listens at it.
       Two files there, each only a way to work the same thing out sooner: `settings.json`, keyed by every file the
       settings are made from (the filters, ansible-core and the collections too), which holds no secret (the token
       is a mark, read from the vault at each run; a snapshot that would hold anything else the vault holds but its

@@ -1,0 +1,32 @@
+---
+# The route's own check of the VMs a publisher just added, before anything connects to them, then the hop's shared
+# connection made sure of (docs/architecture/lifecycle.md §4.15). Through the host, each VM's own ssh is asked (ssh -G,
+# no config file read) which proxy its whole line would take, as its connection will apply it: one that takes the hop
+# shows the hop's command to its address, word for word, and nothing else; one that brings a jump of its own shows
+# some proxy, on its whole line and on its common and extra args alone - never neither, since nothing is dialled from
+# here. A host var, a host_vars file or -e that outranks the publisher's value is found here, and any spelling ssh
+# reads. tasks/host_keys.yml holds the host key's options; this, the route's.
+#
+# The making sure covers what fans out next: configure's play gathers facts before any task of its own, twenty
+# connections at once, and the host's MaxStartups drops some of those that each log in by themselves.
+#
+# Input, as `vars:` on the import: claude_vm_route_held, the names just added. One with no address is reached by
+# nothing (destroy adds it with a local connection, to delete it).
+
+- name: vm_route_held | Refuse a VM whose connection would not go where the route says
+  vm_route:
+    do: check
+    route: "{{ claude_vm_route | default({}) }}"
+    names: "{{ claude_vm_route_held | default([]) }}"
+  check_mode: false
+  tags: [always]
+
+- name: vm_route_held | Make sure of the shared connection through the Proxmox host
+  vm_route:
+    do: held
+    route: "{{ claude_vm_route | default({}) }}"
+  check_mode: false
+  tags: [always]
+  when: >-
+    claude_vm_route_held | default([]) | map('extract', hostvars) | map(attribute='claude_vm_ssh_via', default='')
+    | select | list | length > 0

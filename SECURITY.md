@@ -54,7 +54,8 @@ what it stores. How each part below is enforced is the
   without sudo, and sudo asks for `vault_vm_password`.
 - **What is written on the controller**: what
   [On the controller](docs/architecture/security-model.md#on-the-controller) lists - the VMs' SSH host keys in
-  `~/.ssh/agent-warehouse.known_hosts`, the Proxmox host's in `~/.ssh/known_hosts`,
+  `~/.ssh/agent-warehouse.known_hosts`, the Proxmox host's in `~/.ssh/known_hosts` - taken on the first root SSH, or
+  on the first run that reaches the VMs through the host (`vm_ssh_route`) -
   the managed SSH config `~/.ssh/agent-warehouse.conf` with one `Include` line at the top of `~/.ssh/config`,
   the checkout's own folder outside it (`tools/env-run --data`), VS Code's Remote - SSH extension, which
   `just code` has VS Code's own CLI install from VS Code's marketplace when it is missing, and no other
@@ -125,7 +126,8 @@ restate them are not treated as vulnerabilities:
     - `just deploy <name>`, for a name only their tagged VM has, configures and signs in that VM rather
       than creating yours.
     - `just destroy <name>`, for a name only their tagged VM has, deletes it. Deletion goes through the
-      API and needs no SSH.
+      API and needs no SSH; the release and the save before it reach the VM over SSH - through the Proxmox
+      host's sshd where the VMs are reached through it.
 
   On a shared host, give each person a tag of their own in `local.yml` (`claude_vm_tag`) before their
   first deploy - VMs made under one tag are not found under another, and a Proxmox

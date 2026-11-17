@@ -2667,6 +2667,51 @@ def test_a_setting_under_a_name_1_1_gave_a_new_one_is_still_read_and_said(tmp_pa
     assert "is still read" not in result.stderr
 
 
+def test_the_hop_s_account_is_read_from_the_proxmox_host_s_own_entry_alone(tmp_path: Path) -> None:
+    # vm_ssh_jump anywhere else would read, for every host, exactly like the host's own: refused in a local.yml with one
+    # host as with two, and in hosts.yml but on a host of the proxmox group.
+    _python(tmp_path)
+    local, hosts = tmp_path / "local.yml", tmp_path / "hosts.yml"
+    local.write_text("vm_cores: 4\n")
+    hosts.write_text("all: {children: {proxmox: {hosts: {pve: {ansible_host: 192.0.2.10, vm_ssh_jump: forwarder}}}}}\n")
+    assert _just("status", settings=_recording(tmp_path)).returncode == 0
+    for where, text in (
+        (local, "vm_ssh_jump: forwarder\n"),
+        (hosts, "all: {vars: {vm_ssh_jump: forwarder}, children: {proxmox: {hosts: {pve: {}}}}}\n"),
+        (hosts, "all: {children: {claude_vms: {vars: {vm_ssh_jump: forwarder}}, proxmox: {hosts: {pve: {}}}}}\n"),
+    ):
+        local.write_text("vm_cores: 4\n")
+        hosts.write_text("all: {children: {proxmox: {hosts: {pve: {}}}}}\n")
+        where.write_text(text)
+        assert f"error: {where} sets vm_ssh_jump other than on the Proxmox host's own entry" in _refused(
+            tmp_path, "status"
+        ), text
+
+
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("hosts.yml", "all: {children: {proxmox: {hosts: {pve: {ansible_host: 192.0.2.10, vm_ssh_route: host}}}}}\n"),
+        # Under all: vars: Ansible gives it to localhost; still one place for it, local.yml.
+        ("hosts.yml", "all: {vars: {vm_ssh_route: host}, children: {proxmox: {hosts: {pve: {}}}}}\n"),
+        # A hosts.yaml beside the hosts.yml, which Ansible reads as one more inventory source.
+        ("hosts.yaml", "all: {children: {proxmox: {hosts: {pve: {vm_ssh_route: direct}}}}}\n"),
+    ],
+)
+def test_the_route_set_in_a_hosts_file_is_refused_by_name(tmp_path: Path, name: str, text: str) -> None:
+    # Set where localhost reads it, a local.yml: on the Proxmox host's own entry it would be taken for that host's
+    # and read by nothing, and one place for it is easier to find.
+    _python(tmp_path)
+    (tmp_path / "local.yml").write_text("vm_ssh_route: host\n")
+    hosts = tmp_path / "hosts.yml"
+    hosts.write_text("all: {children: {proxmox: {hosts: {pve: {ansible_host: 192.0.2.10}}}}}\n")
+    assert _just("status", settings=_recording(tmp_path)).returncode == 0
+    (tmp_path / name).write_text(text)
+    refused = _refused(tmp_path, "status")
+    assert f"error: {tmp_path / name} sets vm_ssh_route, which is set in local.yml" in refused, refused
+    assert "refused anywhere in a hosts file, since on the Proxmox host's own entry, or its group's" in refused
+
+
 def test_the_check_tells_of_every_name_1_1_gave_anew_as_just_settings_finds_them(tmp_path: Path) -> None:
     # tools/check finds them in defaults.yml alone, by the role prefix, since it runs before every recipe and imports
     # neither Ansible nor claude_vm; just settings finds them through the roles' argument_specs. The two are one list:
