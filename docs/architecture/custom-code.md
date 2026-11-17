@@ -1494,7 +1494,8 @@ that takes, and runs nothing of Ansible's.
   nothing else, the one value a VM supplies: `-W <address>:%p`, never `%h`, which the far end would resolve.
   `ControlPath` and `ControlPersist` are both in it, so that Ansible, which scans a VM's words for the second, still
   adds the VM's own `ControlPath`. `LogLevel=INFO` is pinned, since what ssh says is read: under a user's `LogLevel
-  ERROR` a refused forward and a closed port both read "stdio forwarding failed". The host key policy is the caller's.
+  ERROR` a refused forward and a closed port both read "stdio forwarding failed". The forward check alone runs at
+  `VERBOSE`, never a VM's `ProxyCommand`, whose words are in every VM's failure. The host key policy is the caller's.
 - **What a VM is given.** `ssh_proxies` finds every proxy option among ssh arguments, split as Ansible splits them,
   in ssh's spellings: `-o Name=value`, `-oName=value`, `-o 'Name value'`, a keyword in quotes or after a `=`, and `-J`
   among flags run together. `vm_hop(route, address, given, extra)` is a VM's hop: the words its common args gain, its
@@ -1506,19 +1507,28 @@ that takes, and runs nothing of Ansible's.
   a VM's whole line would take, with `-F /dev/null` first, so the line decides and nothing of the user's config is
   read or run. `vm_route_refusal` holds it to the route: a VM that takes the hop shows the hop's command to its
   address, word for word, and nothing else; one given a jump shows some proxy on its whole line and on its common and
-  extra args alone; anything else, a line ssh refuses, or an ssh that cannot be asked, is a refusal in words.
+  extra args alone; anything else, a line ssh refuses, or an ssh that cannot be asked, is a refusal in words - the
+  hop's own command to another address than the VM's as its `ansible_host` not being the address it was published
+  with.
 - **The hop's own ssh, under a hard limit.** `hop_check` (`-O check`, 5 s), `hop_held` (making sure of the shared
   connection: `-O check` first, then, where the check found a socket file nothing listens at, that file removed -
   never where the check was ended at its limit - then the open, `hop_open_argv`: `ControlMaster=yes`, its master or
   nothing, since a client with `-N` asks the host for a session, a shell on a full account; the keepalives that end it
-  45 s after its far side goes quiet; `ClearAllForwardings`; ended at 20 s or as soon as it says another's socket
-  exists, which it never returns from; then `-O check` again), `hop_stop` (`-O stop`, never `-O exit`, which cuts the
-  forwards another run has on it) and `hop_forward` (one forward on a connection of its own, 15 s). Each reads ssh's
-  exit status and standard error, never its standard output: what a forward carries is the far end's to write. A
-  caller ended meanwhile ends that ssh and waits for it; a failure to make the control directory is said, never
-  raised. `forward_verdict` says the hop unusable only
-  for `administratively prohibited` or ssh's own failure; a far end that refused or said nothing is the far end's
-  doing.
+  60 s after its far side goes quiet - a keepalive after 15 s of silence, the fourth unanswered one ends it;
+  `ClearAllForwardings`; ended at 20 s or as soon as it says another's socket exists, which it never returns from; then
+  `-O check` again, and where the open ended by itself and no connection answers, all of it once more, since another
+  caller's unlink took its path; a failure always in words), `hop_stop` (`-O stop`, never `-O exit`, which cuts the
+  forwards another run has on it) and `hop_forward` (one forward on a connection of its own, 15 s, at `LogLevel=VERBOSE`,
+  where ssh says `Authenticated to` once its login is done). Each reads ssh's exit status and standard error, and of
+  the forward's standard output only whether its first bytes are an SSH banner, read as it comes and dropped, kept as a
+  yes or no: what a forward carries is the far end's to write. A caller ended meanwhile ends that ssh and waits for it,
+  and `end_all` ends every one still running, for a caller about to end at once (`just status`'s Ctrl-C); a failure to
+  make the control directory is said, never raised. `forward_verdict` says the hop unusable only for `administratively
+  prohibited` or ssh's own failure; a far end that refused or said nothing once the login was done is the far end's
+  doing, and a forward ended before it, `stalled`, the login's: a second login that waits (a key touched once) beside a
+  shared connection that works stops no run, and is never read as the VM's silence. What `VERBOSE` adds is taken out
+  of the words (`VERBOSE_ONLY`), so they read as at `INFO`. `hop_unanswered` reads ssh's words for a VM reached
+  through the hop - the connection ended before the VM's sshd spoke - for `just status` and `just destroy` alike.
 - **What playbooks reach.** The action `vm_route` (`playbooks/action_plugins/vm_route.py`) settles the route - the
   hop's settings the Proxmox host's own, resolved by Ansible's ssh connection plugin's options, so a host var, then
   `ansible.cfg`, then the environment - and runs the login, the forward (at the VM's port, as its connection resolves
@@ -1530,6 +1540,7 @@ that takes, and runs nothing of Ansible's.
   `unheld_said`, `vm_unanswered`, `vm_kept_said` and `vm_gone_said` put each into words, what ssh said through
   `one_line`, its last lines and never a banner.
 
-Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, and one run
-of the real ssh, given no config, whose `ProxyCommand` reaches a recorder; the task files and the publishers by
-`tests/unit/test_vm_route.py`.
+Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's control commands and forwards, one run
+of the real ssh, given no config, whose `ProxyCommand` reaches a recorder, and each forward's verdict from the real ssh
+against a throwaway sshd of the test's own on the loopback, its words at `VERBOSE` held to those at `INFO`; the task
+files and the publishers by `tests/unit/test_vm_route.py`.

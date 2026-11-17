@@ -38,8 +38,9 @@ SOCKET_MOST = 86
 # The hard limits, in seconds, on each ssh run for the hop itself: an open that loses a race to another never returns
 # by itself, and a forward to an address that drops packets says nothing for minutes.
 LIMITS = {"check": 5, "stop": 5, "open": 20, "forward": 15, "config": 5, "resolve": 5}
-# The hop's own connection: a dead one ends within 45 s rather than hanging its clients - the keepalives are the
-# open's, which makes it, and each forward's - and one kept lives 120 s past its last use.
+# The hop's own connection: a dead one ends within 60 s rather than hanging its clients - a keepalive after 15 s of
+# silence, the fourth unanswered one ends it; the keepalives are the open's, which makes it, and each forward's - and
+# one kept lives 120 s past its last use.
 KEEP = ("ServerAliveInterval=15", "ServerAliveCountMax=3")
 PERSIST = 120
 
@@ -113,12 +114,12 @@ def account(value) -> str:
     value = "" if value is None else str(value)
     if not value:
         return ""
+    # Each short enough to be read whole where a line is cut (just status's), the way out beside the reason.
+    way_out = "set vm_ssh_jump on the host's entry to one account on that host, or vm_ssh_route: direct"
     if "@" in value or ":" in value:
-        raise HopRefused(
-            f"vm_ssh_jump {value!r}: the hop is the Proxmox host itself; vm_ssh_jump names another account on it"
-        )
+        raise HopRefused(f"vm_ssh_jump {value!r} names more than an account", way_out)
     if not _USER.fullmatch(value):
-        raise HopRefused(f"vm_ssh_jump {value!r} is not an account name: set it on the Proxmox host's entry to one")
+        raise HopRefused(f"vm_ssh_jump {value!r} is not an account name", way_out)
     return value
 
 
@@ -210,9 +211,11 @@ def _destination(hop: dict) -> str:
     return f"{hop['user']}@{hop['host']}" if hop["user"] else hop["host"]
 
 
-def _common(hop: dict, policy: str) -> list[str]:
+def _common(hop: dict, policy: str, level: str = "INFO") -> list[str]:
     if policy not in ("yes", "accept-new"):
         raise ValueError(f"no host key policy {policy!r}")
+    if level not in ("INFO", "VERBOSE"):
+        raise ValueError(f"no log level {level!r}")
     return [
         hop["ssh"],
         "-o",
@@ -226,9 +229,11 @@ def _common(hop: dict, policy: str) -> list[str]:
         "-o",
         "ForwardAgent=no",
         # What ssh says is read: never quieter for a LogLevel of the user's, where a refused forward and a closed port
-        # would both be "stdio forwarding failed", or nothing at all.
+        # would both be "stdio forwarding failed", or nothing at all. VERBOSE for the forward check alone, where ssh
+        # says when its login is done (forward_verdict); never in a VM's ProxyCommand, whose words are in every VM's
+        # failure.
         "-o",
-        "LogLevel=INFO",
+        f"LogLevel={level}",
     ]
 
 
@@ -247,14 +252,15 @@ def _keep() -> list[str]:
     return [word for option in KEEP for word in ("-o", option)]
 
 
-def hop_argv(hop: dict, address, policy: str, port="%p", shared=True) -> list[str]:
+def hop_argv(hop: dict, address, policy: str, port="%p", shared=True, level="INFO") -> list[str]:
     """The hop's ssh, forwarding to ``address``'s ``port``: ``%p`` inside a ProxyCommand, which ssh makes the VM's
-    port. ``shared`` false makes the forward of a connection of its own (ControlPath=none)."""
+    port. ``shared`` false makes the forward of a connection of its own (ControlPath=none); ``level`` is ssh's
+    LogLevel, VERBOSE for the forward check alone."""
     if port != "%p" and not (str(port).isdigit() and 0 < int(port) < 65536):
         raise HopRefused(f"{port!r} is not a port number")
     sharing = _shared(hop) if shared else ["-o", "ControlPath=none"]
     return [
-        *_common(hop, policy),
+        *_common(hop, policy, level),
         *sharing,
         *_keep(),
         *_place(hop),
@@ -372,22 +378,53 @@ def vm_hop(route, address, given="", extra="") -> dict:
     }
 
 
-def _run(argv: list[str], limit: float, until: str = "") -> dict:
+# Every ssh _run has started and not yet waited for, so that a caller about to end at once (os._exit, which runs no
+# finally) can end them first (end_all).
+_LIVE: set = set()
+_LIVE_LOCK = threading.Lock()
+
+
+def end_all() -> None:
+    """End every ssh this process runs for the hop, whatever thread waits on it: for a caller that ends at once, before
+    the threads' own ``finally`` could. Each is reaped by the thread that started it, or by init."""
+    with _LIVE_LOCK:
+        live = list(_LIVE)
+    for process in live:
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+
+def _run(argv: list[str], limit: float, until: str = "", banner: bool = False) -> dict:
     """``argv`` run with nothing on its standard input and its standard output discarded - what a forward carries is
     the far end's to write - killed at ``limit`` seconds, or as soon as its standard error holds ``until``:
-    ``{rc, said, killed}``, ``said`` its standard error, ``rc`` None where it was killed. A caller ended meanwhile (a
-    Ctrl-C, any exception) ends it too, and waits for it: no ssh is left to run on by itself."""
+    ``{rc, said, killed, banner}``, ``said`` its standard error, ``rc`` None where it was killed. With ``banner``, its
+    standard output is read as it comes and dropped, and only whether its first bytes are an SSH banner kept, as
+    ``banner``: never more of what the far end wrote. A caller ended meanwhile (a Ctrl-C, any exception) ends it too,
+    and waits for it: no ssh is left to run on by itself."""
     import subprocess  # only where ssh is run: imported with the package, it would slow every run's start
 
+    first = b""
     with tempfile.TemporaryFile() as errors:
         try:
-            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errors)
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE if banner else subprocess.DEVNULL,
+                stderr=errors,
+            )
         except OSError as error:
-            return {"rc": 255, "said": f"{argv[0]}: {error.strerror or error}", "killed": False}
+            return {"rc": 255, "said": f"{argv[0]}: {error.strerror or error}", "killed": False, "banner": False}
+        with _LIVE_LOCK:
+            _LIVE.add(process)
+        if process.stdout is not None:
+            os.set_blocking(process.stdout.fileno(), False)
         end = time.monotonic() + limit
         killed = False
         try:
             while process.poll() is None:
+                first = _drained(process, first)
                 if time.monotonic() >= end or (until and until.encode() in _read(errors.fileno())):
                     process.kill()
                     killed = True
@@ -397,8 +434,34 @@ def _run(argv: list[str], limit: float, until: str = "") -> dict:
             if process.poll() is None:
                 process.kill()
             process.wait()
+            first = _drained(process, first)
+            if process.stdout is not None:
+                process.stdout.close()
+            with _LIVE_LOCK:
+                _LIVE.discard(process)
         said = _read(errors.fileno()).decode(errors="replace").replace("\r", "")
-    return {"rc": None if killed else process.returncode, "said": said.strip(), "killed": killed}
+    return {
+        "rc": None if killed else process.returncode,
+        "said": said.strip(),
+        "killed": killed,
+        "banner": first.startswith(b"SSH-"),
+    }
+
+
+def _drained(process, first: bytes) -> bytes:
+    # What the far end wrote so far, read and dropped, so that it never waits on a full pipe: its first 4 bytes kept.
+    if process.stdout is None:
+        return first
+    while True:
+        try:
+            chunk = os.read(process.stdout.fileno(), 65536)
+        except (BlockingIOError, InterruptedError):
+            return first
+        except OSError:
+            return first
+        if not chunk:
+            return first
+        first = (first + chunk)[:4] if len(first) < 4 else first
 
 
 def _read(fd: int) -> bytes:
@@ -413,7 +476,7 @@ def _check(hop: dict, policy: str, limit=None) -> dict:
 
 def hop_check(hop: dict, policy: str, limit=None) -> bool:
     """Whether this machine holds the hop's shared connection (``-O check``). Asks this machine's ssh process only: a
-    connection whose far side has gone says it runs until its keepalives end it, 45 s at most."""
+    connection whose far side has gone says it runs until its keepalives end it, 60 s at most."""
     return _check(hop, policy, limit)["rc"] == 0
 
 
@@ -441,14 +504,16 @@ def hop_open_argv(hop: dict, policy: str) -> list[str]:
     ]
 
 
-def hop_held(hop: dict, policy: str, limits=None) -> dict:
+def hop_held(hop: dict, policy: str, limits=None, again: bool = True) -> dict:
     """Make sure of the hop's shared connection: ``{ok, opened, said}``. ``-O check`` first, never an open beside a
     live connection. Where the check found a socket file that nothing listens at ("Connection refused": a connection
     that ended without removing it), that file is removed, since a master never takes a path over; never where the
     check was ended at its limit. Then the open (hop_open_argv). One that meets a socket another run made meanwhile
     prints that it exists and would go on as a connection of its own, so it is ended then, or at its limit, and ``-O
     check`` decides once more. At worst the file removed was a connection another run opened in that instant: that one
-    lives out its clients, a second is opened, and no session is started."""
+    lives out its clients, a second is opened, and no session is started. An open that ended by itself, its master
+    made, with no connection found at the path after it, had its path removed by such a caller: made sure of once
+    more, ``again`` false that time. A failure always says why."""
     limits = {**LIMITS, **(limits or {})}
     directory = os.path.dirname(hop["socket"])
     try:
@@ -469,17 +534,35 @@ def hop_held(hop: dict, policy: str, limits=None) -> dict:
     opened = _run(hop_open_argv(hop, policy), limits["open"], until="already exists, disabling multiplexing")
     if hop_check(hop, policy, limits["check"]):
         return {"ok": True, "opened": opened["rc"] == 0, "said": ""}
-    said = opened["said"] or (f"no answer within {limits['open']} s" if opened["killed"] else "")
+    if opened["rc"] == 0 and again:
+        return hop_held(hop, policy, limits, again=False)
+    said = (
+        opened["said"]
+        or (f"no answer within {limits['open']} s" if opened["killed"] else "")
+        or f"no connection answered at {hop['socket']} after ssh made one there (it exited {opened['rc']})"
+    )
     return {"ok": False, "opened": False, "said": said}
 
 
-def forward_verdict(rc, said, killed) -> dict:
-    """``{usable, why, said}`` for a forward that ended with ``rc`` (None where it was killed at its limit) and
-    standard error ``said``, read in this order: ``prohibited``, the host refused to forward to it; ``answered``, the
-    far end answered; ``refused``, the host tried and the far end did not take it; ``silent``, no answer from the far
-    end; ``failed``, ssh failed to use the host as a hop. Only a refusal to forward, or ssh's own failure, makes the
-    hop unusable: anything slower is the far end's doing, and one VM that drops packets must not stop a run."""
-    said = str(said or "")
+# What ssh says at LogLevel=VERBOSE and not at INFO, by the start of its line: its login done ("Authenticated to
+# <host> (...)", "(via proxy)" through a proxy of the user's, "using" left out by an older ssh, or one of several
+# methods' partial success) and a session's totals. Taken out of a forward's words before anything reads them.
+VERBOSE_ONLY = ("Authenticated to ", "Authenticated using ", "Transferred: ", "Bytes per second: ")
+
+
+def forward_verdict(rc, said, killed, banner=False) -> dict:
+    """``{usable, why, said, banner}`` for a forward that ended with ``rc`` (None where it was killed at its limit) and
+    standard error ``said``, ssh's at LogLevel=VERBOSE, read in this order: ``prohibited``, the host refused to forward
+    to it; ``answered``, the far end took the connection; ``refused``, the host tried and the far end did not take it;
+    ``silent``, ended at its limit once ssh said its login to the host was done, no answer from the far end;
+    ``stalled``, ended at its limit before that, the login to the host never done (a key that waits for a touch, a host
+    that stops after its banner), so the far end was never asked; ``failed``, ssh failed to use the host as a hop. Only
+    a refusal to forward, or ssh's own failure, makes the hop unusable: anything slower is the far end's doing, or a
+    second login that waits beside a shared connection that works, and must not stop a run. ``said`` is as at INFO:
+    VERBOSE_ONLY's lines taken out. ``banner``, from _run, is whether the far end's first bytes were an SSH banner."""
+    lines = str(said or "").splitlines()
+    logged_in = any(line.startswith("Authenticated to ") for line in lines)
+    said = "\n".join(line for line in lines if not line.startswith(VERBOSE_ONLY)).strip()
     if "administratively prohibited" in said:
         why = "prohibited"
     elif rc == 0 and not killed:
@@ -487,17 +570,24 @@ def forward_verdict(rc, said, killed) -> dict:
     elif "connect failed:" in said:
         why = "refused"
     elif killed:
-        why = "silent"
+        why = "silent" if logged_in else "stalled"
     else:
         why = "failed"
-    return {"usable": why in ("answered", "refused", "silent"), "why": why, "said": said}
+    return {
+        "usable": why in ("answered", "refused", "silent", "stalled"),
+        "why": why,
+        "said": said,
+        "banner": bool(banner) and why == "answered",
+    }
 
 
 def hop_forward(hop: dict, address, policy: str, port=22, limit=None) -> dict:
-    """One forward to ``address``'s ``port`` on a connection of its own, its standard input closed: what it says of
-    the hop (forward_verdict), from its exit status and standard error alone."""
-    ended = _run(hop_argv(hop, address, policy, port=port, shared=False), limit or LIMITS["forward"])
-    return forward_verdict(ended["rc"], ended["said"], ended["killed"])
+    """One forward to ``address``'s ``port`` on a connection of its own, its standard input closed, ssh at
+    LogLevel=VERBOSE: what it says of the hop (forward_verdict), from its exit status and standard error, and of the
+    far end's words only whether they begin as an SSH server's do."""
+    argv = hop_argv(hop, address, policy, port=port, shared=False, level="VERBOSE")
+    ended = _run(argv, limit or LIMITS["forward"], banner=True)
+    return forward_verdict(ended["rc"], ended["said"], ended["killed"], ended["banner"])
 
 
 def route_settle(setting, hop: dict, limit=None) -> dict:
@@ -561,6 +651,19 @@ def ssh_shown(ssh, words, destination, limit=None) -> dict:
     return {**shown, "ok": True}
 
 
+def _hop_to(settled, proxycommand) -> str:
+    """The address the hop's own command in ``proxycommand`` forwards to, word for word the hop's; "" for any other
+    command."""
+    found = re.search(r" -W (\S+):%p ", f" {proxycommand} ")
+    if not found:
+        return ""
+    try:
+        wanted = " ".join(hop_argv(settled["hop"], found.group(1), settled["policy"]))
+    except (HopRefused, KeyError, TypeError, ValueError):
+        return ""
+    return found.group(1) if proxycommand == wanted else ""
+
+
 def _shown_proxy(shown: dict) -> str:
     if shown["proxyjump"]:
         return f"ProxyJump {shown['proxyjump']}"
@@ -597,6 +700,13 @@ def vm_route_refusal(settled, address, takes_hop, shown, alone=None) -> str:
         return f"its ansible_host, {one_line(str(address), 80)}, is not the address it was published with"
     if shown["proxycommand"] == wanted and not shown["proxyjump"]:
         return ""
+    # The hop's own command, to the address it was published with, where its ansible_host was outranked.
+    published = "" if shown["proxyjump"] else _hop_to(settled, shown["proxycommand"])
+    if published and published != address:
+        return (
+            f"its ansible_host, {one_line(str(address), 80)}, is not the address it was published with, {published},"
+            " which the hop forwards to"
+        )
     if taken:
         return f"ssh would take {one_line(taken, 160)} for it, not the hop"
     return "ssh would take no proxy for it, dialling it from here, not through the hop"
@@ -644,7 +754,12 @@ def unheld_detail(settled, address, takes_hop, line) -> str:
         wanted = ("ProxyCommand", " ".join(hop_argv(settled["hop"], address, settled["policy"])))
     except HopRefused:
         return ""
-    if ssh_proxies(line.get("ssh_common_args"))[:1] != [wanted]:
+    first = ssh_proxies(line.get("ssh_common_args"))[:1]
+    # The project's own common args, the hop to the address the VM was published with: its address was outranked,
+    # not they, which the refusal says.
+    if first and first[0][0] == "ProxyCommand" and _hop_to(settled, first[0][1]):
+        return ""
+    if first != [wanted]:
         return "ansible_ssh_common_args is set where it outranks the project's"
     return ""
 
@@ -657,6 +772,25 @@ def unheld_said(settled, unheld) -> str:
         " ansible_ssh_common_args or ansible_ssh_extra_args where the VM is given them - with an empty value on the"
         " Proxmox host's own entry where it is set for every host - or set vm_ssh_route: direct."
     )
+
+
+# What ssh says, over the hop's shared connection, of a connection that ended before the VM's sshd spoke: a VM that
+# did not answer through the host, whose own words ssh never had. Never a refusal the VM's sshd made ("Received
+# disconnect"), nor status's own line for a VM that took the connection and said nothing. Read by just status and by
+# just destroy alike (hop_unanswered).
+HOP_UNANSWERED = (
+    "connection closed by unknown port 65535",
+    "connection timed out during banner exchange",
+    "connection to unknown port 65535 timed out",
+    "stdio forwarding request failed",
+    "kex_exchange_identification",
+)
+
+
+def hop_unanswered(said) -> bool:
+    """Whether ssh's words for a VM reached through the hop say the connection ended before the VM's sshd spoke."""
+    low = str(said or "").lower()
+    return "received disconnect" not in low and any(words in low for words in HOP_UNANSWERED)
 
 
 def ssh_said(said, limit=400) -> str:
@@ -731,6 +865,12 @@ def forward_said(settled, name, address, verdict) -> str:
         return (
             f"No answer from {vm} through {hop['label']} within {LIMITS['forward']} s: it fails alone when it is first"
             " reached."
+        )
+    if why == "stalled":
+        return (
+            f"The login to {hop['label']} for a forward of its own to {vm} did not finish within {LIMITS['forward']} s,"
+            f" so forwarding there was not checked: `{hop_login_line(hop)}` here shows why (a key that waits for a"
+            " touch or an approval, or a host that stops after its banner)."
         )
     return ""
 

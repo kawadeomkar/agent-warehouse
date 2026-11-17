@@ -6,10 +6,12 @@ The hop's ssh runs against stand-ins written here, which play what OpenSSH does 
 
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import shlex
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -290,15 +292,20 @@ def test_vm_ssh_jump_is_one_account(value):
 @pytest.mark.parametrize(
     ("value", "said"),
     [
-        ("root@other.example", "the hop is the Proxmox host itself"),
-        ("forwarder:2222", "the hop is the Proxmox host itself"),
-        ("-oProxyCommand=id", "not an account name"),
-        ("for warder", "not an account name"),
+        ("root@other.example", "names more than an account: set vm_ssh_jump"),
+        ("forwarder:2222", "names more than an account: set vm_ssh_jump"),
+        ("-oProxyCommand=id", "is not an account name: set vm_ssh_jump"),
+        ("for warder", "is not an account name: set vm_ssh_jump"),
     ],
 )
 def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said):
-    with pytest.raises(route.HopRefused, match=said):
+    with pytest.raises(route.HopRefused, match=said) as refused:
         route.account(value)
+    # Short enough to be read whole where a line is cut, the way out beside it (just status's line and its hint).
+    assert len(refused.value.reason) < 60
+    assert refused.value.way_out == (
+        "set vm_ssh_jump on the host's entry to one account on that host, or vm_ssh_route: direct"
+    )
 
 
 # A stand-in for the hop's ssh, playing OpenSSH's control commands and its forward by a mode file: it logs each call,
@@ -306,7 +313,9 @@ def test_vm_ssh_jump_that_is_more_than_an_account_is_refused_by_name(value, said
 # unless the mode says otherwise, and a forward ends as the file "forward-<address>" says, else the file "forward",
 # else the mode. An open beside a live master is a client with ControlMaster=auto, which asks the host for a session
 # (logged in "sessions"), and with ControlMaster=yes says the socket exists and goes on as a connection of its own; at
-# a stale one, auto takes the path over and yes says it exists.
+# a stale one, auto takes the path over and yes says it exists. "lost" plays an open whose master another caller's
+# unlink took the path from, "lost-once" that the first time only. At LogLevel=VERBOSE a forward whose login is done
+# says so first, as OpenSSH does: every forward but "stalled", which waits before any login, and "login", refused it.
 STAND_IN = r"""#!/bin/sh
 here=$(dirname "$0")
 printf '%s\n' "$*" >> "$here/calls"
@@ -332,14 +341,20 @@ case " $* " in
     race) : > "$socket"; echo "ControlSocket $socket already exists, disabling multiplexing" >&2; exec sleep 60 ;;
     hang-then-opened) : > "$socket"; exec sleep 60 ;;
     refused) echo "root@pve: Permission denied (publickey)." >&2; exit 255 ;;
+    lost) exit 0 ;;
+    lost-once) [ -e "$here/lost" ] && { : > "$socket"; exit 0; }; : > "$here/lost"; exit 0 ;;
     *) : > "$socket"; exit 0 ;;
     esac ;;
-*" -W "*) case $forward in
+*" -W "*) case $forward in stalled|login) ;; *) case " $* " in *" LogLevel=VERBOSE "*)
+        for last in "$@"; do :; done
+        echo "Authenticated to ${last#*@} ([${last#*@}]:22) using \"publickey\"." >&2 ;; esac ;; esac
+    case $forward in
     answer) echo "SSH-2.0-OpenSSH_9.6"; exit 0 ;;
+    wordless) exit 0 ;;
     forged) echo "channel 0: open failed: administratively prohibited: open failed"; exit 0 ;;
     closed) echo "channel 0: open failed: connect failed: Connection refused" >&2; echo "stdio forwarding failed" >&2
         exit 255 ;;
-    silent) exec sleep 60 ;;
+    silent|stalled) exec sleep 60 ;;
     prohibited) echo "channel 0: open failed: administratively prohibited: open failed" >&2
         echo "stdio forwarding failed" >&2; exit 255 ;;
     login) echo "root@pve: Permission denied (publickey)." >&2; exit 255 ;;
@@ -374,24 +389,62 @@ def _calls(tmp_path: Path) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("mode", "usable", "why"),
+    ("mode", "usable", "why", "banner"),
     [
-        ("answer", True, "answered"),
-        ("closed", True, "refused"),
-        ("silent", True, "silent"),
-        ("prohibited", False, "prohibited"),
-        ("login", False, "failed"),
-        # What arrives on the forward is the far end's to write: words of a refusal there are not the host's.
-        ("forged", True, "answered"),
+        ("answer", True, "answered", True),
+        ("closed", True, "refused", False),
+        # Ended at its limit: after ssh said its login was done, the far end's silence; before, the login's own.
+        ("silent", True, "silent", False),
+        ("stalled", True, "stalled", False),
+        ("prohibited", False, "prohibited", False),
+        ("login", False, "failed", False),
+        # What arrives on the forward is the far end's to write: words of a refusal there are not the host's, and only
+        # whether they begin as an SSH server's do is kept.
+        ("forged", True, "answered", False),
+        ("wordless", True, "answered", False),
     ],
 )
-def test_the_forward_check_is_decided_from_exit_status_and_standard_error(hop_at, mode, usable, why):
+def test_the_forward_check_is_decided_from_exit_status_and_standard_error(hop_at, mode, usable, why, banner):
     started = time.monotonic()
     verdict = route.hop_forward(hop_at(mode), "192.0.2.77", "accept-new", limit=1.5)
-    assert (verdict["usable"], verdict["why"]) == (usable, why)
+    assert (verdict["usable"], verdict["why"], verdict["banner"]) == (usable, why, banner)
     assert time.monotonic() - started < 10
     if why == "failed":
         assert "Permission denied" in verdict["said"]
+    # What VERBOSE adds is never in the words a person reads.
+    assert "Authenticated" not in verdict["said"]
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        'Authenticated to pve ([100.64.0.7]:22) using "publickey".',
+        'Authenticated to pve (via proxy) using "publickey".',
+        "Authenticated to pve ([100.64.0.7]:22).",
+    ],
+)
+def test_a_login_ssh_says_is_done_in_any_of_its_spellings_makes_a_forward_ended_at_its_limit_silent(said):
+    assert route.forward_verdict(None, said, True)["why"] == "silent"
+    assert route.forward_verdict(None, "", True)["why"] == "stalled"
+    # Only the line's start: the words anywhere else are not ssh's.
+    assert route.forward_verdict(None, f"debug: {said}", True)["why"] == "stalled"
+    sent = "Transferred: sent 2416, received 2552 bytes, in 0.1 seconds"
+    totals = "\n".join([said, sent, "Bytes per second: sent 1.0, received 1.0"])
+    assert route.forward_verdict(0, totals, False) == {"usable": True, "why": "answered", "said": "", "banner": False}
+
+
+def test_only_the_forward_check_runs_ssh_at_verbose(hop_at, tmp_path):
+    hop = hop_at("open")
+    route.hop_held(hop, "accept-new")
+    route.hop_forward(hop, "192.0.2.77", "accept-new", limit=1.5)
+    route.hop_stop(hop, "accept-new")
+    lines = (tmp_path / "calls").read_text().splitlines()
+    assert [" -W " in line for line in lines] == [False, False, False, True, False]
+    for line in lines:
+        assert ("LogLevel=VERBOSE" in line) == (" -W " in line) and ("LogLevel=INFO" in line) != (" -W " in line), line
+    # A VM's ProxyCommand, whose words are in every VM's failure, stays at INFO.
+    assert "LogLevel=INFO" in route.hop_option(hop, "192.0.2.77", "accept-new")
+    assert "VERBOSE" not in route.hop_option(hop, "192.0.2.77", "accept-new")
 
 
 def test_making_sure_never_opens_beside_a_live_connection(hop_at, tmp_path):
@@ -438,6 +491,28 @@ def test_a_control_directory_that_cannot_be_made_is_said_never_raised(tmp_path, 
     hop = route.hop_settings(ssh="/bin/false", user="root", host="pve", control_dir=f"{short_dir}/file/cp")
     held = route.hop_held(hop, "accept-new")
     assert not held["ok"] and held["said"].startswith(f"the control directory {short_dir}/file/cp: ")
+
+
+def test_every_ssh_of_the_hop_still_running_is_ended_for_a_caller_that_ends_at_once(tmp_path):
+    # just status's Ctrl-C ends its process at once (os._exit), while a thread of its waits on the hop's login: the
+    # login's ssh is ended first, never left to run on under init.
+    import threading
+
+    pid_file = tmp_path / "pid"
+    program = _program(tmp_path / "slow", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    ended: list = []
+    waiting = threading.Thread(target=lambda: ended.append(route._run([program], 60)), daemon=True)
+    waiting.start()
+    deadline = time.monotonic() + 10
+    while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    started = time.monotonic()
+    route.end_all()
+    waiting.join(10)
+    assert ended and ended[0]["rc"] is not None and time.monotonic() - started < 5
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+    assert not route._LIVE
 
 
 def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeypatch):
@@ -496,6 +571,27 @@ def test_an_open_that_fails_with_no_connection_found_says_what_ssh_said(hop_at):
     assert held == {"ok": False, "opened": False, "said": "root@pve: Permission denied (publickey)."}
 
 
+def test_an_open_whose_path_another_caller_removed_is_made_sure_of_once_more(hop_at, tmp_path):
+    # Another caller's check found a socket nothing listened at a moment before this open made its master there, and
+    # removed it: this open ended by itself, and no connection answers at the path. Once more, and only once.
+    assert route.hop_held(hop_at("lost-once"), "accept-new") == {"ok": True, "opened": True, "said": ""}
+    assert [call if call in ("check", "stop") else "-N" for call in _calls(tmp_path)] == [
+        "check",
+        "-N",
+        "check",
+        "check",
+        "-N",
+        "check",
+    ]
+
+
+def test_a_failure_to_make_sure_of_the_connection_always_says_why(hop_at, tmp_path):
+    held = route.hop_held(hop_at("lost"), "accept-new")
+    assert not held["ok"] and held["said"].startswith("no connection answered at /tmp/aw-")
+    assert held["said"].endswith("after ssh made one there (it exited 0)")
+    assert len([call for call in _calls(tmp_path) if call not in ("check", "stop")]) == 2
+
+
 def test_a_stop_takes_no_new_sessions_and_is_never_an_exit(hop_at, tmp_path):
     hop = hop_at("open")
     route.hop_held(hop, "accept-new")
@@ -548,6 +644,36 @@ def test_a_first_contact_that_fails_says_where_to_look_by_the_route():
     )
     assert "vm_ssh_route: host" in route.vm_unanswered({"route": "direct"}, "", "alpha")
     assert route.vm_unanswered(ROUTE, "", "alpha") == "" and route.vm_unanswered({}, "", "alpha") == ""
+
+
+@pytest.mark.parametrize(
+    ("said", "unanswered"),
+    [
+        ("Connection closed by UNKNOWN port 65535", True),
+        ("Connection timed out during banner exchange", True),
+        ("Connection to UNKNOWN port 65535 timed out", True),
+        ("Stdio forwarding request failed: Session open refused by peer", True),
+        ("kex_exchange_identification: Connection closed by remote host", True),
+        ("Received disconnect from UNKNOWN port 65535:2: Too many authentication failures", False),
+        ("Received disconnect from UNKNOWN port 65535:11: Bye\nConnection closed by UNKNOWN port 65535", False),
+        # just status's own line for a VM that took the connection and said nothing: its sshd is up.
+        ("it took the connection and said nothing for 20 s: timed out", False),
+        ("Permission denied (publickey).", False),
+        ("Host key verification failed.", False),
+    ],
+)
+def test_only_ssh_s_words_for_a_connection_that_ended_before_the_vm_spoke_are_the_hop_s(said, unanswered):
+    # One list, read by just status and just destroy alike.
+    assert route.hop_unanswered(said) is unanswered
+
+
+def test_a_forward_whose_login_never_finished_is_said_as_the_login_s(hop_at):
+    stalled = route.forward_said(ROUTE, "alpha", "192.0.2.77", {"why": "stalled", "said": ""})
+    assert stalled.startswith(
+        "The login to pve (root@pve.example.ts.net) for a forward of its own to alpha at 192.0.2.77 did not finish"
+        " within 15 s, so forwarding there was not checked: `ssh root@pve.example.ts.net` here shows why"
+    )
+    assert "No answer from" not in stalled
 
 
 def test_the_words_of_a_hop_that_cannot_be_used_name_every_reply_and_the_way_out():
@@ -647,6 +773,21 @@ def test_a_vm_given_a_jump_must_show_one_on_its_whole_line_and_on_its_own_args_a
     assert "common and extra args alone" in route.vm_route_refusal(ROUTE, "192.0.2.77", False, jump, alone=plain)
 
 
+def test_a_vm_whose_ansible_host_is_not_the_address_its_hop_goes_to_is_refused_by_that():
+    # A host var or -e outranked its ansible_host, not the common args, which are the project's: the hop's own command
+    # to the address it was published with.
+    common = route.hop_option(HOP, "192.0.2.77", "accept-new")
+    shown = route.ssh_shown(_real_ssh(), shlex.split(common), "192.0.2.99")
+    assert route.vm_route_refusal(ROUTE, "192.0.2.99", True, shown) == (
+        "its ansible_host, 192.0.2.99, is not the address it was published with, 192.0.2.77, which the hop forwards to"
+    )
+    assert route.unheld_detail(ROUTE, "192.0.2.99", True, {"ssh_common_args": common}) == ""
+    # Another command than the hop's, there, is still said for what it is.
+    other = route.hop_option({**HOP, "ssh": "/opt/other-ssh"}, "192.0.2.77", "accept-new")
+    detail = route.unheld_detail(ROUTE, "192.0.2.99", True, {"ssh_common_args": other})
+    assert detail == "ansible_ssh_common_args is set where it outranks the project's"
+
+
 def test_a_vm_whose_ansible_host_is_a_name_is_refused_by_name():
     shown = {"ok": True, "proxycommand": "", "proxyjump": "", "said": ""}
     assert route.vm_route_refusal(ROUTE, "vm01.lan", True, shown) == (
@@ -718,3 +859,134 @@ def test_the_words_of_a_vm_destroy_keeps_and_of_one_it_deletes():
     assert route.vm_gone_said(ROUTE, via) == "It did not answer through pve (root@pve.example.ts.net)."
     assert route.vm_gone_said(ROUTE, "") == "" and "just status" not in route.vm_gone_said(ROUTE, via, refused)
     assert "vm_ssh_route: host" in route.vm_gone_said({"route": "direct"}, "")
+
+
+# The forward check against the real OpenSSH: a throwaway sshd of this machine's own on its loopback, run as this user,
+# with keys and files of the test's own, every ssh given -F /dev/null and this folder's files, so nothing of ~/.ssh is
+# read or written. What ssh says at VERBOSE, where it says its login is done, is what it says at INFO once the
+# forward's words are read: no line a person reads changes.
+SSHD = """Port {port}
+ListenAddress 127.0.0.1
+HostKey {here}/host
+PidFile {here}/sshd.pid
+AuthorizedKeysFile {here}/authorized_keys
+UsePAM no
+StrictModes no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AllowTcpForwarding yes
+"""
+
+
+def _port() -> int:
+    with socket.socket() as one:
+        one.bind(("127.0.0.1", 0))
+        return one.getsockname()[1]
+
+
+def _listening(port: int, kind: str) -> socket.socket:
+    """A listener on the loopback that takes each connection and, by ``kind``, says nothing (mute), closes it at once
+    without a word (wordless), or sends an SSH server's banner and then nothing (banner): a hop whose login stalls."""
+    import threading
+
+    server = socket.socket()
+    server.bind(("127.0.0.1", port))
+    server.listen(8)
+    held = []
+
+    def serve():
+        while True:
+            try:
+                connection, _ = server.accept()
+            except OSError:
+                return
+            if kind == "wordless":
+                connection.close()
+                continue
+            if kind == "banner":
+                connection.sendall(b"SSH-2.0-OpenSSH_9.6\r\n")
+            held.append(connection)
+
+    threading.Thread(target=serve, daemon=True).start()
+    return server
+
+
+@pytest.fixture
+def real_sshd(tmp_path, short_dir):
+    """(the hop for a client key, the sshd's port): keys ok, restricted (no forwarding: restrict) and other (not let
+    in)."""
+    sshd = "/usr/sbin/sshd"
+    keygen = shutil.which("ssh-keygen")
+    if not os.access(sshd, os.X_OK) or not keygen or not shutil.which("ssh"):
+        pytest.skip("no sshd, ssh-keygen and ssh here")
+    here = tmp_path / "sshd"
+    here.mkdir(mode=0o700)
+    for key in ("host", "ok", "restricted", "other"):
+        subprocess.run([keygen, "-q", "-t", "ed25519", "-N", "", "-f", str(here / key)], check=True, timeout=30)
+    ok, restricted = ((here / f"{key}.pub").read_text().strip() for key in ("ok", "restricted"))
+    (here / "authorized_keys").write_text(f"{ok}\nrestrict {restricted}\n")
+    port = _port()
+    (here / "known_hosts").write_text(f"[127.0.0.1]:{port} {(here / 'host.pub').read_text().strip()}\n")
+    (here / "sshd_config").write_text(SSHD.format(port=port, here=here))
+    log = here / "sshd.log"
+    with log.open("w") as written:
+        argv = [sshd, "-D", "-e", "-f", str(here / "sshd_config")]
+        daemon = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=written, stderr=written)
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            if daemon.poll() is not None:
+                pytest.skip(f"sshd would not start here as this user: {log.read_text()[-300:]}")
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    pytest.skip("sshd did not listen within 10 s")
+                time.sleep(0.1)
+
+        def hop(key: str, at: int) -> dict:
+            ssh = _program(
+                here / f"ssh-{key}",
+                f"#!/bin/sh\nexec ssh -F /dev/null -o UserKnownHostsFile={here}/known_hosts"
+                f" -o GlobalKnownHostsFile=/dev/null -o IdentityFile={here}/{key} -o IdentitiesOnly=yes"
+                ' -o IdentityAgent=none "$@"\n',
+            )
+            return route.hop_settings(ssh=ssh, user=getpass.getuser(), host="127.0.0.1", port=at, control_dir=short_dir)
+
+        yield hop, port
+    finally:
+        daemon.kill()
+        daemon.wait()
+
+
+@pytest.mark.parametrize(
+    ("case", "key", "hop_is", "target", "why", "banner"),
+    [
+        ("the far end answers", "ok", "sshd", "sshd", "answered", True),
+        ("nothing listens at the port", "ok", "sshd", "closed", "refused", False),
+        ("the host forbids forwarding", "restricted", "sshd", "sshd", "prohibited", False),
+        ("the host refuses the login", "other", "sshd", "sshd", "failed", False),
+        ("the far end says nothing", "ok", "sshd", "mute", "silent", False),
+        ("the far end closes it without a word", "ok", "sshd", "wordless", "answered", False),
+        ("the host stops after its banner", "ok", "banner", "sshd", "stalled", False),
+    ],
+)
+def test_each_verdict_of_the_real_ssh_says_at_verbose_what_it_says_at_info(
+    real_sshd, case, key, hop_is, target, why, banner
+):
+    hop, port = real_sshd
+    others = {kind: _port() for kind in ("closed", "mute", "wordless", "banner")}
+    servers = [_listening(others[kind], kind) for kind in ("mute", "wordless", "banner")]
+    try:
+        settings = hop(key, port if hop_is == "sshd" else others[hop_is])
+        at = port if target == "sshd" else others[target]
+        verdict = route.hop_forward(settings, "127.0.0.1", "yes", port=at, limit=2)
+        assert (verdict["why"], verdict["banner"]) == (why, banner), (case, verdict)
+        info = route._run(route.hop_argv(settings, "127.0.0.1", "yes", port=at, shared=False), 2)
+        assert route.forward_verdict(info["rc"], info["said"], info["killed"])["said"] == verdict["said"], case
+        assert "Authenticated" not in verdict["said"]
+    finally:
+        for server in servers:
+            server.close()

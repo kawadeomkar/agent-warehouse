@@ -1505,10 +1505,14 @@ hard limits, its state kept on localhost as `claude_vm_route`:
   put off to the first publisher that has a VM going through the hop, and never made where every VM brings its own
   jump.
 - **One forward** of its own, to the first such VM by name, at its port as its connection resolves it, between the
-  task that puts the VMs in `claude_vms` and the `add_host` that publishes them. Decided from ssh's exit status and standard error, never what arrives on the forward,
-  which the far end writes. Only `administratively prohibited` - forwarding refused, which the host says at once -
-  or ssh's own failure stops the run, naming every setting that gives that reply; a refused or silent far end is the
-  VM's doing, said for the silent one, and that VM fails alone at its first contact.
+  task that puts the VMs in `claude_vms` and the `add_host` that publishes them. Decided from ssh's exit status and
+  standard error, ssh at `LogLevel=VERBOSE`, where it says when its login to the host is done - never what arrives on
+  the forward, which the far end writes, but whether it begins as an SSH server's words do. Only `administratively
+  prohibited` - forwarding refused, which the host says at once - or ssh's own failure stops the run, naming every
+  setting that gives that reply; a refused or silent far end is the VM's doing, said for the silent one, and that VM
+  fails alone at its first contact. A forward ended at its limit before its login was done (`stalled`: a key that
+  waits for a touch, a host that stops after its banner) checked nothing, and is said so, with the login to try by
+  hand: the shared connection, made sure of a moment before, still carries every VM.
 
 **A jump of the user's own**, decided for each VM from what it is given - its common args as its groups give them
 (`claude_vm_ssh_given`), else what every host is given, and its `ansible_ssh_extra_args`: a `ProxyJump`, a `-J` or a
@@ -1534,7 +1538,7 @@ is named by its address: `claude_ssh_host_domain` is not used (`claude_ssh_reach
 host's `MaxStartups` drops some, so one is kept: `-O check`; where that found a socket file nothing listens at, the
 file removed (never where the check ran out its time); then, only where no connection answers, the open - its master
 or nothing (`ControlMaster=yes`: a client with `-N` asks the host for a session, a shell on a full account), with
-`ClearAllForwardings` and the keepalives that end it 45 s after its far side goes quiet - and `-O check` again, since
+`ClearAllForwardings` and the keepalives that end it 60 s after its far side goes quiet - and `-O check` again, since
 an open that meets another's socket is ended at once. Made sure of at the login, right after VMs are added, and in one
 local task at the head of each later play that reaches the VMs at once - the sign-ins' "Reach each VM before its
 sign-in" and the two plays after a serial sign-in, which may have waited minutes on a person (Remote Control's start,
@@ -1565,7 +1569,7 @@ opens its window through the alias, fails. Where the inventory names a key for t
 machine's ssh would offer it there, and the lines for `~/.ssh/config` are said where it would not.
 
 **Limits.** The host's sshd must allow forwarding to its VMs, and the host must reach them; a host running Tailscale's
-own SSH server answers port 22 itself, and its policy decides. A run started within 45 s of a laptop waking can find
+own SSH server answers port 22 itself, and its policy decides. A run started within 60 s of a laptop waking can find
 its VMs not answering once (`just destroy` keeps such a VM rather than delete it unsaved). `tailscale_accept_routes`
 on for VMs whose own network the host advertises makes a VM route that network through Tailscale, which breaks a
 connection from the host's address on it.

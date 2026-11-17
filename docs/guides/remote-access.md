@@ -69,7 +69,7 @@ wherever your laptop is. Where a VPN of yours routes the VMs' network, or you re
   and not the host, needs `direct`. A host running Tailscale's own SSH server answers port 22 itself, and its policy
   decides forwarding.
 - **A VM that does not answer** through the host shows as a closed connection or a time-out; `just status <vm>` says
-  what the host reports for it. A run started within 45 seconds of your laptop waking can find the VMs not answering
+  what the host reports for it. A run started within 60 seconds of your laptop waking can find the VMs not answering
   once, on a connection that has not noticed it is gone. `just destroy` asks the host about such a VM before it
   deletes it: one that answers the host but not the run, or that the host will not forward to, is kept, neither
   released nor deleted.

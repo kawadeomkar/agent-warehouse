@@ -929,25 +929,6 @@ def test_a_vm_s_own_refusal_through_the_hop_is_its_own_and_asks_the_hop_nothing(
     assert "Too many authentication failures" in item["text"], item
 
 
-@pytest.mark.parametrize(
-    ("said", "unanswered"),
-    [
-        (CLOSED, True),
-        ("Connection timed out during banner exchange", True),
-        ("Connection to UNKNOWN port 65535 timed out", True),
-        ("Stdio forwarding request failed: Session open refused by peer", True),
-        ("kex_exchange_identification: Connection closed by remote host", True),
-        ("Received disconnect from UNKNOWN port 65535:2: Too many authentication failures", False),
-        ("Received disconnect from UNKNOWN port 65535:11: Bye\n" + CLOSED, False),
-        # The engine's own line for a VM that took the connection and said nothing: its sshd is up.
-        ("it took the connection and said nothing for 20 s: timed out", False),
-        ("Permission denied (publickey).", False),
-    ],
-)
-def test_only_ssh_s_words_for_a_connection_that_ended_before_the_vm_spoke_ask_the_hop(said, unanswered):
-    assert S.hop_unanswered(said) is unanswered
-
-
 def test_a_vm_that_is_down_first_by_name_hides_no_stale_connection_behind_it(tmp_path, fleet, through):
     # alpha is down (the host's forward to it is refused); beta's answers: the connection was stale.
     hop, named = through

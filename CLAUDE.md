@@ -483,9 +483,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       for a session on the host), with the keepalives that end it once its far side goes quiet; a socket file nothing
       listens at ("Connection refused" to the check) is removed first, never one whose check ran out its time. Never
       `-O exit` (it cuts another run's tasks), no `ansible_ssh_retries` (the Tailscale key goes once), and
-      `LogLevel=INFO` pinned, since ssh's words are read. The forward check reads ssh's exit status and standard
-      error, never what arrives on the forward, and stops a run only on `administratively prohibited` or ssh's own
-      failure.
+      `LogLevel=INFO` pinned, since ssh's words are read. The forward check alone runs at `VERBOSE`, where ssh says
+      its login is done (a forward ended before that is `stalled`, the login's, never the VM's silence), its words
+      read as at `INFO`; it reads ssh's exit status and standard error, and of what arrives on the forward only
+      whether it begins as an SSH banner, kept as a yes or no; it stops a run only on `administratively prohibited`
+      or ssh's own failure.
     - Each publisher puts the VM in its group first, then imports `tasks/vm_route.yml` (the login if put off, one
       forward), then its `add_host`: `vm_ssh_args`, the hop (`vm_hop`, made afresh, never in `claude_vm_ssh_given`),
       what the VM is given, the hop in `vm_control_name`'s third argument, `claude_vm_ssh_via`; then
@@ -738,7 +740,7 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `auto` makes of the setting is worked out at each run, never kept in the snapshot; the hop's settings are (`HOP`,
       the Proxmox host's own). A hop that cannot be used is one line, its VMs not read for its sake. Before each probe
       the VM's ssh is asked (`ssh -G -F /dev/null` and the probe's line) whether it takes the hop, or its own jump.
-      For VMs whose connection ended before their sshd spoke (`model.hop_unanswered`), one forward of its own to each
+      For VMs whose connection ended before their sshd spoke (`route.hop_unanswered`), one forward of its own to each
       of the first three by name: one answered there, the shared connection was stale, told `-O stop` - never `-O
       exit`, which cuts another run's tasks - and those VMs read again, through the pool; otherwise the hop's words
       are each one's line.

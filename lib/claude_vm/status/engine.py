@@ -428,7 +428,7 @@ class Run:
             land(read)
         # Through the hop, a connection that ended before the VM's sshd spoke is all ssh says of a VM that does not
         # answer: the hop's own words for it are read after the probes (recheck).
-        if via and read.get("unreachable") and model.hop_unanswered(read.get("msg")):
+        if via and read.get("unreachable") and routes.hop_unanswered(read.get("msg")):
             with self.lock:
                 self.unanswered[name] = (how, vm_settings, joined_before, key)
         system = (read.get("user") or {}).get("system") if isinstance(read.get("user"), dict) else None

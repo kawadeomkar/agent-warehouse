@@ -767,24 +767,6 @@ def status_refusal(said):
     return ""
 
 
-# What ssh says, over the hop's shared connection, of a connection that ended before the VM's sshd spoke: a VM that
-# did not answer through the host, whose own words ssh never had. Never a refusal the VM's sshd made ("Received
-# disconnect"), nor the engine's own line for a VM that took the connection and said nothing.
-HOP_UNANSWERED = (
-    "connection closed by unknown port 65535",
-    "connection timed out during banner exchange",
-    "connection to unknown port 65535 timed out",
-    "stdio forwarding request failed",
-    "kex_exchange_identification",
-)
-
-
-def hop_unanswered(said):
-    """Whether ssh's words for a VM reached through the hop say the connection ended before the VM's sshd spoke."""
-    low = str(said or "").lower()
-    return "received disconnect" not in low and any(words in low for words in HOP_UNANSWERED)
-
-
 def _ssh_refusal(vm, ssh, settings):
     """What ssh's refusal of a VM means, and what to do about it: (text, command)."""
     name = vm.get("name")

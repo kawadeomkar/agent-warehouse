@@ -403,7 +403,10 @@ def test_a_hop_setting_that_is_not_one_account_is_a_problem_of_its_own(tmp_path,
     report = _check(tmp_path / "run", fake_pve, "ssh", {"vm_ssh_route": "host", "vm_ssh_jump": "forwarder@other"})
     said = _said(report)
     assert report["rc"] != 0
-    assert "!!   vm_ssh_jump 'forwarder@other': the hop is the Proxmox host itself" in said, said
+    assert (
+        "!!   vm_ssh_jump 'forwarder@other' names more than an account: set vm_ssh_jump on the host's entry to one"
+        " account on that host, or vm_ssh_route: direct" in said
+    ), said
 
 
 def test_a_wrong_secret_names_the_token(tmp_path: Path, fake_pve: str) -> None:
