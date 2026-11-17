@@ -413,11 +413,15 @@ command word for word, or, for a VM given a jump, some proxy: one it would not, 
 with what ssh showed. Over the shared connection a closed port and a forbidden forward both read "Connection closed by
 UNKNOWN port 65535", and a silent far end a time-out, so after the probes, for the VMs whose connection ended before
 their sshd spoke - those words, `kex_exchange_identification`, a refused stdio forward, never a refusal the VM's sshd
-made - one forward of its own goes to each of the first three by name: one answered there, and the shared connection
-had gone stale (a laptop that slept), is told `-O stop` - never `-O exit`, which would cut the forwards another run has
-on it - opened again, and every such VM read once more, through the pool; otherwise what the hop said is each one's
-line (refused there, no route, no answer, or forbidden for that address), and the rest are said as not having
-answered through it. Lines that say `ssh` to a VM gain its `-J`.
+made - one forward of its own goes to each of the first three by name: one answered there with an SSH server's banner,
+and the shared connection had gone stale (a laptop that slept), is told `-O stop` - never `-O exit`, which would cut
+the forwards another run has on it - opened again, and every such VM read once more, through the pool, one that still
+does not answer said in the hop's words; a VM that takes each connection and closes it without a word is no stale
+connection, and stops none. Otherwise what the hop said is each one's line (refused there, no route, no answer,
+closed without a word, a login to the host for the forward that never finished, or forbidden for that address), and
+the rest are said as not having answered through it. Lines that say `ssh` to a VM gain its `-J`. The hop's line is in
+the report however late its login fails: the fleet is landed again once the probes are joined. A VM whose options
+cannot be split into words is that VM's line alone, and a Ctrl-C ends the hop's login with every other ssh.
 
 **The order of a run.**
 

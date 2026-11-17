@@ -288,9 +288,10 @@ def _second_wave(requested, template, storages, reading):
     return items
 
 
-def _hop_words(name, label, address, verdict):
+def _hop_words(name, hop, address, verdict):
     """What the hop said of one VM's address, from one forward of its own: (its line, where to look); a VM that got no
     forward of its own said as not having answered through it."""
+    label = hop["label"]
     console = f"check {name} in Proxmox's console"
     if verdict is None:
         return f"it did not answer through {label}", console
@@ -310,6 +311,15 @@ def _hop_words(name, label, address, verdict):
         return f"no answer from {address} through {label} within {routes.LIMITS['forward']} s", console
     if why == "failed":
         return f"ssh could not use {label} as a hop to {address}: {said}", ""
+    if why == "stalled":
+        # The login's, never the VM's: the far end was never asked.
+        return (
+            f"the login to {label} for a forward of its own to {address} did not finish within"
+            f" {routes.LIMITS['forward']} s",
+            f"{routes.hop_login_line(hop)} here shows why",
+        )
+    if not verdict.get("banner"):
+        return f"through {label}, {address} took the connection and closed it without a word", console
     return f"it answered a forward through {label}, but not the read", ""
 
 
@@ -514,10 +524,11 @@ class Run:
 
     def recheck(self, pool):
         """After the probes, the VMs that did not answer through the hop: one forward of its own to each of the first
-        three by name. Where any answered there, the shared connection had gone stale: told to take no new sessions
-        (-O stop, never -O exit, which would cut another run's tasks), made sure of again, and every such VM read once
-        more, through the pool. Otherwise what the hop said is each one's line, and the rest are said as not having
-        answered through it."""
+        three by name. Where any answered there as an SSH server does, its banner first, the shared connection had gone
+        stale: told to take no new sessions (-O stop, never -O exit, which would cut another run's tasks), made sure of
+        again, and every such VM read once more, through the pool - one that again does not answer said in the hop's
+        words. A far end that takes the connection and closes it without a word is no stale connection, and stops none.
+        Otherwise what the hop said is each one's line, and the rest are said as not having answered through it."""
         route, unanswered = self.route, dict(self.unanswered)
         self.unanswered.clear()
         if not route or not route.get("hop") or not unanswered:
@@ -527,16 +538,19 @@ class Run:
         for name in names[:3]:
             how = unanswered[name][0]
             verdicts[name] = routes.hop_forward(hop, how["host"], "yes", port=how.get("port") or 22)
-            if verdicts[name]["why"] == "answered":
+            if verdicts[name]["why"] == "answered" and verdicts[name].get("banner"):
                 routes.hop_stop(hop, "yes")
                 routes.hop_held(hop, "yes")
                 for job in [pool.submit(self.probe, one, *unanswered[one]) for one in names]:
                     job.result()
+                # Each that still did not answer: the hop's words for it, as the others get them.
+                unanswered = dict(self.unanswered)
                 self.unanswered.clear()
-                return
+                names = sorted(unanswered)
+                break
         for name in names:
             how, vm_settings, joined_before, _ = unanswered[name]
-            said, hint = _hop_words(name, hop["label"], how["host"], verdicts.get(name))
+            said, hint = _hop_words(name, hop, how["host"], verdicts.get(name))
             self.unread_through(name, how, vm_settings, joined_before, said, hint)
 
     def probes(self, count):
@@ -618,13 +632,19 @@ class Run:
                 reach.end_all()
                 self.unread(denied, "check the privileges of the token's role (docs/getting-started/proxmox-access.md)")
                 return
-            self.fill(data, tagged, requested, lists, results, vms)
+            whole = self.fill(data, tagged, requested, lists, results, vms)
             for job in jobs:
                 job.result()
+            # The hop's login is made by the first VM that takes the hop, on a thread of the pool, and may fail after
+            # fill landed the fleet: landed again here, once the probes are joined, so the hop's line is there for
+            # each VM that points at it - never from the login's own thread, which could land before fill's copy.
+            if self.settings.get("hop_said") and not whole.get("hop_landed"):
+                self.screen.land("localhost", {"fleet": self.fleet_whole(*whole["args"])})
             self.recheck(pool)
         except BaseException:
-            # A failure, or a Ctrl-C: no probe is left running, nor started after.
+            # A failure, or a Ctrl-C: no probe is left running, nor started after, nor any ssh of the hop's.
             reach.end_all()
+            routes.end_all()
             raise
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -686,9 +706,8 @@ class Run:
         # another's address ride that one's, on which no host key is checked again.
         how["control_name"] = vm_control_name(row["key_alias"], address, hop["name"])
         if self.route:
-            refused = self.held_to_route(how, address, bool(hop["via"]))
+            refused, hint = self.held_to_route(how, address, bool(hop["via"]))
             if refused:
-                hint = "set a jump of your own where the VM is given it, or vm_ssh_route: direct"
                 self.unread_through(name, how, vm_settings, before, refused, hint)
                 return
         self.probe(name, how, vm_settings, before, f"{name}/{vm['vmid']}")
@@ -722,14 +741,46 @@ class Run:
 
     def held_to_route(self, how, address, takes_hop):
         """Why the VM's ssh, given the whole line its probe will be, would not go where the route says, asked of ssh
-        itself (ssh -G, no config read); "" where it would."""
-        argv = reach.command(how, as_root=False)
+        itself (ssh -G, no config read), and where to look: ("", "") where it would. Options that cannot even be split
+        into words are that VM's line alone, as under direct, never the run's end."""
+        try:
+            argv = reach.command(how, as_root=False)
+        except ValueError as error:
+            return (
+                f"its ssh options could not be read: {one_line(str(error), 120)}",
+                "fix the ssh options the VM is given (ansible_ssh_common_args, ansible_ssh_extra_args)",
+            )
         shown = routes.ssh_shown(argv[0], argv[1:-2], argv[-2])
         why = routes.vm_route_refusal(self.route, address, takes_hop, shown)
-        return f"its ssh would not go where the route says: {why}" if why else ""
+        if not why:
+            return "", ""
+        return (
+            f"its ssh would not go where the route says: {why}",
+            "set a jump of your own where the VM is given it, or vm_ssh_route: direct",
+        )
 
     def fill(self, data, tagged, requested, lists, results, vms):
-        """The whole fleet from every read, then each VM's Proxmox part."""
+        """The whole fleet from every read, then each VM's Proxmox part: ``{args, hop_landed}``, what the fleet was
+        made from, to land it again, and whether the hop's line was in the settings it was made with."""
+        args = (data, tagged, requested, lists, results)
+        landed = bool(self.settings.get("hop_said"))
+        whole = self.fleet_whole(*args)
+        for vm in vms:
+            name = vm["name"]
+            listed = next((one for one in whole["vms"] if one["name"] == name), vm)
+            vmid = listed["vmid"]
+            mine = [one for one in results if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid]
+            part = {
+                "api": model.status_vm_api(mine, time.time(), listed.get("created")),
+                "drift": proxmox_reads.proxmox_vm_drift(
+                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
+                ),
+            }
+            self.screen.land(name, model.status_clean(part), merge=True)
+        return {"args": args, "hop_landed": landed}
+
+    def fleet_whole(self, data, tagged, requested, lists, results):
+        """The whole fleet from every read, landed: what it landed."""
         # Copies: a probe's thread may still be reading the same answers for its address.
         configs = [{**one, "claude_vm_item": {"vmid": one["item"]["vmid"]}} for one in _picked(results, "config")]
         networks = _picked(results, "network")
@@ -760,18 +811,7 @@ class Run:
             )
         )
         self.screen.land("localhost", {"fleet": whole})
-        for vm in vms:
-            name = vm["name"]
-            listed = next((one for one in whole["vms"] if one["name"] == name), vm)
-            vmid = listed["vmid"]
-            mine = [one for one in results if one["item"].get("kind") == "api" and one["item"]["vmid"] == vmid]
-            part = {
-                "api": model.status_vm_api(mine, time.time(), listed.get("created")),
-                "drift": proxmox_reads.proxmox_vm_drift(
-                    listed.get("config") or {}, _wanted(settings.for_vm(self.config, name), listed.get("config"))
-                ),
-            }
-            self.screen.land(name, model.status_clean(part), merge=True)
+        return whole
 
     def from_inventory(self):
         """Discovery off: no Proxmox, the inventory's claude_vms each read as it says it is reached."""
@@ -804,7 +844,9 @@ class Run:
 
 
 def _end_for_an_interrupt(screen):
+    # Every ssh first, the hop's login on a thread of the pool among them: os._exit runs no thread's finally.
     reach.end_all()
+    routes.end_all()
     if screen:
         screen.out.finish()
     print("just status: interrupted", file=sys.stderr)
@@ -849,5 +891,6 @@ def run(opts) -> int:
             screen.out.finish()
         print(f"just status: the run failed: {one_line(str(error), 2000)}", file=sys.stderr)
         reach.end_all()
+        routes.end_all()
         return 3
     return report["exit"] if report["exit"] in (0, 1, 2) else 3

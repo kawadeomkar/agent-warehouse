@@ -640,7 +640,10 @@ Proxmox GETs (`Proxmox`, eight at a time, each result in the shape a `uri` task 
 and the order of it all - through the Proxmox host, the route settled before the probes, the hop's login by the first
 VM that takes it, each VM's line asked of its ssh before its probe, and the hop's words after them for a VM that did
 not answer (`settle_route`, `hop_login`, `through`, `held_to_route`, `recheck`;
-[§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
+[§4.6](lifecycle.md#46-toolsstatus--read-only-drawn-live)). The login's line, which a pool thread writes into the
+settings, may land after the fleet first does: the fleet is landed again on the main thread once the probes are
+joined. A VM's options that cannot be split into words are its own line, never the run's end, and a Ctrl-C ends every
+ssh of the hop's (`route.end_all`) before the run ends at once. `Display` is the three things the region asks of Ansible's: a lock, `display()`, and the
 run's log in Ansible's own format, so `just logs` reads it as any other; a warning Ansible gives while it reads the
 settings goes through it too, or it would land inside the frame. When the run ends the region is erased and the
 finished report printed once - in colour on the screen, plain in the log - or, under `--json`, the JSON alone on
