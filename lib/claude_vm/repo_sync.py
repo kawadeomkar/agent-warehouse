@@ -308,7 +308,8 @@ def repo_sync_said(plan, vm, project, applied=None, sent=None):
         words = [line for line in str(sent.get("words") or "").splitlines() if line and not line.startswith(" ")]
         said += f" git send-pack failed: {one_line(' '.join(words[-2:]), 200)}"
         said += "" if said.endswith(".") else "."
-    said += _files_said(files, sent)
+    # A new file of the changes that did not arrive as sent is said with the ignored ones that did not.
+    said += _files_said({**files, "missing": list(files.get("missing") or []) + list(tree.get("late") or [])}, sent)
     if applied.get("error"):
         said += f" The sync stopped part way there: {one_line(applied['error'], 200)}."
     included = plan.get("included") or []

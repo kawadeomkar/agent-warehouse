@@ -500,17 +500,22 @@ every VM `just code` opens gets those of its repositories' sessions. `claude_ses
 
 Started from your checkout of a project, `just code <vm> --project <repo>` - or `just deploy <vm> --project <repo>` -
 carries that repository to the VM's checkout of it: every local branch and tag, those never pushed among them, and the
-checkout there switched to the branch you are on here. The two must be one repository by their git origins, whatever
+checkout there switched to the branch you are on here, with your changes not committed - tracked files changed or
+deleted, new files - all of them or none, unstaged there: `git diff HEAD` says the same at both ends. A new file the
+rules below leave stays here, said, and so does a vault you decrypted in place, whose change would carry its secrets;
+the rest go. The two must be one repository by their git origins, whatever
 the folders are called; started in another repository, the run says why it carried nothing. Later runs carry what
 changed, in seconds.
 
 Nothing the VM made is overwritten. A branch moves there only while the VM added nothing to it since the last sync,
 so an amend, a rebase or a reset here follows; a branch with commits of its own there is left, said, and kept for
 NEXT STEPS, as is one that has commits from its upstream this machine has not fetched (pull here, and the next run
-moves it), and one ahead (pulled there) is counted. A branch new to the VM tracks what it tracks here on origin. A
-branch a worktree there has out is never moved under it. The
-checkout there is switched or moved only when it is clean, nobody's claude works in it, and nothing git does not
-track is in the way; otherwise it stays, and the run says why. Nothing is deleted there: a branch deleted here stays.
+moves it), and one ahead (pulled there) is counted. A branch new to the VM tracks what it tracks here on origin. A branch a worktree there has out is never moved under it. The
+checkout there is switched or moved, and given your changes, only when nobody's claude works in it, nothing git does
+not track is in the way - but a file the sync itself carried there as an ignored one, which gives way to the same
+file committed here - no file git ignores there is where one of your new files goes, and nothing in its `git status`
+is anything but what the last sync wrote there; otherwise it stays as it is, and the run says why. A change made there, even to a file the sync wrote, or staged there, is the
+VM's own. A merge or rebase under way here, or changes past `repo_sync_max_size`, keep the tree here too. Nothing is deleted there: a branch deleted here stays.
 A shallow clone there (`github_projects_depth`) refuses a branch that forks behind its shallow point: that one is
 said, with `git fetch --unshallow` there as the way to have it. From the agent-warehouse checkout itself,
 `just code <vm> --project agent-warehouse` is started from a checkout of that project too.

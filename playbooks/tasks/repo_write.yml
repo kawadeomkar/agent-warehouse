@@ -70,15 +70,15 @@
   failed_when: false
   when: code_repo_sync | bool and code_repo_plan.send
 
-# The files git ignores, into a mirror in just code's own directory on the VM,
-# never into the checkout: the apply puts each in place. A list of plain files
-# the reader looked at, on stdin, each as ./<path>, since rsync takes a line
-# that starts with # or ; for a comment. macOS's rsync sends nothing at all of
-# a list with one name gone since, and a connection can drop: a failure is
-# said, and the apply takes a copy only where it is the file the reader saw, by
-# its size and modification time, which -a keeps - never one an earlier run
-# left. rsync's own comparison of sizes and times makes a run where nothing
-# changed send nothing.
+# The files of the changes not committed and the files git ignores, into a
+# mirror in just code's own directory on the VM, never into the checkout: the
+# apply puts each in place. A list of plain files the reader looked at, on
+# stdin, each as ./<path>, since rsync takes a line that starts with # or ; for
+# a comment. macOS's rsync sends nothing at all of a list with one name gone
+# since, and a connection can drop: a failure is said, and the apply takes a
+# copy only where it is the file the reader saw, by its size and modification
+# time, which -a keeps - never one an earlier run left. rsync's own comparison
+# of sizes and times makes a run where nothing changed send nothing.
 - name: repo_write | Send the files to the VM
   ansible.builtin.command:
     argv:
@@ -91,11 +91,11 @@
       - ssh -o BatchMode=yes
       - "{{ code_repo_plan.source }}/"
       - "{{ code_repo_mirror_target }}/"
-    stdin: "{{ code_repo_plan.ignored | map('regex_replace', '^', './') | join('\n') }}"
+    stdin: "{{ code_repo_plan.files | map('regex_replace', '^', './') | join('\n') }}"
   register: code_repo_files_sent
   changed_when: code_repo_files_sent.stdout | default('') | trim | length > 0
   failed_when: false
-  when: code_repo_sync | bool and code_repo_plan.ignored | length > 0
+  when: code_repo_sync | bool and code_repo_plan.files | length > 0
 
 - name: repo_write | Bring the VM's checkout to what was sent
   git_sync_apply:

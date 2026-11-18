@@ -16,10 +16,16 @@ description:
     becomes, and does it, in this order.
   - Every branch the checkout lacks is created at its commit, tracking the branch of origin the other machine's tracks
     (O(upstreams)) where the checkout has a remote origin, as a clone's has. Then the checkout itself, when O(tree)
-    says it may be brought and nothing here stops it - no claude working in it, a clean tree, a HEAD a ref holds, no
-    operation under way, nothing git does not track in the way - is moved on its branch, or switched to the branch
-    there, by C(git merge --ff-only), C(git reset --keep) or C(git switch), never C(update-ref): moved under it, a tree
-    nobody edited would show the move's changes as staged, in reverse. Then every other branch, by
+    says it may be brought and nothing here stops it - no claude working in it, nothing in C(git status) but what
+    the last sync wrote there and still holds its bytes, a HEAD a ref holds, no operation under way, nothing git
+    does not track in the
+    way: the last sync's changes are taken back out (C(git restore --source=HEAD --staged --worktree), and its new
+    files removed), it is moved on its branch, or switched to the branch there, by C(git merge --ff-only),
+    C(git reset --keep) or C(git switch), never C(update-ref) - moved under it, a tree nobody edited would show the
+    move's changes as staged, in reverse - and the other machine's changes not committed are written over it from
+    O(mirror), unstaged: all of them, or none, a link by its target's text, and never over a file the VM's git ignores
+    that is not the sync's - but for a new file whose copy did not arrive as sent, a file still being written there,
+    which is left out and said, the rest going. Then every other branch, by
     C(git branch --force), which refuses one checked out, being rebased or being bisected in any worktree. Then the
     tags the checkout lacks.
   - A branch moves only while the checkout added nothing to it - it is where the last sync left it, which the record
@@ -72,7 +78,9 @@ options:
     type: str
     default: ""
   tree:
-    description: C(bring), whether the other machine's reasons let the tree be brought, and C(why) not.
+    description:
+      - C(bring), whether the other machine's reasons let the tree be brought, and C(why) not; C(modified), C(new) and
+        C(deleted), the paths its changes not committed touch, and C(links), each C(path) and C(target).
     type: dict
     default: {}
   mirror:
@@ -132,7 +140,8 @@ tags:
 tree:
   description:
     - C(brought), whether the checkout was brought to the other machine's, C(why) not and C(reason), a word for it
-      (C(own) where the checkout has changes of its own), and C(head), its HEAD.
+      (C(own) where the checkout has changes of its own), C(head), its HEAD, C(changes), how many changes not
+      committed it holds from there, and C(late), the new files left out as their copies did not arrive as sent.
   returned: always
   type: dict
 files:
@@ -183,6 +192,7 @@ from ansible.module_utils.git_sync import (
 # The git commands this writes with, each by its first words, and nothing else: never push, fetch, rebase, stash,
 # clean, gc or reset --hard. update-ref only under refs/agent-warehouse/, and config only a new branch's upstream.
 WRITES = (
+    ("restore",),
     ("branch", "--force"),
     ("branch",),
     ("switch", "--detach"),
@@ -202,8 +212,8 @@ class Apply:
         self.top = top
         self.changed = False
 
-    def write(self, *args):
-        """One of WRITES, in the checkout: (whether it succeeded, git's last words)."""
+    def write(self, *args, data=None):
+        """One of WRITES, in the checkout, ``data`` on its stdin: (whether it succeeded, git's last words)."""
         if not any(tuple(args[: len(verb)]) == verb for verb in WRITES):
             self.module.fail_json(msg=f"git {args[0]} is not one of the writes a sync makes.")
         if args[0] == "update-ref" and not any(str(arg).startswith("refs/agent-warehouse/") for arg in args[1:3]):
@@ -214,6 +224,8 @@ class Apply:
             ["git", "--no-optional-locks", "-C", self.top, *args],
             environ_update={"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"},
             expand_user_and_vars=False,
+            data=data,
+            binary_data=data is not None,
         )
         if rc == 0:
             self.changed = True
@@ -501,44 +513,126 @@ def _manifest(path, content):
     return True
 
 
+def _status(module, top):
+    """The checkout's git status, file by file: [(XY, path)], or None when git cannot say."""
+    rc, out = git(
+        module,
+        top,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+        "--no-renames",
+    )
+    if rc != 0:
+        return None
+    return [(item[:2].decode(), item[3:].decode("utf-8", "replace")) for item in names(out) if len(item) > 3]
+
+
+def _current(top, path):
+    """What is at ``path`` in the checkout, as the manifest says it: a file's digest, "deleted", "link:<target>", or
+    None for anything else, or for a path a link on the way reaches."""
+    if not _within(top, path):
+        return None
+    full = os.path.join(top, path)
+    try:
+        mode = os.lstat(full).st_mode
+    except FileNotFoundError:
+        return "deleted"
+    if stat.S_ISLNK(mode):
+        return "link:" + os.readlink(full)
+    return _digest(full) if stat.S_ISREG(mode) else None
+
+
+def _desired(params):
+    """What the tree's changes make each path hold, as the manifest says it: None for one whose file did not arrive in
+    the mirror as sent, or whose path is no plain one."""
+    tree = params["tree"] or {}
+    wanted = {}
+    # Deleted first: a path in both lists is a file here, taken out of the index and kept.
+    for path in tree.get("deleted") or []:
+        wanted[str(path)] = "deleted" if plain_path(str(path)) else None
+    for path in list(tree.get("modified") or []) + list(tree.get("new") or []):
+        wanted[str(path)] = _arrived(params, str(path))
+    for link in tree.get("links") or []:
+        path, target = str(link.get("path") or ""), str(link.get("target") or "")
+        clean = target and not any(ord(char) < 32 or ord(char) == 127 for char in target)
+        wanted[path] = f"link:{target}" if plain_path(path) and clean else None
+    return wanted
+
+
+def _put(apply, path, value):
+    """Make ``path`` in the checkout hold ``value``: the mirror's file, nothing, or a link with its target."""
+    top, full = apply.top, os.path.join(apply.top, path)
+    if value.startswith("link:") or value == "deleted":
+        if os.path.lexists(full) and not os.path.isdir(full):
+            os.unlink(full)
+        if value.startswith("link:"):
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            os.symlink(value[len("link:") :], full)
+    else:
+        _copy(os.path.join(apply.module.params["mirror"], path), top, path)
+    apply.changed = True
+
+
 def _stays(said, reason, why):
     """The checkout left as it is: ``reason``, a word the report decides by, and ``why``, the words it says."""
     said.update(reason=reason, why=why)
 
 
+def _some(paths):
+    paths = sorted(paths)
+    return ", ".join(paths[:5]) + (f" and {len(paths) - 5} more" if len(paths) > 5 else "")
+
+
 def tree_step(apply, params, heads, records, arrived, result, state):
-    """The checkout itself: moved on its branch, or switched to the one there, when nothing stops it. ``state`` is
-    the manifest as read: the files the sync carried there as ignored ones."""
+    """The checkout itself: the last sync's changes taken back out, then moved on its branch or switched to the one
+    there, then the changes here written over it - all of it, or none, and only while nothing of the VM's own is in it.
+    Returns the branch brought ("" for none) and what of the tree is the sync's now, for the manifest, whose
+    ``state`` it writes before any file."""
     module, top = apply.module, apply.top
+    owned = previous = dict(state.get("tree") or {})
     copies = state.get("ignored") or {}
     head, tree = params["head"] or {}, params["tree"] or {}
     want_branch, want = str(head.get("branch") or ""), str(head.get("commit") or "")
-    now = read(module, top, True, "", claude_processes())
     said = result["tree"]
     if not tree.get("bring"):
         _stays(said, "here", str(tree.get("why") or ""))
-        return ""
+        return "", owned
+    now = read(module, top, True, "", claude_processes())
     if now["busy"]:
         _stays(said, "busy", f"claude is running in it (pid {', '.join(map(str, now['busy']))})")
-        return ""
-    if not now["clean"]:
+        return "", owned
+    status = _status(module, top)
+    if status is None:
+        _stays(said, "git", "git could not read its status")
+        return "", owned
+
+    def ours(code, path):
+        current = _current(top, path) if code[0] in " ?" else None
+        return current is not None and current in _ours(owned, path)
+
+    # Every path git status shows there must be one the last sync wrote, still holding those bytes: a change staged
+    # there, or any other, is the VM's own.
+    if any(not ours(code, path) for code, path in status):
         _stays(said, "own", "it has changes of its own")
-        return ""
+        return "", owned
     # A HEAD no branch, remote-tracking branch or tag holds is the VM's own, but for one the sync brought it to.
     detached_here = not now["head_branch"] and now["head"] and now["head"] == apply.commit_of(RECORD_DETACHED)
     if not now["head_kept"] and not detached_here:
         _stays(said, "detached", f"its HEAD is detached at {now['head'][:12]}, which no ref holds")
-        return ""
+        return "", owned
     under_way = operation(module, top)
     if under_way:
         _stays(said, "operation", f"a {under_way} is under way there")
-        return ""
+        return "", owned
     if want_branch and not arrived.get(want_branch):
         _stays(said, "missing", f"{want_branch}'s commit did not arrive")
-        return ""
+        return "", owned
     if not want_branch and not (COMMIT.fullmatch(want) and apply.commit_of(f"{SENT}HEAD") == want):
         _stays(said, "missing", "the commit checked out here did not arrive")
-        return ""
+        return "", owned
     row = apply.row(heads.get(want_branch, ""), records.get(want_branch, ""), want) if want_branch else ""
     if row in ("ahead", "own"):
         if row == "own" and apply.upstream_holds(want_branch, heads.get(want_branch, "")):
@@ -547,55 +641,146 @@ def tree_step(apply, params, heads, records, arrived, result, state):
             _stays(said, "commits", f"{want_branch} there has commits of its own")
         else:
             _stays(said, "ahead", f"{want_branch} there is ahead")
-        return ""
-    on_it = bool(want_branch) and now["head_branch"] == want_branch
-    if (on_it and row == "same") or (not want_branch and not now["head_branch"] and now["head"] == want):
-        said.update(brought=True, head=want)
-        _hold_detached(apply, want_branch, want)
-        return want_branch
-    in_the_way = overwrites(module, top, want)
-    # A copy the sync carried as a file git ignores, which the commit now tracks: the sync's, and the commit brings
-    # the file in its place.
-    theirs = [
+        return "", owned
+    desired = _desired(params)
+    # A new file whose copy did not arrive as sent - written all the time here, a database a server holds - is left
+    # out and said, as the reader leaves one by its name: the rest goes. A change to a file git tracks stops the tree.
+    late = sorted(
         path
-        for path in in_the_way or []
-        if _within(top, path) and _digest(os.path.join(top, path)) in _ours(copies, path)
-    ]
-    if theirs:
-        try:
-            for path in theirs:
-                os.unlink(os.path.join(top, path))
-                apply.changed = True
-        except OSError as error:
-            _stays(said, "write", f"the sync's own copy of a file could not be taken away: {error.strerror}")
-            return ""
-        in_the_way = overwrites(module, top, want)
-    if in_the_way is None or in_the_way:
+        for path in {str(path) for path in tree.get("new") or []}
+        if desired.get(path) is None and plain_path(path) and path not in (tree.get("deleted") or [])
+    )
+    for path in late:
+        del desired[path]
+    said["late"] = late
+    if None in desired.values():
+        unsent = [path for path, value in desired.items() if value is None]
         _stays(
             said,
-            "in_the_way",
-            f"moving it would overwrite what git does not track there: {', '.join(in_the_way[:5])}"
-            if in_the_way
-            else "git could not compare it with the commit",
+            "arrived",
+            f"a file of its changes did not arrive as sent, or has no plain path there: {_some(unsent)}",
         )
-        return ""
-    if not want_branch:
-        done, words = apply.write("switch", "--quiet", "--detach", want)
-    elif on_it:
-        verb = ("reset", "--keep") if row == "move" else ("merge", "--ff-only")
-        done, words = apply.write(*verb, "--quiet", want)
-    else:
-        done, words = True, ""
-        if row in ("move", "forward"):
-            done, words = apply.write("branch", "--force", want_branch, want)
-        if done:
-            done, words = apply.write("switch", "--quiet", want_branch)
-    if not done:
-        _stays(said, "git", f"git said: {words}" if words else "git could not move it")
-        return ""
-    _hold_detached(apply, want_branch, want)
-    said.update(brought=True, head=want)
-    return want_branch
+        return "", owned
+    if not all(_within(top, path) for path in desired):
+        _stays(said, "link", "a path of its changes is reached through a link there")
+        return "", owned
+    shown = {path for _, path in status}
+    tracked = _tracked(module, top)
+    # What git status cannot show: a file the VM's git ignores, at a path of the changes. Only what is about to be
+    # written there, or what a sync wrote, is no file of the VM's own.
+    hidden = [
+        path
+        for path, value in desired.items()
+        if path not in shown
+        and path not in tracked
+        and os.path.lexists(os.path.join(top, path))
+        and _current(top, path) not in {value} | _ours(owned, path) | _ours(copies, path)
+    ]
+    if hidden:
+        _stays(said, "ignored", f"a file git ignores there is where its changes go: {_some(hidden)}")
+        return "", owned
+    on_it = bool(want_branch) and now["head_branch"] == want_branch
+    at_head = (on_it and row == "same") or (not want_branch and not now["head_branch"] and now["head"] == want)
+    if at_head and shown <= set(desired) and all(_current(top, path) == value for path, value in desired.items()):
+        said.update(brought=True, head=want, changes=len(desired))
+        _hold_detached(apply, want_branch, want)
+        return want_branch, {path: {"now": value} for path, value in desired.items()}
+    # The last sync's changes, taken back out: every path git status shows is one, as checked above, none of them
+    # staged. The index too, whose entry still has the stat of the file the clone wrote: without it, reset --keep and
+    # switch call the file "not uptodate" (git 2.43 and 2.56 alike) and refuse. And a new file of the last sync's the
+    # VM's git ignores, which git status does not show.
+    restore = [path for code, path in status if code != "??"]
+    unseen = [
+        path
+        for path in owned
+        if path not in shown
+        and path not in tracked
+        and path not in desired
+        and _current(top, path) not in (None, "deleted")
+        and _current(top, path) in _ours(owned, path)
+    ]
+    try:
+        for path in [path for code, path in status if code == "??"] + unseen:
+            os.unlink(os.path.join(top, path))
+            apply.changed = True
+    except OSError as error:
+        _stays(said, "write", f"the last sync's changes could not be taken back out: {error.strerror}")
+        return "", owned
+    if restore:
+        done, words = apply.write(
+            "restore", "--source=HEAD", "--staged", "--worktree", "--pathspec-from-file=-", "--pathspec-file-nul",
+            data="\0".join(restore),
+        )  # fmt: skip
+        if not done:
+            _stays(
+                said, "git", f"git said: {words}" if words else "git could not take the last sync's changes back out"
+            )
+            return "", {path: entry for path, entry in owned.items() if path in restore}
+    owned = {}
+    if not at_head:
+        in_the_way = overwrites(module, top, want)
+        # A copy the sync carried as a file git ignores, which the commit now tracks: the sync's, and the commit brings
+        # the file in its place.
+        theirs = [
+            path
+            for path in in_the_way or []
+            if _within(top, path) and _digest(os.path.join(top, path)) in _ours(copies, path)
+        ]
+        if theirs:
+            try:
+                for path in theirs:
+                    os.unlink(os.path.join(top, path))
+                    apply.changed = True
+            except OSError as error:
+                _stays(said, "write", f"the sync's own copy of a file could not be taken away: {error.strerror}")
+                return "", owned
+            in_the_way = overwrites(module, top, want)
+        if in_the_way is None or in_the_way:
+            _stays(
+                said,
+                "in_the_way",
+                f"moving it would overwrite what git does not track there: {_some(in_the_way)}"
+                if in_the_way
+                else "git could not compare it with the commit",
+            )
+            return "", owned
+        if not want_branch:
+            done, words = apply.write("switch", "--quiet", "--detach", want)
+        elif on_it:
+            verb = ("reset", "--keep") if row == "move" else ("merge", "--ff-only")
+            done, words = apply.write(*verb, "--quiet", want)
+        else:
+            done, words = True, ""
+            if row in ("move", "forward"):
+                done, words = apply.write("branch", "--force", want_branch, want)
+            if done:
+                done, words = apply.write("switch", "--quiet", want_branch)
+        if not done:
+            _stays(said, "git", f"git said: {words}" if words else "git could not move it")
+            return "", owned
+        _hold_detached(apply, want_branch, want)
+    # This machine's changes over it, the manifest written first with what each path held by the last sync and is
+    # about to hold, so that after a run that stopped part way a file matching either is still the sync's.
+    for path in desired:
+        if not _within(top, path) or (os.path.lexists(os.path.join(top, path)) and _current(top, path) is None):
+            _stays(
+                said, "link", f"its changes were not written: {path} there is reached through a link, or is a folder"
+            )
+            return want_branch, owned
+    before = {
+        path: {"now": value, "was": (previous.get(path) or {}).get("now", value)} for path, value in desired.items()
+    }
+    state["tree"] = before
+    apply.changed |= _manifest(params["manifest"], state)
+    try:
+        for path, value in sorted(desired.items()):
+            if _current(top, path) != value:
+                _put(apply, path, value)
+    except OSError as error:
+        _stays(said, "write", f"its changes were written in part: {path} could not be, {error.strerror}")
+        return want_branch, before
+    said.update(brought=True, head=want, changes=len(desired))
+    return want_branch, {path: {"now": value} for path, value in desired.items()}
 
 
 def _hold_detached(apply, branch, commit):
@@ -644,7 +829,7 @@ def main():
     result = {
         "branches": {key: [] for key in ("created", "moved", "same", "ahead", "own", "upstream", "in_use", "missing")},
         "tags": {"created": [], "differ": []},
-        "tree": {"brought": False, "why": "", "reason": "", "head": ""},
+        "tree": {"brought": False, "why": "", "reason": "", "head": "", "changes": 0, "late": []},
         "files": {key: [] for key in ("written", "unchanged", "left", "missing", "removed", "failed")},
         "excluded": [],
         "error": "",
@@ -666,9 +851,10 @@ def apply_all(apply, params, branches, tags, result):
     sent = refs(module, top, f"{SENT}heads/")
     said = result["branches"]
     arrived = {name: sent.get(name) == commit and apply.has(commit) for name, commit in branches.items()}
-    # What the sync last carried here as ignored files: read once, written as that part goes.
+    # What the sync last wrote here, the tree's changes and the ignored files: read once, written as each part goes.
     found = _read_manifest(params["manifest"])
-    state = {"format": MANIFEST_FORMAT, **{key: found[key] for key in ("ignored",) if isinstance(found.get(key), dict)}}
+    state = {"format": MANIFEST_FORMAT}
+    state.update({key: found[key] for key in ("tree", "ignored") if isinstance(found.get(key), dict)})
     upstreams = {
         str(name): str(branch)
         for name, branch in (params["upstreams"] or {}).items()
@@ -693,7 +879,9 @@ def apply_all(apply, params, branches, tags, result):
     # checkout was on until now is free to move in the same run.
     if session:
         _stays(result["tree"], "session", "--session moves it")
-    brought = tree_step(apply, params, heads, records, arrived, result, state) if not session else ""
+    brought, state["tree"] = (
+        tree_step(apply, params, heads, records, arrived, result, state) if not session else ("", state.get("tree", {}))
+    )
     if brought:
         apply.record(brought, branches[brought], records)
         if brought not in said["created"]:
@@ -750,6 +938,7 @@ def apply_all(apply, params, branches, tags, result):
         "format": MANIFEST_FORMAT,
         "source": params["source"],
         "head": text(module, top, "rev-parse", "--verify", "--quiet", "HEAD") or "",
+        "tree": state.get("tree") or {},
         "ignored": entries,
     }
     result["tree"]["head"] = content["head"]
