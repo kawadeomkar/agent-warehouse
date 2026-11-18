@@ -363,7 +363,8 @@ pytest over `tests/unit/`, file by file:
   `CLAUDE.md` and `rules/`, and `CLAUDE.md` never where the role writes it; the plugins enabled for the user here,
   from Claude Code's own files, against a stand-in `claude` that lists the VM's, and the window's install by a
   stand-in that records its calls, never with `-y`; the prompt history of the sessions copied, within its
-  bound, appended once by session and time, never through a link.
+  bound, appended once by session and time, never through a link; the extensions but the account's synced skills,
+  whole or not at all, and the writer's refusal of `skills/synced/`.
 - **The session handoff** (`test_session_handoff.py`): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their

@@ -254,9 +254,12 @@
     code_config_history_projects: >-
       {{ dict(code_session_plan.sessions | default([]) | map(attribute='id')
               | zip(code_session_plan.sessions | default([]) | map(attribute='checkout'))) }}
+    # The user-level skills, subagents, commands, output styles, workflows, themes and keybindings
+    # (claude_extensions_sync), but the account's synced skills.
+    code_config_extensions: "{{ claude_extensions_sync | default(true) | bool }}"
     code_config_on: >-
       {{ code_config_memory | bool or code_config_instructions | bool or code_config_settings | bool
-         or code_config_plugins | bool or code_config_history | bool }}
+         or code_config_plugins | bool or code_config_history | bool or code_config_extensions | bool }}
     code_config_dir: "{{ code_ws_dir }}/claude-config"
     code_config_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
@@ -506,9 +509,30 @@
           if code_config_history | bool and code_config_result.history | default(0) > 0 else '')
          ~ (' Prompts past the 8 MB one copy takes stayed here.'
             if code_config_history | bool and code_config_here.history_over | default(false) else '') }}
+    code_config_extensions_written: >-
+      {{ code_config_result.written | default([])
+         | select('match', '^((skills|agents|commands|output-styles|workflows|themes)/|keybindings\.json\Z)')
+         | list }}
+    code_config_extensions_left: >-
+      {{ code_config_result.left | default([])
+         | select('match', '^((skills|agents|commands|output-styles|workflows|themes)/|keybindings\.json\Z)')
+         | list }}
+    code_config_extensions_said: >-
+      {{ '' if not (code_config_extensions | bool) or code_config_plan is not defined
+         else (("Your skills, agents and commands: " ~ code_config_plan.extensions.files | length ~ ' '
+                ~ ('file' if code_config_plan.extensions.files | length == 1 else 'files') ~ ' on ' ~ claude_vm_names[0]
+                ~ ' (' ~ code_config_extensions_written | length ~ ' written now).'
+                if code_config_plan.extensions.files | length > 0 else '')
+               ~ (' Left as ' ~ claude_vm_names[0] ~ ' changed them: ' ~ code_config_extensions_left | join(', ') ~ '.'
+                  if code_config_extensions_left | length > 0 else '')
+               ~ (' Your skills, agents and commands stayed here: past the 2000 files or 64 MB one copy takes.'
+                  if code_config_plan.extensions.over else '')
+               ~ (' claude_extensions_sync: false keeps them here.'
+                  if code_config_plan.extensions.files | length > 0 else ''))
+           | trim | plain_text }}
     code_config_said: >-
       {{ ([code_config_memory_said, code_config_instructions_said, code_config_settings_said,
-           code_config_plugins_said, code_config_history_said]
+           code_config_plugins_said, code_config_extensions_said, code_config_history_said]
           | select | join(' ') ~ code_config_failed_said) | trim }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-

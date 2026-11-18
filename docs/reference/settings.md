@@ -346,6 +346,12 @@ Add the prompts typed in the sessions copied to the VM's prompt history, for the
 |---|---|---|
 | `claude_history_sync` | `true` |  |
 
+Copy your user-level skills, subagents, commands, output styles, workflows, themes and keybindings (~/.claude/skills/ and the like) to the VM's, but the skills your account syncs, which the VM downloads at its own sign-in. A file changed on the VM is never overwritten.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_extensions_sync` | `true` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |

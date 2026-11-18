@@ -1167,6 +1167,10 @@ Claude Code's own Agent SDK documents. The rules:
   checkout as the `relocated` entry sets a copy's, appended in time order where the VM's file lacks a line of that
   session and time - one write of whole lines with `O_APPEND`, so a `claude` appending there at the same time
   interleaves whole lines. `history.jsonl` is not swept, and a pasted prompt is the copied transcript's own text.
+- **Skills, agents and commands beside them** (`claude_extensions_sync`): every plain file of `skills/` but the
+  account's `skills/synced/`, `agents/`, `commands/`, `output-styles/`, `workflows/`, `themes/` and
+  `keybindings.json`, by the same writer and rule, carried whole or not at all past 2000 files or 64 MB. The writer
+  refuses `skills/synced/` under its scope whatever it is handed.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

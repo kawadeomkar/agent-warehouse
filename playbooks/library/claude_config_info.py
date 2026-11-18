@@ -36,6 +36,13 @@ options:
       - The settings of C(settings.json) to return the values of, C(keys) at its top level and C(parts), a key to
         its parts read one by one. Of every other setting only its name is returned. Run under no_log.
     type: dict
+  extensions:
+    description:
+      - Return the files of the user-level extensions - C(skills/) but the account's C(skills/synced/), C(agents/),
+        C(commands/), C(output-styles/), C(workflows/), C(themes/) and C(keybindings.json) - by path, size and
+        digest; all of them left out, and C(extensions_over), past 2000 files or 64 MB.
+    type: bool
+    default: false
   history:
     description:
       - Return the lines of C(history.jsonl) of these sessions, each as the object it holds, at most 8 MB of them:
@@ -106,6 +113,15 @@ settings:
       read part by part that were not asked for; and C(unreadable) where the file is not a JSON object. {} without.
   returned: always
   type: dict
+extensions:
+  description: With O(extensions), each file of the user-level extensions; [] without, or past the bound.
+  returned: always
+  type: list
+  elements: dict
+extensions_over:
+  description: Whether the user-level extensions were left out whole, past 2000 files or 64 MB.
+  returned: always
+  type: bool
 history:
   description: With O(history), the lines of those sessions, oldest first; [] without.
   returned: always
@@ -258,6 +274,32 @@ def settings_from(data, asked):
     }
 
 
+# The user-level extensions' folders, and the most of them a copy takes: carried whole or not at all.
+EXTENSIONS = ("skills", "agents", "commands", "output-styles", "workflows", "themes")
+EXTENSION_FILES = 2000
+EXTENSION_BYTES = 64 * 1024 * 1024
+
+
+def extensions(path):
+    """([the files of the user-level extensions], whether they are past the bound and left out whole)."""
+    found = []
+    for name in EXTENSIONS:
+        folder = os.path.join(path, name)
+        if not os.path.isdir(folder) or os.path.islink(folder):
+            continue
+        for item in plain_files(folder):
+            # The account's skills, which Claude Code downloads at each sign-in, there as here.
+            if name == "skills" and item["path"].split("/")[0] == "synced":
+                continue
+            found.append(dict(item, path=f"{name}/{item['path']}"))
+    keys = os.path.join(path, "keybindings.json")
+    if os.path.isfile(keys) and not os.path.islink(keys):
+        found.append({"path": "keybindings.json", "size": os.lstat(keys).st_size, "digest": file_digest(keys)})
+    if len(found) > EXTENSION_FILES or sum(item["size"] for item in found) > EXTENSION_BYTES:
+        return [], True
+    return found, False
+
+
 # The most one copy takes of the prompt history, in bytes of its lines.
 HISTORY_BYTES = 8 * 1024 * 1024
 
@@ -354,6 +396,7 @@ def main():
             "memory": {"type": "bool", "default": False},
             "instructions": {"type": "bool", "default": False},
             "settings": {"type": "dict"},
+            "extensions": {"type": "bool", "default": False},
             "history": {"type": "list", "elements": "str", "default": []},
             "plugins": {"type": "bool", "default": False},
             "plugins_there": {"type": "bool", "default": False},
@@ -366,6 +409,7 @@ def main():
     memory, over = memory_folders(params["path"]) if params["memory"] else ({}, [])
     found, imports = instructions(params["path"]) if params["instructions"] else ([], [])
     lines, over_history = history(params["path"], params["history"])
+    extended, over_extensions = extensions(params["path"]) if params["extensions"] else ([], False)
     module.exit_json(
         changed=False,
         memory=memory,
@@ -375,6 +419,8 @@ def main():
         settings=settings(params["path"], params["settings"]) if params["settings"] else {},
         history=lines,
         history_over=over_history,
+        extensions=extended,
+        extensions_over=over_extensions,
         plugins=(
             plugins_there(params["claude"])
             if params["plugins_there"]

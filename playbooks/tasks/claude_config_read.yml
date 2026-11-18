@@ -39,6 +39,7 @@
     instructions: "{{ code_config_instructions | bool }}"
     settings: "{{ code_config_extra | claude_settings_asked if code_config_settings | bool else omit }}"
     plugins: "{{ code_config_plugins | bool }}"
+    extensions: "{{ code_config_extensions | bool }}"
     history: "{{ code_config_history_ids if code_config_history | bool else [] }}"
     repo_paths: true
   register: code_config_here
@@ -91,6 +92,7 @@
                                'plugins': code_config_plugins | bool,
                                'plugins_there': code_config_there.plugins | default({}),
                                'history': code_config_history | bool,
+                               'extensions': code_config_extensions | bool,
                                'history_projects': code_config_history_projects}) }}
   no_log: true
   when: code_config_on | bool

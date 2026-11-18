@@ -656,6 +656,7 @@ CARRY_OFF = {
     "claude_instructions_sync": False,
     "claude_settings_sync": False,
     "claude_plugins_sync": False,
+    "claude_extensions_sync": False,
 }
 NOTES_ONLY = {
     "keep": [WS_CHECK],
@@ -3121,6 +3122,11 @@ esac
     (here / ".claude" / "plugins" / "known_marketplaces.json").write_text(
         json.dumps({"octo-plugins": {"source": {"source": "github", "repo": "octo/plugins"}}})
     )
+    # A subagent of the user's own, and a skill the account syncs, which stays.
+    (here / ".claude" / "agents").mkdir()
+    (here / ".claude" / "agents" / "reviewer.md").write_text("Review it.\n")
+    (here / ".claude" / "skills" / "synced" / "x").mkdir(parents=True)
+    (here / ".claude" / "skills" / "synced" / "x" / "SKILL.md").write_text("synced\n")
     # The global instructions, and settings with what never leaves this machine among them.
     (here / ".claude" / "CLAUDE.md").write_text("Be brief.\n")
     (here / ".claude" / "settings.json").write_text(
@@ -3437,9 +3443,13 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
         " keeps them here. Settings: 2 on alpha (model, permissions.allow written now). Left here: hooks (they run a"
         " program; claude_settings_sync_keys carries them); enabledPlugins, env, permissions.additionalDirectories"
         " (never carried). claude_settings_sync: false keeps them here. Plugins installed on alpha: lsp@octo-plugins."
-        " claude_plugins_sync: false keeps them here. 2 of their prompts added to alpha's history, for the up arrow"
+        " claude_plugins_sync: false keeps them here. Your skills, agents and commands: 1 file on alpha (1 written"
+        " now). claude_extensions_sync: false keeps them here. 2 of their prompts added to alpha's history, for the up"
+        " arrow"
         " there (claude_history_sync: false keeps them here)."
     )
+    assert (world["vm"] / ".claude" / "agents" / "reviewer.md").read_text() == "Review it.\n"
+    assert not (world["vm"] / ".claude" / "skills").exists()
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
     assert run["shown"] == [str(world["vm"] / "projects"), ""]
@@ -3473,7 +3483,7 @@ def test_the_global_instructions_and_the_portable_settings_go_and_nothing_else_o
     }
     assert stat.S_IMODE((claude / "settings.json").stat().st_mode) == 0o600
     second = handoffs["sync"]["second"]["opened"]
-    assert "Settings: 2 on alpha. " in second and "written now)" not in second.split("Settings:")[1]
+    assert "Settings: 2 on alpha. " in second and "permissions.allow written now" not in second
 
 
 def test_this_machine_s_plugins_are_installed_by_the_vm_s_own_claude_code(handoffs):

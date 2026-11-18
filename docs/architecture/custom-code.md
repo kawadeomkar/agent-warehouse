@@ -562,11 +562,13 @@ part by its own name, and the parts not asked for by name; with `plugins`, the u
 each marketplace's GitHub repository, from Claude Code's files. Run here, under `no_log` - and on the VM with
 `plugins_there`, where it asks the first of `claude`'s paths there is, `claude plugin list --json` and `claude plugin
 marketplace list --json`, for the user-scope plugins and the marketplaces it has. With `history`, the lines of
-`history.jsonl` of those sessions, at most 8 MB of them (`history_over`).
+`history.jsonl` of those sessions, at most 8 MB of them (`history_over`); with `extensions`, the files of the
+user-level extensions but `skills/synced/`, none past 2000 files or 64 MB (`extensions_over`).
 
 **`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
 from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
-run's `scopes`, each of a form the module knows (a project's `memory/` folder, `CLAUDE.md`, `rules/`), by the copy's
+run's `scopes`, each of a form the module knows (a project's `memory/` folder, `CLAUDE.md`, `rules/`, the
+extensions' folders and `keybindings.json`, never `skills/synced/`), by the copy's
 rule under a manifest of
 its own (`claude-config/manifest.json`): written where there is none or where it is still what the last run wrote,
 left where it differs, and once it is no longer asked for under a scope of this run, removed while it is still as

@@ -783,3 +783,54 @@ def test_the_writer_appends_each_line_once_and_never_through_a_link(tmp_path):
     (dest / "history.jsonl").unlink()
     (dest / "history.jsonl").symlink_to(tmp_path / "elsewhere")
     assert writer.carry_history(str(dest), lines, False) == 0 and not (tmp_path / "elsewhere").exists()
+
+
+# ------------------------------------------------------------------------------------ the extensions ---
+def test_the_extensions_are_listed_but_the_account_s_synced_skills_and_never_through_a_link(tmp_path):
+    root = tmp_path / ".claude"
+    _memory(
+        root,
+        {
+            "skills/review/SKILL.md": b"a",
+            "skills/review/scripts/run.sh": b"b",
+            "skills/synced/x/guide/SKILL.md": b"c",
+            "skills/.trash/old/SKILL.md": b"d",
+            "agents/reviewer.md": b"e",
+            "commands/ship.md": b"f",
+            "keybindings.json": b"{}",
+            "projects/-Users-me-demo/memory/MEMORY.md": b"g",
+        },
+    )
+    (root / "agents" / "linked.md").symlink_to(tmp_path)
+    found, over = reader.extensions(str(root))
+    assert [item["path"] for item in found] == [
+        "skills/review/SKILL.md",
+        "skills/review/scripts/run.sh",
+        "agents/reviewer.md",
+        "commands/ship.md",
+        "keybindings.json",
+    ]
+    assert not over
+    plan = core.claude_config_plan({"extensions": found}, [], THERE, HERE, DEST, {"extensions": True})
+    assert [item["target"] for item in plan["files"]] == [item["path"] for item in found]
+    assert "skills/" in plan["scopes"] and "keybindings.json" in plan["scopes"]
+
+
+def test_extensions_past_their_bound_are_left_whole(tmp_path, monkeypatch):
+    root = tmp_path / ".claude"
+    _memory(root, {"agents/a.md": b"a", "agents/b.md": b"b"})
+    monkeypatch.setattr(reader, "EXTENSION_FILES", 1)
+    assert reader.extensions(str(root)) == ([], True)
+
+
+def test_extensions_past_their_bound_manage_no_scope_so_nothing_carried_before_is_removed():
+    here = {"extensions": [], "extensions_over": True}
+    plan = core.claude_config_plan(here, [], THERE, HERE, DEST, {"extensions": True})
+    assert plan["scopes"] == [] and plan["extensions"]["over"]
+
+
+def test_the_writer_never_writes_the_account_s_synced_skills(tmp_path):
+    mirror, dest, manifest = _world(tmp_path, {"skills/synced/x/SKILL.md": b"x", "agents/a.md": b"a"})
+    items = [{"source": path, "target": path} for path in ("skills/synced/x/SKILL.md", "agents/a.md")]
+    result, _ = writer.carry(str(dest), str(mirror), str(manifest), ["skills/", "agents/"], items)
+    assert result["written"] == ["agents/a.md"] and not (dest / "skills").exists()

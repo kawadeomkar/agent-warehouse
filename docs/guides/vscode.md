@@ -439,6 +439,14 @@ Ctrl+R there find them, under the VM checkout's folder: each line once, by its s
 `just code` runs. They ride with the sessions, so none go while `claude_sessions_sync` is off, and at most 8 MB of them
 go in one copy.
 
+### Skills, agents and commands
+
+Your own skills (`~/.claude/skills/`), subagents (`agents/`), commands (`commands/`), output styles, workflows, themes
+and `keybindings.json` go to the VM's `~/.claude` (`claude_extensions_sync`), by the same rule as a note: a file changed
+there stays. Not the skills your account syncs (`skills/synced/`), which Claude Code downloads at the VM's own
+sign-in. A skill's scripts run on the VM only where the skill runs them. Past 2000 files or 64 MB they stay here whole,
+and the run says so.
+
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of

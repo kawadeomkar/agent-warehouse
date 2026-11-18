@@ -580,7 +580,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       key over the claude.ai login - whatever `claude_settings_sync_keys` says, which is refused first; and the
       user-scope plugins enabled here (`claude_plugins_sync`), installed by the VM's own `claude` at the installers'
       paths, never with `-y` or `--accept-command`, never uninstalling anything; and with the sessions, their
-      prompt history (`claude_history_sync`), each line once. One
+      prompt history (`claude_history_sync`), each line once; and the user-level skills, subagents, commands,
+      styles, workflows, themes and keybindings (`claude_extensions_sync`), never the account's `skills/synced/`.
+      One
       writer, `claude_config_carry`, writes it all under `~/.claude` on the VM, only under scopes of a form it
       knows, never through a link, by the copy's rule under a manifest of its own in `claude-config/`: written
       where there is none or still as written, left where the VM changed it, removed once gone here while still

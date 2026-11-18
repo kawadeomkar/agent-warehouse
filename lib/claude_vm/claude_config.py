@@ -79,6 +79,13 @@ _KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
 _PLUGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}@[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 # A marketplace's GitHub repository, as `claude plugin marketplace add` takes one: owner/name.
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
+# The user-level extensions, each a folder or file at the top of ~/.claude: skills (but the account's synced ones),
+# subagents, commands, output styles, workflows, themes and keybindings.
+EXTENSIONS = ("skills/", "agents/", "commands/", "output-styles/", "workflows/", "themes/", "keybindings.json")
+_EXTENSION = re.compile(
+    r"(?:(?:skills|agents|commands|output-styles|workflows|themes)"
+    r"(?:/[^./\x00-\x1f\x7f][^/\x00-\x1f\x7f]{0,254}){1,5}|keybindings\.json)"
+)
 # The global instructions, and the folder of rules beside them.
 INSTRUCTIONS = "CLAUDE.md"
 RULES = "rules/"
@@ -341,7 +348,8 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
     (claude_instructions_sync), with ``instructions_owned`` where claude_code_global_instructions makes CLAUDE.md the
     role's; ``settings`` (claude_settings_sync), with ``managed`` and ``extra`` as claude_settings_plan takes them;
     ``plugins`` (claude_plugins_sync), with ``plugins_there``, the VM's reading, as claude_plugins_plan takes it;
-    ``history`` (claude_history_sync), with ``history_projects``, the copied sessions' checkouts on the VM.
+    ``history`` (claude_history_sync), with ``history_projects``, the copied sessions' checkouts on the VM;
+    ``extensions`` (claude_extensions_sync).
     Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes`` and ``settings`` - and each
     part's own record, for what the run says: ``memory``, its folders and ``ambiguous``; ``instructions``, the files
     and the imports CLAUDE.md names; ``settings``' ``left``.
@@ -358,6 +366,7 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         "settings": {"values": {}, "items": [], "left": {}, "unreadable": False},
         "plugins": {"install": [], "marketplaces": [], "left": [], "unread": False},
         "history": [],
+        "extensions": {"files": [], "over": False},
     }
     if options.get("memory"):
         memory = claude_memory_plan(
@@ -388,6 +397,15 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         plan["plugins"] = claude_plugins_plan(here.get("plugins"), options.get("plugins_there"))
     if options.get("history"):
         plan["history"] = claude_history_plan(here.get("history"), options.get("history_projects"))
+    if options.get("extensions"):
+        paths = [str(item.get("path", "")) for item in here.get("extensions") or []]
+        # The account's synced skills are downloaded at the VM's own sign-in: never this machine's to carry.
+        files = [path for path in paths if _EXTENSION.fullmatch(path) and not path.startswith("skills/synced/")]
+        plan["files"] += [{"source": path, "target": path} for path in files]
+        # Past the bound the reader lists none: no scope then, or what an earlier run carried would read as gone here.
+        if not here.get("extensions_over"):
+            plan["scopes"] += list(EXTENSIONS)
+        plan["extensions"] = {"files": files, "over": bool(here.get("extensions_over"))}
     return plan
 
 

@@ -178,7 +178,12 @@ SCOPES = (
     # The global instructions, a file of its own, and the folder of rules beside them.
     re.compile(r"CLAUDE\.md"),
     re.compile(r"rules/"),
+    # The user-level extensions; skills/synced/, the account's own, is never written (_NEVER).
+    re.compile(r"(?:skills|agents|commands|output-styles|workflows|themes)/"),
+    re.compile(r"keybindings\.json"),
 )
+# Under a scope, never: Claude Code downloads the account's skills there at each sign-in.
+_NEVER = ("skills/synced/",)
 # One component of a path under a scope: no dot first, no control character.
 _PART = re.compile(r"[^./\x00-\x1f\x7f][^/\x00-\x1f\x7f]{0,254}")
 # How deep below its scope a file may be.
@@ -199,6 +204,8 @@ def read_manifest(path, part="files"):
 def scope_of(path, scopes):
     """The scope ``path`` is under, or "" when it is under none or not a path this module writes. A scope that does not
     end in "/" is one file, and only that path is under it."""
+    if path.startswith(_NEVER):
+        return ""
     for scope in scopes:
         if not scope.endswith("/"):
             if path == scope:
