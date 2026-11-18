@@ -400,3 +400,66 @@ def checkout(module, path):
         tips.update(word for word in line.split() if COMMIT.fullmatch(word))
     found["tips"] = sorted(tips)
     return found
+
+
+# Where a send delivers, and where the apply records where the last sync left each branch: two sets of refs of the
+# sync's own in the VM checkout's .git, kept apart, so that a run that sends and dies before its apply never makes the
+# record run ahead of the VM's branch (docs/architecture/custom-code.md §7.18). SENT is lib/claude_vm/repo_sync.py's
+# too, which builds send-pack's lines on this machine: tests/unit/test_repo_sync.py holds the two equal.
+SENT = "refs/agent-warehouse/sent/"
+RECORD = "refs/agent-warehouse/sync/heads/"
+# The commit the apply last brought a checkout to on a detached HEAD, as the other machine had it: what holds it there,
+# and what tells the next run that HEAD is the sync's to move, though no branch, remote-tracking branch or tag holds it.
+RECORD_DETACHED = "refs/agent-warehouse/sync/detached"
+
+
+# What git's check-ref-format refuses in a ref's name, but for the rules of its components below.
+_REFUSED = re.compile(r"[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{")
+
+
+def ref_name(ref):
+    """Whether git takes ``ref`` (refs/heads/main) as a ref's full name, by check-ref-format's rules, in this process:
+    no component empty, starting with a dot or ending .lock; no .., @{, control character, space, ~ ^ : ? * [ or \\;
+    not ending with a dot, and not @ alone."""
+    parts = ref.split("/")
+    return (
+        len(parts) >= 2
+        and not _REFUSED.search(ref)
+        and not ref.endswith(".")
+        and ref != "@"
+        and all(part and not part.startswith(".") and not part.endswith(".lock") for part in parts)
+    )
+
+
+def branch_name(name):
+    """Whether ``name`` is a branch's name a sync writes as one: a ref's under refs/heads/, never HEAD, and never one
+    that a command could read as an option."""
+    return name != "HEAD" and not name.startswith("-") and ref_name(f"refs/heads/{name}")
+
+
+def branch_row(there, record, sent, behind=False, ahead=False):
+    """What a sync does with a branch on the VM, the first row that fits:
+
+    - "create": the VM has no such branch: it is made at ``sent``;
+    - "same": it is at ``sent`` already;
+    - "move": it is exactly where the last sync left it (``record``): moved to ``sent`` wherever that is now - forward,
+      aside (amended or rebased here) or back (reset here); the VM added nothing;
+    - "forward": it is an ancestor of ``sent`` (``behind``): moved forward;
+    - "ahead": ``sent`` is an ancestor of it (``ahead``): the VM is ahead, by a pull or a commit there; left, and
+      counted;
+    - "own": anything else: it has commits of its own, and is left, and said.
+
+    "move" comes before "forward" and "ahead" on purpose: after a reset back here, the VM's branch is both ahead of
+    ``sent`` and where the last sync left it, and it follows.
+    """
+    if not there:
+        return "create"
+    if there == sent:
+        return "same"
+    if record and there == record:
+        return "move"
+    if behind:
+        return "forward"
+    if ahead:
+        return "ahead"
+    return "own"

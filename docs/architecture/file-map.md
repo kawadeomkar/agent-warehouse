@@ -76,7 +76,8 @@ playbooks/
                                   sessions: claude_config_info (its reads here) and claude_config_carry (its one
                                   writer on the VM, by the copy's rule under a manifest of its own); and the repository
                                   sync's git_sync_info (a checkout read at either end, and what a sync would carry
-                                  from it, §7.18)
+                                  from it) and git_sync_apply (the one writer in the VM's checkout: its branches, tags
+                                  and tree by §7.18's rows)
   action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
                                   for the menu the live engine asks it as (§7.8)
   action_plugins/vm_route.py      the route to the VMs settled, and the hop's own ssh run here under hard limits: the
@@ -128,6 +129,8 @@ playbooks/
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/repo_read.yml             the repository sync's reads: the checkout just was started in against the VM's, by
                                   origin; what a sync would carry, and its estimate (§7.18)
+  tasks/repo_write.yml            the repository sync's writes: git send-pack of this machine's refs, the apply on the
+                                  VM, the report and its NEXT STEPS record (§7.18)
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/claude_config_read.yml    what else of this machine's Claude Code goes to which VM checkout: auto memory, by origin
   tasks/claude_config_write.yml   rsync to the VM's second mirror, then claude_config_carry's writes there
@@ -277,7 +280,8 @@ filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: clau
                                   claude_sessions_listed, how just code says the sessions it left out
 filter_plugins/repo_sync.py       the adapter of lib/claude_vm/repo_sync.py: repo_sync_match, one repository by origin;
                                   repo_sync_refs and repo_sync_sources, what a send carries; repo_sync_plan, what goes
-                                  within the bound; repo_sync_said, the report (§7.18)
+                                  within the bound; repo_sync_said, the report, and repo_sync_next, its NEXT STEPS line
+                                  (§7.18)
 inventory/
   hosts.yml.example               the only address anyone supplies
   controller.yml                  localhost, so it picks up group_vars/all

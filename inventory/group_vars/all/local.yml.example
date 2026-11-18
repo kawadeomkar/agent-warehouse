@@ -261,12 +261,12 @@
 # skills your account syncs, which the VM downloads at its own sign-in. A file
 # changed on the VM is never overwritten.
 # claude_extensions_sync: true
-# Read the local git repository when just deploy or just code is given
-# --project and started from a checkout of the same repository - matched by
-# git origin, never by folder name - and say what a sync would carry to the
-# VM's checkout of it: every local branch and tag, the branch checked out here
-# and its changes not committed, and with repo_sync_ignored the files git
-# ignores. Nothing is sent yet.
+# Carry the local git repository to the VM's checkout of it when just deploy
+# or just code is given --project and started from a checkout of the same
+# repository - matched by git origin, never by folder name: every local branch
+# and tag, and the checkout there switched to the branch here. Nothing the VM
+# made is overwritten: a branch with commits of its own there, or a checkout
+# with changes of its own, is left and said.
 # repo_sync: true
 # With repo_sync, the files git ignores too (plan files, working documents),
 # each file at any depth but a credential or a derived tree by its name (.env,

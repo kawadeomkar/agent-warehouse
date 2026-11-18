@@ -54,6 +54,7 @@ STEPS = (
     "the editor here",
     "the directory",
     "copy the sessions",
+    "carry the repo",
     "the notes",
     "window",
 )
@@ -147,6 +148,7 @@ def test_the_summary_says_each_step_and_no_row_of_the_fleets_skipped_tasks(reque
     said = [re.match(r"^ [✓–] (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
     assert said == list(STEPS), table
     assert re.search(r"^ – read the repo ", table, re.M), table
+    assert re.search(r"^ – carry the repo ", table, re.M), table
 
 
 def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed_opened):

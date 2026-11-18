@@ -15,9 +15,10 @@ from __future__ import annotations
 import re
 
 from claude_vm.sessions import git_repository, github_repository
-from claude_vm.text import and_list, plural
+from claude_vm.text import and_list, one_line, plain_text, plural
 
-# Where a send delivers, in the VM checkout's .git: never a branch of its own, which the apply alone moves.
+# Where a send delivers, in the VM checkout's .git: never a branch of its own, which the apply alone moves. The apply's
+# too (playbooks/module_utils/git_sync.py), on the VM: tests/unit/test_repo_sync.py holds the two equal.
 SENT = "refs/agent-warehouse/sent/"
 # A ref's short name a send carries: what git's own names take, with nothing a line of send-pack's input or a word of a
 # command could be read otherwise by.
@@ -45,6 +46,11 @@ def _some(names, word="more"):
     return f"{', '.join(names[:_LISTED])} and {len(names) - _LISTED} {word}"
 
 
+# What the VM's path is held to before it reaches send-pack and rsync as <alias>:<path>: one plain absolute path, never
+# put in an ssh:// URL, in which git decodes %.
+_PLAIN_PATH = re.compile(r"/[A-Za-z0-9._/-]+")
+
+
 def repo_sync_match(here, there, project, vm, target, elsewhere=False):
     """Whether the checkout just was started in (``here``, git_sync_info's) is the repository of ``project`` on ``vm``
     (``there``, its checkout at ``target``), by their origins: here any origin names one (git_repository), since a
@@ -53,7 +59,8 @@ def repo_sync_match(here, there, project, vm, target, elsewhere=False):
 
     Returns ``sync``, the repository (``owner/repo``), the source (here's top level), and ``said``: the one line why
     not, said only when just was started in another repository than this one (``elsewhere``) - from this checkout,
-    with another project's name, every run would say it.
+    with another project's name, every run would say it - but for a folder on the VM that is not one plain path, which
+    is said whenever the two match.
     """
     here, there = here or {}, there or {}
     source = str(here.get("toplevel") or "")
@@ -63,6 +70,12 @@ def repo_sync_match(here, there, project, vm, target, elsewhere=False):
     mine = git_repository(here.get("origin"))
     theirs = github_repository(there.get("origin")) if there.get("git") and there.get("at_top") else ""
     if mine and mine == theirs:
+        target = str(target or "")
+        if not _PLAIN_PATH.fullmatch(target) or "/../" in f"{target}/" or "/./" in f"{target}/":
+            return found | {
+                "said": f"{project} on {vm} is not in one plain path of letters, digits, . _ - and /, so nothing of"
+                f" {source} was carried there (repo_sync)."
+            }
         return found | {"sync": True, "repository": mine}
     if not elsewhere:
         return found
@@ -118,18 +131,20 @@ def _bounded(files, cap):
     return kept, used, over
 
 
-def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch=""):
+def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch="", there=None):
     """What a sync carries, from ``selected`` (git_sync_info's read here, with select), once ``match`` said it may.
 
     ``cap`` is repo_sync_max_size in bytes (0: none), which bounds the git objects - ``send_bytes``, the estimate - and
     again the files: the changes not committed first, all or none, then the ignored files, an entry at a time. A new
     file the selection leaves stays here, said, and the rest of the changes go.
-    ``session_branch`` is --session's, whose branch and the checkout are --session's to move.
+    ``session_branch`` is --session's, whose branch and the checkout are --session's to move. ``there`` is the VM's
+    checkout as git_sync_info read it: whether it is shallow, which a branch it refuses is said with.
 
     Returns ``sync`` and ``why``; ``source`` and ``repository``; ``refs``, send-pack's lines, and ``send``, whether
     they go; ``branches``, ``tags`` and ``head`` as here; ``tree``, the checkout's move and the changes, with
     ``bring`` false for this machine's own reasons; ``files``, rsync's list, and ``file_bytes``; ``ignored``, the
-    ignored files among them; and ``left``, each ``what`` and ``why``, what stays here.
+    ignored files among them; ``upstreams``, the branch of origin each branch sent tracks here; and ``left``, each
+    ``what`` and ``why``, what stays here.
     """
     selected, match = selected or {}, match or {}
     plan = {
@@ -148,8 +163,10 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch=""):
         "files": [],
         "file_bytes": 0,
         "ignored": [],
+        "upstreams": {},
         "included": list(selected.get("included") or []),
         "stashes": int(selected.get("stashes") or 0),
+        "shallow": bool((there or {}).get("shallow")),
         "worktrees": int(selected.get("worktrees") or 0),
         "left": [],
     }
@@ -165,6 +182,14 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch=""):
                 "why": f"{_size(plan['send_bytes'])} of git objects to send, past repo_sync_max_size",
             }
         )
+    if not plan["send"]:
+        # Nothing arrives to create or move: the apply is handed none, and the tree stays.
+        plan["branches"], plan["tags"] = {}, {}
+    plan["upstreams"] = {
+        name: str(branch)
+        for name, branch in (selected.get("upstreams") or {}).items()
+        if name in plan["branches"] and _REF_NAME.fullmatch(str(branch))
+    }
     changes = selected.get("changes") or {}
     files = list(selected.get("files") or [])
     tree_files = [item for item in files if item.get("kind") in ("change", "new")]
@@ -178,6 +203,8 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch=""):
     )
     if not plan["head"].get("commit"):
         tree["why"] = f"{plan['source']} has no commit yet"
+    elif not plan["send"]:
+        tree["why"] = "its branches were not sent"
     elif selected.get("operation"):
         tree["why"] = f"a {selected['operation']} is under way in {plan['source']}"
     elif plan["session_branch"]:
@@ -207,36 +234,70 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch=""):
     return plan
 
 
-def repo_sync_said(plan, vm, project, applied=None):
-    """The report's words for ``plan``: what was carried to ``project`` on ``vm`` (git_sync_apply's ``applied``), or,
-    without it, what would be; what stays here, and why; and the switch that turns it off."""
+def _vm_names(names):
+    """Names the VM's apply returned, as plain text: they are the names it was handed, but the VM says them."""
+    return [plain_text(name) for name in names or [] if isinstance(name, str)]
+
+
+def repo_sync_said(plan, vm, project, applied=None, sent=None):
+    """The report's words for ``plan``: what was carried to ``project`` on ``vm`` - git_sync_apply's ``applied`` and
+    send-pack's ``sent`` (its exit code and last words); what stays there as it is, and here, and why; and the switch
+    that turns it off. What the apply did, never what was planned: without ``applied`` nothing was."""
     plan = plan or {}
     if not plan.get("sync"):
         return str(plan.get("why") or "")
-    branches, tags, head = plan.get("branches") or {}, plan.get("tags") or {}, plan.get("head") or {}
+    head = plan.get("head") or {}
     on = f"on {head['branch']}" if head.get("branch") else "on a detached HEAD"
+    at = f"{on} at {str(head.get('commit') or '')[:8]}"
+    branches, tags = plan.get("branches") or {}, plan.get("tags") or {}
+    applied = applied or {}
+    done = applied.get("branches") or {}
+    new, moved = len(done.get("created") or []), len(done.get("moved") or [])
+    counted = [f"{new} new there"] if new else []
+    counted += [f"{moved} moved"] if moved else []
     parts = [
-        f"{plural(len(branches), 'branch', 'branches')} and {plural(len(tags), 'tag')}, {on} at "
-        f"{str(head.get('commit') or '')[:8]}"
+        f"{plural(len(branches), 'branch', 'branches')}{' (' + ', '.join(counted) + ')' if counted else ''} and "
+        f"{plural(len(tags), 'tag')}"
     ]
     if not plan.get("send") and plan.get("refs"):
-        parts[0] = "no branch"
-    ignored = plan.get("ignored") or []
-    if ignored:
-        parts.append(f"{plural(len(ignored), 'ignored file')} ({_some(ignored)})")
-    tree = plan.get("tree") or {}
-    changed = len(tree.get("modified") or []) + len(tree.get("deleted") or []) + len(tree.get("new") or [])
-    changed += len(tree.get("links") or [])
-    if tree.get("bring") and changed:
-        parts.append(f"{plural(changed, 'change')} not committed")
-    if applied is None:
-        said = f"Read only, nothing sent: {project} on {vm} would get {plan['source']}'s {and_list(parts)}."
-    else:
-        said = f"{project} on {vm} has {plan['source']}'s {and_list(parts)}."
-    if plan.get("file_bytes"):
-        said += f" {_size(plan['file_bytes'])} of files."
-    if not tree.get("bring") and tree.get("why"):
-        said += f" Its tree stays as it is there: {tree['why']}."
+        parts = ["no branch"]
+    # A file is there once it was written or found as sent.
+    files = applied.get("files") or {}
+    there = _vm_names(files.get("written")) + _vm_names(files.get("unchanged"))
+    if there:
+        parts.append(f"{plural(len(there), 'ignored file')} ({_some(sorted(there))})")
+    tree = applied.get("tree") or {}
+    changes = int(tree.get("changes") or 0)
+    if changes:
+        parts.append(f"{plural(changes, 'change')} not committed")
+    said = f"{project} on {vm} has {plan['source']}'s {and_list(parts)}"
+    said += f", its checkout {at}." if tree.get("brought") else "."
+    why = tree.get("why") or (plan.get("tree") or {}).get("why")
+    if why and not tree.get("brought"):
+        said += f" Its checkout stays as it is there: {plain_text(why)}."
+    held = [f"{name} (commits of its own)" for name in _vm_names(done.get("own"))]
+    held += [f"{name} (its upstream's commits, not fetched here)" for name in _vm_names(done.get("upstream"))]
+    held += [f"{name} (a worktree there has it)" for name in _vm_names(done.get("in_use"))]
+    held += [f"tag {name} (another object there)" for name in _vm_names((applied.get("tags") or {}).get("differ"))]
+    if held:
+        said += f" Left there as it is: {_some(held, 'more')}."
+    ahead = _vm_names(done.get("ahead"))
+    if ahead:
+        said += f" Ahead there, by a pull or a commit: {_some(ahead)}."
+    missing = _vm_names(done.get("missing"))
+    if missing:
+        said += f" Not there, its commit did not arrive: {_some(missing)}"
+        said += (
+            ", which a shallow clone refuses for a branch behind its own: git fetch --unshallow there takes it."
+            if plan.get("shallow")
+            else "."
+        )
+    sent = sent or {}
+    if sent.get("rc") not in (None, 0) and branches and len(missing) == len(branches):
+        # Nothing arrived: what git said, but for its lines about each ref, which the apply's words cover.
+        words = [line for line in str(sent.get("words") or "").splitlines() if line and not line.startswith(" ")]
+        said += f" git send-pack failed: {one_line(' '.join(words[-2:]), 200)}"
+        said += "" if said.endswith(".") else "."
     included = plan.get("included") or []
     if included:
         said += f" Carried because .worktreeinclude names them, credentials by their names: {_some(included)}."
@@ -246,3 +307,32 @@ def repo_sync_said(plan, vm, project, applied=None):
     if left:
         said += f" Left here: {_some(left, 'more things')}."
     return said + " repo_sync: false turns this off."
+
+
+def repo_sync_next(plan, vm, project, applied=None, flag=""):
+    """What NEXT STEPS keeps of a sync: "" while nothing the person must deal with stopped it, else the line - a branch
+    with commits of its own there, one whose commits not here are its upstream's there, which this machine has not
+    fetched, or a checkout with changes of its own - what to do, and the command that carries it again."""
+    plan, applied = plan or {}, applied or {}
+    if not plan.get("sync") or not applied:
+        return ""
+    done = applied.get("branches") or {}
+    own, upstream = _vm_names(done.get("own")), _vm_names(done.get("upstream"))
+    # By the apply's word for why, never its words.
+    tree_own = not (applied.get("tree") or {}).get("brought") and (applied.get("tree") or {}).get("reason") == "own"
+    if not own and not upstream and not tree_own:
+        return ""
+    held = [f"{_some(own)} there " + ("has commits of its own" if len(own) == 1 else "have commits of their own")]
+    held = held if own else []
+    if upstream:
+        has = "has" if len(upstream) == 1 else "have"
+        held.append(f"{_some(upstream)} there {has} commits of its upstream's that this machine has not fetched")
+    held += ["its checkout there has changes of its own"] if tree_own else []
+    many = len(own) + len(upstream) + tree_own > 1
+    todo = ["pull those commits here"] if upstream else []
+    todo += ["push or drop that work there"] if own or tree_own else []
+    todo = and_list(todo)
+    return (
+        f"{project} on {vm}: {and_list(held)}, so the sync left {'them as they are' if many else 'it as it is'}."
+        f" {todo[0].upper()}{todo[1:]}, then: just code {vm} --project {project}{flag}"
+    )

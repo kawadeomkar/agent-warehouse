@@ -10,6 +10,7 @@ if _LIB not in sys.path:
 
 FILTERS = (
     "repo_sync_match",
+    "repo_sync_next",
     "repo_sync_plan",
     "repo_sync_refs",
     "repo_sync_said",

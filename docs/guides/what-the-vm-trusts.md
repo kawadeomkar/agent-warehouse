@@ -93,6 +93,12 @@ and the [security model](../architecture/security-model.md) is how each is enfor
 - It installs on every VM it opens the plugins enabled for you here ([Plugins](vscode.md#plugins)), from the
   marketplaces you added: code that then runs there - hooks, MCP servers, language servers - as it runs here. A
   marketplace's own install command is never accepted for you. `claude_plugins_sync: false` stops it.
+- `just code --project <repo>` and `just deploy --project <repo>`, started from your checkout of that repository, give
+  the VM its local branches - those never pushed among them, which the VM's GitHub login can then push - and its tags
+  ([This machine's repository on the VM](vscode.md#this-machines-repository-on-the-vm)), readable there by anything
+  running as `dev`. Which repository is the one you started `just` in, under the project name you typed, matched by
+  git origin to the VM's checkout: a VM that makes up its checkout's origin gets that repository, never another.
+  `repo_sync: false` stops it.
 - `just destroy` brings back what the VM alone holds of them
   ([Its Claude Code sessions](destroy.md#its-claude-code-sessions)) - the VM's own writing, which a VM
   with root can have made up. Only plain files and folders under Claude Code's own names arrive, never a

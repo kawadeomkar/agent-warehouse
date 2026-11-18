@@ -358,7 +358,7 @@ Copy your user-level skills, subagents, commands, output styles, workflows, them
 |---|---|---|
 | `claude_extensions_sync` | `true` |  |
 
-Read the local git repository when just deploy or just code is given --project and started from a checkout of the same repository - matched by git origin, never by folder name - and say what a sync would carry to the VM's checkout of it: every local branch and tag, the branch checked out here and its changes not committed, and with repo_sync_ignored the files git ignores. Nothing is sent yet.
+Carry the local git repository to the VM's checkout of it when just deploy or just code is given --project and started from a checkout of the same repository - matched by git origin, never by folder name: every local branch and tag, and the checkout there switched to the branch here. Nothing the VM made is overwritten: a branch with commits of its own there, or a checkout with changes of its own, is left and said.
 
 | Setting | Default | Notes |
 |---|---|---|

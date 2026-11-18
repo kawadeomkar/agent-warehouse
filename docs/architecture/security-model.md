@@ -432,6 +432,16 @@ the task runs is fixed: VS Code's helpers, files of `playbooks/files/` that `jus
 unchanged and the task runs by path, with the VM name and every other value passed as an argument rather
 than spliced into a script, and the copy held by `tests/unit/test_code_session.py` to those files alone.
 
+The repository sync ([§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync))
+gives the VM the checkout `just` was started in, with `--project`: its branches never pushed, which the VM's GitHub
+login can then push. What the VM can make this machine send is that one repository, under the project name typed, and
+nothing else of its object store: the refs sent are this machine's alone, each named in full, so a name the VM reports
+never chooses one (a reported name carrying a line of its own once made a trial send the stash), and the only value of
+the VM's that reaches a command here is a commit ID held to full hex, left out of an estimate. It receives:
+`git-receive-pack` there can refuse or lie about its refs and ask for nothing beyond what is sent, and its words are
+captured and said through `one_line`, never streamed. On the VM, `git_sync_apply` moves nothing the VM made: a branch
+with commits of its own there, a branch a worktree there has out, a checkout with changes of its own, all stay.
+
 Wherever `just code` writes in its own directory on the VM, for any editor, it first refuses a directory
 inside a checkout of the projects directory - a `.git` in any folder from the first below the projects directory
 down to it, by the path as written - so neither a workspace file nor a task file lands in a repository there,

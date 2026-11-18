@@ -70,6 +70,7 @@ REPORTS = {
     "playbooks/tasks/vpn_apply.yml": ["vpn_apply | Say each VM's place on the network"],
     "playbooks/code.yml": ["Say how to open each VM", "Say how to open the VM later"],
     "playbooks/tasks/editor_open.yml": ["editor_open | Say what was opened"],
+    "playbooks/tasks/repo_write.yml": ["repo_write | Say what was carried"],
     "playbooks/provision.yml": ["Show each VM and the address it was given"],
     "playbooks/destroy.yml": [
         "Say what became of each VM, and what is left of it",
@@ -525,7 +526,7 @@ def test_every_report_is_followed_by_its_record_under_one_of_the_five_names():
     assert borrowed == []
     assert followed == {(relative, name): True for relative, names in REPORTS.items() for name in names}
     records = [task for path in _files() for task in _tasks(path) if "ansible.builtin.set_stats" in task]
-    assert len(records) == sum(len(names) for names in REPORTS.values()) == 26
+    assert len(records) == sum(len(names) for names in REPORTS.values()) == 27
     for record in records:
         data = record["ansible.builtin.set_stats"]["data"]
         assert len(data) == 1, record

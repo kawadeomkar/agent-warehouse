@@ -499,11 +499,20 @@ every VM `just code` opens gets those of its repositories' sessions. `claude_ses
 ## This machine's repository on the VM
 
 Started from your checkout of a project, `just code <vm> --project <repo>` - or `just deploy <vm> --project <repo>` -
-reads that repository against the VM's checkout of it and says what a sync would carry there: every local branch and
-tag, the branch checked out here and its changes not committed - but a new file the rules below leave, and a vault
-you decrypted in place, whose change would carry its secrets, which stay here, said - and the files git ignores (plan
-files, working documents). Nothing is sent yet. The two must be one repository by their git origins, whatever the folders are
-called; started in another repository, the run says why it carried nothing. From the agent-warehouse checkout itself,
+carries that repository to the VM's checkout of it: every local branch and tag, those never pushed among them, and the
+checkout there switched to the branch you are on here. The two must be one repository by their git origins, whatever
+the folders are called; started in another repository, the run says why it carried nothing. Later runs carry what
+changed, in seconds.
+
+Nothing the VM made is overwritten. A branch moves there only while the VM added nothing to it since the last sync,
+so an amend, a rebase or a reset here follows; a branch with commits of its own there is left, said, and kept for
+NEXT STEPS, as is one that has commits from its upstream this machine has not fetched (pull here, and the next run
+moves it), and one ahead (pulled there) is counted. A branch new to the VM tracks what it tracks here on origin. A
+branch a worktree there has out is never moved under it. The
+checkout there is switched or moved only when it is clean, nobody's claude works in it, and nothing git does not
+track is in the way; otherwise it stays, and the run says why. Nothing is deleted there: a branch deleted here stays.
+A shallow clone there (`github_projects_depth`) refuses a branch that forks behind its shallow point: that one is
+said, with `git fetch --unshallow` there as the way to have it. From the agent-warehouse checkout itself,
 `just code <vm> --project agent-warehouse` is started from a checkout of that project too.
 
 ```bash
@@ -511,7 +520,7 @@ alias aw='just --justfile ~/agent-warehouse/justfile'
 cd ~/code/my-app && aw code app --project my-app
 ```
 
-What is never carried, from any repository and at any depth: this project's own secrets and records (a vault, its
+The files git ignores are judged, and said, but not carried yet. What is never carried, from any repository and at any depth: this project's own secrets and records (a vault, its
 password, an inventory, `local.yml`, `.logs/`, `.sessions/`, `.cache/`), and any file that starts as an Ansible vault
 or a private key does - and a wholly ignored folder holding one is left whole. Left unless the repository's
 `.worktreeinclude` names it, as Claude Code reads that file for a new worktree: a credential by its name (`.env`, `*.pem`,
