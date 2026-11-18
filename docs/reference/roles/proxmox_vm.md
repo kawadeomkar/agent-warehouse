@@ -33,6 +33,7 @@ All API calls are delegated to the controller.
 | `proxmox_vm_api_timeout` | int | `30` | Seconds each API request waits for Proxmox's answer. Not the modules' own 5, which a host busy copying a disk outlasts in the middle of a clone, failing a run whose clone was made. |
 | `proxmox_vm_node` | str | `pve` | Node that holds the template, where new VMs are cloned. Set through `proxmox_node` in local.yml. |
 | `proxmox_vm_storage` | str | `local-lvm` | Storage a full clone's disks are created on. Set through `proxmox_storage` in local.yml. |
+| `proxmox_vm_pool` | str | `""` | A pool each VM the role clones is made a member of, for a token granted the role on that pool alone; empty, none. Set through `proxmox_pool` in local.yml. |
 | `proxmox_vm_template_name` | str | `ubuntu-24.04-cloudinit` | Name of the template VMs are cloned from. |
 | `proxmox_vm_template_vmid` | str | `""` | The VMID of a golden template to clone, always as a full clone, in place of proxmox_vm_template_name. Empty, as when provision.yml runs on its own, clones the template by its name. |
 | `proxmox_vm_full_clone` | bool | `true` | Make a full clone, independent of the template. false makes a linked clone, which keeps depending on the template's disk. |
@@ -112,6 +113,7 @@ each file. Generated from the task files, so a task added, renamed or removed sh
 | Refuse the console password's old name | `ansible.builtin.assert` | <code>proxmox_vm_state == 'present'</code> |
 | Validate the login credentials for the VM | `ansible.builtin.assert` |  |
 | Validate the minimum memory | `ansible.builtin.assert` |  |
+| Validate the pool | `ansible.builtin.assert` | <code>proxmox_vm_state == 'present'</code> |
 | Validate the VM ID | `ansible.builtin.assert` |  |
 | Manage the VM | block |  |
 | &emsp;Look up Proxmox VM {{ proxmox_vm_name }} | `community.proxmox.proxmox_vm_info` |  |
@@ -141,9 +143,10 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Validate_the_VM_name1-->|Task| Refuse_the_console_password_s_old_name2[refuse the console password s old name<br>When: **proxmox vm state     present**]:::task
   Refuse_the_console_password_s_old_name2-->|Task| Validate_the_login_credentials_for_the_VM3[validate the login credentials for the vm]:::task
   Validate_the_login_credentials_for_the_VM3-->|Task| Validate_the_minimum_memory4[validate the minimum memory]:::task
-  Validate_the_minimum_memory4-->|Task| Validate_the_VM_ID5[validate the vm id]:::task
-  Validate_the_VM_ID5-->|Block Start| Manage_the_VM6_block_start_0[[manage the vm]]:::block
-  Manage_the_VM6_block_start_0-->|Task| Look_up_Proxmox_VM_proxmox_vm_name0[look up proxmox vm proxmox vm name]:::task
+  Validate_the_minimum_memory4-->|Task| Validate_the_pool5[validate the pool<br>When: **proxmox vm state     present**]:::task
+  Validate_the_pool5-->|Task| Validate_the_VM_ID6[validate the vm id]:::task
+  Validate_the_VM_ID6-->|Block Start| Manage_the_VM7_block_start_0[[manage the vm]]:::block
+  Manage_the_VM7_block_start_0-->|Task| Look_up_Proxmox_VM_proxmox_vm_name0[look up proxmox vm proxmox vm name]:::task
   Look_up_Proxmox_VM_proxmox_vm_name0-->|Task| Refuse_to_act_on_a_duplicated_VM_name1[refuse to act on a duplicated vm name]:::task
   Refuse_to_act_on_a_duplicated_VM_name1-->|Task| Record_whether_the_VM_already_exists2[record whether the vm already exists]:::task
   Record_whether_the_VM_already_exists2-->|Task| Refuse_to_configure_a_template3[refuse to configure a template<br>When: **proxmox vm state     present  and proxmox vm<br>exists**]:::task
@@ -152,7 +155,7 @@ classDef rescue stroke:#665352,stroke-width:2px;
   Create_the_VM_present_yml_5-->|Task| Refuse_to_delete_a_template6[refuse to delete a template<br>When: **proxmox vm state     absent  and proxmox vm exists**]:::task
   Refuse_to_delete_a_template6-->|Task| Refuse_to_delete_a_VM_this_project_does_not_own7[refuse to delete a vm this project does not own<br>When: **proxmox vm state     absent  and proxmox vm exists<br>and not  proxmox vm allow untagged delete   bool**]:::task
   Refuse_to_delete_a_VM_this_project_does_not_own7-->|Include task| Delete_the_VM_absent_yml_8[delete the vm<br>When: **proxmox vm state     absent  and proxmox vm exists**<br>include_task: absent yml]:::includeTasks
-  Delete_the_VM_absent_yml_8-.->|End of Block| Manage_the_VM6_block_start_0
+  Delete_the_VM_absent_yml_8-.->|End of Block| Manage_the_VM7_block_start_0
   Delete_the_VM_absent_yml_8-->End
 ```
 

@@ -2,8 +2,8 @@
 
 Run as `fake_pve_cli.py <state.json> <command> <args...>`, through a wrapper of
 each command's name (install() writes them). It keeps the host in one JSON file
-- the version, the node, its storages and bridges, the roles, users, ACLs and
-tokens - answers only the calls the script makes, as Proxmox answers them
+- the version, the node, its storages and bridges, the roles, users, ACLs,
+tokens and pools - answers only the calls the script makes, as Proxmox answers them
 (compact JSON, `pveum` refusing what exists), and appends every call to
 calls.log beside the state. A call whose words contain the state's "fail"
 string fails, as a refused write would.
@@ -40,6 +40,7 @@ DEFAULT = {
     "users": {"root@pam": {}},
     "acls": [],
     "tokens": {},
+    "pools": {},
     "fail": "",
 }
 
@@ -119,6 +120,8 @@ def _pvesh(state: dict, words: list[str]) -> tuple[int, object]:
         if parts[2] not in state["users"]:
             return _refuse(f"no such user ('{parts[2]}')"), None
         return 0, {"enable": 1, "expire": 0}
+    if parts == ["pools"]:
+        return 0, [{"poolid": name, **pool} for name, pool in sorted(state.get("pools", {}).items())]
     if parts == ["access", "acl"]:
         # As Proxmox lists them: each ACL's path, its user's or group's name, the role and whether it propagates.
         keys = ("path", "ugid", "roleid", "propagate", "type")
@@ -161,6 +164,11 @@ def _pveum(state: dict, words: list[str]) -> tuple[int, object]:
                 return _refuse(f"invalid privilege '{unknown[0]}'"), None
             kept = state["roles"][role] if options.get("append") == "1" else []
             state["roles"][role] = [*kept, *(p for p in privileges if p not in kept)]
+            return 0, None
+        case ["pool", "add", name]:
+            if name in state.setdefault("pools", {}):
+                return _refuse(f"create pool failed: pool '{name}' already exists"), None
+            state["pools"][name] = {"comment": options.get("comment", "")}
             return 0, None
         case ["user", "add", user]:
             if user in state["users"]:

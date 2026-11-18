@@ -35,6 +35,8 @@ proxmox_template_image_fingerprint: D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81
 proxmox_template_image_dir: /var/lib/vz/agent-warehouse
 
 proxmox_template_storage: local-lvm
+# A pool the template and each golden build are made members of; empty: none.
+proxmox_template_pool: ""
 proxmox_template_bridge: vmbr0
 proxmox_template_cores: 2
 proxmox_template_memory_mb: 2048

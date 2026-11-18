@@ -47,6 +47,8 @@
     vmid: "{{ proxmox_vm_template_vmid | default(omit, true) }}"
     # Omitted, Proxmox assigns the next free VMID and the module returns it.
     newid: "{{ proxmox_vm_id | default(omit, true) }}"
+    # A member of the project's pool from the clone's end on: a token granted the role on that pool alone sees it then.
+    pool: "{{ proxmox_vm_pool | default(omit, true) }}"
     name: "{{ proxmox_vm_name }}"
     full: "{{ (proxmox_vm_template_vmid | string | length > 0) or proxmox_vm_full_clone | bool }}"
     # Only a full clone is given a storage: a linked clone's disk lives beside its template's, and Proxmox refuses

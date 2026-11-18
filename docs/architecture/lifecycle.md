@@ -1336,12 +1336,15 @@ name, `<name>-default`; the host's name was given on the command line, a value g
    that carries it). 200 is `ok`, with the version; a 401 or 403 names the token; a connection that fails,
    the address; a certificate that did not verify, what to do (`proxmox_untrusted_hint`): with the trust file, to
    delete it and run `just init` again.
-5. **Privileges on `/vms`**: `GET /access/permissions?path=/vms`, against `init_token_privileges.vms` and the
-   guest agent's, by `/version`'s major: `VM.Monitor` on 8, `VM.GuestAgent.Audit` on 9. A privilege is
-   granted when it is listed, and reaches the VMs under `/vms`, where Proxmox checks it, only with 1, its
-   propagate flag: a 0 is said with the `-propagate 1` that fixes it, and a token holding none at all with
-   the privilege separation that usually explains it. Storage and bridge are not checked: their names may
-   still be the defaults, wrong for the host.
+5. **Privileges on `/vms`**, or on `/pool/<name>` where `proxmox_pool` names one (`init_privileges_path`; a name
+   that is no pool's, by `proxmox_name('pool')`, is said and asks nothing): `GET /access/permissions?path=`,
+   against `init_token_privileges.vms` and the guest agent's, by `/version`'s major: `VM.Monitor` on 8,
+   `VM.GuestAgent.Audit` on 9. A privilege is granted when it is listed, and reaches the VMs under the path,
+   where Proxmox checks it, only with 1, its propagate flag: a 0 is said with the `-propagate 1` that fixes it,
+   and a token holding none at all with the privilege separation that usually explains it, or, with a pool, the
+   grant on it to make. Storage and bridge are not checked: their names may still be the defaults, wrong for the
+   host. With a pool, a template found that is no member of it is a problem, said with the `pveum pool modify`
+   that makes it one: a token granted the role on the pool alone could not clone it.
 6. **The template**, from the cluster listing, as `deploy.yml` finds it: a VM named `proxmox_template_name`
    that is a template. Found, it must be on `proxmox_node`, where the clones are made. Missing, deploy builds
    it at `proxmox_template_vmid`, so a guest there - any, on any node, one that is down included - is a

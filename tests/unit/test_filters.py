@@ -631,8 +631,8 @@ class TestProxmoxName:
         assert checks.proxmox_name(value, kind) == ""
 
     def test_a_kind_it_does_not_know_is_refused(self):
-        with pytest.raises(ValueError, match="no kind 'pool'"):
-            checks.proxmox_name("tank", "pool")
+        with pytest.raises(ValueError, match="no kind 'cluster'"):
+            checks.proxmox_name("tank", "cluster")
 
     def test_the_lists_keep_the_names_in_order_and_say_the_rest_as_json(self):
         values = ["local-lvm", "{{ x }}", "nfs", "a b"]

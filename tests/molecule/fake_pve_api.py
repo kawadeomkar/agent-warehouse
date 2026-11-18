@@ -50,6 +50,12 @@ pve, local-lvm (lvmthin) and vmbr0 until a fixture replaces them with PUT
 /api2/json/fake/bridges?node=&bridges=<name>,... A fixture moves a VM to
 another node with PUT /api2/json/fake/vm-node?vmid=&node=.
 
+Pools: a clone given pool= is a member of that pool, which /cluster/resources
+lists as its "pool", as Proxmox does; PUT /api2/json/fake/pool-member?vmid=&pool=
+makes a guest one, as root does on the host. PUT
+/api2/json/fake/pool-scope?token=&pool= stands for a token granted the role on
+/pool/<name> alone: its listing holds that pool's members only.
+
 A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
 request is accepted except the agent's, which is refused with 403.
@@ -216,6 +222,8 @@ STALE = {}
 VERSION = {"version": "8.2.4"}
 TOKENLESS = {"answer": "401"}
 PRIVILEGES = {}
+# Tokens granted the role on one pool alone, by token id: /cluster/resources lists that pool's members only.
+POOL_SCOPE = {}
 # Each node's storages for VM disks, with their type and free bytes, and its bridges.
 STORAGES = {NODE: [{"storage": "local-lvm", "type": "lvmthin", "avail": 412 * 1024**3}]}
 BRIDGES = {NODE: ["vmbr0"]}
@@ -359,6 +367,9 @@ def resource(vm):
     # a VM without the attribute at all.
     if vm["config"].get("tags"):
         entry["tags"] = vm["config"]["tags"]
+    # As Proxmox: the pool a guest is a member of, and no key for one that is in none.
+    if vm.get("pool"):
+        entry["pool"] = vm["pool"]
     return entry
 
 
@@ -526,6 +537,15 @@ class Handler(BaseHTTPRequestHandler):
             VMS[int(params["vmid"])]["disk_ctime"] = int(params["ctime"])
             save_state()
             return self._reply(200, {"vmid": int(params["vmid"]), "ctime": int(params["ctime"])})
+        if parts[:2] == ["fake", "pool-scope"] and method == "PUT":
+            # Not a PVE endpoint: a token granted the role on /pool/<name> alone, which sees that pool's members only.
+            POOL_SCOPE[params["token"]] = params["pool"]
+            return self._reply(200, dict(POOL_SCOPE))
+        if parts[:2] == ["fake", "pool-member"] and method == "PUT":
+            # Not a PVE endpoint: a guest made a member of a pool on the host, as root does with pveum pool modify.
+            VMS[int(params["vmid"])]["pool"] = params["pool"]
+            save_state()
+            return self._reply(200, {"vmid": int(params["vmid"]), "pool": params["pool"]})
         if parts == ["cluster", "resources"]:
             for vmid, listed in list(VANISH.items()):
                 VANISH[vmid] = True
@@ -533,7 +553,8 @@ class Handler(BaseHTTPRequestHandler):
                     VMS.pop(vmid, None)
                     del VANISH[vmid]
                     save_state()
-            entries = [resource(vm) for vm in VMS.values()]
+            scope = POOL_SCOPE.get(token.group(2))
+            entries = [resource(vm) for vm in VMS.values() if scope is None or vm.get("pool") == scope]
             for entry in entries:
                 stale = STALE.get(entry["vmid"])
                 if stale:
@@ -672,6 +693,8 @@ class Handler(BaseHTTPRequestHandler):
                 },
                 # Its config keeps the template's meta; its disk is made now.
                 "disk_ctime": int(time.time()),
+                # As Proxmox: pool= makes the clone a member of that pool, a pool the token may allocate in.
+                **({"pool": params["pool"]} if params.get("pool") else {}),
             }
             save_state()
             return self._reply(200, new_task())

@@ -319,6 +319,76 @@ def test_a_grant_on_vms_that_does_not_propagate_is_named_and_left(tmp_path: Path
     assert ("/vms", "ansible@pve", "AnsibleVM", 0) in _acls(tmp_path)
 
 
+# ----------------------------------------------------------------- a pool ---
+POOL_PLAN = [
+    PLAN[0],
+    "pveum pool add agent-warehouse --comment agent-warehouse",
+    PLAN[1],
+    "pveum acl modify /pool/agent-warehouse --users ansible@pve --roles AnsibleVM",
+    *PLAN[3:],
+]
+
+
+def test_with_a_pool_the_role_is_granted_on_the_pool_made_for_it_in_place_of_vms(tmp_path: Path) -> None:
+    dry = _access(tmp_path, "--pool", "agent-warehouse", "--dry-run")
+    assert dry.returncode == 0 and dry.stdout.splitlines() == POOL_PLAN, dry.stderr
+    assert _writes(tmp_path) == []
+    result = _access(tmp_path, "--pool", "agent-warehouse")
+    assert result.returncode == 0 and result.stdout == SECRET + "\n", result.stderr
+    assert [line[2:] for line in result.stderr.splitlines() if line.startswith("+ ")] == POOL_PLAN
+    assert _pve_cli_state(tmp_path / "pve")["pools"] == {"agent-warehouse": {"comment": "agent-warehouse"}}
+    assert [acl[0] for acl in _acls(tmp_path)] == [
+        "/nodes/pve",
+        "/pool/agent-warehouse",
+        "/sdn/zones/localnetwork/vmbr0",
+        "/storage/local-lvm",
+    ]
+    # Again: the pool is there, and nothing changes.
+    before = len(_writes(tmp_path))
+    again = _access(tmp_path, "--pool", "agent-warehouse")
+    assert again.returncode == 0 and "pool agent-warehouse exists" in again.stderr, again.stderr
+    assert len(_writes(tmp_path)) == before
+
+
+def test_with_a_pool_a_grant_on_vms_held_already_is_left_and_how_to_take_it_away_said(tmp_path: Path) -> None:
+    # A fleet made before the pool is reached through /vms until root makes each VM a member: never taken away here.
+    assert _access(tmp_path).returncode == 0
+    result = _access(tmp_path, "--pool", "agent-warehouse", "--no-token")
+    assert result.returncode == 0 and result.stdout == "", result.stderr
+    assert ("/vms", "ansible@pve", "AnsibleVM", 1) in _acls(tmp_path)
+    assert ("/pool/agent-warehouse", "ansible@pve", "AnsibleVM", 1) in _acls(tmp_path)
+    assert "ansible@pve still holds role AnsibleVM on /vms, which reaches every VM of the host" in result.stderr
+    assert "pveum pool modify agent-warehouse --vms <vmid>,<vmid>" in result.stderr
+    assert "pveum acl delete /vms --users ansible@pve --roles AnsibleVM" in result.stderr
+    # Without the grant on /vms, nothing about it is said.
+    alone = tmp_path / "alone"
+    alone.mkdir()
+    fresh = _access(alone, "--pool", "agent-warehouse")
+    assert fresh.returncode == 0 and "still holds" not in fresh.stderr, fresh.stderr
+
+
+def test_with_a_pool_a_grant_on_it_that_does_not_propagate_is_named_and_left(tmp_path: Path) -> None:
+    state = {
+        "roles": {"AnsibleVM": ROLE},
+        "users": {"root@pam": {}, "ansible@pve": {}},
+        "pools": {"agent-warehouse": {"comment": ""}},
+        "acls": [
+            {
+                "path": "/pool/agent-warehouse",
+                "ugid": "ansible@pve",
+                "roleid": "AnsibleVM",
+                "propagate": 0,
+                "type": "user",
+            }
+        ],
+    }
+    result = _access(tmp_path, "--pool", "agent-warehouse", state=state)
+    assert result.returncode == 0, result.stderr
+    assert "on /pool/agent-warehouse but not on the VMs under it" in result.stderr
+    assert "pveum acl modify /pool/agent-warehouse --users ansible@pve --roles AnsibleVM --propagate 1" in result.stderr
+    assert ("/pool/agent-warehouse", "ansible@pve", "AnsibleVM", 0) in _acls(tmp_path)
+
+
 def test_a_privilege_the_role_lacked_is_granted_once_the_role_has_it(tmp_path: Path) -> None:
     # A role made without SDN.Use: given it first, then granted on the bridge - never said to be held there before.
     state = {"roles": {"AnsibleVM": [p for p in ROLE if p != "SDN.Use"]}}
@@ -390,6 +460,9 @@ def test_it_runs_only_where_pveum_is(tmp_path: Path) -> None:
         (["--user", "root@pam"], "never root@pam"),
         (["--token", "1st"], "--token starts with a letter"),
         (["--token"], "--token takes a value"),
+        (["--pool", "-x"], "--pool starts with a letter or a digit"),
+        (["--pool", "a pool"], "--pool may contain only"),
+        (["--pool", "$(reboot)"], "--pool may contain only"),
         (["--force"], "no option --force"),
     ],
 )

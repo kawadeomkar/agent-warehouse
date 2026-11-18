@@ -113,9 +113,11 @@ restate them are not treated as vulnerabilities:
   propagates to every VM on the host. The token can set the SSH keys cloud-init installs on any VM there,
   restart it into them, and delete it - this project's VMs or not - and so can anyone who obtains the token,
   by answering for the host (above) or from the vault. The ownership tag keeps this project's own runs off
-  other VMs; it does not limit the token. A later release will scope the grant to a Proxmox pool. Until
-  then, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a root
-  password for those VMs.
+  other VMs; it does not limit the token. A pool of the project's own does: with `proxmox_pool` set and no
+  grant on `/vms`, the token holds the role on that pool's members alone
+  ([A pool of the project's own](docs/getting-started/proxmox-access.md#a-pool-of-the-projects-own)).
+  Without one, on a host that also runs VMs you care about, guard the vault and `.vault_pass` as you would a
+  root password for those VMs.
 - **A shared Proxmox host.** The ownership tag (`claude_vm_tag`, `agent-warehouse` by default) is a
   convention, not a permission: any user of the host who can create VMs can set it, and your token can list
   every VM on the host (above). Every tagged VM your token lists is treated as yours:
@@ -133,8 +135,9 @@ restate them are not treated as vulnerabilities:
   first deploy - VMs made under one tag are not found under another, and a Proxmox
   [User Tag Access](docs/getting-started/proxmox-access.md#user-tag-access) list must allow it and its
   `-unfinished` and `-tailscale` forms - and name the VMs a run is for. That keeps each person's runs off the others' VMs by
-  accident, but not off a VM someone made to look like yours. A token scoped to a Proxmox pool of each
-  person's own, which cannot list the others' VMs at all, is planned.
+  accident, but not off a VM someone made to look like yours. A pool of each person's own does: a token
+  granted the role on its pool alone cannot list the others' VMs at all
+  ([Sharing the host](docs/getting-started/proxmox-access.md#sharing-the-host)).
 - The VM's user gets passwordless sudo and docker group membership by default; both are toggles, and
   [What the VM trusts](docs/guides/what-the-vm-trusts.md) says what they mean.
 - `vault_vm_password`, when set, is one password for the VM user on every VM, for the Proxmox console and

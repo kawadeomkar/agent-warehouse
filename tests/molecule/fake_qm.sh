@@ -12,6 +12,8 @@ cmd="${1:-}"; vmid="${2:-}"
 write_opts() { # --key value ... -> key: value lines
   while [ $# -gt 0 ]; do
     key="${1#--}"; val="${2:-}"; shift 2 || break
+    # As Proxmox: --pool makes the VM a member of a pool, which qm config never prints. Kept beside its config.
+    if [ "$key" = pool ]; then printf '%s\n' "$val" > "$STATE/$vmid.pool"; continue; fi
     # Proxmox keeps a description encoded, and qm config prints it so: a colon and
     # each newline as %3A and %0A (and any other control or non-ASCII byte as %XX).
     if [ "$key" = description ]; then
@@ -40,7 +42,7 @@ case "$cmd" in
       echo "can't remove VM $vmid - base volume 'base-$vmid-disk-0' is still in use by linked clone vm-9010-disk-0" >&2
       exit 255
     fi
-    rm "$STATE/$vmid.conf" ;;
+    rm -f "$STATE/$vmid.conf" "$STATE/$vmid.pool" ;;
   *)
     echo "fake qm: unsupported command '$cmd'" >&2; exit 1 ;;
 esac

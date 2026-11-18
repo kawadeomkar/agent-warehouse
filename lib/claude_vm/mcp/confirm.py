@@ -154,6 +154,7 @@ REFUSED = frozenset(
         "proxmox_bridge",
         "proxmox_nic",
         "proxmox_node",
+        "proxmox_pool",
         "proxmox_storage",
         "proxmox_template_custom",
         "proxmox_template_golden",

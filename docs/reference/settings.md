@@ -59,6 +59,12 @@ The bridge the template's NIC is attached to, which every clone inherits. Set it
 |---|---|---|
 | `proxmox_bridge` | `vmbr0` | Sets `proxmox_template_bridge` ([`proxmox_template`](roles/proxmox_template.md)): Bridge the template's net0 is attached to, and so every clone's. |
 
+A pool of the project's own on the host, for a token that reaches nothing else. New VMs, the template and golden templates are made its members, and tools/proxmox-access.sh --pool &lt;name&gt; (just init passes it this) grants the role on /pool/&lt;name&gt; in place of /vms, which reaches every VM of the host. A fleet made before is moved into it by hand, as the access guide says ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)).
+
+| Setting | Default | Notes |
+|---|---|---|
+| `proxmox_pool` | `""` | Sets `proxmox_vm_pool` ([`proxmox_vm`](roles/proxmox_vm.md)): A pool each VM the role clones is made a member of, for a token granted the role on that pool alone; empty, none. Sets `proxmox_template_pool` ([`proxmox_template`](roles/proxmox_template.md)): A pool the template is made a member of, so that a token granted the role on that pool alone can clone it; empty, none. For example `agent-warehouse`. |
+
 The API user and token, as just init or tools/proxmox-access.sh makes them ([docs/getting-started/proxmox-access.md](../getting-started/proxmox-access.md)), and the API's port.
 
 | Setting | Default | Notes |

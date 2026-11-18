@@ -59,6 +59,11 @@ argument_specs:
       proxmox_vm_storage:
         type: str
         description: Storage a full clone's disks are created on.
+      proxmox_vm_pool:
+        type: str
+        description: >-
+          A pool each VM the role clones is made a member of, for a token granted the role on that pool alone; empty,
+          none.
       proxmox_vm_template_name:
         type: str
         description: Name of the template VMs are cloned from.
