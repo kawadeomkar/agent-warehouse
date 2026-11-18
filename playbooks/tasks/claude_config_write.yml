@@ -55,6 +55,7 @@
     files: "{{ code_config_plan.files }}"
     generated: "{{ code_config_plan.generated }}"
     appended: "{{ code_config_plan.appended }}"
+    settings: "{{ code_config_plan.settings if code_config_settings | bool else omit }}"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_config_carried
   no_log: true

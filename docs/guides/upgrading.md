@@ -22,6 +22,10 @@ naming `just install`, while one differs. They live in the checkout's own folder
 - **This machine's auto memory** of each repository the VM has goes to the memory folder of its checkout there
   (`claude_memory_sync`), with a note of just code's own, `carried-by-just-code.md`, and a line indexing it at the end
   of `MEMORY.md`. A note already on the VM by the same name is left as it is and named.
+- **Your global instructions and portable settings** go to every VM `just code` opens
+  (`claude_instructions_sync`, `claude_settings_sync`): `~/.claude/CLAUDE.md`, `~/.claude/rules/`, and the settings of
+  [Your instructions and settings](vscode.md#your-instructions-and-settings), your permission rules among them. A
+  setting the VM already has otherwise is left as it is, and named.
 - **`claude_sessions_sync_max_size` counts what the VM lacks.** A session copied before counts what it grew by,
   not its whole size, so a long session already on a VM goes on being copied while it grows here by less than the
   bound between two copies.

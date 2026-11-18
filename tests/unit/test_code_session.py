@@ -651,7 +651,7 @@ LATER = " VS Code was not opened; to open it later: just code alpha"
 WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
 # Zed with the terminal and the sessions off, so the notes are all that goes into just code's own directory.
 # Every part of what is carried beside the sessions, off: then nothing of it goes into just code's own directory.
-CARRY_OFF = {"claude_memory_sync": False}
+CARRY_OFF = {"claude_memory_sync": False, "claude_instructions_sync": False, "claude_settings_sync": False}
 NOTES_ONLY = {
     "keep": [WS_CHECK],
     "in_deploy": False,
@@ -3072,6 +3072,18 @@ def _world(root: Path) -> dict:
     (folder / "memory").mkdir()
     (folder / "memory" / "MEMORY.md").write_text("- [Feedback](feedback.md) - how to work here\n")
     (folder / "memory" / "feedback.md").write_text(f"{MARKER}\n")
+    # The global instructions, and settings with what never leaves this machine among them.
+    (here / ".claude" / "CLAUDE.md").write_text("Be brief.\n")
+    (here / ".claude" / "settings.json").write_text(
+        json.dumps(
+            {
+                "model": "claude-opus-5-5",
+                "permissions": {"allow": ["Bash(just test:*)"], "additionalDirectories": ["/Users/me"]},
+                "env": {"ANTHROPIC_API_KEY": MARKER},
+                "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": MARKER}]}]},
+            }
+        )
+    )
     (folder / f"{SESSION_ID}.jsonl").write_bytes(_transcript(SESSION_ID, demo, here / ".claude", "feat/x"))
     (folder / f"{STUB_ID}.jsonl").write_bytes(
         _transcript(STUB_ID, demo, here / ".claude", "feat/x", conversation=False)
@@ -3371,7 +3383,10 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
         " claude there, /resume and then Ctrl+A lists them. With them, 1 subagent file copied now"
         " (claude_sessions_sync_subagents: false keeps them here). claude_sessions_sync: false turns the copying off."
         " The auto memory of octo/demo is in its folder on alpha (3 files written now). claude_memory_sync: false keeps"
-        " it here."
+        " it here. Your global instructions (CLAUDE.md) are on alpha (1 written now). claude_instructions_sync: false"
+        " keeps them here. Settings: 2 on alpha (model, permissions.allow written now). Left here: hooks (they run a"
+        " program; claude_settings_sync_keys carries them); env, permissions.additionalDirectories (never carried)."
+        " claude_settings_sync: false keeps them here."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
@@ -3394,6 +3409,19 @@ def test_the_repository_s_auto_memory_goes_to_the_vm_checkout_s_memory_folder_wi
     assert stat.S_IMODE(carried.stat().st_mode) == 0o700 and (carried / "manifest.json").exists()
     # The second run, nothing new here: nothing written (test_a_second_sync_of_unchanged_sessions_changes_nothing).
     assert "(0 files written now)" in handoffs["sync"]["second"]["opened"]
+
+
+def test_the_global_instructions_and_the_portable_settings_go_and_nothing_else_of_settings(handoffs):
+    world = handoffs["sync"]["world"]
+    claude = world["vm"] / ".claude"
+    assert (claude / "CLAUDE.md").read_text() == "Be brief.\n"
+    assert json.loads((claude / "settings.json").read_text()) == {
+        "model": "claude-opus-5-5",
+        "permissions": {"allow": ["Bash(just test:*)"]},
+    }
+    assert stat.S_IMODE((claude / "settings.json").stat().st_mode) == 0o600
+    second = handoffs["sync"]["second"]["opened"]
+    assert "Settings: 2 on alpha. " in second and "written now)" not in second.split("Settings:")[1]
 
 
 def test_the_auto_memory_goes_whether_or_not_the_sessions_do(handoffs):

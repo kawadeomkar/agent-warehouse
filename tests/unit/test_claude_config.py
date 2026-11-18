@@ -410,3 +410,236 @@ def test_an_emptied_memory_folder_removes_its_copies_and_writes_no_note(tmp_path
         dict(found, **{"-Users-me-demo-copy": MEMORY["-Users-me-demo"]}), [HERE_DEMO[0], other], THERE, HERE, DEST
     )
     assert [item["here"] for item in plan["folders"]] == ["-Users-me-demo-copy"]
+
+
+# ------------------------------------------------------------------------------ instructions and settings ---
+SETTINGS_HERE = {
+    "model": "claude-opus-5-5",
+    "effortLevel": "xhigh",
+    "theme": "dark",
+    "permissions": {"allow": ["Bash(just test:*)"], "defaultMode": "auto", "additionalDirectories": ["/Users/me/x"]},
+    "autoMode": {"allow": ["$defaults"], "environment": ["- trusted repo: octo/demo"]},
+    "env": {"ANTHROPIC_API_KEY": "SECRET-KEY-VALUE"},
+    "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "~/.claude/tools/x.sh"}]}]},
+    "apiKeyHelper": "~/bin/key",
+    "statusLine": {"type": "command", "command": "jq ."},
+    "somethingNew": 1,
+}
+
+
+def test_a_setting_never_carried_is_refused_by_name_and_one_that_runs_a_program_is_not():
+    assert core.claude_settings_refused(["env", "permissions", "statusLine", "hooks", "a b", "apiKeyHelper"]) == [
+        "a b",
+        "apiKeyHelper",
+        "env",
+        "permissions",
+    ]
+    asked = core.claude_settings_asked(["statusLine", "env"])
+    assert asked["keys"][-1] == "statusLine" and "env" not in asked["keys"]
+    assert asked["parts"] == {
+        "permissions": ["allow", "ask", "deny", "defaultMode"],
+        "autoMode": ["allow", "soft_deny"],
+    }
+
+
+def test_the_settings_carried_are_the_list_s_and_the_rest_is_said_by_why():
+    found = reader.settings_from(SETTINGS_HERE, core.claude_settings_asked())
+    plan = core.claude_settings_plan(found, managed=["autoUpdatesChannel", "env", "theme"])
+    assert plan["values"] == {
+        "model": "claude-opus-5-5",
+        "effortLevel": "xhigh",
+        "permissions.allow": ["Bash(just test:*)"],
+        "permissions.defaultMode": "auto",
+        "autoMode.allow": ["$defaults"],
+    }
+    assert "theme" not in plan["items"] and "permissions.deny" in plan["items"]
+    assert plan["left"] == {
+        "role": ["theme"],
+        "program": ["hooks", "statusLine"],
+        "never": ["apiKeyHelper", "autoMode.environment", "env", "permissions.additionalDirectories"],
+        "other": ["somethingNew"],
+    }
+    # claude_settings_sync_keys carries a program's setting; the role's own key is still the role's.
+    plan = core.claude_settings_plan(
+        reader.settings_from(SETTINGS_HERE, core.claude_settings_asked(["statusLine"])),
+        managed=["permissions"],
+        extra=["statusLine"],
+    )
+    assert plan["values"]["statusLine"] == {"type": "command", "command": "jq ."}
+    assert not any(item.startswith("permissions.") for item in plan["values"])
+    assert "permissions" in plan["left"]["role"]
+
+
+def test_the_reader_returns_a_value_only_where_it_was_asked_for(tmp_path, patch_module):
+    root = tmp_path / ".claude"
+    root.mkdir()
+    (root / "settings.json").write_text(json.dumps(SETTINGS_HERE))
+    result = run_main(reader.main, {"path": str(root), "settings": core.claude_settings_asked()})
+    assert "SECRET-KEY-VALUE" not in json.dumps(result) and "~/bin/key" not in json.dumps(result)
+    assert result["settings"]["values"]["model"] == "claude-opus-5-5"
+    assert "env" in result["settings"]["present"]
+    # A file that is no JSON object, or a link, is said so, and nothing of it is read.
+    (root / "settings.json").write_text("[1, 2]")
+    assert run_main(reader.main, {"path": str(root), "settings": core.claude_settings_asked()})["settings"] == {
+        "present": [],
+        "values": {},
+        "parts_left": [],
+        "unreadable": True,
+    }
+    (root / "settings.json").unlink()
+    (root / "settings.json").symlink_to(tmp_path / "elsewhere.json")
+    assert reader.settings(str(root), core.claude_settings_asked())["unreadable"] is True
+
+
+def test_the_global_instructions_and_rules_are_listed_with_the_imports_named(tmp_path):
+    root = tmp_path / ".claude"
+    _memory(
+        root,
+        {
+            "CLAUDE.md": b"Be brief. See @~/notes/style.md and @notes/x.md, not `@code`.\n",
+            "rules/python.md": b"x",
+            "rules/.hidden": b"y",
+        },
+    )
+    found, imports = reader.instructions(str(root))
+    assert [item["path"] for item in found] == ["CLAUDE.md", "rules/python.md"]
+    assert imports == ["~/notes/style.md", "notes/x.md"]
+    plan = core.claude_config_plan(
+        {"instructions": found, "imports": imports}, [], THERE, HERE, DEST, {"instructions": True}
+    )
+    assert plan["files"] == [
+        {"source": "CLAUDE.md", "target": "CLAUDE.md"},
+        {"source": "rules/python.md", "target": "rules/python.md"},
+    ]
+    assert plan["scopes"] == ["CLAUDE.md", "rules/"]
+    # claude_code_global_instructions makes CLAUDE.md the role's: never carried, never removed.
+    owned = core.claude_config_plan(
+        {"instructions": found}, [], THERE, HERE, DEST, {"instructions": True, "instructions_owned": True}
+    )
+    assert owned["files"] == [{"source": "rules/python.md", "target": "rules/python.md"}]
+    assert owned["scopes"] == ["rules/"] and owned["instructions"]["owned"]
+
+
+def test_the_writer_writes_claude_md_and_rules_and_no_other_file_at_the_top(tmp_path):
+    files = {"CLAUDE.md": b"Be brief.\n", "rules/a.md": b"a\n", "settings.json": b"{}"}
+    mirror, dest, manifest = _world(tmp_path, files)
+    items = [{"source": path, "target": path} for path in ("CLAUDE.md", "rules/a.md", "settings.json")]
+    result, _ = writer.carry(str(dest), str(mirror), str(manifest), ["CLAUDE.md", "rules/", "settings.json"], items)
+    assert result["written"] == ["CLAUDE.md", "rules/a.md"] and not (dest / "settings.json").exists()
+
+
+def test_a_settings_file_here_that_cannot_be_read_changes_nothing_there():
+    plan = core.claude_settings_plan({"unreadable": True}, extra=["hooks"])
+    assert plan["items"] == [] and plan["values"] == {} and plan["unreadable"]
+
+
+def test_a_program_s_setting_no_longer_named_is_an_item_with_no_value_so_it_goes_there():
+    found = reader.settings_from(SETTINGS_HERE, core.claude_settings_asked())
+    plan = core.claude_settings_plan(found)
+    assert {"hooks", "statusLine"} <= set(plan["items"])
+    assert "hooks" not in plan["values"] and "statusLine" not in plan["values"]
+    # Named, it is carried; the role's own key never an item.
+    plan = core.claude_settings_plan(found, managed=["hooks"], extra=["statusLine"])
+    assert "hooks" not in plan["items"] and plan["items"].count("statusLine") == 1
+
+
+def _settings(dest, values, items=None, recorded=None, check=False):
+    items = list(values) if items is None else items
+    return writer.carry_settings(str(dest), {"values": values, "items": items}, recorded or {}, check)
+
+
+def test_settings_are_set_key_by_key_and_every_other_key_of_the_file_is_kept(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    (dest / "settings.json").write_text(json.dumps({"autoUpdatesChannel": "stable", "permissions": {"ask": ["x"]}}))
+    result, copies, changed = _settings(dest, {"model": "opus", "permissions.allow": ["Bash(ls)"]})
+    assert changed and result["written"] == ["model", "permissions.allow"]
+    text = (dest / "settings.json").read_text()
+    assert json.loads(text) == {
+        "autoUpdatesChannel": "stable",
+        "permissions": {"ask": ["x"], "allow": ["Bash(ls)"]},
+        "model": "opus",
+    }
+    assert text.startswith('{\n  "autoUpdatesChannel"') and text.endswith("}\n")
+    assert stat.S_IMODE((dest / "settings.json").stat().st_mode) == 0o600
+    values = {"model": "opus", "permissions.allow": ["Bash(ls)"]}
+    again, copies_again, changed = _settings(dest, values, recorded=copies)
+    assert not changed and again["written"] == [] and copies_again == copies
+
+
+def test_a_setting_changed_on_the_vm_is_left_and_one_gone_here_is_removed_while_as_carried(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    _, copies, _ = _settings(dest, {"model": "opus", "theme": "dark", "permissions.allow": ["a"]})
+    data = json.loads((dest / "settings.json").read_text())
+    data["model"] = "sonnet"  # /model on the VM
+    (dest / "settings.json").write_text(json.dumps(data))
+    items = ["model", "theme", "permissions.allow"]
+    result, copies, _ = _settings(dest, {"model": "fable"}, items=items, recorded=copies)
+    assert result["left"] == ["model"] and sorted(result["removed"]) == ["permissions.allow", "theme"]
+    assert json.loads((dest / "settings.json").read_text()) == {"model": "sonnet"}
+    # The one left keeps its record: were the VM's value to come back to what was carried, it is carried again.
+    assert list(copies) == ["model"]
+
+
+def test_a_program_s_setting_taken_out_of_the_list_is_removed_while_as_carried_and_left_once_changed(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    hook = {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}
+    _, copies, _ = _settings(dest, {"hooks": hook, "statusLine": {"type": "command", "command": "jq ."}})
+    data = json.loads((dest / "settings.json").read_text())
+    data["statusLine"] = {"type": "command", "command": "made on the VM"}
+    (dest / "settings.json").write_text(json.dumps(data))
+    result, copies, _ = _settings(dest, {}, items=["hooks", "statusLine"], recorded=copies)
+    assert result["removed"] == ["hooks"] and result["left"] == []
+    assert json.loads((dest / "settings.json").read_text()) == {"statusLine": data["statusLine"]}
+
+
+def test_the_settings_are_written_as_the_role_writes_them_so_its_next_configure_changes_nothing(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    (dest / "settings.json").write_text(json.dumps({"theme": "dark", "attribution": {"pr": "made with \u2728"}}))
+    _settings(dest, {"model": "opus", "modelSettings": {"z": 1, "a": "\u00e9"}})
+    text = (dest / "settings.json").read_text()
+    data = json.loads(text)
+    # to_nice_json(indent=2): sorted keys, ASCII escapes, ", " and ": ", then the role's newline.
+    assert text == json.dumps(data, indent=2, sort_keys=True, separators=(",", ": "), ensure_ascii=True) + "\n"
+    assert text.isascii() and data["attribution"]["pr"] == "made with \u2728"
+
+
+def test_a_lone_surrogate_in_a_value_is_carried_never_the_module_s_end(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    lone = json.loads('"split \\ud83d emoji"')
+    result, _, changed = _settings(dest, {"model": lone})
+    assert changed and result["written"] == ["model"]
+    assert json.loads((dest / "settings.json").read_text())["model"] == lone
+
+
+def test_a_settings_file_that_is_no_object_or_a_link_is_left_whole(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    (dest / "settings.json").write_text("[]")
+    result, _, changed = _settings(dest, {"model": "opus"})
+    assert result["unreadable"] and not changed and (dest / "settings.json").read_text() == "[]"
+    (dest / "settings.json").unlink()
+    (dest / "settings.json").symlink_to(tmp_path / "target.json")
+    result, _, _ = _settings(dest, {"model": "opus"})
+    assert result["unreadable"] and not (tmp_path / "target.json").exists()
+
+
+def test_the_settings_record_is_kept_beside_the_files_in_the_manifest(tmp_path):
+    mirror, dest, manifest = _world(tmp_path, SOURCES)
+    settings = {"values": {"model": "opus"}, "items": ["model"]}
+    result, changed = _carry(mirror, dest, manifest, SOURCES, settings=settings)
+    assert changed and result["settings"]["written"] == ["model"]
+    recorded = json.loads(manifest.read_text())
+    assert list(recorded["settings"]) == ["model"] and len(recorded["files"]) == 2
+    again, changed = _carry(mirror, dest, manifest, SOURCES, settings=settings)
+    assert not changed and again["settings"]["written"] == []
+
+
+def test_check_mode_sets_no_setting(tmp_path):
+    dest = tmp_path / ".claude"
+    result, _, changed = _settings(dest, {"model": "opus"}, check=True)
+    assert changed and result["written"] == ["model"] and not dest.exists()

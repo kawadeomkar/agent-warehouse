@@ -555,11 +555,15 @@ longer asked for leave the mirror. Check mode writes nothing.
 sessions, by name, size and SHA-256, never what a file holds: with `memory`, each folder under `projects/` whose
 `memory/` holds a file, to its files - plain files only, never through a link, no name with a dot first or a control
 character, at most 4 folders deep, and a folder past 1000 files or 16 MB left whole and named in `memory_over`; with
-`repo_paths`, `githubRepoPaths`, read by the one function `claude_sessions_info` reads it by. Run here.
+`repo_paths`, `githubRepoPaths`, read by the one function `claude_sessions_info` reads it by; with `instructions`,
+`CLAUDE.md` and the files of `rules/`, and the paths `CLAUDE.md` imports with `@`, by name; with `settings`, the
+names at the top of `settings.json` and the values of the settings asked for alone, each part of a key read part by
+part by its own name, and the parts not asked for by name. Run here, under `no_log`.
 
 **`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
 from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
-run's `scopes`, each of a form the module knows (a project's `memory/` folder), by the copy's rule under a manifest of
+run's `scopes`, each of a form the module knows (a project's `memory/` folder, `CLAUDE.md`, `rules/`), by the copy's
+rule under a manifest of
 its own (`claude-config/manifest.json`): written where there is none or where it is still what the last run wrote,
 left where it differs, and once it is no longer asked for under a scope of this run, removed while it is still as
 written. `appended` adds a line to a file as it is written, once. No link is followed on the way to a file or in its
@@ -567,7 +571,10 @@ place; files are 0600 and folders made 0700, each file written through one besid
 each, an item recorded only once it is written; an item whose write or removal fails is named in `not_written` and the rest
 go on, and the task never fails the run; a file planned that rsync did not bring is never removed; where the mirror or
 the manifest's folder is a link, nothing is read or written (`refused`). Check mode writes nothing, and nothing of a
-file is returned. Sources that are no longer asked for leave the mirror.
+file is returned. Sources that are no longer asked for leave the mirror. With `settings` (under `no_log`), each
+settings item by the same rule in `settings.json`, its digest in the manifest's `settings` record: every other key
+kept, the file replaced through one beside it as two-space JSON, 0600, and a file that is a link or no JSON object
+left whole.
 
 **`lib/claude_vm/claude_config.py`** — the decision for both, pure as `sessions.py` is.
 **`claude_memory_plan(memory, here, there, here_dir, dest, note)`** pairs each repository the VM has a checkout of -
@@ -577,7 +584,14 @@ origin names it, Claude Code's folder for that checkout's top level, and of two 
 scopes, and the note **`memory_note`** writes, where the other machine's checkout and memory folder are on the VM,
 with `NOTE_LINE` to append to `MEMORY.md`. The checkouts here are those **`claude_config_paths(repo_paths, there,
 more)`** names: the paths `githubRepoPaths` lists for the VM's repositories, then the copied sessions' first
-directories. **`claude_config_rsync(plan)`** is rsync's list.
+directories. **`claude_config_rsync(plan)`** is rsync's list. **`claude_settings_plan(found, managed, extra)`**
+carries the settings of `SETTINGS`, the parts of `SETTINGS_PARTS` and `extra` (`claude_settings_sync_keys`), never one
+the role manages (`managed`) and never one of `SETTINGS_NEVER`, a program's setting `extra` does not name an item
+with no value, and no item at all where the file here could not be read; and names what stays and why (`role`,
+`program`, `never`, `other`); **`claude_settings_asked`** is what the reader reads values of, and **`claude_settings_refused`**
+the names of `extra` never carried, which the read task refuses first. **`claude_config_plan(here, here_checkouts,
+there, here_dir, dest, options)`** is the one entry point: the parts its options turn on, as one plan for the
+writer.
 
 **`claude_sessions_fetch`** — run on the controller, for `just destroy`'s save: `tar -cf - -T -` on the
 VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, with `BatchMode`; none

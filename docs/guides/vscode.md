@@ -402,6 +402,26 @@ is still as copied. Beside them goes one note of just code's own, `carried-by-ju
 end of `MEMORY.md`: where this machine's checkout and memory folder are on the VM, since the notes and the copied
 sessions name this machine's paths. `claude_memory_sync: false` keeps the notes here.
 
+### Your instructions and settings
+
+Your global instructions, `~/.claude/CLAUDE.md`, and the files of `~/.claude/rules/` go to the VM's
+(`claude_instructions_sync`), so Claude there follows what Claude here does - unless
+`claude_code_global_instructions` writes the VM's `CLAUDE.md`, which then stays the role's. What `CLAUDE.md` imports
+with `@path` stays here, and the run names it.
+
+So do the settings that mean the same on any machine (`claude_settings_sync`): the model, effort and preferences
+(`model`, `modelSettings`, `effortLevel`, `theme` and the like), what commits made there say of Claude
+(`attribution`), your permission rules and mode (`permissions.allow`, `ask`, `deny`, `defaultMode`), and auto mode's
+rules (`autoMode.allow`, `soft_deny`). Each is set in the VM's `~/.claude/settings.json` beside what is there, by the
+same rule as a note: one changed on the VM - `/model` there writes `model` - is never overwritten. Never: `env` and
+every other setting that holds or makes a credential, this machine's folders (`permissions.additionalDirectories`),
+`autoMode.environment`, which describes this machine to auto mode, plugins (their own step), MCP trust, and a key the
+`claude_code` role writes - `claude_code_settings`' own, the update channel. `hooks`, `statusLine` and
+`fileSuggestion` run a program, here one of this machine's, so they stay too unless `claude_settings_sync_keys` names
+them, and one taken out of that list goes from the VM while it is still as carried; a setting just code does not know
+stays and is named. The run says what stayed, and why. While this machine's `settings.json` is no JSON object just
+code can read, nothing of the VM's changes.
+
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of

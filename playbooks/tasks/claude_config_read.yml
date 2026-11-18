@@ -2,22 +2,42 @@
 # The reads of what just code carries of this machine's Claude Code beside the
 # sessions, imported by code.yml's window step after the session handoff's
 # (tasks/session_read.yml), once the VM answers (docs/architecture/lifecycle.md
-# §4.9): the auto memory of each repository the VM has a checkout of. They
+# §4.9): the auto memory of each repository the VM has a checkout of, the
+# global instructions and the portable settings. They
 # decide what goes where; nothing is written anywhere.
 # tasks/claude_config_write.yml does that, after every refusal just code has.
 #
 # claude_config_info returns names, sizes and digests, never what a file
-# holds.
+# holds, but the values of the settings asked for: the read is no_log, as is
+# the plan that holds them.
 #
 # Inputs: code.yml's play vars code_config_on (any part on), code_config_memory
 # (claude_memory_sync), code_session_here and code_session_there (Claude Code's
 # directory on this machine and on the VM) and code_projects_dir; the session
 # handoff's reads where it ran. Sets code_config_plan.
 
+# A setting claude_settings_sync_keys names that just code never carries is
+# refused before anything is read: a credential, what makes one, this
+# machine's paths, what the role owns.
+- name: claude_config_read | Refuse a setting to carry that is never carried
+  vars:
+    code_config_refused: "{{ code_config_extra | claude_settings_refused }}"
+  ansible.builtin.assert:
+    that: code_config_refused | length == 0
+    fail_msg: >-
+      claude_settings_sync_keys names {{ code_config_refused | join(', ') | plain_text }}, which just code never carries
+      to a VM: a credential or what makes one, this machine's paths, what the claude_code role or the session copy
+      owns, plugins and MCP trust. Take it out; for a setting of your own on every VM, claude_code_settings sets it.
+    quiet: true
+  when: code_config_settings | bool
+
+# no_log: the values of the settings asked for come back.
 - name: claude_config_read | Read this machine's Claude Code configuration
   claude_config_info:
     path: "{{ code_session_here }}"
     memory: "{{ code_config_memory | bool }}"
+    instructions: "{{ code_config_instructions | bool }}"
+    settings: "{{ code_config_extra | claude_settings_asked if code_config_settings | bool else omit }}"
     repo_paths: true
   register: code_config_here
   no_log: true
@@ -49,5 +69,11 @@
     code_config_plan: >-
       {{ code_config_here
          | claude_config_plan(code_config_checkouts_here.checkouts | default([]), code_config_vm_checkouts,
-                              code_session_here, code_session_there, {'memory': code_config_memory | bool}) }}
+                              code_session_here, code_session_there,
+                              {'memory': code_config_memory | bool,
+                               'instructions': code_config_instructions | bool,
+                               'instructions_owned': code_config_instructions_owned | bool,
+                               'settings': code_config_settings | bool,
+                               'managed': code_config_managed, 'extra': code_config_extra}) }}
+  no_log: true
   when: code_config_on | bool

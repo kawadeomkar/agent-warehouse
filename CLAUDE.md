@@ -573,7 +573,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Beside the sessions it carries the rest of this machine's Claude Code, each part behind a setting of its own
       and on by default (`tasks/claude_config_read.yml`, `claude_config_write.yml`): the auto memory of each
       repository the VM has, matched by origin as the sessions are, into that checkout's memory folder there
-      (`claude_memory_sync`), with one generated note of fixed text and paths, `carried-by-just-code.md`. One
+      (`claude_memory_sync`), with one generated note of fixed text and paths, `carried-by-just-code.md`; the global
+      instructions and `rules/` (`claude_instructions_sync`), never over `claude_code_global_instructions`; and the
+      settings of an allowlist (`claude_settings_sync`, `SETTINGS` in `lib/claude_vm/claude_config.py`), never a
+      key the `claude_code` role writes and never one of `SETTINGS_NEVER` - `env` above all, which would put an API
+      key over the claude.ai login - whatever `claude_settings_sync_keys` says, which is refused first. One
       writer, `claude_config_carry`, writes it all under `~/.claude` on the VM, only under scopes of a form it
       knows, never through a link, by the copy's rule under a manifest of its own in `claude-config/`: written
       where there is none or still as written, left where the VM changed it, removed once gone here while still

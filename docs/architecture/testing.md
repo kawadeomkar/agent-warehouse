@@ -357,7 +357,10 @@ pytest over `tests/unit/`, file by file:
   on the VM, two folders here of one repository left, a name the writer would refuse never planned, the note and its
   index line - the reader by names and digests alone, no link followed, a folder past its bound left whole, and the
   writer's rule: written, left as the VM changed it, removed once gone here while still as written, never outside its
-  scopes or through a link, nothing of a file returned.
+  scopes or through a link, nothing of a file returned; the settings by allowlist, every tier-0 key planted and
+  never carried, a key the role writes left, a value read only where it was asked for, set key by key in a file
+  whose other keys stay, left once changed on the VM, removed once gone here, a file that is no object left whole;
+  `CLAUDE.md` and `rules/`, and `CLAUDE.md` never where the role writes it.
 - **The session handoff** (`test_session_handoff.py`): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their

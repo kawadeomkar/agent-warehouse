@@ -13,7 +13,8 @@ version_added: "2.8.0"
 description:
   - Lists, in a Claude Code configuration directory, what just code carries to a VM beside the sessions
     (docs/architecture/custom-code.md §7.6), by name, size and SHA-256: each auto memory folder, with the files it
-    holds (none, where it was emptied). Nothing of a file's content is returned.
+    holds (none, where it was emptied), and the global instructions with their rules. Nothing of a file's content
+    is returned but the values of the settings asked for, and the import paths C(CLAUDE.md) names.
   - Plain files only, never through a link, no name that starts with a dot or holds a control character, at
     most 4 folders deep. A memory folder past its bound is named in C(memory_over) and its files left out.
   - Read-only. just code runs it on this machine (playbooks/tasks/claude_config_read.yml).
@@ -26,6 +27,15 @@ options:
     description: Return the auto memory folders under C(projects/) that hold a file.
     type: bool
     default: false
+  instructions:
+    description: Return C(CLAUDE.md) and the files under C(rules/), and the files C(CLAUDE.md) imports by C(@path).
+    type: bool
+    default: false
+  settings:
+    description:
+      - The settings of C(settings.json) to return the values of, C(keys) at its top level and C(parts), a key to
+        its parts read one by one. Of every other setting only its name is returned. Run under no_log.
+    type: dict
   repo_paths:
     description:
       - Also return C(githubRepoPaths) from Claude Code's C(.claude.json), the one in O(path) or the one beside
@@ -55,12 +65,30 @@ memory_over:
   returned: always
   type: list
   elements: str
+instructions:
+  description: C(CLAUDE.md) and each file under C(rules/), by path, size and digest; [] without O(instructions).
+  returned: always
+  type: list
+  elements: dict
+imports:
+  description: The paths C(CLAUDE.md) imports by C(@path), at most 20; just code carries none of them.
+  returned: always
+  type: list
+  elements: str
+settings:
+  description:
+    - With O(settings), C(present), the names at the top level of C(settings.json); C(values), each setting asked for
+      that is there, by its name (a part as C(<key>.<part>)), to its value; C(parts_left), the parts of the keys
+      read part by part that were not asked for; and C(unreadable) where the file is not a JSON object. {} without.
+  returned: always
+  type: dict
 repo_paths:
   description: githubRepoPaths, owner/repo to the local paths Claude Code has seen it in; {} without O(repo_paths).
   returned: always
   type: dict
 """
 
+import json
 import os
 import re
 from stat import S_ISDIR, S_ISREG
@@ -70,6 +98,8 @@ from ansible.module_utils.basic import AnsibleModule
 
 # A name just code carries: no dot first (no .DS_Store, no editor's swap file), no control character, no "/".
 NAME = re.compile(r"[^.\x00-\x1f\x7f/][^\x00-\x1f\x7f/]{0,254}")
+# An import in CLAUDE.md, @ and a path, as Claude Code reads them: named in what just code says, never carried.
+IMPORT = re.compile(r"(?<![\w`@])@(~?[\w./-]{1,200})")
 # How deep below a carried folder a file may be.
 DEPTH = 4
 # A memory folder carried whole or not at all: Claude Code loads 200 lines or 25 KB of its MEMORY.md and reads the
@@ -128,21 +158,86 @@ def memory_folders(path):
     return found, over
 
 
+def instructions(path):
+    """(CLAUDE.md and the files under rules/, [the paths CLAUDE.md imports by @path])."""
+    found, imports = [], []
+    claude_md = os.path.join(path, "CLAUDE.md")
+    if os.path.isfile(claude_md) and not os.path.islink(claude_md):
+        found.append({"path": "CLAUDE.md", "size": os.lstat(claude_md).st_size, "digest": file_digest(claude_md)})
+        try:
+            with open(claude_md, encoding="utf-8", errors="replace") as handle:
+                imports = list(dict.fromkeys(IMPORT.findall(handle.read())))[:20]
+        except OSError:
+            imports = []
+    rules = os.path.join(path, "rules")
+    if os.path.isdir(rules) and not os.path.islink(rules):
+        found += [dict(item, path=f"rules/{item['path']}") for item in plain_files(rules)]
+    return found, imports
+
+
+def settings(path, asked):
+    """What of ``path``/settings.json ``asked`` names (keys, parts): the names at its top level, the values asked
+    for, the parts of a key read part by part that were not asked for."""
+    target = os.path.join(path, "settings.json")
+    if not os.path.lexists(target):
+        return {"present": [], "values": {}, "parts_left": [], "unreadable": False}
+    try:
+        if os.path.islink(target):
+            raise ValueError("a link")
+        with open(target, encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict):
+            raise ValueError("not an object")
+    except (OSError, ValueError):
+        return {"present": [], "values": {}, "parts_left": [], "unreadable": True}
+    return settings_from(data, asked)
+
+
+def settings_from(data, asked):
+    """What of settings ``data``, a JSON object, ``asked`` names: as settings() returns it."""
+    keys, parts = [str(key) for key in asked.get("keys") or []], asked.get("parts") or {}
+    values, left = {}, []
+    for key in keys:
+        if key in data and key not in parts:
+            values[key] = data[key]
+    for key, wanted in parts.items():
+        found = data.get(key)
+        if not isinstance(found, dict):
+            continue
+        for part, value in found.items():
+            if part in wanted:
+                values[f"{key}.{part}"] = value
+            else:
+                left.append(f"{key}.{part}")
+    return {
+        "present": sorted(str(key) for key in data),
+        "values": values,
+        "parts_left": sorted(left),
+        "unreadable": False,
+    }
+
+
 def main():
     module = AnsibleModule(
         argument_spec={
             "path": {"type": "path", "required": True},
             "memory": {"type": "bool", "default": False},
+            "instructions": {"type": "bool", "default": False},
+            "settings": {"type": "dict"},
             "repo_paths": {"type": "bool", "default": False},
         },
         supports_check_mode=True,
     )
     params = module.params
     memory, over = memory_folders(params["path"]) if params["memory"] else ({}, [])
+    found, imports = instructions(params["path"]) if params["instructions"] else ([], [])
     module.exit_json(
         changed=False,
         memory=memory,
         memory_over=over,
+        instructions=found,
+        imports=imports,
+        settings=settings(params["path"], params["settings"]) if params["settings"] else {},
         repo_paths=github_repo_paths(params["path"]) if params["repo_paths"] else {},
     )
 

@@ -1145,6 +1145,17 @@ Claude Code's own Agent SDK documents. The rules:
   first directory; two such folders that hold notes are both left. One generated note, `carried-by-just-code.md`,
   indexed by a line appended to `MEMORY.md` as it is copied, says where this machine's checkout and memory folder
   are on the VM.
+- **Instructions and settings beside them**, by the same writer and rule: `CLAUDE.md` and `rules/`
+  (`claude_instructions_sync`), unless `claude_code_global_instructions` makes `CLAUDE.md` the role's, and the
+  settings of an allowlist (`claude_settings_sync`), each key, or each part of `permissions` and `autoMode`, an item
+  of its own in the VM's `settings.json`, recorded in the same manifest. Never a key the `claude_code` role writes,
+  since it merges over the file at every configure, and never one of tier 0 - `env` above all, where an
+  `ANTHROPIC_API_KEY` would outrank the claude.ai login and end Remote Control; a program's setting only where
+  `claude_settings_sync_keys` names it, and that list refused, before anything is read, a setting never carried.
+  Their values travel as the writer's arguments, under `no_log`, never as a file. A program's setting the list no
+  longer names is an item with no value, so it goes from the VM while still as carried; a file here that cannot be
+  read makes no item at all, so nothing there is removed for seeming gone. The file is written as the role writes
+  it (`to_nice_json(indent=2)`: sorted, ASCII), so the next configure finds it unchanged.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

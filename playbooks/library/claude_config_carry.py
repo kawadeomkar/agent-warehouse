@@ -18,6 +18,10 @@ description:
     as it is and named. A file the manifest records under one of O(scopes) that is no longer asked for is removed
     while it is still as written.
   - O(appended) adds a line to a file as it is written, once, where the file does not hold it already.
+  - O(settings) sets keys of C(settings.json) under O(dest) by the same rule, each key - or each part of a key carried
+    part by part, C(<key>.<part>) - an item of its own, its digest recorded in the manifest's C(settings) record.
+    Every other key of the file is kept as it is; the file is replaced through one beside it, 0600, written as
+    Claude Code writes it, two-space JSON. A file that is a link or no JSON object is left whole, and said.
   - Every path is relative to O(dest), under one of O(scopes), each of a form just code carries; no link is
     followed, on the way to a file or in its place. Files are 0600, folders made 0700, each written through a
     file beside it.
@@ -76,6 +80,12 @@ options:
     description: A line to add to a file of O(files) as it is written, by its path under O(dest).
     type: dict
     default: {}
+  settings:
+    description:
+      - C(values), each settings item to carry to its value, and C(items), every item this run manages, so that one
+        gone here is removed there while it is still as carried. Run under the task's no_log, never the option's:
+        Ansible would blank each of its strings wherever it stands in the result, a setting's name among them.
+    type: dict
   prune:
     description: Remove from O(mirror) every file that is no source of O(files).
     type: bool
@@ -130,6 +140,12 @@ refused:
   description: Whether nothing was written because the mirror or the manifest's folder is a link.
   returned: always
   type: bool
+settings:
+  description:
+    - The settings items written, left as the VM changed them, and removed; C(unreadable) where C(settings.json) is a
+      link or no JSON object, and nothing of it was changed. Names only, never a value.
+  returned: always
+  type: dict
 """
 
 import hashlib
@@ -145,27 +161,37 @@ from ansible.module_utils.basic import AnsibleModule
 FORMAT = 1
 # The folders this module may manage, each a path under ~/.claude ending in "/": a project's auto memory folder,
 # as Claude Code names the folder of a path.
-SCOPES = (re.compile(r"projects/-[A-Za-z0-9-]{1,200}/memory/"),)
+SCOPES = (
+    re.compile(r"projects/-[A-Za-z0-9-]{1,200}/memory/"),
+    # The global instructions, a file of its own, and the folder of rules beside them.
+    re.compile(r"CLAUDE\.md"),
+    re.compile(r"rules/"),
+)
 # One component of a path under a scope: no dot first, no control character.
 _PART = re.compile(r"[^./\x00-\x1f\x7f][^/\x00-\x1f\x7f]{0,254}")
 # How deep below its scope a file may be.
 DEPTH = 5
 
 
-def read_manifest(path):
-    """{path under dest: digest} of what the last run wrote, or {}."""
+def read_manifest(path, part="files"):
+    """{path under dest: digest} of what the last run wrote, or {}; ``settings``, {item: digest} of the settings."""
     try:
         with open(path, encoding="utf-8") as handle:
             found = json.load(handle)
     except (OSError, ValueError):
         return {}
-    files = found.get("files") if isinstance(found, dict) and found.get("format") == FORMAT else None
+    files = found.get(part) if isinstance(found, dict) and found.get("format") == FORMAT else None
     return {str(key): str(value) for key, value in files.items()} if isinstance(files, dict) else {}
 
 
 def scope_of(path, scopes):
-    """The scope ``path`` is under, or "" when it is under none or not a path this module writes."""
+    """The scope ``path`` is under, or "" when it is under none or not a path this module writes. A scope that does not
+    end in "/" is one file, and only that path is under it."""
     for scope in scopes:
+        if not scope.endswith("/"):
+            if path == scope:
+                return scope
+            continue
         rest = path[len(scope) :] if path.startswith(scope) else ""
         parts = rest.split("/") if rest else []
         if parts and len(parts) <= DEPTH and all(_PART.fullmatch(part) for part in parts):
@@ -232,10 +258,97 @@ def _write(path, data, mode=0o600):
         raise
 
 
-def _save_manifest(manifest, files, created):
+def _save_manifest(manifest, files, created, settings=None):
     _directory(os.path.dirname(manifest), created)
-    text = json.dumps({"format": FORMAT, "files": files}, indent=2, sort_keys=True) + "\n"
+    record = {"format": FORMAT, "files": files, "settings": settings or {}}
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
     _write(manifest, text.encode("utf-8"))
+
+
+_MISSING = object()
+
+
+def _get(data, item):
+    """The value of settings ``item`` in ``data``, a key or a part as ``<key>.<part>``; _MISSING where none is."""
+    key, _, part = item.partition(".")
+    value = data.get(key, _MISSING)
+    if not part:
+        return value
+    return value.get(part, _MISSING) if isinstance(value, dict) else _MISSING
+
+
+def _set(data, item, value):
+    key, _, part = item.partition(".")
+    if not part:
+        data[key] = value
+        return
+    if not isinstance(data.get(key), dict):
+        data[key] = {}
+    data[key][part] = value
+
+
+def _unset(data, item):
+    key, _, part = item.partition(".")
+    if not part:
+        data.pop(key, None)
+        return
+    if isinstance(data.get(key), dict):
+        data[key].pop(part, None)
+        if not data[key]:
+            data.pop(key)
+
+
+def _value_digest(value):
+    # surrogatepass: a lone surrogate a JSON escape made is still a value to digest, never the module's end.
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return _digest(text.encode("utf-8", "surrogatepass"))
+
+
+def carry_settings(dest, settings, recorded, check):
+    """Set the settings items of ``settings`` (values, items) in ``dest``/settings.json by the rule; return (result,
+    the manifest's settings record after it, changed)."""
+    result = {"written": [], "left": [], "removed": [], "unreadable": False}
+    copies, changed = dict(recorded), False
+    values = settings.get("values") or {}
+    items = [str(item) for item in settings.get("items") or []]
+    path = os.path.join(dest, "settings.json")
+    data = {}
+    if os.path.lexists(path):
+        try:
+            if os.path.islink(path):
+                raise ValueError("a link")
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+            if not isinstance(data, dict):
+                raise ValueError("not an object")
+        except (OSError, ValueError):
+            result["unreadable"] = True
+            return result, copies, False
+    for item in items:
+        current = _get(data, item)
+        current = None if current is _MISSING else _value_digest(current)
+        if item in values:
+            digest = _value_digest(values[item])
+            action = classify(current, recorded.get(item), digest)
+            if action == "left":
+                result["left"].append(item)
+                continue
+            copies[item] = digest
+            if action == "write":
+                result["written"].append(item)
+                _set(data, item, values[item])
+                changed = True
+        elif item in recorded:
+            copies.pop(item)
+            if current is not None and current == recorded[item]:
+                result["removed"].append(item)
+                _unset(data, item)
+                changed = True
+    if changed and not check:
+        _directory(dest, [])
+        # As the claude_code role writes it (to_nice_json(indent=2)), so its next configure finds it unchanged.
+        _write(path, (json.dumps(data, indent=2, sort_keys=True, separators=(",", ": ")) + "\n").encode("ascii"))
+    return result, copies, changed
 
 
 def _with_line(data, line):
@@ -268,12 +381,15 @@ def _prune(mirror, keep, check):
     return removed
 
 
-def carry(dest, mirror, manifest, scopes, files=(), generated=(), appended=None, prune=True, check=False):
-    """Write every item; return the result and whether anything changed."""
+def carry(
+    dest, mirror, manifest, scopes, files=(), generated=(), appended=None, prune=True, check=False, settings=None
+):
+    """Write every item, and with ``settings`` the settings; return the result and whether anything changed."""
     appended = appended or {}
     scopes = [scope for scope in scopes if any(form.fullmatch(scope) for form in SCOPES)]
-    recorded = read_manifest(manifest)
+    recorded, recorded_settings = read_manifest(manifest), read_manifest(manifest, "settings")
     copies, saved = dict(recorded), dict(recorded)
+    settings_copies = dict(recorded_settings)
     result = {
         "written": [],
         "unchanged": 0,
@@ -282,6 +398,7 @@ def carry(dest, mirror, manifest, scopes, files=(), generated=(), appended=None,
         "unreadable": [],
         "not_written": [],
         "refused": False,
+        "settings": {"written": [], "left": [], "removed": [], "unreadable": False},
     }
     created, changed = [], False
     # just code's own folders on the VM, which only the VM could have made links: then nothing is read or written.
@@ -334,7 +451,7 @@ def carry(dest, mirror, manifest, scopes, files=(), generated=(), appended=None,
             # as changed on the VM for good.
             copies[target] = digest
             if copies != saved and not check:
-                _save_manifest(manifest, copies, created)
+                _save_manifest(manifest, copies, created, settings_copies)
                 saved = dict(copies)
         # Gone here: removed while still as written. A file planned that rsync did not bring is not gone here.
         for target in sorted(recorded):
@@ -351,10 +468,17 @@ def carry(dest, mirror, manifest, scopes, files=(), generated=(), appended=None,
                 result["removed"].append(target)
                 changed = True
             copies.pop(target, None)
+        if settings is not None:
+            try:
+                result["settings"], settings_copies, moved = carry_settings(dest, settings, recorded_settings, check)
+            except (OSError, ValueError):
+                result["not_written"].append("settings.json")
+                moved = False
+            changed = moved or changed
     finally:
-        if copies != saved and not check:
-            _save_manifest(manifest, copies, created)
-    if copies != recorded:
+        if (copies != saved or settings_copies != recorded_settings) and not check:
+            _save_manifest(manifest, copies, created, settings_copies)
+    if copies != recorded or settings_copies != recorded_settings:
         changed = True
     if prune and os.path.isdir(mirror):
         keep = {os.path.normpath(str(item["source"])) for item in files}
@@ -382,6 +506,7 @@ def main():
                 "options": {"target": {"type": "str", "required": True}, "content": {"type": "str", "required": True}},
             },
             "appended": {"type": "dict", "default": {}},
+            "settings": {"type": "dict"},
             "prune": {"type": "bool", "default": True},
         },
         supports_check_mode=True,
@@ -397,6 +522,7 @@ def main():
         params["appended"],
         params["prune"],
         module.check_mode,
+        params["settings"],
     )
     module.exit_json(changed=changed, **result)
 

@@ -18,6 +18,66 @@ NOTE = "carried-by-just-code.md"
 NOTE_LINE = (
     f"- [Carried by just code]({NOTE}) - where the paths of the machine these notes were copied from are on this VM"
 )
+# The settings carried by default: the model and effort the person works at, preferences - a name, a level, a switch
+# that names no path and runs nothing - and what commits made there say of Claude. Each is an item of its own.
+SETTINGS = (
+    "model",
+    "modelSettings",
+    "effortLevel",
+    "alwaysThinkingEnabled",
+    "outputStyle",
+    "language",
+    "theme",
+    "switchModelsOnFlag",
+    "skipWorkflowUsageWarning",
+    "agentPushNotifEnabled",
+    "syncClaudeAiSkills",
+    "autoMemoryEnabled",
+    "attribution",
+    "includeCoAuthoredBy",
+)
+# Settings carried part by part, each part an item of its own: the person's permission policy and auto mode's rules.
+# The rest of each stays here: permissions.additionalDirectories names this machine's folders, and
+# autoMode.environment describes this machine's environment to auto mode's classifier.
+SETTINGS_PARTS = {"permissions": ("allow", "ask", "deny", "defaultMode"), "autoMode": ("allow", "soft_deny")}
+# Left unless claude_settings_sync_keys names them: each runs a program, which here names this machine's own.
+SETTINGS_PROGRAMS = ("hooks", "statusLine", "fileSuggestion")
+# Never, whatever claude_settings_sync_keys says: a credential or what makes one (env above all: an ANTHROPIC_API_KEY
+# there outranks the claude.ai login and ends Remote Control), this machine's paths, what the claude_code role or the
+# copy owns, plugins (installed by their own step), MCP trust, and a safety question.
+SETTINGS_NEVER = frozenset(
+    {
+        "env",
+        "apiKeyHelper",
+        "awsAuthRefresh",
+        "awsCredentialExport",
+        "gcpAuthRefresh",
+        "otelHeadersHelper",
+        "pluginConfigs",
+        "sandbox",
+        "sshHostCommands",
+        "forceLoginMethod",
+        "forceLoginOrgUUID",
+        "autoMemoryDirectory",
+        "plansDirectory",
+        "autoUpdatesChannel",
+        "cleanupPeriodDays",
+        "remoteControlAtStartup",
+        "enabledPlugins",
+        "extraKnownMarketplaces",
+        "enableAllProjectMcpServers",
+        "enabledMcpjsonServers",
+        "disabledMcpjsonServers",
+        "allowedMcpServers",
+        "deniedMcpServers",
+        "skipDangerousModePermissionPrompt",
+    }
+)
+# A settings key as Claude Code names them.
+_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+# The global instructions, and the folder of rules beside them.
+INSTRUCTIONS = "CLAUDE.md"
+RULES = "rules/"
 # A path the note may name: absolute, and nothing that would end the Markdown code span it is set in or a line.
 _NOTE_PATH = re.compile(r"/[^`\x00-\x1f\x7f]{0,1023}")
 # A memory file's path under its folder, as claude_config_info lists them: components with no dot first and no
@@ -152,16 +212,91 @@ def claude_memory_plan(memory, here, there, here_dir, dest, note=True):
     return plan
 
 
+def claude_settings_refused(extra):
+    """The names of ``extra`` (claude_settings_sync_keys) just code never carries, sorted: a tier-0 setting, one
+    carried part by part, or a name that is no settings key."""
+    return sorted(
+        {
+            str(key)
+            for key in extra or []
+            if str(key) in SETTINGS_NEVER or str(key) in SETTINGS_PARTS or not _KEY.fullmatch(str(key))
+        }
+    )
+
+
+def claude_settings_asked(extra=()):
+    """What claude_config_info reads values of: the settings carried by default, ``extra`` that just code may carry,
+    and the parts of SETTINGS_PARTS. Never a value of anything else."""
+    keys = list(dict.fromkeys([*SETTINGS, *(str(key) for key in extra or [] if not claude_settings_refused([key]))]))
+    return {"keys": keys, "parts": {key: list(parts) for key, parts in SETTINGS_PARTS.items()}}
+
+
+def claude_settings_plan(found, managed=(), extra=()):
+    """The settings items to carry, from claude_config_info's ``settings``: each to its value, and every item this run
+    manages, so that one gone here is removed there while still as carried.
+
+    ``managed`` names the top-level settings the claude_code role writes (claude_code_settings' keys,
+    autoUpdatesChannel, env): never carried, so the person's own claude_code_settings wins. A setting that runs a
+    program and ``extra`` no longer names is an item with no value, so one an earlier run carried is removed there
+    while still as carried. Where this machine's file could not be read there are no items, so nothing there changes,
+    nor is removed for seeming gone here. ``left`` names what of
+    this machine's settings stays here and why: ``role``, ``program`` (SETTINGS_PROGRAMS, unless named in ``extra``),
+    ``never`` (SETTINGS_NEVER and the parts of SETTINGS_PARTS not carried) and ``other`` (a setting just code does
+    not know).
+    """
+    found = found or {}
+    asked = claude_settings_asked(extra)
+    managed = {str(key) for key in managed or []}
+    items = [key for key in asked["keys"] if key not in managed]
+    items += [f"{key}.{part}" for key, parts in asked["parts"].items() if key not in managed for part in parts]
+    items += [key for key in SETTINGS_PROGRAMS if key not in asked["keys"] and key not in managed]
+    if found.get("unreadable"):
+        items = []
+    values = found.get("values") or {}
+    present = [str(key) for key in found.get("present") or []]
+    left = {"role": [], "program": [], "never": [], "other": []}
+    for key in present:
+        if key in SETTINGS_NEVER:
+            left["never"].append(key)
+        elif key in managed:
+            left["role"].append(key)
+        elif key in asked["keys"] or key in asked["parts"]:
+            continue
+        elif key in SETTINGS_PROGRAMS:
+            left["program"].append(key)
+        else:
+            left["other"].append(key)
+    left["never"] += [str(part) for part in found.get("parts_left") or []]
+    return {
+        "values": {item: values[item] for item in items if item in values},
+        "items": items,
+        "left": {kind: sorted(names) for kind, names in left.items()},
+        "unreadable": bool(found.get("unreadable")),
+    }
+
+
 def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None):
     """Everything just code carries beside the sessions, as one plan: the parts ``options`` turns on, from ``here``,
     claude_config_info's reading of this machine's Claude Code directory.
 
-    ``options``: ``memory`` (claude_memory_sync) and ``note``, the memory folders' note. Returns the writer's
-    inputs - ``files``, ``generated``, ``appended`` and ``scopes`` - and each part's own record, for what the run
-    says: ``memory``, its folders and ``ambiguous``.
+    ``options``: ``memory`` (claude_memory_sync) and ``note``, the memory folders' note; ``instructions``
+    (claude_instructions_sync), with ``instructions_owned`` where claude_code_global_instructions makes CLAUDE.md the
+    role's; ``settings`` (claude_settings_sync), with ``managed`` and ``extra`` as claude_settings_plan takes them.
+    Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes`` and ``settings`` - and each
+    part's own record, for what the run says: ``memory``, its folders and ``ambiguous``; ``instructions``, the files
+    and the imports CLAUDE.md names; ``settings``' ``left``.
     """
     options = options or {}
-    plan = {"files": [], "generated": [], "appended": {}, "scopes": [], "memory": {"folders": [], "ambiguous": []}}
+    here = here or {}
+    plan = {
+        "files": [],
+        "generated": [],
+        "appended": {},
+        "scopes": [],
+        "memory": {"folders": [], "ambiguous": []},
+        "instructions": {"files": [], "imports": [], "owned": False},
+        "settings": {"values": {}, "items": [], "left": {}, "unreadable": False},
+    }
     if options.get("memory"):
         memory = claude_memory_plan(
             (here or {}).get("memory") or {}, here_checkouts, there, here_dir, dest, options.get("note", True)
@@ -170,6 +305,23 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
             plan[key] += memory[key]
         plan["appended"].update(memory["appended"])
         plan["memory"] = {"folders": memory["folders"], "ambiguous": memory["ambiguous"]}
+    if options.get("instructions"):
+        owned = bool(options.get("instructions_owned"))
+        files = [
+            str(item.get("path", ""))
+            for item in here.get("instructions") or []
+            if not (owned and item.get("path") == INSTRUCTIONS)
+        ]
+        files = [path for path in files if path == INSTRUCTIONS or (path.startswith(RULES) and _FILE.fullmatch(path))]
+        plan["files"] += [{"source": path, "target": path} for path in files]
+        plan["scopes"] += ([] if owned else [INSTRUCTIONS]) + [RULES]
+        plan["instructions"] = {
+            "files": files,
+            "imports": [str(name) for name in here.get("imports") or []][:20],
+            "owned": owned,
+        }
+    if options.get("settings"):
+        plan["settings"] = claude_settings_plan(here.get("settings"), options.get("managed"), options.get("extra"))
     return plan
 
 

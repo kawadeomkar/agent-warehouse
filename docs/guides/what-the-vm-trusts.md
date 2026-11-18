@@ -82,6 +82,11 @@ and the [security model](../architecture/security-model.md) is how each is enfor
 - It gives the VM this machine's auto memory of the same repositories ([Auto memory](vscode.md#auto-memory)):
   notes Claude wrote for itself, which can name your hosts, addresses and rules, readable on the VM as the sessions
   are, and chosen by the same origins the VM reports. `claude_memory_sync: false` stops it.
+- It gives every VM it opens your global instructions and your portable settings
+  ([Your instructions and settings](vscode.md#your-instructions-and-settings)), your permission rules among them: an
+  agent there runs unasked what they allow, as one here does. No credential and no program goes this way unless
+  `claude_settings_sync_keys` names a setting that runs one. `claude_settings_sync: false` and
+  `claude_instructions_sync: false` stop them.
 - `just destroy` brings back what the VM alone holds of them
   ([Its Claude Code sessions](destroy.md#its-claude-code-sessions)) - the VM's own writing, which a VM
   with root can have made up. Only plain files and folders under Claude Code's own names arrive, never a

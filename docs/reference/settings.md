@@ -316,6 +316,24 @@ Copy this machine's auto memory of each repository the VM has a checkout of - ma
 |---|---|---|
 | `claude_memory_sync` | `true` |  |
 
+Copy this machine's global instructions, ~/.claude/CLAUDE.md, and the files of ~/.claude/rules/ to the VM's, unless claude_code_global_instructions sets the VM's CLAUDE.md. A file changed on the VM is never overwritten.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_instructions_sync` | `true` |  |
+
+Copy this machine's portable Claude Code settings into the VM's ~/.claude/settings.json: the model, effort and preferences, the permission rules and mode, and auto mode's rules - never a credential, a program, this machine's paths, or a key claude_code_settings sets. A setting changed on the VM (/model there) is never overwritten.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_settings_sync` | `true` |  |
+
+More top-level settings to copy that way, such as statusLine or hooks, which run a program and stay here otherwise; taken out of the list, one goes from the VM while still as copied. A setting just code never copies - env, apiKeyHelper, this machine's paths - is refused.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_settings_sync_keys` | `[]` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |
