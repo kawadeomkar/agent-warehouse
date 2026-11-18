@@ -2496,6 +2496,21 @@ def test_no_window_run_reads_or_writes_the_developer_s_claude_code(tmp_path):
     assert '"HOME": str(tmp_path)' in source and '"CLAUDE_CONFIG_DIR": str(config)' in source
 
 
+def test_no_run_carries_the_developer_s_repository(tmp_path):
+    # code.yml finds no source itself - no working directory, no environment - so a run given none carries nothing,
+    # and every run that syncs names a repository of its own world.
+    assert "vm_repo_from" not in _window_extra(tmp_path)
+    assert not [name for name, case in WINDOWS.items() if "vm_repo_from" in case]
+    assert "vm_repo_from=str(world[" in inspect.getsource(_read_runs)
+    assert "vm_repo_from=str(demo)" in inspect.getsource(_session_synced)
+    code = CODE.read_text()
+    assert "code_repo_from: \"{{ vm_repo_from | default('', true) | string }}\"" in code
+    assert "'PWD'" not in code and "'OLDPWD'" not in code
+    # The provision scenario's one sync, from a repository in its ephemeral directory.
+    scenario = (PROVISION / "just_code.yml").read_text()
+    assert scenario.count("'vm_repo_from':") == 1 and "'vm_repo_from': verify_ssh_dir ~ '/sync/here/demo'" in scenario
+
+
 # What the provision scenario pins into its ephemeral directory on every run of code.yml: the VS Code settings file,
 # on which what just code says depends, and both ends of the session handoff, since the VM is this machine there.
 PINNED = {
