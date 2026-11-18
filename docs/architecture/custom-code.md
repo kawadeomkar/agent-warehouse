@@ -626,7 +626,7 @@ map can be as long as the VM makes it. Its own error, `Stopped`, is no `tarfile`
 the decision as data: `sessions` to copy, each with the checkout it continues in and the memory folder
 its prompt is pointed at; `files` for rsync; `newer`, `ambiguous`, `twice` (an ID in two folders here)
 and `open` (one a `claude` on the VM has open, given as `open_there`), one of no repository the VM
-has in none; under `cap` bytes (`claude_sessions_sync_max_size`, 0 for none) `--session`'s own and then
+has in none, and `newer_version`, the newest version those left as newer were written by; under `cap` bytes (`claude_sessions_sync_max_size`, 0 for none) `--session`'s own and then
 the newest while they fit, each with its subagents' bytes while `subagents` (`claude_sessions_sync_subagents`)
 sends them, each counted by what the VM's mirror (`mirrored`) lacks of it - a transcript shorter here than
 there whole - the rest in `over`, with `bytes` and `over_bytes` what is sent and what is left; and with

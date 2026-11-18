@@ -31,6 +31,8 @@ naming `just install`, while one differs. They live in the checkout's own folder
 - **The prompts of the sessions copied** join the VM's prompt history (`claude_history_sync`).
 - **Your skills, subagents, commands**, output styles, workflows, themes and keybindings go to the VM
   (`claude_extensions_sync`), but your account's synced skills.
+- **A session left out as newer** than the VM's Claude Code is named with the line that installs its version
+  there.
 - **`claude_sessions_sync_max_size` counts what the VM lacks.** A session copied before counts what it grew by,
   not its whole size, so a long session already on a VM goes on being copied while it grows here by less than the
   bound between two copies.

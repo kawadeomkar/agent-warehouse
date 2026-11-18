@@ -3353,6 +3353,12 @@ def _sync_with(root: Path, place) -> dict:
     return {"world": world, "run": _handoff(world, "run")}
 
 
+def _newer(world: dict) -> None:
+    # The session last written by a Claude Code newer than the VM's stand-in, 2.1.308.
+    transcript = world["folder"] / f"{SESSION_ID}.jsonl"
+    transcript.write_bytes(transcript.read_bytes().replace(b'"version":"2.1.308"', b'"version":"2.1.400"'))
+
+
 def _in_two_folders(world: dict) -> None:
     # The same session here under another folder as well, as a copy by hand leaves it.
     twice = world["here"] / ".claude" / "projects" / "-Users-me-demo-copy"
@@ -3370,6 +3376,13 @@ SYNCS = {
     "diverged only": (
         _changed_on_both,
         "Left as they are, changed both there and here since they were copied: 0a608ad8;",
+    ),
+    # Named with the line that installs the version it needs there.
+    "newer": (
+        _newer,
+        "Not copied, written by a Claude Code newer than alpha's 2.1.308: 0a608ad8. To copy them, install 2.1.400"
+        " there: just ANSIBLE_ARGS='-e claude_code_version=2.1.400' deploy alpha --tags claude_code, then just code"
+        " again.",
     ),
 }
 

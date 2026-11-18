@@ -324,6 +324,9 @@ def claude_sessions_plan(
     if wanted:
         plan["session"]["problem"] = _session_problem(plan["session"], sessions, wanted, by_repo, project, version, vm)
     plan["repositories"] = sorted(repositories)
+    # The Claude Code a session left out as newer needs: the newest of theirs.
+    newer = [session.get("version") for session in sessions or [] if session.get("id") in plan["newer"]]
+    plan["newer_version"] = max((str(found) for found in newer if _version(found)), key=_version, default="")
     return plan
 
 

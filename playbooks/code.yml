@@ -337,7 +337,11 @@
           [' Left as they are, changed both there and here since they were copied: ',
            code_session_copied.diverged, '; a copy moved out of the way is copied again.'],
           [' Not copied, written by a Claude Code newer than ' ~ claude_vm_names[0] ~ "'s "
-           ~ code_session_vm.version ~ ': ', code_session_plan.newer, '.'],
+           ~ code_session_vm.version ~ ': ', code_session_plan.newer,
+           '. To copy them, install ' ~ code_session_plan.newer_version | default('that version', true) ~ ' there: '
+           ~ "just ANSIBLE_ARGS='-e claude_code_version=" ~ code_session_plan.newer_version | default('', true)
+           ~ "' deploy " ~ claude_vm_names[0] ~ ' --tags claude_code' ~ claude_host_flag | default('')
+           ~ ', then just code again.'],
           [' Not copied, of a repository ' ~ claude_vm_names[0] ~ ' has more than one checkout of: ',
            code_session_plan.ambiguous | map(attribute='id') | list, '.'],
           [' Not copied, in more than one folder here, so claude --resume could not tell which: ',

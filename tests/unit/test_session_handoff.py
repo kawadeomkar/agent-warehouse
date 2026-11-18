@@ -391,6 +391,13 @@ def test_a_session_newer_than_the_vm_s_claude_is_left_and_named():
     assert plan["newer"] == [ID] and [item["id"] for item in plan["sessions"]] == [OTHER]
 
 
+def test_the_newest_claude_code_the_newer_sessions_need_is_named():
+    sessions = [_session(ID, version="2.1.400"), _session(OTHER, version="2.1.350"), _session(THIRD, version="2.1.1")]
+    plan = _plan(sessions, HERE_DEMO, version="2.1.308")
+    assert sorted(plan["newer"]) == sorted([ID, OTHER]) and plan["newer_version"] == "2.1.400"
+    assert _plan([_session(ID)], HERE_DEMO)["newer_version"] == ""
+
+
 def test_without_claude_on_the_vm_nothing_is_copied():
     here = HERE_DEMO
     plan = _plan([_session()], here, version="")

@@ -342,8 +342,10 @@ does, an SSH alias of yours for GitHub included. So a VM that names a GitHub rep
 a checkout here of that owner and name on any host, a GitLab or company server's too. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
 goes by its checkout, and one of a clone that is gone by the `githubRepoPaths` Claude Code keeps in
 `~/.claude.json`. Left here: sessions without a message, and sessions written by a Claude Code newer
-than the VM's - which installs the stable channel - named in the run's message until the VM's catches
-up (`claude update` there).
+than the VM's - which installs the stable channel - named in the run's message with the line that installs the
+newest of their versions there, `just ANSIBLE_ARGS='-e claude_code_version=<version>' deploy <vm> --tags
+claude_code`; a version installed so stays at later configures, which install a channel's version only where Claude
+Code is missing.
 
 What a copy is. The transcript, its complete lines only - a session open here while it is copied
 comes over as far as it was written - and its `tool-results/` folder, in the VM's `~/.claude/projects/`
