@@ -37,9 +37,13 @@
   register: code_repo_here
   when: code_repo_on | bool
 
+# And the ignored files the last sync carried there, as its manifest names
+# them: the read here says only which of them are gone, never anything it
+# sends.
 - name: repo_read | Read the project's checkout on the VM
   git_sync_info:
     path: "{{ code_target }}"
+    manifest: "{{ code_repo_dir }}/manifest.json"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_repo_there
   when: code_repo_on | bool and code_repo_here.repo.git | default(false)
@@ -51,12 +55,16 @@
     msg: "{{ code_repo_why }}"
   when: code_repo_on | bool and code_repo_why | length > 0
 
+# With the ignored files the last sync carried there, as the VM's manifest
+# names them: the read says only which of them are gone here, which the apply
+# may then take away there.
 - name: repo_read | Read what the checkout would carry
   git_sync_info:
     path: "{{ code_repo_match.source }}"
     select: true
     ignored: "{{ repo_sync_ignored | default(true) | bool }}"
     exclude: "{{ repo_sync_exclude | default([], true) }}"
+    previous: "{{ code_repo_there.repo.carried | default([]) }}"
   register: code_repo_selected
   when: code_repo_matched | bool
 

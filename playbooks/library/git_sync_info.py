@@ -24,6 +24,9 @@ description:
     folder here (a submodule, a file made a folder).
   - With O(estimate), instead, how many bytes of git objects the refs given hold beyond the commits given that this
     checkout has, as C(git rev-list --objects --disk-usage) counts them.
+  - With O(manifest), also the ignored files a repository sync carried into this checkout, as its manifest records them;
+    and with O(select) and O(previous), which of those the other end named are gone here, and which are here and no
+    longer ignored.
   - Every git command runs as C(git --no-optional-locks), so none refreshes the index under C(index.lock). Nothing is
     changed, and O(path) is taken as written: no C(~) or C($VAR) in it is expanded.
 options:
@@ -41,6 +44,17 @@ options:
     default: true
   exclude:
     description: With O(select), patterns in C(.gitignore) syntax whose files are left.
+    type: list
+    elements: str
+    default: []
+  manifest:
+    description: A repository sync's manifest to read, outside the checkout.
+    type: str
+  previous:
+    description:
+      - With O(select), the files the other end says a sync carried there as ignored ones, each relative to the
+        checkout: which of them nothing is at here, C(gone), and which are here and not ignored, C(unignored). Only
+        ever those it named.
     type: list
     elements: str
     default: []
@@ -134,13 +148,27 @@ repo:
       description: With O(select), the files a C(.worktreeinclude) carries that are credentials by their names.
       type: list
       elements: str
+    gone:
+      description: With O(select), the files of O(previous) that nothing is at here.
+      type: list
+      elements: str
+    unignored:
+      description: With O(select), the files of O(previous) that are here and git here does not ignore.
+      type: list
+      elements: str
+    carried:
+      description: With O(manifest), the ignored files the sync carried there, as it records them.
+      type: list
+      elements: str
     bytes:
       description: With O(estimate), the bytes of the objects a send of the refs would carry.
       type: int
 """
 
+import json
 import os
 import re
+import stat
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.git_checkouts import COMMIT, worktrees
@@ -156,6 +184,7 @@ from ansible.module_utils.git_sync import (
     names,
     operation,
     plain,
+    plain_path,
     refs,
     select,
 )
@@ -288,6 +317,9 @@ def read_selection(module, top, found, ignored_too, exclude):
     verdicts, entry_of, included, new_names = select(module, top, ignored_too, exclude, staged=added)
     files, left, links, new = [], [], [], []
     carried_names = [name for name, (verdict, _) in verdicts.items() if verdict == "carried"]
+    found["ignored_here"] = {
+        plain(name) for name in verdicts if name not in new_names and not name.endswith(b"/") and plain(name)
+    }
     for name, (verdict, why) in sorted(verdicts.items()):
         path = os.path.join(top.encode(), name)
         entry = plain(entry_of(name))
@@ -381,6 +413,53 @@ def _a_file(path):
     return os.path.islink(path) or os.path.isfile(path)
 
 
+def carried(path):
+    """The ignored files a sync's manifest at ``path`` records, held to plain paths; none where there is no manifest."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            found = json.load(handle)
+    except (OSError, ValueError):
+        return []
+    ignored = found.get("ignored") if isinstance(found, dict) else None
+    return sorted(key for key in ignored if plain_path(key)) if isinstance(ignored, dict) else []
+
+
+def _nothing_at(top, path):
+    """Whether nothing is at ``path`` (relative) in ``top``: a link on the way counts as something, since what it
+    reaches is not the checkout's to say."""
+    folder = top
+    parts = path.split("/")
+    for index, part in enumerate(parts):
+        folder = os.path.join(folder, part)
+        try:
+            mode = os.lstat(folder).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return True
+        except OSError:
+            return False
+        if index < len(parts) - 1 and not stat.S_ISDIR(mode):
+            return not stat.S_ISLNK(mode)
+    return False
+
+
+def gone(top, previous):
+    """Which of ``previous``, as plain paths, nothing is at here: a copy there of a file that is gone may go."""
+    return sorted({str(path) for path in previous or [] if plain_path(str(path)) and _nothing_at(top, str(path))})
+
+
+def unignored(top, previous, ignored):
+    """Which of ``previous``, as plain paths, are here and not among ``ignored`` (the files git ignores here, as the
+    selection listed them): tracked now, or no longer named by an ignore file, so the VM's copy is no ignored file of
+    the sync's. Asked of the reader's own listing, never of a command: the names are the VM's."""
+    return sorted(
+        {
+            str(path)
+            for path in previous or []
+            if plain_path(str(path)) and not _nothing_at(top, str(path)) and str(path) not in ignored
+        }
+    )
+
+
 def estimate(module, top, given):
     """The bytes of git objects ``given``'s refs hold beyond its known commits that this checkout has."""
     sent = [str(ref) for ref in given.get("refs") or []]
@@ -413,14 +492,22 @@ def main():
             "select": {"type": "bool", "default": False},
             "ignored": {"type": "bool", "default": True},
             "exclude": {"type": "list", "elements": "str", "default": []},
+            "manifest": {"type": "str"},
+            "previous": {"type": "list", "elements": "str", "default": []},
             "estimate": {"type": "dict"},
         },
         supports_check_mode=True,
     )
     params = module.params
     found = checkout(module, params["path"])
+    if params["manifest"]:
+        found["carried"] = carried(params["manifest"])
     if found["git"] and params["select"]:
         read_selection(module, found["toplevel"], found, params["ignored"], params["exclude"])
+        found["gone"] = gone(found["toplevel"], params["previous"])
+        # Without the ignored files listed, none can be told no longer ignored.
+        ignored = found.pop("ignored_here")
+        found["unignored"] = unignored(found["toplevel"], params["previous"], ignored) if params["ignored"] else []
     if found["git"] and params["estimate"] is not None:
         found["bytes"] = estimate(module, found["toplevel"], params["estimate"])
     module.exit_json(changed=False, repo=found)

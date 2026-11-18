@@ -26,8 +26,22 @@ description:
     in C(refs/agent-warehouse/sync/heads/) says and only this writes, or behind the commit sent; one that is ahead is
     counted, and one with commits of its own is left - said as its upstream's where every one of them is on its
     upstream there, which this machine has not fetched. A branch whose commit did not arrive is left, and said.
+  - Then the files git ignores that the sync carried, from O(mirror), where rsync brought them: each only once its
+    copy there is what was sent - a plain file of the size and modification time O(stamps) gives, as rsync -a keeps
+    them, so that a copy an earlier run left after an rsync that failed is never taken for this run's - and written
+    where the checkout has no file at its path, or one still holding the bytes the last sync wrote, as O(manifest)
+    records them; never at a path git tracks there, in HEAD or the index, never through a link; one the VM changed or
+    made is left. A copy is removed only when the other machine says the file is gone (O(gone)) from the same folder
+    it came from, and the copy is still the sync's; one only left out of this run stays, and stays the sync's; one the
+    other machine no longer ignores (O(unignored)) stays, and is no longer the sync's.
+    The manifest is written before any file, with what each path held and is about to hold, and again after, so that
+    after a run that stopped part way a file matching either is still the sync's. Then a block of the checkout's
+    C(.git/info/exclude), between two lines of the sync's, names each such file git there would not ignore without it,
+    so that C(git status) says there what it says on the other machine; where git cannot say, the file is left as it
+    is.
   - Nothing is deleted but what a send delivered and the other machine no longer has, under
-    C(refs/agent-warehouse/sent/); a record is never deleted, nor a branch or tag.
+    C(refs/agent-warehouse/sent/), the sync's own copies above, and what the mirror holds that was not sent; a record
+    is never deleted, nor a branch or tag.
 options:
   checkout:
     description: The checkout's top level.
@@ -61,6 +75,29 @@ options:
     description: C(bring), whether the other machine's reasons let the tree be brought, and C(why) not.
     type: dict
     default: {}
+  mirror:
+    description: The folder rsync brought the files into, outside the checkout.
+    type: str
+    default: ""
+  ignored:
+    description: The files git ignores that the sync carried, relative to the checkout, each in O(mirror).
+    type: list
+    elements: str
+    default: []
+  stamps:
+    description: Each file sent into O(mirror) - the changes' and the ignored ones - and its C([size, mtime]) there.
+    type: dict
+    default: {}
+  gone:
+    description: The ignored files the sync carried before that the other machine no longer has.
+    type: list
+    elements: str
+    default: []
+  unignored:
+    description: The ignored files the sync carried before that the other machine has and no longer ignores.
+    type: list
+    elements: str
+    default: []
   upstreams:
     description: Each branch of O(branches) that tracks a branch of origin on the other machine, and that branch.
     type: dict
@@ -98,22 +135,46 @@ tree:
       (C(own) where the checkout has changes of its own), and C(head), its HEAD.
   returned: always
   type: dict
+files:
+  description:
+    - The ignored files - C(written), C(unchanged), C(left) (the VM's own there, or a path git tracks there),
+      C(missing) (not in the mirror as sent), C(removed) (the sync's own copies of files the other machine no longer
+      has) and C(failed) (a write or a removal the VM refused).
+  returned: always
+  type: dict
+excluded:
+  description: The paths the sync's block of C(.git/info/exclude) names.
+  returned: always
+  type: list
+  elements: str
+error:
+  description: What stopped the apply part way, a file the VM would not let it write, or "".
+  returned: always
+  type: str
 """
 
+import hashlib
 import json
 import os
 import re
+import stat
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.git_checkouts import COMMIT, claude_processes, overwrites, read
 from ansible.module_utils.git_sync import (
+    EXCLUDE_BEGIN,
+    EXCLUDE_END,
     RECORD,
     RECORD_DETACHED,
     SENT,
     branch_name,
     branch_row,
+    exclude_text,
+    file_verdict,
     git,
+    names,
     operation,
+    plain_path,
     ref_name,
     refs,
     text,
@@ -193,6 +254,237 @@ class Apply:
             records[branch] = commit
 
 
+def _read_manifest(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            found = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return found if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else {}
+
+
+def _within(top, path):
+    """Whether every folder on the way from ``top`` to ``path`` (relative) is a real folder, never a link: what is
+    there, a sync's write reaches through nothing."""
+    folder = top
+    for part in path.split("/")[:-1]:
+        folder = os.path.join(folder, part)
+        try:
+            mode = os.lstat(folder).st_mode
+        except FileNotFoundError:
+            return True
+        if not stat.S_ISDIR(mode):
+            return False
+    return True
+
+
+def _digest(path):
+    """The SHA-256 of the plain file at ``path``; "" when nothing is there; None for anything else."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return None
+    with os.fdopen(descriptor, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            return None
+        digest = hashlib.sha256()
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _copy(source, top, path):
+    """The plain file ``source`` written at ``path`` in ``top``: its folders made, written beside and renamed into
+    place, its mode's permission bits kept but never set-id."""
+    target = os.path.join(top, path)
+    folder = os.path.dirname(target)
+    os.makedirs(folder, exist_ok=True)
+    mode = stat.S_IMODE(os.lstat(source).st_mode) & 0o777
+    temporary = os.path.join(folder, f".{os.path.basename(target)}.agent-warehouse-sync")
+    with open(source, "rb") as reader:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        with os.fdopen(descriptor, "wb") as writer:
+            for block in iter(lambda: reader.read(1 << 20), b""):
+                writer.write(block)
+    os.chmod(temporary, mode)
+    os.replace(temporary, target)
+
+
+def _tracked(module, top):
+    """Every path git tracks in ``top``, in its index or its HEAD: listed whole, so that no list of paths is an
+    argument."""
+    found = set()
+    for args in (("ls-files", "-z", "--cached"), ("ls-tree", "-z", "-r", "--name-only", "HEAD")):
+        rc, out = git(module, top, *args)
+        if rc == 0:
+            found |= {name.decode("utf-8", "replace") for name in names(out)}
+    return found
+
+
+def _ours(entries, path):
+    """The digests ``entries`` (the manifest's tree or ignored) record for ``path``: what the sync wrote there."""
+    entry = entries.get(path) or {}
+    return {entry.get("now"), entry.get("was")} - {None}
+
+
+def _arrived(params, path):
+    """The digest of ``path``'s copy in the mirror once it is what was sent - a plain file of the size and modification
+    time the reader saw on the other machine (O(stamps)), which rsync -a keeps - or None. A copy an earlier run left is
+    this run's only where nothing changed since: after an rsync that failed, never."""
+    mirror, stamp = params["mirror"], (params["stamps"] or {}).get(path)
+    if not mirror or not plain_path(path) or not _within(mirror, path) or not isinstance(stamp, (list, tuple)):
+        return None
+    try:
+        size, mtime = (int(value) for value in stamp)
+        found = os.lstat(os.path.join(mirror, path))
+    except (OSError, TypeError, ValueError):
+        return None
+    if not stat.S_ISREG(found.st_mode) or found.st_size != size or int(found.st_mtime) != mtime:
+        return None
+    return _digest(os.path.join(mirror, path)) or None
+
+
+def ignored_step(apply, params, manifest, result):
+    """The files git ignores that the sync carried, by file_verdict, each once it arrived as sent; the sync's own
+    copies of files gone from the folder they came from, removed. Returns the manifest's ignored entries as they are
+    now."""
+    module, top, mirror, source = apply.module, apply.top, params["mirror"], params["source"]
+    said = result["files"]
+    wanted = sorted({path for path in params["ignored"] or [] if plain_path(str(path))})
+    gone = {str(path) for path in params["gone"] or []}
+    unignored = {str(path) for path in params["unignored"] or []}
+    entries = {
+        key: value
+        for key, value in (manifest.get("ignored") or {}).items()
+        if isinstance(value, dict) and plain_path(str(key))
+    }
+    tracked = _tracked(module, top) if wanted or entries else set()
+    plan = {}
+    for path in wanted:
+        sent = _arrived(params, path)
+        if not sent:
+            said["missing"].append(path)
+            continue
+        there = _digest(os.path.join(top, path)) if _within(top, path) else None
+        entry = entries.get(path) or {}
+        plan[path] = (file_verdict(there, path in tracked, _ours(entries, path), sent), sent, entry)
+    # Before any file: what each path held by the last sync, and what it is about to hold.
+    before = dict(entries)
+    for path, (verdict, sent, entry) in plan.items():
+        if verdict == "write":
+            before[path] = {"now": sent, "was": entry.get("now", sent), "source": source}
+    if before != entries:
+        apply.changed |= _manifest(params["manifest"], {**manifest, "ignored": before})
+    now = dict(before)
+    for path, (verdict, sent, _) in sorted(plan.items()):
+        if verdict == "write":
+            try:
+                _copy(os.path.join(mirror, path), top, path)
+            except OSError:
+                # Its entry keeps both digests: what is there is still the sync's.
+                said["failed"].append(path)
+                continue
+            apply.changed = True
+            said["written"].append(path)
+            now[path] = {"now": sent, "source": source}
+        elif verdict == "unchanged":
+            said["unchanged"].append(path)
+            now[path] = {"now": sent, "source": source}
+        else:
+            said["left"].append(path)
+            if verdict == "tracked":
+                now.pop(path, None)
+    # Every other copy stays, and stays the sync's - one only left out of this run (repo_sync_ignored off, past the
+    # bound, excluded) is still a file there - but one gone from the folder it came from, still as the sync wrote it,
+    # which goes. A path git tracks there now, with nothing at it, or that the other machine no longer ignores, is no
+    # longer the sync's: the file stays, and its line leaves the block.
+    for path, entry in sorted(entries.items()):
+        if path in plan:
+            continue
+        there = _digest(os.path.join(top, path)) if _within(top, path) else None
+        if path in tracked or there == "" or path in unignored:
+            now.pop(path, None)
+            continue
+        if path not in gone or entry.get("source") != source:
+            continue
+        if there and there in _ours(entries, path):
+            try:
+                os.unlink(os.path.join(top, path))
+            except OSError:
+                said["failed"].append(path)
+                continue
+            apply.changed = True
+            said["removed"].append(path)
+            now.pop(path, None)
+    return now
+
+
+def _block_lines(lines):
+    """The line numbers, from 1 as git counts them, of the sync's block in an exclude file's ``lines``."""
+    if EXCLUDE_BEGIN not in lines:
+        return set()
+    begin = lines.index(EXCLUDE_BEGIN) + 1
+    end = next((index for index in range(begin, len(lines)) if lines[index] == EXCLUDE_END), len(lines))
+    return set(range(begin + 1, end + 1))
+
+
+def exclude_step(apply, entries, result):
+    """The sync's block of the checkout's .git/info/exclude: each file it carried that git there would not ignore
+    without the block - no pattern matches it, or only one of the block's - by git check-ignore -v, which names where a
+    match comes from."""
+    module, top = apply.module, apply.top
+    path = text(module, top, "rev-parse", "--git-path", "info/exclude")
+    if not path:
+        return
+    exclude = os.path.join(top, path)
+    try:
+        with open(exclude, encoding="utf-8") as handle:
+            current = handle.read()
+    except FileNotFoundError:
+        current = ""
+    except (OSError, UnicodeDecodeError):
+        return
+    block = _block_lines(current.splitlines())
+    needed = []
+    if entries:
+        query = "\0".join(sorted(entries))
+        rc, out = git(module, top, "check-ignore", "-v", "-z", "--non-matching", "--stdin", data=query)
+        if rc not in (0, 1):
+            # git could not say which need a line: the file stays as it is, never without the sync's block.
+            return
+        fields = out.split(b"\0")
+        for index in range(0, len(fields) - 3, 4):
+            source, line, _, name = (field.decode("utf-8", "replace") for field in fields[index : index + 4])
+            ours = bool(source) and os.path.realpath(os.path.join(top, source)) == os.path.realpath(exclude)
+            if not source or (ours and line.isdigit() and int(line) in block):
+                needed.append(name)
+    wanted = exclude_text(current, needed)
+    result["excluded"] = sorted(needed)
+    if wanted != current:
+        os.makedirs(os.path.dirname(exclude), exist_ok=True)
+        with open(exclude, "w", encoding="utf-8") as handle:
+            handle.write(wanted)
+        apply.changed = True
+
+
+def prune_mirror(mirror, keep):
+    """What the mirror holds that was not sent this run, removed: plain files and links alike, never followed."""
+    if not mirror or not os.path.isdir(mirror):
+        return
+    for folder, dirs, files in os.walk(mirror, topdown=False):
+        for name in files + [item for item in dirs if os.path.islink(os.path.join(folder, item))]:
+            path = os.path.join(folder, name)
+            if os.path.relpath(path, mirror) not in keep:
+                os.unlink(path)
+        if folder != mirror:
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
+
+
 def _manifest(path, content):
     """Write the manifest where it differs, 0600: whether it was written."""
     try:
@@ -214,9 +506,11 @@ def _stays(said, reason, why):
     said.update(reason=reason, why=why)
 
 
-def tree_step(apply, params, heads, records, arrived, result):
-    """The checkout itself: moved on its branch, or switched to the one there, when nothing stops it."""
+def tree_step(apply, params, heads, records, arrived, result, state):
+    """The checkout itself: moved on its branch, or switched to the one there, when nothing stops it. ``state`` is
+    the manifest as read: the files the sync carried there as ignored ones."""
     module, top = apply.module, apply.top
+    copies = state.get("ignored") or {}
     head, tree = params["head"] or {}, params["tree"] or {}
     want_branch, want = str(head.get("branch") or ""), str(head.get("commit") or "")
     now = read(module, top, True, "", claude_processes())
@@ -260,6 +554,22 @@ def tree_step(apply, params, heads, records, arrived, result):
         _hold_detached(apply, want_branch, want)
         return want_branch
     in_the_way = overwrites(module, top, want)
+    # A copy the sync carried as a file git ignores, which the commit now tracks: the sync's, and the commit brings
+    # the file in its place.
+    theirs = [
+        path
+        for path in in_the_way or []
+        if _within(top, path) and _digest(os.path.join(top, path)) in _ours(copies, path)
+    ]
+    if theirs:
+        try:
+            for path in theirs:
+                os.unlink(os.path.join(top, path))
+                apply.changed = True
+        except OSError as error:
+            _stays(said, "write", f"the sync's own copy of a file could not be taken away: {error.strerror}")
+            return ""
+        in_the_way = overwrites(module, top, want)
     if in_the_way is None or in_the_way:
         _stays(
             said,
@@ -307,6 +617,11 @@ def main():
             "head": {"type": "dict", "default": {}},
             "session_branch": {"type": "str", "default": ""},
             "tree": {"type": "dict", "default": {}},
+            "mirror": {"type": "str", "default": ""},
+            "ignored": {"type": "list", "elements": "str", "default": []},
+            "stamps": {"type": "dict", "default": {}},
+            "gone": {"type": "list", "elements": "str", "default": []},
+            "unignored": {"type": "list", "elements": "str", "default": []},
             "upstreams": {"type": "dict", "default": {}},
         },
         supports_check_mode=False,
@@ -325,17 +640,35 @@ def main():
         for name, target in (params["tags"] or {}).items()
         if COMMIT.fullmatch(str(target)) and ref_name(f"refs/tags/{name}")
     }
-    session = str(params["session_branch"] or "")
     apply = Apply(module, top)
-    heads, records = refs(module, top, "refs/heads/"), refs(module, top, RECORD)
-    sent = refs(module, top, f"{SENT}heads/")
     result = {
         "branches": {key: [] for key in ("created", "moved", "same", "ahead", "own", "upstream", "in_use", "missing")},
         "tags": {"created": [], "differ": []},
         "tree": {"brought": False, "why": "", "reason": "", "head": ""},
+        "files": {key: [] for key in ("written", "unchanged", "left", "missing", "removed", "failed")},
+        "excluded": [],
+        "error": "",
     }
+    try:
+        apply_all(apply, params, branches, tags, result)
+    except OSError as error:
+        # A file the VM would not let it write - a folder of root's in the checkout, a full disk: said, never a
+        # traceback. The manifest, written before each part, keeps what was written the sync's.
+        result["error"] = f"{error.strerror or error}: {error.filename}" if error.filename else str(error)
+    module.exit_json(changed=apply.changed, **result)
+
+
+def apply_all(apply, params, branches, tags, result):
+    """Every part, in order, into ``result``."""
+    module, top = apply.module, apply.top
+    session = str(params["session_branch"] or "")
+    heads, records = refs(module, top, "refs/heads/"), refs(module, top, RECORD)
+    sent = refs(module, top, f"{SENT}heads/")
     said = result["branches"]
     arrived = {name: sent.get(name) == commit and apply.has(commit) for name, commit in branches.items()}
+    # What the sync last carried here as ignored files: read once, written as that part goes.
+    found = _read_manifest(params["manifest"])
+    state = {"format": MANIFEST_FORMAT, **{key: found[key] for key in ("ignored",) if isinstance(found.get(key), dict)}}
     upstreams = {
         str(name): str(branch)
         for name, branch in (params["upstreams"] or {}).items()
@@ -360,7 +693,7 @@ def main():
     # checkout was on until now is free to move in the same run.
     if session:
         _stays(result["tree"], "session", "--session moves it")
-    brought = tree_step(apply, params, heads, records, arrived, result) if not session else ""
+    brought = tree_step(apply, params, heads, records, arrived, result, state) if not session else ""
     if brought:
         apply.record(brought, branches[brought], records)
         if brought not in said["created"]:
@@ -407,15 +740,21 @@ def main():
                 apply.write("update-ref", "-d", f"{SENT}{kind}/{name}")
     if (params["head"] or {}).get("branch") and apply.commit_of(f"{SENT}HEAD"):
         apply.write("update-ref", "-d", f"{SENT}HEAD")
+    # 5. The ignored files, then the block that keeps them out of git status there.
+    entries = ignored_step(apply, params, state, result)
+    exclude_step(apply, entries, result)
+    # Everything this run sent stays in the mirror, a file the VM changed too, so that rsync sends it again only once
+    # it changes here.
+    prune_mirror(params["mirror"], {str(path) for path in params["stamps"] or {}} | set(params["ignored"] or []))
     content = {
         "format": MANIFEST_FORMAT,
         "source": params["source"],
         "head": text(module, top, "rev-parse", "--verify", "--quiet", "HEAD") or "",
+        "ignored": entries,
     }
     result["tree"]["head"] = content["head"]
     if _manifest(params["manifest"], content):
         apply.changed = True
-    module.exit_json(changed=apply.changed, **result)
 
 
 if __name__ == "__main__":

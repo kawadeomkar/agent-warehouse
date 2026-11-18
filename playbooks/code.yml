@@ -333,9 +333,11 @@
     # since it did not know of the sync yet, is one more reason not to sync, said as the one line.
     code_repo_dir: "{{ code_ws_dir }}/repo-sync/{{ code_project }}"
     code_repo_dir_said: >-
-      {{ '' if code_ws_dir is match('/') and code_ws_dir not in ['/', code_root]
-         else 'editor_files_dir, ' ~ code_ws_dir ~ ', is no directory just code can keep the repository sync in, so'
-              ~ ' nothing was carried to ' ~ code_project ~ ' there (repo_sync).' }}
+      {{ '' if code_ws_dir is match('^/[A-Za-z0-9._/-]+\Z') and code_ws_dir not in ['/', code_root]
+              and '/../' not in code_ws_dir ~ '/'
+         else 'editor_files_dir, ' ~ code_ws_dir ~ ', is no directory just code can keep the repository sync in, one'
+              ~ ' plain absolute path of letters, digits, . _ - and /, so nothing was carried to ' ~ code_project
+              ~ ' there (repo_sync).' }}
     # The one line a run that will not sync says: the match's, or that.
     code_repo_why: "{{ code_repo_match.said if not code_repo_match.sync else code_repo_dir_said }}"
     # The one condition every writer of the sync runs under: matched, a plan that carries, and a directory to keep it.
@@ -347,6 +349,8 @@
     code_repo_local: "{{ hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local' }}"
     code_repo_target: "{{ ('' if code_repo_local | bool else claude_vm_names[0] ~ ':') ~ code_target }}"
     code_repo_receive_pack: "{{ 'git-receive-pack' if code_repo_local | bool else '/usr/bin/git-receive-pack' }}"
+    # The mirror rsync brings the files into, as rsync is given it.
+    code_repo_mirror_target: "{{ ('' if code_repo_local | bool else claude_vm_names[0] ~ ':') ~ code_repo_dir ~ '/tree' }}"
     # --session's branch, which --session moves: the sync leaves it, and the tree, alone.
     code_repo_session_branch: >-
       {{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}

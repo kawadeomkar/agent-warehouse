@@ -463,3 +463,60 @@ def branch_row(there, record, sent, behind=False, ahead=False):
     if ahead:
         return "ahead"
     return "own"
+
+
+# The block of the VM checkout's .git/info/exclude the sync keeps, between these two lines; everything outside them is
+# the VM's.
+EXCLUDE_BEGIN = "# >>> agent-warehouse repository sync: the files it carried that git ignores here"
+EXCLUDE_END = "# <<< agent-warehouse repository sync"
+
+
+def file_verdict(there, tracked, ours, sent):
+    """What a sync does with one file at a path of the VM's checkout:
+
+    - "tracked": git tracks the path there, in its HEAD or its index: left, never written;
+    - "write": nothing is there, or what is there is still what a sync wrote (its digest one of ``ours``) and differs
+      from what was sent;
+    - "unchanged": what is there is what was sent;
+    - "left": something else is there - the VM changed the file, or made it, or it is no plain file: left, counted.
+
+    ``there`` is the digest of the plain file at the path, "" for nothing there, or None for anything else (a link, a
+    folder); ``sent`` the digest of what was sent.
+    """
+    if tracked:
+        return "tracked"
+    if there == "":
+        return "write"
+    if there is None:
+        return "left"
+    if there == sent:
+        return "unchanged"
+    return "write" if there in ours else "left"
+
+
+def exclude_line(path):
+    """``path`` as one anchored line of a .gitignore that matches that file alone: what the syntax reads specially -
+    a backslash, *, ?, [, a leading ! or #, trailing spaces - escaped."""
+    escaped = re.sub(r"([\\*?\[])", r"\\\1", path)
+    if escaped.endswith(" "):
+        escaped = escaped[:-1] + "\\ "
+    return "/" + escaped
+
+
+def exclude_text(text, paths):
+    """The exclude file's ``text`` with the sync's block holding one line for each of ``paths``, or no block for none;
+    everything outside the block as it was."""
+    lines = text.splitlines()
+    kept, inside = [], False
+    for line in lines:
+        if line == EXCLUDE_BEGIN:
+            inside = True
+            continue
+        if line == EXCLUDE_END and inside:
+            inside = False
+            continue
+        if not inside:
+            kept.append(line)
+    if paths:
+        kept += [EXCLUDE_BEGIN, *(exclude_line(path) for path in sorted(paths)), EXCLUDE_END]
+    return "\n".join(kept) + ("\n" if kept else "")

@@ -358,13 +358,13 @@ Copy your user-level skills, subagents, commands, output styles, workflows, them
 |---|---|---|
 | `claude_extensions_sync` | `true` |  |
 
-Carry the local git repository to the VM's checkout of it when just deploy or just code is given --project and started from a checkout of the same repository - matched by git origin, never by folder name: every local branch and tag, and the checkout there switched to the branch here. Nothing the VM made is overwritten: a branch with commits of its own there, or a checkout with changes of its own, is left and said.
+Carry the local git repository to the VM's checkout of it when just deploy or just code is given --project and started from a checkout of the same repository - matched by git origin, never by folder name: every local branch and tag, the checkout there switched to the branch here, and with repo_sync_ignored the files git ignores. Nothing the VM made is overwritten: a branch with commits of its own there, a checkout with changes of its own, or a file edited there, is left and said.
 
 | Setting | Default | Notes |
 |---|---|---|
 | `repo_sync` | `true` |  |
 
-With repo_sync, the files git ignores too (plan files, working documents), each file at any depth but a credential or a derived tree by its name (.env, node_modules/ and the like, unless the repository's .worktreeinclude names it), a link, or a repository inside the repository - and never this project's own secrets, vault, inventory or run records, nor a file that starts as a vault or a private key does.
+With repo_sync, the files git ignores too (plan files, working documents), each file at any depth but a credential or a derived tree by its name (.env, node_modules/ and the like, unless the repository's .worktreeinclude names it), a link, or a repository inside the repository - and never this project's own secrets, vault, inventory or run records, nor a file that starts as a vault or a private key does. Off, the copies already there stay.
 
 | Setting | Default | Notes |
 |---|---|---|

@@ -439,8 +439,12 @@ nothing else of its object store: the refs sent are this machine's alone, each n
 never chooses one (a reported name carrying a line of its own once made a trial send the stash), and the only value of
 the VM's that reaches a command here is a commit ID held to full hex, left out of an estimate. It receives:
 `git-receive-pack` there can refuse or lie about its refs and ask for nothing beyond what is sent, and its words are
-captured and said through `one_line`, never streamed. On the VM, `git_sync_apply` moves nothing the VM made: a branch
-with commits of its own there, a branch a worktree there has out, a checkout with changes of its own, all stay.
+captured and said through `one_line`, never streamed. The VM's manifest names the ignored files it holds of the
+sync's, and this machine answers two things of each name, from its own reads alone: whether nothing is at it in the
+checkout (`gone`), and whether it is there and not ignored (`unignored`). The names are held to plain relative paths
+and nothing is read through a link, so what the VM can learn is only whether a name it chose exists inside the
+checkout and is ignored there. On the VM, `git_sync_apply` moves nothing the VM made: a branch with commits of its own
+there, a branch a worktree there has out, a checkout with changes of its own, all stay.
 
 Wherever `just code` writes in its own directory on the VM, for any editor, it first refuses a directory
 inside a checkout of the projects directory - a `.git` in any folder from the first below the projects directory

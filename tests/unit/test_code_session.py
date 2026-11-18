@@ -3787,16 +3787,18 @@ REPO_WHY = "repo_read | Say why the repository is not carried"
 
 
 def _repo_world(root: Path) -> dict:
-    """The session handoff's world, with what a sync would carry here: a branch never pushed, an ignored document, a
-    vault's password beside it, and a change not committed."""
+    """The session handoff's world, with what a sync would carry here: a branch never pushed, two ignored documents -
+    one named as an editor's autosave is, which rsync would take for a comment in its list - a vault's password beside
+    them, and a change not committed."""
     world = _world(root)
     demo = world["demo"]
-    (demo / ".gitignore").write_text("plans/plan-*.md\n.vault_pass\n")
+    (demo / ".gitignore").write_text("plans/plan-*.md\n.vault_pass\n\\#*#\n")
     _git(demo, "add", ".gitignore")
     _git(demo, "-c", "user.name=Dev", "-c", "user.email=dev@example.com", "commit", "--quiet", "-m", "ignore")
     _git(demo, "branch", "never-pushed")
     (demo / "plans").mkdir()
     (demo / "plans" / "plan-a.md").write_text("the plan\n")
+    (demo / "#draft.md#").write_text("autosaved\n")
     (demo / ".vault_pass").write_text("hunter2\n")
     (demo / "README").write_text("changed here\n")
     return world
@@ -3848,6 +3850,7 @@ def _read_runs(root: Path) -> dict:
         "commit": _git(synced["demo"], "rev-parse", "HEAD"),
         "there": _head(synced["checkout"]),
         "branches": _git(synced["checkout"], "branch", "--format=%(refname:short)").splitlines(),
+        "status": _git(synced["checkout"], "status", "--porcelain"),
     }
     second = _repo_window(synced, "second", vm_repo_from=str(synced["demo"]), vm_repo_elsewhere=True)
     # A commit made on the VM, on the branch it is on, and more work here: the VM's is left, and said.
@@ -3872,14 +3875,18 @@ def test_a_run_started_in_a_checkout_of_the_project_carries_its_branches(repo_re
     said = _said(run["output"], REPO_SAID)
     commit = run["commit"]
     assert said.startswith(
-        f"demo on alpha has {world['demo']}'s 3 branches (2 new there) and 0 tags, its checkout on feat/x at"
-        f" {commit[:8]}."
+        f"demo on alpha has {world['demo']}'s 3 branches (2 new there) and 0 tags and 2 ignored files"
+        f" (#draft.md# and plans/plan-a.md), its checkout on feat/x at {commit[:8]}."
     ), said
     assert said.endswith(" repo_sync: false turns this off."), said
     # The vault's password is never named as carried: it is left, and said so.
     assert ".vault_pass (this project's own secrets and records, never carried)" in said, said
     assert run["there"] == (commit, "feat/x")
     assert "never-pushed" in run["branches"]
+    # The documents are there, ignored there as here; the vault's password is not.
+    assert (world["checkout"] / "plans" / "plan-a.md").read_text() == "the plan\n"
+    assert (world["checkout"] / "#draft.md#").read_text() == "autosaved\n"
+    assert not (world["checkout"] / ".vault_pass").exists() and run["status"] == ""
     assert _said(run["output"], REPO_WHY) is None
     # Its manifest, in just code's own directory there, the VM user's alone.
     folder = world["vm"] / "projects" / ".agent-warehouse" / "repo-sync" / "demo"

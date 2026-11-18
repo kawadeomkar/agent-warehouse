@@ -619,11 +619,17 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       it (`refs/agent-warehouse/sync/heads/`, the apply's alone) or behind; one ahead is counted, one with commits of its
       own left and said; a branch in use by a worktree there (checked out, rebased, bisected) is never moved, since
       `git branch --force` refuses it; the checked-out branch moves only with its tree, by `merge --ff-only` or
-      `reset --keep`, never `update-ref`; NEXT STEPS decides by the apply's `reason`, never its words. Nothing the VM
-      made is deleted, nor a record.
+      `reset --keep`, never `update-ref`; NEXT STEPS decides by the apply's `reason`, never its words. An ignored file
+      goes by rsync into the mirror in just code's directory, never the checkout, and is taken from there only as the
+      plain file of the size and time the reader saw (`stamps`), never a copy an earlier run left; it is put in place
+      only where the VM has no file at its path or still the sync's own (the manifest, written before any file and
+      after), never at a path git tracks there or through a link; a copy is removed only when the folder it came from
+      says the file is gone (`gone`, of the paths the VM's manifest names) and it is still the sync's, never at a path
+      git tracks there. Nothing else the VM made is deleted, nor a record.
     - Tier 0 holds for every file at any depth, matched by git's own matcher, held to `tests/check_no_local_files.sh`, and
       nothing overrides it; no link is followed and no repository inside is entered.
-    - A sync never fails a deploy: what it cannot carry is left and said, and the window opens.
+    - A sync never fails a deploy: what it cannot carry is left and said - a failed rsync with its last words, a write
+      the VM refuses - never a traceback, and the window opens.
 - **`just destroy` saves what of a VM's Claude Code sessions exists only there before releasing it.** Read
   [§4.5](docs/architecture/lifecycle.md#45-playbooksdestroyyml--confirm-release-delete) first.
     - `tasks/session_save.yml` (`destroy_save_sessions`, on by default) keeps each session with a message that is
