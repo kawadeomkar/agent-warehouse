@@ -11,7 +11,7 @@ description = "The controller's Python for the playbooks, and the linters and te
 requires-python = ">=3.12"
 # What the playbooks need on the controller.
 dependencies = [
-    "ansible-core==2.21.5",
+    "ansible-core==2.21.6",
     # Required on the controller by the community.proxmox collection
     "proxmoxer==2.3.0",
     "requests==2.34.2",
