@@ -20,6 +20,10 @@
 - name: Configure Claude development VMs
   hosts: claude_vms
   become: true
+  # Gathered below, once the base check has named anything the VM cannot run:
+  # gathering needs Python there, and a VM without it would otherwise fail at
+  # "Gathering Facts" before it is said why.
+  gather_facts: false
 
   pre_tasks:
     # Waited for in a block, so that a VM that cannot run Ansible at all, for
@@ -36,7 +40,10 @@
             configure_no_connection: "{{ ansible_failed_result.msg | default('it did not answer') }}"
 
     # Raw, before anything needs Python: what configure cannot do without, on a
-    # base of any origin. Only over a connection to a real guest, not this machine.
+    # base of any origin, and what it can never run on - the machine, its
+    # userland, its CPU, its C library, how its packages are installed - each
+    # said on a line of its own. Only over a connection to a real guest, not
+    # this machine. The last command is true: a test that is false is no failure.
     - name: Read what the VM's base has
       ansible.builtin.raw: >-
         missing="";
@@ -45,7 +52,18 @@
         command -v "$c" > /dev/null 2>&1 || missing="$missing $c"; done;
         family=$(. /etc/os-release 2> /dev/null; echo " $ID $ID_LIKE ");
         case "$family" in *" debian "* | *" ubuntu "*) ;; *) missing="$missing an-Ubuntu-or-Debian-system"; esac;
-        echo "base-missing:$missing"
+        echo "base-missing:$missing";
+        arch=$(uname -m 2> /dev/null); bits=$(getconf LONG_BIT 2> /dev/null);
+        case "$arch" in x86_64 | aarch64) ;; *) echo "base-refused:it is ${arch:-a machine uname does not name},
+        and Claude Code runs on x86_64 and aarch64 alone"; esac;
+        [ "$bits" = 64 ] || echo "base-refused:its userland is ${bits:-not}-bit, and Claude Code runs on a 64-bit one alone";
+        if [ "$arch" = x86_64 ] && ! grep -qw avx /proc/cpuinfo 2> /dev/null; then echo "base-refused:its CPU has no
+        AVX, which Claude Code needs: give the VM the CPU type host, or another that has it"; fi;
+        for f in /lib/ld-musl-*; do if [ -e "$f" ]; then echo "base-refused:its C library is musl, which Docker's
+        packages and Tailscale's do not run on"; break; fi; done;
+        if [ -e /run/ostree-booted ] || [ -e /etc/NIXOS ]; then echo "base-refused:its packages are an image's
+        (ostree or NixOS), not installed one by one as configure installs them"; fi;
+        true
       become: false
       register: configure_base
       changed_when: false
@@ -67,10 +85,30 @@
       when: configure_base is not skipped
       tags: [always]
 
+    # What the VM is can never run what configure installs, whatever it is given.
+    - name: Fail when the VM is one configure can never run on
+      vars:
+        configure_base_refused: >-
+          {{ configure_base.stdout_lines | default([]) | select('match', 'base-refused:')
+             | map('replace', 'base-refused:', '') | map('trim') | map('plain_text') | list }}
+      ansible.builtin.assert:
+        that: configure_base_refused | length == 0
+        fail_msg: >-
+          {{ inventory_hostname }} cannot be configured: {{ configure_base_refused | join('; ') }}
+          (docs/guides/base-image.md). Nothing was changed on it.
+        quiet: true
+      when: configure_base is not skipped
+      tags: [always]
+
     - name: Fail when Ansible could not run on the VM
       ansible.builtin.fail:
         msg: "{{ inventory_hostname }} never accepted a connection: {{ configure_no_connection | plain_text }}"
       when: configure_no_connection is defined
+      tags: [always]
+
+    # What the play would have gathered first, now that the VM can run it.
+    - name: Gather the VM's facts
+      ansible.builtin.setup:
       tags: [always]
 
     # Exit code 2 means "done with recoverable errors", which is fine for us;

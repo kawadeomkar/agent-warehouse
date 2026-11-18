@@ -175,8 +175,8 @@ Without names, step 3 keeps every tagged VM, so `just deploy --only configure`, 
 
 ```yaml
 import_playbook: discover.yml   when: claude_vm_discovery | default(true) | bool
-hosts: claude_vms, become: true
-  pre_tasks: wait_for_connection (300s), cloud-init status --wait (rc 0 or 2)
+hosts: claude_vms, become: true, gather_facts: false
+  pre_tasks: wait_for_connection (300s), the base check (raw), setup, cloud-init status --wait (rc 0 or 2)
   roles: common → vscode_server → dev_tools → claude_code → github_projects   (each tagged)
   tasks: block (tagged tailscale): import_role tailscale
          rescue: append the failure to claude_vm_configure_failures, say it
@@ -193,6 +193,12 @@ hosts: localhost  (tagged always)
 hosts: claude_vms  (tagged always)
   fail each VM with a failure in claude_vm_configure_failures, unless claude_vm_configure_in_deploy
 ```
+
+The base check is a `raw` task, so it needs nothing of the VM but a shell: what configure needs and the VM lacks
+(Python, sudo, apt, systemd, cloud-init, the OS family), and, apart, what the VM is and nothing given to it changes
+(`uname -m` other than `x86_64` or `aarch64`, `getconf LONG_BIT` other than 64, no `avx` among an x86_64 CPU's
+flags, musl's loader, ostree's or NixOS's mark), each said by name. The play gathers no facts itself: `setup`
+runs once the check has passed, so a VM without Python is named there, never failed at "Gathering Facts".
 
 `claude_vm_discovery: false` skips the Proxmox API entirely, which is how the Vagrant and Molecule
 paths configure a host that is already in a static inventory, and how `deploy.yml` configures only

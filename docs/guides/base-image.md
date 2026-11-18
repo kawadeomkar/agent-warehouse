@@ -49,8 +49,11 @@ A template of yours also needs, on Proxmox:
 - **A template of yours** is read through the API before anything is created. Each thing it lacks is said, with what
   fixes it.
 - **An image** has its `os-release` read before it is built on.
-- **Every VM**, whatever it was made from, is checked first in configure: Python, sudo, apt, systemd, cloud-init and the
-  OS family. Only that VM stops.
+- **Every VM**, whatever it was made from, is checked first in configure, before anything there needs Python: Python,
+  sudo, apt, systemd, cloud-init and the OS family, each said where it is missing; and, said apart since nothing given
+  to the VM changes them, a machine other than x86_64 or aarch64, a 32-bit userland, an x86_64 CPU without AVX, musl's
+  C library, and a system whose packages are an image's (ostree, NixOS). Only that VM stops, with nothing on it
+  changed.
 
 ## Your toolchain in the image
 
