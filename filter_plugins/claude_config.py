@@ -14,6 +14,7 @@ FILTERS = (
     "claude_config_plan",
     "claude_config_rsync",
     "claude_memory_plan",
+    "claude_plugins_plan",
     "claude_settings_asked",
     "claude_settings_refused",
 )

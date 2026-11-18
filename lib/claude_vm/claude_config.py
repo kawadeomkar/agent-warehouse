@@ -75,6 +75,10 @@ SETTINGS_NEVER = frozenset(
 )
 # A settings key as Claude Code names them.
 _KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,63}")
+# A plugin's ID, as an argument to `claude plugin install`: its name and its marketplace's, neither starting with "-".
+_PLUGIN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}@[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+# A marketplace's GitHub repository, as `claude plugin marketplace add` takes one: owner/name.
+_REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}")
 # The global instructions, and the folder of rules beside them.
 INSTRUCTIONS = "CLAUDE.md"
 RULES = "rules/"
@@ -275,13 +279,51 @@ def claude_settings_plan(found, managed=(), extra=()):
     }
 
 
+def claude_plugins_plan(here, there):
+    """Which of this machine's plugins to install on the VM, and which marketplaces to add for them.
+
+    ``here`` is claude_config_info's ``plugins``: the user-scope plugins enabled here, and each marketplace's GitHub
+    repository ("" for another source). ``there`` is its reading of the VM's Claude Code: ``readable`` while
+    `claude plugin list` answered, the user-scope plugins installed and the marketplaces known there. A plugin there
+    already is left; one whose marketplace is missing there and is no GitHub repository is left and named, since its
+    source is this machine's; nothing is ever uninstalled.
+    """
+    here, there = here or {}, there or {}
+    plan = {"install": [], "marketplaces": [], "left": [], "unread": False}
+    if not here.get("enabled"):
+        return plan
+    if not there.get("readable"):
+        plan["unread"] = True
+        return plan
+    installed, known = set(there.get("installed") or []), set(there.get("marketplaces") or [])
+    sources = here.get("marketplaces") or {}
+    for plugin in here.get("enabled") or []:
+        plugin = str(plugin)
+        if plugin in installed:
+            continue
+        if not _PLUGIN.fullmatch(plugin):
+            plan["left"].append(plugin)
+            continue
+        market = plugin.split("@", 1)[1]
+        if market not in known:
+            repository = str(sources.get(market) or "")
+            if not _REPOSITORY.fullmatch(repository):
+                plan["left"].append(plugin)
+                continue
+            if repository not in plan["marketplaces"]:
+                plan["marketplaces"].append(repository)
+        plan["install"].append(plugin)
+    return plan
+
+
 def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None):
     """Everything just code carries beside the sessions, as one plan: the parts ``options`` turns on, from ``here``,
     claude_config_info's reading of this machine's Claude Code directory.
 
     ``options``: ``memory`` (claude_memory_sync) and ``note``, the memory folders' note; ``instructions``
     (claude_instructions_sync), with ``instructions_owned`` where claude_code_global_instructions makes CLAUDE.md the
-    role's; ``settings`` (claude_settings_sync), with ``managed`` and ``extra`` as claude_settings_plan takes them.
+    role's; ``settings`` (claude_settings_sync), with ``managed`` and ``extra`` as claude_settings_plan takes them;
+    ``plugins`` (claude_plugins_sync), with ``plugins_there``, the VM's reading, as claude_plugins_plan takes it.
     Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes`` and ``settings`` - and each
     part's own record, for what the run says: ``memory``, its folders and ``ambiguous``; ``instructions``, the files
     and the imports CLAUDE.md names; ``settings``' ``left``.
@@ -296,6 +338,7 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         "memory": {"folders": [], "ambiguous": []},
         "instructions": {"files": [], "imports": [], "owned": False},
         "settings": {"values": {}, "items": [], "left": {}, "unreadable": False},
+        "plugins": {"install": [], "marketplaces": [], "left": [], "unread": False},
     }
     if options.get("memory"):
         memory = claude_memory_plan(
@@ -322,6 +365,8 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         }
     if options.get("settings"):
         plan["settings"] = claude_settings_plan(here.get("settings"), options.get("managed"), options.get("extra"))
+    if options.get("plugins"):
+        plan["plugins"] = claude_plugins_plan(here.get("plugins"), options.get("plugins_there"))
     return plan
 
 

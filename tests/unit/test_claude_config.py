@@ -643,3 +643,96 @@ def test_check_mode_sets_no_setting(tmp_path):
     dest = tmp_path / ".claude"
     result, _, changed = _settings(dest, {"model": "opus"}, check=True)
     assert changed and result["written"] == ["model"] and not dest.exists()
+
+
+# ------------------------------------------------------------------------------------------- plugins ---
+PLUGINS_HERE = {
+    "enabled": ["lsp@octo-plugins", "pyright-lsp@claude-plugins-official", "own@local-market"],
+    "marketplaces": {
+        "octo-plugins": "octo/plugins",
+        "claude-plugins-official": "anthropics/claude-plugins-official",
+        "local-market": "",
+    },
+}
+
+
+def test_the_plugins_missing_on_the_vm_are_installed_with_the_marketplaces_they_need():
+    there = {
+        "readable": True,
+        "installed": ["pyright-lsp@claude-plugins-official"],
+        "marketplaces": ["claude-plugins-official"],
+    }
+    plan = core.claude_plugins_plan(PLUGINS_HERE, there)
+    assert plan == {
+        "install": ["lsp@octo-plugins"],
+        "marketplaces": ["octo/plugins"],
+        "left": ["own@local-market"],
+        "unread": False,
+    }
+    # A VM whose Claude Code did not answer installs nothing; one that has them all, nothing either.
+    assert core.claude_plugins_plan(PLUGINS_HERE, {"readable": False})["unread"] is True
+    assert core.claude_plugins_plan({"enabled": []}, {})["unread"] is False
+
+
+@pytest.mark.parametrize("plugin", ["-x@m", "a@-m", "a", "a@b c", "a@b\n"])
+def test_an_id_that_could_read_as_an_option_or_is_no_plugin_s_is_left(plugin):
+    plan = core.claude_plugins_plan({"enabled": [plugin], "marketplaces": {}}, {"readable": True})
+    assert plan["install"] == [] and plan["left"] == [plugin]
+
+
+def test_the_plugins_enabled_here_for_the_user_are_read_from_claude_code_s_files(tmp_path):
+    root = tmp_path / ".claude"
+    (root / "plugins").mkdir(parents=True)
+    installed = {
+        "version": 2,
+        "plugins": {
+            "lsp@octo-plugins": [{"scope": "user", "installPath": "/x"}],
+            "off@octo-plugins": [{"scope": "user"}],
+            "project@octo-plugins": [{"scope": "project", "projectPath": "/Users/me/demo"}],
+        },
+    }
+    (root / "plugins" / "installed_plugins.json").write_text(json.dumps(installed))
+    (root / "plugins" / "known_marketplaces.json").write_text(
+        json.dumps(
+            {
+                "octo-plugins": {"source": {"source": "github", "repo": "octo/plugins"}},
+                "local": {"source": {"source": "directory", "path": "/Users/me/m"}},
+            }
+        )
+    )
+    (root / "settings.json").write_text(
+        json.dumps(
+            {"enabledPlugins": {"lsp@octo-plugins": True, "off@octo-plugins": False, "project@octo-plugins": True}}
+        )
+    )
+    assert reader.plugins_here(str(root)) == {
+        "enabled": ["lsp@octo-plugins"],
+        "marketplaces": {"octo-plugins": "octo/plugins", "local": ""},
+    }
+
+
+def test_the_vm_s_claude_code_is_asked_what_it_has_and_one_that_does_not_answer_is_unread(tmp_path):
+    claude = tmp_path / "claude"
+    claude.write_text(
+        "#!/bin/sh\n"
+        'case "$2 $3" in\n'
+        '  "list --json") echo \'[{"id":"lsp@octo-plugins","scope":"user"},{"id":"p@x","scope":"project"}]\' ;;\n'
+        '  "marketplace list") echo \'[{"name":"octo-plugins","source":"github","repo":"octo/plugins"}]\' ;;\n'
+        "esac\n"
+    )
+    claude.chmod(0o755)
+    found = reader.plugins_there([str(tmp_path / "missing"), str(claude)])
+    assert found == {
+        "readable": True,
+        "claude": str(claude),
+        "installed": ["lsp@octo-plugins"],
+        "marketplaces": ["octo-plugins"],
+    }
+    claude.write_text("#!/bin/sh\necho 'not json'\n")
+    assert reader.plugins_there([str(claude)])["readable"] is False
+    assert reader.plugins_there([str(tmp_path / "missing")]) == {
+        "readable": False,
+        "claude": "",
+        "installed": [],
+        "marketplaces": [],
+    }

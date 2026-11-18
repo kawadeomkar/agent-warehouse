@@ -1156,6 +1156,12 @@ Claude Code's own Agent SDK documents. The rules:
   longer names is an item with no value, so it goes from the VM while still as carried; a file here that cannot be
   read makes no item at all, so nothing there is removed for seeming gone. The file is written as the role writes
   it (`to_nice_json(indent=2)`: sorted, ASCII), so the next configure finds it unchanged.
+- **Plugins beside them**, by the VM's own Claude Code at the installers' paths, never `PATH`
+  (`claude_plugins_sync`): the user-scope plugins enabled here, from `installed_plugins.json`, `enabledPlugins` and
+  `known_marketplaces.json`, against what `claude plugin list --json` and `marketplace list --json` say there, then
+  `marketplace add` and `install --scope user` for what is missing, never `-y` or `--accept-command`, each under
+  `/usr/bin/timeout` (300 s): a task's own `timeout` would fail the run past `failed_when`. An install that fails, a
+  command to accept or a stall among the causes, fails nothing and is named with its line; nothing is uninstalled.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

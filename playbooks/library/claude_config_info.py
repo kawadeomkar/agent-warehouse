@@ -36,6 +36,23 @@ options:
       - The settings of C(settings.json) to return the values of, C(keys) at its top level and C(parts), a key to
         its parts read one by one. Of every other setting only its name is returned. Run under no_log.
     type: dict
+  plugins:
+    description:
+      - Return the user-scope plugins enabled in O(path), from C(plugins/installed_plugins.json) and C(settings.json)'s
+        C(enabledPlugins), and each marketplace's GitHub repository from C(plugins/known_marketplaces.json).
+    type: bool
+    default: false
+  plugins_there:
+    description:
+      - Ask the first of O(claude) there is for the plugins installed for the user and the marketplaces it knows
+        (C(claude plugin list --json), C(claude plugin marketplace list --json)). Run on the VM.
+    type: bool
+    default: false
+  claude:
+    description: The Claude Code executables O(plugins_there) may ask, the first one there is; never C(claude) on PATH.
+    type: list
+    elements: path
+    default: []
   repo_paths:
     description:
       - Also return C(githubRepoPaths) from Claude Code's C(.claude.json), the one in O(path) or the one beside
@@ -82,6 +99,13 @@ settings:
       read part by part that were not asked for; and C(unreadable) where the file is not a JSON object. {} without.
   returned: always
   type: dict
+plugins:
+  description:
+    - With O(plugins), C(enabled), the IDs of the user-scope plugins enabled here, and C(marketplaces), each one's
+      GitHub repository or "". With O(plugins_there), C(readable), C(claude) (the executable asked), C(installed)
+      (the user-scope plugins there) and C(marketplaces) (the names it knows). {} without either.
+  returned: always
+  type: dict
 repo_paths:
   description: githubRepoPaths, owner/repo to the local paths Claude Code has seen it in; {} without O(repo_paths).
   returned: always
@@ -91,6 +115,7 @@ repo_paths:
 import json
 import os
 import re
+import subprocess
 from stat import S_ISDIR, S_ISREG
 
 from ansible.module_utils.agent_warehouse import file_digest, folders, github_repo_paths
@@ -217,6 +242,64 @@ def settings_from(data, asked):
     }
 
 
+def _json_file(path):
+    try:
+        if os.path.islink(path):
+            return None
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+
+def plugins_here(path):
+    """The user-scope plugins enabled in ``path``, and each marketplace's GitHub repository ("" for another source)."""
+    installed = _json_file(os.path.join(path, "plugins", "installed_plugins.json"))
+    installed = installed.get("plugins") if isinstance(installed, dict) else None
+    settings_found = _json_file(os.path.join(path, "settings.json"))
+    enabled = settings_found.get("enabledPlugins") if isinstance(settings_found, dict) else None
+    enabled = enabled if isinstance(enabled, dict) else {}
+    users = []
+    for plugin, entries in (installed or {}).items() if isinstance(installed, dict) else []:
+        entries = entries if isinstance(entries, list) else []
+        scopes = [entry.get("scope") for entry in entries if isinstance(entry, dict)]
+        if "user" in scopes and enabled.get(plugin) is True:
+            users.append(str(plugin))
+    known = _json_file(os.path.join(path, "plugins", "known_marketplaces.json"))
+    markets = {}
+    for name, entry in (known or {}).items() if isinstance(known, dict) else []:
+        source = entry.get("source") if isinstance(entry, dict) else None
+        github = isinstance(source, dict) and source.get("source") == "github" and isinstance(source.get("repo"), str)
+        markets[str(name)] = source["repo"] if github else ""
+    return {"enabled": sorted(users), "marketplaces": markets}
+
+
+def plugins_there(candidates):
+    """What the first Claude Code of ``candidates`` there is says it has: the user-scope plugins, the marketplaces."""
+    found = next((path for path in candidates if os.path.isfile(path) and os.access(path, os.X_OK)), None)
+    result = {"readable": False, "claude": found or "", "installed": [], "marketplaces": []}
+    if not found:
+        return result
+    answers = []
+    for argv in ([found, "plugin", "list", "--json"], [found, "plugin", "marketplace", "list", "--json"]):
+        try:
+            answer = subprocess.run(
+                argv, capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL, check=False
+            )
+            answers.append(json.loads(answer.stdout) if answer.returncode == 0 else None)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            answers.append(None)
+    plugins, markets = answers
+    if not isinstance(plugins, list) or not isinstance(markets, list):
+        return result
+    result["installed"] = sorted(
+        str(item["id"]) for item in plugins if isinstance(item, dict) and item.get("scope") == "user" and "id" in item
+    )
+    result["marketplaces"] = sorted(str(item["name"]) for item in markets if isinstance(item, dict) and "name" in item)
+    result["readable"] = True
+    return result
+
+
 def main():
     module = AnsibleModule(
         argument_spec={
@@ -224,6 +307,9 @@ def main():
             "memory": {"type": "bool", "default": False},
             "instructions": {"type": "bool", "default": False},
             "settings": {"type": "dict"},
+            "plugins": {"type": "bool", "default": False},
+            "plugins_there": {"type": "bool", "default": False},
+            "claude": {"type": "list", "elements": "path", "default": []},
             "repo_paths": {"type": "bool", "default": False},
         },
         supports_check_mode=True,
@@ -238,6 +324,13 @@ def main():
         instructions=found,
         imports=imports,
         settings=settings(params["path"], params["settings"]) if params["settings"] else {},
+        plugins=(
+            plugins_there(params["claude"])
+            if params["plugins_there"]
+            else plugins_here(params["path"])
+            if params["plugins"]
+            else {}
+        ),
         repo_paths=github_repo_paths(params["path"]) if params["repo_paths"] else {},
     )
 

@@ -62,3 +62,33 @@
   # What fails is said, never the run's end: the window opens all the same.
   failed_when: false
   when: code_config_on | bool
+
+# By the VM's own Claude Code, the documented way: never -y or --accept-command,
+# so a marketplace that declares a command to run is never accepted for the
+# person; its install fails here, and the run names the line that installs it.
+# Nothing is ever uninstalled. A failure fails nothing else, and one that stalls
+# - a clone that never ends - is ended by timeout and said as a failed install:
+# a task's own timeout would fail the run past failed_when.
+- name: claude_config_write | Add the plugins' marketplaces on the VM
+  ansible.builtin.command:
+    argv: [/usr/bin/timeout, -k, "30", "300", "{{ code_config_claude }}", plugin, marketplace, add, "{{ code_config_marketplace }}"]
+  loop: "{{ code_config_plan.plugins.marketplaces }}"
+  loop_control:
+    loop_var: code_config_marketplace
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_added
+  changed_when: code_config_added.rc == 0
+  failed_when: false
+  when: code_config_plugins | bool and code_config_plan.plugins.marketplaces | length > 0
+
+- name: claude_config_write | Install this machine's plugins on the VM
+  ansible.builtin.command:
+    argv: [/usr/bin/timeout, -k, "30", "300", "{{ code_config_claude }}", plugin, install, "{{ code_config_plugin }}", --scope, user]
+  loop: "{{ code_config_plan.plugins.install }}"
+  loop_control:
+    loop_var: code_config_plugin
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_installed
+  changed_when: code_config_installed.rc == 0
+  failed_when: false
+  when: code_config_plugins | bool and code_config_plan.plugins.install | length > 0

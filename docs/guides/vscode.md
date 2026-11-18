@@ -422,6 +422,16 @@ them, and one taken out of that list goes from the VM while it is still as carri
 stays and is named. The run says what stayed, and why. While this machine's `settings.json` is no JSON object just
 code can read, nothing of the VM's changes.
 
+### Plugins
+
+The plugins installed and enabled for you here, from a marketplace on GitHub, are installed on the VM by its own Claude
+Code (`claude_plugins_sync`): `claude plugin marketplace add` for a marketplace it lacks, then `claude plugin install
+<name>@<marketplace> --scope user`, never accepting a command a marketplace declares for you. One that needs such a
+command, or whose install fails, is named with the line that installs it by hand there; a plugin from a marketplace on
+this machine's disk, installed for one project, or disabled here stays. Nothing is ever uninstalled there. What a
+plugin needs beside itself is the VM's to have: `rust-analyzer-lsp` runs `rust-analyzer`, which `rustup component add
+rust-analyzer` puts in the toolchain a repository pins.
+
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of

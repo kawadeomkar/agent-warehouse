@@ -334,6 +334,12 @@ More top-level settings to copy that way, such as statusLine or hooks, which run
 |---|---|---|
 | `claude_settings_sync_keys` | `[]` |  |
 
+Install on the VM, by its own Claude Code, the plugins installed and enabled for you here from a marketplace on GitHub - claude plugin install there, never accepting a command a marketplace declares for you. Nothing is ever uninstalled there.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_plugins_sync` | `true` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |

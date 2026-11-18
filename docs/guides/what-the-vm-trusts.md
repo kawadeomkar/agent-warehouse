@@ -87,6 +87,9 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   agent there runs unasked what they allow, as one here does. No credential and no program goes this way unless
   `claude_settings_sync_keys` names a setting that runs one. `claude_settings_sync: false` and
   `claude_instructions_sync: false` stop them.
+- It installs on every VM it opens the plugins enabled for you here ([Plugins](vscode.md#plugins)), from the
+  marketplaces you added: code that then runs there - hooks, MCP servers, language servers - as it runs here. A
+  marketplace's own install command is never accepted for you. `claude_plugins_sync: false` stops it.
 - `just destroy` brings back what the VM alone holds of them
   ([Its Claude Code sessions](destroy.md#its-claude-code-sessions)) - the VM's own writing, which a VM
   with root can have made up. Only plain files and folders under Claude Code's own names arrive, never a

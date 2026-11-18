@@ -240,8 +240,17 @@
     code_config_settings: "{{ claude_settings_sync | default(true) | bool }}"
     code_config_extra: "{{ claude_settings_sync_keys | default([]) }}"
     code_config_managed: "{{ (claude_code_settings | default({}) | list) + ['autoUpdatesChannel', 'env'] }}"
+    # This machine's enabled user-scope plugins, installed on the VM by its own Claude Code (claude_plugins_sync), as
+    # the installers put it there, never claude on PATH.
+    code_config_plugins: "{{ claude_plugins_sync | default(true) | bool }}"
+    code_config_claude_candidates:
+      - "{{ code_session_there | dirname }}/.local/bin/claude"
+      - /usr/local/bin/claude
+      - /usr/bin/claude
+    code_config_claude: "{{ code_config_there.plugins.claude | default('') }}"
     code_config_on: >-
-      {{ code_config_memory | bool or code_config_instructions | bool or code_config_settings | bool }}
+      {{ code_config_memory | bool or code_config_instructions | bool or code_config_settings | bool
+         or code_config_plugins | bool }}
     code_config_dir: "{{ code_ws_dir }}/claude-config"
     code_config_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
@@ -462,8 +471,31 @@
                         if (code_config_plan.settings.left.values() | map('length') | sum) > 0 else '')
                      ~ ' claude_settings_sync: false keeps them here.'))
            | plain_text }}
+    # Each plugin installed, by the loop's own results: rc 0, or left with the line that installs it by hand there.
+    code_config_plugins_done: >-
+      {{ code_config_installed.results | default([]) | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0)
+         | map(attribute='code_config_plugin') | list }}
+    code_config_plugins_failed: >-
+      {{ code_config_installed.results | default([]) | selectattr('rc', 'defined') | rejectattr('rc', 'equalto', 0)
+         | map(attribute='code_config_plugin') | list }}
+    code_config_plugins_said: >-
+      {{ '' if not (code_config_plugins | bool) or code_config_plan is not defined
+         else (("Plugins: " ~ claude_vm_names[0] ~ "'s Claude Code could not list its own, so none of this machine's"
+                ~ ' was installed there.' if code_config_plan.plugins.unread else '')
+               ~ ('Plugins installed on ' ~ claude_vm_names[0] ~ ': ' ~ code_config_plugins_done | join(', ') ~ '.'
+                  if code_config_plugins_done | length > 0 else '')
+               ~ (' Not installed, a command of its own to accept, or its install failed: to install by hand on '
+                  ~ claude_vm_names[0] ~ ', ' ~ code_config_plugins_failed | map('regex_replace', '^(.*)$',
+                                                                                  'claude plugin install \1 --scope user')
+                  | join('; ') ~ '.' if code_config_plugins_failed | length > 0 else '')
+               ~ (" Not installed, their marketplace not on GitHub but on this machine: "
+                  ~ code_config_plan.plugins.left | join(', ') ~ '.' if code_config_plan.plugins.left | length > 0 else '')
+               ~ (' claude_plugins_sync: false keeps them here.'
+                  if code_config_plugins_done | length + code_config_plugins_failed | length > 0 else ''))
+           | trim | plain_text }}
     code_config_said: >-
-      {{ ([code_config_memory_said, code_config_instructions_said, code_config_settings_said]
+      {{ ([code_config_memory_said, code_config_instructions_said, code_config_settings_said,
+           code_config_plugins_said]
           | select | join(' ') ~ code_config_failed_said) | trim }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-

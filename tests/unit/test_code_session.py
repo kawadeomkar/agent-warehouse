@@ -651,7 +651,12 @@ LATER = " VS Code was not opened; to open it later: just code alpha"
 WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
 # Zed with the terminal and the sessions off, so the notes are all that goes into just code's own directory.
 # Every part of what is carried beside the sessions, off: then nothing of it goes into just code's own directory.
-CARRY_OFF = {"claude_memory_sync": False, "claude_instructions_sync": False, "claude_settings_sync": False}
+CARRY_OFF = {
+    "claude_memory_sync": False,
+    "claude_instructions_sync": False,
+    "claude_settings_sync": False,
+    "claude_plugins_sync": False,
+}
 NOTES_ONLY = {
     "keep": [WS_CHECK],
     "in_deploy": False,
@@ -1994,7 +1999,13 @@ READS_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "ansible.builti
 READS_EITHER = {"claude_sessions_info", "git_checkouts_info", "claude_config_info"}
 # On the VM: whether Remote Control runs, with --session git in the one checkout it moves, and once, the move of just
 # code's directory from its 1.x name, which never replaces anything (-n).
-COMMANDS_ON_VM = {("systemctl", "is-active"), ("git", "--no-optional-locks"), ("mv", "-n")}
+COMMANDS_ON_VM = {
+    ("systemctl", "is-active"),
+    ("git", "--no-optional-locks"),
+    ("mv", "-n"),
+    # This machine's plugins, installed by the VM's own Claude Code, found at the installers' paths, under a time limit.
+    ("/usr/bin/timeout", "-k", "30", "300", "{{ code_config_claude }}", "plugin"),
+}
 WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy", "claude_config_carry"}
 # What each writer runs under: VS Code's workspace and helpers with the terminal; just code's own directory
 # when anything goes into it; the notes with their own switch; the sessions' directory when there is a session to
@@ -2163,7 +2174,8 @@ def test_every_task_reads_this_machine_or_is_delegated_to_the_vm(task):
         assert (task["name"], task[action]["argv"]) == LAUNCH and "delegate_to" not in task
     elif action == "ansible.builtin.command" and "delegate_to" in task:
         assert task["delegate_to"] == ON_VM
-        assert tuple(task[action]["argv"][:2]) in COMMANDS_ON_VM
+        argv = tuple(task[action]["argv"])
+        assert any(argv[: len(allowed)] == allowed for allowed in COMMANDS_ON_VM), argv
     elif action == "ansible.builtin.command":
         assert tuple(task[action]["argv"][:2]) in COMMANDS_HERE
     elif action in READS_ON_VM:
@@ -3059,7 +3071,26 @@ def _world(root: Path) -> dict:
     _git(vm / "projects" / "demo", "config", f"url.{bare}.insteadOf", "https://github.com/octo/demo.git")
     claude = vm / ".local" / "bin" / "claude"
     claude.parent.mkdir(parents=True)
-    claude.write_text("#!/bin/sh\necho '2.1.308 (Claude Code)'\n")
+    # The VM's Claude Code: its version, and its plugin commands, each install and marketplace recorded beside it.
+    claude.write_text(
+        """#!/bin/sh
+here="$(dirname "$0")"
+case "$1 $2 $3" in
+  'plugin list --json')
+    printf '['
+    sep=''
+    if [ -f "$here/plugins-installed" ]; then
+      while read -r id; do printf '%s{"id":"%s","scope":"user"}' "$sep" "$id"; sep=','; done < "$here/plugins-installed"
+    fi
+    printf ']\\n' ;;
+  'plugin marketplace list')
+    if [ -f "$here/markets-added" ]; then echo '[{"name":"octo-plugins"}]'; else echo '[]'; fi ;;
+  'plugin install '*) echo "$*" >> "$here/plugin-calls"; echo "$3" >> "$here/plugins-installed" ;;
+  'plugin marketplace add') echo "$*" >> "$here/plugin-calls"; : > "$here/markets-added" ;;
+  *) echo '2.1.308 (Claude Code)' ;;
+esac
+"""
+    )
     claude.chmod(0o755)
     folder = here / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(demo))
     (folder / SESSION_ID / "tool-results").mkdir(parents=True)
@@ -3072,12 +3103,21 @@ def _world(root: Path) -> dict:
     (folder / "memory").mkdir()
     (folder / "memory" / "MEMORY.md").write_text("- [Feedback](feedback.md) - how to work here\n")
     (folder / "memory" / "feedback.md").write_text(f"{MARKER}\n")
+    # A plugin installed and enabled for the user here, from a marketplace on GitHub.
+    (here / ".claude" / "plugins").mkdir(parents=True)
+    (here / ".claude" / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": {"lsp@octo-plugins": [{"scope": "user"}]}})
+    )
+    (here / ".claude" / "plugins" / "known_marketplaces.json").write_text(
+        json.dumps({"octo-plugins": {"source": {"source": "github", "repo": "octo/plugins"}}})
+    )
     # The global instructions, and settings with what never leaves this machine among them.
     (here / ".claude" / "CLAUDE.md").write_text("Be brief.\n")
     (here / ".claude" / "settings.json").write_text(
         json.dumps(
             {
                 "model": "claude-opus-5-5",
+                "enabledPlugins": {"lsp@octo-plugins": True},
                 "permissions": {"allow": ["Bash(just test:*)"], "additionalDirectories": ["/Users/me"]},
                 "env": {"ANTHROPIC_API_KEY": MARKER},
                 "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": MARKER}]}]},
@@ -3385,8 +3425,9 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
         " The auto memory of octo/demo is in its folder on alpha (3 files written now). claude_memory_sync: false keeps"
         " it here. Your global instructions (CLAUDE.md) are on alpha (1 written now). claude_instructions_sync: false"
         " keeps them here. Settings: 2 on alpha (model, permissions.allow written now). Left here: hooks (they run a"
-        " program; claude_settings_sync_keys carries them); env, permissions.additionalDirectories (never carried)."
-        " claude_settings_sync: false keeps them here."
+        " program; claude_settings_sync_keys carries them); enabledPlugins, env, permissions.additionalDirectories"
+        " (never carried). claude_settings_sync: false keeps them here. Plugins installed on alpha: lsp@octo-plugins."
+        " claude_plugins_sync: false keeps them here."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
@@ -3422,6 +3463,14 @@ def test_the_global_instructions_and_the_portable_settings_go_and_nothing_else_o
     assert stat.S_IMODE((claude / "settings.json").stat().st_mode) == 0o600
     second = handoffs["sync"]["second"]["opened"]
     assert "Settings: 2 on alpha. " in second and "written now)" not in second.split("Settings:")[1]
+
+
+def test_this_machine_s_plugins_are_installed_by_the_vm_s_own_claude_code(handoffs):
+    world = handoffs["sync"]["world"]
+    calls = (world["vm"] / ".local" / "bin" / "plugin-calls").read_text().splitlines()
+    # On the first run alone: on the second the VM's Claude Code lists them, and nothing is installed again.
+    assert calls == ["plugin marketplace add octo/plugins", "plugin install lsp@octo-plugins --scope user"]
+    assert not any("-y" in call.split() or "--accept-command" in call for call in calls)
 
 
 def test_the_auto_memory_goes_whether_or_not_the_sessions_do(handoffs):

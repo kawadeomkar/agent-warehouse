@@ -558,7 +558,10 @@ character, at most 4 folders deep, and a folder past 1000 files or 16 MB left wh
 `repo_paths`, `githubRepoPaths`, read by the one function `claude_sessions_info` reads it by; with `instructions`,
 `CLAUDE.md` and the files of `rules/`, and the paths `CLAUDE.md` imports with `@`, by name; with `settings`, the
 names at the top of `settings.json` and the values of the settings asked for alone, each part of a key read part by
-part by its own name, and the parts not asked for by name. Run here, under `no_log`.
+part by its own name, and the parts not asked for by name; with `plugins`, the user-scope plugins enabled here and
+each marketplace's GitHub repository, from Claude Code's files. Run here, under `no_log` - and on the VM with
+`plugins_there`, where it asks the first of `claude`'s paths there is, `claude plugin list --json` and `claude plugin
+marketplace list --json`, for the user-scope plugins and the marketplaces it has.
 
 **`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
 from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
@@ -589,7 +592,10 @@ carries the settings of `SETTINGS`, the parts of `SETTINGS_PARTS` and `extra` (`
 the role manages (`managed`) and never one of `SETTINGS_NEVER`, a program's setting `extra` does not name an item
 with no value, and no item at all where the file here could not be read; and names what stays and why (`role`,
 `program`, `never`, `other`); **`claude_settings_asked`** is what the reader reads values of, and **`claude_settings_refused`**
-the names of `extra` never carried, which the read task refuses first. **`claude_config_plan(here, here_checkouts,
+the names of `extra` never carried, which the read task refuses first. **`claude_plugins_plan(here, there)`** is
+which plugins to install on the VM and which marketplaces to add for them: one there already is left, one whose
+marketplace is missing there and is no GitHub repository is left and named, an ID that could read as an option is
+left, and nothing where the VM's Claude Code did not answer (`unread`). **`claude_config_plan(here, here_checkouts,
 there, here_dir, dest, options)`** is the one entry point: the parts its options turn on, as one plan for the
 writer.
 

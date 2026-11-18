@@ -256,7 +256,8 @@ filter_plugins/route.py           the adapter of lib/claude_vm/route.py: vm_hop,
 filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
                                   signature checked with a vendored key, here (§7.15)
 filter_plugins/claude_config.py   the adapter of lib/claude_vm/claude_config.py: claude_memory_plan, which memory folder
-                                  goes to which VM checkout; claude_config_paths, the checkouts here to ask git about;
+                                  goes to which VM checkout; claude_plugins_plan, which plugins the VM installs;
+                                  claude_config_paths, the checkouts here to ask git about;
                                   claude_config_rsync, the files rsync sends (§7.6)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
                                   which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on

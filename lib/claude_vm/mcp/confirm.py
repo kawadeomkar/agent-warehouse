@@ -108,6 +108,7 @@ ALLOWED = {
     "claude_memory_sync": "whether just code copies this machine's auto memory",
     "claude_instructions_sync": "whether just code copies this machine's global instructions",
     "claude_settings_sync": "whether just code copies this machine's portable settings",
+    "claude_plugins_sync": "whether just code installs this machine's plugins on the VMs",
     # The sign-ins' timing and starts.
     "claude_code_login_approval_timeout": "how long a sign-in waits",
     "github_login_auto_start": "whether GitHub's sign-in starts by itself",
