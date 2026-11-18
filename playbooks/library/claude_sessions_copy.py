@@ -430,14 +430,18 @@ def _copy_subagents(source, target, prefix, edit, when, recorded, copies, check,
         if action in ("continued", "diverged"):
             counts["left"] += 1
             continue
-        copies[key] = digest
         if action == "write":
             counts["written"] += 1
             changed = True
             if not check:
                 _directory(os.path.dirname(there), created)
                 _write(there, data, when)
-        elif int(os.stat(there).st_mtime) != int(when):
+            # Recorded once written, never before: a record of a file that is not there would leave the old one,
+            # which differs from it, read as continued on the VM for good.
+            copies[key] = digest
+            continue
+        copies[key] = digest
+        if int(os.stat(there).st_mtime) != int(when):
             changed = True
             if not check:
                 os.utime(there, (when, when))

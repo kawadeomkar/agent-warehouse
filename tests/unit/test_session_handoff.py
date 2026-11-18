@@ -1728,6 +1728,21 @@ def test_a_session_moved_here_takes_its_subagents_along_and_leaves_none_behind(t
     assert sorted(recorded) == [f"{new[0]}/{ID}/subagents/{AGENT}.jsonl", f"{new[0]}/{ID}/subagents/{AGENT}.meta.json"]
 
 
+def test_a_subagent_file_whose_write_fails_is_not_recorded(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    source = _with_subagent(mirror, key)
+    # A file where the subagents' folder goes: the first write fails, and nothing may say it was written.
+    agents = tmp_path / "agents"
+    agents.write_text("in the way\n")
+    recorded = {}
+    with pytest.raises(OSError):
+        copy._copy_subagents(
+            str(source), str(agents), "p", lambda data: (data, ""), time.time(), {}, recorded, False, []
+        )
+    assert recorded == {}
+
+
 def test_check_mode_writes_no_subagent_either(tmp_path):
     key = ("-Users-me-demo", ID)
     mirror, _ = _mirror(tmp_path, {key: transcript()})
