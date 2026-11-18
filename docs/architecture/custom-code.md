@@ -492,7 +492,11 @@ it holds a user or assistant message, whether it has `tool-results/` or any fold
 pid of a live `claude` that `sessions/` says has it open - one whose command line, from `/proc` or `ps`,
 is still claude's, never a pid another program took since its entry was left; and that registry
 whole, whatever the transcripts (`registered`): the VM's, for which copies a `claude` there has open.
-Every complete line is parsed and only those values kept, so nothing that was said comes back. With
+Every complete line is parsed and only those values kept, so nothing that was said comes back. Past 16
+MiB of transcripts in all, they are read in 16 MiB parts, cut at line ends, by up to eight processes
+forked from the module's own - forked, since Ansible runs a module from a zip a new interpreter could not
+import it from - and each transcript's parts put together in order, to the same values; where the
+processes cannot be had, the module reads every part itself and warns. With
 `manifest`, just code's on that machine, whether it was copied there (by ID, in whatever folder it is
 now) and whether it is still the copy as written (by digest); with `memory`, the folders whose auto
 memory folder holds a file; with `repo_paths`, `githubRepoPaths` from Claude Code's `.claude.json`, and
@@ -530,7 +534,14 @@ written is left, and any other is the VM's and left too, said as continued when 
 the other machine and as diverged otherwise - and so is one that is gone while its ID is in another
 folder of the VM's, where `/cd` moved it (`held` names that folder), unless the copy there is the
 module's own, still as written: the session moved on the other machine, and its copy moves with it.
-The manifest is written after each copy. Sessions that are no longer asked for leave the
+The manifest is written after each copy. Beside each digest it records, under `made_from`, what the copy
+was made from as it was when last written or found as it would be: the mirror's size and time, the copy's
+size, time and inode, and a digest of the rest of what the edits take (the checkout, the memory folder,
+the folders, and `EDITS`, the edits' version, which `test_session_handoff.py` holds to their source).
+While all of it is still so, the copy is taken as unchanged without either file being read - the most of
+a run with nothing new, against reading, editing and digesting every copy twice. A key of its own keeps
+the manifest's format: an earlier version reads the digests as before, and one that writes the manifest
+leaves `made_from` out, so each copy is read once more. Sessions that are no longer asked for leave the
 mirror. Check mode writes nothing.
 
 **`claude_sessions_fetch`** — run on the controller, for `just destroy`'s save: `tar -cf - -T -` on the
