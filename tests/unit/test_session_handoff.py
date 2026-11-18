@@ -1355,7 +1355,7 @@ def test_a_manifest_an_earlier_version_wrote_reads_each_copy_once_more(tmp_path,
 
 # The source of what makes a copy's bytes from a transcript's, for each EDITS: a change to any of it must raise
 # claude_sessions_copy's EDITS, or a copy an earlier version wrote would be skipped as unchanged, never edited again.
-EDITS_SOURCE = {1: "0" * 64}
+EDITS_SOURCE = {1: "2615ac647ce6d5489278686ab679d8702fff33e06f23a5f7663831145d95ba54"}
 
 
 def test_the_edits_version_is_raised_with_the_edits():
