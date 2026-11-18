@@ -909,6 +909,75 @@ def test_a_vm_with_a_jump_of_its_own_is_read_beside_a_hop_that_cannot_be_used(tm
     assert _hop_calls(hop) == ["check", "open", "check"]
 
 
+@pytest.mark.parametrize("given", ["ansible_ssh_common_args", "ansible_ssh_extra_args"])
+def test_a_vm_whose_own_jump_fails_is_said_as_reached_by_it(tmp_path, fleet, through, given):
+    # Live, a jump exported for another command (ANSIBLE_SSH_EXTRA_ARGS) took every VM past the hop, and each line
+    # read as the VM's own failure: the line says whose route it was, and where such a jump comes from.
+    hop, named = through
+    root = status_root(tmp_path, fleet)
+    (root / "ssh-says").write_text(CLOSED + "\n")
+    settings = {**ROUTED, given: "-o ProxyJump=jump.invalid"}
+    extra = ["-e", json.dumps({"vm_name": "alpha"})]
+    report, model = _status_run(tmp_path, fleet, *named, *extra, settings=settings)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert item["text"] == f"not read: SSH to 192.0.2.60 by a jump of its own, ProxyJump jump.invalid, failed: {CLOSED}"
+    assert "ANSIBLE_SSH_EXTRA_ARGS" in item["command"] and "never the hop" in item["command"], item
+    assert _hop_calls(hop) == []
+
+
+def test_a_vm_that_answers_too_late_through_the_hop_is_said_so_and_stops_no_connection(tmp_path, fleet, through):
+    # Live, over a relayed link, VMs that did answer through the hop were said as not answering SSH at their address.
+    # A time-out ssh gives late in the read is no stale connection: nothing is stopped or read again.
+    hop, named = through
+    root = status_root(tmp_path, fleet)
+    (root / "ssh-says").write_text("Timeout, server 192.0.2.60 not responding.\n")
+    extra = ["-e", json.dumps({"vm_name": "alpha"})]
+    report, model = _status_run(tmp_path, fleet, *named, *extra, settings=ROUTED)
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert item["text"] == (
+        f"not read: through pve (root@{HOP_ADDRESS}), it did not answer in time: Timeout, server 192.0.2.60 not"
+        " responding."
+    ), item
+    assert (
+        item["command"].startswith("over a slow link to the Proxmox host")
+        and "just status alpha again" in (item["command"])
+    )
+    assert "stop" not in _hop_calls(hop) and "192.0.2.60" not in item["command"]
+
+
+@pytest.mark.parametrize(
+    ("said", "text"),
+    [
+        (
+            "ssh: connect to host 192.0.2.60 port 22: Operation timed out",
+            "not read: it did not answer SSH at 192.0.2.60",
+        ),
+        (
+            "ssh: connect to host 192.0.2.60 port 22: No route to host",
+            "not read: SSH to 192.0.2.60 failed: ssh: connect to host 192.0.2.60 port 22: No route to host",
+        ),
+    ],
+)
+def test_under_direct_a_vm_not_reached_names_the_route_through_the_host(tmp_path, fleet, through, said, text):
+    # Live, under direct from a network without the VMs', status said only to check the console; the playbooks' first
+    # contacts name vm_ssh_route: host, and so does status now, where a Proxmox host is there to go through.
+    hop, named = through
+    root = status_root(tmp_path, fleet)
+    (root / "ssh-says").write_text(said + "\n")
+    extra = ["-e", json.dumps({"vm_name": "alpha"})]
+    report, model = _status_run(tmp_path, fleet, *named, *extra, settings={"vm_ssh_route": "direct"})
+    assert report["rc"] == 0, report["stderr"][-2000:]
+    item = next(it for it in model["attention"] if it["vm"] == "alpha" and it["text"].startswith("not read"))
+    assert item["text"] == text, item
+    assert item["command"].endswith(
+        "Where this machine reaches the Proxmox host but not its VMs' network, vm_ssh_route: host carries every"
+        " connection through the host."
+    ), item
+    assert _hop_calls(hop) == []
+
+
 def test_a_run_with_no_vm_to_read_over_ssh_makes_no_login(tmp_path, fleet, through):
     hop, named = through
     (hop / "mode").write_text("refused")

@@ -258,6 +258,37 @@ def test_a_session_goes_to_the_checkout_whose_origin_names_its_repository():
     assert plan["sessions"] == [{"id": ID, "folder": "-Users-me-demo", "checkout": CHECKOUT, "memory": VM_MEMORY}]
     assert plan["files"] == [f"-Users-me-demo/{ID}.jsonl", f"-Users-me-demo/{ID}/tool-results"]
     assert plan["repositories"] == ["octo/demo"]
+    assert plan["over"] == [] and plan["bytes"] == 0 and plan["over_bytes"] == 0
+
+
+THIRD = "f0e1d2c3-b4a5-4697-8a7b-6c5d4e3f2a1b"
+
+
+def test_one_copy_sends_the_newest_sessions_that_fit_in_the_bound_and_says_the_rest():
+    # Newest first, each kept while it fits: the 200-byte one does not, the older 50-byte one still does.
+    sessions = [
+        _session(ID, mtime=300.0, size=100),
+        _session(OTHER, mtime=200.0, size=200),
+        _session(THIRD, mtime=100.0, size=50),
+    ]
+    plan = _plan(sessions, HERE_DEMO, cap=160)
+    assert [item["id"] for item in plan["sessions"]] == [ID, THIRD]
+    assert plan["files"] == [f"-Users-me-demo/{ID}.jsonl", f"-Users-me-demo/{THIRD}.jsonl"]
+    assert plan["over"] == [OTHER] and plan["bytes"] == 150 and plan["over_bytes"] == 200
+    unbounded = _plan(sessions, HERE_DEMO)
+    assert len(unbounded["sessions"]) == 3 and unbounded["over"] == [] and unbounded["bytes"] == 350
+
+
+def test_the_session_asked_for_is_sent_whatever_the_bound_and_counts_first():
+    sessions = [_session(ID, mtime=100.0, size=500), _session(OTHER, mtime=300.0, size=100)]
+    plan = _plan(sessions, HERE_DEMO, wanted=ID, cap=200)
+    assert [item["id"] for item in plan["sessions"]] == [ID] and plan["over"] == [OTHER]
+    assert plan["bytes"] == 500 and plan["over_bytes"] == 100
+
+
+@pytest.mark.parametrize(("size", "cap"), [("256M", 256 * 1024**2), ("1G", 1024**3), ("2", 2 * 1024**3), ("0", 0)])
+def test_the_bound_is_a_size_as_the_settings_write_one(size, cap):
+    assert filters.claude_sessions_cap(size) == cap
 
 
 @pytest.mark.parametrize(
@@ -405,7 +436,8 @@ def _claude_dir(tmp_path, files, *, old=()):
 
 
 def test_a_transcript_is_summarized_and_nothing_it_says_is_kept(tmp_path):
-    root = _claude_dir(tmp_path, {("-Users-me-demo", ID): transcript(branch="feat/x", partial=True)})
+    data = transcript(branch="feat/x", partial=True)
+    root = _claude_dir(tmp_path, {("-Users-me-demo", ID): data})
     (root / "projects" / "-Users-me-demo" / ID / "tool-results").mkdir(parents=True)
     found = info.list_sessions(str(root), 30, [])
     assert found == [
@@ -415,6 +447,7 @@ def test_a_transcript_is_summarized_and_nothing_it_says_is_kept(tmp_path):
             "mtime": found[0]["mtime"],
             "open": 0,
             "tools": True,
+            "size": len(data),
             "dir": True,
             "recorded": False,
             "copied": False,
@@ -425,6 +458,21 @@ def test_a_transcript_is_summarized_and_nothing_it_says_is_kept(tmp_path):
         }
     ]
     assert MARKER not in json.dumps(found)
+
+
+def test_a_session_s_size_is_its_transcript_and_tool_results_and_follows_no_link(tmp_path):
+    data = transcript()
+    root = _claude_dir(tmp_path, {("-Users-me-demo", ID): data})
+    results = root / "projects" / "-Users-me-demo" / ID / "tool-results"
+    (results / "deep").mkdir(parents=True)
+    (results / "a.txt").write_bytes(b"x" * 1000)
+    (results / "deep" / "b.txt").write_bytes(b"y" * 24)
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"z" * 10_000)
+    (results / "link").symlink_to(outside)
+    (results / "folder-link").symlink_to(tmp_path, target_is_directory=True)
+    (found,) = info.list_sessions(str(root), 30, [])
+    assert found["size"] == len(data) + 1024
 
 
 def test_the_newest_version_is_kept_whatever_its_place(tmp_path):

@@ -35,6 +35,16 @@
 # ran: the rest was sent, and the copy names a session that did not arrive.
 # Any other failure - no rsync on either machine among them - fails --session
 # alone: the sync says it, and the window opens with the copies there are.
+# Said before rsync starts, which shows nothing while it sends: a first copy
+# over a slow link to the VM takes a while, and here is how to turn it off.
+- name: session_write | Say what is sent
+  ansible.builtin.debug:
+    msg: >-
+      Copying {{ code_session_plan.sessions | length }} of this machine's Claude Code sessions to
+      {{ claude_vm_names[0] }}, {{ code_session_plan.bytes | human_readable }} in all, less what an earlier run sent:
+      claude_sessions_sync: false copies none, claude_sessions_sync_max_size bounds it.
+  when: code_sessions | bool and code_session_plan.sessions | default([]) | length > 0
+
 - name: session_write | Send the sessions to the VM
   ansible.builtin.command:
     argv:

@@ -188,7 +188,7 @@ restate them are not treated as vulnerabilities:
   Zed, `just code` alone writes the page, and nothing rereads its sign-ins as the window opens.
 - `just code` copies this machine's Claude Code sessions of the last 30 days to the VM it opens
   (`claude_sessions_sync`, on by default): the transcripts of the repositories that VM has checked
-  out, matched by git origin. A transcript holds whatever its tools printed - command output, the
+  out, matched by git origin, the newest first, at most `claude_sessions_sync_max_size` (256M) a run. A transcript holds whatever its tools printed - command output, the
   contents of files, tokens - so every VM you open gets those of its repositories' sessions, in the VM
   user's `~/.claude` (0600 files, 0700 folders), never in a repository, and as rsync's unedited mirror of
   them in `just code`'s own directory there (`<projects>/.agent-warehouse/claude-sessions/`, 0700);

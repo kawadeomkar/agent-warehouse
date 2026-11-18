@@ -50,6 +50,12 @@ wherever your laptop is. Where a VPN of yours routes the VMs' network, or you re
 `vm_ssh_route: direct`. A VPN that reaches only the host, such as WireGuard to it alone, is not recognised: set
 `host`.
 
+- **The API's certificate.** Every `just` command reaches Proxmox's API at the host's `ansible_host`, its
+  certificate checked against that name. The certificate Proxmox makes names the node's own name and its LAN
+  address, never a tailnet address or a `.ts.net` name: give `ansible_host` the node's own name, `pve` say, which
+  MagicDNS resolves to the host's tailnet address where its Tailscale machine name is the node's, and the API and
+  `ssh` both reach it there. A `Host` block of your own `~/.ssh/config` for that name decides where `ssh` dials: one
+  whose `HostName` is the LAN address makes `auto` reach the VMs straight, away from home too.
 - **Who the hop is.** The Proxmox host as the inventory reaches it - its address, `ansible_user`, port and key - or
   another account on it, named on the host's own entry in `hosts.yml`: `vm_ssh_jump: forwarder`. An account only;
   the hop is always the hypervisor.

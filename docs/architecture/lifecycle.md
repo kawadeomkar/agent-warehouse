@@ -1074,6 +1074,12 @@ Claude Code's own Agent SDK documents. The rules:
   two folders here (`twice`), which `claude --resume <id>` would resume from neither once both were on
   the VM, and one a `claude` on the VM has open (its `sessions/` registry there, `registered`),
   whose copy is never replaced under the claude holding it.
+- **Bounded, and said before it is sent.** One copy sends at most `claude_sessions_sync_max_size` (256M)
+  of transcripts and their tool results, sizes `claude_sessions_info` reads here without following a
+  link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
+  here and counted in the run's line (`over`). A bound that is no size is refused before anything is
+  read; 0 is none. rsync shows nothing while it sends, and a first copy over a slow link took minutes
+  live, so the run says how many and how much just before it starts.
 - **Four edits, nothing else** (`claude_sessions_copy`): the memory folder in each `prompt_snapshot`
   attachment becomes `<VM ~/.claude>/projects/<checkout's folder>/memory/` - read from the entry's
   "persistent file-based memory at" path, never computed, because `--system-prompt-snapshot` is on by

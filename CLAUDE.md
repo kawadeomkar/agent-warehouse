@@ -560,7 +560,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       each held by their own tests (`SHARED`): the API's reads, the alias, the names, the host key's carry-over, and
       the route's two, `tasks/vm_route.yml` and `tasks/vm_route_held.yml` (`test_vm_route.py`). The `provision` scenario asserts the
       `vscode_user_settings_file` it planted is untouched, bytes and mtime, after every run.
-    - With `claude_sessions_sync` (on by default) it copies only this machine's sessions of the last 30 days
+    - With `claude_sessions_sync` (on by default) it copies only this machine's sessions of the last 30 days,
+      at most `claude_sessions_sync_max_size` of them (256M; the newest first, said before rsync starts),
       whose first directory's git origin names a repository the VM has a checkout of (`owner/repo`, never by
       folder name; the origin as configured, never as `url.<base>.insteadOf` rewrites it; on the VM only a
       GitHub one), under the folder names they have here. Each copy gets exactly four edits

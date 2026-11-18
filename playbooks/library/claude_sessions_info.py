@@ -105,6 +105,9 @@ sessions:
     tools:
       description: Whether it has a C(tool-results/) folder, the large tool outputs it refers to.
       type: bool
+    size:
+      description: The bytes of the transcript and its C(tool-results/), what a copy of it sends; no link is followed.
+      type: int
     dir:
       description: Whether it has a folder of its own beside it, for its tool results, subagents and MCP tasks.
       type: bool
@@ -138,6 +141,7 @@ import os
 import re
 import subprocess
 import time
+from stat import S_ISREG
 
 from ansible.module_utils.agent_warehouse import (
     SESSION_ID,
@@ -254,6 +258,7 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                     "mtime": stat.st_mtime,
                     "open": opened.get(session, 0),
                     "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
+                    "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
                     "dir": os.path.isdir(os.path.join(folder.path, session)),
                     "recorded": session in copied_ids,
                     "copied": copied,
@@ -261,6 +266,21 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 }
             )
     return sessions
+
+
+def tree_size(path):
+    """The bytes of the plain files under ``path``, no link followed; 0 where there is no such folder, and a file that
+    goes as it is read counted as nothing."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                stat = os.lstat(os.path.join(root, name))
+            except OSError:
+                continue
+            if S_ISREG(stat.st_mode):
+                total += stat.st_size
+    return total
 
 
 def repo_paths(path):

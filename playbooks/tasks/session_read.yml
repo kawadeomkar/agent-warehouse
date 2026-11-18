@@ -43,6 +43,19 @@
     quiet: true
   when: code_session_id | length > 0
 
+# A bound that is no size would be no bound at all: refused, as destroy
+# refuses its own, before anything is read.
+- name: session_read | Refuse a claude_sessions_sync_max_size that is no size
+  ansible.builtin.assert:
+    that: >-
+      claude_sessions_sync_max_size | default('256M') | string | lower in ['', '0', 'false', 'none']
+      or code_session_cap | int > 0
+    fail_msg: >-
+      claude_sessions_sync_max_size is the most one copy of this machine's Claude Code sessions sends, a size such
+      as 256M or 1G, or 0 for no bound, not {{ claude_sessions_sync_max_size | string | plain_text }}.
+    quiet: true
+  when: code_sessions | bool
+
 - name: session_read | Read the Claude Code sessions on this machine
   claude_sessions_info:
     path: "{{ code_session_here }}"
@@ -92,7 +105,7 @@
          | claude_sessions_plan(code_session_dirs_here.checkouts, code_session_projects.checkouts,
                                 code_session_vm.version, code_session_found.repo_paths, code_session_there,
                                 code_session_id, vm_project | default('', true) | string, claude_vm_names[0],
-                                code_session_vm.registered | list) }}
+                                code_session_vm.registered | list, code_session_cap | int) }}
   when: code_session_on | bool
 
 - name: session_read | Refuse a session that cannot be opened on the VM

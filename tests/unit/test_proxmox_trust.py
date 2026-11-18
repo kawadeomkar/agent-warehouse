@@ -211,7 +211,8 @@ def test_just_status_checks_against_the_trust_file_and_says_a_certificate_that_c
             "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, certificate is not"
             " valid for '192.0.2.10'",
             "inventory/proxmox-trust.pem",
-            "does not name the address in proxmox_api_host: reach it by a name or address the certificate holds",
+            "does not name the address it was reached at, the Proxmox host's ansible_host in its hosts.yml: give that a"
+            " name or address the certificate holds - on a tailnet, the node's own name, which MagicDNS resolves there",
         ),
         ("HTTP Error 401: No ticket", "inventory/proxmox-trust.pem", ""),
         ("Request failed: [Errno 61] Connection refused", "", ""),

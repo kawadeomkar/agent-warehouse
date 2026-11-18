@@ -298,6 +298,12 @@ The four above by their names in 1.0, still read through 1.x while the new name 
 | `vscode_session_notes` | `true` |  |
 | `vscode_claude_sessions` | `true` |  |
 
+The most one copy of those sessions sends, a size as vm_disk_size is written (256M, 1G; a number alone is gigabytes): the newest first, each with its tool results while it fits, and the rest said and left here. 0 for no bound. A first copy sends each whole, a later one what changed.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_sessions_sync_max_size` | `256M` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |
