@@ -261,6 +261,28 @@
 # skills your account syncs, which the VM downloads at its own sign-in. A file
 # changed on the VM is never overwritten.
 # claude_extensions_sync: true
+# Read the local git repository when just deploy or just code is given
+# --project and started from a checkout of the same repository - matched by
+# git origin, never by folder name - and say what a sync would carry to the
+# VM's checkout of it: every local branch and tag, the branch checked out here
+# and its changes not committed, and with repo_sync_ignored the files git
+# ignores. Nothing is sent yet.
+# repo_sync: true
+# With repo_sync, the files git ignores too (plan files, working documents),
+# each file at any depth but a credential or a derived tree by its name (.env,
+# node_modules/ and the like, unless the repository's .worktreeinclude names
+# it), a link, or a repository inside the repository - and never this
+# project's own secrets, vault, inventory or run records, nor a file that
+# starts as a vault or a private key does.
+# repo_sync_ignored: true
+# The most one sync sends, a size as claude_sessions_sync_max_size is written:
+# the branches' git objects are held to it, and again the files - the changes
+# not committed first, all or none, then the ignored files, a folder at a time,
+# the rest said and left here. 0 for no bound.
+# repo_sync_max_size: 256M
+# More patterns, in .gitignore syntax, whose files are never carried from any
+# repository, an ignored or a new file and a change to a tracked one alike.
+# repo_sync_exclude: []
 # The VS Code settings read (never written) to say whether the terminal starts
 # on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it
 # for Insiders, VSCodium, or a VS Code on Windows driven from WSL.

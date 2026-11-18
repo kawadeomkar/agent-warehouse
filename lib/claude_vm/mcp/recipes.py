@@ -181,13 +181,19 @@ def schema(recipe: dict, tool: str) -> dict:
     return schema
 
 
+# Where just was started, which a run's repository sync carries from (STARTED_IN): nowhere, so that no call carries a
+# repository. The server starts just in this checkout, which would otherwise be the source of a
+# code(name, project="agent-warehouse").
+NO_SOURCE = {"STARTED_IN": ""}
+
+
 def command(config: Config, recipe: dict, tool: str, arguments: dict, extra: dict[str, str] | None = None) -> list[str]:
-    """just's argv for one call: the justfile, every setting at the server's value and then extra (ATTENDED), the
-    recipe, then its options as --long=value (a flag bare), in the recipe's order, the fixed ones among them, then its
-    words, each one word."""
+    """just's argv for one call: the justfile, every setting at the server's value, no source (NO_SOURCE) and then
+    extra (ATTENDED), the recipe, then its options as --long=value (a flag bare), in the recipe's order, the fixed ones
+    among them, then its words, each one word."""
     given = {**arguments, **TOOLS[tool].fixed}
     argv = [config.just, "--justfile", str(config.checkout / "justfile")]
-    argv += [f"{name}={value}" for name, value in {**settings(config), **(extra or {})}.items()]
+    argv += [f"{name}={value}" for name, value in {**settings(config), **NO_SOURCE, **(extra or {})}.items()]
     argv.append(recipe["name"])
     tail: list[str] = []
     for parameter in recipe["parameters"]:

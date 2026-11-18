@@ -121,7 +121,9 @@ def test_argv_is_options_in_their_long_form_then_the_words_each_one_word(dumped)
     argv = recipes.command(CONFIG, recipe, "status", {"names": ["alpha", "$(id)", "a b"], "only": "-vvv"})
     assert argv[:3] == [JUST, "--justfile", str(REPO / "justfile")]
     assert argv[3 : 3 + len(recipes.SETTINGS)] == [f"{k}={v}" for k, v in recipes.settings(CONFIG).items()]
-    assert argv[3 + len(recipes.SETTINGS) :] == ["status", "--only=-vvv", "--json", "alpha", "$(id)", "a b"]
+    # Then nowhere just was started (test_no_tool_s_run_names_where_just_was_started).
+    assert argv[3 + len(recipes.SETTINGS)] == "STARTED_IN="
+    assert argv[4 + len(recipes.SETTINGS) :] == ["status", "--only=-vvv", "--json", "alpha", "$(id)", "a b"]
     # A word that starts with - would be an option to just, whatever its pattern: refused here.
     with pytest.raises(ValueError, match="never start with -"):
         recipes.command(CONFIG, recipe, "status", {"names": ["alpha", "--only=configure"]})
@@ -209,3 +211,12 @@ def test_a_run_is_against_the_host_the_read_names_else_the_current_one_and_none_
     assert server.run_host({}) == ""
     # A second host without a first is more than one host too.
     assert server.many_hosts({"current_host": None, "hosts": [nuc]})
+
+
+def test_no_tool_s_run_names_where_just_was_started(dumped):
+    # The server starts just in this checkout, which would otherwise be the repository a code(name, project=...) of
+    # this project carries: every run is given STARTED_IN=, whatever its tool.
+    for tool in recipes.TOOLS:
+        argv = recipes.command(CONFIG, recipes.recipe_of(dumped, tool), tool, {})
+        settings = [word for word in argv[: argv.index(recipes.recipe_of(dumped, tool)["name"])] if "=" in word]
+        assert "STARTED_IN=" in settings, (tool, argv)

@@ -496,6 +496,33 @@ A transcript holds whatever its tools printed - command output, tokens, the cont
 every VM `just code` opens gets those of its repositories' sessions. `claude_sessions_sync: false` in
 `local.yml` keeps them here; `--session` still copies its one session.
 
+## This machine's repository on the VM
+
+Started from your checkout of a project, `just code <vm> --project <repo>` - or `just deploy <vm> --project <repo>` -
+reads that repository against the VM's checkout of it and says what a sync would carry there: every local branch and
+tag, the branch checked out here and its changes not committed - but a new file the rules below leave, and a vault
+you decrypted in place, whose change would carry its secrets, which stay here, said - and the files git ignores (plan
+files, working documents). Nothing is sent yet. The two must be one repository by their git origins, whatever the folders are
+called; started in another repository, the run says why it carried nothing. From the agent-warehouse checkout itself,
+`just code <vm> --project agent-warehouse` is started from a checkout of that project too.
+
+```bash
+alias aw='just --justfile ~/agent-warehouse/justfile'
+cd ~/code/my-app && aw code app --project my-app
+```
+
+What is never carried, from any repository and at any depth: this project's own secrets and records (a vault, its
+password, an inventory, `local.yml`, `.logs/`, `.sessions/`, `.cache/`), and any file that starts as an Ansible vault
+or a private key does - and a wholly ignored folder holding one is left whole. Left unless the repository's
+`.worktreeinclude` names it, as Claude Code reads that file for a new worktree: a credential by its name (`.env`, `*.pem`,
+`id_*` ...) and a derived tree (`node_modules/`, `.venv/` ...). A link, a repository inside the repository, and your own
+`repo_sync_exclude` patterns are left too - your patterns from the changes to tracked files as well, which the names
+above are not asked of, so that a tracked `.env.example` you edit still goes. `repo_sync_max_size` (256M) bounds what
+one sync sends; `repo_sync: false` turns it off, `repo_sync_ignored: false` leaves the ignored files out. A folder
+all of whose files are derived, such as `node_modules/`, is named as one, never read file by file. The tiers go by
+name and by those two headers: a
+secret in an ignored file under an ordinary name would be carried, so the report names everything it leaves, by rule.
+
 ## Session notes
 
 Every time the window opens - from `just deploy`, `just code`, *Open Recent*, a restart that restores

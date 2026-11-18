@@ -188,6 +188,7 @@ WINDOW = (
     Step("read the sessions", files=["tasks/session_read.yml"]),
     Step("the folder", starts=["Settle the folder to open", "Look for the folder on the VM"]),
     Step("alias", files=["tasks/ssh_config.yml"]),
+    Step("read the repo", files=["tasks/repo_read.yml"]),
     Step("the editor here", starts=["Look for VS Code on this machine", "Look for Zed's commands on this machine"]),
     Step("the directory", starts=["Look for just code's own directory on the VM"]),
     Step("copy the sessions", files=["tasks/session_write.yml"]),

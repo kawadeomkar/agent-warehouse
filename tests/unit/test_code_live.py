@@ -50,6 +50,7 @@ STEPS = (
     "read the sessions",
     "the folder",
     "alias",
+    "read the repo",
     "the editor here",
     "the directory",
     "copy the sessions",
@@ -141,9 +142,11 @@ def test_the_summary_says_each_step_and_no_row_of_the_fleets_skipped_tasks(reque
     # In each editor: Zed's window step begins at its first task as VS Code's does, so the shared helper and the
     # task file are drawn under it, never under the notes before it.
     table = request.getfixturevalue(fixture).table("STEPS")
-    # Each step by its whole name, in its order; just deploy's fleet, skipped, no row.
-    said = [re.match(r"^ ✓ (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
+    # Each step by its whole name, in its order; just deploy's fleet, skipped, no row. The repository sync's, with no
+    # repository to carry, a row of its own marked skipped.
+    said = [re.match(r"^ [✓–] (.+?) +\d", line).group(1) for line in table.splitlines()[1:]]
     assert said == list(STEPS), table
+    assert re.search(r"^ – read the repo ", table, re.M), table
 
 
 def test_zed_s_window_is_drawn_by_the_same_steps_its_writes_under_the_window(zed_opened):

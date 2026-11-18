@@ -1,0 +1,84 @@
+---
+# The reads of the repository sync, imported by code.yml's window step once
+# the folder to open is found on the VM (docs/architecture/lifecycle.md §4.9).
+# They decide whether the checkout just was started in (code_repo_from, which
+# the justfile hands over only with --project) is a checkout of the same
+# repository as that folder - by their git origins, never their folders'
+# names - and if so, what a sync would carry from it and what it would leave
+# here. Nothing is written anywhere, and git runs as git --no-optional-locks,
+# here and on the VM.
+#
+# Three reads, each only where the one before allows, so a run that will not
+# sync costs two cheap ones: the match, both ends asked little; the selection,
+# here, asked everything; the estimate, here again, of the bytes the branches
+# hold beyond the commits the VM has. Nothing the VM reports becomes an
+# argument or input of a command here but those commits, each held to a full
+# hex ID and looked up first, and only left out of the estimate.
+#
+# Inputs: code.yml's play vars code_repo_on, code_repo_from, code_repo_cap and
+# code_repo_match, and the folder code_target. Sets code_repo_plan.
+
+# A bound that is no size would be no bound at all: refused before anything is
+# read, as the session copy's is.
+- name: repo_read | Refuse a repo_sync_max_size that is no size
+  ansible.builtin.assert:
+    that: >-
+      repo_sync_max_size | default('256M') | string | lower in ['', '0', 'false', 'none']
+      or code_repo_cap | int > 0
+    fail_msg: >-
+      repo_sync_max_size is the most one repository sync sends, a size such as 256M or 1G, or 0 for no bound, not
+      {{ repo_sync_max_size | string | plain_text }}.
+    quiet: true
+  when: code_repo_on | bool
+
+- name: repo_read | Read the checkout just was started in
+  git_sync_info:
+    path: "{{ code_repo_from }}"
+  register: code_repo_here
+  when: code_repo_on | bool
+
+- name: repo_read | Read the project's checkout on the VM
+  git_sync_info:
+    path: "{{ code_target }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_repo_there
+  when: code_repo_on | bool and code_repo_here.repo.git | default(false)
+
+# Only where just was started in another repository: from this checkout with
+# another project's name, as every run is, it would be said every time.
+- name: repo_read | Say why the repository is not carried
+  ansible.builtin.debug:
+    msg: "{{ code_repo_match.said }}"
+  when: code_repo_on | bool and not code_repo_match.sync and code_repo_match.said | length > 0
+
+- name: repo_read | Read what the checkout would carry
+  git_sync_info:
+    path: "{{ code_repo_match.source }}"
+    select: true
+    ignored: "{{ repo_sync_ignored | default(true) | bool }}"
+    exclude: "{{ repo_sync_exclude | default([], true) }}"
+  register: code_repo_selected
+  when: code_repo_matched | bool
+
+# The VM's commits, each held to a full ID and only those this machine has,
+# are left out: what it says it has only ever takes from the count.
+- name: repo_read | Work out how much the branches would send
+  git_sync_info:
+    path: "{{ code_repo_match.source }}"
+    estimate:
+      refs: "{{ code_repo_selected.repo | repo_sync_sources }}"
+      known: "{{ code_repo_there.repo.tips }}"
+  register: code_repo_size
+  when: code_repo_matched | bool and code_repo_selected.repo | repo_sync_sources | length > 0
+
+- name: repo_read | Settle what the sync carries
+  ansible.builtin.set_fact:
+    code_repo_plan: >-
+      {{ code_repo_selected.repo | repo_sync_plan(code_repo_match, code_repo_cap | int,
+                                                  code_repo_size.repo.bytes | default(0), code_repo_session_branch) }}
+  when: code_repo_matched | bool
+
+- name: repo_read | Say what the sync would carry
+  ansible.builtin.debug:
+    msg: "{{ code_repo_plan | repo_sync_said(claude_vm_names[0], code_project) }}"
+  when: code_repo_matched | bool

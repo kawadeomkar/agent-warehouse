@@ -1642,3 +1642,75 @@ Covered by `tests/unit/test_route.py`, against stand-ins that play OpenSSH's con
 of the real ssh, given no config, whose `ProxyCommand` reaches a recorder, and each forward's verdict from the real ssh
 against a throwaway sshd of the test's own on the loopback, its words at `VERBOSE` held to those at `INFO`; the task
 files and the publishers by `tests/unit/test_vm_route.py`.
+
+## 7.18 `lib/claude_vm/repo_sync.py` and `git_sync_info` — the repository sync
+
+`just deploy` and `just code`, given `--project` and started from a checkout of the same repository, carry it to the
+VM's checkout of it ([§4.9](lifecycle.md#49-playbookscodeyml)). Who decides what:
+
+| Decided | By | Why there |
+|---|---|---|
+| Whether to sync at all, and the one line when not | `repo_sync_match`, here | both origins are plain values |
+| Which files git does not track may go | `git_sync_info`, here (`playbooks/module_utils/git_sync.py`'s `select`) | it needs git's matcher over the files |
+| The refs to send, both bounds, what is left here | `repo_sync_refs` and `repo_sync_plan`, here | this machine's refs and sizes alone |
+| The report's words | `repo_sync_said`, here | one place for every line |
+
+Which files git does not track may go, in order:
+
+1. **Never** (tier 0, `NEVER`): this project's own secrets and this machine's records - the patterns of
+   `tests/check_no_local_files.sh` less three (`docs/`, which is what a sync is for; `.env` and `*.log`, which are
+   tier 1) and with the whole of `.cache/` - and any file that starts as an Ansible vault or a private key does.
+   Applied to every repository: a fork or a copy of this project is covered without being recognised. A wholly
+   ignored, or wholly new, folder that holds one anywhere inside is left whole. `tests/unit/test_repo_sync.py`
+   holds the list to the guard over the same names, and counts the guard's patterns.
+2. **Structure**: a repository inside the repository (git lists it as one name and never looks inside), an
+   ignored link, and a name with a control character or that is not UTF-8, since macOS's rsync has no `--from0`.
+   A new link among the changes travels as its target's text.
+3. **Tier 1, unless named**: credentials by their names (`.env*`, `*.pem`, `id_*`, `credentials*` ...) and derived
+   trees (`node_modules/`, `.venv/`, `__pycache__/`, `target/` ...), left file by file unless the repository's
+   `.worktreeinclude` names the file - the file Claude Code reads to decide which ignored files a new worktree
+   gets. It can never name tier 0, and each credential it lets through is named in the report every run.
+4. **`repo_sync_exclude`**, the person's own patterns.
+
+The parts, one by one:
+
+- **One repository, by origin.** `repo_sync_match` takes `git_sync_info`'s read of the checkout just was started in
+  and of the project's folder on the VM: here any origin names a repository (`git_repository`), since a clone here may
+  reach GitHub through an SSH alias of the user's own; on the VM only a GitHub one (`github_repository`), as just
+  deploy clones it, and only where the folder is its checkout's top level (`at_top`). Where they differ, it says so
+  only for a run started in another repository (`vm_repo_elsewhere`).
+- **Which files.** The unit is the file, at any depth: git lists a wholly ignored folder as one entry, and a rule that
+  read only that entry's name would carry a `backup/` with a vault's password in it. So the candidates are listed file
+  by file (`git ls-files --others`, the ignored ones with `repo_sync_ignored`), and each list above is asked of git's
+  own matcher over the same files (`git ls-files --others --ignored -x <pattern>`, with `core.ignoreCase`), never of a
+  matcher written for this. By the four rules above, in order. Every such file is under an entry git lists for it
+  (`--directory`), the outermost one its unit (`entry_index`), and each listing is asked only under those entries,
+  as written (`--literal-pathspecs`): a folder git lists as one entry whose every file is derived - a `node_modules/`
+  of 200,000 files - is left as one name, never listed file by file, unless every file of it is of tier 0 too (said
+  as never carried) or a `.worktreeinclude` could name one inside. What is left is said a folder at a time only where
+  every file of it is left for one reason and none of its files goes, else by the folders git lists inside it, then
+  file by file; a repository inside is one name, counted as a repository.
+- **Changes not committed** are read against HEAD (`git diff --name-status HEAD` and the untracked files), so a file
+  staged and never committed is a new file, its name asked of the index (`git ls-files --cached --ignored -x`), and
+  one taken out of the index and kept (`git rm --cached`) is no deletion, but a file git does not track, judged as
+  one. A new file the rules leave stays here, said, and the rest of the changes go. So do three kinds of tracked
+  change: a path `repo_sync_exclude` names (asked of the index, `git ls-files --cached --ignored -x`), its deletion
+  too, since the person's own patterns hold for every repository; a tracked file committed as an Ansible vault and
+  decrypted here (`committed_vaults`, by the committed blob's first bytes), whose change would carry the vault's
+  secrets in plain text; and a tracked path that is a folder here, a submodule moved or a file made a folder, which
+  files cannot bring the VM to. The built-in names hold only for files git does not track: a tracked `.env.example`
+  or `local.yml.example` changed here goes.
+- **The bound.** `repo_sync_max_size` holds the git objects (`git rev-list --objects --disk-usage` of the refs beyond
+  the commits the VM has: the VM's commits, each held to a full ID and looked up here, are only left out of the count,
+  each as a `^<id>` line, since git before 2.42 refuses `--not` in `--stdin` mode)
+  and, again, the files: the changes first, all or none, then the ignored files by the entry git lists each under -
+  single files first, in path order, then folders by their total size, smallest first. An entry that does not fit is
+  left whole, and named with its size.
+- **What is sent** is this machine's refs alone, each named in full into the VM checkout's
+  `refs/agent-warehouse/sent/`: a name that could be read as anything else - a line of its own, an option - is left
+  out. Nothing the VM reports becomes an argument here.
+
+`git_sync_info` runs every git command as `git --no-optional-locks`, takes its path as written, and changes nothing.
+Covered by `tests/unit/test_repo_sync.py` (the core on made-up inputs, the module against scratch repositories with
+git's config of the developer's off) and `tests/unit/test_code_session.py` (the window step's reads, which write
+nothing on the VM).

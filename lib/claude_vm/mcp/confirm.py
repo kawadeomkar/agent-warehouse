@@ -111,6 +111,9 @@ ALLOWED = {
     "claude_plugins_sync": "whether just code installs this machine's plugins on the VMs",
     "claude_history_sync": "whether just code copies the copied sessions' prompt history",
     "claude_extensions_sync": "whether just code copies this machine's skills, agents and commands",
+    "repo_sync": "whether just code carries the local repository",
+    "repo_sync_ignored": "whether just code carries the local repository's ignored files",
+    "repo_sync_max_size": "how much of the local repository just code carries",
     # The sign-ins' timing and starts.
     "claude_code_login_approval_timeout": "how long a sign-in waits",
     "github_login_auto_start": "whether GitHub's sign-in starts by itself",
@@ -171,6 +174,8 @@ REFUSED = frozenset(
         "proxmox_template_rebuild",
         "proxmox_template_vmid",
         "proxmox_validate_certs",
+        # What is never carried from a repository: a person's own decision about their files.
+        "repo_sync_exclude",
         "tailscale_accept_dns",
         "tailscale_accept_routes",
         "tailscale_advertise_tags",

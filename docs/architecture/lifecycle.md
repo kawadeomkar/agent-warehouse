@@ -849,7 +849,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    message: a missing project lists what the workspace holds and, for a name that differs only in
    case, suggests the right one, since the VM's paths are case-sensitive; a missing workspace means a
    VM never configured, and says to run `just deploy --only configure`. These are there so a typo is said in the
-   terminal, not in an editor window opened on a folder that does not exist. Then, wherever anything goes into
+   terminal, not in an editor window opened on a folder that does not exist. Then the repository sync's reads
+   (`tasks/repo_read.yml`, **The repository sync**, below). Then, wherever anything goes into
    just code's own directory, refuse one inside a checkout of the projects directory, for every editor: a `.git`
    in any folder from the first below the projects directory down to that directory, looked for with `stat` on
    the VM by the path as written. Only those folders, so a home directory kept in git refuses nothing - nor does
@@ -1037,6 +1038,26 @@ and every window under a `editor_files_dir` outside the projects directory, keep
 they open the notes from outside it, which VS Code asks about once per workspace
 (`requestOpenFilesTrust`, remembered on *Open*) unless a trusted folder covers them - the projects
 directory, trusted in its own window - and `just code`'s message says so.
+
+**The repository sync.** With `repo_sync` (the default) and `--project`, a run started from a checkout of the
+project's repository reads it, against the VM's checkout of the same repository, and says what a sync would carry:
+every local branch and tag, the branch checked out here and its changes not committed, and with `repo_sync_ignored`
+the files git ignores - each by the rule of [§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync).
+Nothing is sent yet. Where just was started is the justfile's `STARTED_IN`, the folder it was started in unless the
+command line names another, handed to the playbook as `vm_repo_from` - with `vm_repo_elsewhere`, whether it is another
+repository than this checkout - only with `--project`, only from a folder in a repository, and never one whose path
+opens a template (`{{`, `{%`, `{#`), since Ansible renders an extra var's text as one: the justfile refuses it.
+`code.yml` never looks for a source itself, so without `vm_repo_from` there is none, and no test reads the developer's
+checkout. The two
+checkouts must name the same repository by their git origins, never by their folders' names: here any origin names
+one, on the VM only a GitHub one, as the session copy matches. Where they do not and just was started in another
+repository, one line says so; from this checkout, with another project's name, as every run is, nothing is said.
+`tasks/repo_read.yml` reads in three parts, each only where the one before allows, so a run that will not sync costs
+two cheap reads: the match (`git_sync_info` at both ends, asked little), the selection (here, asked everything), and
+the estimate (here again: the bytes the branches hold beyond the commits the VM has, `git rev-list --objects
+--disk-usage`). `repo_sync_max_size` that is no size is refused before anything is read. Nothing the VM reports
+becomes an argument or input of a command here but its commits, each held to a full hex ID and looked up here
+first, and only left out of the estimate.
 
 **The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's
 Claude Code sessions of the last 30 days - Claude Code's own `cleanupPeriodDays` by default, by their file

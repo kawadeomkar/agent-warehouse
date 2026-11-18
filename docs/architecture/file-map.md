@@ -72,9 +72,11 @@ playbooks/
   library/                        just code's session handoff and destroy's save: claude_sessions_info, git_checkouts_info
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
-                                  here as plain files and folders only); and what just code carries beside the
+                                  here as plain files and folders only); what just code carries beside the
                                   sessions: claude_config_info (its reads here) and claude_config_carry (its one
-                                  writer on the VM, by the copy's rule under a manifest of its own)
+                                  writer on the VM, by the copy's rule under a manifest of its own); and the repository
+                                  sync's git_sync_info (a checkout read at either end, and what a sync would carry
+                                  from it, §7.18)
   action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
                                   for the menu the live engine asks it as (§7.8)
   action_plugins/vm_route.py      the route to the VMs settled, and the hop's own ssh run here under hard limits: the
@@ -82,6 +84,8 @@ playbooks/
   module_utils/                   agent_warehouse.py, what those modules share, sent with each: the session ID,
                                   the manifest, a transcript's line, a folder's folders, a version's order, whether
                                   a process is claude; git_checkouts.py, reading a checkout without changing it;
+                                  git_sync.py, the repository sync's: which files git does not track may go, by
+                                  git's own matcher, tier 0 held to tests/check_no_local_files.sh (§7.18);
                                   status_probe.py, what just status reads inside a VM, sent over stdin (§7.7)
   templates/vm_session.md.j2      the session notes: a page about one VM, opened beside VS Code's Claude terminal
   vars/vscode.yml                 code.yml's VS Code variables: its helpers, and where the user's VS Code settings
@@ -122,6 +126,8 @@ playbooks/
   tasks/vm_route_held.yml         each VM a publisher added held to the route - the hop, or a jump of its own, never
                                   neither - then the shared connection made sure of (§4.15)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
+  tasks/repo_read.yml             the repository sync's reads: the checkout just was started in against the VM's, by
+                                  origin; what a sync would carry, and its estimate (§7.18)
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
   tasks/claude_config_read.yml    what else of this machine's Claude Code goes to which VM checkout: auto memory, by origin
   tasks/claude_config_write.yml   rsync to the VM's second mirror, then claude_config_carry's writes there
@@ -187,6 +193,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   sessions, decided from both ends' reads (§7.6);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
+                                  repo_sync.py, the repository sync's decisions here: one repository by origin, what is
+                                  sent within the bound, what is left and why, the report (§7.18)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
                                   as the callback and a run in parts say them (§7.5)
                                   ansible/parts.py, a run in parts: the driver every drawn run shares, a command drawn
@@ -267,6 +275,9 @@ filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: clau
                                   projects_dir, the projects directory on a VM; just_code_dir,
                                   just code's own directory on a VM; claude_sessions_saved, what of a VM's sessions destroy saves;
                                   claude_sessions_listed, how just code says the sessions it left out
+filter_plugins/repo_sync.py       the adapter of lib/claude_vm/repo_sync.py: repo_sync_match, one repository by origin;
+                                  repo_sync_refs and repo_sync_sources, what a send carries; repo_sync_plan, what goes
+                                  within the bound; repo_sync_said, the report (§7.18)
 inventory/
   hosts.yml.example               the only address anyone supplies
   controller.yml                  localhost, so it picks up group_vars/all
