@@ -1101,7 +1101,7 @@ WINDOWS = {
     "notes only, the VM's root": {**NOTES_ONLY, "code_ws_dir": "/"},
     "nothing written, not absolute": {
         **NOTES_ONLY,
-        "local": {"editor_claude_terminal": False, "editor_session_notes": False, **CARRY_OFF},
+        "local": {"editor_claude_terminal": False, "editor_session_notes": False},
         "code_ws_dir": "claude-files",
     },
     # The same through the editor's plan and the window: nothing goes into just code's own directory, so the plan
@@ -1112,7 +1112,7 @@ WINDOWS = {
         "zed_here": {"zed": "zed"},
         "vm_name": "alpha",
         "vm_editor": "zed",
-        "local": {"editor_claude_terminal": False, "editor_session_notes": False, **CARRY_OFF},
+        "local": {"editor_claude_terminal": False, "editor_session_notes": False},
         **OPENED,
         "code_ws_dir": "/",
     },
@@ -2005,7 +2005,9 @@ WRITERS_WHEN = (
     "code_notes | bool",
     "code_session_plan.sessions | default([]) | length > 0",
     "code_session_on | bool",
-    # The rest of this machine's Claude Code: its directory and its writes, while any part of it is on.
+    # The rest of this machine's Claude Code: its directory where this run records anything, and its writer while any
+    # part is on, which records nothing where nothing is carried.
+    "code_config_writes | bool",
     "code_config_on | bool",
     # The editor's plan: what it writes and which of the helpers it names.
     "code_plan.vm_writes | length > 0",

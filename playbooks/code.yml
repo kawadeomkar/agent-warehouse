@@ -115,10 +115,11 @@
     # Whether anything goes into just code's own directory on the VM: the
     # editor's files for the Claude terminal (VS Code's workspace file and
     # helpers, or the task file and the shared helper an editor lists), the
-    # notes, session copies, or the rest of Claude Code carried beside them.
+    # notes, session copies, or what of the rest of Claude Code this run records
+    # beside them (code_config_writes).
     code_writes_its_directory: >-
       {{ (code_terminal and code_editor_claude == 'started') or code_claude_task_written | bool
-         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 or code_config_on | bool }}
+         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 or code_config_writes | bool }}
     # Whether this run moves just code's directory from its 1.x name: a real
     # directory there, and nothing yet at the new one, as both were before the
     # move - so every task of the move reads the same answer. Never in check
@@ -239,6 +240,12 @@
     # The VM's checkouts, as the session handoff read them where it ran, else as the carry's own read did.
     code_config_vm_checkouts: >-
       {{ code_session_projects.checkouts if code_session_on | bool else code_config_projects.checkouts | default([]) }}
+    # Whether the carry records anything on the VM this run - files to send, a note - and so needs just code's
+    # directory and its own there: with nothing to carry, a run makes neither, and the writer, which runs whenever a
+    # part is on, records nothing where nothing was carried before.
+    code_config_writes: >-
+      {{ code_config_on | bool and code_config_plan is defined
+         and (code_config_plan | claude_config_rsync | length > 0 or code_config_plan.generated | length > 0) }}
     # The same directory's mirror as the session handoff reads it, before the folder to open is settled: what an
     # earlier run sent, which the bound counts out.
     code_session_mirror_read: >-

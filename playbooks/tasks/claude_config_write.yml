@@ -12,14 +12,15 @@
 # the VM is never overwritten. Nothing is written on this machine. The write
 # is no_log, and rsync names files, never what is in them.
 
-# The VM user's alone, as what is in it is: 0700.
+# The VM user's alone, as what is in it is: 0700. Only where this run records
+# something (code_config_writes): a run with nothing to carry makes nothing.
 - name: claude_config_write | Make the directory for what is carried on the VM
   ansible.builtin.file:
     path: "{{ code_config_dir }}"
     state: directory
     mode: "0700"
   delegate_to: "{{ claude_vm_names[0] }}"
-  when: code_config_on | bool
+  when: code_config_writes | bool
 
 # As the session copy's rsync: over the alias, never asking for anything, or to
 # a local path where Ansible reaches the VM locally. A file it could not send

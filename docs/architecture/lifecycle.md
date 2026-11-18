@@ -1139,7 +1139,8 @@ Claude Code's own Agent SDK documents. The rules:
   memory folder here of each repository the VM has a checkout of goes into that checkout's memory folder there - the
   one the copies' recorded prompt is pointed at - whether or not the sessions go (`claude_memory_sync`), by the same
   rule under a manifest of its own in `<workspaces>/claude-config/`, through a second rsync, from this machine's
-  Claude Code directory into a mirror beside it. Which folder here is a repository's is decided by git: the origin
+  Claude Code directory into a mirror beside it. Neither that directory nor just code's is made by a run with nothing
+  to carry (`code_config_writes`). Which folder here is a repository's is decided by git: the origin
   and top level of each checkout `githubRepoPaths` names for the VM's repositories, and of each copied session's
   first directory; two such folders that hold notes are both left. One generated note, `carried-by-just-code.md`,
   indexed by a line appended to `MEMORY.md` as it is copied, says where this machine's checkout and memory folder
