@@ -3103,6 +3103,16 @@ esac
     (folder / "memory").mkdir()
     (folder / "memory" / "MEMORY.md").write_text("- [Feedback](feedback.md) - how to work here\n")
     (folder / "memory" / "feedback.md").write_text(f"{MARKER}\n")
+    # The prompts typed in the session, and one of another session's.
+    (here / ".claude" / "history.jsonl").write_text(
+        "".join(
+            json.dumps(
+                {"display": text, "pastedContents": {}, "timestamp": when, "project": str(demo), "sessionId": sid}
+            )
+            + "\n"
+            for text, when, sid in ((MARKER, 1, SESSION_ID), ("elsewhere", 2, OTHER_ID), ("go on", 3, SESSION_ID))
+        )
+    )
     # A plugin installed and enabled for the user here, from a marketplace on GitHub.
     (here / ".claude" / "plugins").mkdir(parents=True)
     (here / ".claude" / "plugins" / "installed_plugins.json").write_text(
@@ -3427,7 +3437,8 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
         " keeps them here. Settings: 2 on alpha (model, permissions.allow written now). Left here: hooks (they run a"
         " program; claude_settings_sync_keys carries them); enabledPlugins, env, permissions.additionalDirectories"
         " (never carried). claude_settings_sync: false keeps them here. Plugins installed on alpha: lsp@octo-plugins."
-        " claude_plugins_sync: false keeps them here."
+        " claude_plugins_sync: false keeps them here. 2 of their prompts added to alpha's history, for the up arrow"
+        " there (claude_history_sync: false keeps them here)."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
@@ -3471,6 +3482,16 @@ def test_this_machine_s_plugins_are_installed_by_the_vm_s_own_claude_code(handof
     # On the first run alone: on the second the VM's Claude Code lists them, and nothing is installed again.
     assert calls == ["plugin marketplace add octo/plugins", "plugin install lsp@octo-plugins --scope user"]
     assert not any("-y" in call.split() or "--accept-command" in call for call in calls)
+
+
+def test_the_prompts_of_the_sessions_copied_join_the_vm_s_history_once(handoffs):
+    world = handoffs["sync"]["world"]
+    lines = [json.loads(line) for line in (world["vm"] / ".claude" / "history.jsonl").read_text().splitlines()]
+    assert [(line["timestamp"], line["project"]) for line in lines] == [
+        (1, str(world["checkout"])),
+        (3, str(world["checkout"])),
+    ]
+    assert "of their prompts added" not in handoffs["sync"]["second"]["opened"]
 
 
 def test_the_auto_memory_goes_whether_or_not_the_sessions_do(handoffs):

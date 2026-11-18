@@ -248,9 +248,15 @@
       - /usr/local/bin/claude
       - /usr/bin/claude
     code_config_claude: "{{ code_config_there.plugins.claude | default('') }}"
+    # The prompt history of the sessions copied (claude_history_sync), which rides with them: none without the sync.
+    code_config_history: "{{ claude_history_sync | default(true) | bool and code_session_on | bool }}"
+    code_config_history_ids: "{{ code_session_plan.sessions | default([]) | map(attribute='id') | list }}"
+    code_config_history_projects: >-
+      {{ dict(code_session_plan.sessions | default([]) | map(attribute='id')
+              | zip(code_session_plan.sessions | default([]) | map(attribute='checkout'))) }}
     code_config_on: >-
       {{ code_config_memory | bool or code_config_instructions | bool or code_config_settings | bool
-         or code_config_plugins | bool }}
+         or code_config_plugins | bool or code_config_history | bool }}
     code_config_dir: "{{ code_ws_dir }}/claude-config"
     code_config_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
@@ -258,13 +264,14 @@
     # The VM's checkouts, as the session handoff read them where it ran, else as the carry's own read did.
     code_config_vm_checkouts: >-
       {{ code_session_projects.checkouts if code_session_on | bool else code_config_projects.checkouts | default([]) }}
-    # Whether the carry records anything on the VM this run - files to send, a note, a setting - and so needs just
-    # code's directory and its own there: with nothing to carry, a run makes neither, and the writer, which runs
+    # Whether the carry records anything on the VM this run - files to send, a note, a setting, a prompt - and so needs
+    # just code's directory and its own there: with nothing to carry, a run makes neither, and the writer, which runs
     # whenever a part is on, records nothing where nothing was carried before.
     code_config_writes: >-
       {{ code_config_on | bool and code_config_plan is defined
          and (code_config_plan | claude_config_rsync | length > 0 or code_config_plan.generated | length > 0
-              or (code_config_plan.settings | default({}))['values'] | default({}) | length > 0) }}
+              or (code_config_plan.settings | default({}))['values'] | default({}) | length > 0
+              or code_config_plan.history | default([]) | length > 0) }}
     # The same directory's mirror as the session handoff reads it, before the folder to open is settled: what an
     # earlier run sent, which the bound counts out.
     code_session_mirror_read: >-
@@ -493,9 +500,15 @@
                ~ (' claude_plugins_sync: false keeps them here.'
                   if code_config_plugins_done | length + code_config_plugins_failed | length > 0 else ''))
            | trim | plain_text }}
+    code_config_history_said: >-
+      {{ (code_config_result.history ~ ' of their prompts added to ' ~ claude_vm_names[0] ~ "'s history, for the"
+          ~ ' up arrow there (claude_history_sync: false keeps them here).'
+          if code_config_history | bool and code_config_result.history | default(0) > 0 else '')
+         ~ (' Prompts past the 8 MB one copy takes stayed here.'
+            if code_config_history | bool and code_config_here.history_over | default(false) else '') }}
     code_config_said: >-
       {{ ([code_config_memory_said, code_config_instructions_said, code_config_settings_said,
-           code_config_plugins_said]
+           code_config_plugins_said, code_config_history_said]
           | select | join(' ') ~ code_config_failed_said) | trim }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-

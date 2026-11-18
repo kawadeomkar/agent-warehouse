@@ -432,6 +432,13 @@ this machine's disk, installed for one project, or disabled here stays. Nothing 
 plugin needs beside itself is the VM's to have: `rust-analyzer-lsp` runs `rust-analyzer`, which `rustup component add
 rust-analyzer` puts in the toolchain a repository pins.
 
+### Prompt history
+
+The prompts typed in the sessions copied join the VM's prompt history (`claude_history_sync`), so the up arrow and
+Ctrl+R there find them, under the VM checkout's folder: each line once, by its session and time, however often
+`just code` runs. They ride with the sessions, so none go while `claude_sessions_sync` is off, and at most 8 MB of them
+go in one copy.
+
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of

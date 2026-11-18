@@ -579,7 +579,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       key the `claude_code` role writes and never one of `SETTINGS_NEVER` - `env` above all, which would put an API
       key over the claude.ai login - whatever `claude_settings_sync_keys` says, which is refused first; and the
       user-scope plugins enabled here (`claude_plugins_sync`), installed by the VM's own `claude` at the installers'
-      paths, never with `-y` or `--accept-command`, never uninstalling anything. One
+      paths, never with `-y` or `--accept-command`, never uninstalling anything; and with the sessions, their
+      prompt history (`claude_history_sync`), each line once. One
       writer, `claude_config_carry`, writes it all under `~/.claude` on the VM, only under scopes of a form it
       knows, never through a link, by the copy's rule under a manifest of its own in `claude-config/`: written
       where there is none or still as written, left where the VM changed it, removed once gone here while still

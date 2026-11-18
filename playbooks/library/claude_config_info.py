@@ -36,6 +36,13 @@ options:
       - The settings of C(settings.json) to return the values of, C(keys) at its top level and C(parts), a key to
         its parts read one by one. Of every other setting only its name is returned. Run under no_log.
     type: dict
+  history:
+    description:
+      - Return the lines of C(history.jsonl) of these sessions, each as the object it holds, at most 8 MB of them:
+        the prompts typed in them, which their transcripts hold too. Run under no_log.
+    type: list
+    elements: str
+    default: []
   plugins:
     description:
       - Return the user-scope plugins enabled in O(path), from C(plugins/installed_plugins.json) and C(settings.json)'s
@@ -99,6 +106,15 @@ settings:
       read part by part that were not asked for; and C(unreadable) where the file is not a JSON object. {} without.
   returned: always
   type: dict
+history:
+  description: With O(history), the lines of those sessions, oldest first; [] without.
+  returned: always
+  type: list
+  elements: dict
+history_over:
+  description: Whether lines of those sessions were left out, past the 8 MB a copy takes.
+  returned: always
+  type: bool
 plugins:
   description:
     - With O(plugins), C(enabled), the IDs of the user-scope plugins enabled here, and C(marketplaces), each one's
@@ -242,6 +258,37 @@ def settings_from(data, asked):
     }
 
 
+# The most one copy takes of the prompt history, in bytes of its lines.
+HISTORY_BYTES = 8 * 1024 * 1024
+
+
+def history(path, sessions):
+    """([the lines of ``path``/history.jsonl of ``sessions``, as objects], whether some were left past the bound)."""
+    wanted, found, size, over = {str(session) for session in sessions or []}, [], 0, False
+    target = os.path.join(path, "history.jsonl")
+    if not wanted or os.path.islink(target) or not os.path.isfile(target):
+        return found, over
+    try:
+        with open(target, "rb") as handle:
+            for raw in handle:
+                if not raw.endswith(b"\n") or b'"sessionId"' not in raw:
+                    continue
+                try:
+                    line = json.loads(raw)
+                except ValueError:
+                    continue
+                if not isinstance(line, dict) or line.get("sessionId") not in wanted:
+                    continue
+                if size + len(raw) > HISTORY_BYTES:
+                    over = True
+                    continue
+                size += len(raw)
+                found.append(line)
+    except OSError:
+        return [], False
+    return found, over
+
+
 def _json_file(path):
     try:
         if os.path.islink(path):
@@ -307,6 +354,7 @@ def main():
             "memory": {"type": "bool", "default": False},
             "instructions": {"type": "bool", "default": False},
             "settings": {"type": "dict"},
+            "history": {"type": "list", "elements": "str", "default": []},
             "plugins": {"type": "bool", "default": False},
             "plugins_there": {"type": "bool", "default": False},
             "claude": {"type": "list", "elements": "path", "default": []},
@@ -317,6 +365,7 @@ def main():
     params = module.params
     memory, over = memory_folders(params["path"]) if params["memory"] else ({}, [])
     found, imports = instructions(params["path"]) if params["instructions"] else ([], [])
+    lines, over_history = history(params["path"], params["history"])
     module.exit_json(
         changed=False,
         memory=memory,
@@ -324,6 +373,8 @@ def main():
         instructions=found,
         imports=imports,
         settings=settings(params["path"], params["settings"]) if params["settings"] else {},
+        history=lines,
+        history_over=over_history,
         plugins=(
             plugins_there(params["claude"])
             if params["plugins_there"]

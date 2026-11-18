@@ -316,6 +316,23 @@ def claude_plugins_plan(here, there):
     return plan
 
 
+def claude_history_plan(lines, projects):
+    """The prompt-history lines to append on the VM: each of ``lines`` (claude_config_info's, this machine's lines of
+    the sessions copied) whose session is in ``projects`` (session ID to the VM checkout it continues in), its
+    ``project`` that checkout, as the copy's relocated entry names it, in time order."""
+    found = []
+    for line in lines or []:
+        session = line.get("sessionId") if isinstance(line, dict) else None
+        if session in (projects or {}):
+            found.append(dict(line, project=projects[session]))
+    return sorted(found, key=lambda line: (_when(line.get("timestamp")), str(line.get("sessionId"))))
+
+
+def _when(value):
+    """A history line's time, as a number to order by: Claude Code writes milliseconds since the epoch."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
 def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None):
     """Everything just code carries beside the sessions, as one plan: the parts ``options`` turns on, from ``here``,
     claude_config_info's reading of this machine's Claude Code directory.
@@ -323,7 +340,8 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
     ``options``: ``memory`` (claude_memory_sync) and ``note``, the memory folders' note; ``instructions``
     (claude_instructions_sync), with ``instructions_owned`` where claude_code_global_instructions makes CLAUDE.md the
     role's; ``settings`` (claude_settings_sync), with ``managed`` and ``extra`` as claude_settings_plan takes them;
-    ``plugins`` (claude_plugins_sync), with ``plugins_there``, the VM's reading, as claude_plugins_plan takes it.
+    ``plugins`` (claude_plugins_sync), with ``plugins_there``, the VM's reading, as claude_plugins_plan takes it;
+    ``history`` (claude_history_sync), with ``history_projects``, the copied sessions' checkouts on the VM.
     Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes`` and ``settings`` - and each
     part's own record, for what the run says: ``memory``, its folders and ``ambiguous``; ``instructions``, the files
     and the imports CLAUDE.md names; ``settings``' ``left``.
@@ -339,6 +357,7 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         "instructions": {"files": [], "imports": [], "owned": False},
         "settings": {"values": {}, "items": [], "left": {}, "unreadable": False},
         "plugins": {"install": [], "marketplaces": [], "left": [], "unread": False},
+        "history": [],
     }
     if options.get("memory"):
         memory = claude_memory_plan(
@@ -367,6 +386,8 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         plan["settings"] = claude_settings_plan(here.get("settings"), options.get("managed"), options.get("extra"))
     if options.get("plugins"):
         plan["plugins"] = claude_plugins_plan(here.get("plugins"), options.get("plugins_there"))
+    if options.get("history"):
+        plan["history"] = claude_history_plan(here.get("history"), options.get("history_projects"))
     return plan
 
 

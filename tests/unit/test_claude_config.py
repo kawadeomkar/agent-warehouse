@@ -607,13 +607,16 @@ def test_the_settings_are_written_as_the_role_writes_them_so_its_next_configure_
     assert text.isascii() and data["attribution"]["pr"] == "made with \u2728"
 
 
-def test_a_lone_surrogate_in_a_value_is_carried_never_the_module_s_end(tmp_path):
+def test_a_lone_surrogate_in_a_value_or_a_prompt_is_carried_never_the_module_s_end(tmp_path):
     dest = tmp_path / ".claude"
     dest.mkdir()
     lone = json.loads('"split \\ud83d emoji"')
     result, _, changed = _settings(dest, {"model": lone})
     assert changed and result["written"] == ["model"]
     assert json.loads((dest / "settings.json").read_text())["model"] == lone
+    line = dict(_line(SID, 1, lone), project=VM_CHECKOUT)
+    assert writer.carry_history(str(dest), [line], False) == 1
+    assert json.loads((dest / "history.jsonl").read_text())["display"] == lone
 
 
 def test_a_settings_file_that_is_no_object_or_a_link_is_left_whole(tmp_path):
@@ -736,3 +739,47 @@ def test_the_vm_s_claude_code_is_asked_what_it_has_and_one_that_does_not_answer_
         "installed": [],
         "marketplaces": [],
     }
+
+
+# --------------------------------------------------------------------------------------- the history ---
+SID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
+OTHER_SID = "bc0e637b-2c3d-4e4f-9a01-23456789abcd"
+
+
+def _line(sid, when, text="run the tests"):
+    return {"display": text, "pastedContents": {}, "timestamp": when, "project": "/Users/me/demo", "sessionId": sid}
+
+
+def test_the_history_of_the_sessions_copied_is_appended_with_the_vm_s_checkout_in_time_order():
+    lines = [_line(SID, 20), _line(OTHER_SID, 5), _line(SID, 3)]
+    plan = core.claude_history_plan(lines, {SID: VM_CHECKOUT})
+    assert plan == [dict(_line(SID, 3), project=VM_CHECKOUT), dict(_line(SID, 20), project=VM_CHECKOUT)]
+
+
+def test_the_reader_takes_the_lines_of_the_sessions_asked_for_within_its_bound(tmp_path, monkeypatch):
+    root = tmp_path / ".claude"
+    root.mkdir()
+    text = "".join(json.dumps(line) + "\n" for line in (_line(SID, 1), _line(OTHER_SID, 2), _line(SID, 3)))
+    (root / "history.jsonl").write_text(text + '{"sessionId":"' + SID + '","timestamp":4')
+    lines, over = reader.history(str(root), [SID])
+    assert [line["timestamp"] for line in lines] == [1, 3] and not over
+    monkeypatch.setattr(reader, "HISTORY_BYTES", len(json.dumps(_line(SID, 1))) + 1)
+    lines, over = reader.history(str(root), [SID])
+    assert [line["timestamp"] for line in lines] == [1] and over
+    assert reader.history(str(root), []) == ([], False)
+
+
+def test_the_writer_appends_each_line_once_and_never_through_a_link(tmp_path):
+    dest = tmp_path / ".claude"
+    lines = [dict(_line(SID, 1), project=VM_CHECKOUT), dict(_line(SID, 2), project=VM_CHECKOUT)]
+    assert writer.carry_history(str(dest), lines, False) == 2
+    assert stat.S_IMODE((dest / "history.jsonl").stat().st_mode) == 0o600
+    with (dest / "history.jsonl").open("a") as handle:
+        handle.write(json.dumps(_line(SID, 9, "typed on the VM")) + "\n")
+    assert writer.carry_history(str(dest), lines + [dict(_line(SID, 3), project=VM_CHECKOUT)], False) == 1
+    held = [json.loads(line) for line in (dest / "history.jsonl").read_text().splitlines()]
+    assert [line["timestamp"] for line in held] == [1, 2, 9, 3]
+    assert writer.carry_history(str(dest), lines, True) == 0
+    (dest / "history.jsonl").unlink()
+    (dest / "history.jsonl").symlink_to(tmp_path / "elsewhere")
+    assert writer.carry_history(str(dest), lines, False) == 0 and not (tmp_path / "elsewhere").exists()

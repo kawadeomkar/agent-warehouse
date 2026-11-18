@@ -18,6 +18,9 @@ description:
     as it is and named. A file the manifest records under one of O(scopes) that is no longer asked for is removed
     while it is still as written.
   - O(appended) adds a line to a file as it is written, once, where the file does not hold it already.
+  - O(history) appends to C(history.jsonl) under O(dest) each line its file does not hold already, by the session
+    and time it records, in one write of whole lines, so a claude appending there at the same time interleaves
+    whole lines. A file that is a link is left.
   - O(settings) sets keys of C(settings.json) under O(dest) by the same rule, each key - or each part of a key carried
     part by part, C(<key>.<part>) - an item of its own, its digest recorded in the manifest's C(settings) record.
     Every other key of the file is kept as it is; the file is replaced through one beside it, 0600, written as
@@ -86,6 +89,11 @@ options:
         gone here is removed there while it is still as carried. Run under the task's no_log, never the option's:
         Ansible would blank each of its strings wherever it stands in the result, a setting's name among them.
     type: dict
+  history:
+    description: The prompt-history lines to append, each the object it holds. Run under the task's no_log.
+    type: list
+    elements: dict
+    default: []
   prune:
     description: Remove from O(mirror) every file that is no source of O(files).
     type: bool
@@ -140,6 +148,10 @@ refused:
   description: Whether nothing was written because the mirror or the manifest's folder is a link.
   returned: always
   type: bool
+history:
+  description: How many prompt-history lines were appended.
+  returned: always
+  type: int
 settings:
   description:
     - The settings items written, left as the VM changed them, and removed; C(unreadable) where C(settings.json) is a
@@ -304,6 +316,45 @@ def _value_digest(value):
     return _digest(text.encode("utf-8", "surrogatepass"))
 
 
+def _history_key(line):
+    return (str(line.get("sessionId")), json.dumps(line.get("timestamp"), sort_keys=True))
+
+
+def carry_history(dest, lines, check):
+    """Append to ``dest``/history.jsonl each of ``lines`` it does not hold, by session and time; return how many."""
+    path = os.path.join(dest, "history.jsonl")
+    if not lines or os.path.islink(path) or (os.path.lexists(path) and not os.path.isfile(path)):
+        return 0
+    sessions, held = {str(line.get("sessionId")) for line in lines}, set()
+    if os.path.isfile(path):
+        with open(path, "rb") as handle:
+            for raw in handle:
+                if b'"sessionId"' not in raw:
+                    continue
+                try:
+                    line = json.loads(raw)
+                except ValueError:
+                    continue
+                if isinstance(line, dict) and str(line.get("sessionId")) in sessions:
+                    held.add(_history_key(line))
+    new, seen = [], set()
+    for line in lines:
+        key = _history_key(line)
+        if key in held or key in seen:
+            continue
+        seen.add(key)
+        # Escaped to ASCII, as JSON reads it back the same: a lone surrogate in a prompt could not be UTF-8.
+        new.append(json.dumps(line, separators=(",", ":")) + "\n")
+    if new and not check:
+        _directory(dest, [])
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, "".join(new).encode("utf-8"))
+        finally:
+            os.close(fd)
+    return len(new)
+
+
 def carry_settings(dest, settings, recorded, check):
     """Set the settings items of ``settings`` (values, items) in ``dest``/settings.json by the rule; return (result,
     the manifest's settings record after it, changed)."""
@@ -382,7 +433,17 @@ def _prune(mirror, keep, check):
 
 
 def carry(
-    dest, mirror, manifest, scopes, files=(), generated=(), appended=None, prune=True, check=False, settings=None
+    dest,
+    mirror,
+    manifest,
+    scopes,
+    files=(),
+    generated=(),
+    appended=None,
+    prune=True,
+    check=False,
+    settings=None,
+    history=(),
 ):
     """Write every item, and with ``settings`` the settings; return the result and whether anything changed."""
     appended = appended or {}
@@ -399,6 +460,7 @@ def carry(
         "not_written": [],
         "refused": False,
         "settings": {"written": [], "left": [], "removed": [], "unreadable": False},
+        "history": 0,
     }
     created, changed = [], False
     # just code's own folders on the VM, which only the VM could have made links: then nothing is read or written.
@@ -475,6 +537,11 @@ def carry(
                 result["not_written"].append("settings.json")
                 moved = False
             changed = moved or changed
+        try:
+            result["history"] = carry_history(dest, list(history or []), check)
+        except (OSError, ValueError):
+            result["not_written"].append("history.jsonl")
+        changed = changed or result["history"] > 0
     finally:
         if (copies != saved or settings_copies != recorded_settings) and not check:
             _save_manifest(manifest, copies, created, settings_copies)
@@ -507,6 +574,7 @@ def main():
             },
             "appended": {"type": "dict", "default": {}},
             "settings": {"type": "dict"},
+            "history": {"type": "list", "elements": "dict", "default": []},
             "prune": {"type": "bool", "default": True},
         },
         supports_check_mode=True,
@@ -523,6 +591,7 @@ def main():
         params["prune"],
         module.check_mode,
         params["settings"],
+        params["history"],
     )
     module.exit_json(changed=changed, **result)
 

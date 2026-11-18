@@ -1162,6 +1162,11 @@ Claude Code's own Agent SDK documents. The rules:
   `marketplace add` and `install --scope user` for what is missing, never `-y` or `--accept-command`, each under
   `/usr/bin/timeout` (300 s): a task's own `timeout` would fail the run past `failed_when`. An install that fails, a
   command to accept or a stall among the causes, fails nothing and is named with its line; nothing is uninstalled.
+- **Prompt history beside them** (`claude_history_sync`, and only with the session copy): the lines of
+  `history.jsonl` of the sessions planned, read here under `no_log` and at most 8 MB, their `project` set to the VM
+  checkout as the `relocated` entry sets a copy's, appended in time order where the VM's file lacks a line of that
+  session and time - one write of whole lines with `O_APPEND`, so a `claude` appending there at the same time
+  interleaves whole lines. `history.jsonl` is not swept, and a pasted prompt is the copied transcript's own text.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

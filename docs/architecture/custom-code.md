@@ -561,7 +561,8 @@ names at the top of `settings.json` and the values of the settings asked for alo
 part by its own name, and the parts not asked for by name; with `plugins`, the user-scope plugins enabled here and
 each marketplace's GitHub repository, from Claude Code's files. Run here, under `no_log` - and on the VM with
 `plugins_there`, where it asks the first of `claude`'s paths there is, `claude plugin list --json` and `claude plugin
-marketplace list --json`, for the user-scope plugins and the marketplaces it has.
+marketplace list --json`, for the user-scope plugins and the marketplaces it has. With `history`, the lines of
+`history.jsonl` of those sessions, at most 8 MB of them (`history_over`).
 
 **`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
 from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
@@ -577,7 +578,8 @@ the manifest's folder is a link, nothing is read or written (`refused`). Check m
 file is returned. Sources that are no longer asked for leave the mirror. With `settings` (under `no_log`), each
 settings item by the same rule in `settings.json`, its digest in the manifest's `settings` record: every other key
 kept, the file replaced through one beside it as two-space JSON, 0600, and a file that is a link or no JSON object
-left whole.
+left whole. With `history`, each line `history.jsonl` lacks by its session and time, appended in one write of
+whole lines, never through a link.
 
 **`lib/claude_vm/claude_config.py`** — the decision for both, pure as `sessions.py` is.
 **`claude_memory_plan(memory, here, there, here_dir, dest, note)`** pairs each repository the VM has a checkout of -
@@ -595,7 +597,9 @@ with no value, and no item at all where the file here could not be read; and nam
 the names of `extra` never carried, which the read task refuses first. **`claude_plugins_plan(here, there)`** is
 which plugins to install on the VM and which marketplaces to add for them: one there already is left, one whose
 marketplace is missing there and is no GitHub repository is left and named, an ID that could read as an option is
-left, and nothing where the VM's Claude Code did not answer (`unread`). **`claude_config_plan(here, here_checkouts,
+left, and nothing where the VM's Claude Code did not answer (`unread`). **`claude_history_plan(lines,
+projects)`** is the history lines to append: those of the sessions copied, `project` the VM checkout, in time
+order. **`claude_config_plan(here, here_checkouts,
 there, here_dir, dest, options)`** is the one entry point: the parts its options turn on, as one plan for the
 writer.
 

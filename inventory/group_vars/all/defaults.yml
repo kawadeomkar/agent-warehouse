@@ -447,6 +447,7 @@ claude_instructions_sync: true
 claude_settings_sync: true
 claude_settings_sync_keys: []
 claude_plugins_sync: true
+claude_history_sync: true
 vscode_user_settings_file: ""
 
 # Nothing in ~/.ssh is edited but the managed file below, the VMs' known_hosts

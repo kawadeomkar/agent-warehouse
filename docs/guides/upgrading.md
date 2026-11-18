@@ -28,6 +28,7 @@ naming `just install`, while one differs. They live in the checkout's own folder
   setting the VM already has otherwise is left as it is, and named.
 - **Your plugins** enabled here from a marketplace on GitHub are installed on the VM by its own Claude Code
   (`claude_plugins_sync`).
+- **The prompts of the sessions copied** join the VM's prompt history (`claude_history_sync`).
 - **`claude_sessions_sync_max_size` counts what the VM lacks.** A session copied before counts what it grew by,
   not its whole size, so a long session already on a VM goes on being copied while it grows here by less than the
   bound between two copies.

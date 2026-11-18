@@ -246,6 +246,9 @@
 # never accepting a command a marketplace declares for you. Nothing is ever
 # uninstalled there.
 # claude_plugins_sync: true
+# Add the prompts typed in the sessions copied to the VM's prompt history, for
+# the up arrow and Ctrl+R there; with the sessions only, never twice.
+# claude_history_sync: true
 # The VS Code settings read (never written) to say whether the terminal starts
 # on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it
 # for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
