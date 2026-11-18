@@ -349,7 +349,8 @@ comes over as far as it was written - and its `tool-results/` folder, in the VM'
 under the folder name it has here, 0600 in 0700 folders. It keeps its file time here while that is
 within 14 days; an older one's copy gets the time it was copied, renewed every 14 days, since Claude Code
 deletes a transcript 30 days after its file time and would otherwise take a session you asked for by ID
-before you resumed it. Each copy gets four edits and nothing else, so that it resumes as the VM's own: the
+before you resumed it. Its tool results take the same time, since Claude Code deletes those by their own
+age too. Each copy gets four edits and nothing else, so that it resumes as the VM's own: the
 memory folder its recorded system prompt names, and the folder of the tool results it saved, become the VM's;
 a session bound to a Claude worktree goes on in the main checkout; and a last entry names the checkout. What
 the assistant said, signed thinking included, stays as it was. [§4.9](../architecture/lifecycle.md#49-playbookscodeyml)

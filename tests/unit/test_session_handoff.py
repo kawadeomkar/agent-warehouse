@@ -1238,6 +1238,8 @@ def test_copies_are_written_with_their_time_and_modes_and_a_second_run_changes_n
     assert int(copied.stat().st_mtime) == int(then)
     assert stat.S_IMODE(copied.stat().st_mode) == 0o600 and stat.S_IMODE(target.stat().st_mode) == 0o700
     assert (target / ID / "tool-results" / "toolu_1.txt").read_text() == "output\n"
+    # The tool result's time is the transcript's, never the time it was written on the other machine.
+    assert int((target / ID / "tool-results" / "toolu_1.txt").stat().st_mtime) == int(then)
     assert not (target / ID / "subagents").exists()
     manifest = json.loads((tmp_path / "ws" / "manifest.json").read_text())
     assert sorted(manifest["sessions"]) == sorted(f"{folder}/{sid}.jsonl" for folder, sid in keys)
@@ -1271,7 +1273,10 @@ def test_a_copy_unchanged_since_it_was_written_is_not_read_again(tmp_path, monke
     _copy(tmp_path, mirror, keys)
     manifest = tmp_path / "ws" / "manifest.json"
     recorded = json.loads(manifest.read_text())
-    assert sorted(recorded["made_from"]) == sorted(recorded["sessions"])
+    # Each copy by its key, and each file of its tool results by its own.
+    sessions = sorted(recorded["sessions"])
+    assert sorted(key for key in recorded["made_from"] if key.count("/") == 1) == sessions
+    assert all(key in sessions or "/".join(key.split("/")[:2]) + ".jsonl" in sessions for key in recorded["made_from"])
     # The digests are still all an earlier version reads, and it reads them as before.
     assert shared.read_manifest(str(manifest)) == recorded["sessions"]
     calls = _counted(monkeypatch)
@@ -1498,6 +1503,41 @@ def test_an_old_session_s_copy_is_given_the_time_it_is_written_and_kept_on_the_n
     assert time.time() - copied.stat().st_mtime < 60
     _, changed = _copy(tmp_path, mirror, [key])
     assert not changed
+
+
+def test_an_old_session_s_tool_results_are_kept_from_the_sweep_with_their_transcript(tmp_path):
+    # Claude Code sweeps tool-results/ by the files' own age: rsync brings the other machine's time, which a copy
+    # of a session older than 30 days must not keep, or its tool results go before its transcript does.
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    then = time.time() - 40 * 86400
+    for path in (mirror / key[0] / f"{ID}.jsonl", mirror / key[0] / ID / "tool-results" / "toolu_1.txt"):
+        os.utime(path, (then, then))
+    _copy(tmp_path, mirror, [key])
+    target = tmp_path / "vm" / ".claude" / "projects" / key[0]
+    saved = target / ID / "tool-results" / "toolu_1.txt"
+    assert int(saved.stat().st_mtime) == int((target / f"{ID}.jsonl").stat().st_mtime)
+    assert time.time() - saved.stat().st_mtime < 60
+    _, changed = _copy(tmp_path, mirror, [key])
+    assert not changed
+
+
+def test_a_tool_result_is_told_by_its_bytes_never_by_its_time(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, then = _mirror(tmp_path, {key: transcript()})
+    _copy(tmp_path, mirror, [key])
+    saved = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "tool-results" / "toolu_1.txt"
+    # Another output of the same size, with the time the copy there already has: written all the same.
+    source = mirror / key[0] / ID / "tool-results" / "toolu_1.txt"
+    source.write_text("OUTPUT\n")
+    os.utime(source, (then, then))
+    _, changed = _copy(tmp_path, mirror, [key])
+    assert changed and saved.read_text() == "OUTPUT\n" and int(saved.stat().st_mtime) == int(then)
+    # A copy whose time alone moved is given its transcript's again, and not rewritten.
+    os.utime(saved, (then - 999, then - 999))
+    _, changed = _copy(tmp_path, mirror, [key])
+    assert changed and int(saved.stat().st_mtime) == int(then)
+    assert not _copy(tmp_path, mirror, [key])[1]
 
 
 def test_check_mode_writes_nothing(tmp_path):

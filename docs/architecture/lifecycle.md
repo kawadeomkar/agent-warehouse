@@ -1122,7 +1122,11 @@ Claude Code's own Agent SDK documents. The rules:
 - **Kept from Claude Code's sweep.** A copy keeps this machine's file time while that is within 14
   days, and is otherwise given the time it is written, renewed once that is 14 days old: Claude Code
   deletes a transcript 30 days after its file time, which would take a `--session` copy of an older session
-  before it was resumed, and a session copied at 29 days the next day.
+  before it was resumed, and a session copied at 29 days the next day. Each of its tool results is given
+  the transcript's time: the sweep deletes `tool-results/` by the files' own age too, and rsync brings
+  this machine's, so they would go first. They are compared by size and digest, so a time set there
+  never reads as a change - or, while what a file was made from is what the manifest's `made_from` record holds, as
+  for the copy itself, not read at all.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

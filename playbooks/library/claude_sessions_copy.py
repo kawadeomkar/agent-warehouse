@@ -27,7 +27,9 @@ description:
   - A copy keeps the other machine's file time while that is in the last 14 days, and is otherwise given
     the time it is written, renewed once that is 14 days old: Claude Code's sweep deletes a transcript
     here 30 days after its file time (cleanupPeriodDays), which would take a session asked for by ID,
-    whatever its age, before it was resumed.
+    whatever its age, before it was resumed. Each file of its C(tool-results/) is given the transcript's
+    time too, since the sweep takes those by their own age, and is compared by its size and digest, never
+    its time - or, while what O(manifest) records it was made from still holds, as for the copy, not read.
   - The records Claude Code keeps of each request it sent (C(api-request-shape), C(api-request-blob),
     since 2.1.300) name the other machine's memory folder too, and stay as they are: a resume sends the
     C(prompt_snapshot), never them (2.1.308, held by the configure scenario).
@@ -341,13 +343,31 @@ def copy_time(source, current, now):
 def _save_manifest(manifest, copies, made, created):
     """Write ``copies``, each key's digest, and ``made``, what each was made from. A key of its own beside the digests
     keeps the format: a reader of the digests alone, an earlier version's, passes over it, and an earlier version
-    that writes the manifest again leaves it out, so that each copy is then read once more."""
+    that writes the manifest again leaves it out, so that each copy is then read once more.
+
+    ``made`` holds a session's copy by its key, and each file of its ``tool-results/`` by its own,
+    ``<folder>/<id>/tool-results/<file>``: kept while that session's copy is recorded."""
     _directory(os.path.dirname(manifest), created)
-    made = {key: value for key, value in made.items() if key in copies}
+    made = {key: value for key, value in made.items() if key in copies or _session_key(key) in copies}
     text = (
         json.dumps({"format": MANIFEST_FORMAT, "sessions": copies, "made_from": made}, indent=2, sort_keys=True) + "\n"
     )
     _write(manifest, text.encode("utf-8"), time.time())
+
+
+def _session_key(key):
+    """The manifest key of the session a file of its ``tool-results/`` or ``subagents/`` belongs to."""
+    return "/".join(key.split("/")[:2]) + ".jsonl"
+
+
+def _made(made, key, source, target, inputs):
+    """Record in ``made`` what ``target`` at ``key`` was made from as it now is, fingerprint's, or none where it cannot
+    be had."""
+    found = fingerprint(source, target, inputs)
+    if found is None:
+        made.pop(key, None)
+    else:
+        made[key] = found
 
 
 def _remove_copy(dest, folder, session):
@@ -395,27 +415,47 @@ def _folders_holding(dest, sessions):
     return found
 
 
-def _tool_results(source, target, check, created):
-    """Copy what ``source`` holds and ``target`` lacks or holds otherwise; return how many files that was."""
-    copied = 0
+def _same_file(here, there):
+    """Whether ``there`` is a plain file holding the bytes of the plain file ``here``."""
+    if os.path.islink(there) or not os.path.isfile(there):
+        return False
+    return os.path.getsize(there) == os.path.getsize(here) and file_digest(there) == file_digest(here)
+
+
+def _tool_results(source, target, when, check, created, made, prefix):
+    """Copy what ``source`` holds and ``target`` lacks or holds otherwise, each file at the time ``when``.
+
+    ``when`` is the session's transcript's time there: Claude Code sweeps tool results by their own age, so a
+    file keeping the other machine's time would be deleted before its transcript. Files are compared by size and
+    digest, since their time here is never the other machine's - unless ``made`` (keyed ``<prefix>/<file>``) holds
+    what it was made from as both still are (fingerprint's), from a run that found them the same. Returns how many
+    files were written or retimed.
+    """
+    changed = 0
     for top, dirs, files in os.walk(source):
         dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(top, name))]
         for name in files:
             here = os.path.join(top, name)
             if os.path.islink(here) or not os.path.isfile(here):
                 continue
-            there = os.path.join(target, os.path.relpath(here, source))
-            stat = os.stat(here)
-            if os.path.isfile(there) and not os.path.islink(there):
-                other = os.stat(there)
-                if other.st_size == stat.st_size and int(other.st_mtime) == int(stat.st_mtime):
-                    continue
-            copied += 1
+            rel = os.path.relpath(here, source)
+            key, there = f"{prefix}/{rel}", os.path.join(target, rel)
+            known = made.get(key) is not None and fingerprint(here, there, "") == made[key]
+            if known or _same_file(here, there):
+                if int(os.stat(there).st_mtime) != int(when):
+                    changed += 1
+                    if not check:
+                        os.utime(there, (when, when))
+                if not check:
+                    _made(made, key, here, there, "")
+                continue
+            changed += 1
             if not check:
                 _directory(os.path.dirname(there), created)
                 with open(here, "rb") as handle:
-                    _write(there, handle.read(), stat.st_mtime)
-    return copied
+                    _write(there, handle.read(), when)
+                _made(made, key, here, there, "")
+    return changed
 
 
 def _prune(mirror, keep, check):
@@ -509,9 +549,10 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
             if action == "write":
                 result["written"].append(sid)
                 changed = True
+                kept = copy_time(mtime, None, now)
                 if not check:
                     _directory(os.path.dirname(target), created)
-                    _write(target, edited, copy_time(mtime, None, now))
+                    _write(target, edited, kept)
                 # Recorded once written, never before: a record of a copy that is not there would make the
                 # one that is read as continued here.
                 copies[key] = digest
@@ -524,11 +565,11 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                 result["unchanged"].append(sid)
                 copies[key] = digest
                 there = os.stat(target).st_mtime
-                wanted = copy_time(mtime, there, now)
-                if int(there) != int(wanted):
+                kept = copy_time(mtime, there, now)
+                if int(there) != int(kept):
                     changed = True
                     if not check:
-                        os.utime(target, (wanted, wanted))
+                        os.utime(target, (kept, kept))
             # Taken after the copy's last write and time, from the files as they now are: the copy is the digest
             # recorded, and the transcript, edited, is that too.
             if not check:
@@ -539,7 +580,10 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                     made[key] = now_made
             tools = os.path.join(mirror, folder, sid, "tool-results")
             if os.path.isdir(tools):
-                changed = _tool_results(tools, results, check, created) > 0 or changed
+                changed = (
+                    _tool_results(tools, results, kept, check, created, made, f"{folder}/{sid}/tool-results") > 0
+                    or changed
+                )
             # After each copy, so that a run stopped part way still records what it wrote: a copy written
             # and not recorded would read as continued here once the session changed on the other machine.
             if (copies, made) != (saved, saved_made) and not check:

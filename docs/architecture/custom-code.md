@@ -527,7 +527,9 @@ lines with the four edits and nothing else (the memory folder in `prompt_snapsho
 session's `tool-results/` folder in user entries, a cleared `worktree-state` after a bound one, a
 `relocated` entry last), 0600 in 0700 folders, with the mirror's time while that is within 14 days and
 the time of writing otherwise, renewed at 14 days (Claude Code sweeps a transcript at 30), its
-`tool-results/` after it, and never a subagent's transcript. Claude Code's records of the requests it
+`tool-results/` after it, each file at the transcript's time - the sweep takes tool results by their own
+age, and rsync brings the other machine's - and compared by size and digest, never by time, and never a
+subagent's transcript. Claude Code's records of the requests it
 sent stay as they are: a resume sends the recorded prompt, never them. A copy is written where there is
 none, or where it is still what the manifest says the last run wrote; one that is already what would be
 written is left, and any other is the VM's and left too, said as continued when nothing new came from
@@ -541,8 +543,9 @@ the folders, and `EDITS`, the edits' version, which `test_session_handoff.py` ho
 While all of it is still so, the copy is taken as unchanged without either file being read - the most of
 a run with nothing new, against reading, editing and digesting every copy twice. A key of its own keeps
 the manifest's format: an earlier version reads the digests as before, and one that writes the manifest
-leaves `made_from` out, so each copy is read once more. Sessions that are no longer asked for leave the
-mirror. Check mode writes nothing.
+leaves `made_from` out, so each copy is read once more. The same record holds, by its own path, what each file of
+a session's `tool-results/` was made from, so one unchanged at both ends is not read again. Sessions that are no
+longer asked for leave the mirror. Check mode writes nothing.
 
 **`claude_sessions_fetch`** — run on the controller, for `just destroy`'s save: `tar -cf - -T -` on the
 VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, with `BatchMode`; none
