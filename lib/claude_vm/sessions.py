@@ -210,6 +210,7 @@ def claude_sessions_plan(
     open_there=None,
     cap=0,
     subagents=True,
+    mirrored=None,
 ):
     """Decide which of this machine's sessions go to which checkout on the VM.
 
@@ -239,6 +240,11 @@ def claude_sessions_plan(
 
     ``subagents`` (claude_sessions_sync_subagents): each session's ``subagents/`` goes with it, in ``files`` and
     counted in its size; without it, neither.
+
+    ``mirrored`` is claude_sessions_info's reading of the VM's mirror, what earlier runs sent: the bound counts what
+    the mirror lacks of each session, which is what rsync sends, rather than its whole size. A transcript only
+    grows, so one shorter here than there was written anew, and counts whole. ``bytes`` and ``over_bytes`` are
+    then what is sent and what is left.
     """
     here = {item["path"]: item for item in here or [] if item.get("path")}
     by_repo = {}
@@ -297,7 +303,7 @@ def claude_sessions_plan(
             plan["newer"].append(session["id"])
         elif why != "none":
             plan["ambiguous"].append({"id": session["id"], "repository": repo, "names": why})
-    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap, subagents)
+    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap, subagents, mirrored)
     for session, checkout, repo, _own in kept:
         if session["id"] in plan["over"]:
             continue
@@ -321,16 +327,32 @@ def claude_sessions_plan(
     return plan
 
 
-def _within(kept, cap, subagents=True):
+def _lacking(session, subagents, mirrored):
+    """The bytes of ``session`` the VM's mirror lacks: its transcript's and tool results' growth since an earlier run
+    sent them, and its subagents' while they go with it; the whole of it where the mirror holds none, or holds a
+    longer transcript, which this one was not written on to."""
+    main = int(session.get("size") or 0)
+    agents = int(session.get("subagents_size") or 0) if subagents else 0
+    there = (mirrored or {}).get(f"{session.get('folder')}/{session.get('id')}.jsonl")
+    if not isinstance(there, dict):
+        return main + agents
+    if int(session.get("transcript") or 0) >= int(there.get("transcript") or 0):
+        main = max(0, main - int(there.get("size") or 0))
+    if subagents:
+        agents = max(0, agents - int(there.get("subagents_size") or 0))
+    return main + agents
+
+
+def _within(kept, cap, subagents=True, mirrored=None):
     """Which of ``kept`` (session, checkout, repository, whether it is --session's) one copy sends under ``cap``
     bytes, 0 for no bound: (the IDs left out, the bytes sent, the bytes left out). --session's own first, then the
-    newest; one that does not fit in what is left is left out, and an older one that does is kept. A session's
-    size is its transcript's and tool results', and its subagents' while they go with it."""
+    newest; one that does not fit in what is left is left out, and an older one that does is kept. What a session
+    counts is what the VM's mirror lacks of it (_lacking)."""
     out, sent, over = [], 0, 0
     for session, _checkout, _repo, own in sorted(
         kept, key=lambda item: (not item[3], -float(item[0].get("mtime") or 0))
     ):
-        size = int(session.get("size") or 0) + (int(session.get("subagents_size") or 0) if subagents else 0)
+        size = _lacking(session, subagents, mirrored)
         if cap and not own and sent + size > cap:
             out.append(session["id"])
             over += size

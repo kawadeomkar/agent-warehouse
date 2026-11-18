@@ -326,11 +326,12 @@ Claude Code says it is from a different directory and copies the `cd` to it. The
 never picks a copy up: `--continue` looks only at the folder's own conversations, and a copy is filed
 under the folder name it has here (`-Users-you-homeserver`), not the checkout's.
 
-One copy sends at most `claude_sessions_sync_max_size` (256M by default; `1G`, or `0` for no bound): the
-newest sessions first, each with its tool results and subagents while it fits, and the rest stay here, their
-number said. Before it sends, the run says how many sessions and how much, since the copy shows nothing while
-it runs: the first is the whole of each, a later one what changed, and over a slow link to the VM even
-the bound takes minutes.
+One copy sends at most `claude_sessions_sync_max_size` (256M by default; `1G`, or `0` for no bound) that the VM
+does not have yet: the newest sessions first, each with its tool results and subagents while it fits, and the rest
+stay here, their number said. A session copied before counts only what it grew by since, so a long one goes on
+being copied once it is there; its first copy is the whole of it, which a larger bound, or `--session`, sends once.
+Before it sends, the run says how many sessions and how much, since the copy shows nothing while it runs, and over a
+slow link to the VM even the bound takes minutes.
 
 A session belongs to the repository its first directory is a checkout of, by its `origin` remote,
 compared as owner and repository with the origin of each checkout in `~/projects` on the VM: a renamed

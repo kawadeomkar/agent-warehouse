@@ -307,6 +307,33 @@ def test_a_session_s_subagents_go_with_it_and_count_toward_the_bound_while_they_
     assert without["bytes"] == 200 and without["over"] == []
 
 
+def _sent(sid, transcript, size, subagents=0):
+    return {f"-Users-me-demo/{sid}.jsonl": {"transcript": transcript, "size": size, "subagents_size": subagents}}
+
+
+def test_the_bound_counts_what_the_vm_s_mirror_lacks_of_each_session():
+    # A long session copied before costs what it grew by: within a bound its whole size is past.
+    grown = _session(ID, mtime=300.0, transcript=900, size=1000, subagents=True, subagents_size=500)
+    plan = _plan([grown], HERE_DEMO, cap=200, mirrored=_sent(ID, 850, 950, 450))
+    assert plan["over"] == [] and plan["bytes"] == 50 + 50
+    # Never sent: the whole of it.
+    plan = _plan([grown], HERE_DEMO, cap=200, mirrored={})
+    assert plan["over"] == [ID] and plan["over_bytes"] == 1500
+    # A transcript shorter here than there was written anew: it counts whole, its subagents by their growth.
+    plan = _plan([grown], HERE_DEMO, cap=0, mirrored=_sent(ID, 950, 950, 500))
+    assert plan["bytes"] == 1000
+    # Already all there: nothing.
+    assert _plan([grown], HERE_DEMO, mirrored=_sent(ID, 900, 1000, 500))["bytes"] == 0
+    # Without subagents, theirs is not counted, here or there.
+    assert _plan([grown], HERE_DEMO, mirrored=_sent(ID, 850, 950, 0), subagents=False)["bytes"] == 50
+
+
+def test_a_mirror_entry_of_another_session_or_folder_counts_nothing_out():
+    session = _session(ID, mtime=300.0, transcript=100, size=100)
+    other = {f"-Users-me-other/{ID}.jsonl": {"transcript": 100, "size": 100}, **_sent(OTHER, 100, 100)}
+    assert _plan([session], HERE_DEMO, mirrored=other)["bytes"] == 100
+
+
 @pytest.mark.parametrize(("size", "cap"), [("256M", 256 * 1024**2), ("1G", 1024**3), ("2", 2 * 1024**3), ("0", 0)])
 def test_the_bound_is_a_size_as_the_settings_write_one(size, cap):
     assert filters.claude_sessions_cap(size) == cap
@@ -467,6 +494,7 @@ def test_a_transcript_is_summarized_and_nothing_it_says_is_kept(tmp_path):
             "folder": "-Users-me-demo",
             "mtime": found[0]["mtime"],
             "open": 0,
+            "transcript": len(data),
             "tools": True,
             "size": len(data),
             "subagents": False,
@@ -510,6 +538,21 @@ def test_a_session_s_subagents_are_found_and_sized_and_a_link_to_a_folder_is_non
     assert found[ID]["subagents"] is True and found[ID]["subagents_size"] == 320
     assert found[ID]["size"] == len(transcript())
     assert found[OTHER]["subagents"] is False and found[OTHER]["subagents_size"] == 0
+
+
+def test_the_mirror_says_what_it_holds_of_each_session_and_nothing_else(tmp_path):
+    mirror = tmp_path / "mirror"
+    (mirror / "-Users-me-demo" / ID / "tool-results").mkdir(parents=True)
+    (mirror / "-Users-me-demo" / ID / "subagents").mkdir()
+    (mirror / "-Users-me-demo" / f"{ID}.jsonl").write_bytes(b"x" * 100)
+    (mirror / "-Users-me-demo" / ID / "tool-results" / "t.txt").write_bytes(b"y" * 20)
+    (mirror / "-Users-me-demo" / ID / "subagents" / "agent-a.jsonl").write_bytes(b"z" * 7)
+    (mirror / "-Users-me-demo" / "notes.txt").write_text("not a session\n")
+    (mirror / "-Users-me-demo" / f"{OTHER}.jsonl").symlink_to(mirror / "-Users-me-demo" / f"{ID}.jsonl")
+    assert info.mirrored(str(mirror)) == {
+        f"-Users-me-demo/{ID}.jsonl": {"transcript": 100, "size": 120, "subagents_size": 7}
+    }
+    assert info.mirrored(str(tmp_path / "none")) == {}
 
 
 def test_the_newest_version_is_kept_whatever_its_place(tmp_path):

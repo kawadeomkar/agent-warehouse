@@ -227,6 +227,11 @@
     # manifest of the copies written from it. A VM reached locally, as the
     # provision scenario reaches its stand-in, is a local path to rsync.
     code_session_dir: "{{ code_ws_dir }}/claude-sessions"
+    # The same directory's mirror as the session handoff reads it, before the folder to open is settled: what an
+    # earlier run sent, which the bound counts out.
+    code_session_mirror_read: >-
+      {{ code_projects_dir | just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true)))
+         ~ '/claude-sessions/mirror' }}
     code_session_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
           else claude_vm_names[0] ~ ':') ~ code_session_dir ~ '/mirror' }}

@@ -41,7 +41,7 @@
   ansible.builtin.debug:
     msg: >-
       Copying {{ code_session_plan.sessions | length }} of this machine's Claude Code sessions to
-      {{ claude_vm_names[0] }}, {{ code_session_plan.bytes | human_readable }} in all, less what an earlier run sent:
+      {{ claude_vm_names[0] }}, {{ code_session_plan.bytes | human_readable }} of them not there yet:
       claude_sessions_sync: false copies none, claude_sessions_sync_max_size bounds it.
   when: code_sessions | bool and code_session_plan.sessions | default([]) | length > 0
 

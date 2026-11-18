@@ -54,6 +54,11 @@ options:
         it, which Claude Code keeps in the home directory. Nothing else of that file is returned.
     type: bool
     default: false
+  mirror:
+    description:
+      - Also return, for each session the folder just code's rsync copies this machine's sessions into holds
+        (on the VM), the bytes it holds of it, so that a copy is bounded by what that mirror lacks.
+    type: path
   claude:
     description:
       - Also return the version of the first of these Claude Code executables there is. Only these: never
@@ -107,6 +112,9 @@ sessions:
     tools:
       description: Whether it has a C(tool-results/) folder, the large tool outputs it refers to.
       type: bool
+    transcript:
+      description: The bytes of the transcript alone.
+      type: int
     size:
       description: The bytes of the transcript and its C(tool-results/), what a copy of it sends; no link is followed.
       type: int
@@ -132,6 +140,12 @@ memory:
   elements: str
 registered:
   description: Every session C(sessions/) registers to a running claude, whatever its transcript, its ID to the pid.
+  returned: always
+  type: dict
+mirrored:
+  description:
+    - With O(mirror), each session it holds, as C(<folder>/<id>.jsonl), to the bytes of its transcript
+      (C(transcript)), of that and its tool results (C(size)) and of its subagents (C(subagents_size)); {} without.
   returned: always
   type: dict
 repo_paths:
@@ -362,6 +376,7 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 "folder": folder.name,
                 "mtime": stat.st_mtime,
                 "open": opened.get(session, 0),
+                "transcript": stat.st_size,
                 "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
                 "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
                 "subagents": _real_dir(os.path.join(folder.path, session, "subagents")),
@@ -373,6 +388,32 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
             }
         )
     return sessions
+
+
+def mirrored(path):
+    """{"<folder>/<id>.jsonl": its bytes} of each session the mirror at ``path`` holds, rsync's copy of the other
+    machine's: the transcript's, the transcript's and its tool results', and its subagents'. {} without one."""
+    found = {}
+    for folder in folders(path):
+        try:
+            entries = list(os.scandir(folder.path))
+        except OSError:
+            continue
+        for item in entries:
+            session = item.name[: -len(".jsonl")] if item.name.endswith(".jsonl") else ""
+            try:
+                if not SESSION_ID.fullmatch(session) or not item.is_file(follow_symlinks=False):
+                    continue
+                size = item.stat(follow_symlinks=False).st_size
+            except OSError:
+                continue
+            base = os.path.join(folder.path, session)
+            found[manifest_key(folder.name, session)] = {
+                "transcript": size,
+                "size": size + tree_size(os.path.join(base, "tool-results")),
+                "subagents_size": tree_size(os.path.join(base, "subagents")),
+            }
+    return found
 
 
 def _real_dir(path):
@@ -443,6 +484,7 @@ def main():
             "manifest": {"type": "path"},
             "memory": {"type": "bool", "default": False},
             "repo_paths": {"type": "bool", "default": False},
+            "mirror": {"type": "path"},
             "claude": {"type": "list", "elements": "path", "default": []},
         },
         supports_check_mode=True,
@@ -462,6 +504,7 @@ def main():
         sessions=sessions,
         memory=memory_folders(params["path"]) if params["memory"] else [],
         registered=opened,
+        mirrored=mirrored(params["mirror"]) if params["mirror"] else {},
         repo_paths=repo_paths(params["path"]) if params["repo_paths"] else {},
         version=claude_version(params["claude"]) if params["claude"] else "",
     )

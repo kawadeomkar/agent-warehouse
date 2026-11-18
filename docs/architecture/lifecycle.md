@@ -1084,7 +1084,10 @@ Claude Code's own Agent SDK documents. The rules:
   whose copy is never replaced under the claude holding it.
 - **Bounded, and said before it is sent.** One copy sends at most `claude_sessions_sync_max_size` (256M)
   of transcripts, their tool results and, with `claude_sessions_sync_subagents` (on by default), their
-  subagents' transcripts, sizes `claude_sessions_info` reads here without following a link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
+  subagents' transcripts - of what the VM's mirror lacks of each, which is what rsync sends: a session copied
+  before counts what it grew by since, read from the mirror on the VM (`mirror`, `mirrored`), and a transcript
+  shorter here than there, written anew, counts whole. Sizes `claude_sessions_info` reads at both ends without
+  following a link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
   here and counted in the run's line (`over`). A bound that is no size is refused before anything is
   read; 0 is none. rsync shows nothing while it sends, and a first copy over a slow link took minutes
   live, so the run says how many and how much just before it starts.

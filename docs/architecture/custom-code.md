@@ -502,7 +502,8 @@ processes cannot be had, the module reads every part itself and warns. With
 now) and whether it is still the copy as written (by digest); with `memory`, the folders whose auto
 memory folder holds a file; with `repo_paths`, `githubRepoPaths` from Claude Code's `.claude.json`, and
 nothing else of that file; with `claude`, the version of the first of those executables there is - only
-those, never `PATH`. A manifest of another format than `claude_sessions_copy` writes reads as none. Run
+those, never `PATH`; with `mirror`, the bytes the session copy's mirror there holds of each session (its
+transcript's, with its tool results, and its subagents'), what the bound counts out. A manifest of another format than `claude_sessions_copy` writes reads as none. Run
 here and on the VM.
 
 **`git_checkouts_info`** — for each directory asked about, or else each checkout directly inside one,
@@ -567,13 +568,14 @@ memory, so a `TarInfo` subclass refuses it in `_proc_member`, before it is read 
 map can be as long as the VM makes it. Its own error, `Stopped`, is no `tarfile` error, some of which
 `TarFile.next()` takes for the archive's end. Nothing of the content is returned.
 
-**`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm, open_there, cap, subagents)`** —
+**`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm, open_there, cap, subagents, mirrored)`** —
 the decision as data: `sessions` to copy, each with the checkout it continues in and the memory folder
 its prompt is pointed at; `files` for rsync; `newer`, `ambiguous`, `twice` (an ID in two folders here)
 and `open` (one a `claude` on the VM has open, given as `open_there`), one of no repository the VM
 has in none; under `cap` bytes (`claude_sessions_sync_max_size`, 0 for none) `--session`'s own and then
 the newest while they fit, each with its subagents' bytes while `subagents` (`claude_sessions_sync_subagents`)
-sends them, the rest in `over`, with `bytes` and `over_bytes` what each holds; and with
+sends them, each counted by what the VM's mirror (`mirrored`) lacks of it - a transcript shorter here than
+there whole - the rest in `over`, with `bytes` and `over_bytes` what is sent and what is left; and with
 `wanted` (`--session`), its entry and the `problem` that refuses it, or `""`. A session's repository is
 its first directory's origin, else its gone worktree's checkout's, else `githubRepoPaths`; the VM's
 checkout of it is the one whose GitHub origin names it, of two the one named after it. The plan reads

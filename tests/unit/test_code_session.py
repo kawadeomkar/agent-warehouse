@@ -3350,7 +3350,9 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
 def test_the_sync_says_how_many_sessions_and_how_much_before_it_sends(handoffs):
     # rsync shows nothing while it sends: live, a first copy over a slow link sat for minutes, unsaid.
     output = handoffs["sync"]["first"]["output"]
-    said = re.search(r"Copying 1 of this machine's Claude Code sessions to alpha, ([0-9.]+ \w+) in all", output)
+    said = re.search(
+        r"Copying 1 of this machine's Claude Code sessions to alpha, ([0-9.]+ \w+) of them not there yet", output
+    )
     assert said, output[-3000:]
     assert "claude_sessions_sync: false copies none, claude_sessions_sync_max_size bounds it." in output
     assert output.index("Copying 1 of") < output.index("TASK [session_write | Send the sessions to the VM]")
