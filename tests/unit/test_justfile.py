@@ -1270,6 +1270,17 @@ def test_with_project_the_folder_just_was_started_in_goes_to_the_playbook_as_jso
     assert _source(_started_in(tmp_path / "no-project", str(other), recipe, "alpha")) is None
 
 
+def test_with_session_alone_code_hands_over_the_folder_just_was_started_in(tmp_path: Path) -> None:
+    # --session's checkout is the project: the sync carries the session's repository from its own folder, as with
+    # --project, so the session's work need not be pushed.
+    other = tmp_path / "demo"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True, env=_git_env())
+    session = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
+    run = _started_in(tmp_path / "run", str(other), "code", "alpha", "--session", session)
+    assert _source(run) == {"vm_repo_from": str(other.resolve()), "vm_repo_elsewhere": True}, run
+
+
 @pytest.mark.parametrize("recipe", ["code", "deploy"])
 @pytest.mark.parametrize("brace", ["{{ 6 * 7 }}", "{% if 1 %}", "{# x #}"])
 def test_a_start_folder_that_opens_a_template_is_refused_before_the_playbook(

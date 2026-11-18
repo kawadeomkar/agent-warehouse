@@ -126,6 +126,13 @@
   register: code_session_git_here
   when: code_session_id | length > 0
 
+# The repository sync's match, before the refusal below: where the sync
+# carries the session's repository from its own folder here, on its branch,
+# the work need not be committed and pushed - the sync brings the branch and
+# the changes not committed, and is the one thing that moves the VM's checkout.
+- name: session_read | Read whether the repository sync carries it
+  ansible.builtin.import_tasks: repo_match.yml
+
 - name: session_read | Refuse work that is not committed and pushed
   vars:
     code_git: "{{ code_session_git_here.checkouts[0] }}"
@@ -152,12 +159,14 @@
          else code_branch ~ ' in ' ~ code_git.toplevel ~ ' is not where origin/' ~ code_git.upstream_branch
               ~ ' is here: push it (or pull), then run this again.' }}
     quiet: true
-  when: code_session_id | length > 0
+  when: code_session_id | length > 0 and not code_repo_carries_session | bool
 
 # The VM checkout moves only when nothing could be lost: a clean tree, a HEAD
 # that a branch or another ref holds - a switch away from a detached HEAD
 # leaves its commits to git's garbage collection, and --quiet would not say
-# so - and no claude of the VM user's working in it. Remote Control's sessions
+# so - and no claude of the VM user's working in it. Where the repository sync
+# carries the session's repository, its apply decides the tree and HEAD, by
+# its own rules, and the check after it says why it did not move. Remote Control's sessions
 # start in the projects directory, above it, where this cannot see them; the
 # run says so when that service is running.
 - name: session_read | Read the VM's checkout of the session's repository
@@ -186,8 +195,8 @@
   ansible.builtin.assert:
     that:
       - code_open | int == 0
-      - code_git.clean
-      - code_git.head_kept
+      - code_git.clean or code_repo_carries_session | bool
+      - code_git.head_kept or code_repo_carries_session | bool
       - code_git.busy | length == 0
     # The VM names its checkout's folder and what holds it: plain text, like everything a VM says.
     fail_msg: >-

@@ -312,32 +312,43 @@
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
           else claude_vm_names[0] ~ ':') ~ code_session_dir ~ '/mirror' }}
     # The repository sync (tasks/repo_read.yml): the checkout just was started in, which the justfile hands over
-    # with --project only (vm_repo_from, from STARTED_IN), carried to the VM's checkout of the same repository.
+    # with --project or --session (vm_repo_from, from STARTED_IN), carried to the VM's checkout of the same repository.
     # code.yml never looks for a source itself - no working directory, no environment - so that without vm_repo_from
     # there is none, and no test reads the developer's checkout.
     code_repo_from: "{{ vm_repo_from | default('', true) | string }}"
     # Whether just was started in another repository than this checkout: only then is a mismatch of origins said.
     code_repo_elsewhere: "{{ vm_repo_elsewhere | default(false) | bool }}"
-    # Known before any read, and gating the reads alone: the setting, a project and a source.
+    # Known before any read, and gating the reads alone: the setting, a project - --project's, or with --session the
+    # session's checkout - and a source.
     code_repo_on: >-
-      {{ repo_sync | default(true) | bool and vm_project | default('', true) | string | length > 0
-         and code_repo_from | length > 0 }}
+      {{ repo_sync | default(true) | bool and code_repo_from | length > 0
+         and (vm_project | default('', true) | string | length > 0 or code_session_id | length > 0) }}
+    # The VM's checkout the sync is matched against, before the folder to open is settled (tasks/repo_match.yml, inside
+    # tasks/session_read.yml): --session's, as the session plan found it, else --project's in the projects directory.
+    code_repo_folder: >-
+      {{ (code_session_plan.session.checkout | default('') if code_session_id | length > 0
+          else code_projects_dir ~ '/' ~ vm_project | default('', true) | string) }}
     # The most one sync sends, in bytes (repo_sync_max_size; 0 for no bound), as git objects and again as files.
     code_repo_cap: "{{ repo_sync_max_size | default('256M') | claude_sessions_cap }}"
     # Whether the checkout here and the VM's folder are one repository, by their origins.
     code_repo_match: >-
-      {{ code_repo_here.repo | default({}) | repo_sync_match(code_repo_there.repo | default({}), code_project,
-                                                              claude_vm_names[0], code_target, code_repo_elsewhere) }}
+      {{ code_repo_here.repo | default({}) | repo_sync_match(code_repo_there.repo | default({}),
+                                                              code_repo_folder | basename, claude_vm_names[0],
+                                                              code_repo_folder, code_repo_elsewhere) }}
     code_repo_matched: "{{ code_repo_on | bool and code_repo_match.sync }}"
-    # Where the sync keeps its manifest on the VM, in just code's own directory: one a refusal above did not look at,
-    # since it did not know of the sync yet, is one more reason not to sync, said as the one line.
-    code_repo_dir: "{{ code_ws_dir }}/repo-sync/{{ code_project }}"
+    # Where the sync keeps its manifest on the VM, in just code's own directory, by the project's folder: known before
+    # the folder to open is settled - as code_ws_dir is then, from the same values - since the match reads the manifest
+    # and --session's refusals ask whether the sync will carry its repository. A directory a refusal above did not
+    # look at, since it did not know of the sync yet, is one more reason not to sync, said as the one line.
+    code_repo_ws_dir: >-
+      {{ code_projects_dir | just_code_dir(editor_files_dir | default(vscode_workspaces_dir | default('', true))) }}
+    code_repo_dir: "{{ code_repo_ws_dir }}/repo-sync/{{ code_repo_folder | basename }}"
     code_repo_dir_said: >-
-      {{ '' if code_ws_dir is match('^/[A-Za-z0-9._/-]+\Z') and code_ws_dir not in ['/', code_root]
-              and '/../' not in code_ws_dir ~ '/'
-         else 'editor_files_dir, ' ~ code_ws_dir ~ ', is no directory just code can keep the repository sync in, one'
-              ~ ' plain absolute path of letters, digits, . _ - and /, so nothing was carried to ' ~ code_project
-              ~ ' there (repo_sync).' }}
+      {{ '' if code_repo_ws_dir is match('^/[A-Za-z0-9._/-]+\Z') and code_repo_ws_dir not in ['/', code_projects_dir]
+              and '/../' not in code_repo_ws_dir ~ '/'
+         else 'editor_files_dir, ' ~ code_repo_ws_dir ~ ', is no directory just code can keep the repository sync in,'
+              ~ ' one plain absolute path of letters, digits, . _ - and /, so nothing was carried to '
+              ~ code_repo_folder | basename ~ ' there (repo_sync).' }}
     # The one line a run that will not sync says: the match's, or that.
     code_repo_why: "{{ code_repo_match.said if not code_repo_match.sync else code_repo_dir_said }}"
     # The one condition every writer of the sync runs under: matched, a plan that carries, and a directory to keep it.
@@ -351,9 +362,21 @@
     code_repo_receive_pack: "{{ 'git-receive-pack' if code_repo_local | bool else '/usr/bin/git-receive-pack' }}"
     # The mirror rsync brings the files into, as rsync is given it.
     code_repo_mirror_target: "{{ ('' if code_repo_local | bool else claude_vm_names[0] ~ ':') ~ code_repo_dir ~ '/tree' }}"
-    # --session's branch, which --session moves: the sync leaves it, and the tree, alone.
+    # Whether the sync carries --session's repository: matched, from the folder the session's checkout here is, on the
+    # session's branch, with a directory to keep it in - every condition the sync's writes run under. Then the work
+    # need not be committed and pushed, and the sync's apply is the one thing that moves the VM's checkout; --session
+    # checks afterwards that it is at the session's commit (tasks/repo_write.yml).
+    code_repo_carries_session: >-
+      {{ code_session_id | length > 0 and code_repo_matched | bool and code_repo_dir_said | length == 0
+         and code_repo_match.source == code_session_git_here.checkouts[0].toplevel | default('')
+         and code_repo_here.repo.head.branch | default('') == code_session_plan.session.branch | default('') }}
+    # Whether --session itself fetches and fast-forwards the VM's checkout (tasks/session_write.yml): unless the sync
+    # carries its repository.
+    code_session_moves: "{{ code_session_id | length > 0 and not code_repo_carries_session | bool }}"
+    # --session's branch where --session moves it, as before: the sync leaves it, and the tree, alone.
     code_repo_session_branch: >-
-      {{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}
+      {{ code_session_plan.session.branch | default('')
+         if code_session_id | length > 0 and not code_repo_carries_session | bool else '' }}
     # --session's branch here: the commit the VM checkout is brought to, and the branch of origin it tracks.
     code_session_commit: "{{ code_session_git_here.checkouts[0].branch_head }}"
     code_session_upstream: "{{ code_session_git_here.checkouts[0].upstream_branch }}"

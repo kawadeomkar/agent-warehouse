@@ -139,3 +139,19 @@
     aggregate: true
     per_host: false
   when: code_repo_sync | bool
+
+# --session, where the sync carries its repository and so is the one thing
+# that moves its checkout: the checkout must now be on the session's branch at
+# its commit, or the resumed conversation would describe work the folder does
+# not hold - whether the sync ran or not.
+- name: repo_write | Fail unless the VM checkout is at the session's commit
+  ansible.builtin.assert:
+    that:
+      - code_repo_applied.tree.brought | default(false)
+      - code_repo_applied.tree.head | default('') == code_session_commit
+    fail_msg: >-
+      {{ code_target }} on {{ claude_vm_names[0] }} was not brought to {{ code_session_plan.session.branch }} at
+      {{ code_session_commit[:12] }}, where session {{ code_session_id }} is here:
+      {{ (code_repo_applied.tree.why | default('', true) or 'the sync did not move it') | plain_text }}.
+    quiet: true
+  when: code_repo_carries_session | bool

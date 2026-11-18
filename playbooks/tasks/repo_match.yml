@@ -1,0 +1,28 @@
+---
+# The repository sync's match: the checkout just was started in, and the
+# project's checkout on the VM - --project's folder, or --session's checkout -
+# each read little, for repo_sync_match to tell by their origins whether they
+# are one repository (docs/architecture/lifecycle.md §4.9). Imported by
+# tasks/session_read.yml, after it settles --session's checkout on the VM and
+# before its refusal of work not committed and pushed, which a sync that
+# carries the session's repository lifts. Nothing is written.
+#
+# Inputs: code.yml's play vars code_repo_on, code_repo_from, code_repo_folder
+# and code_repo_dir. Registers code_repo_here and code_repo_there, which
+# code.yml's code_repo_match reads, and which tasks/repo_read.yml asks of the
+# ignored files the last sync carried there (its manifest's): only which of
+# them are gone here, never anything it sends.
+
+- name: repo_match | Read the checkout just was started in
+  git_sync_info:
+    path: "{{ code_repo_from }}"
+  register: code_repo_here
+  when: code_repo_on | bool
+
+- name: repo_match | Read the project's checkout on the VM
+  git_sync_info:
+    path: "{{ code_repo_folder }}"
+    manifest: "{{ code_repo_dir }}/manifest.json"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_repo_there
+  when: code_repo_on | bool and code_repo_here.repo.git | default(false) and code_repo_folder | length > 0

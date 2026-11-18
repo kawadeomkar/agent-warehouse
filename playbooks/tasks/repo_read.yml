@@ -9,9 +9,11 @@
 # here and on the VM.
 #
 # Three reads, each only where the one before allows, so a run that will not
-# sync costs two cheap ones: the match, both ends asked little; the selection,
-# here, asked everything; the estimate, here again, of the bytes the branches
-# hold beyond the commits the VM has. Nothing the VM reports becomes an
+# sync costs two cheap ones: the match, both ends asked little, which
+# tasks/repo_match.yml made already, inside tasks/session_read.yml, since it
+# decides one of --session's refusals; the selection, here, asked everything;
+# the estimate, here again, of the bytes the branches hold beyond the commits
+# the VM has. Nothing the VM reports becomes an
 # argument or input of a command here but those commits, each held to a full
 # hex ID and looked up first, and only left out of the estimate.
 #
@@ -30,23 +32,6 @@
       {{ repo_sync_max_size | string | plain_text }}.
     quiet: true
   when: code_repo_on | bool
-
-- name: repo_read | Read the checkout just was started in
-  git_sync_info:
-    path: "{{ code_repo_from }}"
-  register: code_repo_here
-  when: code_repo_on | bool
-
-# And the ignored files the last sync carried there, as its manifest names
-# them: the read here says only which of them are gone, never anything it
-# sends.
-- name: repo_read | Read the project's checkout on the VM
-  git_sync_info:
-    path: "{{ code_target }}"
-    manifest: "{{ code_repo_dir }}/manifest.json"
-  delegate_to: "{{ claude_vm_names[0] }}"
-  register: code_repo_there
-  when: code_repo_on | bool and code_repo_here.repo.git | default(false)
 
 # Only where just was started in another repository: from this checkout with
 # another project's name, as every run is, it would be said every time.

@@ -127,8 +127,9 @@ playbooks/
   tasks/vm_route_held.yml         each VM a publisher added held to the route - the hop, or a jump of its own, never
                                   neither - then the shared connection made sure of (§4.15)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
-  tasks/repo_read.yml             the repository sync's reads: the checkout just was started in against the VM's, by
-                                  origin; what a sync would carry, and its estimate (§7.18)
+  tasks/repo_match.yml            the repository sync's match: the checkout just was started in and the VM's, read
+                                  for their origins, inside session_read.yml before --session's refusals (§7.18)
+  tasks/repo_read.yml             the repository sync's reads: what a sync would carry, and its estimate (§7.18)
   tasks/repo_write.yml            the repository sync's writes: git send-pack of this machine's refs, the apply on the
                                   VM, the report and its NEXT STEPS record (§7.18)
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
