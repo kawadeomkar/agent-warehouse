@@ -60,7 +60,9 @@ not have it, and opens the folder with `code --remote ssh-remote+alpha`, by way 
 that also starts `claude` in a terminal of the window ([A Claude session in the
 window](#a-claude-session-in-the-window)). At a terminal it is drawn live, a row for each of those steps
 and the VM's ID and address at the top ([During a run](runs.md)); what it says of the window prints whole
-above.
+above. A VM that is stopped - shut down, or not yet started again after its Proxmox host restarted - is
+refused with the line that starts it, `just deploy alpha --only provision --start`, which does nothing more
+to a VM already configured; then run the same `just code` again.
 
 The first connection installs VS Code Server on the VM and takes about a minute; the VM downloads it
 from Microsoft over HTTPS, so it needs that route out. You can also pick `alpha` in the extension's

@@ -951,6 +951,13 @@ WINDOWS = {
     "just code, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta", "vm_editor": "zed"},
     "deploy, stopped": {"keep": UP, "in_deploy": True, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "just code, stopped": {"keep": UP, "in_deploy": False, "vm_name": "beta", "claude_vm_addressed": STOPPED},
+    "just code, stopped, another host": {
+        "keep": UP,
+        "in_deploy": False,
+        "vm_name": "beta",
+        "claude_vm_addressed": STOPPED,
+        "claude_host_flag": " --host nuc",
+    },
     "deploy, no address": {"keep": UP, "in_deploy": True, "vm_name": "alpha", "claude_vm_addressed": NO_ADDRESS},
     "deploy, no alias": {
         "keep": ["Refuse to run with the managed file switched off"],
@@ -1216,9 +1223,19 @@ def test_a_deploy_that_left_its_vm_stopped_names_the_deploy_that_starts_it(windo
 
 
 def test_just_code_refuses_a_stopped_vm(windows):
+    # With the run that starts it, since just deploy alone leaves it stopped: its provision does nothing more to a VM
+    # already configured, and just code, run again, keeps its own options.
     run = windows["just code, stopped"]
     assert run["rc"] != 0 and not run["reached"]
-    assert "beta is stopped, so there is nothing to connect to. `just status` shows the fleet;" in run["output"]
+    assert (
+        "beta is stopped, so there is nothing to connect to."
+        " `just deploy beta --only provision --start` starts it; then run this again." in run["output"]
+    )
+    assert "`just status` shows the fleet" not in run["output"]
+    # The host the VM is on, beside another.
+    run = windows["just code, stopped, another host"]
+    assert run["rc"] != 0 and not run["reached"]
+    assert " `just deploy beta --only provision --start --host nuc` starts it;" in run["output"]
 
 
 @pytest.mark.parametrize(

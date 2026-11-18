@@ -820,7 +820,9 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
 2. Find the VM by tag, naming an untagged VM of that name as not this project's; ask its agent for
    the address. Settle where it is reached exactly as the alias's `HostName` does, by `ssh_hostname` - the
    address, or `<name>.<claude_ssh_host_domain>` - so this run and the editor connect to the same target, and refuse
-   a VM that is not running, whatever its name resolves to.
+   a VM that is not running, whatever its name resolves to: a stopped one with `just deploy <vm> --only provision
+   --start`, since `just deploy` alone leaves it stopped and its provision does nothing more to a VM already
+   configured, before this run again.
 3. Add it to `claude_vms` with `add_host`, the way configure reaches it: Ansible's own connection and
    `accept-new`, not the user's ssh config, and the group's connection variables from the inventory
    (a key, a port) apply as they do to `just deploy --only configure`.
