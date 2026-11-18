@@ -3,7 +3,10 @@
 # PATH or a Python that is no virtualenv's. The environment is, in order:
 #   - the virtualenv PYTHON names, when it is set;
 #   - the one python3 is, when it is a virtualenv - one you activated, or one a
-#     version manager picks in this directory;
+#     version manager picks in this directory - unless just was started in
+#     another repository (--started=elsewhere, from tools/check started), where
+#     the virtualenv on PATH is that project's, which just install must never
+#     put Ansible into;
 #   - otherwise this checkout's own, which just install makes with uv: a Python
 #     uv downloads, in this checkout's folder outside it (--data), never in it.
 # The git hooks and the Vagrantfile run the linters through this, so a commit
@@ -13,6 +16,7 @@
 #
 #   tools/env-run yamllint --strict inventory/group_vars/all/defaults.yml
 #   tools/env-run --bin           that environment's scripts directory, for the justfile's recipes
+#   tools/env-run --started=<word> --bin|--which   the same, where just was started as tools/check started says
 #   tools/env-run --which         own <python> or managed <python>, for just install
 #   tools/env-run --data          this checkout's folder outside it
 #   tools/env-run --legacy-data   that folder's name through 1.x, which just install moves it from
@@ -32,6 +36,11 @@ data=${XDG_DATA_HOME:-$HOME/.local/share}/agent-warehouse/checkouts/$checkout
 legacy=${XDG_DATA_HOME:-$HOME/.local/share}/claude-on-proxmox/checkouts/$checkout
 managed=$data/venv
 collections=$data/collections
+# Where just was started, from the justfile's recipes: elsewhere, another
+# repository, takes no virtualenv from PATH. Unsaid - a git hook, the
+# Vagrantfile - as it always was.
+started=
+case "${1:-}" in --started=*) started=${1#--started=}; shift ;; esac
 case "${1:-}" in
 --data) printf '%s\n' "$data"; exit 0 ;;
 --legacy-data) printf '%s\n' "$legacy"; exit 0 ;;
@@ -44,7 +53,7 @@ scripts() {
 }
 if [ -n "${PYTHON:-}" ]; then
   kind=own python=$PYTHON bin=$(scripts "$PYTHON")
-elif command -v python3 >/dev/null 2>&1 && bin=$(scripts python3) && [ -n "$bin" ]; then
+elif [ "$started" != elsewhere ] && command -v python3 >/dev/null 2>&1 && bin=$(scripts python3) && [ -n "$bin" ]; then
   kind=own python=python3
 else
   kind=managed python=$managed/bin/python bin=
@@ -61,6 +70,8 @@ if [ -z "$bin" ]; then
   if [ "$kind" = managed ]; then
     echo "error: this checkout has no Python environment yet. Run: just install" >&2
     [ "${1:-}" != --bin ] || echo "(it makes one with uv, in $managed; or set PYTHON to a virtualenv of your own)" >&2
+    # The one python3 is was not looked at: name it, so a person with an environment of their own knows to say so.
+    [ "$started" != elsewhere ] || echo "just was started in another repository, so the virtualenv on PATH, which is that project's, is not taken: set PYTHON to this project's, as in alias aw='just --justfile <this checkout>/justfile PYTHON=<it>/bin/python'" >&2
   elif [ "${1:-}" = --bin ]; then
     # The scripts directory of a Python that is no virtualenv's would be
     # /usr/local/bin or the like, where a system-wide Ansible lives.
@@ -80,7 +91,7 @@ if [ "${1:-}" = --bin ]; then
   exit 0
 fi
 if [ "$#" -eq 0 ]; then
-  echo "usage: tools/env-run <tool> [argument...] | --bin | --which | --data | --legacy-data | --collections" >&2
+  echo "usage: tools/env-run [--started=<word>] <tool> [argument...] | --bin | --which | --data | --legacy-data | --collections" >&2
   exit 2
 fi
 tool=$1

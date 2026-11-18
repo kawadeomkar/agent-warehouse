@@ -4,7 +4,8 @@
 # recipes it depends on, since JUST_NO_DEPS or --no-deps would skip a
 # dependency.
 #
-#   tools/check checkout <directory>   just was started there: refuse another checkout
+#   tools/check checkout <directory>   just was started there: refuse another checkout inside this one's folder
+#   tools/check started <directory>    where just was started, as one word: this, none, elsewhere or inside
 #   tools/check host <bin> env|list|switch|remove ...
 #                                        the checkout's hosts (tools/host): the host of a run and the files it is
 #                                        read from, or just host's list, switch and removal
@@ -27,23 +28,68 @@ set -eu
 # no locale can widen them (a UTF-8 one may collate accented letters into
 # A-Z), and none needs setting: ansible-galaxy refuses one that is not UTF-8.
 
+# Where just was started, as one word, run from this checkout: "this" - this
+# checkout, or a folder of it; "none" - a folder in no repository, or none
+# given; "elsewhere" - another repository, outside this checkout's folder,
+# which a person reached this justfile from by name (--justfile, an alias); or
+# "inside" - another checkout inside this checkout's folder, a worktree under
+# .claude/worktrees/ above all, which just's search upward for a justfile
+# reached by accident. Folders are compared by identity (-ef: the same device
+# and inode), never by name: macOS's file system ignores case, and the shell's
+# pwd keeps the case a folder was typed in, so a nested worktree typed in
+# another case would read as outside. This checkout is as git spells it, never
+# as the shell's pwd, for the same reason, and a copy with no .git of its own
+# inside another work tree is that tree's for git on both sides. A folder that
+# cannot be read is refused.
+started() {
+  [ -n "$1" ] || { echo none; return 0; }
+  start=$(CDPATH='' cd -- "$1" 2>/dev/null && pwd -P) || {
+    echo "error: just was started in $1, which cannot be read" >&2
+    return 1
+  }
+  top=$(git -C "$start" rev-parse --show-toplevel 2>/dev/null || true)
+  mine=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  if [ -z "$top" ]; then
+    echo none
+  elif [ -n "$mine" ] && [ "$top" -ef "$mine" ]; then
+    echo this
+  else
+    here=$(pwd -P) folder=$start
+    while :; do
+      if [ "$folder" -ef "$here" ]; then
+        echo inside
+        return 0
+      fi
+      parent=$(dirname -- "$folder")
+      [ "$parent" != "$folder" ] || break
+      folder=$parent
+    done
+    echo elsewhere
+  fi
+}
+
 case "${1:-}" in
 checkout)
   # just looks for a justfile upward from where it was started and does not
   # stop at a checkout's .git: started in a worktree of a branch that has no
   # justfile - an older one, under .claude/worktrees/ - it runs this one, in
-  # this directory, with this checkout's inventory and vault. A subdirectory
-  # of this checkout, or a directory in none, is fine. This checkout is as git
-  # spells it too, never as the shell's pwd: that keeps the case a directory was
-  # typed in, which macOS's file system ignores, and a copy with no .git of its
-  # own inside another work tree is that tree's for git on both sides.
-  top=$(git -C "$2" rev-parse --show-toplevel 2>/dev/null || true)
-  here=$(git rev-parse --show-toplevel 2>/dev/null || true)
-  if [ -n "$top" ] && [ "$top" != "$here" ]; then
+  # this directory, with this checkout's inventory and vault. So another
+  # checkout inside this one's folder is refused. A subdirectory of this
+  # checkout, a directory in no repository, and another repository outside it,
+  # which reached this justfile by name, are fine.
+  word=$(started "$2")
+  if [ "$word" = inside ]; then
+    top=$(git -C "$2" rev-parse --show-toplevel 2>/dev/null || true)
     echo "error: just was started in $2, in the checkout $top, which has no justfile of its own;" >&2
     echo "this justfile is $(pwd -P)'s. Run the commands that checkout has there, or merge main into it." >&2
     exit 1
   fi
+  ;;
+started)
+  # The word for <directory>, which the recipes read where just was started
+  # (STARTED_IN): the Python environment (tools/env-run --started), and the
+  # repository sync.
+  started "${2:-}"
   ;;
 host)
   # The one place that knows where a checkout's hosts are (lib/claude_vm/hosts/): the first in inventory/, each
@@ -497,7 +543,7 @@ sys.exit(1 if found else 0)
 PYTHON
   ;;
 *)
-  echo "usage: tools/check checkout <directory> | host <bin> <action> ... | vault <file>... | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file>" >&2
+  echo "usage: tools/check checkout <directory> | started <directory> | host <bin> <action> ... | vault <file>... | collections <bin> | names <name>... | project <name> | session <id> | sections <list> | settings <bin> <file>... | lock <file> <pid> <title> | unheld <file>" >&2
   exit 2
   ;;
 esac

@@ -445,6 +445,7 @@ def tools(server: Server) -> list[Tool]:
         memory: str = "",
         disk: str = "",
         repos: str = "",
+        project: str = "",
         host: str = "",
         wait_seconds: int | None = None,
     ) -> str:
@@ -459,7 +460,7 @@ def tools(server: Server) -> list[Tool]:
         if refusal:
             raise ToolError(refusal)
         arguments = {"names": names or [], "only": only, "check": check, "tags": tags, "start": start}
-        arguments |= {"cores": cores, "memory": memory, "disk": disk, "repos": repos, "host": host}
+        arguments |= {"cores": cores, "memory": memory, "disk": disk, "repos": repos, "project": project, "host": host}
         return await server.run("deploy", arguments, wait_seconds, ctx)
 
     async def login(
@@ -658,7 +659,7 @@ def tools(server: Server) -> list[Tool]:
         "template build. Say first that pages will open in the user's browser to approve. Name every VM to create: "
         "there is no default VM here. A VM for a repository X: "
         "status first, and if a VM's work lists X, code(name, project=X) alone; else name the VM after X (lowercase, - "
-        "for _, no dots), deploy(names=[name], repos=X) so that it clones X alone, then code(name, project=X). repos "
+        "for _, no dots), deploy(names=[name], repos=X, project=X) so that it clones X alone and opens it. repos "
         "takes the user's own repositories, comma-separated: another owner's is not cloned, and the run says so. "
         "Size a new VM with cores, memory (MiB, or 16G) and disk "
         "(64G) in place of the settings - read status(only='capacity') first for the node's CPU threads and memory and "

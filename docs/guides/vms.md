@@ -43,6 +43,28 @@ configuration again reaches them all:
 So a bare `just deploy` creates and configures `agent-warehouse-default` and leaves any other VMs
 alone, while a bare `just deploy --only configure` re-applies the configuration to all of them.
 
+`just deploy <name> --project <repo>` ends at a window on that one project folder of the VM, as `just code <name>
+--project <repo>` does, rather than on the whole projects directory. One VM only, or none for the default one, since a
+deploy for several opens no window; and not beside `--only`, `--check` or `--tags`, which open none either, nor where
+`deploy_code` is false, which the run refuses before anything is built. The lines a deploy says when its window could
+not open keep `--project`.
+
+### From a project's own folder
+
+`just` can be run from any folder outside this checkout, by naming the justfile: an alias does it once,
+
+```bash
+alias aw='just --justfile ~/agent-warehouse/justfile'
+cd ~/code/my-app && aw deploy app --project my-app
+```
+
+There, the virtualenv `python3` is on `PATH` is that project's, not this one's, so it is never taken: the run uses
+`PYTHON` when it is set, and otherwise this checkout's own environment, which `just install` makes. If you keep this
+project's tools in a virtualenv of your own, name it in the alias:
+`alias aw='just --justfile ~/agent-warehouse/justfile PYTHON=<it>/bin/python'`. Only a folder inside this checkout
+whose repository is another - a worktree under `.claude/worktrees/` - is refused, as it always was: `just` would find
+this justfile above it by accident ([§15.3](../architecture/decisions.md#153-the-command-line-is-just-not-make)).
+
 You never assign a VMID or an IP address. Proxmox picks the next free VMID; the DHCP server that
 already serves your network assigns the address, exactly as it would for a laptop; and the QEMU
 guest agent - baked into the template by `just deploy --only template` - reports that address back so Ansible can

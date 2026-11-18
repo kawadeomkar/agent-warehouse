@@ -12,7 +12,9 @@ changing what a rule below covers, read the section it links: the mechanism is t
 Every tool is pinned in `pyproject.toml` and locked in `uv.lock`, and `tools/env-run` alone decides the
 environment it runs from: the user's own virtualenv when they bring one (`PYTHON=`, or `python3` here when it is
 one), otherwise the checkout's own, which `just install` makes with uv in the checkout's folder outside it
-(`tools/env-run --data`), never a `.venv` in the checkout. The Galaxy collections live in that folder for every
+(`tools/env-run --data`), never a `.venv` in the checkout. Started in another repository (`STARTED_IN`, read by
+`tools/check started` and handed on as `tools/env-run --started=elsewhere`), `python3` on PATH is never looked at:
+it is that project's virtualenv, which `just install` would put Ansible into. The Galaxy collections live in that folder for every
 checkout (`tools/env-run --collections`), and every recipe and `tools/env-run <tool>` export them as
 `ANSIBLE_COLLECTIONS_PATH`. Read [§13](docs/architecture/toolchain.md) before changing any of it.
 
@@ -47,6 +49,7 @@ just deploy alpha --only configure   # one stage of it: template, provision, con
 just deploy alpha --tags claude_code # re-run one role, e.g. to push an API key (--tags beside names means --only configure)
 just deploy big --cores 8 --memory 16G --disk 128G   # a VM created with a size of its own, tagged sized; an existing VM is never resized
 just deploy app --repos my-app,my-lib   # a VM with a list of repositories of its own, kept in its Proxmox notes, in place of github_projects
+just deploy app --project my-app     # the window opens that one folder of the VM, as just code --project does (one VM; not beside --only, --check, --tags)
 just destroy alpha                   # save the VM's own Claude sessions here, release it from Claude, GitHub and Tailscale, then delete it
 just login alpha                     # Claude, GitHub, Tailscale in deploy's order, one VM after another (--only claude, github or tailscale: one)
 just status                          # read-only, live: every VM, what needs doing (--only vms,storage,capacity,access,sign-ins,system,work; --json; exit 0/1/2, 3 failed)
@@ -70,7 +73,9 @@ go before it (`just ANSIBLE_ARGS=-vvv deploy alpha`).
 
 - A recipe is a bash script with no dependencies (`JUST_NO_DEPS` or `--no-deps` would skip one). Its first line
   is the checkout guard (`tools/check checkout`: just looks for a justfile upward, so started in a make-era
-  worktree under `.claude/worktrees/` it would run main's, against main's inventory and vault); then its own rules
+  worktree under `.claude/worktrees/` it would run main's, against main's inventory and vault; refused by folder
+  identity, `-ef`, never by name, and only inside this checkout's folder: another repository outside it reached the
+  justfile by name, as `just deploy --project` from a project's folder does); then its own rules
   with their messages; then what it needs (`tools/env-run --bin`, `tools/check vault`, `tools/check collections` -
   which `status`'s engine runs instead, only where it asks Ansible - and where it reads the settings `tools/check
   settings`, which refuses a setting under a name 1.0 renamed and names the new name of one 1.1 named anew); then

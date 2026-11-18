@@ -960,6 +960,21 @@ WINDOWS = {
     "deploy, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": True, "vm_name": "alpha,beta", "vm_editor": "zed"},
     "just code, fleet, --editor zed": {"keep": ONE_VM, "in_deploy": False, "vm_name": "alpha,beta", "vm_editor": "zed"},
     "deploy, stopped": {"keep": UP, "in_deploy": True, "vm_name": "beta", "claude_vm_addressed": STOPPED},
+    # just deploy --project: both lines that open the window later keep the folder.
+    "deploy, no code, a project": {
+        "keep": [*ONE_VM, FIND, REFUSE],
+        "in_deploy": True,
+        "vm_name": "alpha",
+        "vm_project": "discord-music-bot",
+        **OPENED,
+    },
+    "deploy, stopped, a project": {
+        "keep": UP,
+        "in_deploy": True,
+        "vm_name": "beta",
+        "vm_project": "discord-music-bot",
+        "claude_vm_addressed": STOPPED,
+    },
     "just code, stopped": {"keep": UP, "in_deploy": False, "vm_name": "beta", "claude_vm_addressed": STOPPED},
     "just code, stopped, another host": {
         "keep": UP,
@@ -1230,6 +1245,17 @@ def test_a_deploy_that_left_its_vm_stopped_names_the_deploy_that_starts_it(windo
     )
     # Recorded as the VM's own matter, in the place of provision's line about the same thing.
     assert run["left"] == {"beta": {"vm": run["later"]}}
+
+
+def test_both_lines_that_open_the_window_later_keep_its_project(windows):
+    # Without it, the retry would open another folder.
+    run = windows["deploy, no code, a project"]
+    assert run["rc"] == 0 and not run["reached"], run["output"]
+    assert run["later"].endswith(f"{LATER} --project discord-music-bot"), run["later"]
+    stopped = windows["deploy, stopped, a project"]
+    assert stopped["later"].endswith(
+        "To start it and finish the deploy: just deploy beta --start --project discord-music-bot"
+    ), stopped["later"]
 
 
 def test_just_code_refuses_a_stopped_vm(windows):

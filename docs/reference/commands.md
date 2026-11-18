@@ -75,6 +75,7 @@ environment where `python3` is not it.
 | &emsp;`--memory MEMORY` | Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting |
 | &emsp;`--disk DISK` | Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting |
 | &emsp;`--repos REPOS` | Only these of your GitHub repositories on each VM named, comma-separated, in place of the github_projects setting: kept for that VM, and added to by a later --repos |
+| &emsp;`--project PROJECT` | Open one project folder of the one VM in the editor rather than the whole projects directory, as just code --project does |
 | &emsp;`<name>` | The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config |
 | `just code <name>` | Open a VM in your editor, VS Code by default, with Claude on the VM and this machine's recent Claude sessions copied there |
 | &emsp;`--project PROJECT` | Open one project folder on the VM rather than the whole projects directory |
