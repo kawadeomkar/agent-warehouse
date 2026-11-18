@@ -17,9 +17,12 @@ import time
 from datetime import UTC, datetime
 
 from .. import route as routes
+from ..checks import proxmox_name
 from ..proxmox import (
     NO_TEMPLATE_RECORD,
     built_template,
+    pool_fix,
+    pool_outside,
     proxmox_notes_repos,
     proxmox_tags,
     scsi0_storage,
@@ -346,6 +349,8 @@ def status_fleet(
         },
         "aliases": aliases,
         "pending": bool(pending),
+        # The guests of the fleet that are no member of the project's pool, where one is set.
+        "pool_outside": pool_outside(entries, _pool(settings), owned, template_name),
     }
 
 
@@ -652,6 +657,7 @@ def _vm_items(vm, settings, live):
         return items
     if vm.get("unfinished"):
         add("todo", "its first deploy did not finish", f"just deploy {name}{on}")
+
     api = vm.get("api")
     # A VM of the inventory's, with discovery off, is never asked of Proxmox.
     if api is None and not live and vm.get("read") and not vm.get("inventory"):
@@ -996,6 +1002,44 @@ def _ssh_items(vm, settings, live, now):
     return items
 
 
+def _pool(settings):
+    """The project's pool, where the settings name one that is a pool's name; else ""."""
+    pool = str(settings.get("pool") or "")
+    return pool if proxmox_name(pool, "pool") else ""
+
+
+def _pool_items(fleet, settings):
+    """Each guest of the fleet that is no member of the project's pool, where one is set, with the line that makes it
+    one: a VM, which a token granted the role on the pool alone never sees, and the template and golden templates,
+    which it could not clone (docs/getting-started/proxmox-access.md)."""
+    pool = _pool(settings)
+    outside = fleet.get("pool_outside") or [] if pool else []
+    items = []
+    for guest in outside:
+        elsewhere = f" (it is in {guest['pool']})" if guest.get("pool") else ""
+        if guest["kind"] == "vm":
+            text = (
+                f"it is no member of pool {pool}{elsewhere}, so a token granted the role on the pool alone never"
+                " sees it"
+            )
+            items.append(_item("todo", guest["name"], text, pool_fix(pool, [guest])))
+        elif guest["kind"] == "template":
+            text = (
+                f"the template {guest['name']} is no member of pool {pool}{elsewhere}, so a token granted the role on"
+                " the pool alone could not clone it"
+            )
+            items.append(_item("todo", "template", text, pool_fix(pool, [guest])))
+    goldens = [guest for guest in outside if guest["kind"] == "golden"]
+    if goldens:
+        one = len(goldens) == 1
+        text = (
+            f"{plural(len(goldens), 'golden template')} {'is' if one else 'are'} no member of pool {pool}, so a token"
+            f" granted the role on the pool alone could not clone {'it' if one else 'them'}"
+        )
+        items.append(_item("todo", "template", text, pool_fix(pool, goldens)))
+    return items
+
+
 def _template_items(template, on=""):
     """The template, when the next just deploy rebuilds it: it differs from what its settings would build, and
     proxmox_template_rebuild leaves rebuilding on. Kept as it is, it is only said on its line."""
@@ -1154,6 +1198,7 @@ def status_report(found, read_at="", now=None, live=False):
         items += _ssh_items(vm, settings, live, now)
     items += _storage_items(fleet.get("storages") or [])
     items += _template_items(fleet.get("template") or {}, _host_flag(settings))
+    items += _pool_items(fleet, settings)
     # Two VMs of one name each say the same thing about it: once is enough.
     seen = set()
     items = [it for it in items if (key := (it["level"], it["vm"], it["text"])) not in seen and not seen.add(key)]

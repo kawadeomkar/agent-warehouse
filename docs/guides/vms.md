@@ -159,7 +159,8 @@ in as each value is read; piped, or in `just logs`, only the finished report app
   machine does not hold), then problems (two VMs of one name, a disk 90% full, Remote Control down,
   `tailscaled` not running), then things to do (settings in `local.yml` that differ from the VM, a change
   in Proxmox waiting for a restart, a first deploy that did not finish, a missing alias, a disk 80% full,
-  a reboot waiting, security upgrades, a sign-in to make - in the words `just login` uses).
+  a reboot waiting, security upgrades, a sign-in to make - in the words `just login` uses - and, with
+  `proxmox_pool`, a VM, the template or a golden template that is no member of the pool).
 
 A VM's name too long for its column is cut to fit, and ends in "…".
 

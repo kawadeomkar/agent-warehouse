@@ -41,6 +41,8 @@ DEFAULT = {
     "acls": [],
     "tokens": {},
     "pools": {},
+    # The guests on the host, as /cluster/resources lists them: {vmid, name, type, template, tags, pool}.
+    "guests": [],
     "fail": "",
 }
 
@@ -120,6 +122,11 @@ def _pvesh(state: dict, words: list[str]) -> tuple[int, object]:
         if parts[2] not in state["users"]:
             return _refuse(f"no such user ('{parts[2]}')"), None
         return 0, {"enable": 1, "expire": 0}
+    if parts == ["cluster", "resources"] and options.get("type") == "vm":
+        return 0, [
+            {"id": f"qemu/{g['vmid']}", "type": "qemu", "node": state["node"], "status": "stopped", **g}
+            for g in state.get("guests", [])
+        ]
     if parts == ["pools"]:
         return 0, [{"poolid": name, **pool} for name, pool in sorted(state.get("pools", {}).items())]
     if parts == ["access", "acl"]:
@@ -170,6 +177,23 @@ def _pveum(state: dict, words: list[str]) -> tuple[int, object]:
                 return _refuse(f"create pool failed: pool '{name}' already exists"), None
             state["pools"][name] = {"comment": options.get("comment", "")}
             return 0, None
+        case ["pool", "modify", name]:
+            # As pveum: --vms adds guests to the pool, refusing one that is in another without --allow-move.
+            if name not in state.setdefault("pools", {}):
+                return _refuse(f"pool '{name}' does not exist"), None
+            for vmid in [int(v) for v in options.get("vms", "").split(",") if v]:
+                guest = next((g for g in state.get("guests", []) if g["vmid"] == vmid), None)
+                if guest is None:
+                    return _refuse(f"no such VMID '{vmid}'"), None
+                if guest.get("pool") and guest["pool"] != name and options.get("allow-move") != "1":
+                    return _refuse(f"VM {vmid} belongs already to pool '{guest['pool']}'"), None
+                guest["pool"] = name
+            return 0, None
+        case ["acl", "delete", path]:
+            role, user = options["roles"], options["users"]
+            before = len(state["acls"])
+            state["acls"] = [a for a in state["acls"] if (a["path"], a["ugid"], a["roleid"]) != (path, user, role)]
+            return (0, None) if len(state["acls"]) < before else (_refuse("no such ACL"), None)
         case ["user", "add", user]:
             if user in state["users"]:
                 return _refuse(f"create user failed: user '{user}' already exists"), None

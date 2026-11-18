@@ -82,6 +82,9 @@ FLEET = {
         "template_rebuild": "{{ proxmox_template_rebuild | bool }}",
         "storage": "{{ proxmox_storage }}",
         "nic": "{{ proxmox_nic }}",
+        # The project's pool, where one is set: a guest of the fleet that is no member of it is said, with the line
+        # that makes it one.
+        "pool": "{{ proxmox_pool | default('', true) }}",
         # Whether Tailscale is the VPN (a promised key, from before the vpn setting), and the setting itself.
         "tailscale_enabled": "{{ tailscale_wanted | default(tailscale_enabled | default(false)) | bool }}",
         "vpn": "{{ claude_vpn_key | default('tailscale' if tailscale_enabled | default(false) | bool else 'none') }}",

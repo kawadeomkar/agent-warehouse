@@ -407,6 +407,38 @@ def built_template(vms, name):
     return {}
 
 
+def pool_outside(entries, pool, tags, template_name):
+    """The guests of the fleet among ``entries`` (the cluster listing's) that are no member of ``pool``, in its order:
+    each VM carrying one of ``tags`` as a whole tag, the template named ``template_name``, and each golden template
+    named for one of them, as {"kind": "vm" | "template" | "golden", "name", "id", "pool"}, "pool" being the one it is
+    in, "" for none. [] without a pool."""
+    if not pool:
+        return []
+    owned = {str(t).lower() for t in tags or []}
+    found = []
+    for entry in entries or []:
+        if not isinstance(entry, dict) or entry.get("type", "qemu") != "qemu" or entry.get("vmid") is None:
+            continue
+        name, member = str(entry.get("name") or ""), str(entry.get("pool") or "")
+        if member == pool:
+            continue
+        if entry.get("template"):
+            golden = any(name.startswith(f"{t}-golden-") for t in owned)
+            kind = "template" if name == template_name else "golden" if golden else ""
+        else:
+            kind = "vm" if owned & {t.lower() for t in proxmox_tags(entry.get("tags"))} else ""
+        if kind:
+            found.append({"kind": kind, "name": name, "id": entry["vmid"], "pool": member})
+    return found
+
+
+def pool_fix(pool, guests):
+    """The line that makes ``guests`` (pool_outside's) members of ``pool``, run as root on the host: with
+    --allow-move where one is in another pool, which pveum otherwise refuses."""
+    line = f"as root on the Proxmox host: pveum pool modify {pool} --vms {','.join(str(g['id']) for g in guests)}"
+    return line + (" --allow-move 1" if any(g.get("pool") for g in guests) else "")
+
+
 def proxmox_tags(tags):
     """A VM's tags, as a list: split on ";" or ",", each trimmed, an empty one left out, the case as given.
 

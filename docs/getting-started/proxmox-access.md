@@ -77,6 +77,7 @@ ssh root@<proxmox-host> sh -s < tools/proxmox-access.sh                # run it
 | `--bridge <name>` | The bridge the VMs are on, when it is not `vmbr0`. It must match `proxmox_bridge` |
 | `--user <user@realm>`, `--token <name>` | Another user or token name than `ansible@pve` and `ansible`, never `root@pam`; `just init`'s token question takes the same |
 | `--pool <name>` | Grant the role on this pool, made where missing, in place of `/vms`: [A pool of the project's own](#a-pool-of-the-projects-own). `just init` passes `proxmox_pool` as it |
+| `--move <tag,...>`, `--template <vmid>` | With `--pool`, make the fleet made before the pool its members - every VM carrying one of the tags, every golden template named `<tag>-golden-...`, the template (`9000` unless given) - and then take the role on `/vms` away, once none of it is left outside. `just init` passes the ownership tag, its 1.x name while it is the default, and `proxmox_template_vmid` |
 | `--dry-run` | Print the commands it would run, and run none |
 | `--list` | Print the node's storages for VM disks and its bridges |
 
@@ -125,10 +126,14 @@ it, so the golden is one too. The grants on the storage, the bridge and the node
 then checks the token's privileges on the pool, and says a template that is no member, with the line that makes
 it one.
 
-A fleet made before the pool keeps working while the token's user still holds the role on `/vms`, which the
-script leaves as it is and says. To finish the move, make each VM and the template a member, as root on the host,
-and only then take the grant on `/vms` away - before that, a token that holds the role on the pool alone sees
-neither, and `just deploy` would try to build the template again over the one there:
+A fleet made before the pool keeps working while the token's user still holds the role on `/vms`. `just init`, at
+a terminal with root SSH to the host, offers the move with the rest: the question shows the line that makes the
+fleet's guests members - each VM carrying the ownership tag, each golden template, the template - with each named
+after it, and the line that then takes the role on `/vms` away. On `y` it runs both. A guest of the fleet in another
+pool is left there and said, and so is the grant on `/vms`, which still reaches it. `just status` says each guest of
+the fleet that is no member, with the line that makes it one. By hand, in that order - before the grant goes, a
+token that holds the role on the pool alone sees neither, and `just deploy` would try to build the template again
+over the one there:
 
 ```bash
 pveum pool modify agent-warehouse --vms 9000,101,102     # the template's VMID and each VM's

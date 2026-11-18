@@ -389,6 +389,67 @@ def test_with_a_pool_a_grant_on_it_that_does_not_propagate_is_named_and_left(tmp
     assert ("/pool/agent-warehouse", "ansible@pve", "AnsibleVM", 0) in _acls(tmp_path)
 
 
+FLEET = [
+    {"vmid": 101, "name": "alpha", "template": 0, "tags": "agent-warehouse"},
+    {"vmid": 102, "name": "beta", "template": 0, "tags": "agent-warehouse;agent-warehouse-sized"},
+    {"vmid": 103, "name": "agent-warehouse-golden-1a2b", "template": 1},
+    {"vmid": 104, "name": "old", "template": 0, "tags": "claude-on-proxmox"},
+    {"vmid": 9000, "name": "ubuntu-24.04-cloudinit", "template": 1},
+    {"vmid": 300, "name": "talos-cp", "template": 0, "tags": "k8s;talos"},
+    {"vmid": 301, "name": "agent-warehouse-x", "template": 0, "tags": "agent-warehouse-tailscale"},
+]
+MOVE = ["--pool", "agent-warehouse", "--move", "agent-warehouse,claude-on-proxmox", "--no-token"]
+
+
+def test_with_move_the_fleet_made_before_the_pool_goes_in_by_name_and_then_the_grant_on_vms_goes(
+    tmp_path: Path,
+) -> None:
+    assert _access(tmp_path, state={"guests": FLEET}).returncode == 0
+    dry = _access(tmp_path, *MOVE, "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    lines = dry.stdout.splitlines()
+    # Each guest of the fleet is named: the tagged VMs, the 1.x tag's too, the golden and the template; never another
+    # tag that only starts as the tag does, nor a guest of another tag.
+    assert (
+        "pveum pool modify agent-warehouse --vms 101,102,103,104,9000   # alpha (101), beta (102),"
+        " agent-warehouse-golden-1a2b (103), old (104), ubuntu-24.04-cloudinit (9000)"
+    ) in lines
+    assert lines[-1] == "pveum acl delete /vms --users ansible@pve --roles AnsibleVM"
+    run = _access(tmp_path, *MOVE)
+    assert run.returncode == 0 and run.stdout == "", run.stderr
+    pools = {g["vmid"]: g.get("pool") for g in _pve_cli_state(tmp_path / "pve")["guests"]}
+    assert pools == {
+        101: "agent-warehouse",
+        102: "agent-warehouse",
+        103: "agent-warehouse",
+        104: "agent-warehouse",
+        9000: "agent-warehouse",
+        300: None,
+        301: None,
+    }
+    assert [acl[0] for acl in _acls(tmp_path)] == [
+        "/nodes/pve",
+        "/pool/agent-warehouse",
+        "/sdn/zones/localnetwork/vmbr0",
+        "/storage/local-lvm",
+    ]
+    # Again: nothing outside, nothing on /vms, nothing to do.
+    again = _access(tmp_path, *MOVE, "--dry-run")
+    assert again.returncode == 0 and again.stdout == "", again.stdout
+    assert "still holds" not in again.stderr
+
+
+def test_with_move_a_guest_in_another_pool_is_left_and_so_is_the_grant_on_vms(tmp_path: Path) -> None:
+    guests = [*FLEET[:2], {"vmid": 105, "name": "theirs", "template": 0, "tags": "agent-warehouse", "pool": "bob"}]
+    assert _access(tmp_path, state={"guests": guests}).returncode == 0
+    result = _access(tmp_path, *MOVE)
+    assert result.returncode == 0, result.stderr
+    assert "left where they are, in a pool of their own: theirs (105, in pool bob)" in result.stderr
+    assert ("/vms", "ansible@pve", "AnsibleVM", 1) in _acls(tmp_path)
+    pools = {g["vmid"]: g.get("pool") for g in _pve_cli_state(tmp_path / "pve")["guests"]}
+    assert pools == {101: "agent-warehouse", 102: "agent-warehouse", 105: "bob"}
+
+
 def test_a_privilege_the_role_lacked_is_granted_once_the_role_has_it(tmp_path: Path) -> None:
     # A role made without SDN.Use: given it first, then granted on the bridge - never said to be held there before.
     state = {"roles": {"AnsibleVM": [p for p in ROLE if p != "SDN.Use"]}}
@@ -463,6 +524,9 @@ def test_it_runs_only_where_pveum_is(tmp_path: Path) -> None:
         (["--pool", "-x"], "--pool starts with a letter or a digit"),
         (["--pool", "a pool"], "--pool may contain only"),
         (["--pool", "$(reboot)"], "--pool may contain only"),
+        (["--move", "agent-warehouse"], "give --pool too"),
+        (["--pool", "p", "--move", "a b"], "--move may contain only"),
+        (["--template", "90x"], "--template is a VMID"),
         (["--force"], "no option --force"),
     ],
 )
@@ -513,5 +577,6 @@ def test_its_stdout_is_data_and_its_talk_is_stderr() -> None:
         "for name in $storages; do printf 'storage %s\\n' \"$name\"; done",
         "for name in $bridges; do printf 'bridge %s\\n' \"$name\"; done",
         "printf '%s\\n' \"$*\"",
+        'printf \'%s   # %s\\n\' "$*" "$note"',
         "printf '%s\\n' \"$secret\"",
     ], to_stdout
