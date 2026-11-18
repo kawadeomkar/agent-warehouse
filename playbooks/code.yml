@@ -505,7 +505,10 @@
             code_reach: "{{ claude_vm_addressed[0] | ssh_hostname(claude_ssh_reach_domain) }}"
             code_status: "{{ claude_vm_addressed[0].status | default('unknown') }}"
 
-        # A stopped VM is refused even when its name still resolves. One line
+        # A stopped VM is refused even when its name still resolves, with the
+        # run that starts it, since just deploy alone leaves it stopped: its
+        # provision, which does nothing more to a VM already configured, and
+        # then this run again, its --project and --session kept. One line
         # of Jinja per line of text: a more-indented line in a folded scalar
         # keeps its line break.
         - name: Fail when the VM cannot be reached
@@ -515,7 +518,10 @@
               - code_reach | length > 0
             fail_msg: >-
               {{ claude_vm_names[0] }} is {{ code_status }}{{ ' and reported no address' if code_status == 'running' else '' }},
-              so there is nothing to connect to. `just status` shows the fleet; start the VM, or wait for its agent, and run this again.
+              so there is nothing to connect to.
+              {{ '`just deploy ' ~ claude_vm_names[0] ~ ' --only provision --start' ~ (claude_host_flag | default(''))
+              ~ '` starts it; then run this again.' if code_status == 'stopped'
+              else '`just status` shows the fleet; start the VM, or wait for its agent, and run this again.' }}
             quiet: true
 
         # The connection Ansible makes to configure the VM: its own ssh settings
