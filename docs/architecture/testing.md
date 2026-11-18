@@ -353,6 +353,11 @@ pytest over `tests/unit/`, file by file:
   `--version`, a folder an ssh:// URL cannot carry refused, the marked `.zed/tasks.json`, as `to_nice_json` writes
   it, written only where the window lists it and never over a file that is someone else's, and the editors list held
   to the task files and to `--editor`.
+- **The rest of Claude Code** (`test_claude_config.py`): the memory plan - by origin at both ends, a GitHub one only
+  on the VM, two folders here of one repository left, a name the writer would refuse never planned, the note and its
+  index line - the reader by names and digests alone, no link followed, a folder past its bound left whole, and the
+  writer's rule: written, left as the VM changed it, removed once gone here while still as written, never outside its
+  scopes or through a link, nothing of a file returned.
 - **The session handoff** (`test_session_handoff.py`): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their

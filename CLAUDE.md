@@ -514,8 +514,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
-- **`just code` writes in one directory of its own on the VM, the session copies and one fast-forward aside,
-  and never answers VS Code's, Zed's or Claude Code's security questions.** Read
+- **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
+  carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
   [§7.6](docs/architecture/custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)
   and [In the editor](docs/architecture/security-model.md#in-the-editor) first.
@@ -566,7 +566,18 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       folder name; the origin as configured, never as `url.<base>.insteadOf` rewrites it; on the VM only a
       GitHub one), under the folder names they have here. Each copy gets exactly four edits
       (`claude_sessions_copy`) and is replaced only while it matches the manifest's digest: a session continued
-      on the VM is never overwritten, nor one a claude on the VM has open, nor an ID in two folders here.
+      on the VM is never overwritten, nor one a claude on the VM has open, nor an ID in two folders here. Its
+      subagents' files go with it (`claude_sessions_sync_subagents`) by the same rule, and its tool results and
+      subagents take its file time (Claude Code sweeps them by their own age). The bound counts what the VM's
+      mirror lacks of each session, never its whole size.
+    - Beside the sessions it carries the rest of this machine's Claude Code, each part behind a setting of its own
+      and on by default (`tasks/claude_config_read.yml`, `claude_config_write.yml`): the auto memory of each
+      repository the VM has, matched by origin as the sessions are, into that checkout's memory folder there
+      (`claude_memory_sync`), with one generated note of fixed text and paths, `carried-by-just-code.md`. One
+      writer, `claude_config_carry`, writes it all under `~/.claude` on the VM, only under scopes of a form it
+      knows, never through a link, by the copy's rule under a manifest of its own in `claude-config/`: written
+      where there is none or still as written, left where the VM changed it, removed once gone here while still
+      as written. Nothing of a file's content reaches a message.
     - `--session <id>` resumes with `claude --resume <id>`, never a fork and never a fresh `claude` after a
       failed resume, and the VM checkout reaches the same commit by fast-forward only, never over a path git
       does not track there - the one write `just code` makes in a repository.
@@ -605,7 +616,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       sees.
 - **Tests never read or write the developer's `~/.claude`.** `just code` reads this machine's sessions
   and, in every scenario and harness, the "VM" is this machine too. Every run of `code.yml` points
-  `code_session_source_dir` and `code_session_dest_dir` into its own directory (`_window_extra` in
+  `code_session_source_dir` and `code_session_dest_dir` into its own directory - the carry beside the sessions
+  reads and writes through the same two - (`_window_extra` in
   `tests/unit/test_code_session.py`, `verify_code_vars` and every `deploy.yml` run in the `provision`
   scenario), destroy's save reads only stand-in homes and writes into the test's own directory
   (`_destroy_tail` in `tests/unit/test_release.py` pins `destroy_sessions_dir`), the VM's `claude` is a stand-in

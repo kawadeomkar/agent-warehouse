@@ -310,6 +310,12 @@ Copy each session's subagent transcripts with it, so a subagent it started can b
 |---|---|---|
 | `claude_sessions_sync_subagents` | `true` |  |
 
+Copy this machine's auto memory of each repository the VM has a checkout of - matched by git origin, as the sessions are - into that checkout's memory folder on the VM on every just code, whether or not the sessions go, with a note saying where this machine's paths are there. A note changed on the VM is never overwritten. false keeps the notes here.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_memory_sync` | `true` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |

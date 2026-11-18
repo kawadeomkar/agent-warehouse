@@ -47,6 +47,29 @@ def read_manifest(path, part="sessions"):
     return {str(key): str(value) for key, value in copies.items()} if isinstance(copies, dict) else {}
 
 
+def github_repo_paths(path):
+    """githubRepoPaths from the .claude.json Claude Code keeps in ``path``, or beside it in the home directory:
+    owner/repo to the local paths Claude Code has seen it in, and nothing else of that file. {} where neither holds
+    the key."""
+    for candidate in (
+        os.path.join(path, ".claude.json"),
+        os.path.join(os.path.dirname(path.rstrip("/")), ".claude.json"),
+    ):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                listed = json.load(handle).get("githubRepoPaths")
+        except (OSError, ValueError, AttributeError):
+            continue
+        # One without the key is not the one Claude Code keeps it in: the next is asked.
+        if isinstance(listed, dict):
+            return {
+                str(repo): [str(item) for item in paths if isinstance(item, str)]
+                for repo, paths in listed.items()
+                if isinstance(paths, list)
+            }
+    return {}
+
+
 def file_digest(path):
     """The SHA-256 of the file at ``path``, as the manifest records a copy's."""
     digest = hashlib.sha256()

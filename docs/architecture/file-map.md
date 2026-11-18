@@ -72,7 +72,9 @@ playbooks/
   library/                        just code's session handoff and destroy's save: claude_sessions_info, git_checkouts_info
                                   (reads, here and on the VM), claude_sessions_copy (the VM's copies, their four
                                   edits, the manifest) and claude_sessions_fetch (destroy's tar from the VM, unpacked
-                                  here as plain files and folders only)
+                                  here as plain files and folders only); and what just code carries beside the
+                                  sessions: claude_config_info (its reads here) and claude_config_carry (its one
+                                  writer on the VM, by the copy's rule under a manifest of its own)
   action_plugins/ask.py           just init's questions: pause's prompt, a yes or no's or a choice's answers carried
                                   for the menu the live engine asks it as (§7.8)
   action_plugins/vm_route.py      the route to the VMs settled, and the hop's own ssh run here under hard limits: the
@@ -121,6 +123,8 @@ playbooks/
                                   neither - then the shared connection made sure of (§4.15)
   tasks/session_read.yml          which of this machine's sessions go to which VM checkout; --session's checks
   tasks/session_write.yml         rsync to the VM's mirror, the copies, --session's checks after the fetch and fast-forward
+  tasks/claude_config_read.yml    what else of this machine's Claude Code goes to which VM checkout: auto memory, by origin
+  tasks/claude_config_write.yml   rsync to the VM's second mirror, then claude_config_carry's writes there
   tasks/session_save.yml          destroy's save of what of a VM's Claude sessions is only there, into .sessions/
   tasks/remote_tmp.yml            root's remote_tmp, made before a module makes it and warns (template, configure)
   tasks/init_ask.yml              one just init question: a value given, or asked, held to its kind, asked once more
@@ -179,6 +183,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   route.py, how this machine reaches a host's VMs: the rule, the hop through the
                                   Proxmox host's sshd, the proxy options a VM is given, the hop's own ssh under hard
                                   limits (§7.17);
+                                  claude_config.py, what just code carries of this machine's Claude Code beside the
+                                  sessions, decided from both ends' reads (§7.6);
                                   golden.py, a golden template's toolchain digest and key, and the walk of the files a
                                   role's image entry point reaches, which its static guard shares (§7.13)
                                   run/next_steps.py, NEXT STEPS from the reports' set_stats records, by VM and matter,
@@ -249,6 +255,9 @@ filter_plugins/route.py           the adapter of lib/claude_vm/route.py: vm_hop,
                                   host; ssh_jump and ssh_proxy_any, the proxy options among ssh arguments (§7.17)
 filter_plugins/openpgp.py         the adapter of lib/claude_vm/openpgp.py: openpgp_verified, a vendor's detached
                                   signature checked with a vendored key, here (§7.15)
+filter_plugins/claude_config.py   the adapter of lib/claude_vm/claude_config.py: claude_memory_plan, which memory folder
+                                  goes to which VM checkout; claude_config_paths, the checkouts here to ask git about;
+                                  claude_config_rsync, the files rsync sends (§7.6)
 filter_plugins/sessions.py        the adapter of lib/claude_vm/sessions.py: claude_sessions_plan, which session goes to
                                   which VM checkout by origin, owner/repo of a remote URL here and of a GitHub one on
                                   the VM;

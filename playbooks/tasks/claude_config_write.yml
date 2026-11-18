@@ -1,0 +1,62 @@
+---
+# The writes of what just code carries of this machine's Claude Code beside
+# the sessions, imported by code.yml's window step after the session copy
+# (tasks/session_write.yml) and before the workspace is written
+# (docs/architecture/lifecycle.md §4.9). claude_config_read.yml decided what
+# goes where (code_config_plan).
+#
+# rsync brings this machine's files into a mirror in just code's own
+# directory on the VM, at their paths under ~/.claude; claude_config_carry
+# then writes each where it goes under the VM's ~/.claude, by one rule: an
+# item is replaced only while it is what the last run wrote, so one changed on
+# the VM is never overwritten. Nothing is written on this machine. The write
+# is no_log, and rsync names files, never what is in them.
+
+# The VM user's alone, as what is in it is: 0700.
+- name: claude_config_write | Make the directory for what is carried on the VM
+  ansible.builtin.file:
+    path: "{{ code_config_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  when: code_config_on | bool
+
+# As the session copy's rsync: over the alias, never asking for anything, or to
+# a local path where Ansible reaches the VM locally. A file it could not send
+# is named by the write below, and the window opens all the same.
+- name: claude_config_write | Send this machine's files to the VM
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -az
+      - -r
+      - --files-from=-
+      - --itemize-changes
+      - -e
+      - ssh -o BatchMode=yes
+      - "{{ code_session_here }}/"
+      - "{{ code_config_mirror_target }}/"
+    stdin: "{{ code_config_plan | claude_config_rsync | join('\n') }}"
+  register: code_config_sent
+  # A file sent; a folder's time alone, which a session begun here changes, is no change there.
+  changed_when: code_config_sent.stdout_lines | default([]) | select('match', '^>f') | list | length > 0
+  failed_when: false
+  when: code_config_on | bool and code_config_plan | claude_config_rsync | length > 0
+
+# Run whenever a part is on, so that what left the plan is removed while it is
+# still as written, and leaves the mirror.
+- name: claude_config_write | Write what is carried on the VM
+  claude_config_carry:
+    dest: "{{ code_session_there }}"
+    mirror: "{{ code_config_dir }}/mirror"
+    manifest: "{{ code_config_dir }}/manifest.json"
+    scopes: "{{ code_config_plan.scopes }}"
+    files: "{{ code_config_plan.files }}"
+    generated: "{{ code_config_plan.generated }}"
+    appended: "{{ code_config_plan.appended }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_carried
+  no_log: true
+  # What fails is said, never the run's end: the window opens all the same.
+  failed_when: false
+  when: code_config_on | bool

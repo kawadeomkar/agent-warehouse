@@ -551,6 +551,34 @@ leaves `made_from` out, so each copy is read once more. The same record holds, b
 a session's `tool-results/` was made from, so one unchanged at both ends is not read again. Sessions that are no
 longer asked for leave the mirror. Check mode writes nothing.
 
+**`claude_config_info`** — what of a Claude Code configuration directory just code carries beside the
+sessions, by name, size and SHA-256, never what a file holds: with `memory`, each folder under `projects/` whose
+`memory/` holds a file, to its files - plain files only, never through a link, no name with a dot first or a control
+character, at most 4 folders deep, and a folder past 1000 files or 16 MB left whole and named in `memory_over`; with
+`repo_paths`, `githubRepoPaths`, read by the one function `claude_sessions_info` reads it by. Run here.
+
+**`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
+from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
+run's `scopes`, each of a form the module knows (a project's `memory/` folder), by the copy's rule under a manifest of
+its own (`claude-config/manifest.json`): written where there is none or where it is still what the last run wrote,
+left where it differs, and once it is no longer asked for under a scope of this run, removed while it is still as
+written. `appended` adds a line to a file as it is written, once. No link is followed on the way to a file or in its
+place; files are 0600 and folders made 0700, each file written through one beside it; the manifest is written after
+each, an item recorded only once it is written; an item whose write or removal fails is named in `not_written` and the rest
+go on, and the task never fails the run; a file planned that rsync did not bring is never removed; where the mirror or
+the manifest's folder is a link, nothing is read or written (`refused`). Check mode writes nothing, and nothing of a
+file is returned. Sources that are no longer asked for leave the mirror.
+
+**`lib/claude_vm/claude_config.py`** — the decision for both, pure as `sessions.py` is.
+**`claude_memory_plan(memory, here, there, here_dir, dest, note)`** pairs each repository the VM has a checkout of -
+by its GitHub origin there, of two the one named after it - with the memory folder here of the checkout here whose
+origin names it, Claude Code's folder for that checkout's top level, and of two such folders that hold notes neither
+(`ambiguous`); it returns the folders, the files with their paths in the mirror and under the VM's `~/.claude`, their
+scopes, and the note **`memory_note`** writes, where the other machine's checkout and memory folder are on the VM,
+with `NOTE_LINE` to append to `MEMORY.md`. The checkouts here are those **`claude_config_paths(repo_paths, there,
+more)`** names: the paths `githubRepoPaths` lists for the VM's repositories, then the copied sessions' first
+directories. **`claude_config_rsync(plan)`** is rsync's list.
+
 **`claude_sessions_fetch`** — run on the controller, for `just destroy`'s save: `tar -cf - -T -` on the
 VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, with `BatchMode`; none
 where the VM is this machine, as in the tests), the names on stdin each after `./`, so that none reads

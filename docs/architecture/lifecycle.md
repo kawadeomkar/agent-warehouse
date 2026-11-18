@@ -1134,6 +1134,16 @@ Claude Code's own Agent SDK documents. The rules:
   this machine's, so they would go first. They are compared by size and digest, so a time set there
   never reads as a change - or, while what a file was made from is what the manifest's `made_from` record holds, as
   for the copy itself, not read at all.
+- **Auto memory beside them** (`tasks/claude_config_read.yml`, `tasks/claude_config_write.yml`,
+  [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)). The
+  memory folder here of each repository the VM has a checkout of goes into that checkout's memory folder there - the
+  one the copies' recorded prompt is pointed at - whether or not the sessions go (`claude_memory_sync`), by the same
+  rule under a manifest of its own in `<workspaces>/claude-config/`, through a second rsync, from this machine's
+  Claude Code directory into a mirror beside it. Which folder here is a repository's is decided by git: the origin
+  and top level of each checkout `githubRepoPaths` names for the VM's repositories, and of each copied session's
+  first directory; two such folders that hold notes are both left. One generated note, `carried-by-just-code.md`,
+  indexed by a line appended to `MEMORY.md` as it is copied, says where this machine's checkout and memory folder
+  are on the VM.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

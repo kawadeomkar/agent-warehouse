@@ -442,6 +442,7 @@ claude_sessions_sync: "{{ vscode_claude_sessions }}"
 vscode_claude_sessions: true
 claude_sessions_sync_max_size: 256M
 claude_sessions_sync_subagents: true
+claude_memory_sync: true
 vscode_user_settings_file: ""
 
 # Nothing in ~/.ssh is edited but the managed file below, the VMs' known_hosts

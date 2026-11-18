@@ -650,6 +650,8 @@ LATER = " VS Code was not opened; to open it later: just code alpha"
 # The check of just code's own directory: absolute, not the projects directory, not the folder opened.
 WS_CHECK = "Refuse a directory for just code's files that is not absolute, is the projects directory, or is the folder"
 # Zed with the terminal and the sessions off, so the notes are all that goes into just code's own directory.
+# Every part of what is carried beside the sessions, off: then nothing of it goes into just code's own directory.
+CARRY_OFF = {"claude_memory_sync": False}
 NOTES_ONLY = {
     "keep": [WS_CHECK],
     "in_deploy": False,
@@ -1099,7 +1101,7 @@ WINDOWS = {
     "notes only, the VM's root": {**NOTES_ONLY, "code_ws_dir": "/"},
     "nothing written, not absolute": {
         **NOTES_ONLY,
-        "local": {"editor_claude_terminal": False, "editor_session_notes": False},
+        "local": {"editor_claude_terminal": False, "editor_session_notes": False, **CARRY_OFF},
         "code_ws_dir": "claude-files",
     },
     # The same through the editor's plan and the window: nothing goes into just code's own directory, so the plan
@@ -1110,7 +1112,7 @@ WINDOWS = {
         "zed_here": {"zed": "zed"},
         "vm_name": "alpha",
         "vm_editor": "zed",
-        "local": {"editor_claude_terminal": False, "editor_session_notes": False},
+        "local": {"editor_claude_terminal": False, "editor_session_notes": False, **CARRY_OFF},
         **OPENED,
         "code_ws_dir": "/",
     },
@@ -1984,16 +1986,16 @@ COMMANDS_HERE = {
     # Zed: its command as which found it, given the alias and the folder, and nothing else.
     ("which", "-a"),
     ("{{ code_zed_candidate }}", "--version"),
-    # The sessions, sent to the VM's mirror: read here, written there.
+    # The sessions and the rest of Claude Code, sent to the VM's mirrors: read here, written there.
     ("rsync", "-az"),
 }
 READS_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "ansible.builtin.find", "ansible.builtin.slurp"}
 # The session handoff's readers (playbooks/library/), run here and on the VM alike: they change nothing.
-READS_EITHER = {"claude_sessions_info", "git_checkouts_info"}
+READS_EITHER = {"claude_sessions_info", "git_checkouts_info", "claude_config_info"}
 # On the VM: whether Remote Control runs, with --session git in the one checkout it moves, and once, the move of just
 # code's directory from its 1.x name, which never replaces anything (-n).
 COMMANDS_ON_VM = {("systemctl", "is-active"), ("git", "--no-optional-locks"), ("mv", "-n")}
-WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy"}
+WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy", "claude_config_carry"}
 # What each writer runs under: VS Code's workspace and helpers with the terminal; just code's own directory
 # when anything goes into it; the notes with their own switch; the sessions' directory when there is a session to
 # copy, and the copies with the sync or --session; a listed task's shared helper where the task is written at all,
@@ -2003,6 +2005,8 @@ WRITERS_WHEN = (
     "code_notes | bool",
     "code_session_plan.sessions | default([]) | length > 0",
     "code_session_on | bool",
+    # The rest of this machine's Claude Code: its directory and its writes, while any part of it is on.
+    "code_config_on | bool",
     # The editor's plan: what it writes and which of the helpers it names.
     "code_plan.vm_writes | length > 0",
     "code_helper in code_plan.helpers",
@@ -2078,7 +2082,12 @@ def test_code_yml_imports_its_own_task_files_and_the_shared_ones_alone():
         for task in _tasks(_play()["tasks"])
         if "ansible.builtin.import_tasks" in task
     }
-    assert imported == SHARED | {"tasks/session_read.yml", "tasks/session_write.yml"} | set(EDITOR_FILES)
+    assert imported == SHARED | {
+        "tasks/session_read.yml",
+        "tasks/session_write.yml",
+        "tasks/claude_config_read.yml",
+        "tasks/claude_config_write.yml",
+    } | set(EDITOR_FILES)
 
 
 def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
@@ -2240,6 +2249,8 @@ def test_just_code_writes_exactly_the_directory_and_the_file():
         "Make just code's own directory on the VM",
         "session_write | Make the directory for the sessions on the VM",
         "session_write | Write the copies the VM resumes",
+        "claude_config_write | Make the directory for what is carried on the VM",
+        "claude_config_write | Write what is carried on the VM",
         "Make the directory for the session notes on the VM",
         "Write the session notes on the VM",
         "editor_open | Make just code's directories on the VM",
@@ -2959,6 +2970,8 @@ SESSION_KEEP = [
     "Look for just code's own directory on the VM",
     "Make just code's own directory on the VM",
     "Carry the sessions to the VM",
+    "Read what else of Claude Code to carry to the VM",
+    "Carry the rest of Claude Code to the VM",
     FIND,
     SAID,
 ]
@@ -3051,6 +3064,12 @@ def _world(root: Path) -> dict:
     (folder / SESSION_ID / "subagents").mkdir()
     (folder / SESSION_ID / "tool-results" / "toolu_1.txt").write_text(f"{MARKER}\n")
     (folder / SESSION_ID / "subagents" / "agent-1.jsonl").write_text("{}\n")
+    # Claude Code's record of where it has seen each repository, which the auto memory is found by.
+    (here / ".claude.json").write_text(json.dumps({"githubRepoPaths": {"octo/demo": [str(demo)]}}))
+    # The repository's auto memory: an index and a note, whose words no run may say.
+    (folder / "memory").mkdir()
+    (folder / "memory" / "MEMORY.md").write_text("- [Feedback](feedback.md) - how to work here\n")
+    (folder / "memory" / "feedback.md").write_text(f"{MARKER}\n")
     (folder / f"{SESSION_ID}.jsonl").write_bytes(_transcript(SESSION_ID, demo, here / ".claude", "feat/x"))
     (folder / f"{STUB_ID}.jsonl").write_bytes(
         _transcript(STUB_ID, demo, here / ".claude", "feat/x", conversation=False)
@@ -3113,7 +3132,12 @@ def _session_twice(root: Path) -> dict:
 
 def _off(root: Path) -> dict:
     world = _world(root)
-    return {"world": world, "off": _handoff(world, "off", sessions=False)}
+    return {"world": world, "off": _handoff(world, "off", sessions=False, **CARRY_OFF)}
+
+
+def _memory_alone(root: Path) -> dict:
+    world = _world(root)
+    return {"world": world, "run": _handoff(world, "memory", sessions=False)}
 
 
 def _bounded(root: Path, size: str) -> dict:
@@ -3299,6 +3323,7 @@ def _every_handoff(root: Path) -> dict:
             "sync": pool.submit(_sync_twice, root / "sync"),
             "session": pool.submit(_session_twice, root / "session"),
             "off": pool.submit(_off, root / "off"),
+            "memory alone": pool.submit(_memory_alone, root / "memory-alone"),
         }
         for name, (spoil, _) in REFUSALS.items():
             runs[name] = pool.submit(_refused, root / re.sub(r"\W+", "-", name), spoil)
@@ -3320,7 +3345,9 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     folder = world["folder"].name
     copies = world["vm"] / ".claude" / "projects"
     # The session of the VM's repository, under the folder it has here; not the other repository's, nor the stub.
-    assert sorted(path.name for path in copies.iterdir()) == [folder]
+    # Beside it, the memory folder of the VM's checkout, which the repository's auto memory went to.
+    vm_folder = re.sub(r"[^A-Za-z0-9]", "-", str(world["checkout"]))
+    assert sorted(path.name for path in copies.iterdir()) == sorted([folder, vm_folder])
     copied = copies / folder / f"{SESSION_ID}.jsonl"
     entries = [json.loads(line) for line in copied.read_text().splitlines()]
     vm_memory = f"{world['vm']}/.claude/projects/{re.sub(r'[^A-Za-z0-9]', '-', str(world['checkout']))}/memory/"
@@ -3341,10 +3368,39 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
         "1 of this machine's Claude Code sessions of the last 30 days, of octo/demo, is on alpha (1 copied now): in"
         " claude there, /resume and then Ctrl+A lists them. With them, 1 subagent file copied now"
         " (claude_sessions_sync_subagents: false keeps them here). claude_sessions_sync: false turns the copying off."
+        " The auto memory of octo/demo is in its folder on alpha (3 files written now). claude_memory_sync: false keeps"
+        " it here."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"
     assert run["shown"] == [str(world["vm"] / "projects"), ""]
+
+
+def test_the_repository_s_auto_memory_goes_to_the_vm_checkout_s_memory_folder_with_the_note(handoffs):
+    world = handoffs["sync"]["world"]
+    memory = world["vm"] / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(world["checkout"])) / "memory"
+    assert sorted(path.name for path in memory.iterdir()) == ["MEMORY.md", "carried-by-just-code.md", "feedback.md"]
+    assert (memory / "feedback.md").read_text() == f"{MARKER}\n"
+    index = (memory / "MEMORY.md").read_text().splitlines()
+    assert index[0] == "- [Feedback](feedback.md) - how to work here"
+    assert index[1].startswith("- [Carried by just code]")
+    note = (memory / "carried-by-just-code.md").read_text()
+    assert f"`{world['demo']}` is `{world['checkout']}` here." in note
+    assert stat.S_IMODE((memory / "feedback.md").stat().st_mode) == 0o600
+    assert stat.S_IMODE(memory.stat().st_mode) == 0o700
+    carried = world["vm"] / "projects" / ".agent-warehouse" / "claude-config"
+    assert stat.S_IMODE(carried.stat().st_mode) == 0o700 and (carried / "manifest.json").exists()
+    # The second run, nothing new here: nothing written (test_a_second_sync_of_unchanged_sessions_changes_nothing).
+    assert "(0 files written now)" in handoffs["sync"]["second"]["opened"]
+
+
+def test_the_auto_memory_goes_whether_or_not_the_sessions_do(handoffs):
+    world, run = handoffs["memory alone"]["world"], handoffs["memory alone"]["run"]
+    assert run["reached"] and run["rc"] == 0, run["output"]
+    projects = world["vm"] / ".claude" / "projects"
+    assert [path.name for path in projects.iterdir()] == [re.sub(r"[^A-Za-z0-9]", "-", str(world["checkout"]))]
+    assert not (world["vm"] / "projects" / ".agent-warehouse" / "claude-sessions").exists()
+    assert "The auto memory of octo/demo is in its folder on alpha" in run["opened"]
 
 
 def test_the_sync_says_how_many_sessions_and_how_much_before_it_sends(handoffs):

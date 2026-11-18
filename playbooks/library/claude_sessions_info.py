@@ -172,6 +172,7 @@ from ansible.module_utils.agent_warehouse import (
     SESSION_ID,
     file_digest,
     folders,
+    github_repo_paths,
     manifest_key,
     read_manifest,
     running_claude,
@@ -440,23 +441,7 @@ def tree_size(path):
 
 def repo_paths(path):
     """githubRepoPaths from the .claude.json Claude Code keeps in ``path``, or beside it in the home directory."""
-    for candidate in (
-        os.path.join(path, ".claude.json"),
-        os.path.join(os.path.dirname(path.rstrip("/")), ".claude.json"),
-    ):
-        try:
-            with open(candidate, encoding="utf-8") as handle:
-                listed = json.load(handle).get("githubRepoPaths")
-        except (OSError, ValueError, AttributeError):
-            continue
-        # One without the key is not the one Claude Code keeps it in: the next is asked.
-        if isinstance(listed, dict):
-            return {
-                str(repo): [str(item) for item in paths if isinstance(item, str)]
-                for repo, paths in listed.items()
-                if isinstance(paths, list)
-            }
-    return {}
+    return github_repo_paths(path)
 
 
 def claude_version(candidates):

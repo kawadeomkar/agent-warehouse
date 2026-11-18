@@ -386,6 +386,22 @@ first answer in a copied session reads the whole conversation again, uncached: t
 Anthropic's, not this machine's, but a copy's recorded system prompt names the VM's memory folder,
 which makes it another prompt, and a cache entry lasts only minutes after its last request anyway.
 
+### Auto memory
+
+Claude Code keeps notes of its own for each repository, its auto memory, in `~/.claude/projects/<folder>/memory/`,
+and loads `MEMORY.md` from there at the start of each conversation. `just code` copies this machine's into the memory
+folder of the VM's checkout of the same repository - matched by git origin, as the sessions are - whether or not the
+sessions go: a fresh conversation on the VM starts with the notes one here would, and a copied session's recorded
+prompt already names that folder. A repository whose notes are in two folders here, two clones each with notes of its
+own, is left out and named.
+
+A note is replaced only while it is what the last copy wrote, as a session's copy is: one a session on the VM added
+or changed stays as it is, and the run names it. `MEMORY.md` is one of them, so once a session on the VM adds a line to
+it, notes written here after that arrive unindexed until you merge the two. A note gone here is removed there while it
+is still as copied. Beside them goes one note of just code's own, `carried-by-just-code.md`, indexed by a line at the
+end of `MEMORY.md`: where this machine's checkout and memory folder are on the VM, since the notes and the copied
+sessions name this machine's paths. `claude_memory_sync: false` keeps the notes here.
+
 ### Continuing one session
 
 `just code alpha --session <id>` opens one session in the Claude terminal, in the window of

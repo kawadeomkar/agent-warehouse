@@ -115,10 +115,10 @@
     # Whether anything goes into just code's own directory on the VM: the
     # editor's files for the Claude terminal (VS Code's workspace file and
     # helpers, or the task file and the shared helper an editor lists), the
-    # notes, or session copies.
+    # notes, session copies, or the rest of Claude Code carried beside them.
     code_writes_its_directory: >-
       {{ (code_terminal and code_editor_claude == 'started') or code_claude_task_written | bool
-         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 }}
+         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 or code_config_on | bool }}
     # Whether this run moves just code's directory from its 1.x name: a real
     # directory there, and nothing yet at the new one, as both were before the
     # move - so every task of the move reads the same answer. Never in check
@@ -227,6 +227,18 @@
     # manifest of the copies written from it. A VM reached locally, as the
     # provision scenario reaches its stand-in, is a local path to rsync.
     code_session_dir: "{{ code_ws_dir }}/claude-sessions"
+    # What else of this machine's Claude Code goes to the VM (tasks/claude_config_read.yml,
+    # tasks/claude_config_write.yml): the auto memory of each repository the VM has (claude_memory_sync), whether or
+    # not the sessions go. Into a directory of its own beside the sessions', and from the same Claude Code directory.
+    code_config_memory: "{{ claude_memory_sync | default(true) | bool }}"
+    code_config_on: "{{ code_config_memory | bool }}"
+    code_config_dir: "{{ code_ws_dir }}/claude-config"
+    code_config_mirror_target: >-
+      {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
+          else claude_vm_names[0] ~ ':') ~ code_config_dir ~ '/mirror' }}
+    # The VM's checkouts, as the session handoff read them where it ran, else as the carry's own read did.
+    code_config_vm_checkouts: >-
+      {{ code_session_projects.checkouts if code_session_on | bool else code_config_projects.checkouts | default([]) }}
     # The same directory's mirror as the session handoff reads it, before the folder to open is settled: what an
     # earlier run sent, which the bound counts out.
     code_session_mirror_read: >-
@@ -340,6 +352,47 @@
             ~ ('transcript' if code_subagents_copied.refused == 1 else 'transcripts')
             ~ ' not copied: its recorded prompt names a memory folder in a form just code does not know.'
             if code_subagents_copied.refused | default(0) > 0 else '') }}
+    # What the carry did, by repository and count: names and paths of its own making, never what a file holds.
+    code_config_result: >-
+      {{ code_config_carried if code_config_carried is defined and code_config_carried is not skipped else {} }}
+    # A part's own paths among the writer's: the memory's are under projects/.
+    code_config_memory_written: "{{ code_config_result.written | default([]) | select('match', '^projects/') | list }}"
+    code_config_memory_left: "{{ code_config_result.left | default([]) | select('match', '^projects/') | list }}"
+    code_config_memory_removed: "{{ code_config_result.removed | default([]) | select('match', '^projects/') | list }}"
+    code_config_memory_said: >-
+      {{ '' if not (code_config_memory | bool) or code_config_plan is not defined
+         else ((('The auto memory of ' ~ code_config_plan.memory.folders | map(attribute='repository') | join(', ') ~ ' is in '
+                 ~ ('its folder' if code_config_plan.memory.folders | length == 1 else 'their folders') ~ ' on '
+                 ~ claude_vm_names[0] ~ ' (' ~ code_config_memory_written | length ~ ' '
+                 ~ ('file' if code_config_memory_written | length == 1 else 'files') ~ ' written now'
+                 ~ (', ' ~ code_config_memory_removed | length ~ ' removed, gone here'
+                    if code_config_memory_removed | length > 0 else '') ~ ').')
+                if code_config_plan.memory.folders | length > 0 else '')
+              ~ (' Left as ' ~ claude_vm_names[0] ~ ' changed them: '
+                 ~ code_config_memory_left | map('regex_replace', '^projects/[^/]+/memory/', '') | join(', ') ~ '.'
+                 if code_config_memory_left | length > 0 else '')
+              ~ (' Not copied, notes of one repository in more than one folder here: '
+                 ~ code_config_plan.memory.ambiguous | map(attribute='repository') | join(', ') ~ '.'
+                 if code_config_plan.memory.ambiguous | length > 0 else '')
+              ~ (" Not copied, a memory folder past just code's bound: "
+                 ~ code_config_here.memory_over | join(', ') ~ '.'
+                 if code_config_here.memory_over | default([]) | length > 0 else '')
+              ~ (' rsync could not send ' ~ code_config_result.unreadable | length ~ ' of the files'
+                 ~ (' (it exited ' ~ code_config_sent.rc | default('') ~ ')' if code_config_sent.rc | default(0) != 0 else '')
+                 ~ '.' if code_config_result.unreadable | default([]) | length > 0 else '')
+              ~ (' claude_memory_sync: false keeps it here.' if code_config_plan.memory.folders | length > 0 else ''))
+           | plain_text }}
+    code_config_failed_said: >-
+      {{ ((" " ~ claude_vm_names[0] ~ "'s ~/.claude could not take what just code carries there: "
+           ~ (code_config_carried.msg | default('', true) or code_config_carried.module_stderr | default('', true))
+           | one_line(none) ~ '.')
+          if code_config_carried is defined and code_config_carried is not skipped
+             and code_config_carried.written is not defined else '')
+         ~ (' Not written there, its write failed: ' ~ code_config_result.not_written | join(', ') ~ '.'
+            if code_config_result.not_written | default([]) | length > 0 else '')
+         ~ (" just code's own directory on " ~ claude_vm_names[0] ~ " holds a link where its copies go, so nothing"
+            ~ ' was carried there.' if code_config_result.refused | default(false) else '') }}
+    code_config_said: "{{ ([code_config_memory_said] | select | join(' ') ~ code_config_failed_said) | trim }}"
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-
       {{ code_session_id | length > 0
@@ -626,7 +679,8 @@
           ignore_unreachable: true
           when: >-
             vm_projects_dir | default('', true) | length == 0
-            or (code_session_on | bool and code_session_dest_dir | default('', true) | length == 0)
+            or ((code_session_on | bool or code_config_on | bool)
+                and code_session_dest_dir | default('', true) | length == 0)
 
         - name: Fail when SSH to the VM does not work
           vars:
@@ -652,6 +706,10 @@
         # with --session whether it can be opened there; read-only at both ends.
         - name: Read the sessions to carry to the VM
           ansible.builtin.import_tasks: tasks/session_read.yml
+
+        # And what else of this machine's Claude Code goes: read-only at both ends too.
+        - name: Read what else of Claude Code to carry to the VM
+          ansible.builtin.import_tasks: tasks/claude_config_read.yml
 
         # The workspace, or one project in it: --project's, or --session's
         # checkout, which session_read.yml found by its origin. The task's own
@@ -915,6 +973,9 @@
         # fast-forward.
         - name: Carry the sessions to the VM
           ansible.builtin.import_tasks: tasks/session_write.yml
+
+        - name: Carry the rest of Claude Code to the VM
+          ansible.builtin.import_tasks: tasks/claude_config_write.yml
 
         # The writes on the VM, as the VM user, last: every refusal above
         # leaves the VM as it was. An unchanged file is not rewritten, so a run
