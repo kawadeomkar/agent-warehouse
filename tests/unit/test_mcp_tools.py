@@ -220,3 +220,23 @@ def test_no_tool_s_run_names_where_just_was_started(dumped):
         argv = recipes.command(CONFIG, recipes.recipe_of(dumped, tool), tool, {})
         settings = [word for word in argv[: argv.index(recipes.recipe_of(dumped, tool)["name"])] if "=" in word]
         assert "STARTED_IN=" in settings, (tool, argv)
+
+
+def test_deploy_and_code_carry_from_the_session_s_folder_alone(tmp_path):
+    # Claude Code sets CLAUDE_PROJECT_DIR to the folder the session runs in, and a project's settings env cannot change
+    # it (2.1.311); the origin interlock then holds the carry to that repository.
+    folder = tmp_path / "my-app"
+    folder.mkdir()
+    environ = {"CLAUDE_PROJECT_DIR": str(folder)}
+    assert server.started_in("code", environ) == server.started_in("deploy", environ) == str(folder)
+    for tool in set(recipes.TOOLS) - set(server.SOURCE_TOOLS):
+        assert server.started_in(tool, environ) == "", tool
+    for given in ("", "relative/path", str(tmp_path / "gone"), f"{folder}\nSTARTED_IN=/etc", str(folder / "x\x1b")):
+        assert server.started_in("code", {"CLAUDE_PROJECT_DIR": given}) == "", given
+    assert server.started_in("code", {}) == ""
+    # Nor a folder whose path, or what it resolves to, opens a template, which Ansible would render.
+    for name in ("{{ 6 * 7 }}", "{% if 1 %}", "{# x #}"):
+        (tmp_path / name).mkdir()
+        assert server.started_in("code", {"CLAUDE_PROJECT_DIR": str(tmp_path / name)}) == "", name
+    (tmp_path / "plain-name").symlink_to(tmp_path / "{{ 6 * 7 }}")
+    assert server.started_in("code", {"CLAUDE_PROJECT_DIR": str(tmp_path / "plain-name")}) == ""

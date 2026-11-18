@@ -607,8 +607,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   [§7.18](docs/architecture/custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync) first.
     - The source is where just was started (`STARTED_IN`), handed to `code.yml` as `vm_repo_from` only with `--project`,
       never a path that opens a template (`{{`, `{%`, `{#`: Ansible renders an extra var);
-      `code.yml` never looks for one itself, the MCP server gives `STARTED_IN=`, and every test names a source of its own
-      or none (`_just`'s `STARTED_IN=`), its git with `GIT_CONFIG_GLOBAL=/dev/null`.
+      `code.yml` never looks for one itself, the MCP server gives `STARTED_IN=` but to `deploy` and `code`, whose is the
+      session's folder (`started_in`), and every test names a source of its own or none (`_just`'s `STARTED_IN=`), its
+      git with `GIT_CONFIG_GLOBAL=/dev/null`.
     - One repository by origin, never by folder name: here any origin, on the VM a GitHub one at the folder's top level.
     - Nothing is written on this machine. Its refs alone - each named in full, never a name or a line the VM supplied -
       go by `git send-pack` (never `git push`: no pre-push hook, no `pushInsteadOf`) into the VM checkout's
@@ -900,6 +901,9 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the job outlives the call, the server and the session; it runs only from `main` with no tracked change, unless
       `just mcp --any-branch`, and with `ATTENDED=1` exactly when the session is an interactive one here
       (`CLAUDE_CODE_ENTRYPOINT=cli`, not over SSH) or `--attended` says so.
+    - A run's `STARTED_IN` is empty but for `deploy` and `code`, whose is the session's folder, `CLAUDE_PROJECT_DIR`, while
+      it is an absolute path to a folder (`started_in`): a project's settings `env` cannot set it, and the repository
+      sync's origin interlock holds the carry to that repository.
     - A `deploy` that would create a VM needs its names (`deploy_refusal`): the default VM is the terminal's, never
       implied through an agent; with more than one host, its `host` too, the current host being the terminal's. No
       tool changes the current host (`hosts` lists them), and `destroy`'s code holds the host it deletes from.

@@ -366,6 +366,12 @@ and calls its commands. What that changes:
   does. A name is only compared with what GitHub lists for `github_username`, so an agent can bring no other owner's
   repository onto a VM, while changing the fleet's list is a `settings_set`, which asks twice. The list narrows what is
   cloned, not what the VM can reach: `gh` there holds the same login as on any other VM.
+- **What an agent can have carried.** A `deploy` or `code` call with `project` carries the repository the session
+  works in to the VM's checkout of it, as `just code --project` started there would ([§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync)):
+  the server hands the run `STARTED_IN` from `CLAUDE_PROJECT_DIR`, which Claude Code sets to the folder the session
+  runs in and a project's `.claude/settings.json` `env` cannot change (checked on 2.1.311, where that `env` reached the
+  server and `CLAUDE_PROJECT_DIR` stayed Claude Code's), and the origin interlock holds it to that repository. Every
+  other tool's run, and a call from a session whose folder is gone, has none.
 - **No secret passes through the model.** No tool takes or returns one: there is no tool for the vault, `settings`
   says a secret set or not set, and `status` carries no token by its invariant.
 - **Stdio only.** One server per session, which Claude Code starts and stops; no socket another process or a web page
