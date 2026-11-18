@@ -217,6 +217,8 @@
     # empty value or false for no bound, and session_read.yml refuses one that
     # is no size): the newest sessions first, --session's own always.
     code_session_cap: "{{ claude_sessions_sync_max_size | default('256M') | claude_sessions_cap }}"
+    # Each session's subagents go with it, and count toward the bound (claude_sessions_sync_subagents).
+    code_session_subagents: "{{ claude_sessions_sync_subagents | default(true) | bool }}"
     code_session_here: >-
       {{ code_session_source_dir | default('', true)
          or lookup('ansible.builtin.env', 'CLAUDE_CONFIG_DIR') or code_here_home ~ '/.claude' }}
@@ -316,7 +318,23 @@
                  ~ code_session_sent.rc | default('') ~ (': ' ~ code_sync_why if code_sync_why else '')
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
                  ~ code_sync_hop_key if code_sync_failed | bool else '')
+              ~ code_subagents_said
               ~ ' claude_sessions_sync: false turns the copying off.' }}
+    # The copied sessions' subagents: their files, by count.
+    code_subagents_copied: "{{ code_session_copied.subagents | default({}) }}"
+    code_subagents_said: >-
+      {{ (' With them, ' ~ code_subagents_copied.written ~ ' subagent '
+          ~ ('file' if code_subagents_copied.written == 1 else 'files') ~ ' copied now'
+          ~ ' (claude_sessions_sync_subagents: false keeps them here).'
+          if code_subagents_copied.written | default(0) > 0 else '')
+         ~ (' ' ~ code_subagents_copied.left ~ ' subagent '
+            ~ ('file' if code_subagents_copied.left == 1 else 'files') ~ ' left as '
+            ~ claude_vm_names[0] ~ ' changed them, a subagent continued there.'
+            if code_subagents_copied.left | default(0) > 0 else '')
+         ~ (' ' ~ code_subagents_copied.refused ~ ' subagent '
+            ~ ('transcript' if code_subagents_copied.refused == 1 else 'transcripts')
+            ~ ' not copied: its recorded prompt names a memory folder in a form just code does not know.'
+            if code_subagents_copied.refused | default(0) > 0 else '') }}
     # --session: whether the VM's checkout was moved to the commit it is at here.
     code_session_moved: >-
       {{ code_session_id | length > 0

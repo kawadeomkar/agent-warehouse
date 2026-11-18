@@ -104,6 +104,7 @@ ALLOWED = {
     "destroy_save_sessions": "whether a destroy saves the VM's sessions first",
     "claude_sessions_sync": "whether just code copies this machine's sessions",
     "claude_sessions_sync_max_size": "how much of this machine's sessions just code copies",
+    "claude_sessions_sync_subagents": "whether just code copies the sessions' subagents",
     # The sign-ins' timing and starts.
     "claude_code_login_approval_timeout": "how long a sign-in waits",
     "github_login_auto_start": "whether GitHub's sign-in starts by itself",

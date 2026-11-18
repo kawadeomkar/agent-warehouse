@@ -304,6 +304,12 @@ The most one copy of those sessions sends, a size as vm_disk_size is written (25
 |---|---|---|
 | `claude_sessions_sync_max_size` | `256M` |  |
 
+Copy each session's subagent transcripts with it, so a subagent it started can be read, and continued, on the VM. They count toward the bound above, and a long session's subagents can hold more than its own transcript.
+
+| Setting | Default | Notes |
+|---|---|---|
+| `claude_sessions_sync_subagents` | `true` |  |
+
 The VS Code settings read (never written) to say whether the terminal starts on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it for Insiders, VSCodium, or a VS Code on Windows driven from WSL.
 
 | Setting | Default | Notes |

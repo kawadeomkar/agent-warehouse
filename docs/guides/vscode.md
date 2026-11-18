@@ -327,8 +327,8 @@ never picks a copy up: `--continue` looks only at the folder's own conversations
 under the folder name it has here (`-Users-you-homeserver`), not the checkout's.
 
 One copy sends at most `claude_sessions_sync_max_size` (256M by default; `1G`, or `0` for no bound): the
-newest sessions first, each with its tool results while it fits, and the rest stay here, their number
-said. Before it sends, the run says how many sessions and how much, since the copy shows nothing while
+newest sessions first, each with its tool results and subagents while it fits, and the rest stay here, their
+number said. Before it sends, the run says how many sessions and how much, since the copy shows nothing while
 it runs: the first is the whole of each, a later one what changed, and over a slow link to the VM even
 the bound takes minutes.
 
@@ -356,9 +356,14 @@ a session bound to a Claude worktree goes on in the main checkout; and a last en
 the assistant said, signed thinking included, stays as it was. [§4.9](../architecture/lifecycle.md#49-playbookscodeyml)
 says why each.
 
-Never copied: subagent transcripts (resume does not need them, and they are much of the bytes, but a
-subagent of the session cannot be looked into or resumed on the VM),
-credentials, the list of running sessions, shell snapshots, the file history - so `/rewind` on the VM
+With each session go its subagents' transcripts (`claude_sessions_sync_subagents`, on by default), so a
+subagent it started can be looked into on the VM, and continued there once the session is resumed: Claude
+continues one by its ID. They count toward the bound, and a long session's subagents can hold more than its
+own transcript; `false` keeps them here. A subagent's transcript gets the memory folder's edit its session's
+does, and one continued on the VM is never overwritten. A subagent that worked in a folder only this machine
+has, such as a worktree in a session's scratchpad, finds no such folder there.
+
+Never copied: credentials, the list of running sessions, shell snapshots, the file history - so `/rewind` on the VM
 rewinds the conversation but restores no file edited before the handoff - and `~/.claude.json`.
 `just code` copies nothing back from the VM and writes nothing on this machine; what the VM has of its
 own, `just destroy` saves here before it deletes the VM

@@ -1083,8 +1083,8 @@ Claude Code's own Agent SDK documents. The rules:
   the VM, and one a `claude` on the VM has open (its `sessions/` registry there, `registered`),
   whose copy is never replaced under the claude holding it.
 - **Bounded, and said before it is sent.** One copy sends at most `claude_sessions_sync_max_size` (256M)
-  of transcripts and their tool results, sizes `claude_sessions_info` reads here without following a
-  link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
+  of transcripts, their tool results and, with `claude_sessions_sync_subagents` (on by default), their
+  subagents' transcripts, sizes `claude_sessions_info` reads here without following a link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
   here and counted in the run's line (`over`). A bound that is no size is refused before anything is
   read; 0 is none. rsync shows nothing while it sends, and a first copy over a slow link took minutes
   live, so the run says how many and how much just before it starts.
@@ -1107,8 +1107,12 @@ Claude Code's own Agent SDK documents. The rules:
   among them the records Claude Code keeps since 2.1.300 of each request it sent
   (`api-request-shape`, `api-request-blob`), which still name this machine's memory folder: a resume
   sends the recorded prompt, never them, as the `configure` scenario holds against the real `claude`.
+  A subagent's transcript, copied with its session, gets the first two edits and neither appended entry,
+  which are its session's; its other files go as they are. Claude Code resumes a subagent of a resumed
+  session by its ID from `<id>/subagents/agent-<agent id>.jsonl`, which is why they come along.
 - **Replace only what the last run wrote.** The manifest in `<workspaces>/claude-sessions/` holds the
-  digest of each copy written. A copy that still matches is replaced; one that differs was continued
+  digest of each copy written, and of each subagent file written with it (its `subagents` record), each
+  replaced under the same rule: a subagent continued on the VM is left. A copy that still matches is replaced; one that differs was continued
   on the VM, or was never this project's, and is left alone and named - as continued when nothing new
   came from here, as changed on both otherwise. The appended entries rule a byte-prefix check out. A
   copy that is gone while its ID is in another folder of the VM's moved there - `/cd` in a resumed

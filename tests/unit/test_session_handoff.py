@@ -286,6 +286,27 @@ def test_the_session_asked_for_is_sent_whatever_the_bound_and_counts_first():
     assert plan["bytes"] == 500 and plan["over_bytes"] == 100
 
 
+def test_a_session_s_subagents_go_with_it_and_count_toward_the_bound_while_they_are_copied():
+    sessions = [
+        _session(ID, mtime=300.0, size=100, subagents=True, subagents_size=500),
+        _session(OTHER, mtime=200.0, size=100, subagents=False, subagents_size=0),
+    ]
+    plan = _plan(sessions, HERE_DEMO)
+    assert plan["files"] == [
+        f"-Users-me-demo/{ID}.jsonl",
+        f"-Users-me-demo/{ID}/subagents",
+        f"-Users-me-demo/{OTHER}.jsonl",
+    ]
+    assert plan["bytes"] == 700
+    # Its subagents' bytes are its own: with them the newest takes 600 of 650, and the older one stays here.
+    bounded = _plan(sessions, HERE_DEMO, cap=650)
+    assert bounded["bytes"] == 600 and bounded["over"] == [OTHER] and bounded["over_bytes"] == 100
+    # Without them: neither sent nor counted.
+    without = _plan(sessions, HERE_DEMO, cap=650, subagents=False)
+    assert without["files"] == [f"-Users-me-demo/{ID}.jsonl", f"-Users-me-demo/{OTHER}.jsonl"]
+    assert without["bytes"] == 200 and without["over"] == []
+
+
 @pytest.mark.parametrize(("size", "cap"), [("256M", 256 * 1024**2), ("1G", 1024**3), ("2", 2 * 1024**3), ("0", 0)])
 def test_the_bound_is_a_size_as_the_settings_write_one(size, cap):
     assert filters.claude_sessions_cap(size) == cap
@@ -448,6 +469,8 @@ def test_a_transcript_is_summarized_and_nothing_it_says_is_kept(tmp_path):
             "open": 0,
             "tools": True,
             "size": len(data),
+            "subagents": False,
+            "subagents_size": 0,
             "dir": True,
             "recorded": False,
             "copied": False,
@@ -473,6 +496,20 @@ def test_a_session_s_size_is_its_transcript_and_tool_results_and_follows_no_link
     (results / "folder-link").symlink_to(tmp_path, target_is_directory=True)
     (found,) = info.list_sessions(str(root), 30, [])
     assert found["size"] == len(data) + 1024
+
+
+def test_a_session_s_subagents_are_found_and_sized_and_a_link_to_a_folder_is_none(tmp_path):
+    root = _claude_dir(tmp_path, {("-Users-me-demo", ID): transcript(), ("-Users-me-demo", OTHER): transcript(OTHER)})
+    agents = root / "projects" / "-Users-me-demo" / ID / "subagents"
+    agents.mkdir(parents=True)
+    (agents / "agent-a1.jsonl").write_bytes(b"x" * 300)
+    (agents / "agent-a1.meta.json").write_bytes(b"{}" * 10)
+    (root / "projects" / "-Users-me-demo" / OTHER).mkdir()
+    (root / "projects" / "-Users-me-demo" / OTHER / "subagents").symlink_to(agents, target_is_directory=True)
+    found = {item["id"]: item for item in info.list_sessions(str(root), 30, [])}
+    assert found[ID]["subagents"] is True and found[ID]["subagents_size"] == 320
+    assert found[ID]["size"] == len(transcript())
+    assert found[OTHER]["subagents"] is False and found[OTHER]["subagents_size"] == 0
 
 
 def test_the_newest_version_is_kept_whatever_its_place(tmp_path):
@@ -1216,7 +1253,7 @@ def _mirror(tmp_path, sessions):
     return mirror, then
 
 
-def _copy(tmp_path, mirror, sessions, check=False):
+def _copy(tmp_path, mirror, sessions, check=False, subagents=False):
     return copy.copy_sessions(
         str(mirror),
         str(tmp_path / "vm" / ".claude"),
@@ -1224,6 +1261,7 @@ def _copy(tmp_path, mirror, sessions, check=False):
         [{"id": sid, "folder": folder, "checkout": CHECKOUT, "memory": VM_MEMORY} for folder, sid in sessions],
         here=HERE,
         check=check,
+        subagents=subagents,
     )
 
 
@@ -1360,7 +1398,11 @@ def test_a_manifest_an_earlier_version_wrote_reads_each_copy_once_more(tmp_path,
 
 # The source of what makes a copy's bytes from a transcript's, for each EDITS: a change to any of it must raise
 # claude_sessions_copy's EDITS, or a copy an earlier version wrote would be skipped as unchanged, never edited again.
-EDITS_SOURCE = {1: "2615ac647ce6d5489278686ab679d8702fff33e06f23a5f7663831145d95ba54"}
+EDITS_SOURCE = {
+    1: "2615ac647ce6d5489278686ab679d8702fff33e06f23a5f7663831145d95ba54",
+    # A subagent's transcript, edited as its session's but never given the session's own two entries (own=False).
+    2: "fd85547a80da162f66910905add1d1128bc10e64a4041e9ab7b9abfde8957c78",
+}
 
 
 def test_the_edits_version_is_raised_with_the_edits():
@@ -1538,6 +1580,118 @@ def test_a_tool_result_is_told_by_its_bytes_never_by_its_time(tmp_path):
     _, changed = _copy(tmp_path, mirror, [key])
     assert changed and int(saved.stat().st_mtime) == int(then)
     assert not _copy(tmp_path, mirror, [key])[1]
+
+
+AGENT = "agent-a9f3c2e1b0d4"
+
+
+def _with_subagent(mirror, key, data=None):
+    """The session's subagents/ in the mirror: one subagent's transcript, as Claude Code writes one, and its meta."""
+    agents = mirror / key[0] / key[1] / "subagents"
+    (agents / "agent-1.jsonl").unlink()
+    (agents / f"{AGENT}.jsonl").write_bytes(transcript() if data is None else data)
+    (agents / f"{AGENT}.meta.json").write_text('{"agentType":"general-purpose"}\n')
+    return agents
+
+
+def test_a_session_s_subagents_go_with_its_copy_with_the_memory_edit_and_none_of_its_entries(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, then = _mirror(tmp_path, {key: transcript()})
+    _with_subagent(mirror, key, transcript(partial=True))
+    result, changed = _copy(tmp_path, mirror, [key], subagents=True)
+    assert changed and result["subagents"] == {"written": 2, "left": 0, "refused": 0}
+    agents = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "subagents"
+    copied = agents / f"{AGENT}.jsonl"
+    # Its complete lines, its prompt pointed at the VM's memory folder, and no relocated or worktree entry.
+    edited, _ = copy.edit_transcript(transcript(), ID, CHECKOUT, VM_MEMORY, HERE, own=False)
+    assert copied.read_bytes() == edited and MAC_MEMORY.encode() not in edited
+    assert [entry["type"] for entry in lines(edited)] == [entry["type"] for entry in lines(transcript())]
+    assert (agents / f"{AGENT}.meta.json").read_text() == '{"agentType":"general-purpose"}\n'
+    assert int(copied.stat().st_mtime) == int(then) and stat.S_IMODE(copied.stat().st_mode) == 0o600
+    recorded = json.loads((tmp_path / "ws" / "manifest.json").read_text())["subagents"]
+    assert sorted(recorded) == [f"{key[0]}/{ID}/subagents/{AGENT}.jsonl", f"{key[0]}/{ID}/subagents/{AGENT}.meta.json"]
+    # The sessions record is what it was: a reader of it alone sees only sessions.
+    assert copy.read_manifest(str(tmp_path / "ws" / "manifest.json")) == {
+        f"{key[0]}/{ID}.jsonl": copy.file_digest(str(tmp_path / "vm" / ".claude" / "projects" / key[0] / f"{ID}.jsonl"))
+    }
+    again, changed = _copy(tmp_path, mirror, [key], subagents=True)
+    assert not changed and again["subagents"] == {"written": 0, "left": 0, "refused": 0}
+
+
+def test_without_subagents_none_is_copied(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _with_subagent(mirror, key)
+    result, _ = _copy(tmp_path, mirror, [key])
+    assert result["subagents"] == {"written": 0, "left": 0, "refused": 0}
+    assert not (tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "subagents").exists()
+
+
+def test_a_subagent_continued_on_the_vm_is_left_and_one_still_as_written_is_replaced(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    source = _with_subagent(mirror, key)
+    _copy(tmp_path, mirror, [key], subagents=True)
+    copied = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "subagents" / f"{AGENT}.jsonl"
+    # It grew here: still as written there, so replaced.
+    (source / f"{AGENT}.jsonl").write_bytes(transcript() + transcript())
+    result, changed = _copy(tmp_path, mirror, [key], subagents=True)
+    assert changed and result["subagents"]["written"] == 1 and copied.read_bytes().count(b"prompt_snapshot") == 2
+    # Continued on the VM, by SendMessage after a resume: left, and counted.
+    continued = copied.read_bytes() + b'{"type":"user","message":{"content":"on the VM"}}\n'
+    copied.write_bytes(continued)
+    (source / f"{AGENT}.jsonl").write_bytes(transcript() * 3)
+    result, _ = _copy(tmp_path, mirror, [key], subagents=True)
+    assert result["subagents"] == {"written": 0, "left": 1, "refused": 0} and copied.read_bytes() == continued
+
+
+def test_a_subagent_naming_its_memory_folder_in_a_form_just_code_does_not_know_is_not_copied(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _with_subagent(mirror, key, transcript().replace(b"persistent file-based memory at", b"memory, kept at"))
+    result, _ = _copy(tmp_path, mirror, [key], subagents=True)
+    assert result["subagents"] == {"written": 1, "left": 0, "refused": 1}
+    agents = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "subagents"
+    assert not (agents / f"{AGENT}.jsonl").exists() and (agents / f"{AGENT}.meta.json").exists()
+
+
+def test_a_subagent_link_in_the_mirror_or_in_its_place_there_is_never_followed(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    source = _with_subagent(mirror, key)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not a subagent's\n")
+    (source / "agent-link.jsonl").symlink_to(outside)
+    agents = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "subagents"
+    agents.mkdir(parents=True)
+    (agents / f"{AGENT}.meta.json").symlink_to(outside)
+    result, _ = _copy(tmp_path, mirror, [key], subagents=True)
+    assert result["subagents"] == {"written": 1, "left": 1, "refused": 0}
+    assert not (agents / "agent-link.jsonl").exists() and outside.read_text() == "not a subagent's\n"
+
+
+def test_a_session_moved_here_takes_its_subagents_along_and_leaves_none_behind(tmp_path):
+    old, new = ("-Users-me-demo", ID), ("-Users-me-demo-src", ID)
+    mirror, _ = _mirror(tmp_path, {old: transcript()})
+    _with_subagent(mirror, old)
+    _copy(tmp_path, mirror, [old], subagents=True)
+    os.renames(mirror / old[0] / f"{ID}.jsonl", mirror / new[0] / f"{ID}.jsonl")
+    os.renames(mirror / old[0] / ID, mirror / new[0] / ID)
+    result, _ = _copy(tmp_path, mirror, [new], subagents=True)
+    projects = tmp_path / "vm" / ".claude" / "projects"
+    assert result["written"] == [ID] and not (projects / old[0]).exists()
+    assert (projects / new[0] / ID / "subagents" / f"{AGENT}.jsonl").exists()
+    recorded = json.loads((tmp_path / "ws" / "manifest.json").read_text())["subagents"]
+    assert sorted(recorded) == [f"{new[0]}/{ID}/subagents/{AGENT}.jsonl", f"{new[0]}/{ID}/subagents/{AGENT}.meta.json"]
+
+
+def test_check_mode_writes_no_subagent_either(tmp_path):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _with_subagent(mirror, key)
+    result, changed = _copy(tmp_path, mirror, [key], check=True, subagents=True)
+    assert changed and result["subagents"]["written"] == 2
+    assert not (tmp_path / "vm").exists() and not (tmp_path / "ws").exists()
 
 
 def test_check_mode_writes_nothing(tmp_path):

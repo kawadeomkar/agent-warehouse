@@ -32,14 +32,18 @@ def manifest_key(folder, session):
     return f"{folder}/{session}.jsonl"
 
 
-def read_manifest(path):
-    """The copies just code recorded in ``path``: ``<folder>/<id>.jsonl`` to the digest it wrote, or {}."""
+def read_manifest(path, part="sessions"):
+    """The copies just code recorded in ``path``, or {}: by default ``<folder>/<id>.jsonl`` to the digest it wrote.
+
+    ``part`` names another record of the same file: ``subagents``, ``<folder>/<id>/subagents/<name>`` to the
+    digest of each subagent file written with its session. A reader that knows only ``sessions`` ignores it.
+    """
     try:
         with open(path, encoding="utf-8") as handle:
             found = json.load(handle)
     except (OSError, ValueError):
         return {}
-    copies = found.get("sessions") if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
+    copies = found.get(part) if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
     return {str(key): str(value) for key, value in copies.items()} if isinstance(copies, dict) else {}
 
 

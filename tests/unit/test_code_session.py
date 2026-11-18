@@ -3330,13 +3330,17 @@ def test_the_sync_copies_the_vm_s_repositories_sessions_with_their_edits(handoff
     vm_results = copies / folder / SESSION_ID / "tool-results"
     assert entries[2]["message"]["content"][0]["content"] == f"Saved to {vm_results}/toolu_1.txt"
     assert (vm_results / "toolu_1.txt").exists()
-    assert sorted(path.name for path in (copies / folder / SESSION_ID).iterdir()) == ["tool-results"]
+    # Its subagents come along (claude_sessions_sync_subagents, on by default), at the transcript's time.
+    assert sorted(path.name for path in (copies / folder / SESSION_ID).iterdir()) == ["subagents", "tool-results"]
+    agent = copies / folder / SESSION_ID / "subagents" / "agent-1.jsonl"
+    assert agent.read_text() == "{}\n" and int(agent.stat().st_mtime) == int(copied.stat().st_mtime)
     assert int(copied.stat().st_mtime) == int((world["folder"] / f"{SESSION_ID}.jsonl").stat().st_mtime)
     assert stat.S_IMODE(copied.stat().st_mode) == 0o600
     assert stat.S_IMODE((world["vm"] / "projects" / ".agent-warehouse" / "claude-sessions").stat().st_mode) == 0o700
     assert run["opened"].endswith(
         "1 of this machine's Claude Code sessions of the last 30 days, of octo/demo, is on alpha (1 copied now): in"
-        " claude there, /resume and then Ctrl+A lists them. claude_sessions_sync: false turns the copying off."
+        " claude there, /resume and then Ctrl+A lists them. With them, 1 subagent file copied now"
+        " (claude_sessions_sync_subagents: false keeps them here). claude_sessions_sync: false turns the copying off."
     )
     # The default sync changes no git state, and opens the whole directory.
     assert _git(world["checkout"], "symbolic-ref", "--short", "HEAD") == "main"

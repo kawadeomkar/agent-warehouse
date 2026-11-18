@@ -215,6 +215,10 @@
 # tool results while it fits, and the rest said and left here. 0 for no bound.
 # A first copy sends each whole, a later one what changed.
 # claude_sessions_sync_max_size: 256M
+# Copy each session's subagent transcripts with it, so a subagent it started
+# can be read, and continued, on the VM. They count toward the bound above,
+# and a long session's subagents can hold more than its own transcript.
+# claude_sessions_sync_subagents: true
 # The VS Code settings read (never written) to say whether the terminal starts
 # on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it
 # for Insiders, VSCodium, or a VS Code on Windows driven from WSL.

@@ -4,7 +4,7 @@
 # (docs/architecture/lifecycle.md §4.9), so a run that stops leaves the VM as
 # it was. session_read.yml decided what goes where (code_session_plan).
 #
-# rsync brings this machine's transcripts and their tool-results/ into a
+# rsync brings this machine's transcripts, their tool-results/ and subagents/ into a
 # mirror in just code's own directory on the VM, appended bytes only after
 # the first time; claude_sessions_copy then writes the copies Claude Code
 # resumes, under ~/.claude/projects/ in the folders they have here, each with
@@ -72,6 +72,7 @@
     manifest: "{{ code_session_dir }}/manifest.json"
     here: "{{ code_session_here }}"
     sessions: "{{ code_session_plan.sessions }}"
+    subagents: "{{ code_session_subagents | bool }}"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_session_copied
   no_log: true

@@ -10,6 +10,16 @@ Every target that runs Ansible compares the installed collections with those pin
 naming `just install`, while one differs. They live in the checkout's own folder
 (`tools/env-run --collections`), so another clone or worktree keeps its own, on its own versions.
 
+## This machine's Claude Code on the VM, from 2.8
+
+`just code`, and `just deploy`'s editor step, carry more of this machine's Claude Code to the VM
+([VS Code](vscode.md#this-machines-claude-sessions-on-the-vm)):
+
+- **Each copied session's subagents** go with it (`claude_sessions_sync_subagents`), and count toward
+  `claude_sessions_sync_max_size`: the first `just code` after the upgrade sends those of the sessions already
+  copied, and a session whose subagents take it past the bound stays here until a later run has room. Set the
+  setting to `false` in `local.yml` to copy sessions as before.
+
 ## The VMs through the Proxmox host, from 2.7
 
 `vm_ssh_route` is new, and `auto` by default

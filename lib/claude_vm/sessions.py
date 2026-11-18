@@ -209,6 +209,7 @@ def claude_sessions_plan(
     vm="the VM",
     open_there=None,
     cap=0,
+    subagents=True,
 ):
     """Decide which of this machine's sessions go to which checkout on the VM.
 
@@ -235,6 +236,9 @@ def claude_sessions_plan(
     sessions first, each kept while its transcript and tool results fit in what is left, --session's own
     always. ``bytes`` is what the sessions kept hold, ``over`` the IDs left out for the bound and
     ``over_bytes`` what they hold.
+
+    ``subagents`` (claude_sessions_sync_subagents): each session's ``subagents/`` goes with it, in ``files`` and
+    counted in its size; without it, neither.
     """
     here = {item["path"]: item for item in here or [] if item.get("path")}
     by_repo = {}
@@ -293,7 +297,7 @@ def claude_sessions_plan(
             plan["newer"].append(session["id"])
         elif why != "none":
             plan["ambiguous"].append({"id": session["id"], "repository": repo, "names": why})
-    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap)
+    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap, subagents)
     for session, checkout, repo, _own in kept:
         if session["id"] in plan["over"]:
             continue
@@ -308,6 +312,8 @@ def claude_sessions_plan(
         plan["files"].append(f"{session['folder']}/{session['id']}.jsonl")
         if session.get("tools"):
             plan["files"].append(f"{session['folder']}/{session['id']}/tool-results")
+        if subagents and session.get("subagents"):
+            plan["files"].append(f"{session['folder']}/{session['id']}/subagents")
         repositories.add(repo)
     if wanted:
         plan["session"]["problem"] = _session_problem(plan["session"], sessions, wanted, by_repo, project, version, vm)
@@ -315,15 +321,16 @@ def claude_sessions_plan(
     return plan
 
 
-def _within(kept, cap):
+def _within(kept, cap, subagents=True):
     """Which of ``kept`` (session, checkout, repository, whether it is --session's) one copy sends under ``cap``
     bytes, 0 for no bound: (the IDs left out, the bytes sent, the bytes left out). --session's own first, then the
-    newest; one that does not fit in what is left is left out, and an older one that does is kept."""
+    newest; one that does not fit in what is left is left out, and an older one that does is kept. A session's
+    size is its transcript's and tool results', and its subagents' while they go with it."""
     out, sent, over = [], 0, 0
     for session, _checkout, _repo, own in sorted(
         kept, key=lambda item: (not item[3], -float(item[0].get("mtime") or 0))
     ):
-        size = int(session.get("size") or 0)
+        size = int(session.get("size") or 0) + (int(session.get("subagents_size") or 0) if subagents else 0)
         if cap and not own and sent + size > cap:
             out.append(session["id"])
             over += size

@@ -110,6 +110,12 @@ sessions:
     size:
       description: The bytes of the transcript and its C(tool-results/), what a copy of it sends; no link is followed.
       type: int
+    subagents:
+      description: Whether it has a C(subagents/) folder, the transcripts of the subagents it started.
+      type: bool
+    subagents_size:
+      description: The bytes of its C(subagents/), which a copy sends while subagents are copied; no link is followed.
+      type: int
     dir:
       description: Whether it has a folder of its own beside it, for its tool results, subagents and MCP tasks.
       type: bool
@@ -358,6 +364,8 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 "open": opened.get(session, 0),
                 "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
                 "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
+                "subagents": _real_dir(os.path.join(folder.path, session, "subagents")),
+                "subagents_size": tree_size(os.path.join(folder.path, session, "subagents")),
                 "dir": os.path.isdir(os.path.join(folder.path, session)),
                 "recorded": session in copied_ids,
                 "copied": copied,
@@ -367,10 +375,17 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
     return sessions
 
 
+def _real_dir(path):
+    """Whether ``path`` is a folder and no link to one."""
+    return os.path.isdir(path) and not os.path.islink(path)
+
+
 def tree_size(path):
     """The bytes of the plain files under ``path``, no link followed; 0 where there is no such folder, and a file that
     goes as it is read counted as nothing."""
     total = 0
+    if os.path.islink(path):
+        return total
     for root, _dirs, files in os.walk(path):
         for name in files:
             try:

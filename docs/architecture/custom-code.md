@@ -488,7 +488,8 @@ first argument named `claude`, or either one Claude Code's npm package, so that 
 **`claude_sessions_info`** — the transcripts under `<dir>/projects/<folder>/<id>.jsonl` of a Claude
 Code configuration directory, written in the last `days`, named in `ids`, or with `all` every one: per
 session its folder and time, its first `cwd`, the newest `version`, the last `gitBranch`, whether
-it holds a user or assistant message, whether it has `tool-results/` or any folder beside it, and the
+it holds a user or assistant message, whether it has `tool-results/`, `subagents/` (and its bytes) or any
+folder beside it, and the
 pid of a live `claude` that `sessions/` says has it open - one whose command line, from `/proc` or `ps`,
 is still claude's, never a pid another program took since its entry was left; and that registry
 whole, whatever the transcripts (`registered`): the VM's, for which copies a `claude` there has open.
@@ -528,8 +529,10 @@ session's `tool-results/` folder in user entries, a cleared `worktree-state` aft
 `relocated` entry last), 0600 in 0700 folders, with the mirror's time while that is within 14 days and
 the time of writing otherwise, renewed at 14 days (Claude Code sweeps a transcript at 30), its
 `tool-results/` after it, each file at the transcript's time - the sweep takes tool results by their own
-age, and rsync brings the other machine's - and compared by size and digest, never by time, and never a
-subagent's transcript. Claude Code's records of the requests it
+age, and rsync brings the other machine's - and compared by size and digest, never by time; with
+`subagents`, its `subagents/` too, each transcript there with the first two edits and neither appended
+entry, each file written by the same rule as the copy under the manifest's `subagents` record and at the
+copy's time. Claude Code's records of the requests it
 sent stay as they are: a resume sends the recorded prompt, never them. A copy is written where there is
 none, or where it is still what the manifest says the last run wrote; one that is already what would be
 written is left, and any other is the VM's and left too, said as continued when nothing new came from
@@ -564,12 +567,13 @@ memory, so a `TarInfo` subclass refuses it in `_proc_member`, before it is read 
 map can be as long as the VM makes it. Its own error, `Stopped`, is no `tarfile` error, some of which
 `TarFile.next()` takes for the archive's end. Nothing of the content is returned.
 
-**`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm, open_there, cap)`** —
+**`claude_sessions_plan(sessions, here, there, version, repo_paths, dest, wanted, project, vm, open_there, cap, subagents)`** —
 the decision as data: `sessions` to copy, each with the checkout it continues in and the memory folder
 its prompt is pointed at; `files` for rsync; `newer`, `ambiguous`, `twice` (an ID in two folders here)
 and `open` (one a `claude` on the VM has open, given as `open_there`), one of no repository the VM
 has in none; under `cap` bytes (`claude_sessions_sync_max_size`, 0 for none) `--session`'s own and then
-the newest while they fit, the rest in `over`, with `bytes` and `over_bytes` what each holds; and with
+the newest while they fit, each with its subagents' bytes while `subagents` (`claude_sessions_sync_subagents`)
+sends them, the rest in `over`, with `bytes` and `over_bytes` what each holds; and with
 `wanted` (`--session`), its entry and the `problem` that refuses it, or `""`. A session's repository is
 its first directory's origin, else its gone worktree's checkout's, else `githubRepoPaths`; the VM's
 checkout of it is the one whose GitHub origin names it, of two the one named after it. The plan reads
