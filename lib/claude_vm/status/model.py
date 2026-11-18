@@ -183,6 +183,12 @@ def status_fleet(
     version = read.get("version") if isinstance(read.get("version"), dict) else {}
     storages = read.get("cluster/resources?type=storage") or []
     nodes = read.get("cluster/resources?type=node") or []
+    # The pools whose members the token may read: Proxmox names a guest's pool in the listing only for those.
+    pools_read = {
+        str(p.get("pool"))
+        for p in read.get("cluster/resources?type=pool") or []
+        if isinstance(p, dict) and p.get("pool")
+    }
     contents = {
         f"{r['item'].get('node')}/{r['item'].get('storage')}": _data(r) or []
         for r in contents or []
@@ -349,8 +355,12 @@ def status_fleet(
         },
         "aliases": aliases,
         "pending": bool(pending),
-        # The guests of the fleet that are no member of the project's pool, where one is set.
-        "pool_outside": pool_outside(entries, _pool(settings), owned, template_name),
+        # The guests of the fleet that are no member of the project's pool, where one is set and the token may read
+        # its members; whether it may.
+        "pool_outside": pool_outside(
+            entries, _pool(settings) if _pool(settings) in pools_read else "", owned, template_name
+        ),
+        "pool_read": _pool(settings) in pools_read,
     }
 
 
@@ -1013,6 +1023,13 @@ def _pool_items(fleet, settings):
     one: a VM, which a token granted the role on the pool alone never sees, and the template and golden templates,
     which it could not clone (docs/getting-started/proxmox-access.md)."""
     pool = _pool(settings)
+    # The early draw, before the pools are read, says nothing of them.
+    if pool and not fleet.get("pool_read", True) and not fleet.get("pending"):
+        text = (
+            f"the token may not read which guests are members of pool {pool} (Pool.Audit on /pool/{pool}), so what of"
+            " the fleet is outside it cannot be said"
+        )
+        return [_item("todo", "proxmox", text, f"just init{_host_flag(settings)} at a terminal offers to add it")]
     outside = fleet.get("pool_outside") or [] if pool else []
     items = []
     for guest in outside:

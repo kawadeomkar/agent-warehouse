@@ -321,7 +321,7 @@ def test_a_grant_on_vms_that_does_not_propagate_is_named_and_left(tmp_path: Path
 
 # ----------------------------------------------------------------- a pool ---
 POOL_PLAN = [
-    PLAN[0],
+    PLAN[0] + ",Pool.Audit",
     "pveum pool add agent-warehouse --comment agent-warehouse",
     PLAN[1],
     "pveum acl modify /pool/agent-warehouse --users ansible@pve --roles AnsibleVM",
@@ -550,7 +550,7 @@ def test_the_privileges_are_the_ones_just_init_checks() -> None:
     text = SCRIPT.read_text()
     granted = {
         name: re.search(rf"^{name}_privileges='([^']+)'$", text, re.MULTILINE).group(1).split()
-        for name in ("vms", "storage", "bridge")
+        for name in ("vms", "storage", "bridge", "pool")
     }
     assert granted == CHECKED
     assert "agent=VM.GuestAgent.Audit; else agent=VM.Monitor" in text

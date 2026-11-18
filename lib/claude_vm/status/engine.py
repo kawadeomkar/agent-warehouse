@@ -41,8 +41,15 @@ from . import found as vm_found
 from . import model, reach, settings
 
 GET_WORKERS = 8
-# What is read before anything else, the listing first: the version, and the storages' and the nodes' figures.
-FIRST_WAVE = ("cluster/resources?type=vm", "version", "cluster/resources?type=storage", "cluster/resources?type=node")
+# What is read before anything else, the listing first: the version, the storages' and the nodes' figures, and the
+# pools the token may read the members of (Pool.Audit), without which the listing names no guest's pool.
+FIRST_WAVE = (
+    "cluster/resources?type=vm",
+    "version",
+    "cluster/resources?type=storage",
+    "cluster/resources?type=node",
+    "cluster/resources?type=pool",
+)
 
 
 class Display:

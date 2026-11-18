@@ -118,8 +118,10 @@ proxmox_pool: agent-warehouse
 ssh root@<proxmox-host> sh -s -- --pool agent-warehouse < tools/proxmox-access.sh
 ```
 
-The script makes the pool where it is missing (`pveum pool add agent-warehouse --comment agent-warehouse`) and
-grants the role on `/pool/agent-warehouse` in place of `/vms`. Proxmox then gives the token the role on the pool's
+The script makes the pool where it is missing (`pveum pool add agent-warehouse --comment agent-warehouse`), adds
+`Pool.Audit` to the role, and grants the role on `/pool/agent-warehouse` in place of `/vms`. `Pool.Audit` is read
+only: without it Proxmox names no guest's pool in its listing, so neither `just init` nor `just status` could tell a
+member from a guest outside. Proxmox then gives the token the role on the pool's
 members alone: it lists no other VM, and can change none. `just deploy` makes each VM it creates a member as it
 clones it, builds the template into the pool (`qm create --pool`), and clones a golden template's build VM into
 it, so the golden is one too. The grants on the storage, the bridge and the node stay as they are. `just init`

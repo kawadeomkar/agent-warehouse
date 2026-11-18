@@ -261,6 +261,9 @@ def privileges(token_id, path):
     else:
         agent = "VM.GuestAgent.Audit" if int(VERSION["version"].split(".")[0]) >= 9 else "VM.Monitor"
         listed = ROLE + ([] if token_id == NOAGENT_TOKEN_ID else [agent])
+        # On a pool, the role as tools/proxmox-access.sh --pool grants it there: Pool.Audit too.
+        if path.startswith("/pool/"):
+            listed = [*listed, "Pool.Audit"]
     granted = {}
     for entry in listed:
         name, _, flag = entry.partition(":")
@@ -367,8 +370,14 @@ def resource(vm):
     # a VM without the attribute at all.
     if vm["config"].get("tags"):
         entry["tags"] = vm["config"]["tags"]
-    # As Proxmox: the pool a guest is a member of, and no key for one that is in none.
-    if vm.get("pool"):
+    return entry
+
+
+def resource_for(vm, token_id):
+    """resource(vm) as the token sees it: as Proxmox (PVE/API2/Cluster.pm), the pool a guest is a member of only where
+    the token holds Pool.Audit on that pool, and no key for one that is in none."""
+    entry = resource(vm)
+    if vm.get("pool") and "Pool.Audit" in privileges(token_id, f"/pool/{vm['pool']}"):
         entry["pool"] = vm["pool"]
     return entry
 
@@ -521,6 +530,15 @@ class Handler(BaseHTTPRequestHandler):
                         }
                     )
             return self._reply(200, listed)
+        if parts == ["cluster", "resources"] and params.get("type") == "pool":
+            # The pools the token may read the members of (Pool.Audit), as Proxmox lists them.
+            named = sorted({vm["pool"] for vm in VMS.values() if vm.get("pool")})
+            listed = [
+                {"id": f"/pool/{name}", "type": "pool", "pool": name}
+                for name in named
+                if "Pool.Audit" in privileges(token.group(2), f"/pool/{name}")
+            ]
+            return self._reply(200, listed)
         if parts == ["cluster", "resources"] and params.get("type") == "node":
             # A token without Sys.Audit sees the nodes, and no statistics of theirs; with it, an online node's too.
             nodes = [(NODE, "online"), (DOWN_NODE, "online" if NODES_ONLINE[DOWN_NODE] else "offline")]
@@ -554,7 +572,9 @@ class Handler(BaseHTTPRequestHandler):
                     del VANISH[vmid]
                     save_state()
             scope = POOL_SCOPE.get(token.group(2))
-            entries = [resource(vm) for vm in VMS.values() if scope is None or vm.get("pool") == scope]
+            entries = [
+                resource_for(vm, token.group(2)) for vm in VMS.values() if scope is None or vm.get("pool") == scope
+            ]
             for entry in entries:
                 stale = STALE.get(entry["vmid"])
                 if stale:

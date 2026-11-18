@@ -23,7 +23,7 @@ COMMON = (
     "VM.Allocate VM.Clone VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.Memory VM.Config.Network"
     " VM.Config.Options VM.Config.HWType VM.Config.CDROM VM.PowerMgmt VM.Audit VM.Console VM.Backup VM.Snapshot"
     " VM.Migrate Datastore.AllocateSpace Datastore.Audit Datastore.Allocate SDN.Use SDN.Audit SDN.Allocate"
-    " Sys.Audit Sys.Modify Permissions.Modify User.Modify"
+    " Sys.Audit Sys.Modify Permissions.Modify User.Modify Pool.Audit Pool.Allocate"
 ).split()
 BY_MAJOR = {8: ["VM.Monitor"], 9: ["VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted"]}
 

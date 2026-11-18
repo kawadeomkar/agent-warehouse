@@ -75,6 +75,9 @@
         - VM.Audit
       storage: [Datastore.AllocateSpace, Datastore.Audit]
       bridge: [SDN.Use]
+      # On the pool, with proxmox_pool: which guests are its members, which Proxmox
+      # leaves out of its listing without it.
+      pool: [Pool.Audit]
     init_endpoint: >-
       {{ '[' ~ proxmox_api_host ~ ']' if proxmox_api_host is search(':.*:') and proxmox_api_host is not match('[[]')
          else proxmox_api_host }}:{{ proxmox_api_port }}
@@ -123,7 +126,9 @@
     # where Proxmox checks them; 0 is granted on the path alone.
     init_vms_privileges: >-
       {{ (init_permissions.json.data | default({}, true))[init_privileges_path] | default({}, true) }}
-    init_privileges_wanted: "{{ init_token_privileges.vms + [init_agent_privilege] }}"
+    init_privileges_wanted: >-
+      {{ init_token_privileges.vms + [init_agent_privilege]
+         + (init_token_privileges.pool if init_pool | length > 0 else []) }}
     init_privileges_missing: "{{ init_privileges_wanted | reject('in', init_vms_privileges) | list }}"
     init_privileges_unpropagated: >-
       {{ init_privileges_wanted | select('in', init_vms_privileges)
@@ -829,7 +834,8 @@
              ~ ' --vms ' ~ proxmox_template_vmid ~ ' (docs/getting-started/proxmox-access.md)'}] }}
       when: >-
         init_listed | default(false) | bool and init_template_built | bool and init_pool | length > 0
-        and not init_pool_refused | bool and init_template.pool | default('') != init_pool
+        and not init_pool_refused | bool and 'Pool.Audit' in init_vms_privileges
+        and init_template.pool | default('') != init_pool
 
     - name: Record that no host can build the template
       ansible.builtin.set_fact:

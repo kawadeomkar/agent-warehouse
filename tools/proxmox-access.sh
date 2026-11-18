@@ -13,7 +13,8 @@
 #
 #   the role AnsibleVM: the privileges below, and the guest agent's, which is
 #     VM.Monitor on Proxmox VE 8 and VM.GuestAgent.Audit on 9 - a role an older
-#     version made lacks what a newer one needs, as Sys.Audit, added for sizes
+#     version made lacks what a newer one needs, as Sys.Audit, added for sizes -
+#     and, with --pool, Pool.Audit, to read which guests are the pool's
 #   the user ansible@pve, with no password: it signs in by its token alone
 #   with --pool, that pool, for the project's VMs and template alone
 #   that role for that user on /vms - or, with --pool, on that pool in its
@@ -69,6 +70,10 @@ bridge_privileges='SDN.Use'
 # Read only: the node's CPU threads and memory, which just status's capacity
 # and a sized just deploy weigh a VM's size against.
 node_privileges='Sys.Audit'
+# Read only, on the pool: which guests are its members. Without it Proxmox leaves
+# the pool out of every guest it lists (PVE/API2/Cluster.pm), so just init and
+# just status could not tell a member from a guest outside.
+pool_privileges='Pool.Audit'
 
 say() { printf '%s\n' "$*" >&2; }
 die() {
@@ -226,6 +231,7 @@ noted() {
 
 # ------------------------------------------------------------------ the role ---
 wanted="$vms_privileges $storage_privileges $bridge_privileges $node_privileges"
+[ -z "$pool" ] || wanted="$wanted $pool_privileges"
 lacking=''
 if role_privileges=$(pvesh get "/access/roles/$role" --output-format json 2>/dev/null); then
   for privilege in $wanted; do
@@ -346,7 +352,7 @@ grant() {
     say "$user holds what it needs on $1"
   fi
 }
-grant "$vms_path" "$vms_privileges"
+grant "$vms_path" "$vms_privileges${pool:+ $pool_privileges}"
 grant "/storage/$storage" "$storage_privileges"
 grant "/sdn/zones/localnetwork/$bridge" "$bridge_privileges"
 grant "/nodes/$node" "$node_privileges"

@@ -414,7 +414,9 @@ def test_with_a_pool_each_guest_of_the_fleet_outside_it_is_a_thing_to_do_with_th
     ]
     tagged = _tagged(listing)
     settings = {**SETTINGS, "pool": "agent-warehouse", "names": []}
-    fleet = S.status_fleet(listing, tagged=tagged, requested=tagged, settings=settings)
+    # The pools the token may read the members of, Pool.Audit's: without which Proxmox names no guest's pool.
+    pools = [{"item": "cluster/resources?type=pool", "status": 200, "json": {"data": [{"pool": "agent-warehouse"}]}}]
+    fleet = S.status_fleet(listing, tagged=tagged, requested=tagged, settings=settings, lists=pools)
     model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
     said = {it["vm"]: (it["text"], it["command"]) for it in model["attention"] if "member of pool" in it["text"]}
     assert set(said) == {"beta", "gamma", "template"}, said
@@ -426,9 +428,18 @@ def test_with_a_pool_each_guest_of_the_fleet_outside_it_is_a_thing_to_do_with_th
     texts = [it["text"] for it in model["attention"] if it["vm"] == "template"]
     assert any("the template ubuntu-24.04-cloudinit is no member" in t for t in texts), texts
     assert any(t.startswith("1 golden template is no member of pool") for t in texts), texts
+    # A token that may not read the pool's members: none is called outside, and that is said once, with its fix.
+    blind = S.status_fleet(listing, tagged=tagged, requested=tagged, settings=settings)
+    said = [it for it in S.status_report({"localhost": {"fleet": blind}}, "now", 1_800_000_000)["attention"]]
+    assert not [it for it in said if "member of pool" in it["text"] and "may not read" not in it["text"]]
+    assert [
+        it["vm"] for it in said if "may not read which guests are members of pool agent-warehouse" in it["text"]
+    ] == ["proxmox"]
     # No pool set, or one that is no pool's name: nothing about pools is said.
     for pool in ("", "a pool"):
-        plain = S.status_fleet(listing, tagged=tagged, requested=tagged, settings={**settings, "pool": pool})
+        plain = S.status_fleet(
+            listing, tagged=tagged, requested=tagged, settings={**settings, "pool": pool}, lists=pools
+        )
         report = S.status_report({"localhost": {"fleet": plain}}, "now", 1_800_000_000)
         assert not [it for it in report["attention"] if "member of pool" in it["text"]]
 
