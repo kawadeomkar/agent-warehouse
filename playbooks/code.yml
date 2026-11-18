@@ -510,7 +510,7 @@
             fail_msg: >-
               {{ claude_vm_names[0] }} is {{ code_status }}{{ ' and reported no address' if code_status == 'running' else '' }},
               so there is nothing to connect to.
-              {{ '`just deploy ' ~ claude_vm_names[0] ~ ' --only provision --start' ~ claude_host_flag | default('')
+              {{ '`just deploy ' ~ claude_vm_names[0] ~ ' --only provision --start' ~ (claude_host_flag | default(''))
               ~ '` starts it; then run this again.' if code_status == 'stopped'
               else '`just status` shows the fleet; start the VM, or wait for its agent, and run this again.' }}
             quiet: true
