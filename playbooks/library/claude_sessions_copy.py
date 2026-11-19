@@ -33,6 +33,10 @@ description:
     C(prompt_snapshot), never them (2.1.308, held by the configure scenario).
   - A copy is replaced only while it is exactly what this module last wrote, as O(manifest) records by
     digest. One that differs was continued here, or was never this module's, and is left as it is.
+  - Beside each digest, O(manifest) records the transcript's size and time, the copy's size, time and
+    inode, and a digest of everything else the edits are made from, as they were when the copy was last
+    found as it would be. While all of them are still so, the copy is that one, unchanged, and neither
+    file is read again.
   - A copy that is gone while its session's ID is in another folder of C(<dest>/projects/) moved there,
     as C(/cd) moves a session it continues, and is left the same way: written again, the ID would be in
     two folders, and C(claude --resume <id>) from a third would find neither. But where that other copy
@@ -50,7 +54,7 @@ options:
     type: path
     required: true
   manifest:
-    description: The file that records the digest of each copy this module wrote.
+    description: The file that records the digest of each copy this module wrote, and what it was made from.
     type: path
     required: true
   here:
@@ -141,6 +145,7 @@ import re
 import shutil
 import tempfile
 import time
+from stat import S_ISREG
 
 from ansible.module_utils.agent_warehouse import (
     MANIFEST_FORMAT,
@@ -159,6 +164,10 @@ MEMORY_AT = re.compile(r"persistent file-based memory at `([^`\n]+)`")
 # A copy keeps the other machine's file time while it is this recent; Claude Code sweeps a transcript
 # 30 days after its file time.
 FRESH = 14 * 86400
+# The edits' version, part of what a copy is recorded as made from: raised whenever edit_transcript, or anything it
+# calls, writes a copy otherwise, so that a copy an earlier version wrote is edited again rather than skipped as
+# unchanged. tests/unit/test_session_handoff.py holds it to the edits' source.
+EDITS = 1
 
 
 def _escaped(text):
@@ -260,6 +269,41 @@ def _digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def made_from(session, folder, checkout, memory, here, results):
+    """A digest of what edit_transcript makes a copy from besides the transcript's bytes, and of the edits' version."""
+    return _digest(json.dumps([EDITS, session, folder, checkout, memory, here, results]).encode("utf-8"))
+
+
+def fingerprint(source, target, inputs):
+    """What says a copy is still the one recorded: ``source``'s size and time, ``target``'s size, time and inode, and
+    ``inputs``, made_from's; None where either file cannot be read, or the copy is not a plain file.
+
+    The transcript's inode is left out: rsync may write it anew with the same bytes and time.
+    """
+    try:
+        mirror, copy = os.stat(source), os.lstat(target)
+    except OSError:
+        return None
+    if not S_ISREG(copy.st_mode):
+        return None
+    return {
+        "mirror": [mirror.st_size, mirror.st_mtime_ns],
+        "copy": [copy.st_size, copy.st_mtime_ns, copy.st_ino],
+        "inputs": inputs,
+    }
+
+
+def read_made_from(path):
+    """What ``path``, a manifest, records each copy as made from, fingerprint's, by its key; {} for none."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            found = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    made = found.get("made_from") if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
+    return {str(key): value for key, value in made.items() if isinstance(value, dict)} if isinstance(made, dict) else {}
+
+
 def _directory(path, created):
     """Make ``path`` and any parent missing, 0700 each; one that exists keeps its mode."""
     if os.path.isdir(path):
@@ -294,9 +338,15 @@ def copy_time(source, current, now):
     return now
 
 
-def _save_manifest(manifest, copies, created):
+def _save_manifest(manifest, copies, made, created):
+    """Write ``copies``, each key's digest, and ``made``, what each was made from. A key of its own beside the digests
+    keeps the format: a reader of the digests alone, an earlier version's, passes over it, and an earlier version
+    that writes the manifest again leaves it out, so that each copy is then read once more."""
     _directory(os.path.dirname(manifest), created)
-    text = json.dumps({"format": MANIFEST_FORMAT, "sessions": copies}, indent=2, sort_keys=True) + "\n"
+    made = {key: value for key, value in made.items() if key in copies}
+    text = (
+        json.dumps({"format": MANIFEST_FORMAT, "sessions": copies, "made_from": made}, indent=2, sort_keys=True) + "\n"
+    )
     _write(manifest, text.encode("utf-8"), time.time())
 
 
@@ -391,8 +441,9 @@ def _prune(mirror, keep, check):
 def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=False, now=None):
     """Write every session's copy; return the result and whether anything changed."""
     now = time.time() if now is None else now
-    recorded = read_manifest(manifest)
+    recorded, recorded_made = read_manifest(manifest), read_made_from(manifest)
     copies, saved = dict(recorded), dict(recorded)
+    made, saved_made = dict(recorded_made), dict(recorded_made)
     result = {
         "written": [],
         "held": {},
@@ -407,43 +458,51 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
         for session in sessions:
             sid, folder = session["id"], session["folder"]
             key = manifest_key(folder, sid)
-            source = os.path.join(mirror, key)
-            try:
-                with open(source, "rb") as handle:
-                    data = complete_lines(handle.read())
-                mtime = os.stat(source).st_mtime
-            except OSError:
-                result["unreadable"].append({"id": sid, "why": "rsync did not bring it"})
-                continue
+            source, target = os.path.join(mirror, key), os.path.join(dest, "projects", key)
             results = os.path.join(dest, "projects", folder, sid, "tool-results")
-            edited, why = (
-                edit_transcript(data, sid, session["checkout"], session["memory"], here, results, folder)
-                if data
-                else (b"", "")
-            )
-            if not edited:
-                result["unreadable"].append({"id": sid, "why": why or "it holds no complete line"})
-                continue
-            digest, target = _digest(edited), os.path.join(dest, "projects", key)
-            current = file_digest(target) if os.path.isfile(target) and not os.path.islink(target) else None
-            if os.path.lexists(target) and current is None:
-                result["diverged"].append(sid)
-                continue
-            others = [other for other in holding.get(sid, []) if other != folder] if current is None else []
-            # The one other folder holding it, with the very copy this module wrote there: the session moved on
-            # the other machine (/cd there), not here.
-            old = manifest_key(others[0], sid) if len(others) == 1 else ""
-            old_path = os.path.join(dest, "projects", old)
-            mac_move = (
-                bool(old)
-                and recorded.get(old) is not None
-                and os.path.isfile(old_path)
-                and not os.path.islink(old_path)
-                and file_digest(old_path) == recorded[old]
-            )
-            if others and not mac_move:
-                result["held"][sid] = others[0]
-            action = classify(current, recorded.get(key), digest, bool(others) and not mac_move)
+            inputs = made_from(sid, folder, session["checkout"], session["memory"], here, results)
+            others, mac_move = [], False
+            known = recorded.get(key) is not None and recorded_made.get(key) is not None
+            if known and fingerprint(source, target, inputs) == recorded_made[key]:
+                # Neither the transcript nor the copy changed since the copy was written or found as it would be, nor
+                # anything else it is made from: it still is, and neither is read.
+                action, digest, mtime = "unchanged", recorded[key], os.stat(source).st_mtime
+            else:
+                try:
+                    with open(source, "rb") as handle:
+                        data = complete_lines(handle.read())
+                    mtime = os.stat(source).st_mtime
+                except OSError:
+                    result["unreadable"].append({"id": sid, "why": "rsync did not bring it"})
+                    continue
+                edited, why = (
+                    edit_transcript(data, sid, session["checkout"], session["memory"], here, results, folder)
+                    if data
+                    else (b"", "")
+                )
+                if not edited:
+                    result["unreadable"].append({"id": sid, "why": why or "it holds no complete line"})
+                    continue
+                digest = _digest(edited)
+                current = file_digest(target) if os.path.isfile(target) and not os.path.islink(target) else None
+                if os.path.lexists(target) and current is None:
+                    result["diverged"].append(sid)
+                    continue
+                others = [other for other in holding.get(sid, []) if other != folder] if current is None else []
+                # The one other folder holding it, with the very copy this module wrote there: the session moved on
+                # the other machine (/cd there), not here.
+                old = manifest_key(others[0], sid) if len(others) == 1 else ""
+                old_path = os.path.join(dest, "projects", old)
+                mac_move = (
+                    bool(old)
+                    and recorded.get(old) is not None
+                    and os.path.isfile(old_path)
+                    and not os.path.islink(old_path)
+                    and file_digest(old_path) == recorded[old]
+                )
+                if others and not mac_move:
+                    result["held"][sid] = others[0]
+                action = classify(current, recorded.get(key), digest, bool(others) and not mac_move)
             if action in ("continued", "diverged"):
                 result[action].append(sid)
                 continue
@@ -458,6 +517,7 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                 copies[key] = digest
                 if mac_move:
                     copies.pop(old, None)
+                    made.pop(old, None)
                     if not check:
                         _remove_copy(dest, others[0], sid)
             else:
@@ -469,18 +529,26 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                     changed = True
                     if not check:
                         os.utime(target, (wanted, wanted))
+            # Taken after the copy's last write and time, from the files as they now are: the copy is the digest
+            # recorded, and the transcript, edited, is that too.
+            if not check:
+                now_made = fingerprint(source, target, inputs)
+                if now_made is None:
+                    made.pop(key, None)
+                else:
+                    made[key] = now_made
             tools = os.path.join(mirror, folder, sid, "tool-results")
             if os.path.isdir(tools):
                 changed = _tool_results(tools, results, check, created) > 0 or changed
             # After each copy, so that a run stopped part way still records what it wrote: a copy written
             # and not recorded would read as continued here once the session changed on the other machine.
-            if copies != saved and not check:
-                _save_manifest(manifest, copies, created)
-                saved = dict(copies)
+            if (copies, made) != (saved, saved_made) and not check:
+                _save_manifest(manifest, copies, made, created)
+                saved, saved_made = dict(copies), dict(made)
     finally:
-        if copies != saved and not check:
-            _save_manifest(manifest, copies, created)
-    if copies != recorded:
+        if (copies, made) != (saved, saved_made) and not check:
+            _save_manifest(manifest, copies, made, created)
+    if copies != recorded or made != recorded_made:
         changed = True
     if prune:
         changed = _prune(mirror, {(item["folder"], item["id"]) for item in sessions}, check) or changed

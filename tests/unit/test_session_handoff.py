@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from ansible.module_utils import agent_warehouse as shared
 from conftest import run_main
-from harness import load_module
+from harness import _ran, _run, load_module
 
 from claude_vm import sessions as filters
 
@@ -479,6 +479,107 @@ def test_the_newest_version_is_kept_whatever_its_place(tmp_path):
     data = transcript(version="2.1.310") + transcript(version="2.1.9")
     root = _claude_dir(tmp_path, {("-Users-me-demo", ID): data})
     assert info.list_sessions(str(root), 30, [])[0]["version"] == "2.1.310"
+
+
+def _line_by_line(path):
+    """What summarize said before transcripts were read in parts: each complete line in order, in one pass."""
+    found = {"cwd": "", "version": "", "branch": "", "conversation": False}
+    with open(path, "rb") as handle:
+        for line in handle:
+            if not line.endswith(b"\n"):
+                break
+            entry = shared.transcript_entry(line)
+            cwd, version, branch = entry.get("cwd"), entry.get("version"), entry.get("gitBranch")
+            if not found["cwd"] and isinstance(cwd, str):
+                found["cwd"] = cwd
+            if isinstance(version, str) and info.VERSION.fullmatch(version):
+                if not found["version"] or shared.version_key(version) > shared.version_key(found["version"]):
+                    found["version"] = version
+            if isinstance(branch, str) and branch:
+                found["branch"] = branch
+            if entry.get("type") in ("user", "assistant"):
+                found["conversation"] = True
+    return found
+
+
+def _varied_transcripts(directory):
+    """Transcripts whose four values change part way, of lines of every length: an empty cwd first, versions equal by
+    their numbers but not as text, a version that is no version, lines that are no object or no JSON, a branch that
+    goes empty, a last line cut short, a file of one cut line, and an empty one."""
+    directory.mkdir()
+    paths = []
+    for index in range(5):
+        lines = [b'{"type":"summary","cwd":""}\n', b"[1]\n", b"not json\n"]
+        for n in range(30 + 17 * index):
+            entry = {"type": "user" if n % 11 == 7 + index else "progress", "pad": "x" * (n * 7 % 61)}
+            if n % 6 == 2:
+                entry["cwd"] = f"/Users/me/dir{index}-{n}"
+            if n % 4 == 1:
+                entry["version"] = ["2.1.30", "2.01.30", "2.1.9", "latest", f"2.1.{n}"][(n + index) % 5]
+            if n % 5 == 3:
+                entry["gitBranch"] = f"b{n}" if n % 3 else ""
+            lines.append(json.dumps(entry, separators=(",", ":")).encode() + b"\n")
+        if index % 2:
+            lines.append(b'{"type":"assistant","cwd":"/cut","version":"9.9.9"')
+        path = directory / f"{index}.jsonl"
+        path.write_bytes(b"".join(lines))
+        paths.append(str(path))
+    for name, data in (("cut.jsonl", b'{"type":"user","cwd":"/x"'), ("empty.jsonl", b"")):
+        (directory / name).write_bytes(data)
+        paths.append(str(directory / name))
+    return paths
+
+
+@pytest.mark.parametrize("part", [1, 5, 64, 1000, 1 << 20])
+def test_a_transcript_read_in_parts_says_what_it_says_read_line_by_line(tmp_path, monkeypatch, part):
+    # One reader: the parts are cut and put together as several would, without forking pytest's own process.
+    paths = _varied_transcripts(tmp_path / "t")
+    monkeypatch.setattr(info, "PART", part)
+    gone = str(tmp_path / "gone.jsonl")
+    assert info.summaries([*paths, gone], readers=1) == [*(_line_by_line(path) for path in paths), None]
+    assert [info.summarize(path) for path in paths] == [_line_by_line(path) for path in paths]
+    with pytest.raises(OSError):
+        info.summarize(gone)
+
+
+def test_where_the_readers_cannot_be_had_this_process_reads_every_part_and_says_why(tmp_path, monkeypatch):
+    paths = _varied_transcripts(tmp_path / "t")
+    monkeypatch.setattr(info, "PART", 64)
+
+    def refused(*_args, **_kwargs):
+        raise OSError("no processes")
+
+    monkeypatch.setattr(info, "ProcessPoolExecutor", refused)
+    said = []
+    assert info.summaries(paths, readers=4, said=said) == [_line_by_line(path) for path in paths]
+    assert said == ["OSError"]
+
+
+def test_ansible_s_run_of_the_module_reads_the_parts_with_processes_forked_from_it(tmp_path):
+    # Ansible runs a module from a zip it built, as __main__: the readers must be forked from it, never started
+    # afresh, or they could not find what they run. More than one part in all, so the module reads them together.
+    size = info.PART + (1 << 20)
+    root = tmp_path / ".claude"
+    folder = root / "projects" / "-Users-me-demo"
+    folder.mkdir(parents=True)
+    expected = {}
+    for index, sid in enumerate((ID, OTHER)):
+        first = transcript(sid, cwd=f"/Users/me/first{index}", version="2.1.300", branch="start")
+        filler = json.dumps({"type": "progress", "pad": "x" * 4000}).encode() + b"\n"
+        last = transcript(sid, cwd="/Users/me/later", version=f"2.1.31{index}", branch=f"end{index}")
+        (folder / f"{sid}.jsonl").write_bytes(first + filler * (size // len(filler) // 2) + last)
+        expected[sid] = {"cwd": f"/Users/me/first{index}", "version": f"2.1.31{index}", "branch": f"end{index}"}
+    playbook = tmp_path / "read.yml"
+    playbook.write_text(
+        "- hosts: localhost\n  connection: local\n  gather_facts: false\n  tasks:\n"
+        f"    - name: Read the sessions\n      claude_sessions_info: {{path: {root}, days: 30}}\n"
+    )
+    report = _run(tmp_path, playbook, {}, timeout=300)
+    (result,) = _ran(report, "Read the sessions")["localhost"]
+    assert report["rc"] == 0 and not result.get("warnings"), result.get("warnings")
+    assert {item["id"]: {key: item[key] for key in ("cwd", "version", "branch")} for item in result["sessions"]} == (
+        expected
+    )
 
 
 def test_only_the_window_and_the_ids_asked_for_are_listed(tmp_path):
@@ -1144,6 +1245,142 @@ def test_copies_are_written_with_their_time_and_modes_and_a_second_run_changes_n
     # Again, with nothing new: nothing written, nothing changed.
     again, changed = _copy(tmp_path, mirror, keys)
     assert not changed and sorted(again["unchanged"]) == sorted([ID, OTHER])
+
+
+def _counted(monkeypatch):
+    """How many times the copy module edits a transcript and digests a file, from here on."""
+    calls = {"edits": 0, "digests": 0}
+    edit, digest = copy.edit_transcript, copy.file_digest
+
+    def counted_edit(*args, **kwargs):
+        calls["edits"] += 1
+        return edit(*args, **kwargs)
+
+    def counted_digest(*args, **kwargs):
+        calls["digests"] += 1
+        return digest(*args, **kwargs)
+
+    monkeypatch.setattr(copy, "edit_transcript", counted_edit)
+    monkeypatch.setattr(copy, "file_digest", counted_digest)
+    return calls
+
+
+def test_a_copy_unchanged_since_it_was_written_is_not_read_again(tmp_path, monkeypatch):
+    keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
+    mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
+    _copy(tmp_path, mirror, keys)
+    manifest = tmp_path / "ws" / "manifest.json"
+    recorded = json.loads(manifest.read_text())
+    assert sorted(recorded["made_from"]) == sorted(recorded["sessions"])
+    # The digests are still all an earlier version reads, and it reads them as before.
+    assert shared.read_manifest(str(manifest)) == recorded["sessions"]
+    calls = _counted(monkeypatch)
+    result, changed = _copy(tmp_path, mirror, keys)
+    assert not changed and sorted(result["unchanged"]) == sorted([ID, OTHER])
+    assert calls == {"edits": 0, "digests": 0}
+    assert json.loads(manifest.read_text()) == recorded
+
+
+@pytest.mark.parametrize("what", ["checkout", "edits"])
+def test_a_copy_is_made_again_when_what_it_is_made_from_changes(tmp_path, monkeypatch, what):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _copy(tmp_path, mirror, [key])
+    calls = _counted(monkeypatch)
+    if what == "checkout":
+        # The VM's checkout moved: the copy's last entry names the new one.
+        result, changed = copy.copy_sessions(
+            str(mirror),
+            str(tmp_path / "vm" / ".claude"),
+            str(tmp_path / "ws" / "manifest.json"),
+            [{"id": ID, "folder": key[0], "checkout": "/home/dev/projects/moved", "memory": VM_MEMORY}],
+            here=HERE,
+        )
+        copied = tmp_path / "vm" / ".claude" / "projects" / key[0] / f"{ID}.jsonl"
+        assert (
+            result["written"] == [ID] and lines(copied.read_bytes())[-1]["relocatedCwd"] == "/home/dev/projects/moved"
+        )
+    else:
+        # The edits themselves changed: each copy is edited again, and found as it would be.
+        monkeypatch.setattr(copy, "EDITS", copy.EDITS + 1)
+        result, changed = _copy(tmp_path, mirror, [key])
+        assert result["unchanged"] == [ID]
+    assert changed and calls["edits"] == 1
+
+
+@pytest.mark.parametrize(
+    ("change", "seen"),
+    [
+        ("time", "continued"),  # rewritten in place to its own size: its time is new
+        ("file", "continued"),  # another file of its size put in its place, the time put back: its inode is new
+        # Rewritten in place to its size with its time put back by hand: taken for the copy written, and so left as
+        # it is all the same - never written over, which is all a copy continued on the VM asks.
+        ("bytes alone", "unchanged"),
+    ],
+)
+def test_a_copy_changed_on_the_vm_is_told_by_its_size_time_or_file_and_never_written_over(tmp_path, change, seen):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _copy(tmp_path, mirror, [key])
+    copied = tmp_path / "vm" / ".claude" / "projects" / key[0] / f"{ID}.jsonl"
+    before = copied.stat()
+    other = copied.read_bytes().replace(b"run the tests", b"RUN THE TESTS")
+    if change == "file":
+        beside = copied.with_name("beside")
+        beside.write_bytes(other)
+        os.utime(beside, ns=(before.st_atime_ns, before.st_mtime_ns))
+        os.replace(beside, copied)
+    else:
+        copied.write_bytes(other)
+        if change == "bytes alone":
+            os.utime(copied, ns=(before.st_atime_ns, before.st_mtime_ns))
+    result, _ = _copy(tmp_path, mirror, [key])
+    assert result[seen] == [ID] and copied.read_bytes() == other
+
+
+def test_a_manifest_an_earlier_version_wrote_reads_each_copy_once_more(tmp_path, monkeypatch):
+    keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
+    mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
+    _copy(tmp_path, mirror, keys)
+    manifest = tmp_path / "ws" / "manifest.json"
+    recorded = json.loads(manifest.read_text())
+    manifest.write_text(json.dumps({"format": 1, "sessions": recorded["sessions"]}))
+    calls = _counted(monkeypatch)
+    result, changed = _copy(tmp_path, mirror, keys)
+    assert changed and sorted(result["unchanged"]) == sorted([ID, OTHER]) and calls["edits"] == 2
+    assert json.loads(manifest.read_text()) == recorded
+    _, changed = _copy(tmp_path, mirror, keys)
+    assert not changed and calls["edits"] == 2
+
+
+# The source of what makes a copy's bytes from a transcript's, for each EDITS: a change to any of it must raise
+# claude_sessions_copy's EDITS, or a copy an earlier version wrote would be skipped as unchanged, never edited again.
+EDITS_SOURCE = {1: "2615ac647ce6d5489278686ab679d8702fff33e06f23a5f7663831145d95ba54"}
+
+
+def test_the_edits_version_is_raised_with_the_edits():
+    import inspect
+
+    parts = [
+        inspect.getsource(function)
+        for function in (
+            copy.complete_lines,
+            copy.edit_transcript,
+            copy._escaped,
+            copy._line,
+            copy._strings,
+            copy._left_behind,
+            shared.transcript_entry,
+        )
+    ]
+    digest = hashlib.sha256("\n".join([*parts, copy.MEMORY_AT.pattern]).encode()).hexdigest()
+    recorded = EDITS_SOURCE.get(copy.EDITS)
+    assert recorded == digest, (
+        f"record {digest} for EDITS {copy.EDITS} in EDITS_SOURCE here"
+        if recorded is None
+        else f"the edits changed: raise EDITS in playbooks/library/claude_sessions_copy.py to {copy.EDITS + 1}, and "
+        f"record {digest} for it in EDITS_SOURCE here"
+    )
 
 
 def test_a_copy_continued_on_the_vm_is_left_and_one_that_grew_here_too_is_named(tmp_path):

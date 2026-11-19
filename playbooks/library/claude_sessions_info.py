@@ -15,6 +15,8 @@ description:
     the first directory it ran in, the newest Claude Code version that wrote it, the branch it last ran
     on and whether it holds a message at all. Nothing of what was said is returned, only those values.
   - A line still being written, the last one without its newline, is not read.
+  - Transcripts of more than 16 MiB in all are read in parts of that size by up to eight processes forked from
+    this one, and what each part says put together in order: what is returned is the same.
   - Read-only. just code runs it on this machine and on the VM (playbooks/tasks/session_read.yml), and
     just destroy on the VM, for what of its sessions to save (playbooks/tasks/session_save.yml).
   - A session is open while C(sessions/) registers it to a running claude: a pid that now names another
@@ -137,10 +139,13 @@ version:
 """
 
 import json
+import multiprocessing
 import os
 import re
 import subprocess
+import sys
 import time
+from concurrent.futures import ProcessPoolExecutor
 from stat import S_ISREG
 
 from ansible.module_utils.agent_warehouse import (
@@ -156,6 +161,107 @@ from ansible.module_utils.agent_warehouse import (
 from ansible.module_utils.basic import AnsibleModule
 
 VERSION = re.compile(r"\d+(?:\.\d+)+")
+# A transcript is read in parts of this many bytes, each by one process where there is more than one to read: parsing
+# every line is most of what this module costs, 5 s for a month of one person's sessions on one core.
+PART = 16 << 20
+# The most processes that read at once.
+READERS = 8
+
+
+def summary_of_part(job):
+    """What the complete lines that start in one part of a transcript say: (cwd, version, branch, conversation).
+
+    ``job`` is (path, start, end): the lines that start at ``start`` or after, and before ``end``. A line begun before
+    ``start`` is the part before's, and one begun before ``end`` is this one's to its newline. None when the file cannot
+    be read.
+    """
+    path, start, end = job
+    cwd = version = branch = ""
+    best, conversation = None, False
+    try:
+        with open(path, "rb") as handle:
+            if start:
+                handle.seek(start - 1)
+                if handle.read(1) != b"\n":
+                    handle.readline()
+            while handle.tell() < end:
+                line = handle.readline()
+                if not line.endswith(b"\n"):
+                    break
+                entry = transcript_entry(line)
+                found_cwd, found_version, found_branch = entry.get("cwd"), entry.get("version"), entry.get("gitBranch")
+                if not cwd and isinstance(found_cwd, str):
+                    cwd = found_cwd
+                # The newest by its numbers, the first of equal ones; the newest found so far is not compared again.
+                if isinstance(found_version, str) and found_version != version and VERSION.fullmatch(found_version):
+                    key = version_key(found_version)
+                    if best is None or key > best:
+                        version, best = found_version, key
+                if isinstance(found_branch, str) and found_branch:
+                    branch = found_branch
+                if not conversation and entry.get("type") in ("user", "assistant"):
+                    conversation = True
+    except OSError:
+        return None
+    return cwd, version, branch, conversation
+
+
+def summary_of_parts(parts):
+    """What a transcript says about itself from what each of its parts says, in the transcript's order."""
+    found = {"cwd": "", "version": "", "branch": "", "conversation": False}
+    best = None
+    for cwd, version, branch, conversation in parts:
+        if not found["cwd"] and cwd:
+            found["cwd"] = cwd
+        if version and (best is None or version_key(version) > best):
+            found["version"], best = version, version_key(version)
+        if branch:
+            found["branch"] = branch
+        found["conversation"] = found["conversation"] or conversation
+    return found
+
+
+def read_together(jobs, readers, said):
+    """summary_of_part of each of ``jobs``, in order, by ``readers`` processes; None when they could not be had, and
+    why appended to ``said``.
+
+    Forked from this one, never started afresh: Ansible runs this module from a zip it built, which a new interpreter
+    could not import it from, and Python 3.14 starts them by a forkserver on Linux unless told.
+    """
+    try:
+        with ProcessPoolExecutor(readers, mp_context=multiprocessing.get_context("fork")) as pool:
+            return list(pool.map(summary_of_part, jobs))
+    except Exception as error:  # noqa: BLE001 - a pool that fails leaves the reading to this process
+        said.append(type(error).__name__)
+        return None
+
+
+def summaries(paths, readers=None, said=None):
+    """summarize of each of ``paths``, in order: None for one that cannot be read.
+
+    Each transcript is cut into parts of PART bytes, the last read to the end of the file as it is then. With more
+    than one part in all, and more than one CPU, the parts are read by several processes at once; ``readers`` says how
+    many, whatever the bytes. Where they cannot be had, this process reads every part, and ``said`` gains why.
+    """
+    jobs, owners, total = [], [], 0
+    for index, path in enumerate(paths):
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        total += size
+        for start in range(0, max(size, 1), PART):
+            jobs.append((path, start, start + PART if start + PART < size else sys.maxsize))
+            owners.append(index)
+    if readers is None:
+        readers = min(os.cpu_count() or 1, READERS) if total > PART else 1
+    found = read_together(jobs, readers, [] if said is None else said) if readers > 1 and len(jobs) > 1 else None
+    if found is None:
+        found = [summary_of_part(job) for job in jobs]
+    parts = [[] for _ in paths]
+    for index, part in zip(owners, found, strict=True):
+        parts[index].append(part)
+    return [None if any(part is None for part in each) else summary_of_parts(each) for each in parts]
 
 
 def summarize(path):
@@ -163,22 +269,9 @@ def summarize(path):
 
     Every complete line is parsed, and only those four values are kept.
     """
-    found = {"cwd": "", "version": "", "branch": "", "conversation": False}
-    with open(path, "rb") as handle:
-        for line in handle:
-            if not line.endswith(b"\n"):
-                break
-            entry = transcript_entry(line)
-            cwd, version, branch = entry.get("cwd"), entry.get("version"), entry.get("gitBranch")
-            if not found["cwd"] and isinstance(cwd, str):
-                found["cwd"] = cwd
-            if isinstance(version, str) and VERSION.fullmatch(version):
-                if not found["version"] or version_key(version) > version_key(found["version"]):
-                    found["version"] = version
-            if isinstance(branch, str) and branch:
-                found["branch"] = branch
-            if entry.get("type") in ("user", "assistant"):
-                found["conversation"] = True
+    (found,) = summaries([path], readers=1)
+    if found is None:
+        raise OSError(f"{path} cannot be read")
     return found
 
 
@@ -219,14 +312,15 @@ def memory_folders(path):
     return found
 
 
-def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=None):
+def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=None, said=None):
     """Every transcript under ``path``/projects written in the last ``days`` days, named in ``ids``, or with ``every``.
 
     With ``manifest`` - just code's record of its copies here, read_manifest's - each session also says
-    whether it was copied here and whether its copy is still as written. ``opened`` is open_sessions'.
+    whether it was copied here and whether its copy is still as written. ``opened`` is open_sessions'. ``said`` gains
+    why the transcripts were read by this process alone, where they were to be read together.
     """
     now = time.time() if now is None else now
-    projects, wanted, sessions = os.path.join(path, "projects"), set(ids), []
+    projects, wanted, listed, sessions = os.path.join(path, "projects"), set(ids), [], []
     opened = open_sessions(path) if opened is None else opened
     copied_ids = {os.path.basename(key)[: -len(".jsonl")] for key in manifest or {}}
     for folder in folders(projects):
@@ -245,26 +339,31 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 continue
             if not every and session not in wanted and not (days > 0 and now - stat.st_mtime <= days * 86400):
                 continue
-            try:
-                summary = summarize(item.path)
-                recorded = (manifest or {}).get(manifest_key(folder.name, session))
-                copied = recorded is not None and file_digest(item.path) == recorded
-            except OSError:
-                continue
-            sessions.append(
-                {
-                    "id": session,
-                    "folder": folder.name,
-                    "mtime": stat.st_mtime,
-                    "open": opened.get(session, 0),
-                    "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
-                    "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
-                    "dir": os.path.isdir(os.path.join(folder.path, session)),
-                    "recorded": session in copied_ids,
-                    "copied": copied,
-                    **summary,
-                }
-            )
+            listed.append((folder, session, item.path, stat))
+    # Every transcript at once, so that their parts can be read together.
+    found = summaries([item[2] for item in listed], said=said)
+    for (folder, session, transcript, stat), summary in zip(listed, found, strict=True):
+        if summary is None:
+            continue
+        try:
+            recorded = (manifest or {}).get(manifest_key(folder.name, session))
+            copied = recorded is not None and file_digest(transcript) == recorded
+        except OSError:
+            continue
+        sessions.append(
+            {
+                "id": session,
+                "folder": folder.name,
+                "mtime": stat.st_mtime,
+                "open": opened.get(session, 0),
+                "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
+                "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
+                "dir": os.path.isdir(os.path.join(folder.path, session)),
+                "recorded": session in copied_ids,
+                "copied": copied,
+                **summary,
+            }
+        )
     return sessions
 
 
@@ -335,12 +434,17 @@ def main():
     )
     params = module.params
     manifest = read_manifest(params["manifest"]) if params["manifest"] else None
-    opened = open_sessions(params["path"])
+    opened, said = open_sessions(params["path"]), []
+    sessions = list_sessions(
+        params["path"], params["days"], params["ids"], every=params["all"], manifest=manifest, opened=opened, said=said
+    )
+    for why in said:
+        module.warn(
+            f"The transcripts were read by one process: the processes to read them together could not be had ({why})."
+        )
     module.exit_json(
         changed=False,
-        sessions=list_sessions(
-            params["path"], params["days"], params["ids"], every=params["all"], manifest=manifest, opened=opened
-        ),
+        sessions=sessions,
         memory=memory_folders(params["path"]) if params["memory"] else [],
         registered=opened,
         repo_paths=repo_paths(params["path"]) if params["repo_paths"] else {},
