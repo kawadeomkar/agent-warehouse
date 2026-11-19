@@ -254,7 +254,8 @@ command starts it. A VM configured with an API key is already signed in, and goe
 ### Every window picks the folder's conversation up
 
 The terminal runs `claude --continue`: the
-folder's most recent conversation, or a new one when there is none. A window reload (*Developer:
+folder's most recent conversation, or a new `claude` when Claude Code holds none of the folder's (so the
+first window in a folder asks Claude Code's trust question and then starts Claude). A window reload (*Developer:
 Reload Window*, or the *Reload Required* an extension install can ask for) ends the task's process
 and runs the task again, so nothing is lost but the reply in flight; `/clear` starts a fresh
 conversation. Opening a window that is already open focuses it rather than starting a second

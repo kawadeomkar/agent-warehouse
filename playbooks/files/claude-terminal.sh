@@ -45,11 +45,19 @@
 # which the task runs again, so without it a reload would end the conversation
 # (/clear starts a fresh one). Where there is none to continue - a VM nobody
 # has talked to Claude on yet, whose only session may be Remote Control's -
-# Claude Code 2.1 says "No conversation found to continue" and exits 1 at once,
-# so a --continue that fails within its first seconds starts a fresh claude
-# instead; one that ran and then failed is not started again. A copy of this
-# machine's sessions never answers --continue: it is filed under the folder
-# name it has here, not the checkout's.
+# a fresh claude starts: --continue is run only where Claude Code holds a
+# transcript of the folder, filed under its path with every character but a
+# letter or a digit made a dash (both the path as walked and as it really is).
+# Never --continue on the chance: in a folder not yet trusted, Claude Code asks
+# the trust question first and says "No conversation found to continue" only
+# after the answer, so the run that has to ask it would end with no claude.
+# Where Claude Code may file the folder otherwise - a path with a character
+# outside ASCII, or a name longer than 200 characters - --continue is run as
+# before. A --continue that fails within its first seconds still starts
+# a fresh claude (Claude Code 2.1 exits 1 at once with nothing to continue);
+# one that ran and then failed is not started again. A copy of this machine's
+# sessions never answers --continue: it is filed under the folder name it has
+# here, not the checkout's.
 #
 # No exec, so the script ends with exit 0 whatever claude did, and a stop ends
 # with exit 0 too: on a non-zero exit VS Code prints the whole command line,
@@ -106,6 +114,25 @@ if [ -n "$refresh" ] && [ -n "$9" ]; then
 fi
 if [ -n "$resume" ]; then
   claude --resume "$resume"
+  exit 0
+fi
+earlier=
+config=$CLAUDE_CONFIG_DIR
+[ -n "$config" ] || config=$HOME/.claude
+for here in "$(pwd -P)" "$PWD"; do
+  name=$(printf '%s' "$here" | tr -c 'A-Za-z0-9' '-')
+  wide=$(printf '%s' "$here" | LC_ALL=C tr -d '\000-\177')
+  size=$(printf '%s' "$name" | wc -c)
+  if [ -n "$wide" ] || [ $((size)) -gt 200 ]; then
+    earlier=1
+  fi
+  for transcript in "$config/projects/$name"/*.jsonl; do
+    [ ! -e "$transcript" ] || earlier=1
+    break
+  done
+done
+if [ -z "$earlier" ]; then
+  claude
   exit 0
 fi
 started=$SECONDS
