@@ -222,7 +222,7 @@ def test_a_name_another_hosts_vm_has_is_refused_before_proxmox_is_asked(tmp_path
     (tmp_path / "ssh.conf").write_text(_block("delta", "lab"))
     root = status_root(tmp_path, fleet, FROM_THE_HOST)
     play = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
-    tasks = [{**task, "ansible.builtin.import_tasks": f"{PLAYBOOKS / 'tasks'}/vm_names.yml"} for task in play["tasks"]]
+    tasks = [_named(task) for task in play["tasks"]]
     (root / "first.yml").write_text(yaml.safe_dump([{**play, "tasks": tasks}]))
     extra = json.dumps({"vm_name": "delta"})
     report = _run(root, root / "first.yml", {}, *_proxmox_inventory(root), "-e", extra, "-e", NUC, timeout=120)
@@ -317,7 +317,7 @@ def test_a_name_this_machine_reaches_another_host_by_is_refused_before_proxmox_i
 def test_a_name_with_a_dot_passes_the_checks_deploy_makes_first(tmp_path, fleet) -> None:
     root = status_root(tmp_path, fleet, FROM_THE_HOST)
     play = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
-    tasks = [{**task, "ansible.builtin.import_tasks": f"{PLAYBOOKS / 'tasks'}/vm_names.yml"} for task in play["tasks"]]
+    tasks = [_named(task) for task in play["tasks"]]
     (root / "first.yml").write_text(yaml.safe_dump([{**play, "tasks": tasks}]))
     extra = json.dumps({"vm_name": "alpha.lab,beta"})
     report = _run(root, root / "first.yml", {}, *_proxmox_inventory(root), "-e", extra, timeout=120)
@@ -351,15 +351,25 @@ def test_the_vm_just_code_opens_counts_as_named_even_in_a_bare_deploy() -> None:
     assert [task["vars"]["claude_vm_names_chosen"] for task in alias] == ["{{ claude_vm_names }}"]
 
 
+def _named(task: dict) -> dict:
+    """deploy.yml's first play's task, each of its imports the names' check by its path here: the --project refusal
+    beside them stays as it is."""
+    if "ansible.builtin.import_tasks" not in task:
+        return task
+    return {**task, "ansible.builtin.import_tasks": f"{PLAYBOOKS / 'tasks'}/vm_names.yml"}
+
+
 def test_deploy_refuses_a_name_in_its_first_play() -> None:
     # Before the template play, whose build needs root SSH: tested against the fake above. Then how the VMs are
-    # reached, whose login through the Proxmox host is checked before anything is built (test_vm_route.py).
+    # reached, whose login through the Proxmox host is checked before anything is built (test_vm_route.py). Before
+    # either, a --project where no window opens, which reads nothing.
     first = yaml.safe_load((REPO / "deploy.yml").read_text())[0]
-    assert [task["ansible.builtin.import_tasks"] for task in first["tasks"]] == [
+    assert [task.get("ansible.builtin.import_tasks", task["name"]) for task in first["tasks"]] == [
+        "Refuse a --project where the deploy opens no window",
         "playbooks/tasks/vm_names.yml",
         "playbooks/tasks/vm_route.yml",
     ]
-    assert first["tasks"][0]["vars"] == {"claude_vm_names_alias": True}
+    assert first["tasks"][1]["vars"] == {"claude_vm_names_alias": True}
 
 
 # ------------------------------------------------------------------- the default VM's name through 1.x ----

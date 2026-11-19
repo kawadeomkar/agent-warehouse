@@ -208,3 +208,37 @@ def test_several_vms_are_said_as_a_list_and_get_no_window(tmp_path, names, said_
         f" then signing in to Claude and GitHub. Each sign-in {WAITS}"
     ) in said, said
     assert "VS Code" not in said
+
+
+# --project: the window opens that folder, so the run says it, and a deploy that opens no window refuses it.
+def test_the_folder_the_window_opens_is_said(tmp_path):
+    settings = {"anthropic_api_key": "an-api-key", "github_token": "a-token", "tailscale_auth_key": KEY}
+    said = _said(tmp_path, built=True, vm_project="discord-music-bot", **settings)
+    assert said.endswith("which takes several minutes, and opening discord-music-bot on alpha in VS Code."), said
+
+
+REFUSE_PROJECT = "Refuse a --project where the deploy opens no window"
+
+
+@pytest.mark.parametrize(
+    ("given", "refused"),
+    [
+        pytest.param({"vm_project": "repo", "deploy_code": False}, True, id="no-window"),
+        pytest.param({"vm_project": "repo", "deploy_code": True}, False, id="window"),
+        pytest.param({"deploy_code": False}, False, id="no-project"),
+    ],
+)
+def test_a_project_is_refused_before_anything_where_the_deploy_opens_no_window(tmp_path, given, refused):
+    plays = yaml.safe_load((REPO / "deploy.yml").read_text())
+    # In the first play, before the template's.
+    assert REFUSE_PROJECT in [task["name"] for task in plays[0]["tasks"]]
+    task = next(task for task in plays[0]["tasks"] if task["name"] == REFUSE_PROJECT)
+    playbook = tmp_path / "refuse_project.yml"
+    playbook.write_text(yaml.safe_dump([{"hosts": "localhost", "gather_facts": False, "tasks": [task]}]))
+    report = _run(tmp_path, playbook, {}, "-e", json.dumps({"claude_vm_names": ["alpha"], **given}))
+    failures = _failures(report)
+    if refused:
+        assert "deploy_code is false, so this deploy opens none" in failures["localhost"], failures
+        assert "just code alpha --project repo." in failures["localhost"], failures
+    else:
+        assert report["rc"] == 0 and not failures, failures

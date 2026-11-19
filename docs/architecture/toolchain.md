@@ -3,7 +3,13 @@
 Everything is pinned in `pyproject.toml`, locked with every package it pulls in (version and hash) in
 `uv.lock`, and lives in the project's environment, which `tools/env-run` decides: a virtualenv of yours when
 you bring one (`PYTHON=`, or `python3` as the shell finds it in the checkout when that is a virtualenv), and
-otherwise the checkout's own. `just install` runs `uv sync --locked`, which refuses a lock that no longer
+otherwise the checkout's own. Where just was started in another repository - through an alias such as `alias
+aw='just --justfile ~/agent-warehouse/justfile'`, from a project's own folder - `python3` on `PATH` is never
+looked at: with that project's virtualenv active it is that project's, and `just install` would put Ansible into it.
+The environment is then `PYTHON`'s, which such an alias can name (`... justfile PYTHON=<yours>/bin/python`), or the
+checkout's own. Where just was started is `STARTED_IN` (the folder it was started in, unless the command line names
+another), read as one word by `tools/check started` and handed to `tools/env-run --started=<word>` by every recipe's
+`find_bin` and by `just install`; a recipe another runs (`init`'s `{{ self }} install`) is handed its parent's. `just install` runs `uv sync --locked`, which refuses a lock that no longer
 matches `pyproject.toml`: into one of yours `--inexact`, with Python downloads off, so the versions the lock
 pins go in and nothing else of the environment is removed; into the checkout's own, which the first run
 makes, `--managed-python --python 3.13` (`managed_python`), on a Python uv downloads, exactly the lock's.

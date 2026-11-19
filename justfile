@@ -91,6 +91,12 @@ GIT_HOOK := ''
 # tools/mcp starts. 1: the sign-ins run and open their pages here, and nothing asks a question (no_tty_args). Empty,
 # a run with no terminal is taken for one nobody watches.
 ATTENDED := ''
+# From the command line only, as BIN: where just was started, which tools/check started reads as one word - this
+# checkout, a folder in no repository, another repository outside this checkout's folder - for the recipes that ask:
+# started in another repository, the virtualenv python3 on PATH is that project's, never taken for this one's
+# (tools/env-run --started). Absolute, or relative to this checkout; a recipe run inside another's ({{ self }}) is
+# started in this checkout, and is handed its parent's.
+STARTED_IN := invocation_directory()
 # One run that changes something at a time, from a terminal or an agent (tools/check lock): two deploys could take one
 # VM ID, and runs share the managed SSH config. From the command line only, as BIN; RUN_LOCK= takes none, as LOG_DIR=
 # keeps no log.
@@ -114,17 +120,18 @@ nested_host := ''
 # recipe that includes another's work (test lints, init installs) runs it by.
 # A recursive just would otherwise start without the command line's BIN= and
 # the rest; tests/unit/test_justfile.py holds this to every setting above.
-self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' ATTENDED=' + quote(ATTENDED) + ' RUN_LOCK=' + quote(RUN_LOCK) + ' HOSTS_DIR=' + quote(HOSTS_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run) + ' nested_host=' + quote(nested_host)
+self := quote(just_executable()) + ' --justfile ' + quote(justfile()) + ' PYTHON=' + quote(PYTHON) + ' UV=' + quote(UV) + ' ANSIBLE_ARGS=' + quote(ANSIBLE_ARGS) + ' LOG_DIR=' + quote(LOG_DIR) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' STATUS_DIR=' + quote(STATUS_DIR) + ' BIN=' + quote(BIN) + ' VAULT_FILE=' + quote(VAULT_FILE) + ' VAULT_PASS=' + quote(VAULT_PASS) + ' SETTINGS_FILES=' + quote(SETTINGS_FILES) + ' INIT_FILES=' + quote(INIT_FILES) + ' GIT_HOOK=' + quote(GIT_HOOK) + ' LIVE_DIR=' + quote(LIVE_DIR) + ' ATTENDED=' + quote(ATTENDED) + ' STARTED_IN=' + quote(STARTED_IN) + ' RUN_LOCK=' + quote(RUN_LOCK) + ' HOSTS_DIR=' + quote(HOSTS_DIR) + ' stamp=' + quote(stamp) + ' live_run=' + quote(live_run) + ' nested_host=' + quote(nested_host)
 # The first line of every recipe but help.
 guard := quote(justfile_directory() / 'tools/check') + ' checkout ' + quote(invocation_directory())
 # The names given ("$@"), joined with commas into $names. A VM name with an underscore, which Proxmox refuses in a
 # name, is taken with a hyphen in its place, and said. The names are held to their pattern, which has no space or
 # wildcard, so splitting $names on , is safe.
 hyphenate_names := 'names=$(IFS=,; printf %s "$*"); for name in $(printf %s "$names" | tr , " "); do case "$name" in *_*) echo "warning: Proxmox does not allow underscores in VM names, so $name was changed to $(printf %s "$name" | tr _ -)" >&2 ;; esac; done; names=$(printf %s "$names" | tr _ -)'
-# The scripts directory of the environment tools/env-run finds, or BIN: refused, with how to make one, for a Python
-# that is no virtualenv's; and this checkout's own Galaxy collections, which every Ansible the recipe runs is
-# pointed at, so no other checkout's just install can change them.
-find_bin := 'bin=' + quote(BIN) + '; [ -n "$bin" ] || bin=$(PYTHON=' + quote(PYTHON) + ' tools/env-run --bin); ANSIBLE_COLLECTIONS_PATH=$(tools/env-run --collections); export ANSIBLE_COLLECTIONS_PATH'
+# Where just was started ($started, tools/check started's word for STARTED_IN); the scripts directory of the
+# environment tools/env-run finds from it, or BIN: refused, with how to make one, for a Python that is no virtualenv's;
+# and this checkout's own Galaxy collections, which every Ansible the recipe runs is pointed at, so no other
+# checkout's just install can change them.
+find_bin := 'started=$(tools/check started ' + quote(STARTED_IN) + '); bin=' + quote(BIN) + '; [ -n "$bin" ] || bin=$(PYTHON=' + quote(PYTHON) + ' tools/env-run --started="$started" --bin); ANSIBLE_COLLECTIONS_PATH=$(tools/env-run --collections); export ANSIBLE_COLLECTIONS_PATH'
 # tools/run-logged with the run's logging settings; its first argument is the
 # log's name.
 run_logged := 'env LOG_DIR=' + quote(if LOG_DIR == '' { '' } else { absolute_path(LOG_DIR) }) + ' LOG_RETENTION_DAYS=' + quote(LOG_RETENTION_DAYS) + ' AGENT_WAREHOUSE_LOG_STAMP=' + quote(stamp) + ' ' + quote(justfile_directory() / 'tools/run-logged')
@@ -438,7 +445,9 @@ install LOCK='':
       rm -rf "$data/venv"
       echo "Moved this checkout's own folder from $legacy to $data, its name from 2.0."
     fi
-    which=$(PYTHON={{ quote(PYTHON) }} tools/env-run --which)
+    # Started in another repository, never into the virtualenv on PATH there, which is that project's.
+    started=$(tools/check started {{ quote(STARTED_IN) }})
+    which=$(PYTHON={{ quote(PYTHON) }} tools/env-run --started="$started" --which)
     case "$which" in
     own\ *)
       {{ find_bin }}
@@ -523,6 +532,11 @@ vault ON='':
 # github_projects setting, kept in the VM's notes in Proxmox, where the VM cannot
 # change it, for every later run of it. Another --repos adds to a VM's list, and
 # nothing removes a checkout. A VM made without one is refused it.
+#
+# --project is the folder the editor's window opens at the end, as just code
+# --project's: so only beside one VM, or none (the default VM), and never beside
+# --only, --check or --tags, which open no window. The lines that say how to open
+# the window later carry it.
 [arg('START', long='start', value='true', help='Start a VM this run would leave stopped (proxmox_vm_start_existing)')]
 [arg('CHECK', long='check', value='check', help='Dry-run configuration: ansible-playbook --check --diff (every tagged VM, unless named)')]
 [arg('NAMES', pattern='[A-Za-z0-9][A-Za-z0-9._,-]*', help='The VMs; none means agent-warehouse-default, or every VM this project created for --only configure, --check and --only ssh-config')]
@@ -531,6 +545,7 @@ vault ON='':
 [arg('DISK', long='disk', pattern='([1-9][0-9]{0,5}[GT])?', help="Each new VM's root disk, as 64G or 1T, in place of the vm_disk_size setting")]
 [arg('ON', long='host', pattern='([a-z0-9][a-z0-9-]{0,30})?', help='Run against this host rather than the current one (just host lists them)')]
 [arg('MEMORY', long='memory', pattern='([1-9][0-9]{0,6}[MG]?)?', help="Each new VM's memory: MiB, or 16G, in place of the vm_memory_mb setting")]
+[arg('PROJECT', long='project', pattern='([A-Za-z0-9._-]{1,100})?', help="Open one project folder of the one VM in the editor rather than the whole projects directory, as just code --project does")]
 [arg('STAGE', long='only', pattern='(template|provision|configure|ssh-config)?', help='Run one stage and nothing after it: template (the cloud-init template, if missing), provision (create and start), configure (every tagged VM, unless named) or ssh-config (refresh the SSH aliases; without names, also prune those of VMs that are gone)')]
 [arg('REPOS', long='repos', pattern='([A-Za-z0-9_][A-Za-z0-9._-]{0,99}(,[A-Za-z0-9_][A-Za-z0-9._-]{0,99})*)?', help="Only these of your GitHub repositories on each VM named, comma-separated, in place of the github_projects setting: kept for that VM, and added to by a later --repos")]
 [continue]
@@ -539,13 +554,14 @@ vault ON='':
 [no-exit-message]
 [positional-arguments]
 [script]
-deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' *NAMES:
+deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPOS='' PROJECT='' *NAMES:
     {{ guard }}
-    stage=$1 check=$2 on=$3 roles=$4 start=$5 cores=$6 memory=$7 disk=$8 repos=$9
-    shift 9
+    stage=$1 check=$2 on=$3 roles=$4 start=$5 cores=$6 memory=$7 disk=$8 repos=$9 project=${10}
+    shift 10
     tools/check names "$@"
     tools/check size "$cores" "$memory" "$disk"
     tools/check repos "$repos"
+    tools/check project "$project"
     {{ hyphenate_names }}
     # A stage typed where the names go, by habit from just test unit, would
     # create a VM so named: at a terminal deploy asks which was meant, and
@@ -565,7 +581,7 @@ deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPO
       *,*) meant='' as_vm='VMs so named, each' what='are stages of just deploy and also names VMs could have' ;;
       *) meant=$hint as_vm="a VM named $word," what='is a stage of just deploy and also a name a VM could have' ;;
       esac
-      options=${roles:+ --tags $roles}${start:+ --start}${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}${repos:+ --repos $repos}
+      options=${roles:+ --tags $roles}${start:+ --start}${cores:+ --cores $cores}${memory:+ --memory $memory}${disk:+ --disk $disk}${repos:+ --repos $repos}${project:+ --project $project}
       if [ ! -t 0 ]; then
         echo "error: $words $what, and there is no terminal to ask which was meant: give a stage as just deploy $hint, or a VM so named beside one, as just deploy --only provision $word" >&2
         exit 1
@@ -626,6 +642,19 @@ deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPO
       echo "error: --repos gives a VM its list as it is provisioned, which only just deploy and just deploy --only provision do" >&2
       exit 1
     fi
+    # --project is the folder the editor's window opens, which only a whole deploy for one VM opens: a deploy for
+    # several opens none, and --only, --check and --tags none at all. Where deploy_code is false, which the recipe
+    # cannot see, deploy.yml's first play refuses it.
+    if [ -n "$project" ] && [ -n "$stage$check$roles" ]; then
+      echo "error: --project is the folder the editor's window opens, which only a whole just deploy opens, not beside --only, --check or --tags: just deploy <name> --project $project" >&2
+      exit 1
+    fi
+    case "$project:$names" in
+    ?*:*,*)
+      echo "error: --project is the folder the editor's window opens, and a deploy for several VMs opens none: name one VM, just deploy <name> --project $project" >&2
+      exit 1 ;;
+    esac
+    sized=$sized${project:+ --project $project}
     {{ host_env }}
     # A VM name is one host's: a deploy that may make the VMs named asks every other host for each name no alias here
     # places on a host (tools/status --taken: GETs only, each host with its own token), and refuses one found there.
@@ -662,6 +691,8 @@ deploy STAGE='' CHECK='' ON='' ROLES='' START='' CORES='' MEMORY='' DISK='' REPO
     [ -z "$size" ] || set -- "$@" -e "{\"vm_size\": {$size}}"
     # The list as JSON: just held it to its pattern, and tools/check repos again, so each name sits whole in it.
     [ -z "$repos" ] || set -- "$@" -e "{\"vm_repos\": [\"$(printf %s "$repos" | sed 's/,/", "/g')\"]}"
+    # One folder name, which just and tools/check project held to its pattern, so it sits whole in the JSON.
+    [ -z "$project" ] || set -- "$@" -e "{\"vm_project\": \"$project\"}"
     if [ -n "$check" ]; then
       name=deploy-check playbook=playbooks/configure.yml
     elif [ -n "$stage" ]; then

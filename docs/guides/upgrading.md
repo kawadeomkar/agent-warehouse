@@ -37,6 +37,15 @@ naming `just install`, while one differs. They live in the checkout's own folder
   not its whole size, so a long session already on a VM goes on being copied while it grows here by less than the
   bound between two copies.
 
+## From another repository's folder, from 2.8
+
+`just` started in another repository's folder - `just --justfile ~/agent-warehouse/justfile ...`, or an alias of it -
+was refused until 2.8, and now runs: only a folder inside this checkout whose repository is another (a worktree under
+`.claude/worktrees/`) is still refused. Started there, the virtualenv `python3` is on `PATH` is that project's, so it
+is never used: set `PYTHON` in the alias to your own environment for this project, or run `just install` once, which
+makes the checkout's own ([VMs](vms.md#from-a-projects-own-folder)). `just deploy` takes `--project`, as `just code`
+does.
+
 ## The VMs through the Proxmox host, from 2.7
 
 `vm_ssh_route` is new, and `auto` by default

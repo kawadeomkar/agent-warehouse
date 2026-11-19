@@ -416,15 +416,106 @@ def test_a_run_from_a_subdirectory_of_the_checkout_runs(tmp_path: Path) -> None:
     assert result.returncode == 0, _output(result)
 
 
-def test_a_run_from_another_checkout_is_refused(tmp_path: Path) -> None:
-    # As a make-era worktree under .claude/worktrees/ would be: just finds this justfile above it.
+def test_a_run_from_another_repository_outside_the_checkout_runs(tmp_path: Path) -> None:
+    # It reached this justfile by name (--justfile, an alias), which is deliberate: just's own search upward could
+    # never have found it from there.
     other = tmp_path / "other"
     other.mkdir()
-    subprocess.run(["git", "init", "-q", str(other)], check=True)
+    subprocess.run(["git", "init", "-q", str(other)], check=True, env=_git_env())
     result = _just(f"--justfile={JUSTFILE}", *_recording(tmp_path), "status", cwd=other)
+    assert result.returncode == 0, _output(result)
+
+
+def _git_env() -> dict[str, str]:
+    """git with no config of the developer's: their own (an init.defaultBranch, a hook) changes what it makes."""
+    return _env({"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"})
+
+
+def _outer_with_a_nested_worktree(tmp_path: Path) -> tuple[Path, Path]:
+    """A scratch checkout and a worktree of it under .claude/worktrees/, as this checkout's own are: what just's
+    search upward reaches from inside, where the justfile it finds is the outer one's."""
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    env = _git_env()
+    subprocess.run(["git", "init", "-q", str(outer)], check=True, env=env)
+    identity = ["-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(["git", "-C", str(outer), *identity, "commit", "-q", "--allow-empty", "-mx"], check=True, env=env)
+    nested = outer / ".claude" / "worktrees" / "older"
+    subprocess.run(["git", "-C", str(outer), "worktree", "add", "-q", str(nested)], check=True, env=env)
+    return outer, nested
+
+
+def _check_in(checkout: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """The real tools/check, run with a scratch checkout as "this checkout": it takes that from where it runs."""
+    return subprocess.run(
+        [str(REPO / "tools" / "check"), *args],
+        cwd=checkout,
+        env=_git_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+
+
+def test_a_run_from_a_worktree_inside_the_checkout_s_folder_is_refused(tmp_path: Path) -> None:
+    # As a make-era worktree under .claude/worktrees/ would be: just finds the outer justfile above it.
+    outer, nested = _outer_with_a_nested_worktree(tmp_path)
+    for start in (nested, nested / "sub"):
+        start.mkdir(exist_ok=True)
+        result = _check_in(outer, "checkout", str(start))
+        assert result.returncode != 0, result.stdout
+        assert f"in the checkout {nested.resolve()}, which has no justfile of its own" in result.stderr, result.stderr
+
+
+def test_a_nested_worktree_typed_in_another_case_is_refused(tmp_path: Path) -> None:
+    # The shell's pwd keeps the case a folder was typed in, which macOS's file system ignores: by name, the nested
+    # worktree would read as outside the checkout. Folders are compared by identity.
+    outer, nested = _outer_with_a_nested_worktree(tmp_path)
+    variant = nested.with_name(nested.name.swapcase())
+    if not variant.exists():
+        pytest.skip("this file system tells a folder's name from its other case")
+    result = _check_in(outer, "checkout", str(variant))
+    assert result.returncode != 0, result.stdout
+    assert "which has no justfile of its own" in result.stderr
+
+
+def test_a_nested_worktree_reached_through_a_link_from_outside_is_refused(tmp_path: Path) -> None:
+    outer, nested = _outer_with_a_nested_worktree(tmp_path)
+    link = tmp_path / "link"
+    link.symlink_to(nested)
+    result = _check_in(outer, "checkout", str(link))
+    assert result.returncode != 0, result.stdout
+    assert "which has no justfile of its own" in result.stderr
+
+
+def test_a_start_that_cannot_be_read_is_refused(tmp_path: Path) -> None:
+    outer, _ = _outer_with_a_nested_worktree(tmp_path)
+    gone = tmp_path / "gone"
+    result = _check_in(outer, "checkout", str(gone))
     assert result.returncode != 0
-    assert f"in the checkout {other.resolve()}" in result.stderr or f"in the checkout {other}" in result.stderr
-    assert _runs(tmp_path, "ansible-playbook") == []
+    assert f"just was started in {gone}, which cannot be read" in result.stderr
+
+
+def test_where_just_was_started_is_one_word(tmp_path: Path) -> None:
+    outer, nested = _outer_with_a_nested_worktree(tmp_path)
+    (outer / "sub").mkdir()
+    other = tmp_path / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True, env=_git_env())
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    for start, word in [
+        (outer, "this"),
+        (outer / "sub", "this"),
+        (nested, "inside"),
+        (other, "elsewhere"),
+        (plain, "none"),
+    ]:
+        result = _check_in(outer, "started", str(start))
+        assert (result.returncode, result.stdout) == (0, f"{word}\n"), (start, result.stderr)
+    # None given (the MCP server's STARTED_IN=): no source.
+    assert _check_in(outer, "started", "").stdout == "none\n"
 
 
 def test_a_run_from_the_checkout_spelt_in_another_case_runs(tmp_path: Path) -> None:
@@ -743,6 +834,7 @@ def test_check_is_a_dry_run_of_configuration(tmp_path: Path) -> None:
         (["destroy", "alpha", "beta"], "destroy alpha beta"),
         (["code", "alpha"], "code alpha"),
         (["code", "alpha", "--project", "demo"], "code --project demo alpha"),
+        (["deploy", "alpha", "--project", "demo"], "deploy --project demo alpha"),
         (["code", "alpha", "--session", "0a608ad8-1b2c-4d3e-8f90-123456789abc"], "code alpha"),
     ],
 )
@@ -1100,6 +1192,47 @@ def test_code_refuses_a_bad_project_before_the_playbook(tmp_path: Path, value: s
     assert error in _refused(tmp_path, "code", "alpha", "--project", value)
 
 
+# ------------------------------------------------------------- deploy --project ----
+
+
+def test_deploy_passes_a_project_as_its_own_json_extra_var(tmp_path: Path) -> None:
+    # The window's folder, as just code --project's: deploy.yml hands it to code.yml.
+    run = _playbook(tmp_path, "deploy", "alpha", "--project", "discord-music-bot")
+    assert run[-1] == "deploy.yml", run
+    assert run[run.index('{"vm_name": "alpha"}') + 1 : run.index('{"vm_name": "alpha"}') + 3] == [
+        "-e",
+        '{"vm_project": "discord-music-bot"}',
+    ], run
+    # A bare deploy is one VM, the default one.
+    bare = _playbook(tmp_path / "bare", "deploy", "--project", "x")
+    assert '{"vm_project": "x"}' in bare and bare[-1] == "deploy.yml", bare
+    assert not [arg for arg in _playbook(tmp_path / "none", "deploy", "alpha") if "vm_project" in arg]
+
+
+@pytest.mark.parametrize(
+    ("args", "error"),
+    [
+        pytest.param(["alpha,beta"], "a deploy for several VMs opens none", id="several"),
+        pytest.param(["alpha", "beta"], "a deploy for several VMs opens none", id="several-words"),
+        pytest.param(["alpha", "--only", "configure"], "not beside --only, --check or --tags", id="only"),
+        pytest.param(["--only", "provision"], "not beside --only, --check or --tags", id="only-provision"),
+        pytest.param(["alpha", "--check"], "not beside --only, --check or --tags", id="check"),
+        pytest.param(["alpha", "--tags", "claude_code"], "not beside --only, --check or --tags", id="tags"),
+    ],
+)
+def test_deploy_refuses_a_project_where_no_window_opens(tmp_path: Path, args: list[str], error: str) -> None:
+    assert error in _refused(tmp_path, "deploy", *args, "--project", "repo")
+
+
+@pytest.mark.parametrize("value", ["../etc", "org/repo", "a b", "a" * 101])
+def test_deploy_refuses_a_bad_project_before_the_playbook(tmp_path: Path, value: str) -> None:
+    assert NOT_MATCHED in _refused(tmp_path, "deploy", "alpha", "--project", value)
+
+
+def test_deploy_refuses_a_dot_project_as_code_does(tmp_path: Path) -> None:
+    assert "--project names one project folder, not [..]" in _refused(tmp_path, "deploy", "alpha", "--project", "..")
+
+
 # ----------------------------------------------------------------- --editor ----
 
 
@@ -1171,11 +1304,15 @@ def test_the_session_check_takes_a_session_id_or_none(value: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("option", "value"),
-    [("--project", "repo"), ("--session", SESSION_ID), ("--editor", "vscode")],
-    ids=["project", "session", "editor"],
+    ("recipe", "option", "value"),
+    [
+        pytest.param(recipe, option, value, id=f"{recipe}-{option[2:]}")
+        for recipe in ("deploy", "login", "status", "destroy")
+        for option, value in (("--project", "repo"), ("--session", SESSION_ID), ("--editor", "vscode"))
+        # deploy's window opens one project too (test_deploy_passes_a_project_as_its_own_json_extra_var).
+        if (recipe, option) != ("deploy", "--project")
+    ],
 )
-@pytest.mark.parametrize("recipe", ["deploy", "login", "status", "destroy"])
 def test_only_code_takes_its_options(tmp_path: Path, recipe: str, option: str, value: str) -> None:
     output = _refused(tmp_path, recipe, "alpha", option, value)
     assert f"does not have option `{option}`" in output or NOT_MATCHED in output
@@ -2103,6 +2240,88 @@ def test_env_run_without_a_virtualenv_uses_this_checkout_s_own(tmp_path: Path) -
     (venv / "bin").mkdir(parents=True)
     (venv / "bin" / "python").symlink_to(sys.executable)
     assert _env_run_in(env, "--bin").stdout.strip() == f"{venv}/bin"
+
+
+def _virtualenv_first(tmp_path: Path) -> dict[str, str]:
+    """An environment where python3 is a virtualenv's (the one running the tests, first on PATH) and PYTHON is unset,
+    with a data folder of the test's own: as in another project's folder with its virtualenv active."""
+    return {
+        "PATH": f"{ENVIRONMENT}{os.pathsep}{os.environ['PATH']}",
+        "HOME": os.environ.get("HOME", "/"),
+        "XDG_DATA_HOME": str(tmp_path / "data"),
+    }
+
+
+def test_env_run_started_in_another_repository_never_takes_the_virtualenv_on_path(tmp_path: Path) -> None:
+    # That virtualenv is the other project's: just install would put Ansible into it.
+    env = _virtualenv_first(tmp_path)
+    managed = Path(_env_run_in(env, "--data").stdout.strip()) / "venv" / "bin" / "python"
+    assert _env_run_in(env, "--which").stdout.strip() == "own python3"
+    assert _env_run_in(env, "--started=this", "--which").stdout.strip() == "own python3"
+    assert _env_run_in(env, "--started=none", "--which").stdout.strip() == "own python3"
+    assert _env_run_in(env, "--started=elsewhere", "--which").stdout.strip() == f"managed {managed}"
+    missing = _env_run_in(env, "--started=elsewhere", "--bin")
+    assert missing.returncode != 0 and missing.stdout == ""
+    assert "just was started in another repository, so the virtualenv on PATH" in missing.stderr
+    # PYTHON wins in both.
+    env["PYTHON"] = sys.executable
+    for started in ("this", "elsewhere"):
+        said = _env_run_in(env, f"--started={started}", "--which").stdout.strip()
+        assert said == f"own {sys.executable}", said
+
+
+def test_install_started_in_another_repository_makes_this_checkout_s_own_environment(tmp_path: Path) -> None:
+    # Started in another project's folder with its virtualenv active: never a sync into that virtualenv.
+    env = _virtualenv_first(tmp_path)
+    data = Path(_env_run_in(env, "--data").stdout.strip())
+    other = tmp_path / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True, env=_git_env())
+    galaxy = tmp_path / "galaxy"
+    galaxy.write_text(f"#!/bin/sh\n{NOT_THE_PINS}\n")
+    galaxy.chmod(0o755)
+    _stand_in(
+        tmp_path / "uv-bin",
+        "uv",
+        f'printf "%s\\n" "$UV_PROJECT_ENVIRONMENT" > "{tmp_path / "uv-env"}"\n'
+        'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
+        f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
+        f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
+    )
+    result = _just(f"--justfile={JUSTFILE}", f"UV={tmp_path / 'uv-bin' / 'uv'}", "install", env=env, cwd=other)
+    assert result.returncode == 0, _output(result)
+    assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv"]
+    # And a recipe that runs a tool takes it from there too, not from the virtualenv on PATH: its Python records
+    # tools/status, which would read the developer's settings, and runs nothing of it.
+    seen = tmp_path / "status.args"
+    python = data / "venv" / "bin" / "python"
+    python.unlink()
+    python.write_text(
+        f'#!/bin/sh\nif [ "$1" = tools/status ]; then echo "$0" >> "{seen}"; exit 0; fi\nexec "{sys.executable}" "$@"\n'
+    )
+    python.chmod(0o755)
+    status = _just(
+        f"--justfile={JUSTFILE}",
+        f"VAULT_FILE={_vault(tmp_path)}",
+        _settings_files(tmp_path),
+        f"STATUS_DIR={tmp_path / 'status'}",
+        f"HOSTS_DIR={tmp_path / 'hosts'}",
+        f"LOG_DIR={tmp_path / 'logs'}",
+        "status",
+        "--only",
+        "vms",
+        env=env,
+        cwd=other,
+    )
+    assert status.returncode == 0, _output(status)
+    assert seen.read_text() == f"{python}\n", _output(status)
+
+
+def test_a_recipe_run_inside_another_is_handed_where_just_was_started() -> None:
+    # init runs install as a recipe of its own ({{ self }}), started in this checkout: STARTED_IN keeps where the
+    # person was, so that one too never takes the virtualenv on PATH there.
+    self_line = _evaluate("self")
+    assert " STARTED_IN=" in self_line, self_line
 
 
 def test_env_run_prefers_a_virtualenv_of_the_user_s() -> None:

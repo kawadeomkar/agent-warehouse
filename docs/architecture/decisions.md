@@ -100,9 +100,16 @@ How the justfile is built, and why (each tried on just 1.59.0, on macOS and in `
   `"${a[@]}"` of an empty array is fatal with `-u`, so the scripts build argument lists with `set --`.
 - **The checkout guard.** just looks for a justfile upward and does not stop at a checkout's `.git`, so
   started in a worktree of a branch without one - under `.claude/worktrees/` - it would run this checkout's
-  recipes, with its inventory and vault. `tools/check checkout` refuses that, comparing git's top level of
-  where just was started with git's of this checkout: never the shell's `pwd`, which keeps a directory in
-  the case it was typed in, while macOS's file system takes any case and git gives the disk's.
+  recipes, with its inventory and vault. That can only happen from inside this checkout's folder: a start
+  outside it reached this justfile by name (`--justfile`, an alias), which is deliberate, and is allowed from
+  2.8, so `just deploy --project` can be run from the project's own folder. `tools/check checkout` refuses
+  a start in this checkout's folder or below it whose git top level is another, and one that cannot be read.
+  "Below it" is decided by the folders' identity (`-ef`, the same device and inode), walking up from where
+  just was started, never by their names: the shell's `pwd` keeps a directory in the case it was typed in,
+  while macOS's file system takes any case, so a nested worktree typed in another case read as outside, and
+  a link from outside reaches it by another name. This checkout is git's top level, compared by identity too.
+  The same rule, as one word (`tools/check started`: this, none, elsewhere or inside), is what the Python
+  environment's choice reads ([§13](toolchain.md)).
 - **A catch-all on `init`.** A word after a recipe that takes none becomes the name of a recipe to run,
   and just prints it when there is none: `just init TOKEN_SECRET=...`, make's spelling, would print the
   secret. `init` takes the words after its options as `EXTRA`, which it refuses without saying them.

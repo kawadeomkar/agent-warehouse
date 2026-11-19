@@ -629,13 +629,16 @@
     # just code line that opens the window once it is dealt with. A VM found
     # stopped is the exception: the deploy left it so, configured nothing on
     # it and signed nothing in, so the next step is the deploy again with the
-    # VM started, which just code alone would not do.
+    # VM started, which just code alone would not do. Both keep --project, or
+    # the retry would open another folder.
+    code_later_project: "{{ (' --project ' ~ vm_project) if vm_project | default('', true) | length > 0 else '' }}"
     code_later: >-
       {{ claude_vm_names[0] ~ ' is stopped, and this deploy left it so: it was not configured, signed in or opened in'
          ~ ' ' ~ code_editor_name ~ '. To start it and finish the deploy: just deploy ' ~ claude_vm_names[0] ~ ' --start'
-         ~ (claude_host_flag | default(''))
+         ~ (code_later_project) ~ (claude_host_flag | default(''))
          if code_status | default('') == 'stopped'
-         else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0] ~ code_editor_flag }}
+         else code_failure ~ ' ' ~ code_editor_name ~ ' was not opened; to open it later: just code ' ~ claude_vm_names[0]
+              ~ (code_later_project) ~ code_editor_flag }}
 
   tasks:
     # The editor opens one VM at a time, so a deploy for several opens none, and

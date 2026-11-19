@@ -40,6 +40,19 @@
   hosts: localhost
   gather_facts: false
   tasks:
+    # --project is the folder the editor's window opens at the end, and with
+    # deploy_code false there is no window: refused here, before anything is
+    # built or created, rather than taken without a word.
+    - name: Refuse a --project where the deploy opens no window
+      ansible.builtin.assert:
+        that: deploy_code | bool
+        fail_msg: >-
+          --project is the folder the editor's window opens at the end of the deploy, and deploy_code is false, so
+          this deploy opens none. Leave --project out, or open the folder afterwards with just code
+          {{ claude_vm_names[0] | default('<name>') }} --project {{ vm_project }}{{ claude_host_flag | default('') }}.
+        quiet: true
+      when: vm_project | default('', true) | string | length > 0
+
     - name: Refuse a VM named after a host of the inventory, or as no alias may be
       ansible.builtin.import_tasks: playbooks/tasks/vm_names.yml
       vars:
@@ -193,8 +206,10 @@
              if deploy_sign_in | bool else [] }}
         claude_deploy_sign_ins: >-
           {{ (', then signing in to ' ~ claude_deploy_pages | and_list) if claude_deploy_pages | length > 0 else '' }}
+        # The folder the window opens: --project's in the VM's projects directory, or the directory itself.
         claude_deploy_window: >-
-          {{ (', and opening ' ~ claude_vm_names[0] ~ ' in '
+          {{ (', and opening ' ~ (vm_project ~ ' on ' if vm_project | default('', true) | length > 0 else '')
+              ~ claude_vm_names[0] ~ ' in '
               ~ (claude_editors[claude_editor_key] | default({})).name | default(claude_editor_key))
              if deploy_code | bool and claude_vm_names | length == 1 else '' }}
         claude_deploy_wait: >-
