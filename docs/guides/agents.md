@@ -131,6 +131,12 @@ repository, `deploy`s it with `repos` set to that repository so that the VM clon
 ([Repositories](vms.md#repositories)), then opens it with `code`. `repos` takes your own account's repositories: for
 another owner's, such as an organisation's, the VM comes up with nothing cloned and the run says so.
 
+With `project`, `deploy` and `code` also carry this project's repository to the VM's checkout of it, as
+`just code <vm> --project <repo>` started in its folder would ([This machine's repository on the VM](vscode.md#this-machines-repository-on-the-vm)):
+its branches, its changes not committed and its ignored working files, never over work made on the VM, and nothing at
+all where the VM's checkout is of another repository. The folder is the session's own, which Claude Code gives the
+server; `repo_sync: false` turns it off for every run.
+
 It may size the new VM - `deploy`'s `cores`, `memory` (MiB, or `16G`) and `disk` (`64G`), as `just deploy alpha --cores 8
 --memory 16G --disk 64G` takes them - after reading `status(only="capacity")`: each node's CPU threads and memory, how much
 is in use and free, and what its VMs and containers already hold ([Size](vms.md#size)); for a node the token may not read,

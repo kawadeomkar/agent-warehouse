@@ -209,7 +209,8 @@ class Server:
             raise ToolError(refusal)
         recipe = recipes.recipe_of(self.dumped(), tool)
         try:
-            argv = recipes.command(config, recipe, tool, arguments, {"ATTENDED": self.attended()})
+            extra = {"ATTENDED": self.attended(), "STARTED_IN": started_in(tool, self.environ)}
+            argv = recipes.command(config, recipe, tool, arguments, extra)
         except ValueError as error:
             raise ToolError(str(error)) from error
         jobs.prune(config.checkout, int(recipes.settings(config)["LOG_RETENTION_DAYS"]))
@@ -348,6 +349,26 @@ def client_refusal(ctx: Context, tool: str, terminal: str) -> str:
         f"{'.'.join(map(str, VERIFIED_CLIENT[1]))} or later is known to show; this client is {name or 'unnamed'} "
         f"{version}. Ask the user to run it at a terminal: {terminal}"
     )
+
+
+# The tools whose run carries a repository, with project: from the calling project's folder alone.
+SOURCE_TOOLS = ("deploy", "code")
+
+
+def started_in(tool: str, environ: dict[str, str]) -> str:
+    """Where a run's repository sync carries from (the justfile's STARTED_IN): for deploy and code, the calling
+    project's folder - CLAUDE_PROJECT_DIR, which Claude Code sets to the folder the session runs in, and which a
+    project's .claude/settings.json env cannot set (Claude Code 2.1.311) - while it is an absolute path to a folder,
+    with no control character and nothing that opens a template ({{, {% or {#, which Ansible would render, and the
+    justfile refuses); else nowhere, as for every other tool. The origin interlock then holds it to the repository the
+    session works in: a call can carry nothing else."""
+    if tool not in SOURCE_TOOLS:
+        return ""
+    folder = environ.get("CLAUDE_PROJECT_DIR", "")
+    if not folder.startswith("/") or re.search(r"[\x00-\x1f\x7f]|\{[{%#]", folder) or not os.path.isdir(folder):
+        return ""
+    real = os.path.realpath(folder)
+    return "" if re.search(r"\{[{%#]", real) else folder
 
 
 def session_refusal(config: Config, environ: dict[str, str], session: str) -> str:
@@ -659,7 +680,9 @@ def tools(server: Server) -> list[Tool]:
         "template build. Say first that pages will open in the user's browser to approve. Name every VM to create: "
         "there is no default VM here. A VM for a repository X: "
         "status first, and if a VM's work lists X, code(name, project=X) alone; else name the VM after X (lowercase, - "
-        "for _, no dots), deploy(names=[name], repos=X, project=X) so that it clones X alone and opens it. repos "
+        "for _, no dots), deploy(names=[name], repos=X, project=X) so that it clones X alone and opens it. With "
+        "project, a deploy or code from this project's own folder also carries its repository to the VM's checkout of "
+        "it - its branches, changes not committed and ignored working files - never over work made on the VM. repos "
         "takes the user's own repositories, comma-separated: another owner's is not cloned, and the run says so. "
         "Size a new VM with cores, memory (MiB, or 16G) and disk "
         "(64G) in place of the settings - read status(only='capacity') first for the node's CPU threads and memory and "
@@ -668,7 +691,8 @@ def tools(server: Server) -> list[Tool]:
         f"{TERMINAL} {BUSY}",
         "login": "Signs VMs in to Claude, GitHub and Tailscale: say first that pages will open in the user's browser "
         f"to approve. {TERMINAL} {BUSY}",
-        "code": "Opens one VM in the user's editor on this machine. To move this conversation there: session = the ID "
+        "code": "Opens one VM in the user's editor on this machine; with project, from this project's own folder, it "
+        "carries the repository there first (deploy says how). To move this conversation there: session = the ID "
         f"`echo $CLAUDE_CODE_SESSION_ID` prints in Bash, then stop working here, where it would diverge. {BUSY}",
         "install": f"Syncs the Python environment every run and this server use to uv.lock. {BUSY}",
         "destroy": "Deletes the VMs named, after saving their own Claude Code sessions here and signing them out. "

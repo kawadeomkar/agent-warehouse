@@ -181,9 +181,9 @@ def schema(recipe: dict, tool: str) -> dict:
     return schema
 
 
-# Where just was started, which a run's repository sync carries from (STARTED_IN): nowhere, so that no call carries a
-# repository. The server starts just in this checkout, which would otherwise be the source of a
-# code(name, project="agent-warehouse").
+# Where just was started, which a run's repository sync carries from (STARTED_IN): nowhere, unless the server hands a
+# run the calling project's folder in its place (deploy and code: server.started_in). The server starts just in this
+# checkout, which would otherwise be the source of every code(name, project="agent-warehouse").
 NO_SOURCE = {"STARTED_IN": ""}
 
 
