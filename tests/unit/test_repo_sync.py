@@ -8,8 +8,11 @@ checkouts. The window step that runs these (playbooks/tasks/repo_read.yml) is ru
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -226,6 +229,16 @@ def test_a_new_file_the_selection_leaves_stays_here_said_and_the_rest_of_the_cha
     applied = {"branches": {"same": ["main"]}, "tree": {"brought": True, "changes": 2}}
     said = core.repo_sync_said(plan, "alpha", "demo", applied)
     assert "2 changes not committed" in said and "Left here: credentials.json (a credential by its name" in said
+
+
+def test_each_file_sent_goes_with_its_size_and_time_and_what_is_gone_here_goes_through():
+    files = [{**_file("doc.md", 10), "mtime": 1700000000}, {**_file("a.py", 4, "change"), "mtime": 1700000001}]
+    changes = {"modified": ["a.py"], "deleted": [], "new": [], "links": []}
+    plan = core.repo_sync_plan(_selected(files=files, changes=changes, gone=["old.md"]), MATCH)
+    assert plan["stamps"] == {"a.py": [4, 1700000001], "doc.md": [10, 1700000000]} and plan["gone"] == ["old.md"]
+    # A file left out of the send has no stamp.
+    plan = core.repo_sync_plan(_selected(files=files, changes=changes), MATCH, cap=5)
+    assert plan["stamps"] == {"a.py": [4, 1700000001]}
 
 
 def test_with_session_the_tree_is_session_s_to_move():
@@ -931,7 +944,15 @@ def test_a_branch_name_or_commit_git_would_not_take_is_never_handed_to_git(tmp_p
 
 
 # The git commands the apply only reads with.
-APPLY_READS = {"rev-parse", "cat-file", "merge-base", "symbolic-ref", "for-each-ref", "config"}
+APPLY_READS = {
+    "rev-parse",
+    "cat-file",
+    "merge-base",
+    "symbolic-ref",
+    "for-each-ref",
+    "config",
+    "check-ignore",
+}
 
 
 def test_the_apply_writes_with_its_fixed_verbs_alone():
@@ -955,6 +976,324 @@ def test_next_steps_keeps_a_checkout_by_the_apply_s_word_for_why_never_by_its_wo
     assert "its checkout there has changes of its own" in core.repo_sync_next(plan, "alpha", "demo", applied)
     applied["tree"] = {"brought": False, "reason": "busy", "why": "it has changes of its own"}
     assert core.repo_sync_next(plan, "alpha", "demo", applied) == ""
+
+
+# ------------------------------------------------------------------------------------- the ignored files ---
+def _carry(here, vm, root, *, source=None, unsent=(), **read):
+    """One whole sync with its ignored files, as the window step runs it: read the VM's checkout and the manifest
+    there, read here (``read``: the selection's options), plan, send, rsync into the mirror (copied here as rsync -a
+    would, times kept, but for ``unsent``, as after an rsync that failed), apply."""
+    source = source or here
+    there = _read(vm, manifest=str(root / "manifest.json"))
+    selected = _read(source, select=True, previous=there["carried"], **read)
+    match = {"sync": True, "repository": "octo/demo", "source": str(source), "said": ""}
+    plan = core.repo_sync_plan(selected, match, there=there)
+    _send(source, vm, plan["refs"])
+    mirror = root / "mirror"
+    for path in plan["ignored"]:
+        target = mirror / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if path not in unsent:
+            shutil.copy2(source / path, target)
+    return plan, run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(root / "manifest.json"),
+            "source": str(source),
+            "branches": plan["branches"],
+            "tags": plan["tags"],
+            "head": plan["head"],
+            "tree": plan["tree"],
+            "mirror": str(mirror),
+            "stamps": plan["stamps"],
+            "ignored": plan["ignored"],
+            "gone": plan["gone"],
+            "unignored": plan["unignored"],
+            "upstreams": plan["upstreams"],
+        },
+    )
+
+
+def _later(path, seconds=5):
+    """``path``'s modification time moved on: a change rsync's comparison of sizes and times always sees."""
+    stamp = path.stat().st_mtime + seconds
+    os.utime(path, (stamp, stamp))
+
+
+def _ignoring(here, *patterns):
+    (here / ".gitignore").write_text("".join(f"{pattern}\n" for pattern in patterns))
+    _git(here, "add", ".gitignore")
+    _git(here, *IDENTITY, "commit", "--quiet", "-m", "ignore")
+
+
+@pytest.mark.parametrize(
+    ("there", "tracked", "ours", "sent", "verdict"),
+    [
+        ("", False, set(), A, "write"),
+        (A, False, set(), A, "unchanged"),
+        (B, False, {B}, A, "write"),
+        (B, False, {C}, A, "left"),
+        (None, False, set(), A, "left"),
+        ("", True, set(), A, "tracked"),
+    ],
+)
+def test_a_file_s_verdict_is_written_only_where_the_vm_has_none_of_its_own(there, tracked, ours, sent, verdict):
+    assert shared.file_verdict(there, tracked, ours, sent) == verdict
+
+
+def test_the_documents_arrive_and_git_status_there_says_what_it_says_here(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    _write(here, "plans/plan-a.md", "the plan\n")
+    # Ignored here by this machine's own exclude file alone, which the VM's git does not read.
+    (here / ".git" / "info" / "exclude").write_text("scratch.md\n.vault_pass\n")
+    _write(here, "scratch.md", "notes\n")
+    _write(here, ".vault_pass", "hunter2\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["written"] == ["plans/plan-a.md", "scratch.md"], applied
+    assert (vm / "plans" / "plan-a.md").read_text() == "the plan\n" and (vm / "scratch.md").read_text() == "notes\n"
+    assert not (vm / ".vault_pass").exists()
+    assert _git(vm, "status", "--porcelain") == "" and applied["excluded"] == ["scratch.md"]
+    exclude = (vm / ".git" / "info" / "exclude").read_text()
+    assert f"{shared.EXCLUDE_BEGIN}\n/scratch.md\n{shared.EXCLUDE_END}\n" in exclude
+    # A second run writes nothing.
+    _, again = _carry(here, vm, tmp_path)
+    assert again["changed"] is False and again["files"]["unchanged"] == ["plans/plan-a.md", "scratch.md"]
+
+
+def test_a_file_the_vm_edited_or_made_is_left(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    _write(here, "plans/a.md", "one\n")
+    _write(here, "plans/b.md", "one\n")
+    _carry(here, vm, tmp_path)
+    (vm / "plans" / "a.md").write_text("edited on the VM\n")
+    _write(vm, "plans/c.md", "made on the VM\n")
+    for name in ("a.md", "b.md", "c.md"):
+        _write(here, f"plans/{name}", "two\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["written"] == ["plans/b.md"] and applied["files"]["left"] == ["plans/a.md", "plans/c.md"]
+    assert (vm / "plans" / "a.md").read_text() == "edited on the VM\n"
+    assert (vm / "plans" / "c.md").read_text() == "made on the VM\n"
+
+
+def test_a_file_gone_here_goes_there_only_from_the_same_folder_and_while_it_is_the_sync_s(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    for name in ("kept.md", "gone.md", "edited.md"):
+        _write(here, f"plans/{name}")
+    _carry(here, vm, tmp_path)
+    # A worktree of the same repository has none of these: a sync from it removes nothing.
+    _git(here, "worktree", "add", "--quiet", str(tmp_path / "wt"), "-b", "wt")
+    _, applied = _carry(here, vm, tmp_path, source=tmp_path / "wt")
+    assert applied["files"]["removed"] == [] and (vm / "plans" / "gone.md").exists()
+    # The first folder again, without two of them: the one still as sent goes, the one the VM edited stays.
+    (vm / "plans" / "edited.md").write_text("the VM's now\n")
+    for name in ("gone.md", "edited.md"):
+        (here / "plans" / name).unlink()
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["removed"] == ["plans/gone.md"] and not (vm / "plans" / "gone.md").exists()
+    assert (vm / "plans" / "edited.md").read_text() == "the VM's now\n" and (vm / "plans" / "kept.md").exists()
+
+
+def test_a_second_folder_s_files_stay_out_of_git_status_there(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("first.md\nsecond.md\n")
+    _write(here, "first.md")
+    _carry(here, vm, tmp_path)
+    _git(here, "worktree", "add", "--quiet", str(tmp_path / "wt"), "-b", "wt")
+    _write(tmp_path / "wt", "second.md")
+    _, applied = _carry(here, vm, tmp_path, source=tmp_path / "wt")
+    assert applied["excluded"] == ["first.md", "second.md"] and _git(vm, "status", "--porcelain") == ""
+
+
+def test_a_file_is_never_written_at_a_path_git_tracks_there_or_through_a_link(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("second\nlinked/\n")
+    # On the VM, "second" is tracked (the seed's), and linked/ is a link out of the checkout.
+    (here / "second").unlink()
+    _git(here, "rm", "--quiet", "--cached", "second")
+    _git(here, *IDENTITY, "commit", "--quiet", "-m", "untrack")
+    _write(here, "second", "here's\n")
+    _write(here, "linked/file.md", "here's\n")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (vm / "linked").symlink_to(outside)
+    plan, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["left"] == ["linked/file.md", "second"], applied
+    assert not (outside / "file.md").exists() and (vm / "second").read_text() == "second\n"
+    assert plan["tree"]["bring"] and not applied["tree"]["brought"]
+
+
+def test_a_link_in_the_mirror_is_never_followed(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("doc.md\n")
+    _write(here, "doc.md", "here's\n")
+    secret = tmp_path / "secret"
+    secret.write_text("not to be carried\n")
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    (mirror / "doc.md").symlink_to(secret)
+    head = _git(here, "rev-parse", "HEAD")
+    sent = (here / "doc.md").stat()
+    applied = run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(tmp_path / "manifest.json"),
+            "source": str(here),
+            "head": {"branch": "main", "commit": head},
+            "mirror": str(mirror),
+            "stamps": {"doc.md": [sent.st_size, int(sent.st_mtime)]},
+            "ignored": ["doc.md", "../escape.md", ".git/config", "/etc/passwd"],
+        },
+    )
+    assert applied["files"]["missing"] == ["doc.md"] and not (vm / "doc.md").exists()
+    assert not (tmp_path / "escape.md").exists()
+
+
+def test_a_run_that_stopped_after_the_manifest_s_first_write_leaves_its_files_the_sync_s(tmp_path, patch_module):
+    # Written before any file, with what each path held and is about to hold: a file matching either is the sync's.
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("doc.md\n")
+    _write(here, "doc.md", "one\n")
+    _carry(here, vm, tmp_path)
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    _write(here, "doc.md", "two\n")
+    two = hashlib.sha256(b"two\n").hexdigest()
+    manifest["ignored"]["doc.md"] = {"now": two, "was": manifest["ignored"]["doc.md"]["now"], "source": str(here)}
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (vm / "doc.md").write_text("two\n")
+    _write(here, "doc.md", "three\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["written"] == ["doc.md"] and (vm / "doc.md").read_text() == "three\n"
+
+
+def test_a_copy_an_earlier_run_left_in_the_mirror_is_never_taken_for_this_run_s(tmp_path, patch_module):
+    # After an rsync that failed - macOS's sends nothing at all once one listed name is gone, and a connection drops -
+    # the mirror holds the last run's copy: not of the size and time the reader saw, so it did not arrive.
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    _write(here, "plans/a.md", "one\n")
+    _carry(here, vm, tmp_path)
+    _write(here, "plans/a.md", "two\n")
+    _later(here / "plans" / "a.md")
+    _, applied = _carry(here, vm, tmp_path, unsent=("plans/a.md",))
+    assert applied["files"]["missing"] == ["plans/a.md"] and applied["files"]["written"] == [], applied
+    assert (vm / "plans" / "a.md").read_text() == "one\n"
+    # Sent again, it arrives.
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["written"] == ["plans/a.md"] and (vm / "plans" / "a.md").read_text() == "two\n"
+
+
+def test_the_report_says_a_failed_rsync_and_each_file_that_did_not_arrive_was_refused_or_was_taken_away():
+    plan = core.repo_sync_plan(_selected(files=[{**_file("plans/a.md", 3), "mtime": 1}]), MATCH)
+    files = {"missing": ["plans/a.md"], "removed": ["plans/old.md"], "failed": ["locked/x.md"]}
+    applied = {"branches": {"same": ["main"]}, "tree": {"brought": True}, "files": files, "error": ""}
+    words = 'rsync: link_stat "/u/demo/.a.swp" failed: No such file or directory (2)\nrsync error: some files (code 23)'
+    said = core.repo_sync_said(plan, "alpha", "demo", applied, {"rc": 0, "files_rc": 23, "files_words": words})
+    assert " rsync could not send every file (exit 23): rsync error: some files (code 23)." in said, said
+    assert " Not there, as they did not arrive as sent: plans/a.md." in said
+    assert " Not written there, as the VM would not let them be: locked/x.md." in said
+    assert " Taken away there, as they are gone here: plans/old.md." in said
+    applied["error"] = "Permission denied: /home/dev/projects/demo/.git/info/exclude"
+    said = core.repo_sync_said(plan, "alpha", "demo", applied, {"rc": 0, "files_rc": 0})
+    assert " The sync stopped part way there: Permission denied: /home/dev/projects/demo/.git/info/exclude." in said
+    assert "rsync" not in said
+
+
+def test_the_reader_says_which_files_the_sync_carried_are_gone_here(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    for name in ("a.md", "b.md"):
+        _write(here, f"plans/{name}")
+    _carry(here, vm, tmp_path)
+    assert _read(vm, manifest=str(tmp_path / "manifest.json"))["carried"] == ["plans/a.md", "plans/b.md"]
+    (here / "plans" / "b.md").unlink()
+    # What the other end names is only ever answered for: plain paths, and nothing reached through a link.
+    (here / "outside").symlink_to(tmp_path)
+    previous = ["plans/a.md", "plans/b.md", "../escape", "/etc/passwd", ".git/config", "outside/nothing", "c\nd"]
+    assert _read(here, select=True, previous=previous)["gone"] == ["plans/b.md"]
+
+
+def test_a_copy_only_left_out_of_a_run_stays_and_stays_the_sync_s(tmp_path, patch_module):
+    # Excluded now, past the bound, or with repo_sync_ignored off: the file is still here, so its copy there stays,
+    # and stays out of git status there.
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    for name in ("a.md", "b.md"):
+        _write(here, f"plans/{name}")
+    _carry(here, vm, tmp_path)
+    for read in ({"exclude": ["plans/b.md"]}, {"ignored": False}):
+        _, applied = _carry(here, vm, tmp_path, **read)
+        assert applied["files"]["removed"] == [] and (vm / "plans" / "b.md").exists(), (read, applied)
+        assert _git(vm, "status", "--porcelain") == "", read
+    # Gone here, it goes.
+    (here / "plans" / "b.md").unlink()
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["removed"] == ["plans/b.md"] and not (vm / "plans" / "b.md").exists()
+
+
+def test_a_copy_is_never_taken_away_at_a_path_git_tracks_there(tmp_path, patch_module):
+    # The VM reached, by a commit of its own, a tree that tracks a file the sync carried as an ignored one: git's now.
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("notes.md\n")
+    _write(here, "notes.md", "the notes\n")
+    _carry(here, vm, tmp_path)
+    _git(vm, "add", "--force", "notes.md")
+    _git(vm, *IDENTITY, "commit", "--quiet", "-m", "notes")
+    (here / "notes.md").unlink()
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["removed"] == [] and (vm / "notes.md").read_text() == "the notes\n", applied
+    assert _git(vm, "status", "--porcelain") == ""
+
+
+def test_a_file_carried_as_ignored_then_committed_here_moves_the_checkout_in_one_run(tmp_path, patch_module):
+    # The sync's own copy in the way of the move is the sync's: it goes, and the commit brings the file.
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("notes.md\n")
+    _write(here, "notes.md", "the notes\n")
+    _carry(here, vm, tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("")
+    _git(here, "add", "notes.md")
+    _git(here, *IDENTITY, "commit", "--quiet", "-m", "notes")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["brought"] and _git(vm, "rev-parse", "HEAD") == _git(here, "rev-parse", "HEAD"), applied
+    assert (vm / "notes.md").read_text() == "the notes\n" and _git(vm, "status", "--porcelain") == ""
+    assert applied["excluded"] == []
+
+
+def test_a_file_the_vm_changed_stays_in_the_mirror_so_it_is_sent_only_once(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "plans/")
+    _write(here, "plans/a.md", "one\n")
+    _carry(here, vm, tmp_path)
+    (vm / "plans" / "a.md").write_text("the VM's\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["files"]["left"] == ["plans/a.md"] and (tmp_path / "mirror" / "plans" / "a.md").exists()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root writes through any mode")
+def test_a_file_the_vm_will_not_let_it_write_is_said_never_a_traceback(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _ignoring(here, "locked/", "plans/")
+    _write(here, "locked/a.md")
+    _write(here, "plans/b.md")
+    (vm / "locked").mkdir()
+    (vm / "locked").chmod(0o555)
+    try:
+        _, applied = _carry(here, vm, tmp_path)
+    finally:
+        (vm / "locked").chmod(0o755)
+    assert applied["files"]["failed"] == ["locked/a.md"] and applied["files"]["written"] == ["plans/b.md"], applied
+    assert applied["error"] == "" and not (vm / "locked" / "a.md").exists()
+    # What stops a part - here the manifest's folder - is said too, never a traceback.
+    (tmp_path / "manifest.json").unlink()
+    (tmp_path / "manifest.json").mkdir()
+    _write(here, "plans/b.md", "again\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert "manifest.json" in applied["error"], applied
 
 
 # ----------------------------------------------------------------------------- the live check's and V1-V9 ---
@@ -1088,6 +1427,22 @@ def test_the_owner_s_patterns_hold_for_the_changes_to_tracked_files_too(tmp_path
     assert all(item["path"] != "secrets.yml" for item in found["files"])
 
 
+def test_the_exclude_block_stays_where_git_cannot_say_which_files_need_it(tmp_path, patch_module):
+    # git check-ignore exits 128 for a path beyond a link: the file is left as it is, never without the sync's block,
+    # or the copies there would show in git status and every later sync would call that the VM's own change.
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("notes/\n")
+    _write(here, "notes/a.md", "notes\n")
+    _carry(here, vm, tmp_path)
+    exclude = vm / ".git" / "info" / "exclude"
+    block = exclude.read_text()
+    assert shared.EXCLUDE_BEGIN in block and "notes" in block, block
+    (vm / "notes").rename(vm / "elsewhere")
+    (vm / "notes").symlink_to(vm / "elsewhere")
+    _carry(here, vm, tmp_path)
+    assert exclude.read_text() == block
+
+
 def test_a_new_branch_tracks_the_branch_of_origin_it_tracks_here(tmp_path, patch_module):
     # git pull and git push on the VM then work for it, as here; a branch that tracks nothing here tracks nothing there.
     here, vm = _pair(tmp_path)
@@ -1121,6 +1476,23 @@ def test_ref_names_are_held_to_git_s_own_rules_with_no_process_per_name():
         git_says = subprocess.run(["git", "check-ref-format", ref], capture_output=True, check=False).returncode == 0
         assert shared.ref_name(ref) == git_says, name
     assert not shared.branch_name("HEAD") and not shared.branch_name("-x") and shared.branch_name("feat/x")
+
+
+def test_a_copy_the_other_machine_no_longer_ignores_stays_and_leaves_the_block(tmp_path, patch_module):
+    # Carried as ignored, then no longer ignored here: the copy stays there, is no longer the sync's, and its line
+    # leaves the block, so git status there says what it says here.
+    here, vm = _pair(tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("draft.md\n")
+    _write(here, "draft.md", "draft\n")
+    _carry(here, vm, tmp_path)
+    assert "/draft.md" in (vm / ".git" / "info" / "exclude").read_text()
+    (here / ".git" / "info" / "exclude").write_text("")
+    assert _read(here, select=True, previous=["draft.md", "gone.md"])["unignored"] == ["draft.md"]
+    _, applied = _carry(here, vm, tmp_path)
+    assert "/draft.md" not in (vm / ".git" / "info" / "exclude").read_text()
+    assert (vm / "draft.md").read_text() == "draft\n", applied
+    assert "draft.md" not in json.loads((tmp_path / "manifest.json").read_text())["ignored"]
+    assert _git(vm, "status", "--porcelain") == "?? draft.md"
 
 
 def test_next_steps_names_the_editor_as_every_other_just_code_line_does():

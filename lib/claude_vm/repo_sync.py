@@ -142,9 +142,11 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch="", ther
 
     Returns ``sync`` and ``why``; ``source`` and ``repository``; ``refs``, send-pack's lines, and ``send``, whether
     they go; ``branches``, ``tags`` and ``head`` as here; ``tree``, the checkout's move and the changes, with
-    ``bring`` false for this machine's own reasons; ``files``, rsync's list, and ``file_bytes``; ``ignored``, the
-    ignored files among them; ``upstreams``, the branch of origin each branch sent tracks here; and ``left``, each
-    ``what`` and ``why``, what stays here.
+    ``bring`` false for this machine's own reasons; ``files``, rsync's list, and ``file_bytes``; ``stamps``, each of
+    those files' size and modification time, which the apply holds the copy that arrived to; ``ignored``, the ignored
+    files among them; ``gone``, the ignored files a sync carried there that are gone here, which the apply may take
+    away; ``unignored``, those here and no longer ignored, which are no longer the sync's there; ``upstreams``, the
+    branch of origin each branch sent tracks here; and ``left``, each ``what`` and ``why``, what stays here.
     """
     selected, match = selected or {}, match or {}
     plan = {
@@ -162,7 +164,10 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch="", ther
         "tree": {"bring": False, "why": "", "modified": [], "deleted": [], "new": [], "links": []},
         "files": [],
         "file_bytes": 0,
+        "stamps": {},
         "ignored": [],
+        "gone": list(selected.get("gone") or []),
+        "unignored": list(selected.get("unignored") or []),
         "upstreams": {},
         "included": list(selected.get("included") or []),
         "stashes": int(selected.get("stashes") or 0),
@@ -223,6 +228,9 @@ def repo_sync_plan(selected, match, cap=0, send_bytes=0, session_branch="", ther
     plan["ignored"] = sorted(kept)
     plan["files"] = sorted(plan["files"] + kept)
     plan["file_bytes"] += used
+    sent = set(plan["files"])
+    stamps = {item["path"]: [int(item.get("size") or 0), int(item.get("mtime") or 0)] for item in files}
+    plan["stamps"] = {path: stamp for path, stamp in stamps.items() if path in sent}
     for entry, count, size in over:
         left.append({"what": f"{entry} ({plural(count, 'file')}, {_size(size)})", "why": "past repo_sync_max_size"})
     for item in selected.get("left") or []:
@@ -240,9 +248,10 @@ def _vm_names(names):
 
 
 def repo_sync_said(plan, vm, project, applied=None, sent=None):
-    """The report's words for ``plan``: what was carried to ``project`` on ``vm`` - git_sync_apply's ``applied`` and
-    send-pack's ``sent`` (its exit code and last words); what stays there as it is, and here, and why; and the switch
-    that turns it off. What the apply did, never what was planned: without ``applied`` nothing was."""
+    """The report's words for ``plan``: what was carried to ``project`` on ``vm`` - git_sync_apply's ``applied``, and
+    ``sent``, send-pack's exit code and last words (``rc``, ``words``) and rsync's (``files_rc``, ``files_words``);
+    what stays there as it is, and here, and why; what did not arrive, or could not be written; and the switch that
+    turns it off. What the apply did, never what was planned: without ``applied`` nothing was."""
     plan = plan or {}
     if not plan.get("sync"):
         return str(plan.get("why") or "")
@@ -279,6 +288,7 @@ def repo_sync_said(plan, vm, project, applied=None, sent=None):
     held += [f"{name} (its upstream's commits, not fetched here)" for name in _vm_names(done.get("upstream"))]
     held += [f"{name} (a worktree there has it)" for name in _vm_names(done.get("in_use"))]
     held += [f"tag {name} (another object there)" for name in _vm_names((applied.get("tags") or {}).get("differ"))]
+    held += [f"{name} (the VM's own there)" for name in _vm_names(files.get("left"))]
     if held:
         said += f" Left there as it is: {_some(held, 'more')}."
     ahead = _vm_names(done.get("ahead"))
@@ -298,6 +308,9 @@ def repo_sync_said(plan, vm, project, applied=None, sent=None):
         words = [line for line in str(sent.get("words") or "").splitlines() if line and not line.startswith(" ")]
         said += f" git send-pack failed: {one_line(' '.join(words[-2:]), 200)}"
         said += "" if said.endswith(".") else "."
+    said += _files_said(files, sent)
+    if applied.get("error"):
+        said += f" The sync stopped part way there: {one_line(applied['error'], 200)}."
     included = plan.get("included") or []
     if included:
         said += f" Carried because .worktreeinclude names them, credentials by their names: {_some(included)}."
@@ -307,6 +320,25 @@ def repo_sync_said(plan, vm, project, applied=None, sent=None):
     if left:
         said += f" Left here: {_some(left, 'more things')}."
     return said + " repo_sync: false turns this off."
+
+
+def _files_said(files, sent):
+    """What of the files did not arrive, or was taken away, or could not be written: each said, with rsync's last words
+    where it failed. What rsync and the VM printed is plain text."""
+    said = ""
+    if sent.get("files_rc") not in (None, 0):
+        lines = [line for line in str(sent.get("files_words") or "").splitlines() if line.strip()]
+        said += f" rsync could not send every file (exit {sent['files_rc']})"
+        said += f": {one_line(lines[-1], 200)}." if lines else "."
+    for key, words in (
+        ("missing", "Not there, as they did not arrive as sent"),
+        ("failed", "Not written there, as the VM would not let them be"),
+        ("removed", "Taken away there, as they are gone here"),
+    ):
+        names = _vm_names(files.get(key))
+        if names:
+            said += f" {words}: {_some(sorted(names))}."
+    return said
 
 
 def repo_sync_next(plan, vm, project, applied=None, flag=""):

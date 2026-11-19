@@ -1737,6 +1737,32 @@ The parts, one by one:
   any worktree, where `update-ref` would move it under them; then the tags the VM lacks. It deletes only what a send
   delivered that is gone here, under `sent/`; a record, a branch or a tag never. Its git verbs are a fixed list
   (`WRITES`), `update-ref` only under `refs/agent-warehouse/`, `config` only a new branch's upstream.
+- **The ignored files** go by rsync (`--files-from=-`, a list of plain files the reader looked at, each line
+  `./<path>`, since rsync takes a line that starts with `#` or `;` for a comment) into a mirror in just code's own
+  directory on the VM, `repo-sync/<project>/tree/`, never into the checkout. macOS's rsync sends nothing at all of a
+  list with one name gone since, and a connection can drop, so a failure is said with rsync's last words, and the apply
+  takes a copy only as the plain file of the size and modification time the reader saw (`stamps`; `-a` keeps the
+  time): a copy an earlier run left is never this run's, and a file that did not arrive is said. The apply then puts each
+  in place by `file_verdict`: written where the checkout has no file at the path, or one still holding what the last
+  sync wrote (the manifest's digest); never at a path git tracks there, in HEAD or the index; never through a link, in
+  the mirror or on the way into the checkout; a file the VM changed or made is left, and counted. The manifest
+  (`repo-sync/<project>/manifest.json`, 0600) is written before any file, with what each path held and is about to
+  hold, and again after, so that after a run that stopped part way a file matching either is still the sync's. Each
+  entry records the folder here it came from: a copy is removed only when that folder says the file is gone - the
+  reader is handed the paths the VM's manifest names and answers only for plain ones, nothing reached through a link -
+  and the copy is still the sync's, so a sync from a worktree, which has none of the main folder's ignored files,
+  removes nothing, and a file only left out of a run (`repo_sync_ignored` off, past the bound, excluded) stays, the
+  sync's still; one at a path git tracks there now is git's, and so is one the folder it came from has and no longer
+  ignores (`unignored`, told from the reader's own listing of the ignored files, never by a command given the VM's
+  names): the file stays, and its line leaves the block. A write or a removal the VM refuses is said, file by
+  file, and what stops a part is the run's one `error`, never a traceback. A copy the sync carried as an ignored file,
+  which a commit the checkout moves to now tracks, is the sync's: it gives way, and the move brings the file. Then a
+  block of the checkout's `.git/info/exclude`, between two lines of its own, names each such
+  file the VM's git would not ignore without it - `git check-ignore -v` names where a match comes from - so that
+  `git status` there says what it says here; everything outside the block is the VM's, and where git cannot say, the
+  file is left as it is. What the mirror holds that was
+  not sent this run is removed from it; what was, a file the VM changed among it, stays, so rsync sends it again only
+  once it changes here.
 
 Each branch's row on the VM, the first that fits (`branch_row`):
 
