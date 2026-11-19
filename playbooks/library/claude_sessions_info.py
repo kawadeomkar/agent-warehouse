@@ -54,6 +54,11 @@ options:
         it, which Claude Code keeps in the home directory. Nothing else of that file is returned.
     type: bool
     default: false
+  mirror:
+    description:
+      - Also return, for each session the folder just code's rsync copies this machine's sessions into holds
+        (on the VM), the bytes it holds of it, so that a copy is bounded by what that mirror lacks.
+    type: path
   claude:
     description:
       - Also return the version of the first of these Claude Code executables there is. Only these: never
@@ -107,8 +112,17 @@ sessions:
     tools:
       description: Whether it has a C(tool-results/) folder, the large tool outputs it refers to.
       type: bool
+    transcript:
+      description: The bytes of the transcript alone.
+      type: int
     size:
       description: The bytes of the transcript and its C(tool-results/), what a copy of it sends; no link is followed.
+      type: int
+    subagents:
+      description: Whether it has a C(subagents/) folder, the transcripts of the subagents it started.
+      type: bool
+    subagents_size:
+      description: The bytes of its C(subagents/), which a copy sends while subagents are copied; no link is followed.
       type: int
     dir:
       description: Whether it has a folder of its own beside it, for its tool results, subagents and MCP tasks.
@@ -126,6 +140,13 @@ memory:
   elements: str
 registered:
   description: Every session C(sessions/) registers to a running claude, whatever its transcript, its ID to the pid.
+  returned: always
+  type: dict
+mirrored:
+  description:
+    - With O(mirror), each session it holds, as C(<folder>/<id>.jsonl), to the bytes of its transcript
+      (C(transcript)), of that and its tool results (C(size)) and of its subagents (C(subagents_size)), each file
+      counting the bytes it holds on disk at most; {} without.
   returned: always
   type: dict
 repo_paths:
@@ -152,6 +173,7 @@ from ansible.module_utils.agent_warehouse import (
     SESSION_ID,
     file_digest,
     folders,
+    github_repo_paths,
     manifest_key,
     read_manifest,
     running_claude,
@@ -356,8 +378,11 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
                 "folder": folder.name,
                 "mtime": stat.st_mtime,
                 "open": opened.get(session, 0),
+                "transcript": stat.st_size,
                 "tools": os.path.isdir(os.path.join(folder.path, session, "tool-results")),
                 "size": stat.st_size + tree_size(os.path.join(folder.path, session, "tool-results")),
+                "subagents": _real_dir(os.path.join(folder.path, session, "subagents")),
+                "subagents_size": tree_size(os.path.join(folder.path, session, "subagents")),
                 "dir": os.path.isdir(os.path.join(folder.path, session)),
                 "recorded": session in copied_ids,
                 "copied": copied,
@@ -367,10 +392,50 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
     return sessions
 
 
-def tree_size(path):
+def mirrored(path):
+    """{"<folder>/<id>.jsonl": its bytes} of each session the mirror at ``path`` holds, rsync's copy of the other
+    machine's: the transcript's, the transcript's and its tool results', and its subagents'. {} without one. A file
+    counts the bytes it holds on disk at most, so one made sparse to look large counts for little."""
+    found = {}
+    for folder in folders(path):
+        try:
+            entries = list(os.scandir(folder.path))
+        except OSError:
+            continue
+        for item in entries:
+            session = item.name[: -len(".jsonl")] if item.name.endswith(".jsonl") else ""
+            try:
+                if not SESSION_ID.fullmatch(session) or not item.is_file(follow_symlinks=False):
+                    continue
+                size = _held(item.stat(follow_symlinks=False))
+            except OSError:
+                continue
+            base = os.path.join(folder.path, session)
+            found[manifest_key(folder.name, session)] = {
+                "transcript": size,
+                "size": size + tree_size(os.path.join(base, "tool-results"), held=True),
+                "subagents_size": tree_size(os.path.join(base, "subagents"), held=True),
+            }
+    return found
+
+
+def _real_dir(path):
+    """Whether ``path`` is a folder and no link to one."""
+    return os.path.isdir(path) and not os.path.islink(path)
+
+
+def _held(stat):
+    """The bytes a file holds: its size, but no more than the blocks it has on disk."""
+    blocks = getattr(stat, "st_blocks", None)
+    return stat.st_size if blocks is None else min(stat.st_size, blocks * 512)
+
+
+def tree_size(path, held=False):
     """The bytes of the plain files under ``path``, no link followed; 0 where there is no such folder, and a file that
-    goes as it is read counted as nothing."""
+    goes as it is read counted as nothing. With ``held``, each file's bytes on disk at most (_held)."""
     total = 0
+    if os.path.islink(path):
+        return total
     for root, _dirs, files in os.walk(path):
         for name in files:
             try:
@@ -378,29 +443,13 @@ def tree_size(path):
             except OSError:
                 continue
             if S_ISREG(stat.st_mode):
-                total += stat.st_size
+                total += _held(stat) if held else stat.st_size
     return total
 
 
 def repo_paths(path):
     """githubRepoPaths from the .claude.json Claude Code keeps in ``path``, or beside it in the home directory."""
-    for candidate in (
-        os.path.join(path, ".claude.json"),
-        os.path.join(os.path.dirname(path.rstrip("/")), ".claude.json"),
-    ):
-        try:
-            with open(candidate, encoding="utf-8") as handle:
-                listed = json.load(handle).get("githubRepoPaths")
-        except (OSError, ValueError, AttributeError):
-            continue
-        # One without the key is not the one Claude Code keeps it in: the next is asked.
-        if isinstance(listed, dict):
-            return {
-                str(repo): [str(item) for item in paths if isinstance(item, str)]
-                for repo, paths in listed.items()
-                if isinstance(paths, list)
-            }
-    return {}
+    return github_repo_paths(path)
 
 
 def claude_version(candidates):
@@ -428,6 +477,7 @@ def main():
             "manifest": {"type": "path"},
             "memory": {"type": "bool", "default": False},
             "repo_paths": {"type": "bool", "default": False},
+            "mirror": {"type": "path"},
             "claude": {"type": "list", "elements": "path", "default": []},
         },
         supports_check_mode=True,
@@ -447,6 +497,7 @@ def main():
         sessions=sessions,
         memory=memory_folders(params["path"]) if params["memory"] else [],
         registered=opened,
+        mirrored=mirrored(params["mirror"]) if params["mirror"] else {},
         repo_paths=repo_paths(params["path"]) if params["repo_paths"] else {},
         version=claude_version(params["claude"]) if params["claude"] else "",
     )

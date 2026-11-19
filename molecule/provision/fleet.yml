@@ -496,7 +496,9 @@
                                  'code_session_source_dir': lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY')
                                                             ~ '/here/.claude',
                                  'code_session_dest_dir': lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY')
-                                                          ~ '/vm-home/.claude'} | to_json,
+                                                          ~ '/vm-home/.claude',
+                                 'code_claude_candidates': [lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY')
+                                                            ~ '/vm-home/.local/bin/claude']} | to_json,
                 playbook_dir ~ '/../../deploy.yml'] }}
       environment: "{{ verify_playbook_env }}"
       register: verify_deploy_runs
@@ -548,7 +550,10 @@
                                            'code_session_source_dir': lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY')
                                                                       ~ '/here/.claude',
                                            'code_session_dest_dir': lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY')
-                                                                    ~ '/vm-home/.claude'}) | to_json,
+                                                                    ~ '/vm-home/.claude',
+                                           'code_claude_candidates': [lookup('ansible.builtin.env',
+                                                                             'MOLECULE_EPHEMERAL_DIRECTORY')
+                                                                      ~ '/vm-home/.local/bin/claude']}) | to_json,
                 playbook_dir ~ '/../../deploy.yml'] }}
       environment: "{{ verify_playbook_env }}"
       register: verify_deploy_windows

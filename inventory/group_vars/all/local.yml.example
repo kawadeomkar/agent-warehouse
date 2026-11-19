@@ -213,8 +213,47 @@
 # The most one copy of those sessions sends, a size as vm_disk_size is written
 # (256M, 1G; a number alone is gigabytes): the newest first, each with its
 # tool results while it fits, and the rest said and left here. 0 for no bound.
-# A first copy sends each whole, a later one what changed.
+# It counts what the VM does not have yet: a first copy sends each whole, a
+# later one what changed.
 # claude_sessions_sync_max_size: 256M
+# Copy each session's subagent transcripts with it, so a subagent it started
+# can be read, and continued, on the VM. They count toward the bound above,
+# and a long session's subagents can hold more than its own transcript.
+# claude_sessions_sync_subagents: true
+# Copy this machine's auto memory of each repository the VM has a checkout of -
+# matched by git origin, as the sessions are - into that checkout's memory
+# folder on the VM on every just code, whether or not the sessions go, with a
+# note saying where this machine's paths are there. A note changed on the VM
+# is never overwritten. false keeps the notes here.
+# claude_memory_sync: true
+# Copy this machine's global instructions, ~/.claude/CLAUDE.md, and the files
+# of ~/.claude/rules/ to the VM's, unless claude_code_global_instructions sets
+# the VM's CLAUDE.md. A file changed on the VM is never overwritten.
+# claude_instructions_sync: true
+# Copy this machine's portable Claude Code settings into the VM's
+# ~/.claude/settings.json: the model, effort and preferences, the permission
+# rules and mode, and auto mode's rules - never a credential, a program, this
+# machine's paths, or a key claude_code_settings sets. A setting changed on the
+# VM (/model there) is never overwritten.
+# claude_settings_sync: true
+# More top-level settings to copy that way, such as statusLine or hooks, which
+# run a program and stay here otherwise; taken out of the list, one goes from
+# the VM while still as copied. A setting just code never copies - env,
+# apiKeyHelper, this machine's paths - is refused.
+# claude_settings_sync_keys: []
+# Install on the VM, by its own Claude Code, the plugins installed and enabled
+# for you here from a marketplace on GitHub - claude plugin install there,
+# never accepting a command a marketplace declares for you. Nothing is ever
+# uninstalled there.
+# claude_plugins_sync: true
+# Add the prompts typed in the sessions copied to the VM's prompt history, for
+# the up arrow and Ctrl+R there; with the sessions only, never twice.
+# claude_history_sync: true
+# Copy your user-level skills, subagents, commands, output styles, workflows,
+# themes and keybindings (~/.claude/skills/ and the like) to the VM's, but the
+# skills your account syncs, which the VM downloads at its own sign-in. A file
+# changed on the VM is never overwritten.
+# claude_extensions_sync: true
 # The VS Code settings read (never written) to say whether the terminal starts
 # on its own. Empty: where stock VS Code keeps them on macOS and Linux; set it
 # for Insiders, VSCodium, or a VS Code on Windows driven from WSL.

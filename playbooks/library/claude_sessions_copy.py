@@ -14,7 +14,7 @@ description:
   - Reads each session from O(mirror), where rsync left this machine's copy of the other machine's
     C(projects/<folder>/<id>.jsonl), and writes it to C(<dest>/projects/<folder>/<id>.jsonl) with four
     edits and nothing else, its complete lines only, 0600 in a 0700 folder. Its C(tool-results/) folder
-    comes along. Subagent transcripts never do.
+    comes along, and with O(subagents) its C(subagents/) folder.
   - The four edits. The memory folder named in each C(prompt_snapshot) attachment, which resume sends
     as the system prompt until the conversation is compacted, becomes O(sessions[].memory). The folder
     the other machine saved this session's large tool outputs in, as its tool results name it, becomes
@@ -27,7 +27,9 @@ description:
   - A copy keeps the other machine's file time while that is in the last 14 days, and is otherwise given
     the time it is written, renewed once that is 14 days old: Claude Code's sweep deletes a transcript
     here 30 days after its file time (cleanupPeriodDays), which would take a session asked for by ID,
-    whatever its age, before it was resumed.
+    whatever its age, before it was resumed. Each file of its C(tool-results/) is given the transcript's
+    time too, since the sweep takes those by their own age, and is compared by its size and digest, never
+    its time.
   - The records Claude Code keeps of each request it sent (C(api-request-shape), C(api-request-blob),
     since 2.1.300) name the other machine's memory folder too, and stay as they are: a resume sends the
     C(prompt_snapshot), never them (2.1.308, held by the configure scenario).
@@ -42,7 +44,17 @@ description:
     two folders, and C(claude --resume <id>) from a third would find neither. But where that other copy
     is this module's own, still as written, the session moved on the other machine instead: it is written
     in its new folder, and the old copy removed.
-  - O(manifest) is written after each copy, so a run that stops part way still records what it wrote.
+  - With O(subagents), each file of the session's C(subagents/) goes with it while the session's copy is
+    written or already what it would be. A subagent's transcript gets one edit, the memory folder of its
+    recorded prompt and, in user entries, its session's tool results, as its session's does; never the
+    entries appended to the session's own. Its other files are copied as they are. Each file is written
+    where there is none, or where it is still what the manifest's C(subagents) record says the last run
+    wrote, at its session's time; one that differs, a subagent continued on the VM, is left.
+  - O(manifest) is written after each copy, so a run that stops part way still records what it wrote. Its
+    C(made_from) record holds, as for the copy, what each file of a session's C(tool-results/) and C(subagents/) was
+    made from when a run last found it the same: while all of it still is, the file is neither read nor edited.
+  - Where O(mirror) is a link, or the manifest's folder anything but a folder, nothing is read, written or pruned,
+    and C(refused) says so. A file or link of the VM's where a copy's folder goes is left, and the copy with it.
   - Nothing of a session's content is returned.
 options:
   mirror:
@@ -86,9 +98,21 @@ options:
         type: str
         required: true
   prune:
-    description: Remove from O(mirror) every session that is not in O(sessions).
+    description: Remove from O(mirror) every session that is in neither O(sessions) nor O(keep).
     type: bool
     default: true
+  keep:
+    description:
+      - The sessions not copied this time whose files stay in O(mirror), each as C(<folder>/<id>): left out for now -
+        a newer Claude Code wrote them, a claude here holds them, the bound - so that the next copy sends only what
+        they gained.
+    type: list
+    elements: str
+    default: []
+  subagents:
+    description: Copy each session's C(subagents/) with it (claude_sessions_sync_subagents).
+    type: bool
+    default: false
 author:
   - agent-warehouse contributors
 """
@@ -136,6 +160,16 @@ unreadable:
   returned: always
   type: list
   elements: dict
+subagents:
+  description:
+    - How many subagent files were written, left as the VM changed them, and not written because their
+      recorded prompt names a memory folder in a form the edit does not know. All 0 without O(subagents).
+  returned: always
+  type: dict
+refused:
+  description: Whether nothing was written because O(mirror) is a link or the manifest's folder is no folder.
+  returned: always
+  type: bool
 """
 
 import hashlib
@@ -167,7 +201,7 @@ FRESH = 14 * 86400
 # The edits' version, part of what a copy is recorded as made from: raised whenever edit_transcript, or anything it
 # calls, writes a copy otherwise, so that a copy an earlier version wrote is edited again rather than skipped as
 # unchanged. tests/unit/test_session_handoff.py holds it to the edits' source.
-EDITS = 1
+EDITS = 2
 
 
 def _escaped(text):
@@ -211,13 +245,14 @@ def _left_behind(here, folders, found):
     return re.compile(re.escape(_escaped(projects)) + rb"(?:" + which + rb")/memory", re.IGNORECASE)
 
 
-def edit_transcript(data, session, checkout, memory, here="", results="", folder=""):
+def edit_transcript(data, session, checkout, memory, here="", results="", folder="", own=True):
     """The copy of transcript ``data`` this machine resumes: (bytes, "") or (b"", why it is not written).
 
     ``data`` holds complete lines only. Every line comes out byte for byte but a prompt_snapshot
     attachment's, where only the memory folder's path changes, and a user entry naming this session's
     tool-results folder under ``here``, which becomes ``results``; two entries may be appended after them.
-    ``folder`` is the session's folder here, whose memory folder the prompt must no longer name.
+    ``folder`` is the session's folder here, whose memory folder the prompt must no longer name. ``own`` false
+    is a subagent's transcript, which gets the edits but never the two entries: they are its session's.
     """
     out, bound = [], False
     memory_escaped = _escaped(memory)
@@ -259,6 +294,8 @@ def edit_transcript(data, session, checkout, memory, here="", results="", folder
             if entry.get("type") == "worktree-state":
                 bound = bool(entry.get("worktreeSession"))
         out.append(line)
+    if not own:
+        return b"".join(out), ""
     if bound:
         out.append(_line({"type": "worktree-state", "worktreeSession": None, "sessionId": session}))
     out.append(_line({"type": "relocated", "relocatedCwd": checkout, "sessionId": session}))
@@ -338,25 +375,156 @@ def copy_time(source, current, now):
     return now
 
 
-def _save_manifest(manifest, copies, made, created):
-    """Write ``copies``, each key's digest, and ``made``, what each was made from. A key of its own beside the digests
-    keeps the format: a reader of the digests alone, an earlier version's, passes over it, and an earlier version
-    that writes the manifest again leaves it out, so that each copy is then read once more."""
+def _save_manifest(manifest, copies, made, created, subagents=None):
+    """Write ``copies``, each key's digest, ``made``, what each was made from, and ``subagents``, the digest of each
+    subagent file written with its session. A key of its own beside the digests keeps the format: a reader of the
+    digests alone, an earlier version's, passes over it, and an earlier version that writes the manifest again leaves
+    it out, so that each copy is then read once more.
+
+    ``made`` holds a session's copy by its key, and each file of its ``tool-results/`` and ``subagents/`` by its own,
+    ``<folder>/<id>/<part>/<file>``: kept while that session's copy is recorded."""
     _directory(os.path.dirname(manifest), created)
-    made = {key: value for key, value in made.items() if key in copies}
-    text = (
-        json.dumps({"format": MANIFEST_FORMAT, "sessions": copies, "made_from": made}, indent=2, sort_keys=True) + "\n"
-    )
+    made = {key: value for key, value in made.items() if key in copies or _session_key(key) in copies}
+    record = {"format": MANIFEST_FORMAT, "sessions": copies, "made_from": made, "subagents": subagents or {}}
+    text = json.dumps(record, indent=2, sort_keys=True) + "\n"
     _write(manifest, text.encode("utf-8"), time.time())
 
 
-def _remove_copy(dest, folder, session):
-    """Remove this module's copy of ``session`` in ``folder``: its transcript, its tool results, what is left empty."""
+def _session_key(key):
+    """The manifest key of the session a file of its ``tool-results/`` or ``subagents/`` belongs to."""
+    return "/".join(key.split("/")[:2]) + ".jsonl"
+
+
+def _made(made, key, source, target, inputs):
+    """Record in ``made`` what ``target`` at ``key`` was made from as it now is, fingerprint's, or none where it cannot
+    be had."""
+    found = fingerprint(source, target, inputs)
+    if found is None:
+        made.pop(key, None)
+    else:
+        made[key] = found
+
+
+def _real_dir(path):
+    """Whether ``path`` is a folder and no link to one."""
+    return os.path.isdir(path) and not os.path.islink(path)
+
+
+def _blocked(dest, target):
+    """Whether something of the VM's other than a folder stands where a folder on the way from ``dest`` to the file
+    ``target`` goes: then nothing is written there."""
+    path = os.path.dirname(target)
+    while path != dest and path.startswith(dest + os.sep):
+        if os.path.lexists(path) and not _real_dir(path):
+            return True
+        path = os.path.dirname(path)
+    return False
+
+
+def _plain_files(source):
+    """(path relative to ``source``, path) of each plain file under it, sorted, no link followed."""
+    found = []
+    for top, dirs, files in os.walk(source):
+        dirs[:] = sorted(name for name in dirs if not os.path.islink(os.path.join(top, name)))
+        for name in sorted(files):
+            path = os.path.join(top, name)
+            if not os.path.islink(path) and os.path.isfile(path):
+                found.append((os.path.relpath(path, source), path))
+    return found
+
+
+def _copy_subagents(source, target, prefix, edit, when, recorded, copies, check, created, made, inputs, dest):
+    """Each file of a session's ``subagents/`` from ``source`` in the mirror to ``target``, by the copy's rule.
+
+    A transcript (``.jsonl``) is cut to its complete lines and given ``edit``; any other file goes as it is. Each
+    is written where there is none or where it is still what ``recorded`` (the manifest's subagents record, keyed
+    ``<prefix>/<file>``) says the last run wrote, at the time ``when``; one that differs, a subagent continued on
+    the VM, is left, as is every file where the VM put anything but a folder on the way (_blocked under ``dest``),
+    and one whose write fails. ``copies`` is updated with what is written or found as it would be, and ``made`` with
+    what each such file was made from (fingerprint's, with the edits' ``inputs`` for a transcript): a file whose record
+    still holds is that again, unread and unedited. Returns (counts, changed).
+    """
+    counts, changed = {"written": 0, "left": 0, "refused": 0}, False
+    for rel, path in _plain_files(source):
+        key, there = f"{prefix}/{rel}", os.path.join(target, rel)
+        from_ = inputs if rel.endswith(".jsonl") else ""
+        if _blocked(dest, there):
+            counts["left"] += 1
+            continue
+        if recorded.get(key) and made.get(key) is not None and fingerprint(path, there, from_) == made[key]:
+            # As written there, and what would be written: unchanged at both ends since a run found it so.
+            copies[key] = recorded[key]
+            if int(os.stat(there).st_mtime) != int(when):
+                changed = True
+                if not check:
+                    os.utime(there, (when, when))
+                    _made(made, key, path, there, from_)
+            continue
+        with open(path, "rb") as handle:
+            data = handle.read()
+        if rel.endswith(".jsonl"):
+            data = complete_lines(data)
+            if not data:
+                continue
+            data, why = edit(data)
+            if why:
+                counts["refused"] += 1
+                continue
+        digest = _digest(data)
+        current = file_digest(there) if os.path.isfile(there) and not os.path.islink(there) else None
+        # A link or folder in its place is the VM's: left, as a copy that differs is.
+        action = "diverged" if os.path.lexists(there) and current is None else None
+        action = action or classify(current, recorded.get(key), digest)
+        if action in ("continued", "diverged"):
+            counts["left"] += 1
+            made.pop(key, None)
+            continue
+        if action == "write":
+            if not check:
+                try:
+                    _directory(os.path.dirname(there), created)
+                    _write(there, data, when)
+                except OSError:
+                    counts["left"] += 1
+                    continue
+            counts["written"] += 1
+            changed = True
+            # Recorded once written, never before: a record of a file that is not there would leave the old one,
+            # which differs from it, read as continued on the VM for good.
+            copies[key] = digest
+            if not check:
+                _made(made, key, path, there, from_)
+            continue
+        copies[key] = digest
+        if int(os.stat(there).st_mtime) != int(when):
+            changed = True
+            if not check:
+                os.utime(there, (when, when))
+        if not check:
+            _made(made, key, path, there, from_)
+    return counts, changed
+
+
+def _remove_copy(dest, folder, session, subagents=None):
+    """Remove this module's copy of ``session`` in ``folder``: its transcript, its tool results, the subagent files
+    ``subagents`` (the manifest's record, updated) says it wrote that are still as written, what is left empty."""
     base = os.path.join(dest, "projects", folder)
     os.unlink(os.path.join(base, f"{session}.jsonl"))
     tools = os.path.join(base, session, "tool-results")
     if os.path.isdir(tools) and not os.path.islink(tools):
         shutil.rmtree(tools)
+    agents, prefix = os.path.join(base, session, "subagents"), f"{folder}/{session}/subagents/"
+    for key in [key for key in (subagents or {}) if key.startswith(prefix)]:
+        path = os.path.join(agents, key[len(prefix) :])
+        if os.path.isfile(path) and not os.path.islink(path) and file_digest(path) == subagents[key]:
+            os.unlink(path)
+        subagents.pop(key)
+    if os.path.isdir(agents) and not os.path.islink(agents):
+        for top, _dirs, _files in os.walk(agents, topdown=False):
+            try:
+                os.rmdir(top)
+            except OSError:
+                pass
     for path in (os.path.join(base, session), base):
         try:
             os.rmdir(path)
@@ -395,27 +563,48 @@ def _folders_holding(dest, sessions):
     return found
 
 
-def _tool_results(source, target, check, created):
-    """Copy what ``source`` holds and ``target`` lacks or holds otherwise; return how many files that was."""
-    copied = 0
-    for top, dirs, files in os.walk(source):
-        dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(top, name))]
-        for name in files:
-            here = os.path.join(top, name)
-            if os.path.islink(here) or not os.path.isfile(here):
-                continue
-            there = os.path.join(target, os.path.relpath(here, source))
-            stat = os.stat(here)
-            if os.path.isfile(there) and not os.path.islink(there):
-                other = os.stat(there)
-                if other.st_size == stat.st_size and int(other.st_mtime) == int(stat.st_mtime):
-                    continue
-            copied += 1
+def _same_file(here, there):
+    """Whether ``there`` is a plain file holding the bytes of the plain file ``here``."""
+    if os.path.islink(there) or not os.path.isfile(there):
+        return False
+    return os.path.getsize(there) == os.path.getsize(here) and file_digest(there) == file_digest(here)
+
+
+def _tool_results(source, target, when, check, created, made, prefix, dest):
+    """Copy what ``source`` holds and ``target`` lacks or holds otherwise, each file at the time ``when``.
+
+    ``when`` is the session's transcript's time there: Claude Code sweeps tool results by their own age, so a
+    file keeping the other machine's time would be deleted before its transcript. Files are compared by size and
+    digest, since their time here is never the other machine's - unless ``made`` (keyed ``<prefix>/<file>``) holds
+    what it was made from as both still are (fingerprint's), from a run that found them the same. Nothing is written
+    where the VM put anything but a folder on the way (_blocked under ``dest``), and a file whose write fails is left.
+    Returns how many files were written or retimed.
+    """
+    changed = 0
+    for rel, here in _plain_files(source):
+        key, there = f"{prefix}/{rel}", os.path.join(target, rel)
+        if _blocked(dest, there):
+            continue
+        known = made.get(key) is not None and fingerprint(here, there, "") == made[key]
+        if known or _same_file(here, there):
+            if int(os.stat(there).st_mtime) != int(when):
+                changed += 1
+                if not check:
+                    os.utime(there, (when, when))
             if not check:
+                _made(made, key, here, there, "")
+            continue
+        changed += 1
+        if not check:
+            try:
                 _directory(os.path.dirname(there), created)
                 with open(here, "rb") as handle:
-                    _write(there, handle.read(), stat.st_mtime)
-    return copied
+                    _write(there, handle.read(), when)
+            except OSError:
+                changed -= 1
+                continue
+            _made(made, key, here, there, "")
+    return changed
 
 
 def _prune(mirror, keep, check):
@@ -438,12 +627,26 @@ def _prune(mirror, keep, check):
     return removed
 
 
-def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=False, now=None):
-    """Write every session's copy; return the result and whether anything changed."""
+def copy_sessions(
+    mirror,
+    dest,
+    manifest,
+    sessions,
+    here="",
+    prune=True,
+    check=False,
+    now=None,
+    subagents=False,
+    keep=(),
+):
+    """Write every session's copy, and with ``subagents`` its subagents'; return the result and whether anything
+    changed. ``keep`` names, as ``<folder>/<id>``, the sessions not copied this time whose files stay in the mirror."""
     now = time.time() if now is None else now
     recorded, recorded_made = read_manifest(manifest), read_made_from(manifest)
+    recorded_agents = read_manifest(manifest, "subagents")
     copies, saved = dict(recorded), dict(recorded)
     made, saved_made = dict(recorded_made), dict(recorded_made)
+    agents, agents_saved = dict(recorded_agents), dict(recorded_agents)
     result = {
         "written": [],
         "held": {},
@@ -451,8 +654,17 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
         "continued": [],
         "diverged": [],
         "unreadable": [],
+        "subagents": {"written": 0, "left": 0, "refused": 0},
+        "refused": False,
     }
     created, changed = [], False
+    # just code's own folders on the VM, which only the VM could have made a link, or the manifest's anything but a
+    # folder: then nothing is read or written, and nothing is pruned through a link to somewhere else. A file where the
+    # mirror goes holds no session, each of which reads as rsync not having brought it.
+    folder = os.path.dirname(manifest)
+    if os.path.islink(mirror) or (os.path.lexists(folder) and not _real_dir(folder)):
+        result["refused"] = True
+        return result, False
     holding = _folders_holding(dest, sessions)
     try:
         for session in sessions:
@@ -507,11 +719,15 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                 result[action].append(sid)
                 continue
             if action == "write":
+                kept = copy_time(mtime, None, now)
+                if not check:
+                    if _blocked(dest, target):
+                        result["unreadable"].append({"id": sid, "why": "something else is in its folder's place there"})
+                        continue
+                    _directory(os.path.dirname(target), created)
+                    _write(target, edited, kept)
                 result["written"].append(sid)
                 changed = True
-                if not check:
-                    _directory(os.path.dirname(target), created)
-                    _write(target, edited, copy_time(mtime, None, now))
                 # Recorded once written, never before: a record of a copy that is not there would make the
                 # one that is read as continued here.
                 copies[key] = digest
@@ -519,16 +735,16 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                     copies.pop(old, None)
                     made.pop(old, None)
                     if not check:
-                        _remove_copy(dest, others[0], sid)
+                        _remove_copy(dest, others[0], sid, agents)
             else:
                 result["unchanged"].append(sid)
                 copies[key] = digest
                 there = os.stat(target).st_mtime
-                wanted = copy_time(mtime, there, now)
-                if int(there) != int(wanted):
+                kept = copy_time(mtime, there, now)
+                if int(there) != int(kept):
                     changed = True
                     if not check:
-                        os.utime(target, (wanted, wanted))
+                        os.utime(target, (kept, kept))
             # Taken after the copy's last write and time, from the files as they now are: the copy is the digest
             # recorded, and the transcript, edited, is that too.
             if not check:
@@ -538,20 +754,46 @@ def copy_sessions(mirror, dest, manifest, sessions, here="", prune=True, check=F
                 else:
                     made[key] = now_made
             tools = os.path.join(mirror, folder, sid, "tool-results")
-            if os.path.isdir(tools):
-                changed = _tool_results(tools, results, check, created) > 0 or changed
+            if _real_dir(tools):
+                changed = (
+                    _tool_results(tools, results, kept, check, created, made, f"{folder}/{sid}/tool-results", dest) > 0
+                    or changed
+                )
+            source = os.path.join(mirror, folder, sid, "subagents")
+            if subagents and _real_dir(source):
+                counts, moved = _copy_subagents(
+                    source,
+                    os.path.join(dest, "projects", folder, sid, "subagents"),
+                    f"{folder}/{sid}/subagents",
+                    lambda data, sid=sid, session=session, results=results, folder=folder: edit_transcript(
+                        data, sid, session["checkout"], session["memory"], here, results, folder, own=False
+                    ),
+                    kept,
+                    recorded_agents,
+                    agents,
+                    check,
+                    created,
+                    made,
+                    inputs,
+                    dest,
+                )
+                changed = moved or changed
+                for name, count in counts.items():
+                    result["subagents"][name] += count
             # After each copy, so that a run stopped part way still records what it wrote: a copy written
             # and not recorded would read as continued here once the session changed on the other machine.
-            if (copies, made) != (saved, saved_made) and not check:
-                _save_manifest(manifest, copies, made, created)
-                saved, saved_made = dict(copies), dict(made)
+            if (copies, made, agents) != (saved, saved_made, agents_saved) and not check:
+                _save_manifest(manifest, copies, made, created, agents)
+                saved, saved_made, agents_saved = dict(copies), dict(made), dict(agents)
     finally:
-        if (copies, made) != (saved, saved_made) and not check:
-            _save_manifest(manifest, copies, made, created)
-    if copies != recorded or made != recorded_made:
+        if (copies, made, agents) != (saved, saved_made, agents_saved) and not check:
+            _save_manifest(manifest, copies, made, created, agents)
+    if copies != recorded or made != recorded_made or agents != recorded_agents:
         changed = True
     if prune:
-        changed = _prune(mirror, {(item["folder"], item["id"]) for item in sessions}, check) or changed
+        kept = {(item["folder"], item["id"]) for item in sessions}
+        kept |= {tuple(str(item).split("/", 1)) for item in keep if "/" in str(item)}
+        changed = _prune(mirror, kept, check) or changed
     return result, changed or bool(created)
 
 
@@ -574,6 +816,8 @@ def main():
                 },
             },
             "prune": {"type": "bool", "default": True},
+            "keep": {"type": "list", "elements": "str", "default": []},
+            "subagents": {"type": "bool", "default": False},
         },
         supports_check_mode=True,
     )
@@ -589,6 +833,8 @@ def main():
         here=params["here"],
         prune=params["prune"],
         check=module.check_mode,
+        subagents=params["subagents"],
+        keep=params["keep"],
     )
     module.exit_json(changed=changed, **result)
 

@@ -85,14 +85,13 @@
 # The VM installs Claude Code's stable channel, which can trail this machine's:
 # a session written by a newer one is left here. Where the native installer
 # puts it, beside the ~/.claude given, then where npm's global prefix does.
-# And the sessions a claude there has open, whose copies are left as they are.
+# And the sessions a claude there has open, whose copies are left as they are,
+# and what of each session an earlier run sent, which the bound counts out.
 - name: session_read | Read Claude Code on the VM
   claude_sessions_info:
     path: "{{ code_session_there }}"
-    claude:
-      - "{{ code_session_there | dirname }}/.local/bin/claude"
-      - /usr/local/bin/claude
-      - /usr/bin/claude
+    mirror: "{{ code_session_mirror_read }}"
+    claude: "{{ code_claude_candidates }}"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_session_vm
   no_log: true
@@ -105,7 +104,8 @@
          | claude_sessions_plan(code_session_dirs_here.checkouts, code_session_projects.checkouts,
                                 code_session_vm.version, code_session_found.repo_paths, code_session_there,
                                 code_session_id, vm_project | default('', true) | string, claude_vm_names[0],
-                                code_session_vm.registered | list, code_session_cap | int) }}
+                                code_session_vm.registered | list, code_session_cap | int,
+                                code_session_subagents | bool, code_session_vm.mirrored | default({})) }}
   when: code_session_on | bool
 
 - name: session_read | Refuse a session that cannot be opened on the VM

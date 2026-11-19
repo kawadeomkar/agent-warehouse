@@ -22,6 +22,9 @@
       # itself is tested in tests/unit/test_code_session.py, between real checkouts.
       code_session_source_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/here/.claude"
       code_session_dest_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/vm-home/.claude"
+      # The VM's claude only beside it, never this machine's own at /usr/local/bin or /usr/bin.
+      code_claude_candidates:
+        - "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/vm-home/.local/bin/claude"
     verify_code_ws_dir: "{{ lookup('ansible.builtin.env', 'MOLECULE_EPHEMERAL_DIRECTORY') }}/projects/.agent-warehouse"
     verify_code_env: >-
       {{ verify_playbook_env | combine({'PATH': verify_ssh_dir ~ '/bin:' ~ lookup('ansible.builtin.env', 'PATH')}) }}
@@ -483,6 +486,7 @@
               vscode_user_settings_file: "{{ verify_code_vars.vscode_user_settings_file }}"
               code_session_source_dir: "{{ verify_code_vars.code_session_source_dir }}"
               code_session_dest_dir: "{{ verify_code_vars.code_session_dest_dir }}"
+              code_claude_candidates: "{{ verify_code_vars.code_claude_candidates }}"
             vars: {ansible_ssh_timeout: 3}
         verify_code_selected: >-
           {{ verify_code_cases | rejectattr('case_sensitive_only', 'defined') | list

@@ -10,6 +10,33 @@ Every target that runs Ansible compares the installed collections with those pin
 naming `just install`, while one differs. They live in the checkout's own folder
 (`tools/env-run --collections`), so another clone or worktree keeps its own, on its own versions.
 
+## This machine's Claude Code on the VM, from 2.8
+
+`just code`, and `just deploy`'s editor step, carry more of this machine's Claude Code to the VM
+([VS Code](vscode.md#this-machines-claude-sessions-on-the-vm)):
+
+- **Each copied session's subagents** go with it (`claude_sessions_sync_subagents`), and count toward
+  `claude_sessions_sync_max_size`: the first `just code` after the upgrade sends those of the sessions already
+  copied, and a session whose subagents take it past the bound stays here until a later run has room. Set the
+  setting to `false` in `local.yml` to copy sessions as before.
+- **This machine's auto memory** of each repository the VM has goes to the memory folder of its checkout there
+  (`claude_memory_sync`), with a note of just code's own, `carried-by-just-code.md`, and a line indexing it at the end
+  of `MEMORY.md`. A note already on the VM by the same name is left as it is and named.
+- **Your global instructions and portable settings** go to every VM `just code` opens
+  (`claude_instructions_sync`, `claude_settings_sync`): `~/.claude/CLAUDE.md`, `~/.claude/rules/`, and the settings of
+  [Your instructions and settings](vscode.md#your-instructions-and-settings), your permission rules among them. A
+  setting the VM already has otherwise is left as it is, and named.
+- **Your plugins** enabled here from a marketplace on GitHub are installed on the VM by its own Claude Code
+  (`claude_plugins_sync`).
+- **The prompts of the sessions copied** join the VM's prompt history (`claude_history_sync`).
+- **Your skills, subagents, commands**, output styles, workflows, themes and keybindings go to the VM
+  (`claude_extensions_sync`), but your account's synced skills.
+- **A session left out as newer** than the VM's Claude Code is named with the line that installs its version
+  there.
+- **`claude_sessions_sync_max_size` counts what the VM lacks.** A session copied before counts what it grew by,
+  not its whole size, so a long session already on a VM goes on being copied while it grows here by less than the
+  bound between two copies.
+
 ## The VMs through the Proxmox host, from 2.7
 
 `vm_ssh_route` is new, and `auto` by default

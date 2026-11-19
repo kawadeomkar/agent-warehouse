@@ -32,15 +32,42 @@ def manifest_key(folder, session):
     return f"{folder}/{session}.jsonl"
 
 
-def read_manifest(path):
-    """The copies just code recorded in ``path``: ``<folder>/<id>.jsonl`` to the digest it wrote, or {}."""
+def read_manifest(path, part="sessions"):
+    """The copies just code recorded in ``path``, or {}: by default ``<folder>/<id>.jsonl`` to the digest it wrote.
+
+    ``part`` names another record of the same file: ``subagents``, ``<folder>/<id>/subagents/<name>`` to the
+    digest of each subagent file written with its session. A reader that knows only ``sessions`` ignores it.
+    """
     try:
         with open(path, encoding="utf-8") as handle:
             found = json.load(handle)
     except (OSError, ValueError):
         return {}
-    copies = found.get("sessions") if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
+    copies = found.get(part) if isinstance(found, dict) and found.get("format") == MANIFEST_FORMAT else None
     return {str(key): str(value) for key, value in copies.items()} if isinstance(copies, dict) else {}
+
+
+def github_repo_paths(path):
+    """githubRepoPaths from the .claude.json Claude Code keeps in ``path``, or beside it in the home directory:
+    owner/repo to the local paths Claude Code has seen it in, and nothing else of that file. {} where neither holds
+    the key."""
+    for candidate in (
+        os.path.join(path, ".claude.json"),
+        os.path.join(os.path.dirname(path.rstrip("/")), ".claude.json"),
+    ):
+        try:
+            with open(candidate, encoding="utf-8") as handle:
+                listed = json.load(handle).get("githubRepoPaths")
+        except (OSError, ValueError, AttributeError):
+            continue
+        # One without the key is not the one Claude Code keeps it in: the next is asked.
+        if isinstance(listed, dict):
+            return {
+                str(repo): [str(item) for item in paths if isinstance(item, str)]
+                for repo, paths in listed.items()
+                if isinstance(paths, list)
+            }
+    return {}
 
 
 def file_digest(path):

@@ -1,0 +1,131 @@
+---
+# The writes of what just code carries of this machine's Claude Code beside
+# the sessions, imported by code.yml's window step after the session copy
+# (tasks/session_write.yml) and before the workspace is written
+# (docs/architecture/lifecycle.md §4.9). claude_config_read.yml decided what
+# goes where (code_config_plan).
+#
+# rsync brings this machine's files into a mirror in just code's own
+# directory on the VM, at their paths under ~/.claude; claude_config_carry
+# then writes each where it goes under the VM's ~/.claude, by one rule: an
+# item is replaced only while it is what the last run wrote, so one changed on
+# the VM is never overwritten. Nothing is written on this machine. The write
+# is no_log, and rsync names files, never what is in them.
+
+- name: claude_config_write | Look at the directory for what is carried and its mirror on the VM
+  ansible.builtin.stat:
+    path: "{{ code_config_path }}"
+    get_checksum: false
+  loop:
+    - "{{ code_config_dir }}"
+    - "{{ code_config_dir }}/mirror"
+  loop_control:
+    loop_var: code_config_path
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_dir_found
+  when: code_config_on | bool
+
+# The VM user's alone, as what is in it is: 0700. Only where this run records
+# something (code_config_writes): a run with nothing to carry makes nothing.
+# And only where no link is in its place or its mirror's, and nothing but a
+# folder in its own: a link there would take rsync's files wherever it points
+# (code_config_dir_ok).
+- name: claude_config_write | Make the directory for what is carried on the VM
+  ansible.builtin.file:
+    path: "{{ code_config_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  when: code_config_writes | bool and code_config_dir_ok | bool
+
+# As the session copy's rsync: over the alias, never asking for anything, or to
+# a local path where Ansible reaches the VM locally. A file it could not send
+# is named by the write below, and the window opens all the same.
+- name: claude_config_write | Send this machine's files to the VM
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -az
+      - -r
+      - --files-from=-
+      - --itemize-changes
+      - -e
+      - ssh -o BatchMode=yes
+      - "{{ code_session_here }}/"
+      - "{{ code_config_mirror_target }}/"
+    stdin: "{{ code_config_plan | claude_config_rsync | join('\n') }}"
+  register: code_config_sent
+  # A file sent; a folder's time alone, which a session begun here changes, is no change there.
+  changed_when: code_config_sent.stdout_lines | default([]) | select('match', '^>f') | list | length > 0
+  failed_when: false
+  when: code_config_on | bool and code_config_dir_ok | bool and code_config_plan | claude_config_rsync | length > 0
+
+# Run whenever a part is on, so that what left the plan is removed while it is
+# still as written, and leaves the mirror.
+- name: claude_config_write | Write what is carried on the VM
+  claude_config_carry:
+    dest: "{{ code_session_there }}"
+    mirror: "{{ code_config_dir }}/mirror"
+    manifest: "{{ code_config_dir }}/manifest.json"
+    scopes: "{{ code_config_plan.scopes }}"
+    files: "{{ code_config_plan.files }}"
+    generated: "{{ code_config_plan.generated }}"
+    appended: "{{ code_config_plan.appended }}"
+    held: "{{ code_config_plan.held }}"
+    # What the writer needs of the settings, and no more: never the names of this machine's others.
+    settings: >-
+      {{ {'values': code_config_plan.settings['values'], 'items': code_config_plan.settings['items'],
+          'managed': code_config_plan.settings.managed | default([]),
+          'unreadable': code_config_plan.settings.unreadable}
+         if code_config_settings | bool else omit }}
+    # The prompts of the sessions copied, now that the copy has said which: none of one it left.
+    history: >-
+      {{ code_config_plan.history | selectattr('sessionId', 'in', code_config_history_copied) | list }}
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_carried
+  no_log: true
+  # What fails is said, never the run's end: the window opens all the same.
+  failed_when: false
+  when: code_config_on | bool
+
+# The VM's Claude Code, as the installers put it there, asked what plugins it
+# has, only where this machine has one to install, and only now, after every
+# refusal: claude may keep a record of its own start.
+- name: claude_config_write | Read the plugins on the VM
+  claude_config_info:
+    path: "{{ code_session_there }}"
+    plugins_there: true
+    claude: "{{ code_claude_candidates }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_there
+  when: code_config_plugins | bool and code_config_here.plugins.enabled | default([]) | length > 0
+
+# By the VM's own Claude Code, the documented way: never -y or --accept-command,
+# so a marketplace that declares a command to run is never accepted for the
+# person; its install fails here, and the run names the line that installs it.
+# Nothing is ever uninstalled. A failure fails nothing else, and one that stalls
+# - a clone that never ends - is ended by timeout and said as a failed install:
+# a task's own timeout would fail the run past failed_when.
+- name: claude_config_write | Add the plugins' marketplaces on the VM
+  ansible.builtin.command:
+    argv: [/usr/bin/timeout, -k, "30", "300", "{{ code_config_claude }}", plugin, marketplace, add, "{{ code_config_marketplace }}"]
+  loop: "{{ code_config_plugins_plan.marketplaces }}"
+  loop_control:
+    loop_var: code_config_marketplace
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_added
+  changed_when: code_config_added.rc == 0
+  failed_when: false
+  when: code_config_plugins | bool and code_config_plugins_plan.marketplaces | length > 0
+
+- name: claude_config_write | Install this machine's plugins on the VM
+  ansible.builtin.command:
+    argv: [/usr/bin/timeout, -k, "30", "300", "{{ code_config_claude }}", plugin, install, "{{ code_config_plugin }}", --scope, user]
+  loop: "{{ code_config_plugins_plan.install }}"
+  loop_control:
+    loop_var: code_config_plugin
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_config_installed
+  changed_when: code_config_installed.rc == 0
+  failed_when: false
+  when: code_config_plugins | bool and code_config_plugins_plan.install | length > 0

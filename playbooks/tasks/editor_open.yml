@@ -66,12 +66,13 @@
     argv: "{{ code_plan.launch }}"
   changed_when: true
 
-# What the plan says, and between its words, what the session handoff did,
-# which the plan cannot say: that reads what tasks/session_write.yml did,
-# after the refusal.
+# What the plan says, and between its words, what the session handoff and
+# the carry did, which the plan cannot say: that reads what
+# tasks/session_write.yml and tasks/claude_config_write.yml did, after the
+# refusal.
 - name: editor_open | Say what was opened
   ansible.builtin.debug:
-    msg: "{{ (code_plan.report + [code_sessions_said] + code_plan.report_end) | select | join(' ') | trim }}"
+    msg: "{{ (code_plan.report + [code_sessions_said, code_config_said] + code_plan.report_end) | select | join(' ') | trim }}"
 
 # What is left to do, the plan's records: '' where nothing is, as it is once
 # the window opens, else the command its action names.

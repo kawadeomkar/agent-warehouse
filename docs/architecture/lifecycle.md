@@ -1083,8 +1083,16 @@ Claude Code's own Agent SDK documents. The rules:
   the VM, and one a `claude` on the VM has open (its `sessions/` registry there, `registered`),
   whose copy is never replaced under the claude holding it.
 - **Bounded, and said before it is sent.** One copy sends at most `claude_sessions_sync_max_size` (256M)
-  of transcripts and their tool results, sizes `claude_sessions_info` reads here without following a
-  link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
+  of transcripts, their tool results and, with `claude_sessions_sync_subagents` (on by default), their
+  subagents' transcripts - of what the VM's mirror lacks of each, which is what rsync sends: a session copied
+  before counts what it grew by since, read from the mirror on the VM (`mirror`, `mirrored`), and a transcript
+  shorter here than there, written anew, counts whole. The VM reports its mirror, and the VM runs an agent: each
+  part of what it reports - transcript, tool results, subagents - counts for no more than that part holds here, a
+  file for no more than it holds on disk, and a value that is no count for nothing, so a mirror made to look large
+  can make a session already copied there count less, never another session go. A session left out for now - a
+  newer Claude Code, a `claude` there holding it, the bound itself - keeps its copy in the mirror (`mirror`, the
+  module's `keep`), so its next copy counts what it gained, never the whole of it again. Sizes `claude_sessions_info` reads at both ends without
+  following a link: `--session`'s own first, then the newest, each kept while it fits in what is left, the rest left
   here and counted in the run's line (`over`). A bound that is no size is refused before anything is
   read; 0 is none. rsync shows nothing while it sends, and a first copy over a slow link took minutes
   live, so the run says how many and how much just before it starts.
@@ -1107,8 +1115,12 @@ Claude Code's own Agent SDK documents. The rules:
   among them the records Claude Code keeps since 2.1.300 of each request it sent
   (`api-request-shape`, `api-request-blob`), which still name this machine's memory folder: a resume
   sends the recorded prompt, never them, as the `configure` scenario holds against the real `claude`.
+  A subagent's transcript, copied with its session, gets the first two edits and neither appended entry,
+  which are its session's; its other files go as they are. Claude Code resumes a subagent of a resumed
+  session by its ID from `<id>/subagents/agent-<agent id>.jsonl`, which is why they come along.
 - **Replace only what the last run wrote.** The manifest in `<workspaces>/claude-sessions/` holds the
-  digest of each copy written. A copy that still matches is replaced; one that differs was continued
+  digest of each copy written, and of each subagent file written with it (its `subagents` record), each
+  replaced under the same rule: a subagent continued on the VM is left. A copy that still matches is replaced; one that differs was continued
   on the VM, or was never this project's, and is left alone and named - as continued when nothing new
   came from here, as changed on both otherwise. The appended entries rule a byte-prefix check out. A
   copy that is gone while its ID is in another folder of the VM's moved there - `/cd` in a resumed
@@ -1122,7 +1134,60 @@ Claude Code's own Agent SDK documents. The rules:
 - **Kept from Claude Code's sweep.** A copy keeps this machine's file time while that is within 14
   days, and is otherwise given the time it is written, renewed once that is 14 days old: Claude Code
   deletes a transcript 30 days after its file time, which would take a `--session` copy of an older session
-  before it was resumed, and a session copied at 29 days the next day.
+  before it was resumed, and a session copied at 29 days the next day. Each of its tool results is given
+  the transcript's time: the sweep deletes `tool-results/` by the files' own age too, and rsync brings
+  this machine's, so they would go first. They are compared by size and digest, so a time set there
+  never reads as a change - or, while what a file was made from is what the manifest's `made_from` record holds, as
+  for the copy itself, not read at all, nor a subagent's transcript edited again.
+- **Auto memory beside them** (`tasks/claude_config_read.yml`, `tasks/claude_config_write.yml`,
+  [§7.6](custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)). The
+  memory folder here of each repository the VM has a checkout of goes into that checkout's memory folder there - the
+  one the copies' recorded prompt is pointed at - whether or not the sessions go (`claude_memory_sync`), by the same
+  rule under a manifest of its own in `<workspaces>/claude-config/`, through a second rsync, from this machine's
+  Claude Code directory into a mirror beside it. Neither that directory nor just code's is made by a run with nothing
+  to carry (`code_config_writes`), nor one where the VM put a link, there or at its mirror, or a file
+  (`code_config_dir_ok`, read by a `stat` that follows no link first; the session copy's directory and mirror
+  likewise, `code_session_dir_ok`): a link there would take rsync's files, and the mirror's prune, wherever it points. Which folder here is a repository's is
+  decided by git: the origin and top level of each checkout `githubRepoPaths` names for the VM's repositories, and of
+  each copied session's first directory; two such folders that hold notes are both left, and so is a folder Claude
+  Code names two checkouts here by (`my.app` and `my-app`). One generated note, `carried-by-just-code.md`,
+  indexed by a line appended to `MEMORY.md` as it is copied, says where this machine's checkout and memory folder
+  are on the VM.
+- **Instructions and settings beside them**, by the same writer and rule: `CLAUDE.md` and `rules/`
+  (`claude_instructions_sync`), unless `claude_code_global_instructions` makes `CLAUDE.md` the role's, and the
+  settings of an allowlist (`claude_settings_sync`), each key, or each part of `permissions` and `autoMode`, an item
+  of its own in the VM's `settings.json`, recorded in the same manifest. Never a key the `claude_code` role writes,
+  since it merges over the file at every configure, and never one of tier 0 - `env` above all, where an
+  `ANTHROPIC_API_KEY` would outrank the claude.ai login and end Remote Control; a program's setting only where
+  `claude_settings_sync_keys` names it, and that list refused, before anything is read, a setting never carried.
+  Their values travel as the writer's arguments, under `no_log`, never as a file, and of this machine's other settings
+  not even their names. A setting the list no longer names is no item of the run, so the writer removes it from the
+  VM while still as carried, unless the role writes its key now; a file here that cannot be read makes no item at
+  all, so nothing there is removed for seeming gone. The file is written as the role writes
+  it (`to_nice_json(indent=2)`: sorted, ASCII), so the next configure finds it unchanged.
+- **Plugins beside them**, by the VM's own Claude Code at the installers' paths, never `PATH`
+  (`claude_plugins_sync`): the user-scope plugins enabled here, from `installed_plugins.json`, `enabledPlugins` and
+  `known_marketplaces.json`, against what `claude plugin list --json` and `marketplace list --json` say there -
+  asked only after every refusal, since a `claude` may keep a record of its own start - then
+  `marketplace add` and `install --scope user` for what is missing, never `-y` or `--accept-command`, each under
+  `/usr/bin/timeout` (300 s): a task's own `timeout` would fail the run past `failed_when`. An install that fails, a
+  command to accept or a stall among the causes, fails nothing and is named with its line; nothing is uninstalled.
+- **Prompt history beside them** (`claude_history_sync`, and only with the session copy): the lines of
+  `history.jsonl` of the sessions planned, read here under `no_log` and at most 8 MB, of which only those the copy
+  wrote or found as it would be go (`code_config_history_copied`), their `project` set to the VM checkout as the
+  `relocated` entry sets a copy's, appended in time order where the VM's file lacks a line of that session and time -
+  whole lines with `O_APPEND`, after a newline where a `claude` left its last line unfinished, so a `claude`
+  appending there at the same time interleaves whole lines. `history.jsonl` is not swept, and a pasted prompt is the copied transcript's own text.
+- **Skills, agents and commands beside them** (`claude_extensions_sync`): every plain file of `skills/` but the
+  account's `skills/synced/`, `agents/`, `commands/`, `output-styles/`, `workflows/`, `themes/` and
+  `keybindings.json`, by the same writer and rule, carried whole or not at all past 2000 files or 64 MB, a file that
+  can run here (a skill's script) able to run there. The writer refuses `skills/synced/` under its scope whatever it
+  is handed.
+- **Never taken for gone, what this machine could not read.** A link where a carried file or folder would be - a
+  `CLAUDE.md` kept with dotfiles, a skill installed as a link - and a file or folder `claude_config_info` may not
+  read is no file gone here: it is not carried, named in the run's line, and nothing at or below it on the VM is
+  removed (`held`). Where the Claude Code directory here is not there at all (another `CLAUDE_CONFIG_DIR`), no part
+  is read and nothing is removed.
 - **Back before a destroy.** The sync only ever goes to the VM. What a VM holds of its own - sessions
   begun there, copies continued there, auto memory - `just destroy` saves here first (§4.5).
 - **The transport.** `rsync -az --files-from=-` over the alias, as the editor reaches the VM, with

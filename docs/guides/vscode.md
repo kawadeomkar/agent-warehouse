@@ -326,11 +326,12 @@ Claude Code says it is from a different directory and copies the `cd` to it. The
 never picks a copy up: `--continue` looks only at the folder's own conversations, and a copy is filed
 under the folder name it has here (`-Users-you-homeserver`), not the checkout's.
 
-One copy sends at most `claude_sessions_sync_max_size` (256M by default; `1G`, or `0` for no bound): the
-newest sessions first, each with its tool results while it fits, and the rest stay here, their number
-said. Before it sends, the run says how many sessions and how much, since the copy shows nothing while
-it runs: the first is the whole of each, a later one what changed, and over a slow link to the VM even
-the bound takes minutes.
+One copy sends at most `claude_sessions_sync_max_size` (256M by default; `1G`, or `0` for no bound) that the VM
+does not have yet: the newest sessions first, each with its tool results and subagents while it fits, and the rest
+stay here, their number said. A session copied before counts only what it grew by since, so a long one goes on
+being copied once it is there; its first copy is the whole of it, which a larger bound, or `--session`, sends once.
+Before it sends, the run says how many sessions and how much, since the copy shows nothing while it runs, and over a
+slow link to the VM even the bound takes minutes.
 
 A session belongs to the repository its first directory is a checkout of, by its `origin` remote,
 compared as owner and repository with the origin of each checkout in `~/projects` on the VM: a renamed
@@ -341,23 +342,31 @@ does, an SSH alias of yours for GitHub included. So a VM that names a GitHub rep
 a checkout here of that owner and name on any host, a GitLab or company server's too. A session of a Claude worktree (`.claude/worktrees/<name>`) whose folder is gone
 goes by its checkout, and one of a clone that is gone by the `githubRepoPaths` Claude Code keeps in
 `~/.claude.json`. Left here: sessions without a message, and sessions written by a Claude Code newer
-than the VM's - which installs the stable channel - named in the run's message until the VM's catches
-up (`claude update` there).
+than the VM's - which installs the stable channel - named in the run's message with the line that installs the
+newest of their versions there, `just ANSIBLE_ARGS='-e claude_code_version=<version>' deploy <vm> --tags
+claude_code`; a version installed so stays at later configures, which install a channel's version only where Claude
+Code is missing.
 
 What a copy is. The transcript, its complete lines only - a session open here while it is copied
 comes over as far as it was written - and its `tool-results/` folder, in the VM's `~/.claude/projects/`
 under the folder name it has here, 0600 in 0700 folders. It keeps its file time here while that is
 within 14 days; an older one's copy gets the time it was copied, renewed every 14 days, since Claude Code
 deletes a transcript 30 days after its file time and would otherwise take a session you asked for by ID
-before you resumed it. Each copy gets four edits and nothing else, so that it resumes as the VM's own: the
+before you resumed it. Its tool results take the same time, since Claude Code deletes those by their own
+age too. Each copy gets four edits and nothing else, so that it resumes as the VM's own: the
 memory folder its recorded system prompt names, and the folder of the tool results it saved, become the VM's;
 a session bound to a Claude worktree goes on in the main checkout; and a last entry names the checkout. What
 the assistant said, signed thinking included, stays as it was. [§4.9](../architecture/lifecycle.md#49-playbookscodeyml)
 says why each.
 
-Never copied: subagent transcripts (resume does not need them, and they are much of the bytes, but a
-subagent of the session cannot be looked into or resumed on the VM),
-credentials, the list of running sessions, shell snapshots, the file history - so `/rewind` on the VM
+With each session go its subagents' transcripts (`claude_sessions_sync_subagents`, on by default), so a
+subagent it started can be looked into on the VM, and continued there once the session is resumed: Claude
+continues one by its ID. They count toward the bound, and a long session's subagents can hold more than its
+own transcript; `false` keeps them here. A subagent's transcript gets the memory folder's edit its session's
+does, and one continued on the VM is never overwritten. A subagent that worked in a folder only this machine
+has, such as a worktree in a session's scratchpad, finds no such folder there.
+
+Never copied: credentials, the list of running sessions, shell snapshots, the file history - so `/rewind` on the VM
 rewinds the conversation but restores no file edited before the handoff - and `~/.claude.json`.
 `just code` copies nothing back from the VM and writes nothing on this machine; what the VM has of its
 own, `just destroy` saves here before it deletes the VM
@@ -378,6 +387,75 @@ opens all the same. The
 first answer in a copied session reads the whole conversation again, uncached: the prompt cache is
 Anthropic's, not this machine's, but a copy's recorded system prompt names the VM's memory folder,
 which makes it another prompt, and a cache entry lasts only minutes after its last request anyway.
+
+### Auto memory
+
+Claude Code keeps notes of its own for each repository, its auto memory, in `~/.claude/projects/<folder>/memory/`,
+and loads `MEMORY.md` from there at the start of each conversation. `just code` copies this machine's into the memory
+folder of the VM's checkout of the same repository - matched by git origin, as the sessions are - whether or not the
+sessions go: a fresh conversation on the VM starts with the notes one here would, and a copied session's recorded
+prompt already names that folder. A repository whose notes are in two folders here, two clones each with notes of its
+own, is left out and named.
+
+A note is replaced only while it is what the last copy wrote, as a session's copy is: one a session on the VM added
+or changed stays as it is, and the run names it. `MEMORY.md` is one of them, so once a session on the VM adds a line to
+it, notes written here after that arrive unindexed until you merge the two. A note gone here is removed there while it
+is still as copied. Beside them goes one note of just code's own, `carried-by-just-code.md`, indexed by a line at the
+end of `MEMORY.md`: where this machine's checkout and memory folder are on the VM, since the notes and the copied
+sessions name this machine's paths. `claude_memory_sync: false` keeps the notes here.
+
+### Your instructions and settings
+
+Your global instructions, `~/.claude/CLAUDE.md`, and the files of `~/.claude/rules/` go to the VM's
+(`claude_instructions_sync`), so Claude there follows what Claude here does - unless
+`claude_code_global_instructions` writes the VM's `CLAUDE.md`, which then stays the role's. What `CLAUDE.md` imports
+with `@path` stays here, and the run names it.
+
+So do the settings that mean the same on any machine (`claude_settings_sync`): the model, effort and preferences
+(`model`, `modelSettings`, `effortLevel`, `theme` and the like), what commits made there say of Claude
+(`attribution`), your permission rules and mode (`permissions.allow`, `ask`, `deny`, `defaultMode`), and auto mode's
+rules (`autoMode.allow`, `soft_deny`). Each is set in the VM's `~/.claude/settings.json` beside what is there, by the
+same rule as a note: one changed on the VM - `/model` there writes `model` - is never overwritten. Never: `env` and
+every other setting that holds or makes a credential, this machine's folders (`permissions.additionalDirectories`),
+`autoMode.environment`, which describes this machine to auto mode, plugins (their own step), MCP trust, and a key the
+`claude_code` role writes - `claude_code_settings`' own, the update channel. `hooks`, `statusLine` and
+`fileSuggestion` run a program, here one of this machine's, so they stay too unless `claude_settings_sync_keys` names
+them; any setting taken out of that list goes from the VM while it is still as carried, and one `claude_code_settings`
+names afterwards is the role's there; a setting just code does not know stays and is named. The run says what stayed, and why. While this machine's `settings.json` is no JSON object just
+code can read, nothing of the VM's changes.
+
+### Plugins
+
+The plugins installed and enabled for you here, from a marketplace on GitHub, are installed on the VM by its own Claude
+Code (`claude_plugins_sync`): `claude plugin marketplace add` for a marketplace it lacks, then `claude plugin install
+<name>@<marketplace> --scope user`, never accepting a command a marketplace declares for you. One that needs such a
+command, or whose install fails, is named with the line that installs it by hand there; a plugin from a marketplace on
+this machine's disk, installed for one project, or disabled here stays. Nothing is ever uninstalled there. What a
+plugin needs beside itself is the VM's to have: `rust-analyzer-lsp` runs `rust-analyzer`, which `rustup component add
+rust-analyzer` puts in the toolchain a repository pins.
+
+### Prompt history
+
+The prompts typed in the sessions copied join the VM's prompt history (`claude_history_sync`), so the up arrow and
+Ctrl+R there find them, under the VM checkout's folder: each line once, by its session and time, however often
+`just code` runs. A session the copy left as it is - continued on the VM - keeps its prompts here. They ride with the sessions, so none go while `claude_sessions_sync` is off, and at most 8 MB of them
+go in one copy.
+
+### Skills, agents and commands
+
+Your own skills (`~/.claude/skills/`), subagents (`agents/`), commands (`commands/`), output styles, workflows, themes
+and `keybindings.json` go to the VM's `~/.claude` (`claude_extensions_sync`), by the same rule as a note: a file changed
+there stays. Not the skills your account syncs (`skills/synced/`), which Claude Code downloads at the VM's own
+sign-in. A skill's scripts run on the VM only where the skill runs them, and a script that can run here can there.
+Past 2000 files or 64 MB they stay here whole, and the run says so; `rules/` past 1000 files or 16 MB does too.
+
+### What is not read here
+
+`just code` follows no link in `~/.claude`: a `CLAUDE.md` kept with your dotfiles, or a skill installed as a link to
+where it lives, is not carried, and the run names it. Copy the file in, or link the other way round. Neither it nor a
+file `just code` may not read is ever taken for one you deleted: what an earlier run carried of it stays on the VM.
+Nor is anything taken from the VM while the Claude Code directory `just code` reads (`CLAUDE_CONFIG_DIR`, else
+`~/.claude`) is not there at all.
 
 ### Continuing one session
 

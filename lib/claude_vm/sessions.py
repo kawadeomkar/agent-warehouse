@@ -14,6 +14,7 @@ Nothing here reads a file: the modules do, and only these values reach a filter.
 
 from __future__ import annotations
 
+import math
 import re
 import shlex
 from datetime import UTC, datetime
@@ -209,6 +210,8 @@ def claude_sessions_plan(
     vm="the VM",
     open_there=None,
     cap=0,
+    subagents=True,
+    mirrored=None,
 ):
     """Decide which of this machine's sessions go to which checkout on the VM.
 
@@ -235,6 +238,15 @@ def claude_sessions_plan(
     sessions first, each kept while its transcript and tool results fit in what is left, --session's own
     always. ``bytes`` is what the sessions kept hold, ``over`` the IDs left out for the bound and
     ``over_bytes`` what they hold.
+
+    ``subagents`` (claude_sessions_sync_subagents): each session's ``subagents/`` goes with it, in ``files`` and
+    counted in its size; without it, neither.
+
+    ``mirrored`` is claude_sessions_info's reading of the VM's mirror, what earlier runs sent: the bound counts what
+    the mirror lacks of each session, which is what rsync sends, rather than its whole size. A transcript only
+    grows, so one shorter here than there was written anew, and counts whole. ``bytes`` and ``over_bytes`` are
+    then what is sent and what is left. ``mirror`` names, as ``<folder>/<id>``, every session whose copy in the
+    mirror stays: each of a repository the VM has, sent this time or not.
     """
     here = {item["path"]: item for item in here or [] if item.get("path")}
     by_repo = {}
@@ -251,6 +263,7 @@ def claude_sessions_plan(
         "twice": [],
         "open": [],
         "over": [],
+        "mirror": [],
         "session": {},
     }
     kept = []
@@ -276,8 +289,15 @@ def claude_sessions_plan(
                 "checkout": checkout["path"] if checkout else "",
                 "name": checkout["name"] if checkout else "",
             }
+        if not session.get("conversation"):
+            continue
+        # Its copy in the VM's mirror stays while its repository is there, whatever leaves it out this time - no
+        # Claude Code there, a newer one here, a claude there holding it, the bound - so that the next run counts
+        # only what the mirror lacks of it (_lacking), never the whole of it again.
+        if checkout:
+            plan["mirror"].append(f"{session.get('folder', '')}/{session['id']}")
         # Without Claude Code on the VM there is nothing to resume a copy with: none is made, and the run says why.
-        if not session.get("conversation") or vm_version is None:
+        if vm_version is None:
             continue
         # --session's own cases are refused with their reason instead (_session_problem, session_read.yml).
         if not own and len(folders_of[session["id"]]) > 1:
@@ -293,7 +313,7 @@ def claude_sessions_plan(
             plan["newer"].append(session["id"])
         elif why != "none":
             plan["ambiguous"].append({"id": session["id"], "repository": repo, "names": why})
-    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap)
+    plan["over"], plan["bytes"], plan["over_bytes"] = _within(kept, cap, subagents, mirrored)
     for session, checkout, repo, _own in kept:
         if session["id"] in plan["over"]:
             continue
@@ -308,22 +328,59 @@ def claude_sessions_plan(
         plan["files"].append(f"{session['folder']}/{session['id']}.jsonl")
         if session.get("tools"):
             plan["files"].append(f"{session['folder']}/{session['id']}/tool-results")
+        if subagents and session.get("subagents"):
+            plan["files"].append(f"{session['folder']}/{session['id']}/subagents")
         repositories.add(repo)
     if wanted:
         plan["session"]["problem"] = _session_problem(plan["session"], sessions, wanted, by_repo, project, version, vm)
     plan["repositories"] = sorted(repositories)
+    # The Claude Code a session left out as newer needs: the newest of theirs.
+    newer = [session.get("version") for session in sessions or [] if session.get("id") in plan["newer"]]
+    plan["newer_version"] = max((str(found) for found in newer if _version(found)), key=_version, default="")
     return plan
 
 
-def _within(kept, cap):
+def _bytes(value):
+    """``value`` as a count of bytes; 0 for anything that is none, as the VM's own reading may hold."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 0
+    return max(0, int(value))
+
+
+def _lacking(session, subagents, mirrored):
+    """The bytes of ``session`` the VM's mirror lacks: its transcript's and tool results' growth since an earlier run
+    sent them, and its subagents' while they go with it; the whole of it where the mirror holds none, or holds a
+    longer transcript, which this one was not written on to.
+
+    The VM reports its mirror, and the VM runs an agent: what it holds of each part - the transcript, the tool
+    results, the subagents - counts for at most what that part holds here, and a value that is no count for
+    nothing. A mirror made to look larger than it is can only make a session already copied there count less.
+    """
+    transcript = _bytes(session.get("transcript"))
+    tools = max(0, _bytes(session.get("size")) - transcript)
+    agents = _bytes(session.get("subagents_size")) if subagents else 0
+    there = (mirrored or {}).get(f"{session.get('folder')}/{session.get('id')}.jsonl")
+    if not isinstance(there, dict):
+        return transcript + tools + agents
+    there_transcript = _bytes(there.get("transcript"))
+    if transcript >= there_transcript:
+        tools -= min(tools, max(0, _bytes(there.get("size")) - there_transcript))
+        transcript -= there_transcript
+    if subagents:
+        agents -= min(agents, _bytes(there.get("subagents_size")))
+    return transcript + tools + agents
+
+
+def _within(kept, cap, subagents=True, mirrored=None):
     """Which of ``kept`` (session, checkout, repository, whether it is --session's) one copy sends under ``cap``
     bytes, 0 for no bound: (the IDs left out, the bytes sent, the bytes left out). --session's own first, then the
-    newest; one that does not fit in what is left is left out, and an older one that does is kept."""
+    newest; one that does not fit in what is left is left out, and an older one that does is kept. What a session
+    counts is what the VM's mirror lacks of it (_lacking)."""
     out, sent, over = [], 0, 0
     for session, _checkout, _repo, own in sorted(
         kept, key=lambda item: (not item[3], -float(item[0].get("mtime") or 0))
     ):
-        size = int(session.get("size") or 0)
+        size = _lacking(session, subagents, mirrored)
         if cap and not own and sent + size > cap:
             out.append(session["id"])
             over += size

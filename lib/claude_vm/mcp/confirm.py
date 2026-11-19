@@ -104,6 +104,13 @@ ALLOWED = {
     "destroy_save_sessions": "whether a destroy saves the VM's sessions first",
     "claude_sessions_sync": "whether just code copies this machine's sessions",
     "claude_sessions_sync_max_size": "how much of this machine's sessions just code copies",
+    "claude_sessions_sync_subagents": "whether just code copies the sessions' subagents",
+    "claude_memory_sync": "whether just code copies this machine's auto memory",
+    "claude_instructions_sync": "whether just code copies this machine's global instructions",
+    "claude_settings_sync": "whether just code copies this machine's portable settings",
+    "claude_plugins_sync": "whether just code installs this machine's plugins on the VMs",
+    "claude_history_sync": "whether just code copies the copied sessions' prompt history",
+    "claude_extensions_sync": "whether just code copies this machine's skills, agents and commands",
     # The sign-ins' timing and starts.
     "claude_code_login_approval_timeout": "how long a sign-in waits",
     "github_login_auto_start": "whether GitHub's sign-in starts by itself",
@@ -128,6 +135,8 @@ REFUSED = frozenset(
         "claude_code_login_args",
         "claude_code_login_timeout",
         "claude_code_remote_control_dir",
+        # Which of this machine's settings go to every VM: one that runs a program there is the person's to name.
+        "claude_settings_sync_keys",
         "claude_code_remote_control_name",
         "claude_code_remote_control_permission_mode",
         "claude_code_remote_control_spawn",
