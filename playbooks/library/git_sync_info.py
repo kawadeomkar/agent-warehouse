@@ -97,6 +97,9 @@ repo:
     branches:
       description: With O(select), each local branch's commit, by its name.
       type: dict
+    upstreams:
+      description: With O(select), each local branch that tracks a branch of origin, and that branch's name there.
+      type: dict
     tags:
       description: With O(select), each tag's object, by its name.
       type: dict
@@ -275,6 +278,7 @@ def read_selection(module, top, found, ignored_too, exclude):
     found.update(
         operation=operation(module, top),
         branches=refs(module, top, "refs/heads/"),
+        upstreams=upstreams(module, top),
         tags=refs(module, top, "refs/tags/"),
         stashes=len(git(module, top, "stash", "list")[1].splitlines()),
         worktrees=max(len(worktrees(module, top)) - 1, 0),
@@ -349,6 +353,19 @@ def read_selection(module, top, found, ignored_too, exclude):
         left=collapse(left, entry_of, top, holding(carried_names, entry_of.folders)),
         included=sorted(plain(name) for name in included if plain(name) is not None),
     )
+
+
+def upstreams(module, top):
+    """{branch: branch of origin it tracks} for each local branch whose upstream is origin's: what the VM's branch
+    tracks once the sync makes it, as here."""
+    fields = "%(refname)%00%(upstream:remotename)%00%(upstream:remoteref)"
+    rc, out = git(module, top, "for-each-ref", f"--format={fields}", "refs/heads/")
+    found = {}
+    for line in out.decode("utf-8", "replace").splitlines() if rc == 0 else ():
+        ref, remote, merge = (line.split("\0") + ["", ""])[:3]
+        if remote == "origin" and ref.startswith("refs/heads/") and merge.startswith("refs/heads/"):
+            found[ref[len("refs/heads/") :]] = merge[len("refs/heads/") :]
+    return found
 
 
 def _starts(path, start):

@@ -1043,7 +1043,9 @@ directory, trusted in its own window - and `just code`'s message says so.
 project's repository reads it, against the VM's checkout of the same repository, and says what a sync would carry:
 every local branch and tag, the branch checked out here and its changes not committed, and with `repo_sync_ignored`
 the files git ignores - each by the rule of [§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync).
-Nothing is sent yet. Where just was started is the justfile's `STARTED_IN`, the folder it was started in unless the
+The branches and tags go by `git send-pack` into the VM checkout's own refs of the sync's, and `git_sync_apply` on the
+VM creates and moves its branches, and switches its checkout to the branch here, where nothing of the VM's own is in
+the way (`tasks/repo_write.yml`, after the session handoff's writes). Where just was started is the justfile's `STARTED_IN`, the folder it was started in unless the
 command line names another, handed to the playbook as `vm_repo_from` - with `vm_repo_elsewhere`, whether it is another
 repository than this checkout - only with `--project`, only from a folder in a repository, and never one whose path
 opens a template (`{{`, `{%`, `{#`), since Ansible renders an extra var's text as one: the justfile refuses it.
@@ -1057,7 +1059,12 @@ two cheap reads: the match (`git_sync_info` at both ends, asked little), the sel
 the estimate (here again: the bytes the branches hold beyond the commits the VM has, `git rev-list --objects
 --disk-usage`). `repo_sync_max_size` that is no size is refused before anything is read. Nothing the VM reports
 becomes an argument or input of a command here but its commits, each held to a full hex ID and looked up here
-first, and only left out of the estimate.
+first, and only left out of the estimate. The writes: just code's own directory gets `repo-sync/<project>/`, 0700, for
+the sync's manifest; `git send-pack --force --stdin` sends this machine's refs alone, over the alias to the checkout's
+path held to one plain form, `git-receive-pack` by its path there, never failing the step - a branch a shallow clone
+refuses is that branch alone, whatever the exit code, and changed is read from the ref lines it printed; then the apply, and one report, whose NEXT STEPS record names a branch or a checkout left
+because the VM has work of its own there. `code_writes_its_directory` counts the sync; a directory of just code's that
+the refusal before the reads did not look at is one more reason not to sync, said as the one line.
 
 **The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's
 Claude Code sessions of the last 30 days - Claude Code's own `cleanupPeriodDays` by default, by their file

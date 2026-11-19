@@ -115,11 +115,12 @@
     # Whether anything goes into just code's own directory on the VM: the
     # editor's files for the Claude terminal (VS Code's workspace file and
     # helpers, or the task file and the shared helper an editor lists), the
-    # notes, session copies, or what of the rest of Claude Code this run records
-    # beside them (code_config_writes).
+    # notes, session copies, what of the rest of Claude Code this run records
+    # beside them (code_config_writes), or the repository sync's manifest.
     code_writes_its_directory: >-
       {{ (code_terminal and code_editor_claude == 'started') or code_claude_task_written | bool
-         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 or code_config_writes | bool }}
+         or code_notes | bool or code_session_plan.sessions | default([]) | length > 0 or code_config_writes | bool
+         or code_repo_sync | bool }}
     # Whether this run moves just code's directory from its 1.x name: a real
     # directory there, and nothing yet at the new one, as both were before the
     # move - so every task of the move reads the same answer. Never in check
@@ -328,6 +329,24 @@
       {{ code_repo_here.repo | default({}) | repo_sync_match(code_repo_there.repo | default({}), code_project,
                                                               claude_vm_names[0], code_target, code_repo_elsewhere) }}
     code_repo_matched: "{{ code_repo_on | bool and code_repo_match.sync }}"
+    # Where the sync keeps its manifest on the VM, in just code's own directory: one a refusal above did not look at,
+    # since it did not know of the sync yet, is one more reason not to sync, said as the one line.
+    code_repo_dir: "{{ code_ws_dir }}/repo-sync/{{ code_project }}"
+    code_repo_dir_said: >-
+      {{ '' if code_ws_dir is match('/') and code_ws_dir not in ['/', code_root]
+         else 'editor_files_dir, ' ~ code_ws_dir ~ ', is no directory just code can keep the repository sync in, so'
+              ~ ' nothing was carried to ' ~ code_project ~ ' there (repo_sync).' }}
+    # The one line a run that will not sync says: the match's, or that.
+    code_repo_why: "{{ code_repo_match.said if not code_repo_match.sync else code_repo_dir_said }}"
+    # The one condition every writer of the sync runs under: matched, a plan that carries, and a directory to keep it.
+    code_repo_sync: >-
+      {{ code_repo_matched | bool and code_repo_plan.sync | default(false) and code_repo_dir_said | length == 0 }}
+    # The checkout on the VM as send-pack is given it: after the alias, as rsync names one, or a local path where
+    # Ansible reaches the VM locally, as the harnesses and the provision scenario do. git-receive-pack by its path
+    # there, since the VM user's PATH starts with ~/.local/bin; locally, the one git runs.
+    code_repo_local: "{{ hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local' }}"
+    code_repo_target: "{{ ('' if code_repo_local | bool else claude_vm_names[0] ~ ':') ~ code_target }}"
+    code_repo_receive_pack: "{{ 'git-receive-pack' if code_repo_local | bool else '/usr/bin/git-receive-pack' }}"
     # --session's branch, which --session moves: the sync leaves it, and the tree, alone.
     code_repo_session_branch: >-
       {{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}
@@ -1197,6 +1216,11 @@
 
         - name: Carry the rest of Claude Code to the VM
           ansible.builtin.import_tasks: tasks/claude_config_write.yml
+
+        # Then the repository: its branches sent, and the VM's checkout brought
+        # to them where nothing of its own is in the way.
+        - name: Carry the repository to the VM
+          ansible.builtin.import_tasks: tasks/repo_write.yml
 
         # The writes on the VM, as the VM user, last: every refusal above
         # leaves the VM as it was. An unchanged file is not rewritten, so a run

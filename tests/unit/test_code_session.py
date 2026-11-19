@@ -2022,6 +2022,9 @@ COMMANDS_HERE = {
     ("{{ code_zed_candidate }}", "--version"),
     # The sessions and the rest of Claude Code, sent to the VM's mirrors: read here, written there.
     ("rsync", "-az"),
+    # The repository sync's branches, sent into the VM checkout's own refs of the sync's: git send-pack alone
+    # (test_the_one_git_command_here_is_send_pack).
+    ("git", "--no-optional-locks"),
 }
 READS_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "ansible.builtin.find", "ansible.builtin.slurp"}
 # The session handoff's, the carry's and the repository sync's readers (playbooks/library/), run here and on the VM
@@ -2036,7 +2039,13 @@ COMMANDS_ON_VM = {
     # This machine's plugins, installed by the VM's own Claude Code, found at the installers' paths, under a time limit.
     ("/usr/bin/timeout", "-k", "30", "300", "{{ code_config_claude }}", "plugin"),
 }
-WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy", "claude_config_carry"}
+WRITES_ON_VM = {
+    "ansible.builtin.file",
+    "ansible.builtin.copy",
+    "claude_sessions_copy",
+    "claude_config_carry",
+    "git_sync_apply",
+}
 # What each writer runs under: VS Code's workspace and helpers with the terminal; just code's own directory
 # when anything goes into it; the notes with their own switch; the sessions' directory when there is a session to
 # copy and nothing but a folder is in its place, and the copies with the sync or --session; a listed task's shared
@@ -2057,6 +2066,8 @@ WRITERS_WHEN = (
     "code_helper in code_plan.helpers",
     # The run that moves just code's directory from its 1.x name: the shared helper's 1.x path, as a link.
     "code_ws_dir_moves | bool",
+    # The repository sync: its directory and its apply, once the checkouts matched and the plan carries.
+    "code_repo_sync | bool",
 )
 # The one command whose argv is no literal list: the window's, which the core built over the editor's command as its
 # check found it, run here.
@@ -2133,6 +2144,7 @@ def test_code_yml_imports_its_own_task_files_and_the_shared_ones_alone():
         "tasks/claude_config_read.yml",
         "tasks/claude_config_write.yml",
         "tasks/repo_read.yml",
+        "tasks/repo_write.yml",
     }
     assert imported == SHARED | own | set(EDITOR_FILES)
 
@@ -2239,6 +2251,35 @@ def test_every_task_reads_this_machine_or_is_delegated_to_the_vm(task):
         pytest.fail(f"{task.get('name')} uses {action}, which just code may not")
 
 
+def test_the_one_git_command_here_is_send_pack():
+    # Into the VM checkout's own refs of the sync's, its refs on stdin; never git push, which runs a pre-push hook and
+    # obeys pushInsteadOf, and never with a word the VM chose but the path its checkout is held to.
+    gits = [
+        task
+        for task in _every_task()
+        if _action(task) == "ansible.builtin.command"
+        and "delegate_to" not in task
+        and task["ansible.builtin.command"]["argv"][0] == "git"
+    ]
+    assert [task["name"] for task in gits] == ["repo_write | Send the branches to the VM"]
+    argv = gits[0]["ansible.builtin.command"]["argv"]
+    assert argv == [
+        "git",
+        "--no-optional-locks",
+        "-C",
+        "{{ code_repo_plan.source }}",
+        "send-pack",
+        "--force",
+        "--stdin",
+        "--receive-pack={{ code_repo_receive_pack }}",
+        "{{ code_repo_target }}",
+    ]
+    assert gits[0]["ansible.builtin.command"]["stdin"] == "{{ code_repo_plan.refs | join('\n') }}"
+    assert gits[0]["environment"]["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes"
+    assert gits[0]["failed_when"] is False
+    assert _vars()["code_repo_receive_pack"].startswith("{{ 'git-receive-pack' if code_repo_local")
+
+
 def test_every_task_of_the_window_step_is_in_the_block_just_deploy_rescues():
     # A task outside it would fail a deploy whose VM is done. Before it is
     # only the fleet's end, which opens nothing.
@@ -2299,6 +2340,8 @@ def test_just_code_writes_exactly_the_directory_and_the_file():
         "session_write | Write the copies the VM resumes",
         "claude_config_write | Make the directory for what is carried on the VM",
         "claude_config_write | Write what is carried on the VM",
+        "repo_write | Make the directory for the repository sync on the VM",
+        "repo_write | Bring the VM's checkout to what was sent",
         "Make the directory for the session notes on the VM",
         "Write the session notes on the VM",
         "editor_open | Make just code's directories on the VM",
@@ -3735,8 +3778,11 @@ REPO_KEEP = [
     "Reach the VM the way just deploy --only configure does",
     "Settle the folder to open",
     "Read the repository to carry to the VM",
+    "Look for just code's own directory on the VM",
+    "Make just code's own directory on the VM",
+    "Carry the repository to the VM",
 ]
-REPO_SAID = "repo_read | Say what the sync would carry"
+REPO_SAID = "repo_write | Say what was carried"
 REPO_WHY = "repo_read | Say why the repository is not carried"
 
 
@@ -3784,18 +3830,35 @@ def _vm_state(world: dict) -> tuple:
 
 
 def _read_runs(root: Path) -> dict:
+    """The runs that read and do not sync, against one world, and two that sync, against one of their own."""
     world = _repo_world(root)
     other = world["here"] / "src" / "other"
     before = _vm_state(world)
     runs = {
-        "here": _repo_window(world, "here", vm_repo_from=str(world["demo"]), vm_repo_elsewhere=True),
         "elsewhere": _repo_window(world, "elsewhere", vm_repo_from=str(other), vm_repo_elsewhere=True),
         "this checkout": _repo_window(world, "this", vm_repo_from=str(other), vm_repo_elsewhere=False),
         "off": _repo_window(world, "off", vm_repo_from=str(world["demo"]), local={"repo_sync": False}),
         "no source": _repo_window(world, "none"),
         "no size": _repo_window(world, "no-size", vm_repo_from=str(world["demo"]), repo_sync_max_size="lots"),
     }
-    return {"world": world, "before": before, "after": _vm_state(world), **runs}
+    after = _vm_state(world)
+    synced = _repo_world(root / "synced")
+    first = _repo_window(synced, "first", vm_repo_from=str(synced["demo"]), vm_repo_elsewhere=True)
+    first |= {
+        "commit": _git(synced["demo"], "rev-parse", "HEAD"),
+        "there": _head(synced["checkout"]),
+        "branches": _git(synced["checkout"], "branch", "--format=%(refname:short)").splitlines(),
+    }
+    second = _repo_window(synced, "second", vm_repo_from=str(synced["demo"]), vm_repo_elsewhere=True)
+    # A commit made on the VM, on the branch it is on, and more work here: the VM's is left, and said.
+    _commit(synced["checkout"], "vm-work")
+    _commit(synced["demo"], "more-here")
+    third = _repo_window(synced, "third", vm_repo_from=str(synced["demo"]), vm_repo_elsewhere=True)
+    return {"world": world, "before": before, "after": after, "synced": synced, **runs} | {
+        "here": first,
+        "again": second,
+        "vm work": third,
+    }
 
 
 @pytest.fixture(scope="module")
@@ -3803,16 +3866,39 @@ def repo_reads(tmp_path_factory):
     return _read_runs(tmp_path_factory.mktemp("repo-reads"))
 
 
-def test_a_run_started_in_a_checkout_of_the_project_says_what_it_would_carry(repo_reads):
-    run = repo_reads["here"]
+def test_a_run_started_in_a_checkout_of_the_project_carries_its_branches(repo_reads):
+    run, world = repo_reads["here"], repo_reads["synced"]
     assert run["rc"] == 0 and run["reached"], run["output"]
     said = _said(run["output"], REPO_SAID)
-    assert said.startswith(f"Read only, nothing sent: demo on alpha would get {repo_reads['world']['demo']}'s "), said
-    assert "3 branches and 0 tags, on feat/x at " in said and "1 ignored file (plans/plan-a.md)" in said, said
-    assert "1 change not committed" in said and said.endswith(" repo_sync: false turns this off."), said
+    commit = run["commit"]
+    assert said.startswith(
+        f"demo on alpha has {world['demo']}'s 3 branches (2 new there) and 0 tags, its checkout on feat/x at"
+        f" {commit[:8]}."
+    ), said
+    assert said.endswith(" repo_sync: false turns this off."), said
     # The vault's password is never named as carried: it is left, and said so.
     assert ".vault_pass (this project's own secrets and records, never carried)" in said, said
+    assert run["there"] == (commit, "feat/x")
+    assert "never-pushed" in run["branches"]
     assert _said(run["output"], REPO_WHY) is None
+    # Its manifest, in just code's own directory there, the VM user's alone.
+    folder = world["vm"] / "projects" / ".agent-warehouse" / "repo-sync" / "demo"
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700 and (folder / "manifest.json").exists()
+
+
+def test_a_second_sync_of_an_unchanged_repository_changes_nothing(repo_reads):
+    run = repo_reads["again"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    assert _changed(run) == 0, _what_changed(run)
+
+
+def test_a_branch_the_vm_committed_to_is_left_and_kept_for_next_steps(repo_reads):
+    run, world = repo_reads["vm work"], repo_reads["synced"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    said = _said(run["output"], REPO_SAID)
+    assert "Left there as it is: feat/x (commits of its own)." in said, said
+    assert run["left"]["alpha"]["repository"].startswith("demo on alpha: feat/x there has commits of its own"), run
+    assert _git(world["checkout"], "log", "-1", "--format=%s") == "vm-work"
 
 
 def test_a_run_started_in_another_repository_says_its_one_line(repo_reads):
@@ -3843,10 +3929,13 @@ def test_a_sync_bound_that_is_no_size_is_refused_before_anything_is_read(repo_re
     assert "repo_sync_max_size is the most one repository sync sends, a size such as 256M" in run["output"]
 
 
-def test_reading_writes_nothing_on_the_vm_or_here(repo_reads):
+def test_a_run_that_does_not_sync_writes_nothing_on_the_vm_or_here(repo_reads):
+    # The VM's checkout as it was, and no writer of the sync's run: just code's own directory is the editor's.
     assert repo_reads["after"] == repo_reads["before"]
-    for name in ("here", "elsewhere", "this checkout", "off", "no source"):
-        assert _changed(repo_reads[name]) == 0, _what_changed(repo_reads[name])
+    writers = ("Make the directory for the repository sync on the VM", "Bring the VM's checkout to what was sent")
+    for name in ("elsewhere", "this checkout", "off", "no source"):
+        for task in writers:
+            assert _skipped(repo_reads[name]["output"], f"repo_write | {task}"), (name, task)
     demo = repo_reads["world"]["demo"]
     assert _git(demo, "status", "--porcelain") == "M README"
 

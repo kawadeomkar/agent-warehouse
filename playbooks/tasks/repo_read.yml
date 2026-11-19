@@ -48,8 +48,8 @@
 # another project's name, as every run is, it would be said every time.
 - name: repo_read | Say why the repository is not carried
   ansible.builtin.debug:
-    msg: "{{ code_repo_match.said }}"
-  when: code_repo_on | bool and not code_repo_match.sync and code_repo_match.said | length > 0
+    msg: "{{ code_repo_why }}"
+  when: code_repo_on | bool and code_repo_why | length > 0
 
 - name: repo_read | Read what the checkout would carry
   git_sync_info:
@@ -75,10 +75,6 @@
   ansible.builtin.set_fact:
     code_repo_plan: >-
       {{ code_repo_selected.repo | repo_sync_plan(code_repo_match, code_repo_cap | int,
-                                                  code_repo_size.repo.bytes | default(0), code_repo_session_branch) }}
-  when: code_repo_matched | bool
-
-- name: repo_read | Say what the sync would carry
-  ansible.builtin.debug:
-    msg: "{{ code_repo_plan | repo_sync_said(claude_vm_names[0], code_project) }}"
+                                                  code_repo_size.repo.bytes | default(0), code_repo_session_branch,
+                                                  code_repo_there.repo) }}
   when: code_repo_matched | bool

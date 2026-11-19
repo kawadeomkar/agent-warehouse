@@ -1,0 +1,102 @@
+---
+# The writes of the repository sync, imported by code.yml's window step after
+# the session handoff's and every refusal just code has, so a run that stops
+# leaves the VM as it was (docs/architecture/lifecycle.md §4.9).
+# tasks/repo_read.yml decided what goes (code_repo_plan).
+#
+# git send-pack, the plumbing under git push, carries this machine's branches
+# and tags - its refs alone, each named in full - into the VM checkout's own
+# refs of the sync's (refs/agent-warehouse/sent/), over the alias, as the
+# session copy's rsync goes. Not git push: send-pack runs no pre-push hook,
+# obeys no pushInsteadOf, and writes nothing here. git_sync_apply then decides
+# on the VM, from the checkout as it is there, what each branch becomes, and
+# moves nothing the VM made. Neither ever fails the step: what they could not
+# do is said, and the window opens.
+#
+# Inputs: code.yml's play vars code_repo_sync, code_repo_plan, code_repo_dir,
+# code_repo_target and code_repo_receive_pack, and the folder code_target.
+
+# The VM user's alone: the manifest names this machine's folders.
+- name: repo_write | Make the directory for the repository sync on the VM
+  ansible.builtin.file:
+    path: "{{ code_repo_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  when: code_repo_sync | bool
+
+# Said before send-pack starts, which shows nothing while it sends: a first
+# send of branches never pushed can be large, and here is how to bound it.
+- name: repo_write | Say what is sent
+  ansible.builtin.debug:
+    msg: >-
+      Sending {{ code_repo_plan.refs | length }} of {{ code_repo_plan.source }}'s branches and tags to
+      {{ claude_vm_names[0] }}, {{ code_repo_plan.send_bytes | human_readable }} of git objects it lacks:
+      repo_sync: false sends none, repo_sync_max_size bounds it.
+  when: code_repo_sync | bool and code_repo_plan.send
+
+# Its refs on stdin, made from this machine's alone; to a path the VM's
+# checkout is held to, after the alias as rsync names one, never an ssh://
+# URL; git-receive-pack by its path there, since the VM user's PATH starts with
+# ~/.local/bin. A branch a shallow clone there refuses is that branch alone,
+# the rest sent, whatever the exit code (1 from git 2.56, 255 from 2.43, whose
+# send-pack also fails its own walk): the apply says which arrived. A ref sent
+# is a line of its own on standard error, with LC_ALL=C; a send of nothing is
+# "Everything up-to-date".
+- name: repo_write | Send the branches to the VM
+  ansible.builtin.command:
+    argv:
+      - git
+      - --no-optional-locks
+      - -C
+      - "{{ code_repo_plan.source }}"
+      - send-pack
+      - --force
+      - --stdin
+      - --receive-pack={{ code_repo_receive_pack }}
+      - "{{ code_repo_target }}"
+    stdin: "{{ code_repo_plan.refs | join('\n') }}"
+  environment:
+    GIT_SSH_COMMAND: ssh -o BatchMode=yes
+    GIT_TERMINAL_PROMPT: "0"
+    LC_ALL: C
+  register: code_repo_sent
+  changed_when: code_repo_sent.stderr | default('') is search('(?m)^ [ *+] .* -> refs/agent-warehouse/sent/')
+  failed_when: false
+  when: code_repo_sync | bool and code_repo_plan.send
+
+- name: repo_write | Bring the VM's checkout to what was sent
+  git_sync_apply:
+    checkout: "{{ code_target }}"
+    manifest: "{{ code_repo_dir }}/manifest.json"
+    source: "{{ code_repo_plan.source }}"
+    branches: "{{ code_repo_plan.branches }}"
+    tags: "{{ code_repo_plan.tags }}"
+    head: "{{ code_repo_plan.head }}"
+    session_branch: "{{ code_repo_plan.session_branch }}"
+    tree: "{{ code_repo_plan.tree }}"
+    upstreams: "{{ code_repo_plan.upstreams }}"
+  delegate_to: "{{ claude_vm_names[0] }}"
+  register: code_repo_applied
+  when: code_repo_sync | bool
+
+- name: repo_write | Say what was carried
+  ansible.builtin.debug:
+    msg: >-
+      {{ code_repo_plan | repo_sync_said(claude_vm_names[0], code_project, code_repo_applied,
+                                         {'rc': code_repo_sent.rc | default(none),
+                                          'words': code_repo_sent.stderr | default('') | trim}) }}
+  when: code_repo_sync | bool
+
+# NEXT STEPS: a branch or the checkout left because the VM has work of its own
+# there, which the person must deal with; '' once nothing is.
+- name: repo_write | Keep what is left to do for the end of the run
+  ansible.builtin.set_stats:
+    data:
+      code_next: >-
+        {{ {claude_vm_names[0]: {'repository': code_repo_plan | repo_sync_next(claude_vm_names[0], code_project,
+                                                                               code_repo_applied,
+                                                                               code_editor_flag)}} }}
+    aggregate: true
+    per_host: false
+  when: code_repo_sync | bool

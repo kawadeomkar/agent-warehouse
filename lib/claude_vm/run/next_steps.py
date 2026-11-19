@@ -18,6 +18,7 @@ MATTERS = (
     "github_identity",
     "tailscale",
     "tailscale_record",
+    "repository",
     "editor",
     "destroy",
 )

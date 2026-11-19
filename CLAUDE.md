@@ -520,7 +520,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
-  carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
+  carries, the repository sync and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security
+  questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
   [§7.6](docs/architecture/custom-code.md#76-filter_pluginssessionspy-and-playbookslibrary--the-session-handoff)
   and [In the editor](docs/architecture/security-model.md#in-the-editor) first.
@@ -602,6 +603,27 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The handoff reads this machine's `~/.claude` and checkout, with `git --no-optional-locks`, and writes
       nothing here; every task reading a transcript is `no_log`, and no message carries more than IDs, folders,
       branches and counts. Claude Code's trust question for a checkout stays the user's.
+- **The repository sync carries a local checkout to its VM, and never overwrites what the VM made.** Read
+  [§7.18](docs/architecture/custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync) first.
+    - The source is where just was started (`STARTED_IN`), handed to `code.yml` as `vm_repo_from` only with `--project`,
+      never a path that opens a template (`{{`, `{%`, `{#`: Ansible renders an extra var);
+      `code.yml` never looks for one itself, the MCP server gives `STARTED_IN=`, and every test names a source of its own
+      or none (`_just`'s `STARTED_IN=`), its git with `GIT_CONFIG_GLOBAL=/dev/null`.
+    - One repository by origin, never by folder name: here any origin, on the VM a GitHub one at the folder's top level.
+    - Nothing is written on this machine. Its refs alone - each named in full, never a name or a line the VM supplied -
+      go by `git send-pack` (never `git push`: no pre-push hook, no `pushInsteadOf`) into the VM checkout's
+      `refs/agent-warehouse/sent/`, over the alias to a path held to one plain form; only a commit ID the VM reports,
+      held to full hex, reaches a command here, to be left out of the estimate.
+    - `git_sync_apply`, on the VM, is the one writer in the checkout, with a fixed list of git verbs
+      (`tests/unit/test_repo_sync.py`): a branch moves only while the VM added nothing to it - where the last sync left
+      it (`refs/agent-warehouse/sync/heads/`, the apply's alone) or behind; one ahead is counted, one with commits of its
+      own left and said; a branch in use by a worktree there (checked out, rebased, bisected) is never moved, since
+      `git branch --force` refuses it; the checked-out branch moves only with its tree, by `merge --ff-only` or
+      `reset --keep`, never `update-ref`; NEXT STEPS decides by the apply's `reason`, never its words. Nothing the VM
+      made is deleted, nor a record.
+    - Tier 0 holds for every file at any depth, matched by git's own matcher, held to `tests/check_no_local_files.sh`, and
+      nothing overrides it; no link is followed and no repository inside is entered.
+    - A sync never fails a deploy: what it cannot carry is left and said, and the window opens.
 - **`just destroy` saves what of a VM's Claude Code sessions exists only there before releasing it.** Read
   [§4.5](docs/architecture/lifecycle.md#45-playbooksdestroyyml--confirm-release-delete) first.
     - `tasks/session_save.yml` (`destroy_save_sessions`, on by default) keeps each session with a message that is

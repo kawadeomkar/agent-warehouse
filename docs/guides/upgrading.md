@@ -46,6 +46,12 @@ is never used: set `PYTHON` in the alias to your own environment for this projec
 makes the checkout's own ([VMs](vms.md#from-a-projects-own-folder)). `just deploy` takes `--project`, as `just code`
 does.
 
+With `--project`, `just code` and `just deploy` now carry the repository `just` was started in to the VM's checkout of
+it when the two are one repository by origin ([VS Code](vscode.md#this-machines-repository-on-the-vm)). From the
+agent-warehouse checkout itself, `just code alpha --project agent-warehouse` is such a run, and is the one run an
+upgrade changes: it carries this checkout's branches to that VM. `repo_sync: false` in `local.yml` keeps the old
+behaviour.
+
 ## The VMs through the Proxmox host, from 2.7
 
 `vm_ssh_route` is new, and `auto` by default

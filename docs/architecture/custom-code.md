@@ -1653,7 +1653,8 @@ VM's checkout of it ([§4.9](lifecycle.md#49-playbookscodeyml)). Who decides wha
 | Whether to sync at all, and the one line when not | `repo_sync_match`, here | both origins are plain values |
 | Which files git does not track may go | `git_sync_info`, here (`playbooks/module_utils/git_sync.py`'s `select`) | it needs git's matcher over the files |
 | The refs to send, both bounds, what is left here | `repo_sync_refs` and `repo_sync_plan`, here | this machine's refs and sizes alone |
-| The report's words | `repo_sync_said`, here | one place for every line |
+| A branch's row, the tree's verdict | `git_sync_apply`, on the VM (`git_sync.py`'s `branch_row`) | they compare commits only the VM is sure to have, after the send |
+| The report's words | `repo_sync_said` and `repo_sync_next`, here | one place for every line |
 
 Which files git does not track may go, in order:
 
@@ -1709,6 +1710,44 @@ The parts, one by one:
 - **What is sent** is this machine's refs alone, each named in full into the VM checkout's
   `refs/agent-warehouse/sent/`: a name that could be read as anything else - a line of its own, an option - is left
   out. Nothing the VM reports becomes an argument here.
+- **The send.** `git send-pack --force --stdin` (`playbooks/tasks/repo_write.yml`), never `git push`: it runs no
+  `pre-push` hook, obeys no `url.<base>.pushInsteadOf`, and writes nothing here. Its lines are this machine's refs,
+  each into `refs/agent-warehouse/sent/` in the VM's checkout - git refuses a push to a checked-out branch - over the
+  alias to a path held to `/[A-Za-z0-9._/-]+` with no `..`, never an `ssh://` URL, in which git decodes `%`. A branch a
+  shallow clone there refuses (one that forks behind its shallow point) is that branch alone: the exit code - 1 from git
+  2.56, 255 from 2.43, whose send-pack then fails its own walk too - never fails the task, and the apply says it did
+  not arrive, with `git fetch --unshallow` there as the way to have it. What changed is read from the ref lines it
+  prints, never from its exit code.
+- **The apply** (`playbooks/library/git_sync_apply.py`), the one writer in the checkout. Two sets of refs of its own,
+  kept apart: what a send delivered (`sent/`, every send overwrites it) and where the apply last left, or found, each
+  branch (`refs/agent-warehouse/sync/heads/`, the record, written by the apply alone), so that a run that sent and
+  died before its apply never makes the record run ahead of the branch. Every name it is handed is held to git's own
+  rules for a ref's name (`ref_name`, `check-ref-format`'s, in its own process: one `git` per branch and tag took
+  seconds where a repository has thousands of tags). In order: the branches the VM lacks, created (`git branch`, which
+  fails where one exists), each tracking the branch of origin it tracks here (`upstreams`) where the checkout has a
+  remote origin, set in its configuration, which needs no fetch of the branch first; the checkout, moved on its branch
+  (`merge --ff-only`, or `reset --keep` where the row moves it aside or back) or switched to the branch here
+  (`git switch`), only with no claude working in it, a clean tree, a HEAD a ref holds, nothing under way and nothing
+  git does not track in the way (`overwrites`). A detached `HEAD` the apply brought the checkout to is held by
+  `refs/agent-warehouse/sync/detached`, which also tells the next run it is the sync's to move. Each reason the
+  checkout stays has a word beside its words (`reason`; `own` for changes of its own), which NEXT STEPS decides by: a
+  branch whose commits not here are every one of them on its upstream there is `upstream`, said as commits this
+  machine has not fetched, with a pull here as the way on;
+  then every other branch by `git branch --force`, which refuses one checked out, being rebased or being bisected in
+  any worktree, where `update-ref` would move it under them; then the tags the VM lacks. It deletes only what a send
+  delivered that is gone here, under `sent/`; a record, a branch or a tag never. Its git verbs are a fixed list
+  (`WRITES`), `update-ref` only under `refs/agent-warehouse/`, `config` only a new branch's upstream.
+
+Each branch's row on the VM, the first that fits (`branch_row`):
+
+| The VM's branch | Then |
+|---|---|
+| does not exist | created at the commit sent |
+| is at it | nothing |
+| is exactly where the last sync left it | moved to it, forward, aside or back: amended, rebased or reset here |
+| is an ancestor of it | moved forward |
+| has it as an ancestor | left, and counted: the VM is ahead |
+| anything else | left, and said: it has commits of its own, or of its upstream's there, which this machine has not fetched |
 
 `git_sync_info` runs every git command as `git --no-optional-locks`, takes its path as written, and changes nothing.
 Covered by `tests/unit/test_repo_sync.py` (the core on made-up inputs, the module against scratch repositories with

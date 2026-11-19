@@ -9,6 +9,7 @@ checkouts. The window step that runs these (playbooks/tasks/repo_read.yml) is ru
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -222,7 +223,8 @@ def test_a_new_file_the_selection_leaves_stays_here_said_and_the_rest_of_the_cha
     files = [_file("a.py", 4, "change"), _file("b.py", 4, "new")]
     plan = core.repo_sync_plan(_selected(changes=changes, files=files, left=left), MATCH)
     assert plan["tree"]["bring"] and plan["tree"]["new"] == ["b.py"] and plan["files"] == ["a.py", "b.py"]
-    said = core.repo_sync_said(plan, "alpha", "demo")
+    applied = {"branches": {"same": ["main"]}, "tree": {"brought": True, "changes": 2}}
+    said = core.repo_sync_said(plan, "alpha", "demo", applied)
     assert "2 changes not committed" in said and "Left here: credentials.json (a credential by its name" in said
 
 
@@ -231,20 +233,25 @@ def test_with_session_the_tree_is_session_s_to_move():
     assert not plan["tree"]["bring"] and plan["session_branch"] == "feat/x"
 
 
-def test_what_would_be_carried_and_what_is_left_is_said_with_the_switch_that_turns_it_off():
+def test_what_was_carried_and_what_is_left_is_said_with_the_switch_that_turns_it_off():
     left = [{"path": ".env", "why": shared.WHY["credential"], "files": 1, "size": 9}]
     left.append({"path": "node_modules/", "why": shared.WHY["derived"], "files": 1203, "size": 9})
     left.append({"path": ".claude/worktrees/", "why": shared.WHY["repository"], "files": 0, "repositories": 25})
     selected = _selected(files=[_file("docs/plan-a.md", 10)], left=left, stashes=1, tags={"v1": C})
-    said = core.repo_sync_said(core.repo_sync_plan(selected, MATCH), "alpha", "demo")
+    applied = {"branches": {"same": ["main"]}, "tree": {"brought": True}, "files": {"written": ["docs/plan-a.md"]}}
+    said = core.repo_sync_said(core.repo_sync_plan(selected, MATCH), "alpha", "demo", applied)
     assert said.startswith(
-        "Read only, nothing sent: demo on alpha would get /Users/me/code/demo's 1 branch and 1 tag, on main at aaaaaaaa"
-        " and 1 ignored file (docs/plan-a.md)."
+        "demo on alpha has /Users/me/code/demo's 1 branch and 1 tag and 1 ignored file (docs/plan-a.md), its checkout"
+        " on main at aaaaaaaa."
     ), said
     assert "Left here: .env (a credential by its name" in said and "node_modules/ (1203 files) (derived" in said
     # A repository inside counts as one, never as a file.
     assert ".claude/worktrees/ (25 repositories) (a repository inside the repository)" in said
     assert "1 stash" in said and said.endswith(" repo_sync: false turns this off.")
+    # The words are of what the apply did: with nothing applied, nothing was carried.
+    assert core.repo_sync_said(core.repo_sync_plan(selected, MATCH), "alpha", "demo").startswith(
+        "demo on alpha has /Users/me/code/demo's 1 branch and 1 tag."
+    )
 
 
 def test_single_files_go_in_path_order_whatever_their_sizes():
@@ -252,6 +259,10 @@ def test_single_files_go_in_path_order_whatever_their_sizes():
     files = [_file("a-big.md", 35), _file("notes.md", 10), _file("z.md", 20)]
     plan = core.repo_sync_plan(_selected(files=files), MATCH, cap=40)
     assert plan["ignored"] == ["a-big.md"] and plan["file_bytes"] == 35
+
+
+def test_the_core_and_the_apply_name_one_place_a_send_delivers():
+    assert core.SENT == shared.SENT
 
 
 # --------------------------------------------------------------------------------------- the selection ---
@@ -579,7 +590,426 @@ def test_the_estimate_refuses_a_ref_no_send_would_carry(tmp_path, patch_module, 
     assert "is not a branch's, a tag's or a commit's name" in failed["msg"]
 
 
+# ------------------------------------------------------------------------------------- the send and the apply ---
+apply = load_module("playbooks/library/git_sync_apply.py")
+IDENTITY = ["-c", "user.name=Dev", "-c", "user.email=dev@example.com"]
+
+
+def _commit(path, name, content=None):
+    (path / name).write_text(content if content is not None else name + "\n")
+    _git(path, "add", name)
+    _git(path, *IDENTITY, "commit", "--quiet", "-m", name)
+    return _git(path, "rev-parse", "HEAD")
+
+
+def _pair(root, depth=None):
+    """An origin, this machine's clone of it ("here") and the VM's ("vm"), both on main."""
+    origin = root / "origin.git"
+    origin.mkdir(parents=True)
+    _git(origin, "init", "--quiet", "--bare", "--initial-branch", "main")
+    seed = root / "seed"
+    seed.mkdir()
+    _git(seed, "init", "--quiet", "--initial-branch", "main")
+    _commit(seed, "README")
+    _commit(seed, "second")
+    _git(seed, "push", "--quiet", str(origin), "main")
+    _git(root, "clone", "--quiet", str(origin), "here")
+    clone = ["clone", "--quiet", *(["--depth", str(depth), f"file://{origin}"] if depth else [str(origin)]), "vm"]
+    _git(root, *clone)
+    for path in (root / "here", root / "vm"):
+        _git(path, "config", "user.name", "Dev")
+        _git(path, "config", "user.email", "dev@example.com")
+    return root / "here", root / "vm"
+
+
+def _send(here, vm, lines):
+    """The task's own send-pack, to a local path: (its exit code, its last words)."""
+    process = subprocess.run(
+        ["git", "--no-optional-locks", "-C", str(here), "send-pack", "--force", "--stdin",
+         "--receive-pack=git-receive-pack", str(vm)],
+        input="\n".join(lines),
+        capture_output=True,
+        text=True,
+        env={**os.environ, "LC_ALL": "C", "GIT_TERMINAL_PROMPT": "0"},
+        check=False,
+    )  # fmt: skip
+    return process.returncode, process.stderr.strip()
+
+
+def _sync(here, vm, manifest, *, send=True, session_branch="", cap=0):
+    """One whole sync, as the window step runs it: read here, plan, send, apply."""
+    selected = _read(here, select=True)
+    there = _read(vm)
+    match = {"sync": True, "repository": "octo/demo", "source": str(here), "said": ""}
+    plan = core.repo_sync_plan(selected, match, cap=cap, session_branch=session_branch, there=there)
+    sent = _send(here, vm, plan["refs"]) if send and plan["send"] else (None, "")
+    applied = run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(manifest),
+            "source": str(here),
+            "branches": plan["branches"],
+            "tags": plan["tags"],
+            "head": plan["head"],
+            "session_branch": plan["session_branch"],
+            "tree": plan["tree"],
+            "upstreams": plan["upstreams"],
+        },
+    )
+    return plan, sent, applied
+
+
+def _branches(path):
+    out = _git(path, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads")
+    return dict(line.split(" ") for line in out.splitlines())
+
+
+def _on(path):
+    return _git(path, "symbolic-ref", "--quiet", "--short", "HEAD")
+
+
+@pytest.mark.parametrize(
+    ("there", "record", "behind", "ahead", "row"),
+    [
+        ("", "", False, False, "create"),
+        (A, "", False, False, "same"),
+        (B, B, True, True, "move"),
+        (B, C, True, False, "forward"),
+        (B, C, False, True, "ahead"),
+        (B, C, False, False, "own"),
+    ],
+)
+def test_a_branch_s_row_is_the_first_that_fits(there, record, behind, ahead, row):
+    # The VM's branch; where the last sync left it; whether it is behind the commit sent (A), or ahead of it.
+    assert shared.branch_row(there, record, A, behind, ahead) == row
+
+
+def test_a_first_sync_creates_what_the_vm_lacks_and_switches_its_checkout(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "switch", "--quiet", "-c", "feat/x")
+    feat = _commit(here, "feat")
+    _git(here, "branch", "never-pushed")
+    _git(here, "tag", "v1")
+    plan, sent, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert sent[0] == 0, sent
+    assert applied["branches"]["created"] == ["feat/x", "never-pushed"] and applied["branches"]["same"] == ["main"]
+    assert applied["tags"]["created"] == ["v1"] and applied["tree"]["brought"]
+    assert (_on(vm), _git(vm, "rev-parse", "HEAD")) == ("feat/x", feat)
+    assert _git(vm, "status", "--porcelain") == ""
+    # Where the last sync left each branch: the apply's own record, apart from what the send delivered.
+    records = _git(vm, "for-each-ref", "--format=%(refname)", "refs/agent-warehouse/sync/heads").splitlines()
+    assert records == [f"refs/agent-warehouse/sync/heads/{name}" for name in ("feat/x", "main", "never-pushed")]
+    # A second run changes nothing: send-pack sends nothing, and the apply writes nothing.
+    _, sent, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert sent == (0, "Everything up-to-date") and applied["changed"] is False
+    assert applied["branches"]["same"] == ["feat/x", "main", "never-pushed"]
+
+
+def test_send_pack_writes_nothing_here_and_runs_no_hook_of_this_machine_s(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    hook = here / ".git" / "hooks" / "pre-push"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    _git(here, "config", f"url.{tmp_path / 'elsewhere'}.pushInsteadOf", str(vm))
+    _commit(here, "work")
+    before = sorted((str(path), path.stat().st_mtime_ns) for path in (here / ".git").rglob("*") if path.is_file())
+    _, sent, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert sent[0] == 0, sent
+    assert applied["branches"]["moved"] == ["main"]
+    after = sorted((str(path), path.stat().st_mtime_ns) for path in (here / ".git").rglob("*") if path.is_file())
+    assert after == before
+
+
+def test_an_amended_branch_and_one_reset_back_follow_while_the_vm_added_nothing(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "branch", "side")
+    _commit(here, "work")
+    _sync(here, vm, tmp_path / "manifest.json")
+    # Amended here: the VM's branch is where the last sync left it, and moves aside - its checkout by reset --keep,
+    # so that its status stays empty.
+    (here / "work").write_text("amended\n")
+    _git(here, *IDENTITY, "commit", "--quiet", "-a", "--amend", "-m", "work, amended")
+    amended = _git(here, "rev-parse", "HEAD")
+    _git(here, "switch", "--quiet", "side")
+    _commit(here, "side-work")
+    _git(here, "switch", "--quiet", "main")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert sorted(applied["branches"]["moved"]) == ["main", "side"]
+    assert _git(vm, "rev-parse", "main") == amended and _git(vm, "status", "--porcelain") == ""
+    # Reset back here: the VM's branch is ahead of the commit sent, and where the last sync left it: it follows.
+    _git(here, "reset", "--quiet", "--hard", "HEAD~1")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["branches"]["moved"] == ["main"]
+    assert _git(vm, "rev-parse", "main") == _git(here, "rev-parse", "main")
+
+
+def test_a_branch_the_vm_is_ahead_on_or_committed_to_aside_is_left(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    for name in ("pulled", "aside"):
+        _git(here, "branch", name)
+    _sync(here, vm, tmp_path / "manifest.json")
+    # On the VM: one branch gets a commit (ahead), the other a commit while here amends it (its own).
+    for name in ("pulled", "aside"):
+        _git(vm, "switch", "--quiet", name)
+        _commit(vm, f"vm-{name}")
+    _git(vm, "switch", "--quiet", "main")
+    ahead, own = _git(vm, "rev-parse", "pulled"), _git(vm, "rev-parse", "aside")
+    _git(here, "switch", "--quiet", "aside")
+    _git(here, *IDENTITY, "commit", "--quiet", "--amend", "-m", "amended here")
+    _git(here, "switch", "--quiet", "main")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["branches"]["ahead"] == ["pulled"] and applied["branches"]["own"] == ["aside"]
+    assert (_git(vm, "rev-parse", "pulled"), _git(vm, "rev-parse", "aside")) == (ahead, own)
+    said = core.repo_sync_said(core.repo_sync_plan(_selected(), MATCH), "alpha", "demo", applied)
+    assert "Left there as it is: aside (commits of its own)." in said
+    assert "Ahead there, by a pull or a commit: pulled." in said
+    line = core.repo_sync_next(core.repo_sync_plan(_selected(), MATCH), "alpha", "demo", applied, " --host nuc")
+    assert line.startswith("demo on alpha: aside there has commits of its own, so the sync left it as it is.")
+    assert line.endswith("just code alpha --project demo --host nuc")
+
+
+def test_the_vm_on_main_with_feat_here_ends_on_feat_with_main_moved_in_the_same_run(tmp_path, patch_module):
+    # Before the switch, main is the VM's checkout's and in use; after it, free: moved in the same run.
+    here, vm = _pair(tmp_path)
+    _sync(here, vm, tmp_path / "manifest.json")
+    main = _commit(here, "more")
+    _git(here, "switch", "--quiet", "-c", "feat")
+    feat = _commit(here, "feat")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert (_on(vm), _git(vm, "rev-parse", "HEAD"), _git(vm, "rev-parse", "main")) == ("feat", feat, main)
+    assert applied["branches"]["created"] == ["feat"] and applied["branches"]["moved"] == ["main"]
+
+
+def test_a_branch_in_use_by_a_worktree_on_the_vm_is_never_moved_under_it(tmp_path, patch_module):
+    # Checked out in another worktree, or being bisected there, where git worktree list calls it only "detached":
+    # git branch --force refuses both, where update-ref would have moved them.
+    here, vm = _pair(tmp_path)
+    for index in range(3):
+        _commit(here, f"more-{index}")
+    for name in ("wt", "bis"):
+        _git(here, "branch", name)
+    _sync(here, vm, tmp_path / "manifest.json")
+    _git(vm, "worktree", "add", "--quiet", str(tmp_path / "vm-wt"), "wt")
+    _git(vm, "worktree", "add", "--quiet", str(tmp_path / "vm-bis"), "bis")
+    _git(tmp_path / "vm-bis", "bisect", "start")
+    _git(tmp_path / "vm-bis", "bisect", "bad")
+    _git(tmp_path / "vm-bis", "bisect", "good", "HEAD~3")
+    for name in ("wt", "bis"):
+        _git(here, "branch", "--force", name, "main~1")
+    before = _branches(vm)
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert sorted(applied["branches"]["in_use"]) == ["bis", "wt"], applied
+    assert {name: _branches(vm)[name] for name in ("wt", "bis")} == {name: before[name] for name in ("wt", "bis")}
+
+
+def test_a_vm_checkout_with_an_edit_of_its_own_keeps_its_tree_and_its_branch(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _sync(here, vm, tmp_path / "manifest.json")
+    (vm / "README").write_text("edited on the VM\n")
+    _commit(here, "more")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert not applied["tree"]["brought"] and applied["tree"]["why"] == "it has changes of its own"
+    assert applied["branches"]["in_use"] == ["main"] and (vm / "README").read_text() == "edited on the VM\n"
+    assert core.repo_sync_next(core.repo_sync_plan(_selected(), MATCH), "alpha", "demo", applied).startswith(
+        "demo on alpha: its checkout there has changes of its own"
+    )
+
+
+def test_a_move_that_would_overwrite_what_git_does_not_track_there_is_refused(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _sync(here, vm, tmp_path / "manifest.json")
+    (vm / ".git" / "info" / "exclude").write_text("notes.txt\n")
+    (vm / "notes.txt").write_text("the VM's own, ignored\n")
+    _commit(here, "notes.txt", "tracked here\n")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert not applied["tree"]["brought"] and "notes.txt" in applied["tree"]["why"]
+    assert (vm / "notes.txt").read_text() == "the VM's own, ignored\n"
+
+
+def test_session_s_branch_and_the_tree_are_left_to_session(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "switch", "--quiet", "-c", "feat/x")
+    _commit(here, "work")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json", session_branch="feat/x")
+    assert "feat/x" not in _branches(vm) and _on(vm) == "main"
+    assert not applied["tree"]["brought"] and "--session" in applied["tree"]["why"]
+
+
+def test_a_branch_whose_commit_did_not_arrive_is_left_and_said(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "branch", "never-sent")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json", send=False)
+    assert "never-sent" in applied["branches"]["missing"] and "never-sent" not in _branches(vm)
+
+
+def test_a_detached_head_the_sync_brought_follows_once_this_machine_is_back_on_a_branch(tmp_path, patch_module):
+    # Only the sync's own ref holds that commit there, which no branch, remote-tracking branch or tag does.
+    here, vm = _pair(tmp_path)
+    _git(here, "switch", "--quiet", "--detach", "HEAD")
+    detached = _commit(here, "detached-work")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["tree"]["brought"] and _git(vm, "rev-parse", "HEAD") == detached, applied
+    _git(here, "switch", "--quiet", "main")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["tree"]["brought"] and _on(vm) == "main", applied
+    # One the VM detached at a commit of its own is still its own.
+    _git(vm, "switch", "--quiet", "--detach", "HEAD")
+    _commit(vm, "vm-detached")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert not applied["tree"]["brought"] and applied["tree"]["reason"] == "detached", applied
+
+
+def test_a_shallow_clone_takes_a_branch_from_its_tip_and_refuses_one_from_behind_without_failing(
+    tmp_path, patch_module
+):
+    here, vm = _pair(tmp_path, depth=1)
+    _git(here, "switch", "--quiet", "-c", "ontip")
+    _commit(here, "tip")
+    _git(here, "switch", "--quiet", "-c", "behind", "main~1")
+    (here / "big.bin").write_bytes(os.urandom(5000))
+    _git(here, "add", "big.bin")
+    _git(here, *IDENTITY, "commit", "--quiet", "-m", "behind")
+    _git(here, "switch", "--quiet", "main")
+    plan, sent, applied = _sync(here, vm, tmp_path / "manifest.json")
+    # Exit 1 from git 2.56, 255 from 2.43, whose send-pack also fails its own walk: never what is read.
+    assert sent[0] != 0 and plan["shallow"], sent
+    assert "ontip" in applied["branches"]["created"] and "behind" in applied["branches"]["missing"]
+    assert _git(vm, "rev-parse", "--is-shallow-repository") == "true"
+    said = core.repo_sync_said(plan, "alpha", "demo", applied, {"rc": sent[0], "words": sent[1]})
+    assert "git send-pack failed" not in said, said
+    assert "Not there, its commit did not arrive: behind, which a shallow clone refuses" in said
+    assert "git fetch --unshallow there takes it." in said
+
+
+def test_a_run_that_sent_and_died_before_its_apply_is_finished_by_the_next(tmp_path, patch_module):
+    # Were what was sent also the record, the amended branch would read as commits of its own, for good.
+    here, vm = _pair(tmp_path)
+    _sync(here, vm, tmp_path / "manifest.json")
+    _git(here, *IDENTITY, "commit", "--quiet", "--amend", "-m", "amended")
+    plan = core.repo_sync_plan(_read(here, select=True), MATCH | {"source": str(here)})
+    assert _send(here, vm, plan["refs"])[0] == 0
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["branches"]["moved"] == ["main"] and _git(vm, "rev-parse", "main") == _git(here, "rev-parse", "main")
+
+
+def test_a_branch_deleted_here_stays_there_and_only_its_sent_ref_goes(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "branch", "gone")
+    _sync(here, vm, tmp_path / "manifest.json")
+    _git(here, "branch", "-D", "gone")
+    _sync(here, vm, tmp_path / "manifest.json")
+    assert "gone" in _branches(vm)
+    refs = _git(vm, "for-each-ref", "--format=%(refname)", "refs/agent-warehouse").splitlines()
+    assert "refs/agent-warehouse/sent/heads/gone" not in refs and "refs/agent-warehouse/sync/heads/gone" in refs
+
+
+def test_a_tag_the_vm_has_for_another_object_is_left(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(vm, "tag", "v1", "HEAD~1")
+    _git(here, "tag", "v1")
+    _, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["tags"]["differ"] == ["v1"] and _git(vm, "rev-parse", "v1") != _git(here, "rev-parse", "v1")
+
+
+def test_a_branch_name_or_commit_git_would_not_take_is_never_handed_to_git(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    head = _git(here, "rev-parse", "HEAD")
+    applied = run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(tmp_path / "manifest.json"),
+            "source": str(here),
+            "branches": {"-D": head, "a b": head, "ok": "HEAD", "x..y": head},
+            "head": {"branch": "main", "commit": head},
+            "tree": {"bring": False, "why": "test"},
+        },
+    )
+    assert all(not names for key, names in applied["branches"].items() if key != "missing"), applied
+    assert set(_branches(vm)) == {"main"}
+
+
+# The git commands the apply only reads with.
+APPLY_READS = {"rev-parse", "cat-file", "merge-base", "symbolic-ref", "for-each-ref", "config"}
+
+
+def test_the_apply_writes_with_its_fixed_verbs_alone():
+    # Never push, fetch, rebase, stash, clean, gc or reset --hard; update-ref only under refs/agent-warehouse/.
+    source = (REPO / "playbooks" / "library" / "git_sync_apply.py").read_text()
+    for word in ('"push"', '"fetch"', '"rebase"', '"stash"', '"gc"', '"--hard"'):
+        assert word not in source, word
+    reads = re.findall(r"\b(?:git|text)\(\s*(?:self\.)?module,\s*(?:self\.)?top,\s*\"([a-z-]+)\"", source)
+    assert reads and set(reads) <= APPLY_READS, reads
+    assert {verb[0] for verb in apply.WRITES} == {"branch", "switch", "merge", "reset", "tag", "update-ref", "config"}
+    # config only a branch's upstream, and no process per name to check it: git's rules, in the module.
+    assert ("config", "--local") in apply.WRITES and "check-ref-format" not in source
+    assert ("reset", "--keep") in apply.WRITES and ("merge", "--ff-only") in apply.WRITES
+    calls = re.findall(r"apply\.write\(\s*\"([a-z-]+)\"(?:,\s*\"(--[a-z-]+)\")?", source)
+    assert calls and all((verb,) in apply.WRITES or (verb, flag) in apply.WRITES for verb, flag in calls), calls
+
+
+def test_next_steps_keeps_a_checkout_by_the_apply_s_word_for_why_never_by_its_words():
+    plan = core.repo_sync_plan(_selected(), MATCH)
+    applied = {"branches": {}, "tree": {"brought": False, "reason": "own", "why": "words that may change"}}
+    assert "its checkout there has changes of its own" in core.repo_sync_next(plan, "alpha", "demo", applied)
+    applied["tree"] = {"brought": False, "reason": "busy", "why": "it has changes of its own"}
+    assert core.repo_sync_next(plan, "alpha", "demo", applied) == ""
+
+
 # ----------------------------------------------------------------------------- the live check's and V1-V9 ---
+def test_a_branch_whose_commits_not_here_are_its_upstream_s_is_said_so_with_a_pull_here(tmp_path, patch_module):
+    # Live, 2026-11-18: GitHub's main moved on and the VM's clone has it; here main has a commit of its own and never
+    # fetched. Leaving it is right; the line says to pull here, not to push or drop work there that nobody made.
+    here, vm = _pair(tmp_path)
+    _git(tmp_path, "clone", "--quiet", str(tmp_path / "origin.git"), "other")
+    _commit(tmp_path / "other", "theirs")
+    _git(tmp_path / "other", "push", "--quiet", "origin", "main")
+    _git(vm, "pull", "--quiet", "--ff-only")
+    _git(here, "branch", "side")
+    _sync(here, vm, tmp_path / "manifest.json")
+    _git(vm, "switch", "--quiet", "side")
+    _commit(vm, "vm-side")
+    _git(vm, "switch", "--quiet", "main")
+    _commit(here, "mine")
+    _git(here, "switch", "--quiet", "side")
+    _git(here, *IDENTITY, "commit", "--quiet", "--amend", "-m", "amended here")
+    _git(here, "switch", "--quiet", "main")
+    vm_main = _git(vm, "rev-parse", "main")
+    plan, _, applied = _sync(here, vm, tmp_path / "manifest.json")
+    assert applied["branches"]["upstream"] == ["main"] and applied["branches"]["own"] == ["side"], applied
+    assert applied["tree"]["reason"] == "upstream" and _git(vm, "rev-parse", "main") == vm_main
+    said = core.repo_sync_said(plan, "alpha", "demo", applied)
+    assert "Left there as it is: side (commits of its own) and main (its upstream's commits, not fetched here)." in said
+    line = core.repo_sync_next(plan, "alpha", "demo", applied, " --editor zed")
+    assert line == (
+        "demo on alpha: side there has commits of its own and main there has commits of its upstream's that this"
+        " machine has not fetched, so the sync left them as they are. Pull those commits here and push or drop that"
+        " work there, then: just code alpha --project demo --editor zed"
+    ), line
+
+
+@pytest.mark.parametrize(
+    ("done", "line"),
+    [
+        (
+            {"upstream": ["main"]},
+            "demo on alpha: main there has commits of its upstream's that this machine has not fetched, so the sync"
+            " left it as it is. Pull those commits here, then: just code alpha --project demo",
+        ),
+        (
+            {"own": ["a", "b"]},
+            "demo on alpha: a and b there have commits of their own, so the sync left them as they are. Push or drop"
+            " that work there, then: just code alpha --project demo",
+        ),
+    ],
+    ids=["one branch behind its upstream", "two branches of their own"],
+)
+def test_next_steps_says_what_to_do_for_each_and_more_than_one_as_they_are(done, line):
+    applied = {"branches": done, "tree": {"brought": True}}
+    assert core.repo_sync_next(core.repo_sync_plan(_selected(), MATCH), "alpha", "demo", applied) == line
+
+
 def test_a_folder_with_a_file_carried_is_never_said_left_whole(tmp_path, patch_module):
     # Live, 2026-11-18: ".claude/ (25 files) (a repository inside the repository)", while .claude/settings.local.json
     # went. The worktrees are said by the folder that holds them alone, each counted as a repository.
@@ -656,3 +1086,45 @@ def test_the_owner_s_patterns_hold_for_the_changes_to_tracked_files_too(tmp_path
     left = {item["path"]: item["why"] for item in found["left"]}
     assert left == {"old-secrets.yml": shared.WHY["excluded"], "secrets.yml": shared.WHY["excluded"]}, left
     assert all(item["path"] != "secrets.yml" for item in found["files"])
+
+
+def test_a_new_branch_tracks_the_branch_of_origin_it_tracks_here(tmp_path, patch_module):
+    # git pull and git push on the VM then work for it, as here; a branch that tracks nothing here tracks nothing there.
+    here, vm = _pair(tmp_path)
+    _git(here, "switch", "--quiet", "-c", "feat/x")
+    _commit(here, "x")
+    _git(here, "push", "--quiet", "--set-upstream", "origin", "feat/x")
+    _git(here, "branch", "local-only")
+    _git(here, "switch", "--quiet", "main")
+    _sync(here, vm, tmp_path / "manifest.json")
+    assert _git(vm, "config", "--get", "branch.feat/x.remote") == "origin"
+    assert _git(vm, "config", "--get", "branch.feat/x.merge") == "refs/heads/feat/x"
+    assert subprocess.run(["git", "-C", str(vm), "config", "--get", "branch.local-only.remote"], check=False).returncode
+    # Without an origin there, nothing is set.
+    _git(vm, "remote", "remove", "origin")
+    _git(here, "switch", "--quiet", "-c", "feat/y")
+    _git(here, "push", "--quiet", "--set-upstream", "origin", "feat/y")
+    _git(here, "switch", "--quiet", "main")
+    _sync(here, vm, tmp_path / "manifest.json")
+    assert "feat/y" in _branches(vm)
+    assert subprocess.run(["git", "-C", str(vm), "config", "--get", "branch.feat/y.remote"], check=False).returncode
+
+
+def test_ref_names_are_held_to_git_s_own_rules_with_no_process_per_name():
+    # The apply judged each branch and tag with its own git check-ref-format: seconds for thousands of tags. Its rules
+    # in the module agree with git's over names made to break each one.
+    names = ["main", "feat/x", "a.b", "v1.0", "x.lock", "x.lock/y", "a..b", ".a", "a/.b", "a/", "/a", "a//b", "a.",
+             "@", "a@{b", "a@b", "a b", "a~b", "a^b", "a:b", "a?b", "a*b", "a[b", "a\\b", "a\x7fb", "a\tb", "é", "-x",
+             "a/b.lock/c", "@{", "{", "}", "a/./b", "a/../b", "HEAD"]  # fmt: skip
+    for name in names:
+        ref = f"refs/heads/{name}"
+        git_says = subprocess.run(["git", "check-ref-format", ref], capture_output=True, check=False).returncode == 0
+        assert shared.ref_name(ref) == git_says, name
+    assert not shared.branch_name("HEAD") and not shared.branch_name("-x") and shared.branch_name("feat/x")
+
+
+def test_next_steps_names_the_editor_as_every_other_just_code_line_does():
+    # V7: the line is given code_editor_flag, which holds --editor and the host's flag, as code.yml's own lines are.
+    text = (REPO / "playbooks" / "tasks" / "repo_write.yml").read_text()
+    task = text.split("- name: repo_write | Keep what is left to do for the end of the run", 1)[1].split("\n- ", 1)[0]
+    assert "code_editor_flag" in task and "claude_host_flag" not in task, task
