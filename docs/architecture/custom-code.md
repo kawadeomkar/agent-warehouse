@@ -1725,24 +1725,31 @@ The parts, one by one:
   rules for a ref's name (`ref_name`, `check-ref-format`'s, in its own process: one `git` per branch and tag took
   seconds where a repository has thousands of tags). In order: the branches the VM lacks, created (`git branch`, which
   fails where one exists), each tracking the branch of origin it tracks here (`upstreams`) where the checkout has a
-  remote origin, set in its configuration, which needs no fetch of the branch first; the checkout, moved on its branch
-  (`merge --ff-only`, or `reset --keep` where the row moves it aside or back) or switched to the branch here
-  (`git switch`), only with no claude working in it, a clean tree, a HEAD a ref holds, nothing under way and nothing
-  git does not track in the way (`overwrites`). A detached `HEAD` the apply brought the checkout to is held by
-  `refs/agent-warehouse/sync/detached`, which also tells the next run it is the sync's to move. Each reason the
-  checkout stays has a word beside its words (`reason`; `own` for changes of its own), which NEXT STEPS decides by: a
-  branch whose commits not here are every one of them on its upstream there is `upstream`, said as commits this
-  machine has not fetched, with a pull here as the way on;
+  remote origin, set in its configuration, which needs no fetch of the branch first; the checkout - only with no claude working in it, nothing in its
+  `git status` but what the last sync wrote and still holds those bytes (staged there is the VM's own), a HEAD a ref
+  holds, nothing under way and nothing git does not track in the way (`overwrites`) - the last sync's changes taken back
+  out (`git restore --source=HEAD --staged --worktree`, its new files removed), moved on its branch (`merge --ff-only`, or
+  `reset --keep` where the row moves it aside or back) or switched to the branch here (`git switch`), and this
+  machine's changes not committed written over it from the mirror, unstaged, all or none - but a new file whose copy
+  did not arrive as sent, one written all the time here, which is left out and said (`late`) while the rest goes - a
+  link by its target's text, the manifest's `tree` written before any of them and after - never over a file the VM's git ignores there,
+  which `git status` cannot show, but one the sync wrote. A copy the sync carried as an ignored file, which the commit
+  now tracks, is the sync's: it gives way, and the move brings the file. A detached `HEAD` the apply brought the
+  checkout to is held by `refs/agent-warehouse/sync/detached`, which also tells the next run it is the sync's to move.
+  Each reason the checkout stays has a word beside its words (`reason`; `own` for changes of its own), which NEXT
+  STEPS decides by: a branch whose commits not here are every one of them on its upstream there is `upstream`, said
+  as commits this machine has not fetched, with a pull here as the way on;
   then every other branch by `git branch --force`, which refuses one checked out, being rebased or being bisected in
   any worktree, where `update-ref` would move it under them; then the tags the VM lacks. It deletes only what a send
   delivered that is gone here, under `sent/`; a record, a branch or a tag never. Its git verbs are a fixed list
   (`WRITES`), `update-ref` only under `refs/agent-warehouse/`, `config` only a new branch's upstream.
-- **The ignored files** go by rsync (`--files-from=-`, a list of plain files the reader looked at, each line
-  `./<path>`, since rsync takes a line that starts with `#` or `;` for a comment) into a mirror in just code's own
-  directory on the VM, `repo-sync/<project>/tree/`, never into the checkout. macOS's rsync sends nothing at all of a
-  list with one name gone since, and a connection can drop, so a failure is said with rsync's last words, and the apply
-  takes a copy only as the plain file of the size and modification time the reader saw (`stamps`; `-a` keeps the
-  time): a copy an earlier run left is never this run's, and a file that did not arrive is said. The apply then puts each
+- **The ignored files** go by rsync, with the changes' files (`--files-from=-`, a list of plain files the reader
+  looked at, each line `./<path>`, since rsync takes a line that starts with `#` or `;` for a comment), into a mirror
+  in just code's own directory on the VM, `repo-sync/<project>/tree/`, never into the checkout. macOS's rsync sends
+  nothing at all of a list with one name gone since, and a connection can drop, so a failure is said with rsync's last
+  words, and the apply takes a copy only as the plain file of the size and modification time the reader saw
+  (`stamps`; `-a` keeps the time): a copy an earlier run left is never this run's, and a file that did not arrive is
+  said. The apply then puts each
   in place by `file_verdict`: written where the checkout has no file at the path, or one still holding what the last
   sync wrote (the manifest's digest); never at a path git tracks there, in HEAD or the index; never through a link, in
   the mirror or on the way into the checkout; a file the VM changed or made is left, and counted. The manifest
@@ -1755,9 +1762,8 @@ The parts, one by one:
   sync's still; one at a path git tracks there now is git's, and so is one the folder it came from has and no longer
   ignores (`unignored`, told from the reader's own listing of the ignored files, never by a command given the VM's
   names): the file stays, and its line leaves the block. A write or a removal the VM refuses is said, file by
-  file, and what stops a part is the run's one `error`, never a traceback. A copy the sync carried as an ignored file,
-  which a commit the checkout moves to now tracks, is the sync's: it gives way, and the move brings the file. Then a
-  block of the checkout's `.git/info/exclude`, between two lines of its own, names each such
+  file, and what stops a part is the run's one `error`, never a traceback. Then a block of the checkout's
+  `.git/info/exclude`, between two lines of its own, names each such
   file the VM's git would not ignore without it - `git check-ignore -v` names where a match comes from - so that
   `git status` there says what it says here; everything outside the block is the VM's, and where git cannot say, the
   file is left as it is. What the mirror holds that was

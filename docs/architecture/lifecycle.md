@@ -1041,8 +1041,8 @@ directory, trusted in its own window - and `just code`'s message says so.
 
 **The repository sync.** With `repo_sync` (the default) and `--project`, a run started from a checkout of the
 project's repository reads it, against the VM's checkout of the same repository, and says what a sync would carry:
-every local branch and tag, the branch checked out here and its changes not committed, and with `repo_sync_ignored`
-the files git ignores - each by the rule of [§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync).
+every local branch and tag, the branch checked out here and its changes not committed - read against HEAD, all or
+none, arriving unstaged - and with `repo_sync_ignored` the files git ignores - each by the rule of [§7.18](custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync).
 The branches and tags go by `git send-pack` into the VM checkout's own refs of the sync's, and `git_sync_apply` on the
 VM creates and moves its branches, and switches its checkout to the branch here, where nothing of the VM's own is in
 the way (`tasks/repo_write.yml`, after the session handoff's writes). Where just was started is the justfile's `STARTED_IN`, the folder it was started in unless the
@@ -1065,10 +1065,10 @@ first, and only left out of the estimate. The writes: just code's own directory 
 the sync's manifest; `git send-pack --force --stdin` sends this machine's refs alone, over the alias to the checkout's
 path held to one plain form, `git-receive-pack` by its path there, never failing the step - a branch a shallow clone
 refuses is that branch alone, whatever the exit code, and changed is read from the ref lines it printed; rsync brings
-the ignored files into the mirror in that directory, `tree/`, never into the checkout, each line of its list
-`./<path>`; then the apply, given each file's size and time to hold the copy to, and one report, which says a failed
-rsync with its last words, and whose NEXT STEPS record names a branch or a checkout left because the VM has work of
-its own there, by the apply's `reason`. `code_writes_its_directory` counts the sync; a directory of just code's that
+the changes' files and the ignored ones into the mirror in that directory, `tree/`, never into the checkout, each
+line of its list `./<path>`; then the apply, given each file's size and time to hold the copy to, and one report,
+which says a failed rsync with its last words, and whose NEXT STEPS record names a branch or a checkout left because
+the VM has work of its own there, by the apply's `reason`. `code_writes_its_directory` counts the sync; a directory of just code's that
 the refusal before the reads did not look at is one more reason not to sync, said as the one line.
 
 **The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's

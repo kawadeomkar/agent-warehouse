@@ -952,6 +952,7 @@ APPLY_READS = {
     "for-each-ref",
     "config",
     "check-ignore",
+    "status",
 }
 
 
@@ -962,7 +963,16 @@ def test_the_apply_writes_with_its_fixed_verbs_alone():
         assert word not in source, word
     reads = re.findall(r"\b(?:git|text)\(\s*(?:self\.)?module,\s*(?:self\.)?top,\s*\"([a-z-]+)\"", source)
     assert reads and set(reads) <= APPLY_READS, reads
-    assert {verb[0] for verb in apply.WRITES} == {"branch", "switch", "merge", "reset", "tag", "update-ref", "config"}
+    assert {verb[0] for verb in apply.WRITES} == {
+        "branch",
+        "switch",
+        "merge",
+        "reset",
+        "tag",
+        "update-ref",
+        "restore",
+        "config",
+    }
     # config only a branch's upstream, and no process per name to check it: git's rules, in the module.
     assert ("config", "--local") in apply.WRITES and "check-ref-format" not in source
     assert ("reset", "--keep") in apply.WRITES and ("merge", "--ff-only") in apply.WRITES
@@ -990,7 +1000,7 @@ def _carry(here, vm, root, *, source=None, unsent=(), **read):
     plan = core.repo_sync_plan(selected, match, there=there)
     _send(source, vm, plan["refs"])
     mirror = root / "mirror"
-    for path in plan["ignored"]:
+    for path in plan["files"]:
         target = mirror / path
         target.parent.mkdir(parents=True, exist_ok=True)
         if path not in unsent:
@@ -1011,6 +1021,7 @@ def _carry(here, vm, root, *, source=None, unsent=(), **read):
             "gone": plan["gone"],
             "unignored": plan["unignored"],
             "upstreams": plan["upstreams"],
+            "session_branch": plan["session_branch"],
         },
     )
 
@@ -1294,6 +1305,180 @@ def test_a_file_the_vm_will_not_let_it_write_is_said_never_a_traceback(tmp_path,
     _write(here, "plans/b.md", "again\n")
     _, applied = _carry(here, vm, tmp_path)
     assert "manifest.json" in applied["error"], applied
+
+
+# ------------------------------------------------------------------------------------- the changes not committed ---
+def test_the_changes_not_committed_arrive_unstaged_as_they_are_here(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("changed here\n")
+    (here / "second").unlink()
+    _write(here, "new.py", "print(1)\n")
+    _write(here, "staged.py", "print(2)\n")
+    _git(here, "add", "staged.py")
+    (here / "link").symlink_to("README")
+    plan, applied = _carry(here, vm, tmp_path)
+    assert plan["tree"]["bring"] and applied["tree"]["brought"] and applied["tree"]["changes"] == 5, applied
+    # Staged here, unstaged there: git diff HEAD says the same of what is tracked, and a file staged and never
+    # committed is a new one there.
+    assert _git(vm, "diff", "HEAD") == _git(here, "diff", "HEAD", "--", "README", "second")
+    untracked = set(_git(vm, "ls-files", "--others", "--exclude-standard").splitlines())
+    assert untracked == {"link", "new.py", "staged.py"} and _git(vm, "diff", "--cached") == ""
+    assert (vm / "new.py").read_text() == "print(1)\n" and (vm / "staged.py").read_text() == "print(2)\n"
+    assert os.readlink(vm / "link") == "README"
+    # A second run changes nothing.
+    _, again = _carry(here, vm, tmp_path)
+    assert again["changed"] is False and again["tree"]["changes"] == 5
+
+
+def test_the_last_sync_s_changes_follow_what_happens_here(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("one\n")
+    _write(here, "draft.md", "draft\n")
+    _carry(here, vm, tmp_path)
+    # Here: the draft dropped, README committed, a new change made.
+    (here / "draft.md").unlink()
+    _git(here, *IDENTITY, "commit", "--quiet", "-am", "readme")
+    (here / "second").write_text("two\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["brought"] and applied["branches"]["moved"] == ["main"], applied
+    assert not (vm / "draft.md").exists() and (vm / "README").read_text() == "one\n"
+    assert _git(vm, "status", "--porcelain") == "M second" and (vm / "second").read_text() == "two\n"
+
+
+def test_a_vm_with_a_change_of_its_own_keeps_its_tree_and_says_why(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("here\n")
+    _carry(here, vm, tmp_path)
+    # The VM edits the file the sync wrote: no longer the sync's.
+    (vm / "README").write_text("the VM's\n")
+    (here / "README").write_text("here, again\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert not applied["tree"]["brought"] and applied["tree"]["why"] == "it has changes of its own"
+    assert (vm / "README").read_text() == "the VM's\n"
+    # And a change of the sync's that the VM staged is the VM's too.
+    (vm / "README").write_text("here\n")
+    _git(vm, "add", "README")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["why"] == "it has changes of its own"
+
+
+def test_a_new_file_that_did_not_arrive_as_sent_is_left_out_and_said_and_the_rest_goes(tmp_path, patch_module):
+    # A file written all the time here - a database a server holds, a log no ignore file names - changes between the
+    # read and the send: it is left out, said, and the rest of the changes go.
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("here\n")
+    _write(here, "new.py")
+    selected = _read(here, select=True)
+    plan = core.repo_sync_plan(selected, MATCH | {"source": str(here)}, there=_read(vm))
+    _send(here, vm, plan["refs"])
+    mirror = tmp_path / "mirror"
+    mirror.mkdir()
+    shutil.copy2(here / "README", mirror / "README")
+    applied = run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(tmp_path / "manifest.json"),
+            "source": str(here),
+            "branches": plan["branches"],
+            "head": plan["head"],
+            "tree": plan["tree"],
+            "mirror": str(mirror),
+            "stamps": plan["stamps"],
+        },
+    )
+    assert applied["tree"]["brought"] and applied["tree"]["late"] == ["new.py"], applied
+    assert (vm / "README").read_text() == "here\n" and not (vm / "new.py").exists()
+    assert _git(vm, "status", "--porcelain") == "M README"
+    said = core.repo_sync_said(plan, "alpha", "demo", applied)
+    assert " Not there, as they did not arrive as sent: new.py." in said, said
+
+
+def test_a_change_whose_copy_in_the_mirror_is_an_earlier_run_s_leaves_the_tree(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("one\n")
+    _carry(here, vm, tmp_path)
+    (here / "README").write_text("two\n")
+    _later(here / "README")
+    _, applied = _carry(here, vm, tmp_path, unsent=("README",))
+    assert not applied["tree"]["brought"] and applied["tree"]["why"].endswith(": README"), applied
+    assert (vm / "README").read_text() == "one\n"
+
+
+def test_a_run_that_stopped_part_way_through_the_tree_is_finished_by_the_next(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    (here / "README").write_text("one\n")
+    _carry(here, vm, tmp_path)
+    # As a run that wrote the manifest's first record for "two" and then stopped, having written the file.
+    manifest = json.loads((tmp_path / "manifest.json").read_text())
+    two = hashlib.sha256(b"two\n").hexdigest()
+    manifest["tree"]["README"] = {"now": two, "was": manifest["tree"]["README"]["now"]}
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (vm / "README").write_text("two\n")
+    (here / "README").write_text("three\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["brought"] and (vm / "README").read_text() == "three\n"
+
+
+def test_a_new_file_where_the_vm_keeps_an_ignored_one_of_its_own_stops_the_tree(tmp_path, patch_module):
+    # git reset --keep or a write would replace what the VM's git ignores without a word: overwrites catches it first.
+    here, vm = _pair(tmp_path)
+    (vm / ".git" / "info" / "exclude").write_text("notes.txt\n")
+    (vm / "notes.txt").write_text("the VM's own\n")
+    _commit(here, "notes.txt", "tracked here\n")
+    (here / "README").write_text("changed\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert not applied["tree"]["brought"] and "notes.txt" in applied["tree"]["why"]
+    assert (vm / "notes.txt").read_text() == "the VM's own\n" and (vm / "README").read_text() == "README\n"
+
+
+def test_a_new_file_where_the_vm_s_git_ignores_one_of_its_own_stops_the_tree(tmp_path, patch_module):
+    # git status there cannot show it, and the commit does not add it, so neither that check nor overwrites sees it.
+    here, vm = _pair(tmp_path)
+    (vm / ".git" / "info" / "exclude").write_text("notes.txt\n")
+    (vm / "notes.txt").write_text("the VM's own\n")
+    _write(here, "notes.txt", "new here\n")
+    (here / "README").write_text("changed\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert not applied["tree"]["brought"] and applied["tree"]["reason"] == "ignored", applied
+    assert applied["tree"]["why"].endswith(": notes.txt")
+    assert (vm / "notes.txt").read_text() == "the VM's own\n" and (vm / "README").read_text() == "README\n"
+    # One the sync carried there as an ignored file is the sync's: a new file here takes its place.
+    (vm / "notes.txt").unlink()
+    (vm / ".git" / "info" / "exclude").write_text("")
+    (here / "notes.txt").unlink()
+    (here / ".git" / "info" / "exclude").write_text("notes.txt\n")
+    _write(here, "notes.txt", "ignored here\n")
+    _carry(here, vm, tmp_path)
+    (here / ".git" / "info" / "exclude").write_text("")
+    _write(here, "notes.txt", "new here now\n")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["brought"] and (vm / "notes.txt").read_text() == "new here now\n", applied
+
+
+def test_a_file_taken_out_of_the_index_and_kept_stays_there(tmp_path, patch_module):
+    here, vm = _pair(tmp_path)
+    _git(here, "rm", "--quiet", "--cached", "second")
+    _, applied = _carry(here, vm, tmp_path)
+    assert applied["tree"]["brought"] and (vm / "second").read_text() == "second\n", applied
+    # Handed a path both deleted and new, the apply writes the new file.
+    tree = {"bring": True, "modified": [], "deleted": ["second"], "new": ["second"], "links": []}
+    shutil.copy2(here / "second", tmp_path / "mirror" / "second")
+    sent = (here / "second").stat()
+    applied = run_main(
+        apply.main,
+        {
+            "checkout": str(vm),
+            "manifest": str(tmp_path / "manifest.json"),
+            "source": str(here),
+            "head": {"branch": "main", "commit": _git(here, "rev-parse", "HEAD")},
+            "branches": {"main": _git(here, "rev-parse", "HEAD")},
+            "tree": tree,
+            "mirror": str(tmp_path / "mirror"),
+            "stamps": {"second": [sent.st_size, int(sent.st_mtime)]},
+        },
+    )
+    assert applied["tree"]["brought"] and (vm / "second").read_text() == "second\n", applied
 
 
 # ----------------------------------------------------------------------------- the live check's and V1-V9 ---

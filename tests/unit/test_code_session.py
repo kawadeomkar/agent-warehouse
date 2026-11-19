@@ -3875,8 +3875,8 @@ def test_a_run_started_in_a_checkout_of_the_project_carries_its_branches(repo_re
     said = _said(run["output"], REPO_SAID)
     commit = run["commit"]
     assert said.startswith(
-        f"demo on alpha has {world['demo']}'s 3 branches (2 new there) and 0 tags and 2 ignored files"
-        f" (#draft.md# and plans/plan-a.md), its checkout on feat/x at {commit[:8]}."
+        f"demo on alpha has {world['demo']}'s 3 branches (2 new there) and 0 tags, 2 ignored files"
+        f" (#draft.md# and plans/plan-a.md) and 1 change not committed, its checkout on feat/x at {commit[:8]}."
     ), said
     assert said.endswith(" repo_sync: false turns this off."), said
     # The vault's password is never named as carried: it is left, and said so.
@@ -3886,7 +3886,8 @@ def test_a_run_started_in_a_checkout_of_the_project_carries_its_branches(repo_re
     # The documents are there, ignored there as here; the vault's password is not.
     assert (world["checkout"] / "plans" / "plan-a.md").read_text() == "the plan\n"
     assert (world["checkout"] / "#draft.md#").read_text() == "autosaved\n"
-    assert not (world["checkout"] / ".vault_pass").exists() and run["status"] == ""
+    assert not (world["checkout"] / ".vault_pass").exists() and run["status"] == "M README"
+    assert (world["checkout"] / "README").read_text() == "changed here\n"
     assert _said(run["output"], REPO_WHY) is None
     # Its manifest, in just code's own directory there, the VM user's alone.
     folder = world["vm"] / "projects" / ".agent-warehouse" / "repo-sync" / "demo"
