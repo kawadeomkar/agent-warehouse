@@ -2024,8 +2024,9 @@ COMMANDS_HERE = {
     ("rsync", "-az"),
 }
 READS_ON_VM = {"ansible.builtin.getent", "ansible.builtin.stat", "ansible.builtin.find", "ansible.builtin.slurp"}
-# The session handoff's readers (playbooks/library/), run here and on the VM alike: they change nothing.
-READS_EITHER = {"claude_sessions_info", "git_checkouts_info", "claude_config_info"}
+# The session handoff's, the carry's and the repository sync's readers (playbooks/library/), run here and on the VM
+# alike: they change nothing.
+READS_EITHER = {"claude_sessions_info", "git_checkouts_info", "claude_config_info", "git_sync_info"}
 # On the VM: whether Remote Control runs, with --session git in the one checkout it moves, and once, the move of just
 # code's directory from its 1.x name, which never replaces anything (-n).
 COMMANDS_ON_VM = {
@@ -2126,12 +2127,14 @@ def test_code_yml_imports_its_own_task_files_and_the_shared_ones_alone():
         for task in _tasks(_play()["tasks"])
         if "ansible.builtin.import_tasks" in task
     }
-    assert imported == SHARED | {
+    own = {
         "tasks/session_read.yml",
         "tasks/session_write.yml",
         "tasks/claude_config_read.yml",
         "tasks/claude_config_write.yml",
-    } | set(EDITOR_FILES)
+        "tasks/repo_read.yml",
+    }
+    assert imported == SHARED | own | set(EDITOR_FILES)
 
 
 def test_the_editors_are_one_list_their_files_and_just_code_s_option_agree_on():
@@ -3725,3 +3728,132 @@ def test_a_sync_whose_rsync_fails_says_so_and_still_opens_the_window(handoffs):
     assert "rsync could not send them all to alpha (it exited " in run["opened"]
     assert f"Not copied: {SESSION_ID[:8]}, rsync did not bring it." in run["opened"]
     assert not (world["vm"] / ".claude" / "projects" / world["folder"].name / f"{SESSION_ID}.jsonl").exists()
+
+
+# ------------------------------------------------------------------- the repository sync, in the window ---
+REPO_KEEP = [
+    "Reach the VM the way just deploy --only configure does",
+    "Settle the folder to open",
+    "Read the repository to carry to the VM",
+]
+REPO_SAID = "repo_read | Say what the sync would carry"
+REPO_WHY = "repo_read | Say why the repository is not carried"
+
+
+def _repo_world(root: Path) -> dict:
+    """The session handoff's world, with what a sync would carry here: a branch never pushed, an ignored document, a
+    vault's password beside it, and a change not committed."""
+    world = _world(root)
+    demo = world["demo"]
+    (demo / ".gitignore").write_text("plans/plan-*.md\n.vault_pass\n")
+    _git(demo, "add", ".gitignore")
+    _git(demo, "-c", "user.name=Dev", "-c", "user.email=dev@example.com", "commit", "--quiet", "-m", "ignore")
+    _git(demo, "branch", "never-pushed")
+    (demo / "plans").mkdir()
+    (demo / "plans" / "plan-a.md").write_text("the plan\n")
+    (demo / ".vault_pass").write_text("hunter2\n")
+    (demo / "README").write_text("changed here\n")
+    return world
+
+
+def _repo_window(world: dict, run: str, **extra) -> dict:
+    return _window(
+        world["root"] / run,
+        REPO_KEEP,
+        in_deploy=False,
+        vm_name="alpha",
+        code_reach="192.0.2.51",
+        ansible_connection="local",
+        vm_projects_dir=str(world["vm"] / "projects"),
+        claude_vm_addressed=ADDRESSED,
+        vm_project="demo",
+        **extra,
+    )
+
+
+def _vm_state(world: dict) -> tuple:
+    """Everything a run could change in the VM's checkout: its refs, HEAD, status and files."""
+    checkout = world["checkout"]
+    files = sorted(str(path.relative_to(checkout)) for path in checkout.rglob("*") if ".git" not in path.parts)
+    return (
+        _git(checkout, "for-each-ref", "--format=%(refname) %(objectname)"),
+        _head(checkout),
+        _git(checkout, "status", "--porcelain", "--ignored"),
+        files,
+    )
+
+
+def _read_runs(root: Path) -> dict:
+    world = _repo_world(root)
+    other = world["here"] / "src" / "other"
+    before = _vm_state(world)
+    runs = {
+        "here": _repo_window(world, "here", vm_repo_from=str(world["demo"]), vm_repo_elsewhere=True),
+        "elsewhere": _repo_window(world, "elsewhere", vm_repo_from=str(other), vm_repo_elsewhere=True),
+        "this checkout": _repo_window(world, "this", vm_repo_from=str(other), vm_repo_elsewhere=False),
+        "off": _repo_window(world, "off", vm_repo_from=str(world["demo"]), local={"repo_sync": False}),
+        "no source": _repo_window(world, "none"),
+        "no size": _repo_window(world, "no-size", vm_repo_from=str(world["demo"]), repo_sync_max_size="lots"),
+    }
+    return {"world": world, "before": before, "after": _vm_state(world), **runs}
+
+
+@pytest.fixture(scope="module")
+def repo_reads(tmp_path_factory):
+    return _read_runs(tmp_path_factory.mktemp("repo-reads"))
+
+
+def test_a_run_started_in_a_checkout_of_the_project_says_what_it_would_carry(repo_reads):
+    run = repo_reads["here"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    said = _said(run["output"], REPO_SAID)
+    assert said.startswith(f"Read only, nothing sent: demo on alpha would get {repo_reads['world']['demo']}'s "), said
+    assert "3 branches and 0 tags, on feat/x at " in said and "1 ignored file (plans/plan-a.md)" in said, said
+    assert "1 change not committed" in said and said.endswith(" repo_sync: false turns this off."), said
+    # The vault's password is never named as carried: it is left, and said so.
+    assert ".vault_pass (this project's own secrets and records, never carried)" in said, said
+    assert _said(run["output"], REPO_WHY) is None
+
+
+def test_a_run_started_in_another_repository_says_its_one_line(repo_reads):
+    run = repo_reads["elsewhere"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    assert _said(run["output"], REPO_SAID) is None
+    said = _said(run["output"], REPO_WHY)
+    other = repo_reads["world"]["here"] / "src" / "other"
+    assert said == (
+        f"{other} is a checkout of octo/other, and {repo_reads['world']['checkout']} on alpha of octo/demo, so nothing"
+        f" of {other} was carried to demo there (repo_sync)."
+    ), said
+
+
+@pytest.mark.parametrize("name", ["this checkout", "off", "no source"])
+def test_a_run_that_does_not_sync_says_nothing_of_it(repo_reads, name):
+    run = repo_reads[name]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    assert _said(run["output"], REPO_SAID) is None and _said(run["output"], REPO_WHY) is None
+    # Off, or with no source, nothing is read at all.
+    if name != "this checkout":
+        assert _skipped(run["output"], "repo_read | Read the checkout just was started in"), run["output"]
+
+
+def test_a_sync_bound_that_is_no_size_is_refused_before_anything_is_read(repo_reads):
+    run = repo_reads["no size"]
+    assert run["rc"] != 0 and not run["reached"]
+    assert "repo_sync_max_size is the most one repository sync sends, a size such as 256M" in run["output"]
+
+
+def test_reading_writes_nothing_on_the_vm_or_here(repo_reads):
+    assert repo_reads["after"] == repo_reads["before"]
+    for name in ("here", "elsewhere", "this checkout", "off", "no source"):
+        assert _changed(repo_reads[name]) == 0, _what_changed(repo_reads[name])
+    demo = repo_reads["world"]["demo"]
+    assert _git(demo, "status", "--porcelain") == "M README"
+
+
+def _skipped(output: str, task: str) -> bool:
+    """Whether the task ran and was skipped, and did nothing else."""
+    for part in output.split("TASK [")[1:]:
+        if part.startswith(task + "]"):
+            return "skipping:" in part and "ok:" not in part and "changed:" not in part
+    return False

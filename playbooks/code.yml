@@ -310,6 +310,27 @@
     code_session_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
           else claude_vm_names[0] ~ ':') ~ code_session_dir ~ '/mirror' }}
+    # The repository sync (tasks/repo_read.yml): the checkout just was started in, which the justfile hands over
+    # with --project only (vm_repo_from, from STARTED_IN), carried to the VM's checkout of the same repository.
+    # code.yml never looks for a source itself - no working directory, no environment - so that without vm_repo_from
+    # there is none, and no test reads the developer's checkout.
+    code_repo_from: "{{ vm_repo_from | default('', true) | string }}"
+    # Whether just was started in another repository than this checkout: only then is a mismatch of origins said.
+    code_repo_elsewhere: "{{ vm_repo_elsewhere | default(false) | bool }}"
+    # Known before any read, and gating the reads alone: the setting, a project and a source.
+    code_repo_on: >-
+      {{ repo_sync | default(true) | bool and vm_project | default('', true) | string | length > 0
+         and code_repo_from | length > 0 }}
+    # The most one sync sends, in bytes (repo_sync_max_size; 0 for no bound), as git objects and again as files.
+    code_repo_cap: "{{ repo_sync_max_size | default('256M') | claude_sessions_cap }}"
+    # Whether the checkout here and the VM's folder are one repository, by their origins.
+    code_repo_match: >-
+      {{ code_repo_here.repo | default({}) | repo_sync_match(code_repo_there.repo | default({}), code_project,
+                                                              claude_vm_names[0], code_target, code_repo_elsewhere) }}
+    code_repo_matched: "{{ code_repo_on | bool and code_repo_match.sync }}"
+    # --session's branch, which --session moves: the sync leaves it, and the tree, alone.
+    code_repo_session_branch: >-
+      {{ code_session_plan.session.branch | default('') if code_session_id | length > 0 else '' }}
     # --session's branch here: the commit the VM checkout is brought to, and the branch of origin it tracks.
     code_session_commit: "{{ code_session_git_here.checkouts[0].branch_head }}"
     code_session_upstream: "{{ code_session_git_here.checkouts[0].upstream_branch }}"
@@ -1050,6 +1071,11 @@
               configure{{ claude_host_flag | default('') }}` creates it and clones your repositories into it.
               {%- endif -%}
             quiet: true
+
+        # The checkout just was started in, against the folder's on the VM:
+        # whether they are one repository, and what a sync would carry.
+        - name: Read the repository to carry to the VM
+          ansible.builtin.import_tasks: tasks/repo_read.yml
 
         # just code writes beside the repositories, never in one, whichever
         # editor opens the window: where anything goes into its own directory,

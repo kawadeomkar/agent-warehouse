@@ -119,16 +119,17 @@ def _merged(settings) -> list[str]:
 
 def _just(*args: str, settings=(), env=None, stdin=subprocess.DEVNULL, cwd=REPO) -> subprocess.CompletedProcess[str]:
     """just with its settings (NAME=value, before the recipe) and then the recipe's arguments; GIT_HOOK in a folder
-    of the module's own (_hooks_dir), and no run lock (RUN_LOCK=), unless one of them names it: tests running deploy at
-    once on several workers would otherwise take turns, or refuse, in this checkout's .cache (test_run_lock.py holds
-    the lock). Options lead the arguments, each one word (--justfile=<path>), since just takes them only before a
-    setting."""
+    of the module's own (_hooks_dir), no run lock (RUN_LOCK=) and nowhere just was started (STARTED_IN=), unless one of
+    them names it: tests running deploy at once on several workers would otherwise take turns, or refuse, in this
+    checkout's .cache (test_run_lock.py holds the lock), and a run with --project would name the developer's checkout
+    as the repository to carry. Options lead the arguments, each one word (--justfile=<path>), since just takes them
+    only before a setting."""
     options = []
     for arg in args:
         if not arg.startswith("-"):
             break
         options.append(arg)
-    given = _merged(["RUN_LOCK=", f"GIT_HOOK={_hooks_dir()}/pre-commit", *settings])
+    given = _merged(["RUN_LOCK=", f"GIT_HOOK={_hooks_dir()}/pre-commit", "STARTED_IN=", *settings])
     return subprocess.run(
         [JUST, *options, *given, *args[len(options) :]],
         cwd=cwd,
@@ -1233,6 +1234,66 @@ def test_deploy_refuses_a_dot_project_as_code_does(tmp_path: Path) -> None:
     assert "--project names one project folder, not [..]" in _refused(tmp_path, "deploy", "alpha", "--project", "..")
 
 
+# ------------------------------------------------------- the repository just was started in ----
+
+
+def _started_in(tmp_path: Path, start: str, *args: str) -> list[str]:
+    """The arguments of the one ansible-playbook run of a recipe given STARTED_IN."""
+    result = _just(*args, settings=[*_recording(tmp_path), f"STARTED_IN={start}"])
+    assert result.returncode == 0, _output(result)
+    runs = _runs(tmp_path, "ansible-playbook")
+    assert len(runs) == 1, runs
+    return runs[0]
+
+
+def _source(run: list[str]) -> dict | None:
+    found = [json.loads(arg) for arg in run if arg.startswith('{"vm_repo_from"')]
+    assert len(found) <= 1, run
+    return found[0] if found else None
+
+
+@pytest.mark.parametrize("recipe", ["code", "deploy"])
+def test_with_project_the_folder_just_was_started_in_goes_to_the_playbook_as_json(tmp_path: Path, recipe: str) -> None:
+    # Where a folder's name is free text, the environment's Python makes the JSON.
+    other = tmp_path / 'a repo\'s "folder" $(id)'
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True, env=_git_env())
+    run = _started_in(tmp_path / "other", str(other), recipe, "alpha", "--project", "demo")
+    assert _source(run) == {"vm_repo_from": str(other.resolve()), "vm_repo_elsewhere": True}, run
+    # From this checkout: the same, and not elsewhere, so a mismatch is not said.
+    run = _started_in(tmp_path / "this", str(REPO), recipe, "alpha", "--project", "demo")
+    assert _source(run) == {"vm_repo_from": str(REPO.resolve()), "vm_repo_elsewhere": False}, run
+    # A folder in no repository is no source, nor is a run without --project.
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    assert _source(_started_in(tmp_path / "plain-run", str(plain), recipe, "alpha", "--project", "demo")) is None
+    assert _source(_started_in(tmp_path / "no-project", str(other), recipe, "alpha")) is None
+
+
+@pytest.mark.parametrize("recipe", ["code", "deploy"])
+@pytest.mark.parametrize("brace", ["{{ 6 * 7 }}", "{% if 1 %}", "{# x #}"])
+def test_a_start_folder_that_opens_a_template_is_refused_before_the_playbook(
+    tmp_path: Path, recipe: str, brace: str
+) -> None:
+    # Ansible renders an extra var's text as a template: a folder so named would run what it says, a lookup's command
+    # among it, with the vault's password at hand.
+    folder = tmp_path / f"code/{brace}/app"
+    folder.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(folder)], check=True, env=_git_env())
+    output = _refused(tmp_path, recipe, "alpha", "--project", "demo", settings=[f"STARTED_IN={folder}"])
+    assert "whose path holds {{, {% or {#, which Ansible would run as a template" in output, output
+
+
+def test_no_source_unless_a_run_names_one(tmp_path: Path) -> None:
+    # Every test's run is given STARTED_IN= (_just), so none hands the developer's checkout over.
+    assert _source(_playbook(tmp_path, "code", "alpha", "--project", "demo")) is None
+
+
+def test_a_relative_started_in_is_this_checkout_s(tmp_path: Path) -> None:
+    run = _started_in(tmp_path, "roles", "code", "alpha", "--project", "demo")
+    assert _source(run) == {"vm_repo_from": str((REPO / "roles").resolve()), "vm_repo_elsewhere": False}, run
+
+
 # ----------------------------------------------------------------- --editor ----
 
 
@@ -2280,15 +2341,18 @@ def test_install_started_in_another_repository_makes_this_checkout_s_own_environ
     galaxy = tmp_path / "galaxy"
     galaxy.write_text(f"#!/bin/sh\n{NOT_THE_PINS}\n")
     galaxy.chmod(0o755)
+    # Never a write outside the test's folder, whatever the run chose: the virtualenv on PATH is the suite's own.
     _stand_in(
         tmp_path / "uv-bin",
         "uv",
         f'printf "%s\\n" "$UV_PROJECT_ENVIRONMENT" > "{tmp_path / "uv-env"}"\n'
+        f'case "$UV_PROJECT_ENVIRONMENT" in "{tmp_path}"/*) ;; *) exit 9 ;; esac\n'
         'mkdir -p "$UV_PROJECT_ENVIRONMENT/bin"\n'
         f'ln -sf "{sys.executable}" "$UV_PROJECT_ENVIRONMENT/bin/python"\n'
         f'cp "{galaxy}" "$UV_PROJECT_ENVIRONMENT/bin/ansible-galaxy"',
     )
-    result = _just(f"--justfile={JUSTFILE}", f"UV={tmp_path / 'uv-bin' / 'uv'}", "install", env=env, cwd=other)
+    started = [f"STARTED_IN={other}", f"UV={tmp_path / 'uv-bin' / 'uv'}"]
+    result = _just(f"--justfile={JUSTFILE}", "install", settings=started, env=env, cwd=other)
     assert result.returncode == 0, _output(result)
     assert (tmp_path / "uv-env").read_text().splitlines() == [f"{data}/venv"]
     # And a recipe that runs a tool takes it from there too, not from the virtualenv on PATH: its Python records
@@ -2302,19 +2366,36 @@ def test_install_started_in_another_repository_makes_this_checkout_s_own_environ
     python.chmod(0o755)
     status = _just(
         f"--justfile={JUSTFILE}",
-        f"VAULT_FILE={_vault(tmp_path)}",
-        _settings_files(tmp_path),
-        f"STATUS_DIR={tmp_path / 'status'}",
-        f"HOSTS_DIR={tmp_path / 'hosts'}",
-        f"LOG_DIR={tmp_path / 'logs'}",
         "status",
         "--only",
         "vms",
+        settings=[
+            f"STARTED_IN={other}",
+            f"VAULT_FILE={_vault(tmp_path)}",
+            _settings_files(tmp_path),
+            f"STATUS_DIR={tmp_path / 'status'}",
+            f"HOSTS_DIR={tmp_path / 'hosts'}",
+            f"LOG_DIR={tmp_path / 'logs'}",
+        ],
         env=env,
         cwd=other,
     )
     assert status.returncode == 0, _output(status)
     assert seen.read_text() == f"{python}\n", _output(status)
+
+
+def test_where_just_was_started_is_the_folder_it_was_started_in_unless_the_command_line_names_another(
+    tmp_path: Path,
+) -> None:
+    said = subprocess.run(
+        [JUST, "--justfile", str(JUSTFILE), "--evaluate", "STARTED_IN"],
+        cwd=tmp_path,
+        env=_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert Path(said).resolve() == tmp_path.resolve(), said
 
 
 def test_a_recipe_run_inside_another_is_handed_where_just_was_started() -> None:

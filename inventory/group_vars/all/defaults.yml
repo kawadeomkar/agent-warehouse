@@ -452,6 +452,10 @@ claude_settings_sync_keys: []
 claude_plugins_sync: true
 claude_history_sync: true
 claude_extensions_sync: true
+repo_sync: true
+repo_sync_ignored: true
+repo_sync_max_size: 256M
+repo_sync_exclude: []
 vscode_user_settings_file: ""
 
 # Nothing in ~/.ssh is edited but the managed file below, the VMs' known_hosts
