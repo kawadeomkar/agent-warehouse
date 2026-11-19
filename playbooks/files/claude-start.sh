@@ -8,11 +8,16 @@
 # of its running sessions, ${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/<pid>.json, each naming the folder it runs in
 # (cwd) and how it was started (entrypoint: cli for a claude in a terminal; Remote Control's sessions say another).
 # Where one of a terminal names this folder, at a pid that still runs claude, a fresh claude starts. Otherwise
-# claude --continue picks the folder's latest conversation up; where there is none to continue, Claude Code 2.1
-# says so and exits 1 at once, so a --continue that fails within its first seconds starts a fresh claude instead,
-# and one that ran and then failed is not started again. A registry that is not there, or an entry that cannot be
-# read or used (a cwd with a NUL in it, which no path holds), names no claude; a check that cannot be made at all
-# starts a fresh claude, never a --continue.
+# claude --continue picks the folder's latest conversation up, run only where Claude Code holds a transcript of the
+# folder: filed under its path with every character but a letter or a digit made a dash (the path as walked or as it
+# really is), or a folder Claude Code may file otherwise - a path with a character outside ASCII, or a name longer than
+# 200 characters. Where there is none, a
+# fresh claude starts, never --continue on the chance: in a folder not yet trusted, Claude Code asks the trust
+# question first and says there is no conversation only after the answer, so the run that has to ask it would end
+# with no claude. A --continue that fails within its first seconds still starts a fresh claude (Claude Code 2.1
+# exits 1 at once with nothing to continue), and one that ran and then failed is not started again. A registry that
+# is not there, or an entry that cannot be read or used (a cwd with a NUL in it, which no path holds), names no
+# claude; a check that cannot be made at all starts a fresh claude, never a --continue.
 #
 # The registry is read by the VM's Python 3, stdlib only, isolated (-I): a program read from stdin otherwise has
 # the current directory first on sys.path, and this one runs in the folder the terminal opens in, often a
@@ -29,8 +34,10 @@ if ! command -v claude >/dev/null 2>&1; then
   exit 0
 fi
 python3 -I - "$PWD" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" >/dev/null 2>&1 <<'EOF'
+import glob
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -114,8 +121,20 @@ def _open_here(folder, config):
     return False
 
 
-# 0 only once the registry was read and names no claude here: anything else, a crash included, is a fresh claude.
-sys.exit(3 if _open_here(sys.argv[1], sys.argv[2]) else 0)
+def _earlier(folder, config):
+    """Whether Claude Code holds a conversation of ``folder`` to continue, or may file it where it cannot be told."""
+    for path in (os.path.realpath(folder), folder):
+        name = re.sub(r"[^A-Za-z0-9]", "-", path)
+        if not path.isascii() or len(name) > 200 or glob.glob(os.path.join(glob.escape(os.path.join(config, "projects", name)), "*.jsonl")):
+            return True
+    return False
+
+
+# 0 only once the registry was read and names no claude here, and the folder has a conversation to continue:
+# anything else, a crash included, is a fresh claude.
+if _open_here(sys.argv[1], sys.argv[2]):
+    sys.exit(3)
+sys.exit(0 if _earlier(sys.argv[1], sys.argv[2]) else 4)
 EOF
 checked=$?
 if [ "$checked" -ne 0 ]; then

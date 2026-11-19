@@ -213,8 +213,10 @@ def _terminal(
     session="",
     resume_rc=None,
     scopes="workflow",
+    earlier=True,
 ) -> tuple[list[str], dict]:
-    """The script's command line and environment, with the stand-ins in place."""
+    """The script's command line and environment, with the stand-ins in place: run in tmp_path, with a Claude Code
+    config of the test's own that holds a conversation of that folder unless earlier is false."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name, text, there in (
@@ -226,6 +228,9 @@ def _terminal(
             stand_in = bin_dir / name
             stand_in.write_text(text)
             stand_in.chmod(0o755)
+    # The two tools the script names a folder's conversations with, the system's: nothing else of it is on PATH.
+    for tool in ("tr", "wc"):
+        (bin_dir / tool).symlink_to(shutil.which(tool, path="/usr/bin:/bin"))
     # Where the claude_code role's path unit is on a VM that has one.
     watch = tmp_path / "claude-remote-control.path"
     if watched:
@@ -243,7 +248,10 @@ def _terminal(
         "CONTINUE_RC": "" if continue_rc is None else str(continue_rc),
         "CONTINUE_SLEEP": "" if continue_sleep is None else str(continue_sleep),
         "RESUME_RC": "" if resume_rc is None else str(resume_rc),
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "config"),
     }
+    if earlier:
+        _conversation(tmp_path / "config", tmp_path)
     # Then the session notes' four, off here, and --session, last as the task passes them.
     return [*argv, "https", scopes, "alpha", "", "", "claude-remote-control", "UTC", session], env
 
@@ -253,9 +261,19 @@ def _asked(tmp_path: Path) -> list[str]:
     return [line.strip() for line in log.read_text().splitlines()] if log.exists() else []
 
 
-def _run(tmp_path: Path, **case):
+def _conversation(config: Path, folder: Path) -> None:
+    """A conversation of folder's, filed as Claude Code files it: under its path, every other character a dash."""
+    name = re.sub(r"[^A-Za-z0-9]", "-", str(folder.resolve()))
+    (config / "projects" / name).mkdir(parents=True)
+    (config / "projects" / name / f"{SESSION_ID}.jsonl").write_text("{}\n")
+
+
+def _run(tmp_path: Path, folder: str = "", **case):
     argv, env = _terminal(tmp_path, **case)
-    result = subprocess.run(argv, env=env, capture_output=True, text=True, check=False, timeout=30)
+    (tmp_path / folder).mkdir(exist_ok=True)
+    result = subprocess.run(
+        argv, env=env, cwd=tmp_path / folder, capture_output=True, text=True, check=False, timeout=30
+    )
     return result, _asked(tmp_path)
 
 
@@ -353,6 +371,15 @@ TERMINAL_CASES = [
         ["claude auth status", GITHUB_STATUS, "claude --continue", "claude"],
         None,
         id="nothing-to-continue-starts-a-fresh-claude",
+    ),
+    # A folder Claude Code holds no conversation of: a fresh claude, never --continue, which in a folder not yet
+    # trusted asks the trust question first and says there is nothing to continue only after the answer, too late
+    # for a fresh claude to start (live, 2026-11-18).
+    pytest.param(
+        {"status_rc": 0, "earlier": False},
+        ["claude auth status", GITHUB_STATUS, "claude"],
+        None,
+        id="a-folder-with-no-conversation-starts-a-fresh-claude-without-continue",
     ),
     # --session: the copy this machine's session became, never a fork, and never --continue.
     pytest.param(
@@ -476,6 +503,16 @@ def test_the_claude_terminal(tmp_path, case: dict, asked: list[str], stdout: str
         assert stdout in result.stdout, result.stdout
     elif stdout is not None:
         assert result.stdout == stdout
+
+
+@pytest.mark.parametrize("folder", ["p" * 210, "prøjects"], ids=["past 200 characters", "outside ASCII"])
+def test_a_folder_whose_name_claude_code_may_file_otherwise_is_continued_as_before(tmp_path, folder):
+    # Past 200 characters Claude Code may shorten the name it files a folder's conversations under, and a character
+    # outside ASCII may be one dash or two, so the script cannot tell there are none: --continue, and a fresh claude
+    # where it fails at once.
+    result, ran = _run(tmp_path, folder=folder, status_rc=0, earlier=False, continue_rc=1)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ran == ["claude auth status", GITHUB_STATUS, "claude --continue", "claude"]
 
 
 def test_ctrl_c_during_github_s_device_flow_skips_it_and_starts_claude(tmp_path):
@@ -1777,8 +1814,10 @@ START_HELPER = HELPERS / "claude-start.sh"
 NOT_RUNNING = 99999999
 
 
-def _start(tmp_path: Path, *, entry=None, continue_rc=0, installed=True, files=None) -> dict:
-    folder = tmp_path / "projects"
+def _start(
+    tmp_path: Path, *, entry=None, continue_rc=0, installed=True, files=None, earlier=True, folder="projects"
+) -> dict:
+    folder = tmp_path / folder
     folder.mkdir()
     for name, text in (files or {}).items():
         (folder / name).write_text(text)
@@ -1798,6 +1837,8 @@ def _start(tmp_path: Path, *, entry=None, continue_rc=0, installed=True, files=N
     if ps:
         (bin_dir / "ps").symlink_to(ps)
     config = tmp_path / "config"
+    if earlier:
+        _conversation(config, folder)
     running = None
     try:
         if entry is not None:
@@ -1856,6 +1897,23 @@ def test_the_shared_helper_continues_the_folder_or_starts_a_fresh_claude_where_o
     tmp_path, entry, continue_rc, asked
 ):
     run = _start(tmp_path, entry=entry, continue_rc=continue_rc)
+    assert (run["rc"], run["asked"]) == (0, asked), run["output"]
+
+
+@pytest.mark.parametrize(
+    ("folder", "asked"),
+    [
+        # No conversation of the folder's: a fresh claude, never --continue, which in a folder not yet trusted asks
+        # the trust question first and says there is nothing to continue only after the answer (live, 2026-11-18).
+        ("projects", ["claude"]),
+        # A folder Claude Code may file otherwise - past 200 characters, or outside ASCII: --continue, as before.
+        ("p" * 210, ["claude --continue"]),
+        ("prøjects", ["claude --continue"]),
+    ],
+    ids=["no conversation", "past 200 characters", "outside ASCII"],
+)
+def test_the_shared_helper_continues_only_where_the_folder_has_a_conversation(tmp_path, folder, asked):
+    run = _start(tmp_path, earlier=False, folder=folder)
     assert (run["rc"], run["asked"]) == (0, asked), run["output"]
 
 
@@ -2942,7 +3000,7 @@ def _signing_in(tmp_path: Path, helper: str | None, **case):
     done, holder = os.pipe()
     try:
         result = subprocess.run(
-            argv, env=env, capture_output=True, text=True, check=False, timeout=30, pass_fds=(holder,)
+            argv, env=env, cwd=tmp_path, capture_output=True, text=True, check=False, timeout=30, pass_fds=(holder,)
         )
     finally:
         os.close(holder)

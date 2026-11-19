@@ -72,9 +72,9 @@ terminal starts by itself as it does in VS Code. It is one step away instead: in
 alpha`, the whole projects directory, run **task: spawn** (`cmd-shift-r` on macOS, outside the terminal) and
 pick **Claude (just code)**. Each spawn opens a terminal tab of its own, so one never ends a Claude already
 running. In it, the helper runs `claude --continue`, picking the folder's last conversation up, or a fresh
-`claude` where there is none to continue - and a fresh `claude` too where a `claude` of a terminal already has
-the folder open, so two never share one conversation. The tab's Rerun button restarts that tab's Claude: that is
-Zed's, whatever a task says (all seen on Zed 1.26.2).
+`claude` where Claude Code holds none of the folder's - and a fresh `claude` too where a `claude` of a terminal
+already has the folder open, so two never share one conversation. The tab's Rerun button restarts that tab's Claude:
+that is Zed's, whatever a task says (all seen on Zed 1.26.2).
 
 Zed lists the task from `.agent-warehouse/.zed/tasks.json`, inside the projects directory's window, so a
 one-project window (`--project`) does not list it: there, open a terminal - the terminal panel - and run

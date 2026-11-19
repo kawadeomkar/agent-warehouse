@@ -884,7 +884,8 @@ sessions copied to the VM on the way (**The session handoff**, below). In order:
    marker on its first line, then a **Claude (just code)** task of fixed text, `bash <helper>`, a new terminal
    for every spawn and no tag. A `tasks.json` there without the marker is someone else's, left as it is, and
    said. The helper starts a fresh `claude` where Claude Code's registry names a running `claude` of a terminal
-   in the folder, and otherwise `claude --continue`, and a fresh `claude` where that fails at once. Zed lists the
+   in the folder, and otherwise `claude --continue` where Claude Code holds a conversation of the folder, and a
+   fresh `claude` where it holds none or the `--continue` fails at once. Zed lists the
    task in a window whose folder holds the directory. Then it runs `zed ssh://<alias><folder>`, one path (Zed
    1.26.2 refuses a second, so the notes are not opened with it), Zed reading the alias from `~/.ssh/config`;
    Zed runs no task when a window opens, so its report says to run that task where the window lists it, or
@@ -927,7 +928,7 @@ shells non-login, and on a VM configured before `common`'s sshd PATH drop-in `cl
 `claude auth status` fails (a failed one says how to retry), signs gh in by the device flow when
 `gh auth status --hostname github.com --active` fails (Ctrl-C skips it: `trap ':' INT`), and then,
 given `--session`, `claude --resume <id>` and nothing after it, or else
-`claude --continue` - the folder's latest conversation; where there is none, Claude Code 2.1 exits 1 at once ("No conversation found to continue"), and a `--continue` that fails within five seconds starts a fresh `claude` instead, the script ending `exit 0` either way - because a task terminal
+`claude --continue` - the folder's latest conversation - where Claude Code holds one (a transcript under the folder's path with every character but a letter or a digit made a dash; or a folder it may file otherwise, a path with a character outside ASCII or a name past 200 characters), and a fresh `claude` where it holds none: in a folder not yet trusted, `--continue` asks the trust question first and says "No conversation found to continue" only after the answer, so it is never run on the chance. A `--continue` that fails within five seconds (Claude Code 2.1 exits 1 at once with nothing to continue) still starts a fresh `claude`, the script ending `exit 0` either way - because a task terminal
 does not survive a window reload, after which the task runs again; its messages arrive as arguments,
 never as script text, and
 `tests/unit/test_code_session.py` runs it against a stand-in `claude`. **The helpers** - that script,

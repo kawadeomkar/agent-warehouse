@@ -549,8 +549,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       and run as `bash <helper>`; anything variable reaches one as an argument, and no task file carries script
       text. `claude-start.sh` (`code_shared_helpers`), every editor's, starts a fresh `claude` where Claude
       Code's registry names a running `claude` of a terminal in the folder - counted as the modules count one,
-      by a copy of `playbooks/module_utils/`'s test held equal to it - else `claude --continue`, its Python
-      isolated (`python3 -I`). Its path is in a task of the user's own, so it stays (`test_persisted_names.py`).
+      by a copy of `playbooks/module_utils/`'s test held equal to it - else `claude --continue` where Claude Code
+      holds a transcript of the folder, else a fresh `claude` (never `--continue` on the chance: in a folder not yet
+      trusted it asks the trust question before it finds nothing, too late for the fallback), its Python isolated
+      (`python3 -I`). Its path is in a task of the user's own, so it stays (`test_persisted_names.py`).
     - Every name `code.yml` sets starts with `code_`, a prefix no role uses: a role's fact or register outranks
       a play var in the same `just deploy`. In `just deploy` (`code_in_deploy`) every task of the window step is
       in one `block` whose `rescue` says any failure with the `just code` line and ends the play.
