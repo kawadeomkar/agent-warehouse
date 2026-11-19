@@ -820,6 +820,25 @@ def test_y_sets_up_the_access_and_the_vault_takes_the_tokens_secret(tmp_path: Pa
     assert _ssh_calls(tmp_path) == ""
 
 
+def test_with_a_pool_in_local_yml_the_offer_grants_the_role_on_the_pool_in_place_of_vms(tmp_path: Path) -> None:
+    files = _files(tmp_path)
+    local = Path(files["init_local_file"])
+    local.write_text(local.read_text() + "proxmox_pool: agent-warehouse\n")
+    host = _stand_in_proxmox(tmp_path, files)
+    rc, output, _ = _init_at_a_terminal(tmp_path, files, [*BEFORE_THE_OFFER, (ACCESS_PROMPT, b"y\n")])
+    assert rc == 0, output
+    assert "pveum pool add agent-warehouse --comment agent-warehouse" in output
+    state = _pve_cli_state(host)
+    assert "agent-warehouse" in state["pools"]
+    assert sorted(acl["path"] for acl in state["acls"]) == [
+        "/nodes/pve",
+        "/pool/agent-warehouse",
+        "/sdn/zones/localnetwork/vmbr0",
+        "/storage/local-lvm",
+    ]
+    assert SECRET_LINE in _decrypt(files)
+
+
 def test_the_proxmox_groups_connection_settings_reach_the_host(tmp_path: Path) -> None:
     # As the template build reaches it: hosts.yml's proxmox vars under the host's own.
     files = _files(tmp_path)

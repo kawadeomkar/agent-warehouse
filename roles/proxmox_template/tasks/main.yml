@@ -259,8 +259,7 @@
           image: "{{ proxmox_template_image_url }}"
           packages: "{{ proxmox_template_packages }}"
           sha256: "{{ proxmox_template_image_digest.stat.checksum }}"
-      ansible.builtin.command:
-        argv:
+        proxmox_template_create:
           - "{{ proxmox_template_qm }}"
           - create
           - "{{ proxmox_template_vmid }}"
@@ -286,6 +285,12 @@
           - "{{ proxmox_template_vga }}"
           - --description
           - "{{ proxmox_template_record | proxmox_template_record }}"
+      ansible.builtin.command:
+        # A member of the project's pool from the start: a token granted the role on that pool alone may then clone
+        # it, and never needs to see a template outside.
+        argv: >-
+          {{ proxmox_template_create
+             + (['--pool', proxmox_template_pool] if proxmox_template_pool | default('', true) | length > 0 else []) }}
       changed_when: true
 
     - name: Import the cloud image as the root disk

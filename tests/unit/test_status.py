@@ -400,6 +400,50 @@ def test_golden_templates_and_build_vms_are_counted_from_the_listing() -> None:
     assert fleet["goldens"] == {"count": 1, "building": ["agent-warehouse-build-bbbb"]}
 
 
+def test_with_a_pool_each_guest_of_the_fleet_outside_it_is_a_thing_to_do_with_the_line_that_moves_it() -> None:
+    def vm(vmid, name, **more):
+        return {"vmid": vmid, "name": name, "type": "qemu", "node": "pve", "status": "stopped", **more}
+
+    listing = [
+        vm(100, "alpha", tags="agent-warehouse", pool="agent-warehouse"),
+        vm(101, "beta", tags="agent-warehouse"),
+        vm(102, "gamma", tags="agent-warehouse", pool="bob"),
+        vm(9000, "ubuntu-24.04-cloudinit", template=1),
+        vm(150, "agent-warehouse-golden-aaaa", template=1, pool="agent-warehouse"),
+        vm(151, "agent-warehouse-golden-bbbb", template=1),
+    ]
+    tagged = _tagged(listing)
+    settings = {**SETTINGS, "pool": "agent-warehouse", "names": []}
+    # The pools the token may read the members of, Pool.Audit's: without which Proxmox names no guest's pool.
+    pools = [{"item": "cluster/resources?type=pool", "status": 200, "json": {"data": [{"pool": "agent-warehouse"}]}}]
+    fleet = S.status_fleet(listing, tagged=tagged, requested=tagged, settings=settings, lists=pools)
+    model = S.status_report({"localhost": {"fleet": fleet}}, "now", 1_800_000_000)
+    said = {it["vm"]: (it["text"], it["command"]) for it in model["attention"] if "member of pool" in it["text"]}
+    assert set(said) == {"beta", "gamma", "template"}, said
+    assert said["beta"] == (
+        "it is no member of pool agent-warehouse, so a token granted the role on the pool alone never sees it",
+        "as root on the Proxmox host: pveum pool modify agent-warehouse --vms 101",
+    )
+    assert "(it is in bob)" in said["gamma"][0] and said["gamma"][1].endswith("--vms 102 --allow-move 1")
+    texts = [it["text"] for it in model["attention"] if it["vm"] == "template"]
+    assert any("the template ubuntu-24.04-cloudinit is no member" in t for t in texts), texts
+    assert any(t.startswith("1 golden template is no member of pool") for t in texts), texts
+    # A token that may not read the pool's members: none is called outside, and that is said once, with its fix.
+    blind = S.status_fleet(listing, tagged=tagged, requested=tagged, settings=settings)
+    said = [it for it in S.status_report({"localhost": {"fleet": blind}}, "now", 1_800_000_000)["attention"]]
+    assert not [it for it in said if "member of pool" in it["text"] and "may not read" not in it["text"]]
+    assert [
+        it["vm"] for it in said if "may not read which guests are members of pool agent-warehouse" in it["text"]
+    ] == ["proxmox"]
+    # No pool set, or one that is no pool's name: nothing about pools is said.
+    for pool in ("", "a pool"):
+        plain = S.status_fleet(
+            listing, tagged=tagged, requested=tagged, settings={**settings, "pool": pool}, lists=pools
+        )
+        report = S.status_report({"localhost": {"fleet": plain}}, "now", 1_800_000_000)
+        assert not [it for it in report["attention"] if "member of pool" in it["text"]]
+
+
 def test_the_fleet_is_this_projects_vms_and_the_rest_as_totals() -> None:
     fleet = _fleet()
     assert [vm["vmid"] for vm in fleet["vms"]] == [100, 101, 102, 103, 104]

@@ -50,6 +50,11 @@ argument_specs:
       proxmox_template_storage:
         type: str
         description: Proxmox storage the root disk and the cloud-init drive are created on.
+      proxmox_template_pool:
+        type: str
+        description: >-
+          A pool the template is made a member of, so that a token granted the role on that pool alone can clone it;
+          empty, none.
       proxmox_template_bridge:
         type: str
         description: Bridge the template's net0 is attached to, and so every clone's.
@@ -175,6 +180,9 @@ argument_specs:
         type: dict
         required: true
         description: The key to build for, the base it is built from and the size of its disk, {key, base, disk, vms} (golden_targets).
+      proxmox_template_pool:
+        type: str
+        description: A pool the build VM, and so the golden template made from it, is made a member of; empty, none.
   golden_template:
     short_description: Make the build VM a golden template - stripped, noted with its key, read back, converted
     options:

@@ -9,7 +9,8 @@
 # Configured yet? With the host's address or the token's secret still the
 # example's, nothing is checked, and the run says what is missing. Then: the
 # vault is encrypted; the API answers and takes the token; the token holds
-# every privilege the project uses on /vms; the template exists, and while it
+# every privilege the project uses on /vms, or on the pool proxmox_pool names,
+# of which the template must then be a member; the template exists, and while it
 # does not, root SSH to the Proxmox host works (the template is built over it),
 # which also says the host's node name. Then what the defaults leave to the
 # host: the node, worked out - the template's, the only one, or the one SSH
@@ -55,7 +56,8 @@
   vars:
     # Where to look for a public key when the VMs would get none.
     init_ssh_dir: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh"
-    # The privileges the token needs on /vms, as the pveum role in
+    # The privileges the token needs on /vms - or on the project's pool, where
+    # proxmox_pool names one - as the pveum role in
     # docs/getting-started/proxmox-access.md grants them; the guest agent's
     # depends on the version (init_agent_privilege). The storage's and the
     # bridge's are checked where each is settled on, on its own path.
@@ -73,6 +75,9 @@
         - VM.Audit
       storage: [Datastore.AllocateSpace, Datastore.Audit]
       bridge: [SDN.Use]
+      # On the pool, with proxmox_pool: which guests are its members, which Proxmox
+      # leaves out of its listing without it.
+      pool: [Pool.Audit]
     init_endpoint: >-
       {{ '[' ~ proxmox_api_host ~ ']' if proxmox_api_host is search(':.*:') and proxmox_api_host is not match('[[]')
          else proxmox_api_host }}:{{ proxmox_api_port }}
@@ -108,10 +113,22 @@
     init_api_ok: "{{ init_version.status | default(0) == 200 }}"
     init_major: "{{ (init_version.json.data.version | default('0')).split('.')[0] | int }}"
     init_agent_privilege: "{{ 'VM.GuestAgent.Audit' if init_major | int >= 9 else 'VM.Monitor' }}"
-    # Listed with 1: granted on /vms and, propagated, on each VM under it,
-    # where Proxmox checks them; 0 is granted on /vms alone.
-    init_vms_privileges: "{{ (init_permissions.json.data | default({}, true))['/vms'] | default({}, true) }}"
-    init_privileges_wanted: "{{ init_token_privileges.vms + [init_agent_privilege] }}"
+    # Where the role is granted: the project's pool, whose members alone it then
+    # reaches, or /vms, every VM of the host. A pool that is no pool's name is
+    # asked nothing (init_pool_refused).
+    init_pool: "{{ proxmox_pool | default('', true) | string }}"
+    init_pool_refused: "{{ init_pool | length > 0 and init_pool | proxmox_name('pool') | length == 0 }}"
+    init_privileges_path: "{{ '/pool/' ~ init_pool if init_pool | length > 0 else '/vms' }}"
+    init_privileges_under: "{{ 'its members' if init_pool | length > 0 else 'the VMs under it' }}"
+    # Whom a grant the messages give is for: the token's user.
+    init_grantee: "{{ proxmox_api_user }}"
+    # Listed with 1: granted on the path and, propagated, on each VM under it,
+    # where Proxmox checks them; 0 is granted on the path alone.
+    init_vms_privileges: >-
+      {{ (init_permissions.json.data | default({}, true))[init_privileges_path] | default({}, true) }}
+    init_privileges_wanted: >-
+      {{ init_token_privileges.vms + [init_agent_privilege]
+         + (init_token_privileges.pool if init_pool | length > 0 else []) }}
     init_privileges_missing: "{{ init_privileges_wanted | reject('in', init_vms_privileges) | list }}"
     init_privileges_unpropagated: >-
       {{ init_privileges_wanted | select('in', init_vms_privileges)
@@ -627,11 +644,12 @@
       when: not init_token_held | default(false) | bool
 
     # ----------------------------------------------------------- privileges ---
-    # The privileges in effect at /vms, inherited ones included. The 1 or 0 by
-    # each is its propagate flag, not whether it is granted: being listed is.
-    - name: Ask Proxmox what the token may do on /vms
+    # The privileges in effect at /vms or the pool, inherited ones included. The
+    # 1 or 0 by each is its propagate flag, not whether it is granted: being
+    # listed is.
+    - name: Ask Proxmox what the token may do on /vms or the pool
       ansible.builtin.uri:
-        url: "{{ proxmox_api_url }}/access/permissions?path=/vms"
+        url: "{{ proxmox_api_url }}/access/permissions?path={{ init_privileges_path }}"
         headers: "{{ proxmox_api_headers }}"
         follow_redirects: none
         validate_certs: "{{ proxmox_api_validate }}"
@@ -641,35 +659,45 @@
       check_mode: false
       failed_when: false
       no_log: true
-      when: init_api_ok | bool
+      when: init_api_ok | bool and not init_pool_refused | bool
 
     - name: Record the privileges' result
       ansible.builtin.set_fact:
         init_results: >-
-          {{ init_results + [{'ok': init_permissions.status == 200 and init_privileges_missing | length == 0
+          {{ init_results + [{'ok': not init_pool_refused | bool and init_permissions.status | default(0) == 200
+                                     and init_privileges_missing | length == 0
                                      and init_privileges_unpropagated | length == 0, 'text': init_privileges_said}] }}
       vars:
         init_privileges_said: >-
-          {{ ('Proxmox would not say what the token may do (' ~ init_permissions.status ~ ' '
+          {{ ('proxmox_pool is the name of a pool on the Proxmox host, letters, digits, and . _ - after the first,'
+              ~ ' not ' ~ init_pool | to_json | plain_text ~ ', so the token was not asked about it')
+             if init_pool_refused | bool else
+             ('Proxmox would not say what the token may do (' ~ init_permissions.status ~ ' '
               ~ init_permissions.msg | default('') | plain_text | trim ~ ')')
              if init_permissions.status != 200 else
-             ('the token holds no privilege on /vms at all. A token made with privilege separation (the default,'
-              ~ " --privsep 1) has none of its user's: make it with --privsep 0, or give the token itself the"
-              ~ " role: pveum aclmod /vms -token '" ~ init_token ~ "' -role AnsibleVM"
+             ('the token holds no privilege on ' ~ init_privileges_path ~ ' at all. '
+              ~ ('A token made with privilege separation (the default, --privsep 1) has none of its user'
+                 ~ "'s: make it with --privsep 0, or give the token itself the role: pveum aclmod "
+                 ~ init_privileges_path ~ " -token '" ~ init_token ~ "' -role AnsibleVM"
+                 if init_pool | length == 0 else
+                 'Grant its user the role on the pool, which tools/proxmox-access.sh --pool ' ~ init_pool ~ ' does,'
+                 ~ ' and just init' ~ init_host_flag ~ ' offers to (answer y), or by hand: pveum aclmod '
+                 ~ init_privileges_path ~ ' -user ' ~ init_grantee ~ ' -role AnsibleVM')
               ~ ' (docs/getting-started/proxmox-access.md)')
              if init_privileges_missing | length == init_privileges_wanted | length else
-             ('the token lacks ' ~ init_privileges_missing | join(', ') ~ ' on /vms: add '
+             ('the token lacks ' ~ init_privileges_missing | join(', ') ~ ' on ' ~ init_privileges_path ~ ': add '
               ~ ('them' if init_privileges_missing | length > 1 else 'it') ~ ' to its role, the one'
               ~ ' docs/getting-started/proxmox-access.md calls AnsibleVM. just init' ~ init_host_flag
               ~ ' at a terminal, with root SSH to the host, offers to (answer y), or by hand: pveum role modify'
               ~ " AnsibleVM -append 1 -privs '"
               ~ init_privileges_missing | join(' ') ~ "'")
              if init_privileges_missing | length > 0 else
-             ('the token holds ' ~ init_privileges_unpropagated | join(', ') ~ ' on /vms but not on the VMs under'
-              ~ " it, where Proxmox checks them: its ACL on /vms has Propagate off. Turn it on: pveum aclmod /vms"
-              ~ ' -user ' ~ proxmox_api_user ~ ' -role AnsibleVM -propagate 1')
+             ('the token holds ' ~ init_privileges_unpropagated | join(', ') ~ ' on ' ~ init_privileges_path
+              ~ ' but not on ' ~ init_privileges_under ~ ', where Proxmox checks them: its ACL on '
+              ~ init_privileges_path ~ ' has Propagate off. Turn it on: pveum aclmod ' ~ init_privileges_path
+              ~ ' -user ' ~ init_grantee ~ ' -role AnsibleVM -propagate 1')
              if init_privileges_unpropagated | length > 0 else
-             'the token holds every privilege the project uses on /vms' }}
+             'the token holds every privilege the project uses on ' ~ init_privileges_path }}
       when: init_api_ok | bool
 
     # ----------------------------------------------------------- the template ---
@@ -793,6 +821,21 @@
               'text': 'there is no template ' ~ proxmox_template_name ~ ' yet: just deploy builds it at VMID '
                       ~ proxmox_template_vmid ~ ', over root SSH'} }}
       when: init_listed | default(false) | bool
+
+    # A template made before the pool, while the token still holds the role on
+    # /vms, which reaches it: a token granted the role on the pool alone would
+    # neither see it nor clone it. Moving it is root's on the host.
+    - name: Record that the template is no member of the pool
+      ansible.builtin.set_fact:
+        init_results: >-
+          {{ init_results + [{'ok': false, 'text': 'the template ' ~ proxmox_template_name ~ ' on '
+             ~ init_template.node ~ ' is no member of pool ' ~ init_pool ~ ', so a token granted the role on the pool'
+             ~ ' alone could not clone it: make it one on the host, as root - pveum pool modify ' ~ init_pool
+             ~ ' --vms ' ~ proxmox_template_vmid ~ ' (docs/getting-started/proxmox-access.md)'}] }}
+      when: >-
+        init_listed | default(false) | bool and init_template_built | bool and init_pool | length > 0
+        and not init_pool_refused | bool and 'Pool.Audit' in init_vms_privileges
+        and init_template.pool | default('') != init_pool
 
     - name: Record that no host can build the template
       ansible.builtin.set_fact:

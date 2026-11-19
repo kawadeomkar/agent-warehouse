@@ -94,7 +94,20 @@
             if (init_access_settled | default({})).bridge | default(init_bridge_default) != init_bridge_default else [])
          + (['--user', init_access_user] if init_access_user != init_token_user_default else [])
          + (['--token', init_access_token] if init_access_token != init_token_name_default else [])
-         + (['--no-token'] if init_access_topping_up | bool else []) }}
+         + (['--no-token'] if init_access_topping_up | bool else [])
+         + (['--pool', init_access_pool, '--move', init_access_move, '--template', init_access_template]
+            if init_access_pool | length > 0 else []) }}
+    # The project's pool, where local.yml names one: the role is granted on it in place of /vms. Only a pool's name
+    # reaches the script, which holds it to that again.
+    init_access_pool: "{{ init_local_settings.proxmox_pool | default('', true) | string | proxmox_name('pool') }}"
+    # With the pool, the fleet made before it is moved in: the guests carrying the ownership tag - its 1.x name too
+    # while it is the default, as claude_vm_tags_owned reads them - the golden templates named for it, and the template.
+    # The question shows each by name before anything moves.
+    init_access_tag: "{{ init_local_settings.claude_vm_tag | default('agent-warehouse', true) | string | lower }}"
+    init_access_move: >-
+      {{ ([init_access_tag] + (['claude-on-proxmox'] if init_access_tag == 'agent-warehouse' else []))
+         | select('match', '^[a-z0-9][a-z0-9._-]*\Z') | join(',') }}
+    init_access_template: "{{ init_local_settings.proxmox_template_vmid | default(9000, true) | int | string }}"
     # A vault that holds a token's secret, or one given: the offer then makes no token, whose secret could not take
     # that one's place, and asks only where the role lacks a privilege a newer version needs, or a grant is missing.
     init_access_topping_up: "{{ init_secret_set | default(false) | bool or init_secret_given | bool }}"

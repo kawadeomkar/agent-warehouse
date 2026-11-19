@@ -148,6 +148,10 @@
             if init_access_plan.stderr_lines | length > 0 else [])
          + (['What is added to the role reaches every user it is granted to, wherever it is granted.']
             if init_access_plan.stdout_lines | select('search', '^pveum role modify ') | list | length > 0 else [])
+         + (['The pool takes in the guests made before it - each named after its line - and the role on /vms goes once'
+             ~ ' none of them is left outside: the token then reaches the pool alone (docs/getting-started/proxmox-access.md).']
+            if init_access_plan.stdout_lines | select('search', '^pveum (pool modify|acl delete) ') | list | length > 0
+            else [])
          + ['Nothing else on the host changes'
             ~ ('.' if init_access_topping_up | bool else ", and the token's secret goes straight into the encrypted vault."),
             'n, or Enter, to do it yourself with tools/proxmox-access.sh (docs/getting-started/proxmox-access.md).'] }}

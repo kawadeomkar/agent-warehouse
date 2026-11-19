@@ -17,6 +17,13 @@
 # The bridge the template's NIC is attached to, which every clone inherits. Set
 # it before the template is built, and grant the token SDN.Use on it.
 # proxmox_bridge: vmbr0
+# A pool of the project's own on the host, for a token that reaches nothing
+# else. New VMs, the template and golden templates are made its members, and
+# tools/proxmox-access.sh --pool <name> (just init passes it this) grants the
+# role on /pool/<name> in place of /vms, which reaches every VM of the host.
+# A fleet made before is moved into it by hand, as the access guide says
+# (docs/getting-started/proxmox-access.md).
+# proxmox_pool: agent-warehouse
 # The API user and token, as just init or tools/proxmox-access.sh makes them
 # (docs/getting-started/proxmox-access.md), and the API's port.
 # proxmox_api_user: ansible@pve

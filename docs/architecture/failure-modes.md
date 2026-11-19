@@ -63,6 +63,9 @@ each problem `!!` with its fix; `just init` then fails, so a scripted one exits 
 | `the token lacks ... on /vms` | the role is missing a privilege, often the guest agent's after an upgrade from 8.x: `just init` at a terminal offers to add it (answer `y`), or the `pveum role modify` line it prints |
 | `the token holds no privilege on /vms at all` | a token made with privilege separation, which has none of its user's: `--privsep 0`, or an ACL for the token |
 | `... on /vms but not on the VMs under it` | the ACL on `/vms` has Propagate off: `pveum aclmod /vms ... -propagate 1` |
+| `the token holds no privilege on /pool/<name> at all` | `proxmox_pool` names a pool its user holds no role on: `just init` at a terminal offers to grant it (answer `y`), or `tools/proxmox-access.sh --pool <name>` ([A pool of the project's own](../getting-started/proxmox-access.md#a-pool-of-the-projects-own)) |
+| `the template ... is no member of pool ...` | a template made before the pool: make it one as root on the host, `pveum pool modify <pool> --vms <vmid>`, before the grant on `/vms` is taken away |
+| `proxmox_pool is the name of a pool` | `proxmox_pool` holds something no pool is called: letters, digits and `. _ -`, starting with a letter or a digit |
 | `the template is on X, but proxmox_node is Y` | VMs are cloned on the node that holds the template: `proxmox_node: X` (`just init` at a terminal writes it while `proxmox_node` is the default) |
 | `VMID ..., where just deploy would build it, is taken` | `proxmox_template_vmid` names a guest that is not the template: a free VMID, or `proxmox_template_name` of the template there |
 | `root SSH to ... failed` | the template is not built yet, and is built over root SSH: `ssh-copy-id root@<host>` |

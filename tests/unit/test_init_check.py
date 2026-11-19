@@ -616,6 +616,38 @@ def test_a_privilege_without_propagate_is_a_problem(tmp_path: Path, fake_pve: st
     assert "-propagate 1" in _said(report)
 
 
+def test_with_a_pool_the_privileges_are_read_on_it_and_a_template_outside_it_is_a_problem(
+    tmp_path: Path, fake_pve: str
+) -> None:
+    report = _check(tmp_path / "run", fake_pve, "ssh", {"proxmox_pool": "agent-warehouse"})
+    said = _said(report)
+    assert "ok   the token holds every privilege the project uses on /pool/agent-warehouse" in said, said
+    assert "!!   the template ubuntu-24.04-cloudinit on pve is no member of pool agent-warehouse" in said
+    assert "pveum pool modify agent-warehouse --vms 9000" in " ".join(said.split())
+    # Made a member, as root does on the host: nothing left to say about it.
+    _pve(fake_pve, "PUT", "fake/pool-member", vmid=9000, pool="agent-warehouse")
+    again = _said(_check(tmp_path / "again", fake_pve, "ssh", {"proxmox_pool": "agent-warehouse"}))
+    assert "no member of pool" not in again, again
+
+
+def test_with_a_pool_a_token_holding_nothing_on_it_is_told_the_grant_to_make(tmp_path: Path, fake_pve: str) -> None:
+    _pve(fake_pve, "PUT", "fake/privileges", token="ansible", path="/pool/agent-warehouse", privs="")
+    report = _check(tmp_path / "run", fake_pve, "ssh", {"proxmox_pool": "agent-warehouse"})
+    assert report["rc"] != 0
+    said = " ".join(_said(report).split())
+    assert "the token holds no privilege on /pool/agent-warehouse at all" in said
+    assert "tools/proxmox-access.sh --pool agent-warehouse" in said
+    assert "pveum aclmod /pool/agent-warehouse -user ansible@pve -role AnsibleVM" in said
+
+
+def test_a_pool_that_is_no_pool_s_name_is_said_and_the_token_not_asked_about_it(tmp_path: Path, fake_pve: str) -> None:
+    report = _check(tmp_path / "run", fake_pve, "ssh", {"proxmox_pool": "a pool"})
+    assert report["rc"] != 0
+    said = " ".join(_said(report).split())
+    assert "proxmox_pool is the name of a pool on the Proxmox host" in said and 'after the first, not "a pool"' in said
+    assert "the token was not asked about it" in said
+
+
 def test_a_token_with_no_privileges_is_told_about_privilege_separation(tmp_path: Path, fake_pve: str) -> None:
     _pve(fake_pve, "PUT", "fake/privileges", token="ansible", path="/vms", privs="")
     root = tmp_path / "run"

@@ -79,6 +79,8 @@
         name: "{{ proxmox_template_build_name }}"
         full: true
         storage: "{{ proxmox_template_storage }}"
+        # A member of the project's pool, as the golden template made from it stays.
+        pool: "{{ proxmox_template_pool | default(omit, true) }}"
         timeout: 300
       register: proxmox_template_build_clone
 

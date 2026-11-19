@@ -47,6 +47,9 @@ proxmox_validate_certs: false
 proxmox_node: pve
 proxmox_storage: local-lvm
 proxmox_bridge: vmbr0
+# A pool of the project's own: new VMs, the template and golden templates are made its members, so that a token
+# granted the role on /pool/<name> alone reaches nothing else on the host. Empty: none, the token's grant on /vms.
+proxmox_pool: ""
 # Here, not only in the role: provisioning, discovery and just status all read it.
 proxmox_nic: net0
 
@@ -543,6 +546,7 @@ proxmox_vm_ca_path: "{{ proxmox_api_ca_path }}"
 proxmox_vm_api_timeout: "{{ claude_vm_api_timeout }}"
 proxmox_vm_node: "{{ proxmox_node }}"
 proxmox_vm_storage: "{{ proxmox_storage }}"
+proxmox_vm_pool: "{{ proxmox_pool }}"
 # A golden is cloned by the number Proxmox knows it by (provision.yml), so its name only labels the clone.
 proxmox_vm_template_name: "{{ claude_vm_golden_template_name or proxmox_template_base }}"
 proxmox_vm_nic: "{{ proxmox_nic }}"
@@ -553,6 +557,7 @@ proxmox_vm_tags_1x: "{{ claude_vm_tags_owned[1:] }}"
 
 proxmox_template_bridge: "{{ proxmox_bridge }}"
 proxmox_template_storage: "{{ proxmox_storage }}"
+proxmox_template_pool: "{{ proxmox_pool }}"
 
 common_user: "{{ vm_user }}"
 common_user_ssh_public_keys: "{{ vm_ssh_public_keys }}"

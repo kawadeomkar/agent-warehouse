@@ -29,7 +29,8 @@ ran to `qm create` - after the download and `virt-customize` - and died there wi
 2. If `proxmox_template_install_guest_agent` (default true), **copy** the image and run
    `virt-customize --install qemu-guest-agent --truncate /etc/machine-id` on the copy. The pristine
    download is left untouched so `get_url` stays idempotent.
-3. `qm create` with `--agent enabled=1`, virtio NIC, virtio-scsi, serial console.
+3. `qm create` with `--agent enabled=1`, virtio NIC, virtio-scsi, serial console, and `--pool` with
+   `proxmox_template_pool` (`proxmox_pool`), so that a token granted the role on that pool alone may clone it.
 4. `qm set --scsi0 <storage>:0,import-from=...,discard=on`, then add the cloud-init drive and boot order.
 5. `qm template`, then remove the customised copy: `import-from` has copied the disk into the
    storage, so it is derived data a rebuild makes again, and it was ~600 MB per node otherwise.
@@ -62,7 +63,7 @@ check and `absent.yml`, both only for a VM that exists.
 |---|---|
 | Refuse another size | an existing VM given a size it does not have (`proxmox_vm_size_differs`) fails before anything about it changes, but where it needs configuration (`proxmox_vm_force_update`, or a run that stopped): a VM is never resized behind the run's back |
 | Refuse a list, or add to one | `--repos` (`proxmox_vm_repos`) for a finished VM with no list of its own fails before anything changes; a finished VM's list is added to in one call, only when a name is new. A new VM's notes are read after the clone, and the settings call writes the line before the start, since a VM started but unfinished is reachable by `--only configure`, which would otherwise clone the fleet's list |
-| Clone | `throttle: 1` only when Proxmox picks the VMID; a fleet's VMIDs are pre-assigned — see [§9](failure-modes.md) |
+| Clone | `throttle: 1` only when Proxmox picks the VMID; a fleet's VMIDs are pre-assigned — see [§9](failure-modes.md). With `proxmox_vm_pool` (`proxmox_pool`), `pool=` makes the VM a member as the clone's task ends, for a token granted the role on that pool alone ([A pool of the project's own](../getting-started/proxmox-access.md#a-pool-of-the-projects-own)) |
 | Assert `clone is changed` | a VMID collision returns `changed=False` and the *template's* VMID |
 | Record VMID | `when: not proxmox_vm_exists` |
 | Tag the new VM | its own call, straight after the clone — see [§8](convergence.md) |

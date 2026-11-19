@@ -272,7 +272,8 @@ def sshd_match_spec(ssh_connection, user):
 _LABEL = re.compile(r"(?!-)[A-Za-z0-9-]{1,63}(?<!-)")
 
 # What Proxmox itself allows as the name of a node (a host name's first label),
-# a storage (pve-storage-id) and a bridge (a network interface's name). just
+# a storage (pve-storage-id), a bridge (a network interface's name) and a pool
+# (pve-poolid, here never starting as an option would, with "-"). just
 # init writes such a name into local.yml, which every later run reads as a
 # template: a name the API or root SSH reported is held to these first, so
 # one that holds anything else - {{ ... }} above all - is never offered or
@@ -281,11 +282,12 @@ PROXMOX_NAMES = {
     "node": _LABEL,
     "storage": re.compile(r"(?i)[a-z][a-z0-9_.-]*[a-z0-9]"),
     "bridge": re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}"),
+    "pool": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}"),
 }
 
 
 def proxmox_name(value, kind):
-    """Return ``value`` when it is a name Proxmox gives a ``kind`` (node, storage, bridge), else ``""``."""
+    """Return ``value`` when it is a name Proxmox gives a ``kind`` (node, storage, bridge, pool), else ``""``."""
     if kind not in PROXMOX_NAMES:
         raise ValueError(f"proxmox_name: no kind {kind!r}; one of {', '.join(PROXMOX_NAMES)}")
     return value if isinstance(value, str) and PROXMOX_NAMES[kind].fullmatch(value) else ""

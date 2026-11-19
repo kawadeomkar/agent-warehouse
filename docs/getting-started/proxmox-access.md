@@ -21,14 +21,14 @@ ssh-copy-id root@<proxmox-host>
 The token belongs to a dedicated user rather than root, with only the privileges the `proxmox_vm` role uses -
 but on every VM of the host, not only this project's: the grant on `/vms` propagates to all of them, so the
 token can set the SSH keys cloud-init installs on any VM there, restart it, and delete it. Keep the vault, which
-holds it, as you would a root password for those VMs. A later release will scope it to a Proxmox pool
-([Sharing the host](#sharing-the-host)). Four things make it up, and `tools/proxmox-access.sh` creates whichever
-of them is missing:
+holds it, as you would a root password for those VMs - or keep the token to a pool of the project's own
+([A pool of the project's own](#a-pool-of-the-projects-own)). Four things make it up, and
+`tools/proxmox-access.sh` creates whichever of them is missing:
 
 - the role `AnsibleVM`, with the privileges below;
 - the user `ansible@pve`, with no password: it signs in by its token alone;
-- the role, for that user, on `/vms`, on the storage for VM disks, and on the bridge the VMs are on, wherever
-  the user does not already hold what the role gives there;
+- the role, for that user, on `/vms` - or, with `--pool`, on that pool in its place - on the storage for VM
+  disks, and on the bridge the VMs are on, wherever the user does not already hold what the role gives there;
 - the token `ansible@pve!ansible`, without privilege separation, so it has exactly the user's privileges.
 
 The script changes nothing that exists but the role: one that lacks a privilege - as a role an older version
@@ -76,6 +76,8 @@ ssh root@<proxmox-host> sh -s < tools/proxmox-access.sh                # run it
 | `--storage <id>` | The storage for VM disks, when it is not `local-lvm`: `local-zfs` on an install on ZFS. It must match `proxmox_storage` in `local.yml` |
 | `--bridge <name>` | The bridge the VMs are on, when it is not `vmbr0`. It must match `proxmox_bridge` |
 | `--user <user@realm>`, `--token <name>` | Another user or token name than `ansible@pve` and `ansible`, never `root@pam`; `just init`'s token question takes the same |
+| `--pool <name>` | Grant the role on this pool, made where missing, in place of `/vms`: [A pool of the project's own](#a-pool-of-the-projects-own). `just init` passes `proxmox_pool` as it |
+| `--move <tag,...>`, `--template <vmid>` | With `--pool`, make the fleet made before the pool its members - every VM carrying one of the tags, every golden template named `<tag>-golden-...`, the template (`9000` unless given) - and then take the role on `/vms` away, once none of it is left outside. `just init` passes the ownership tag, its 1.x name while it is the default, and `proxmox_template_vmid` |
 | `--dry-run` | Print the commands it would run, and run none |
 | `--list` | Print the node's storages for VM disks and its bridges |
 
@@ -103,6 +105,46 @@ gives each other node the two lines above, run as root on any node.
 It prints the token's secret last, once: give it to `just init`, which asks for it (or to
 `--token-secret-file`, [Your first deploy](first-deploy.md#without-a-terminal-or-scripted)).
 
+### A pool of the project's own
+
+On a host that runs VMs you care about, keep the token to a pool of the project's own. Set the pool's name in
+`local.yml` before `just init`, which then passes it to the script, or give it to the script yourself:
+
+```yaml
+proxmox_pool: agent-warehouse
+```
+
+```bash
+ssh root@<proxmox-host> sh -s -- --pool agent-warehouse < tools/proxmox-access.sh
+```
+
+The script makes the pool where it is missing (`pveum pool add agent-warehouse --comment agent-warehouse`), adds
+`Pool.Audit` to the role, and grants the role on `/pool/agent-warehouse` in place of `/vms`. `Pool.Audit` is read
+only: without it Proxmox names no guest's pool in its listing, so neither `just init` nor `just status` could tell a
+member from a guest outside. Proxmox then gives the token the role on the pool's
+members alone: it lists no other VM, and can change none. `just deploy` makes each VM it creates a member as it
+clones it, builds the template into the pool (`qm create --pool`), and clones a golden template's build VM into
+it, so the golden is one too. The grants on the storage, the bridge and the node stay as they are. `just init`
+then checks the token's privileges on the pool, and says a template that is no member, with the line that makes
+it one.
+
+A fleet made before the pool keeps working while the token's user still holds the role on `/vms`. `just init`, at
+a terminal with root SSH to the host, offers the move with the rest: the question shows the line that makes the
+fleet's guests members - each VM carrying the ownership tag, each golden template, the template - with each named
+after it, and the line that then takes the role on `/vms` away. On `y` it runs both. A guest of the fleet in another
+pool is left there and said, and so is the grant on `/vms`, which still reaches it. `just status` says each guest of
+the fleet that is no member, with the line that makes it one. By hand, in that order - before the grant goes, a
+token that holds the role on the pool alone sees neither, and `just deploy` would try to build the template again
+over the one there:
+
+```bash
+pveum pool modify agent-warehouse --vms 9000,101,102     # the template's VMID and each VM's
+pveum acl delete /vms --users ansible@pve --roles AnsibleVM
+```
+
+A template of your own (`proxmox_template_custom`, [Your own base image](../guides/base-image.md)) must be a member
+too, or the token cannot clone it.
+
 ### Sharing the host
 
 A second person who deploys onto the same host gets a user of their own with `--user`, and a token of their own.
@@ -115,7 +157,9 @@ every tagged VM a token lists is treated as that person's own:
 - a fleet-wide `just deploy --only configure` sends your secrets to every one of them that takes your SSH key;
 - `just destroy <name>` deletes another person's VM of that name when you have none.
 
-Until tokens can be scoped to a Proxmox pool of each person's own, which a later release will do:
+What separates you is a pool each, [A pool of the project's own](#a-pool-of-the-projects-own): each person a
+user, a token and a pool of their own (`--user`, `--token`, `--pool`, and `proxmox_pool` in their `local.yml`),
+with no grant on `/vms`. Each token then lists and changes its own pool's VMs alone. Without pools:
 
 - give each person a tag of their own, `claude_vm_tag: <tag>` in their `local.yml`, before their first deploy
   (VMs made under one tag are not found under another, and [User Tag Access](#user-tag-access) must allow the
@@ -154,8 +198,9 @@ fails at its settings call.
 
 ### What `just init` checks
 
-`just init` checks, read-only, that the token holds every privilege of the role on `/vms`, naming any it
-lacks and the `pveum role modify` line that adds them. It asks for the token's ID (Enter keeps
+`just init` checks, read-only, that the token holds every privilege of the role on `/vms`, or on the pool
+`proxmox_pool` names, naming any it lacks and the `pveum role modify` line that adds them; with a pool, that the
+template is a member. It asks for the token's ID (Enter keeps
 `ansible@pve!ansible`) and writes a token named otherwise into `local.yml` as `proxmox_api_user` and
 `proxmox_api_token_id`; the secret goes into the encrypted `vault.yml` as `vault_proxmox_api_token_secret`
 ([Your first deploy](first-deploy.md#set-up-the-project)).

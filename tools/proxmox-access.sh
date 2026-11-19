@@ -13,10 +13,13 @@
 #
 #   the role AnsibleVM: the privileges below, and the guest agent's, which is
 #     VM.Monitor on Proxmox VE 8 and VM.GuestAgent.Audit on 9 - a role an older
-#     version made lacks what a newer one needs, as Sys.Audit, added for sizes
+#     version made lacks what a newer one needs, as Sys.Audit, added for sizes -
+#     and, with --pool, Pool.Audit, to read which guests are the pool's
 #   the user ansible@pve, with no password: it signs in by its token alone
-#   that role for that user on /vms, on the storage for VM disks, on the
-#     bridge and on the node, wherever the user does not hold what the role
+#   with --pool, that pool, for the project's VMs and template alone
+#   that role for that user on /vms - or, with --pool, on that pool in its
+#     place, which reaches only its members - on the storage for VM disks, on
+#     the bridge and on the node, wherever the user does not hold what the role
 #     gives there yet
 #   the API token ansible@pve!ansible, without privilege separation, so it
 #     has exactly the user's privileges
@@ -30,6 +33,15 @@
 #   --bridge <name>      the bridge the VMs are on: vmbr0
 #   --user <user@realm>  the token's user: ansible@pve
 #   --token <name>       the token's name: ansible
+#   --pool <name>        grant the role on this pool, made where missing, in place of /vms: the token then reaches
+#                        its members alone, which just deploy makes the VMs and the template it creates. A grant on
+#                        /vms the user holds already is left, and said with how to take it away once the VMs and
+#                        the template made before are members
+#   --move <tag,...>     with --pool: make the fleet made before the pool its members - every VM carrying one of these
+#                        tags, every golden template named <tag>-golden-..., and the template --template names - and
+#                        then, once none of it is left outside, take the role on /vms away from the user. A guest in
+#                        another pool is left there, and said
+#   --template <vmid>    the template's VMID, for --move: 9000
 #   --no-token           make no token: what just init runs while its vault holds a token's secret already,
 #                        which a new token's could not take the place of. The token must be there, or nothing
 #                        changes: that secret could be no other's
@@ -46,6 +58,9 @@ storage=local-lvm
 bridge=vmbr0
 user=ansible@pve
 token=ansible
+pool=''
+move=''
+template=9000
 mode=apply
 no_token=0
 # The privileges each path needs; the guest agent's joins /vms's below.
@@ -55,6 +70,10 @@ bridge_privileges='SDN.Use'
 # Read only: the node's CPU threads and memory, which just status's capacity
 # and a sized just deploy weigh a VM's size against.
 node_privileges='Sys.Audit'
+# Read only, on the pool: which guests are its members. Without it Proxmox leaves
+# the pool out of every guest it lists (PVE/API2/Cluster.pm), so just init and
+# just status could not tell a member from a guest outside.
+pool_privileges='Pool.Audit'
 
 say() { printf '%s\n' "$*" >&2; }
 die() {
@@ -64,13 +83,16 @@ die() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
-  --storage | --bridge | --user | --token)
+  --storage | --bridge | --user | --token | --pool | --move | --template)
     [ $# -ge 2 ] || die "$1 takes a value"
     case "$1" in
     --storage) storage=$2 ;;
     --bridge) bridge=$2 ;;
     --user) user=$2 ;;
     --token) token=$2 ;;
+    --pool) pool=$2 ;;
+    --move) move=$2 ;;
+    --template) template=$2 ;;
     esac
     shift 2
     ;;
@@ -105,6 +127,15 @@ case "$user" in *@*@*) die "--user is user@realm (got: [$user])" ;; esac
 # A token of root@pam, made without privilege separation, would hold every privilege there is.
 [ "$user" != root@pam ] || die "--user is a user of the project's own, never root@pam"
 case "$token" in [!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) die "--token starts with a letter (got: [$token])" ;; esac
+if [ -n "$pool" ]; then
+  only --pool "$pool" "$letters._-" 'letters, digits and . _ -'
+  case "$pool" in [!$letters]*) die "--pool starts with a letter or a digit (got: [$pool])" ;; esac
+fi
+if [ -n "$move" ]; then
+  [ -n "$pool" ] || die "--move moves the fleet into the pool --pool names: give --pool too"
+  only --move "$move" "$letters._,-" 'letters, digits and . _ - , between tags'
+fi
+case "$template" in '' | *[!0123456789]* | 0*) die "--template is a VMID, a number (got: [$template])" ;; esac
 
 [ "$(id -u)" = 0 ] || die "run it as root, on the Proxmox host"
 command -v pveum >/dev/null 2>&1 && command -v pvesh >/dev/null 2>&1 \
@@ -185,9 +216,22 @@ run() {
     "$@" >&2
   fi
 }
+# noted <note> <command...>: as run, with what the command is for after it, as a comment.
+noted() {
+  note=$1
+  shift
+  changes=$((changes + 1))
+  if [ "$mode" = dry-run ]; then
+    printf '%s   # %s\n' "$*" "$note"
+  else
+    say "+ $*   # $note"
+    "$@" >&2
+  fi
+}
 
 # ------------------------------------------------------------------ the role ---
 wanted="$vms_privileges $storage_privileges $bridge_privileges $node_privileges"
+[ -z "$pool" ] || wanted="$wanted $pool_privileges"
 lacking=''
 if role_privileges=$(pvesh get "/access/roles/$role" --output-format json 2>/dev/null); then
   for privilege in $wanted; do
@@ -201,6 +245,19 @@ if role_privileges=$(pvesh get "/access/roles/$role" --output-format json 2>/dev
   fi
 else
   run pveum role add "$role" --privs "$(commas $wanted)"
+fi
+
+# ------------------------------------------------------------------ the pool ---
+if [ -n "$pool" ]; then
+  json=$(pvesh get /pools --output-format json) || die "Proxmox would not list its pools"
+  if listed "$pool" "$(printf '%s' "$json" | names poolid)"; then
+    say "pool $pool exists"
+  else
+    run pveum pool add "$pool" --comment agent-warehouse
+  fi
+  vms_path=/pool/$pool
+else
+  vms_path=/vms
 fi
 
 # ------------------------------------------------------------------ the user ---
@@ -219,8 +276,9 @@ fi
 # grant <path> <privileges>: the role, for the user, on the path, where the
 # user lacks a privilege there - every one the role gives, once a privilege it
 # lacked was given it above. The permissions read give each privilege its
-# propagate flag: on /vms one that does not propagate is none, since Proxmox
-# checks each VM's own path, and its grant is the person's to change.
+# propagate flag: on /vms, or the pool, one that does not propagate is none,
+# since Proxmox checks each VM's own path, and its grant is the person's to
+# change.
 #
 # granted <path>: the role is granted to the user itself on the path, or above
 # it and propagating, so a privilege the role is given above reaches the user
@@ -278,7 +336,7 @@ grant() {
   missing='' unpropagated=''
   for privilege in $2; do
     if has "$held" "$privilege"; then
-      case "$1 $held" in "/vms "*"\"$privilege\":0"*) unpropagated="$unpropagated${unpropagated:+,}$privilege" ;; esac
+      case "$1 $held" in "$vms_path "*"\"$privilege\":0"*) unpropagated="$unpropagated${unpropagated:+,}$privilege" ;; esac
     elif [ "$mode" = dry-run ] && [ "$user_exists" = 1 ] && listed "$privilege" "$lacking_words" && granted "$1"; then
       : # Given to the role above, it reaches the user here through the role's grant once the role has it.
     else
@@ -294,10 +352,57 @@ grant() {
     say "$user holds what it needs on $1"
   fi
 }
-grant /vms "$vms_privileges"
+grant "$vms_path" "$vms_privileges${pool:+ $pool_privileges}"
 grant "/storage/$storage" "$storage_privileges"
 grant "/sdn/zones/localnetwork/$bridge" "$bridge_privileges"
 grant "/nodes/$node" "$node_privileges"
+
+# ------------------------------------------------------- the fleet's move ---
+# With the pool, a grant of the role on /vms the user still holds reaches every
+# VM of the host all the same: it is what reaches a VM or template made before
+# the pool. With --move, those are made members first - the guests carrying a
+# tag given, the golden templates named for one, the template - each named, and
+# the grant is taken away only once none of them is left outside. One in another
+# pool is left there: it is that pool's, and said.
+vms_held=0
+if [ -n "$pool" ] && [ "$user_exists" = 1 ] && pvesh get /access/acl --output-format json | tr '{' '\n' \
+  | grep '"path":"/vms"' | grep '"type":"user"' | grep "\"ugid\":\"$user\"" | grep -q "\"roleid\":\"$role\""; then
+  vms_held=1
+fi
+# field <key> <JSON object>: the value of key, a string's or a number's.
+field() { printf '%s' "$2" | grep -o "\"$1\":\"\{0,1\}[^\",}]*" | head -n 1 | sed 's/^"[^"]*":"\{0,1\}//'; }
+if [ -n "$move" ]; then
+  guests=$(pvesh get /cluster/resources --type vm --output-format json) || die "Proxmox would not list the guests"
+  members='' named='' elsewhere=''
+  for entry in $(printf '%s' "$guests" | tr -d ' ' | tr '{' '\n' | grep '"vmid":'); do
+    vmid=$(field vmid "$entry") name=$(field name "$entry") in=$(field pool "$entry")
+    case "$vmid" in '' | *[!0123456789]*) continue ;; esac
+    ours=0
+    [ "$vmid" != "$template" ] || ours=1
+    for tag in $(printf '%s' "$move" | tr ',' ' '); do
+      case ";$(field tags "$entry" | tr ',' ';');" in *";$tag;"*) ours=1 ;; esac
+      case "$name" in "$tag"-golden-*) ours=1 ;; esac
+    done
+    [ "$ours" = 1 ] || continue
+    if [ "$in" = "$pool" ]; then
+      continue
+    elif [ -n "$in" ]; then
+      elsewhere="$elsewhere${elsewhere:+, }${name:-VM} ($vmid, in pool $in)"
+    else
+      members="$members${members:+,}$vmid" named="$named${named:+, }${name:-VM} ($vmid)"
+    fi
+  done
+  if [ -n "$members" ]; then noted "$named" pveum pool modify "$pool" --vms "$members"; fi
+  if [ -n "$elsewhere" ]; then
+    say "left where they are, in a pool of their own: $elsewhere. $user keeps role $role on /vms, which reaches them: move them yourself - pveum pool modify $pool --vms <vmid> --allow-move 1 - and run this again"
+  elif [ "$vms_held" = 1 ]; then
+    run pveum acl delete /vms --users "$user" --roles "$role"
+    vms_held=0
+  fi
+fi
+if [ "$vms_held" = 1 ]; then
+  say "$user still holds role $role on /vms, which reaches every VM of the host, the pool's or not. Once each VM made before the pool, and the template, is a member - as root here: pveum pool modify $pool --vms <vmid>,<vmid>, or this script's --move - take it away: pveum acl delete /vms --users $user --roles $role (docs/getting-started/proxmox-access.md)"
+fi
 
 # ----------------------------------------------------------------- the token ---
 # broad: say what a user that was there already holds on /, for every guest,

@@ -59,6 +59,17 @@
       VM keeps all of its memory.
     quiet: true
 
+# The pool goes to Proxmox as a clone's parameter: one Proxmox would refuse, or
+# that reads as an option, is refused before anything is created.
+- name: Validate the pool
+  ansible.builtin.assert:
+    that: proxmox_vm_pool | default('', true) | length == 0 or proxmox_vm_pool | proxmox_name('pool') | length > 0
+    fail_msg: >-
+      proxmox_pool is the name of a pool on the Proxmox host, letters, digits, and . _ - after the first, not
+      {{ proxmox_vm_pool | string | to_json }}.
+    quiet: true
+  when: proxmox_vm_state == 'present'
+
 # proxmox_vm_state is not checked here: argument_specs declares its choices,
 # which Ansible validates before the first task runs.
 - name: Validate the VM ID

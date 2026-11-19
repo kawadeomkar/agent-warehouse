@@ -24,6 +24,7 @@ Runs on the PVE node over SSH. Downloads a cloud image, creates a VM with `qm`, 
 | `proxmox_template_image_fingerprint` | str | `D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81` | The fingerprint of that key, which the verifier finds it by among the key's packets - never by the key ID the signature names. |
 | `proxmox_template_image_dir` | path | `/var/lib/vz/agent-warehouse` | Directory on the node that keeps the pristine download. Created if missing. Keep it outside the content directories of a storage, or Proxmox lists the image in the UI (under template/iso it appeared as an ISO). |
 | `proxmox_template_storage` | str | `local-lvm` | Proxmox storage the root disk and the cloud-init drive are created on. Set through `proxmox_storage` in local.yml. |
+| `proxmox_template_pool` | str | `""` | A pool the template is made a member of, so that a token granted the role on that pool alone can clone it; empty, none. Set through `proxmox_pool` in local.yml. |
 | `proxmox_template_bridge` | str | `vmbr0` | Bridge the template's net0 is attached to, and so every clone's. Set through `proxmox_bridge` in local.yml. |
 | `proxmox_template_cores` | int | `2` | CPU cores of the template itself. proxmox_vm sets each VM's own. |
 | `proxmox_template_memory_mb` | int | `2048` | Memory of the template itself, in MB. proxmox_vm sets each VM's own. |
@@ -117,6 +118,7 @@ Compares the template's config, as the caller read it from Proxmox, with what th
 | `proxmox_template_golden_memory_mb` | int | `4096` | The memory, in MiB, of the VM a golden is built on. |
 | `proxmox_template_known_hosts_dir` | path | computed | Where a build VM's host key is kept while it is built, under the checkout's .cache; never ~/.ssh. |
 | `proxmox_template_golden_target` | dict |  | **Required.** The key to build for, the base it is built from and the size of its disk, {key, base, disk, vms} (golden_targets). |
+| `proxmox_template_pool` | str | `""` | A pool the build VM, and so the golden template made from it, is made a member of; empty, none. Set through `proxmox_pool` in local.yml. |
 
 ## Entry point `golden_template`
 

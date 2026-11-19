@@ -2,8 +2,8 @@
 
 Run as `fake_pve_cli.py <state.json> <command> <args...>`, through a wrapper of
 each command's name (install() writes them). It keeps the host in one JSON file
-- the version, the node, its storages and bridges, the roles, users, ACLs and
-tokens - answers only the calls the script makes, as Proxmox answers them
+- the version, the node, its storages and bridges, the roles, users, ACLs,
+tokens and pools - answers only the calls the script makes, as Proxmox answers them
 (compact JSON, `pveum` refusing what exists), and appends every call to
 calls.log beside the state. A call whose words contain the state's "fail"
 string fails, as a refused write would.
@@ -23,7 +23,7 @@ COMMON = (
     "VM.Allocate VM.Clone VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.Memory VM.Config.Network"
     " VM.Config.Options VM.Config.HWType VM.Config.CDROM VM.PowerMgmt VM.Audit VM.Console VM.Backup VM.Snapshot"
     " VM.Migrate Datastore.AllocateSpace Datastore.Audit Datastore.Allocate SDN.Use SDN.Audit SDN.Allocate"
-    " Sys.Audit Sys.Modify Permissions.Modify User.Modify"
+    " Sys.Audit Sys.Modify Permissions.Modify User.Modify Pool.Audit Pool.Allocate"
 ).split()
 BY_MAJOR = {8: ["VM.Monitor"], 9: ["VM.GuestAgent.Audit", "VM.GuestAgent.Unrestricted"]}
 
@@ -40,6 +40,9 @@ DEFAULT = {
     "users": {"root@pam": {}},
     "acls": [],
     "tokens": {},
+    "pools": {},
+    # The guests on the host, as /cluster/resources lists them: {vmid, name, type, template, tags, pool}.
+    "guests": [],
     "fail": "",
 }
 
@@ -119,6 +122,13 @@ def _pvesh(state: dict, words: list[str]) -> tuple[int, object]:
         if parts[2] not in state["users"]:
             return _refuse(f"no such user ('{parts[2]}')"), None
         return 0, {"enable": 1, "expire": 0}
+    if parts == ["cluster", "resources"] and options.get("type") == "vm":
+        return 0, [
+            {"id": f"qemu/{g['vmid']}", "type": "qemu", "node": state["node"], "status": "stopped", **g}
+            for g in state.get("guests", [])
+        ]
+    if parts == ["pools"]:
+        return 0, [{"poolid": name, **pool} for name, pool in sorted(state.get("pools", {}).items())]
     if parts == ["access", "acl"]:
         # As Proxmox lists them: each ACL's path, its user's or group's name, the role and whether it propagates.
         keys = ("path", "ugid", "roleid", "propagate", "type")
@@ -162,6 +172,28 @@ def _pveum(state: dict, words: list[str]) -> tuple[int, object]:
             kept = state["roles"][role] if options.get("append") == "1" else []
             state["roles"][role] = [*kept, *(p for p in privileges if p not in kept)]
             return 0, None
+        case ["pool", "add", name]:
+            if name in state.setdefault("pools", {}):
+                return _refuse(f"create pool failed: pool '{name}' already exists"), None
+            state["pools"][name] = {"comment": options.get("comment", "")}
+            return 0, None
+        case ["pool", "modify", name]:
+            # As pveum: --vms adds guests to the pool, refusing one that is in another without --allow-move.
+            if name not in state.setdefault("pools", {}):
+                return _refuse(f"pool '{name}' does not exist"), None
+            for vmid in [int(v) for v in options.get("vms", "").split(",") if v]:
+                guest = next((g for g in state.get("guests", []) if g["vmid"] == vmid), None)
+                if guest is None:
+                    return _refuse(f"no such VMID '{vmid}'"), None
+                if guest.get("pool") and guest["pool"] != name and options.get("allow-move") != "1":
+                    return _refuse(f"VM {vmid} belongs already to pool '{guest['pool']}'"), None
+                guest["pool"] = name
+            return 0, None
+        case ["acl", "delete", path]:
+            role, user = options["roles"], options["users"]
+            before = len(state["acls"])
+            state["acls"] = [a for a in state["acls"] if (a["path"], a["ugid"], a["roleid"]) != (path, user, role)]
+            return (0, None) if len(state["acls"]) < before else (_refuse("no such ACL"), None)
         case ["user", "add", user]:
             if user in state["users"]:
                 return _refuse(f"create user failed: user '{user}' already exists"), None
