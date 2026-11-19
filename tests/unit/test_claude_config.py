@@ -501,8 +501,8 @@ def test_the_global_instructions_and_rules_are_listed_with_the_imports_named(tmp
             "rules/.hidden": b"y",
         },
     )
-    found, imports = reader.instructions(str(root))
-    assert [item["path"] for item in found] == ["CLAUDE.md", "rules/python.md"]
+    found, imports, over = reader.instructions(str(root))
+    assert [item["path"] for item in found] == ["CLAUDE.md", "rules/python.md"] and not over
     assert imports == ["~/notes/style.md", "notes/x.md"]
     plan = core.claude_config_plan(
         {"instructions": found, "imports": imports}, [], THERE, HERE, DEST, {"instructions": True}
@@ -533,14 +533,52 @@ def test_a_settings_file_here_that_cannot_be_read_changes_nothing_there():
     assert plan["items"] == [] and plan["values"] == {} and plan["unreadable"]
 
 
-def test_a_program_s_setting_no_longer_named_is_an_item_with_no_value_so_it_goes_there():
+def test_a_program_s_setting_is_an_item_only_while_named_and_the_role_s_keys_go_to_the_writer():
     found = reader.settings_from(SETTINGS_HERE, core.claude_settings_asked())
-    plan = core.claude_settings_plan(found)
-    assert {"hooks", "statusLine"} <= set(plan["items"])
-    assert "hooks" not in plan["values"] and "statusLine" not in plan["values"]
+    plan = core.claude_settings_plan(found, managed=["env"])
+    assert not {"hooks", "statusLine"} & set(plan["items"]) and plan["managed"] == ["env"]
     # Named, it is carried; the role's own key never an item.
     plan = core.claude_settings_plan(found, managed=["hooks"], extra=["statusLine"])
     assert "hooks" not in plan["items"] and plan["items"].count("statusLine") == 1
+
+
+def test_a_setting_taken_out_of_the_list_goes_from_the_vm_while_as_carried_whatever_it_is(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    _, copies, _ = writer.carry_settings(
+        str(dest),
+        {"values": {"spinnerTipsEnabled": False, "model": "opus"}, "items": ["spinnerTipsEnabled", "model"]},
+        {},
+        False,
+    )
+    # No longer named: not one of this run's items, so it goes, as carried; model, still one, stays.
+    result, copies, changed = writer.carry_settings(
+        str(dest), {"values": {"model": "opus"}, "items": ["model"], "managed": []}, copies, False
+    )
+    assert changed and result["removed"] == ["spinnerTipsEnabled"] and list(copies) == ["model"]
+    assert json.loads((dest / "settings.json").read_text()) == {"model": "opus"}
+
+
+def test_a_setting_the_role_now_writes_loses_its_record_and_keeps_its_value(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    _, copies, _ = _settings(dest, {"model": "opus", "permissions.allow": ["Bash(ls)"]})
+    # claude_code_settings names model and permissions now: the role's, never removed by the carry.
+    result, copies, _ = writer.carry_settings(
+        str(dest), {"values": {}, "items": [], "managed": ["model", "permissions"]}, copies, False
+    )
+    assert result["removed"] == [] and copies == {}
+    assert json.loads((dest / "settings.json").read_text()) == {"model": "opus", "permissions": {"allow": ["Bash(ls)"]}}
+
+
+def test_nothing_carried_is_removed_while_this_machine_s_settings_could_not_be_read(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    _, copies, _ = _settings(dest, {"model": "opus"})
+    plan = core.claude_settings_plan({"unreadable": True})
+    result, kept, changed = writer.carry_settings(str(dest), plan, copies, False)
+    assert not changed and result["removed"] == [] and kept == copies
+    assert json.loads((dest / "settings.json").read_text()) == {"model": "opus"}
 
 
 def _settings(dest, values, items=None, recorded=None, check=False):
@@ -834,3 +872,175 @@ def test_the_writer_never_writes_the_account_s_synced_skills(tmp_path):
     items = [{"source": path, "target": path} for path in ("skills/synced/x/SKILL.md", "agents/a.md")]
     result, _ = writer.carry(str(dest), str(mirror), str(manifest), ["skills/", "agents/"], items)
     assert result["written"] == ["agents/a.md"] and not (dest / "skills").exists()
+
+
+# ------------------------------------------------------------------------- what could not be read here ---
+def test_a_link_or_a_file_the_reader_may_not_open_is_unread_never_gone(tmp_path):
+    root = tmp_path / ".claude"
+    _memory(
+        root,
+        {
+            "rules/a.md": b"a",
+            "rules/locked.md": b"b",
+            "skills/review/SKILL.md": b"c",
+            "skills/synced/x/SKILL.md": b"d",
+            "projects/-Users-me-demo/memory/MEMORY.md": b"e",
+            "projects/-Users-me-demo/memory/locked.md": b"f",
+        },
+    )
+    elsewhere = tmp_path / "dotfiles"
+    _memory(elsewhere, {"CLAUDE.md": b"Be brief.\n", "skill/SKILL.md": b"g"})
+    (root / "CLAUDE.md").symlink_to(elsewhere / "CLAUDE.md")
+    (root / "skills" / "linked").symlink_to(elsewhere / "skill", target_is_directory=True)
+    (root / "skills" / "synced" / "linked").symlink_to(elsewhere / "skill", target_is_directory=True)
+    (root / "agents").symlink_to(elsewhere, target_is_directory=True)
+    for path in ("rules/locked.md", "projects/-Users-me-demo/memory/locked.md"):
+        (root / path).chmod(0)
+    try:
+        if os.access(root / "rules" / "locked.md", os.R_OK):
+            pytest.skip("a file mode 0 is still read here (root)")
+        unread = []
+        found, _, over = reader.instructions(str(root), unread)
+        assert [item["path"] for item in found] == ["rules/a.md"] and not over
+        memory, _ = reader.memory_folders(str(root), unread)
+        assert [item["path"] for item in memory["-Users-me-demo"]] == ["MEMORY.md"]
+        extended, _ = reader.extensions(str(root), unread)
+        assert [item["path"] for item in extended] == ["skills/review/SKILL.md"]
+    finally:
+        for path in ("rules/locked.md", "projects/-Users-me-demo/memory/locked.md"):
+            (root / path).chmod(0o600)
+    # The account's synced skills are never carried, a link there no more than a file.
+    assert sorted(unread) == [
+        "CLAUDE.md",
+        "agents",
+        "projects/-Users-me-demo/memory/locked.md",
+        "rules/locked.md",
+        "skills/linked",
+    ]
+
+
+def test_what_was_not_read_here_is_held_there_and_nothing_at_or_below_it_is_removed(tmp_path):
+    here = {
+        "memory": {"-Users-me-demo": [{"path": "MEMORY.md", "size": 1, "digest": "a"}]},
+        "instructions": [{"path": "rules/a.md", "size": 1, "digest": "b"}],
+        "extensions": [],
+        "unread": ["CLAUDE.md", "rules/locked.md", "skills/linked", "projects/-Users-me-demo/memory/notes"],
+    }
+    options = {"memory": True, "instructions": True, "extensions": True}
+    plan = core.claude_config_plan(here, HERE_DEMO, THERE, HERE, DEST, options)
+    assert sorted(plan["held"]) == [
+        "CLAUDE.md",
+        f"projects/{VM_FOLDER}/memory/notes",
+        "rules/locked.md",
+        "skills/linked",
+    ]
+    # What earlier runs wrote there, each now gone from this run's files: removed, but where it is held.
+    gone = {
+        "CLAUDE.md": b"Be brief.\n",
+        "rules/old.md": b"old\n",
+        "rules/locked.md": b"locked\n",
+        "skills/linked/SKILL.md": b"skill\n",
+        "skills/other/SKILL.md": b"other\n",
+        f"projects/{VM_FOLDER}/memory/notes/a.md": b"note\n",
+    }
+    mirror, dest, manifest = _world(tmp_path, {path: data for path, data in gone.items()})
+    items = [{"source": path, "target": path} for path in gone]
+    writer.carry(str(dest), str(mirror), str(manifest), plan["scopes"], items)
+    result, _ = writer.carry(str(dest), str(mirror), str(manifest), plan["scopes"], [], held=plan["held"])
+    assert sorted(result["removed"]) == ["rules/old.md", "skills/other/SKILL.md"]
+    assert all((dest / path).exists() for path in gone if path not in result["removed"])
+
+
+def test_a_claude_code_directory_that_is_not_there_carries_nothing_and_removes_nothing(tmp_path, patch_module):
+    asked = core.claude_settings_asked()
+    found = run_main(
+        reader.main,
+        {"path": str(tmp_path / "none"), "memory": True, "instructions": True, "extensions": True, "settings": asked},
+    )
+    assert found["missing"] and found["instructions"] == [] and found["unread"] == []
+    assert found["settings"]["unreadable"]
+    options = {"memory": True, "instructions": True, "extensions": True, "settings": True}
+    plan = core.claude_config_plan(found, [], THERE, HERE, DEST, options)
+    assert plan["scopes"] == [] and plan["settings"]["items"] == [] and plan["settings"]["unreadable"]
+    assert plan["missing"]
+
+
+def test_rules_past_their_bound_are_left_whole_and_manage_no_scope(tmp_path, monkeypatch):
+    root = tmp_path / ".claude"
+    _memory(root, {"CLAUDE.md": b"x", "rules/a.md": b"a", "rules/b.md": b"b"})
+    monkeypatch.setattr(reader, "RULES_FILES", 1)
+    found, _, over = reader.instructions(str(root))
+    assert [item["path"] for item in found] == ["CLAUDE.md"] and over
+    plan = core.claude_config_plan(
+        {"instructions": found, "rules_over": over}, [], THERE, HERE, DEST, {"instructions": True}
+    )
+    assert plan["scopes"] == ["CLAUDE.md"] and plan["instructions"]["over"]
+
+
+def test_a_memory_folder_two_checkouts_here_share_by_claude_code_s_naming_goes_nowhere():
+    # /Users/me/my.app and /Users/me/my-app are both -Users-me-my-app to Claude Code: whose notes are they?
+    here = [
+        dict(HERE_DEMO[0], path="/Users/me/my.app", toplevel="/Users/me/my.app"),
+        dict(
+            HERE_DEMO[0], path="/Users/me/my-app", toplevel="/Users/me/my-app", origin="git@github.com:octo/other.git"
+        ),
+    ]
+    memory = {"-Users-me-my-app": MEMORY["-Users-me-demo"]}
+    plan = core.claude_memory_plan(memory, here, THERE, HERE, DEST)
+    assert plan["folders"] == [] and plan["scopes"] == []
+    assert plan["shared"] == [{"repository": "octo/demo", "folder": "-Users-me-my-app"}]
+
+
+def test_a_path_the_note_cannot_write_as_text_gets_no_note():
+    there = [dict(THERE[0], path="/home/dev/projects/d\udce9mo")]
+    plan = core.claude_memory_plan(MEMORY, HERE_DEMO, there, HERE, DEST)
+    assert plan["folders"] and plan["generated"] == [] and plan["appended"] == {}
+
+
+def test_a_note_that_cannot_be_written_as_text_is_named_never_the_module_s_end(tmp_path):
+    mirror, dest, manifest = _world(tmp_path, SOURCES)
+    note = [{"target": f"{SCOPE}{core.NOTE}", "content": "\udce9"}]
+    result, _ = _carry(mirror, dest, manifest, SOURCES, generated=note)
+    assert result["not_written"] == [f"{SCOPE}{core.NOTE}"] and len(result["written"]) == 2
+
+
+def test_a_file_that_can_run_here_can_run_there(tmp_path):
+    files = {"skills/review/scripts/run.sh": b"#!/bin/sh\necho ok\n", "skills/review/SKILL.md": b"run it\n"}
+    mirror, dest, manifest = _world(tmp_path, files)
+    (mirror / "skills" / "review" / "scripts" / "run.sh").chmod(0o755)
+    items = [{"source": path, "target": path} for path in files]
+    writer.carry(str(dest), str(mirror), str(manifest), ["skills/"], items)
+    script, skill = dest / "skills" / "review" / "scripts" / "run.sh", dest / "skills" / "review" / "SKILL.md"
+    assert stat.S_IMODE(script.stat().st_mode) == 0o700 and stat.S_IMODE(skill.stat().st_mode) == 0o600
+    # A copy an earlier version made 0600 is let run, once.
+    script.chmod(0o600)
+    _, changed = writer.carry(str(dest), str(mirror), str(manifest), ["skills/"], items)
+    assert changed and stat.S_IMODE(script.stat().st_mode) == 0o700
+    _, changed = writer.carry(str(dest), str(mirror), str(manifest), ["skills/"], items)
+    assert not changed
+
+
+def test_a_manifest_folder_that_is_a_file_is_refused_whole_and_a_mirror_that_is_one_brings_nothing(tmp_path):
+    mirror, dest, manifest = _world(tmp_path, SOURCES)
+    os.rename(tmp_path / "ws", tmp_path / "real-ws")
+    (tmp_path / "ws").write_text("in the way\n")
+    result, changed = _carry(mirror, dest, manifest, SOURCES)
+    assert result["refused"] and not changed and not dest.exists()
+    assert (tmp_path / "ws").read_text() == "in the way\n"
+    # A file where the mirror goes holds none of the files: each is named as rsync not having brought it.
+    (tmp_path / "ws").unlink()
+    (tmp_path / "ws").mkdir()
+    mirror.write_text("in the way\n")
+    result, _ = _carry(mirror, dest, manifest, SOURCES)
+    assert not result["refused"] and len(result["unreadable"]) == 2 and mirror.read_text() == "in the way\n"
+
+
+def test_a_last_history_line_left_unfinished_is_ended_before_any_is_appended(tmp_path):
+    dest = tmp_path / ".claude"
+    dest.mkdir()
+    (dest / "history.jsonl").write_bytes(b'{"display":"x","sessionId":"a","timestamp":1}\n{"display":"cut')
+    lines = [{"display": "y", "sessionId": SID, "timestamp": 2}]
+    assert writer.carry_history(str(dest), lines, False) == 1
+    text = (dest / "history.jsonl").read_bytes().split(b"\n")
+    assert text[1] == b'{"display":"cut' and json.loads(text[2]) == lines[0] and text[3] == b""
+    assert writer.carry_history(str(dest), lines, False) == 0

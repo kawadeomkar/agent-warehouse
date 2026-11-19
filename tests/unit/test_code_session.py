@@ -726,8 +726,9 @@ def _window_extra(root: Path) -> dict:
 
     Never the developer's own VS Code settings, nor their time zone: what is said depends on them.
     With none of the zone's sources there, it is UTC. Nor the developer's Claude Code, at either
-    end: both directories of sessions are the run's own, and the copying is off unless a case
-    turns it on.
+    end: both directories of sessions are the run's own, the VM's claude is looked for only beside
+    the latter - never at /usr/local/bin or /usr/bin, where this machine may have its own - and the
+    copying is off unless a case turns it on.
     """
     return {
         "ansible_python_interpreter": sys.executable,
@@ -737,6 +738,7 @@ def _window_extra(root: Path) -> dict:
         "code_timezone_file": str(root / "no-timezone"),
         "code_session_source_dir": str(root / "here" / ".claude"),
         "code_session_dest_dir": str(root / "vm" / ".claude"),
+        "code_claude_candidates": [str(root / "vm" / ".local" / "bin" / "claude")],
         "vscode_claude_sessions": False,
     }
 
@@ -2010,16 +2012,18 @@ COMMANDS_ON_VM = {
 WRITES_ON_VM = {"ansible.builtin.file", "ansible.builtin.copy", "claude_sessions_copy", "claude_config_carry"}
 # What each writer runs under: VS Code's workspace and helpers with the terminal; just code's own directory
 # when anything goes into it; the notes with their own switch; the sessions' directory when there is a session to
-# copy, and the copies with the sync or --session; a listed task's shared helper where the task is written at all,
-# and its tasks file there unless a file that is not just code's is in its place.
+# copy and nothing but a folder is in its place, and the copies with the sync or --session; a listed task's shared
+# helper where the task is written at all, and its tasks file there unless a file that is not just code's is in its
+# place.
 WRITERS_WHEN = (
     "code_writes_its_directory | bool",
     "code_notes | bool",
-    "code_session_plan.sessions | default([]) | length > 0",
+    "code_session_plan.sessions | default([]) | length > 0 and code_session_dir_ok | bool",
     "code_session_on | bool",
     # The rest of this machine's Claude Code: its directory where this run records anything, and its writer while any
-    # part is on, which records nothing where nothing is carried.
-    "code_config_writes | bool",
+    # part is on, which records nothing where nothing is carried. Each directory only where nothing but a folder, or
+    # nothing, is in its place: a link there would take what is written wherever it points.
+    "code_config_writes | bool and code_config_dir_ok | bool",
     "code_config_on | bool",
     # The editor's plan: what it writes and which of the helpers it names.
     "code_plan.vm_writes | length > 0",
@@ -2392,14 +2396,21 @@ def test_no_window_run_reads_or_writes_the_developer_s_claude_code(tmp_path):
     given = _window_extra(tmp_path)
     for key in ("code_session_source_dir", "code_session_dest_dir"):
         assert Path(given[key]).is_relative_to(tmp_path), key
+    # The VM's claude, asked its version and its plugins and told to install them, is only ever the run's stand-in.
+    assert given["code_claude_candidates"] and all(
+        Path(path).is_relative_to(tmp_path) for path in given["code_claude_candidates"]
+    )
     for case in WINDOWS.values():
-        assert not {"code_session_source_dir", "code_session_dest_dir"} & set(case)
+        assert not {"code_session_source_dir", "code_session_dest_dir", "code_claude_candidates"} & set(case)
     # The session runs name theirs, inside their world.
     source = inspect.getsource(_handoff)
     assert 'code_session_source_dir=str(world["here"]' in source and 'code_session_dest_dir=str(world["vm"]' in source
+    assert 'code_claude_candidates=[str(world["vm"]' in source
     # Zed's window runs take only paths of the "VM" they are given, and the shared helper reads a registry of the
     # test's own: its HOME and CLAUDE_CONFIG_DIR are the test's.
-    assert not {"code_session_source_dir", "code_session_dest_dir"} & set(_vm_vars(tmp_path / "vm"))
+    assert not {"code_session_source_dir", "code_session_dest_dir", "code_claude_candidates"} & set(
+        _vm_vars(tmp_path / "vm")
+    )
     source = inspect.getsource(_start)
     assert '"HOME": str(tmp_path)' in source and '"CLAUDE_CONFIG_DIR": str(config)' in source
 
@@ -2408,7 +2419,7 @@ def test_no_window_run_reads_or_writes_the_developer_s_claude_code(tmp_path):
 # on which what just code says depends, and both ends of the session handoff, since the VM is this machine there.
 PINNED = {
     "vscode settings": ("vscode_user_settings_file",),
-    "claude code": ("code_session_source_dir", "code_session_dest_dir"),
+    "claude code": ("code_session_source_dir", "code_session_dest_dir", "code_claude_candidates"),
 }
 
 
@@ -2419,7 +2430,9 @@ def test_the_provision_scenario_never_reads_or_writes_the_developer_s_own(keys):
     plays = [play for _, play in verify_plays(PROVISION)]
     play = next(p for p in plays if "verify_code_vars" in (p.get("vars") or {}))
     for key in keys:
-        assert "MOLECULE_EPHEMERAL_DIRECTORY" in play["vars"]["verify_code_vars"][key], key
+        given = play["vars"]["verify_code_vars"][key]
+        given = [given] if isinstance(given, str) else given
+        assert given and all("MOLECULE_EPHEMERAL_DIRECTORY" in path for path in given), key
     runs = [t for t in _tasks(play["tasks"]) if "verify_code_playbook" in str(t.get("ansible.builtin.command", ""))]
     assert len(runs) >= 6
     for task in runs:
@@ -3171,6 +3184,7 @@ def _handoff(world: dict, run: str, sessions=True, **extra) -> dict:
         vm_projects_dir=str(world["vm"] / "projects"),
         code_session_source_dir=str(world["here"] / ".claude"),
         code_session_dest_dir=str(world["vm"] / ".claude"),
+        code_claude_candidates=[str(world["vm"] / ".local" / "bin" / "claude")],
         show=f"[code_target, ({WORKSPACE}).tasks.tasks[-1].args[-1]]",
         code_here=True,
         claude_vm_addressed=ADDRESSED,
@@ -3366,8 +3380,20 @@ def _in_two_folders(world: dict) -> None:
     (twice / f"{SESSION_ID}.jsonl").write_bytes((world["folder"] / f"{SESSION_ID}.jsonl").read_bytes())
 
 
+def _theirs_there(world: dict) -> None:
+    # A copy of the session on the VM that just code never wrote, as one copied by hand leaves it.
+    there = world["vm"] / ".claude" / "projects" / world["folder"].name
+    there.mkdir(parents=True)
+    (there / f"{SESSION_ID}.jsonl").write_text('{"type":"user","message":{"role":"user","content":"theirs"}}\n')
+
+
 # Syncs without --session whose one session is left out, each for what the run says of it.
 SYNCS = {
+    # A session the copy leaves is no session copied: its prompts stay here too.
+    "theirs there": (
+        _theirs_there,
+        "Left as they are, changed both there and here since they were copied: 0a608ad8;",
+    ),
     "open there": (lambda w: _register(w["vm"] / ".claude"), "Left as they are, open in a claude on alpha: 0a608ad8."),
     "in two folders": (
         _in_two_folders,
@@ -3385,6 +3411,23 @@ SYNCS = {
         " again.",
     ),
 }
+
+
+def _linked(part: str):
+    """A link, as only the VM could have made one, where just code's directory for ``part`` goes, to a folder of the
+    VM's own that holds a file of its own."""
+
+    def place(world: dict) -> None:
+        elsewhere = world["vm"] / "elsewhere" / "src"
+        elsewhere.mkdir(parents=True)
+        (elsewhere / "main.py").write_text("print('mine')\n")
+        (world["vm"] / "projects" / ".agent-warehouse").mkdir()
+        (world["vm"] / "projects" / ".agent-warehouse" / part).symlink_to(elsewhere.parent, target_is_directory=True)
+
+    return place
+
+
+LINKED = {"sessions linked": _linked("claude-sessions"), "carry linked": _linked("claude-config")}
 
 
 @pytest.fixture(scope="module")
@@ -3416,6 +3459,8 @@ def _every_handoff(root: Path) -> dict:
         runs["bounded"] = pool.submit(_bounded, root / "bounded", "1B")
         runs["no size"] = pool.submit(_bounded, root / "no-size", "lots")
         for name, (place, _) in SYNCS.items():
+            runs[name] = pool.submit(_sync_with, root / re.sub(r"\W+", "-", name), place)
+        for name, place in LINKED.items():
             runs[name] = pool.submit(_sync_with, root / re.sub(r"\W+", "-", name), place)
     return {name: run.result() for name, run in runs.items()}
 
@@ -3623,8 +3668,29 @@ def test_a_sync_leaves_out_what_it_cannot_copy_safely_and_says_so(handoffs, name
     assert run["opened"].count("No Claude Code session of this machine was copied to alpha.") == 1
     assert "is of a repository alpha has checked out" not in run["opened"]
     assert SYNCS[name][1] in run["opened"]
-    if name != "diverged only":
+    if name not in ("diverged only", "theirs there"):
         assert not (world["vm"] / ".claude" / "projects" / world["folder"].name / f"{SESSION_ID}.jsonl").exists()
+    # Nor are its prompts added to the VM's history, but by the run before that copied it.
+    if name != "diverged only":
+        assert not (world["vm"] / ".claude" / "history.jsonl").exists()
+        assert "prompts added to alpha's history" not in run["opened"]
+
+
+@pytest.mark.parametrize("name", LINKED)
+def test_a_link_where_just_code_s_own_copies_go_is_never_written_through(handoffs, name):
+    world, run = handoffs[name]["world"], handoffs[name]["run"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    elsewhere = world["vm"] / "elsewhere"
+    assert sorted(str(path.relative_to(elsewhere)) for path in elsewhere.rglob("*")) == ["src", "src/main.py"]
+    assert (elsewhere / "src" / "main.py").read_text() == "print('mine')\n"
+    copied = world["vm"] / ".claude" / "projects" / world["folder"].name / f"{SESSION_ID}.jsonl"
+    if name == "sessions linked":
+        assert "Nothing was copied: " in run["opened"] and not copied.exists()
+        # The rest of Claude Code goes all the same.
+        assert (world["vm"] / ".claude" / "CLAUDE.md").exists()
+    else:
+        assert "Nothing was carried: " in run["opened"] and copied.exists()
+        assert not (world["vm"] / ".claude" / "CLAUDE.md").exists()
 
 
 def test_a_sync_whose_rsync_fails_says_so_and_still_opens_the_window(handoffs):

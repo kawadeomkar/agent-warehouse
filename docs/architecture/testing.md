@@ -363,8 +363,11 @@ pytest over `tests/unit/`, file by file:
   `CLAUDE.md` and `rules/`, and `CLAUDE.md` never where the role writes it; the plugins enabled for the user here,
   from Claude Code's own files, against a stand-in `claude` that lists the VM's, and the window's install by a
   stand-in that records its calls, never with `-y`; the prompt history of the sessions copied, within its
-  bound, appended once by session and time, never through a link; the extensions but the account's synced skills,
-  whole or not at all, and the writer's refusal of `skills/synced/`.
+  bound, appended once by session and time, never through a link, a last line left unfinished ended first; the
+  extensions but the account's synced skills, whole or not at all, a script that can run here able to run there, and
+  the writer's refusal of `skills/synced/`; what could not be read here - a link, a file of mode 0, a directory that
+  is not there - held, nothing at or below it removed; a setting taken out of the list removed while as carried, and
+  one the role writes now left; a mirror that is a link or a manifest folder that is a file refused whole.
 - **The session handoff** (`test_session_handoff.py`): the plan - by origin in every URL form here,
   a GitHub one only on the VM, a renamed clone, a gone worktree's checkout, `githubRepoPaths`, another
   owner's repository of the same name refused, `--session`'s reasons - the transcripts read without their
@@ -376,8 +379,11 @@ pytest over `tests/unit/`, file by file:
   option refused, an ID in two folders here or open on the VM left out,
   the four edits byte for byte with the records of requests sent, an assistant's signed thinking and
   another project's memory folder left as they are, the manifest's rule and its write after each copy, a copy moved to another folder on the VM
-  never written again and one moved here following, the time a copy is given against the 30-day sweep,
-  check mode, and what of a VM's sessions destroy saves - every one with `all`, just code's copies told
+  never written again and one moved here following, the time a copy is given against the 30-day sweep, a file of
+  a session's unchanged at both ends not read again, a session left out for now kept in the mirror, a mirror that is
+  a link refused and nothing pruned through it, a file of the VM's where a copy's folder goes left, a mirror reported
+  larger than it is counted for no more than this machine holds, check mode, and what of a VM's sessions destroy
+  saves - every one with `all`, just code's copies told
   apart by the manifest, the memory folders, names the VM made up left out, the command that continues
   each, its path quoted - and how: archives with absolute paths, `..`, links, hard links, devices and
   names not asked for unpacked into nothing outside the folder, a name Claude Code never writes (a dot, a

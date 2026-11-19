@@ -224,10 +224,26 @@
       {{ code_session_source_dir | default('', true)
          or lookup('ansible.builtin.env', 'CLAUDE_CONFIG_DIR') or code_here_home ~ '/.claude' }}
     code_session_there: "{{ code_session_dest_dir | default('', true) or code_vm_home ~ '/.claude' }}"
+    # The VM's Claude Code, as the installers put it there, never claude on PATH: where the native installer puts it,
+    # beside the ~/.claude given, then where npm's global prefix does. Asked its version and its plugins, and with
+    # claude_plugins_sync it installs this machine's.
+    code_claude_candidates:
+      - "{{ code_session_there | dirname }}/.local/bin/claude"
+      - /usr/local/bin/claude
+      - /usr/bin/claude
     # just code's own directory on the VM holds the mirror rsync brings and the
     # manifest of the copies written from it. A VM reached locally, as the
     # provision scenario reaches its stand-in, is a local path to rsync.
     code_session_dir: "{{ code_ws_dir }}/claude-sessions"
+    # Whether no link is where that directory or its mirror goes on the VM, and nothing but a folder where the directory
+    # goes: a link there, which only the VM could have made, would take rsync's files and the mirror's prune wherever
+    # it points. A file where the mirror goes is rsync's to fail on, and said. stat follows no link.
+    code_session_dir_ok: >-
+      {{ code_session_dir_found.results | default([]) | rejectattr('stat', 'undefined')
+         | selectattr('code_session_path', 'equalto', code_session_dir) | map(attribute='stat')
+         | selectattr('exists') | rejectattr('isdir') | list | length == 0
+         and code_session_dir_found.results | default([]) | rejectattr('stat', 'undefined') | map(attribute='stat')
+         | selectattr('islnk', 'defined') | selectattr('islnk') | list | length == 0 }}
     # What else of this machine's Claude Code goes to the VM (tasks/claude_config_read.yml,
     # tasks/claude_config_write.yml): the auto memory of each repository the VM has (claude_memory_sync), whether or
     # not the sessions go. Into a directory of its own beside the sessions', and from the same Claude Code directory.
@@ -241,16 +257,20 @@
     code_config_extra: "{{ claude_settings_sync_keys | default([]) }}"
     code_config_managed: "{{ (claude_code_settings | default({}) | list) + ['autoUpdatesChannel', 'env'] }}"
     # This machine's enabled user-scope plugins, installed on the VM by its own Claude Code (claude_plugins_sync), as
-    # the installers put it there, never claude on PATH.
+    # the installers put it there (code_claude_candidates), asked what it has only after every refusal.
     code_config_plugins: "{{ claude_plugins_sync | default(true) | bool }}"
-    code_config_claude_candidates:
-      - "{{ code_session_there | dirname }}/.local/bin/claude"
-      - /usr/local/bin/claude
-      - /usr/bin/claude
     code_config_claude: "{{ code_config_there.plugins.claude | default('') }}"
+    code_config_plugins_plan: >-
+      {{ (code_config_here.plugins | default({})) | claude_plugins_plan(code_config_there.plugins | default({}))
+         if code_config_plugins | bool and code_config_here is defined and code_config_here is not skipped
+         else {'install': [], 'marketplaces': [], 'left': [], 'unread': false} }}
     # The prompt history of the sessions copied (claude_history_sync), which rides with them: none without the sync.
     code_config_history: "{{ claude_history_sync | default(true) | bool and code_session_on | bool }}"
     code_config_history_ids: "{{ code_session_plan.sessions | default([]) | map(attribute='id') | list }}"
+    # Of those, the ones the copy wrote or found as it would be: a session it left keeps its prompts here.
+    code_config_history_copied: >-
+      {{ code_session_copied.written | default([]) + code_session_copied.unchanged | default([])
+         if code_session_copied is defined and code_session_copied is not skipped else [] }}
     code_config_history_projects: >-
       {{ dict(code_session_plan.sessions | default([]) | map(attribute='id')
               | zip(code_session_plan.sessions | default([]) | map(attribute='checkout'))) }}
@@ -261,6 +281,13 @@
       {{ code_config_memory | bool or code_config_instructions | bool or code_config_settings | bool
          or code_config_plugins | bool or code_config_history | bool or code_config_extensions | bool }}
     code_config_dir: "{{ code_ws_dir }}/claude-config"
+    # The same of that directory and its mirror (code_session_dir_ok).
+    code_config_dir_ok: >-
+      {{ code_config_dir_found.results | default([]) | rejectattr('stat', 'undefined')
+         | selectattr('code_config_path', 'equalto', code_config_dir) | map(attribute='stat')
+         | selectattr('exists') | rejectattr('isdir') | list | length == 0
+         and code_config_dir_found.results | default([]) | rejectattr('stat', 'undefined') | map(attribute='stat')
+         | selectattr('islnk', 'defined') | selectattr('islnk') | list | length == 0 }}
     code_config_mirror_target: >-
       {{ ('' if hostvars[claude_vm_names[0]].ansible_connection | default('ssh') == 'local'
           else claude_vm_names[0] ~ ':') ~ code_config_dir ~ '/mirror' }}
@@ -376,6 +403,9 @@
                  ~ '), so a session it did not send is there as an earlier run left it, or not at all.'
                  ~ code_sync_hop_key if code_sync_failed | bool else '')
               ~ code_subagents_said
+              ~ (' Nothing was copied: ' ~ code_session_dir ~ ' on ' ~ claude_vm_names[0] ~ ', or its mirror, is a'
+                 ~ ' link or no folder. Move it away, and the next just code copies them.'
+                 if code_session_copied.refused | default(false) or not code_session_dir_ok | bool else '')
               ~ ' claude_sessions_sync: false turns the copying off.' }}
     # The copied sessions' subagents: their files, by count.
     code_subagents_copied: "{{ code_session_copied.subagents | default({}) }}"
@@ -417,9 +447,10 @@
               ~ (" Not copied, a memory folder past just code's bound: "
                  ~ code_config_here.memory_over | join(', ') ~ '.'
                  if code_config_here.memory_over | default([]) | length > 0 else '')
-              ~ (' rsync could not send ' ~ code_config_result.unreadable | length ~ ' of the files'
-                 ~ (' (it exited ' ~ code_config_sent.rc | default('') ~ ')' if code_config_sent.rc | default(0) != 0 else '')
-                 ~ '.' if code_config_result.unreadable | default([]) | length > 0 else '')
+              ~ (" Not copied, a memory folder here whose path Claude Code names as it names another checkout's"
+                 ~ ' too, so whose notes they are is unclear: '
+                 ~ code_config_plan.memory.shared | map(attribute='repository') | join(', ') ~ '.'
+                 if code_config_plan.memory.shared | default([]) | length > 0 else '')
               ~ (' claude_memory_sync: false keeps it here.' if code_config_plan.memory.folders | length > 0 else ''))
            | plain_text }}
     code_config_failed_said: >-
@@ -430,8 +461,22 @@
              and code_config_carried.written is not defined else '')
          ~ (' Not written there, its write failed: ' ~ code_config_result.not_written | join(', ') ~ '.'
             if code_config_result.not_written | default([]) | length > 0 else '')
-         ~ (" just code's own directory on " ~ claude_vm_names[0] ~ " holds a link where its copies go, so nothing"
-            ~ ' was carried there.' if code_config_result.refused | default(false) else '') }}
+         ~ (' rsync could not send ' ~ code_config_result.unreadable | length ~ ' of the files to '
+            ~ claude_vm_names[0]
+            ~ (' (it exited ' ~ code_config_sent.rc | default('') ~ ')' if code_config_sent.rc | default(0) != 0 else '')
+            ~ ', so they are there as an earlier run left them, or not at all.'
+            if code_config_result.unreadable | default([]) | length > 0 else '')
+         ~ (' Nothing was carried: ' ~ code_config_dir ~ ' on ' ~ claude_vm_names[0] ~ ', or its mirror, is a link or no'
+            ~ ' folder. Move it away, and the next just code carries it.'
+            if code_config_result.refused | default(false) or not code_config_dir_ok | bool else '')
+         ~ ((" Nothing of this machine's Claude Code was carried: " ~ code_session_here ~ ' is not there, so what'
+             ~ ' an earlier run carried stays on ' ~ claude_vm_names[0] ~ ' as it is.')
+            if code_config_plan is defined and code_config_plan.missing | default(false)
+               and code_config_dir_found.results | default([]) | rejectattr('stat', 'undefined')
+                   | map(attribute='stat') | selectattr('exists') | list | length > 0 else '')
+         ~ (' Not read here, so not carried, and left as they are on ' ~ claude_vm_names[0]
+            ~ ' (a link, or one this machine may not read): ' ~ code_config_plan.unread | join(', ') ~ '.'
+            if code_config_plan is defined and code_config_plan.unread | default([]) | length > 0 else '') }}
     code_config_instructions_written: >-
       {{ code_config_result.written | default([]) | select('match', '^(CLAUDE\.md\Z|rules/)') | list }}
     code_config_instructions_left: >-
@@ -445,6 +490,8 @@
                   if code_config_instructions_left | length > 0 else '')
                ~ (" ~/.claude/CLAUDE.md is claude_code_global_instructions' on " ~ claude_vm_names[0]
                   ~ ", so this machine's stays here." if code_config_plan.instructions.owned else '')
+               ~ (' rules/ stayed here: past the 1000 files or 16 MB one copy takes.'
+                  if code_config_plan.instructions.over | default(false) else '')
                ~ (' What CLAUDE.md imports stays here: ' ~ code_config_plan.instructions.imports | join(', ') ~ '.'
                   if code_config_plan.instructions.imports | length > 0 else '')
                ~ (' claude_instructions_sync: false keeps them here.'
@@ -495,7 +542,7 @@
     code_config_plugins_said: >-
       {{ '' if not (code_config_plugins | bool) or code_config_plan is not defined
          else (("Plugins: " ~ claude_vm_names[0] ~ "'s Claude Code could not list its own, so none of this machine's"
-                ~ ' was installed there.' if code_config_plan.plugins.unread else '')
+                ~ ' was installed there.' if code_config_plugins_plan.unread else '')
                ~ ('Plugins installed on ' ~ claude_vm_names[0] ~ ': ' ~ code_config_plugins_done | join(', ') ~ '.'
                   if code_config_plugins_done | length > 0 else '')
                ~ (' Not installed, a command of its own to accept, or its install failed: to install by hand on '
@@ -503,7 +550,7 @@
                                                                                   'claude plugin install \1 --scope user')
                   | join('; ') ~ '.' if code_config_plugins_failed | length > 0 else '')
                ~ (" Not installed, their marketplace not on GitHub but on this machine: "
-                  ~ code_config_plan.plugins.left | join(', ') ~ '.' if code_config_plan.plugins.left | length > 0 else '')
+                  ~ code_config_plugins_plan.left | join(', ') ~ '.' if code_config_plugins_plan.left | length > 0 else '')
                ~ (' claude_plugins_sync: false keeps them here.'
                   if code_config_plugins_done | length + code_config_plugins_failed | length > 0 else ''))
            | trim | plain_text }}

@@ -15,6 +15,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tarfile
@@ -328,6 +329,33 @@ def test_the_bound_counts_what_the_vm_s_mirror_lacks_of_each_session():
     assert _plan([grown], HERE_DEMO, mirrored=_sent(ID, 850, 950, 0), subagents=False)["bytes"] == 50
 
 
+def test_what_the_vm_says_its_mirror_holds_counts_for_no_more_than_this_machine_holds():
+    grown = _session(ID, mtime=300.0, transcript=900, size=1000, subagents=True, subagents_size=500)
+    # A mirror made to look huge: its tool results and subagents count for what they are here at most, and its
+    # transcript, shorter than this one, for what it says - never the transcript's growth here.
+    plan = _plan([grown], HERE_DEMO, mirrored=_sent(ID, 0, 10**12, 10**12))
+    assert plan["bytes"] == 900
+    # A value that is no count counts for nothing, and ends nothing.
+    for value in ("950", float("inf"), float("nan"), True, None, [1], -5):
+        odd = {f"-Users-me-demo/{ID}.jsonl": {"transcript": value, "size": value, "subagents_size": value}}
+        assert _plan([grown], HERE_DEMO, mirrored=odd)["bytes"] == 1500, value
+
+
+def test_a_session_s_copy_in_the_mirror_stays_whatever_leaves_it_out_this_time():
+    sessions = [
+        _session(ID, mtime=300.0, size=100),
+        _session(OTHER, mtime=200.0, size=500),
+        _session(THIRD, version="9.9.9"),
+        _session("a1b2c3d4-0000-4000-8000-000000000001", cwd="/Users/me/elsewhere"),
+    ]
+    plan = _plan(sessions, HERE_DEMO, cap=200, open_there=[ID])
+    assert plan["open"] == [ID] and plan["over"] == [OTHER] and plan["newer"] == [THIRD]
+    # Each of a repository the VM has, copied or not; never one of a repository it lacks.
+    assert sorted(plan["mirror"]) == sorted(f"-Users-me-demo/{sid}" for sid in (ID, OTHER, THIRD))
+    # Without Claude Code there, none is copied, and none leaves the mirror.
+    assert sorted(_plan(sessions, HERE_DEMO, version="")["mirror"]) == sorted(plan["mirror"])
+
+
 def test_a_mirror_entry_of_another_session_or_folder_counts_nothing_out():
     session = _session(ID, mtime=300.0, transcript=100, size=100)
     other = {f"-Users-me-other/{ID}.jsonl": {"transcript": 100, "size": 100}, **_sent(OTHER, 100, 100)}
@@ -560,6 +588,16 @@ def test_the_mirror_says_what_it_holds_of_each_session_and_nothing_else(tmp_path
         f"-Users-me-demo/{ID}.jsonl": {"transcript": 100, "size": 120, "subagents_size": 7}
     }
     assert info.mirrored(str(tmp_path / "none")) == {}
+
+
+def test_a_sparse_file_in_the_mirror_counts_the_bytes_it_holds(tmp_path):
+    mirror = tmp_path / "mirror"
+    (mirror / "-Users-me-demo" / ID / "tool-results").mkdir(parents=True)
+    (mirror / "-Users-me-demo" / f"{ID}.jsonl").write_bytes(b"x" * 100)
+    with open(mirror / "-Users-me-demo" / ID / "tool-results" / "t.txt", "wb") as handle:
+        handle.truncate(1024**3)
+    found = info.mirrored(str(mirror))[f"-Users-me-demo/{ID}.jsonl"]
+    assert found["transcript"] == 100 and found["size"] < 1024**2
 
 
 def test_the_newest_version_is_kept_whatever_its_place(tmp_path):
@@ -1303,7 +1341,7 @@ def _mirror(tmp_path, sessions):
     return mirror, then
 
 
-def _copy(tmp_path, mirror, sessions, check=False, subagents=False):
+def _copy(tmp_path, mirror, sessions, check=False, subagents=False, keep=()):
     return copy.copy_sessions(
         str(mirror),
         str(tmp_path / "vm" / ".claude"),
@@ -1312,6 +1350,7 @@ def _copy(tmp_path, mirror, sessions, check=False, subagents=False):
         here=HERE,
         check=check,
         subagents=subagents,
+        keep=keep,
     )
 
 
@@ -1553,21 +1592,38 @@ def test_a_session_moved_here_whose_old_copy_was_continued_on_the_vm_is_left_and
     assert continued.exists() and not (projects / new[0] / f"{ID}.jsonl").exists()
 
 
-def test_each_copy_is_recorded_as_it_is_written_so_a_run_that_stops_records_what_it_wrote(tmp_path):
+def test_each_copy_is_recorded_as_it_is_written_so_a_run_that_stops_records_what_it_wrote(tmp_path, monkeypatch):
     keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
     mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
-    # The second copy's folder is a file: its write fails, after the first was written.
-    (tmp_path / "vm" / ".claude" / "projects").mkdir(parents=True)
-    (tmp_path / "vm" / ".claude" / "projects" / keys[1][0]).write_text("in the way\n")
+    # The second copy's write fails - a disk that fills - after the first was written.
+    write = copy._write
+
+    def full(path, data, mtime):
+        if path.endswith(f"{OTHER}.jsonl"):
+            raise OSError(28, "No space left on device")
+        write(path, data, mtime)
+
+    monkeypatch.setattr(copy, "_write", full)
     with pytest.raises(OSError):
         _copy(tmp_path, mirror, keys)
     recorded = json.loads((tmp_path / "ws" / "manifest.json").read_text())["sessions"]
     assert sorted(recorded) == [f"{keys[0][0]}/{ID}.jsonl"]
     # The session then grows here: the copy is the module's own, and replaced, never "diverged".
-    (tmp_path / "vm" / ".claude" / "projects" / keys[1][0]).unlink()
+    monkeypatch.setattr(copy, "_write", write)
     (mirror / keys[0][0] / f"{ID}.jsonl").write_bytes(transcript() + transcript())
     result, _ = _copy(tmp_path, mirror, keys)
     assert sorted(result["written"]) == sorted([ID, OTHER])
+
+
+def test_a_file_the_vm_put_where_a_copy_s_folder_goes_is_named_and_the_rest_goes_on(tmp_path):
+    keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
+    mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
+    (tmp_path / "vm" / ".claude" / "projects").mkdir(parents=True)
+    (tmp_path / "vm" / ".claude" / "projects" / keys[0][0]).write_text("in the way\n")
+    result, _ = _copy(tmp_path, mirror, keys)
+    assert result["written"] == [OTHER]
+    assert result["unreadable"] == [{"id": ID, "why": "something else is in its folder's place there"}]
+    assert (tmp_path / "vm" / ".claude" / "projects" / keys[0][0]).read_text() == "in the way\n"
 
 
 @pytest.mark.parametrize(
@@ -1735,19 +1791,96 @@ def test_a_session_moved_here_takes_its_subagents_along_and_leaves_none_behind(t
     assert sorted(recorded) == [f"{new[0]}/{ID}/subagents/{AGENT}.jsonl", f"{new[0]}/{ID}/subagents/{AGENT}.meta.json"]
 
 
-def test_a_subagent_file_whose_write_fails_is_not_recorded(tmp_path):
+def test_a_subagent_file_whose_write_fails_is_left_and_not_recorded(tmp_path):
     key = ("-Users-me-demo", ID)
     mirror, _ = _mirror(tmp_path, {key: transcript()})
     source = _with_subagent(mirror, key)
-    # A file where the subagents' folder goes: the first write fails, and nothing may say it was written.
-    agents = tmp_path / "agents"
-    agents.write_text("in the way\n")
-    recorded = {}
-    with pytest.raises(OSError):
-        copy._copy_subagents(
-            str(source), str(agents), "p", lambda data: (data, ""), time.time(), {}, recorded, False, []
+    (tmp_path / "vm").mkdir()
+    (tmp_path / "vm" / "agents").mkdir(0o500)
+    recorded, seen = {}, {}
+    try:
+        if os.access(tmp_path / "vm" / "agents", os.W_OK):
+            pytest.skip("a folder mode 0500 is still written here (root)")
+        # The folder may not be written: each write fails, is left, and nothing says it was written.
+        counts, changed = copy._copy_subagents(
+            str(source),
+            str(tmp_path / "vm" / "agents"),
+            "p",
+            lambda data: (data, ""),
+            time.time(),
+            {},
+            recorded,
+            False,
+            [],
+            seen,
+            "",
+            str(tmp_path / "vm"),
         )
-    assert recorded == {}
+    finally:
+        (tmp_path / "vm" / "agents").chmod(0o700)
+    assert counts == {"written": 0, "left": 2, "refused": 0} and not changed and recorded == {} and seen == {}
+
+
+@pytest.mark.parametrize("part", ["subagents", "tool-results"])
+def test_a_file_the_vm_put_where_a_session_s_folder_goes_is_left_and_the_rest_goes_on(tmp_path, part):
+    keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
+    mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
+    _copy(tmp_path, mirror, keys, subagents=True)
+    there = tmp_path / "vm" / ".claude" / "projects" / keys[0][0] / ID / part
+    shutil.rmtree(there)
+    there.write_text("the VM's\n")
+    (mirror / keys[1][0] / OTHER / part / "new.txt").write_text("new\n")
+    result, _ = _copy(tmp_path, mirror, keys, subagents=True)
+    assert there.read_text() == "the VM's\n" and sorted(result["unchanged"]) == sorted([ID, OTHER])
+    assert (tmp_path / "vm" / ".claude" / "projects" / keys[1][0] / OTHER / part / "new.txt").exists()
+
+
+def test_a_session_left_out_for_now_keeps_its_copy_in_the_mirror(tmp_path):
+    keys = [("-Users-me-demo", ID), ("-Users-me-other", OTHER)]
+    mirror, _ = _mirror(tmp_path, {keys[0]: transcript(), keys[1]: transcript(OTHER)})
+    _, changed = _copy(tmp_path, mirror, keys[:1], keep=[f"{keys[1][0]}/{OTHER}"])
+    assert (mirror / keys[1][0] / f"{OTHER}.jsonl").exists() and (mirror / keys[1][0] / OTHER).is_dir()
+    _copy(tmp_path, mirror, keys[:1])
+    assert not (mirror / keys[1][0]).exists()
+
+
+@pytest.mark.parametrize("what", ["mirror", "manifest"])
+def test_a_link_for_the_mirror_or_no_folder_for_the_manifest_is_refused_and_nothing_is_pruned(tmp_path, what):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "src").mkdir(parents=True)
+    (elsewhere / "src" / "main.py").write_text("print('mine')\n")
+    if what == "mirror":
+        os.rename(mirror, tmp_path / "real-mirror")
+        mirror.symlink_to(elsewhere, target_is_directory=True)
+    else:
+        (tmp_path / "ws").write_text("in the way\n")
+    result, changed = _copy(tmp_path, mirror, [key])
+    assert result["refused"] and not changed and not (tmp_path / "vm").exists()
+    assert (elsewhere / "src" / "main.py").read_text() == "print('mine')\n"
+
+
+def test_a_file_unchanged_at_both_ends_since_it_was_copied_is_not_read_again(tmp_path, monkeypatch):
+    key = ("-Users-me-demo", ID)
+    mirror, _ = _mirror(tmp_path, {key: transcript()})
+    _with_subagent(mirror, key)
+    _copy(tmp_path, mirror, [key], subagents=True)
+    read = []
+    monkeypatch.setattr(copy, "file_digest", lambda path: read.append(path) or reader_digest(path))
+    result, changed = _copy(tmp_path, mirror, [key], subagents=True)
+    assert not changed and result["unchanged"] == [ID]
+    # The transcript itself is compared, as ever; its tool results and subagents, by their sizes and times alone.
+    assert all(path.endswith(f"{ID}.jsonl") for path in read), read
+    # One changed in the mirror is read and written again.
+    (mirror / key[0] / ID / "tool-results" / "toolu_1.txt").write_text("output, longer\n")
+    _, changed = _copy(tmp_path, mirror, [key], subagents=True)
+    there = tmp_path / "vm" / ".claude" / "projects" / key[0] / ID / "tool-results" / "toolu_1.txt"
+    assert changed and there.read_text() == "output, longer\n"
+
+
+def reader_digest(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def test_check_mode_writes_no_subagent_either(tmp_path):

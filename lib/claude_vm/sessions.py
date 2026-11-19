@@ -14,6 +14,7 @@ Nothing here reads a file: the modules do, and only these values reach a filter.
 
 from __future__ import annotations
 
+import math
 import re
 import shlex
 from datetime import UTC, datetime
@@ -244,7 +245,8 @@ def claude_sessions_plan(
     ``mirrored`` is claude_sessions_info's reading of the VM's mirror, what earlier runs sent: the bound counts what
     the mirror lacks of each session, which is what rsync sends, rather than its whole size. A transcript only
     grows, so one shorter here than there was written anew, and counts whole. ``bytes`` and ``over_bytes`` are
-    then what is sent and what is left.
+    then what is sent and what is left. ``mirror`` names, as ``<folder>/<id>``, every session whose copy in the
+    mirror stays: each of a repository the VM has, sent this time or not.
     """
     here = {item["path"]: item for item in here or [] if item.get("path")}
     by_repo = {}
@@ -261,6 +263,7 @@ def claude_sessions_plan(
         "twice": [],
         "open": [],
         "over": [],
+        "mirror": [],
         "session": {},
     }
     kept = []
@@ -286,8 +289,15 @@ def claude_sessions_plan(
                 "checkout": checkout["path"] if checkout else "",
                 "name": checkout["name"] if checkout else "",
             }
+        if not session.get("conversation"):
+            continue
+        # Its copy in the VM's mirror stays while its repository is there, whatever leaves it out this time - no
+        # Claude Code there, a newer one here, a claude there holding it, the bound - so that the next run counts
+        # only what the mirror lacks of it (_lacking), never the whole of it again.
+        if checkout:
+            plan["mirror"].append(f"{session.get('folder', '')}/{session['id']}")
         # Without Claude Code on the VM there is nothing to resume a copy with: none is made, and the run says why.
-        if not session.get("conversation") or vm_version is None:
+        if vm_version is None:
             continue
         # --session's own cases are refused with their reason instead (_session_problem, session_read.yml).
         if not own and len(folders_of[session["id"]]) > 1:
@@ -330,20 +340,35 @@ def claude_sessions_plan(
     return plan
 
 
+def _bytes(value):
+    """``value`` as a count of bytes; 0 for anything that is none, as the VM's own reading may hold."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return 0
+    return max(0, int(value))
+
+
 def _lacking(session, subagents, mirrored):
     """The bytes of ``session`` the VM's mirror lacks: its transcript's and tool results' growth since an earlier run
     sent them, and its subagents' while they go with it; the whole of it where the mirror holds none, or holds a
-    longer transcript, which this one was not written on to."""
-    main = int(session.get("size") or 0)
-    agents = int(session.get("subagents_size") or 0) if subagents else 0
+    longer transcript, which this one was not written on to.
+
+    The VM reports its mirror, and the VM runs an agent: what it holds of each part - the transcript, the tool
+    results, the subagents - counts for at most what that part holds here, and a value that is no count for
+    nothing. A mirror made to look larger than it is can only make a session already copied there count less.
+    """
+    transcript = _bytes(session.get("transcript"))
+    tools = max(0, _bytes(session.get("size")) - transcript)
+    agents = _bytes(session.get("subagents_size")) if subagents else 0
     there = (mirrored or {}).get(f"{session.get('folder')}/{session.get('id')}.jsonl")
     if not isinstance(there, dict):
-        return main + agents
-    if int(session.get("transcript") or 0) >= int(there.get("transcript") or 0):
-        main = max(0, main - int(there.get("size") or 0))
+        return transcript + tools + agents
+    there_transcript = _bytes(there.get("transcript"))
+    if transcript >= there_transcript:
+        tools -= min(tools, max(0, _bytes(there.get("size")) - there_transcript))
+        transcript -= there_transcript
     if subagents:
-        agents = max(0, agents - int(there.get("subagents_size") or 0))
-    return main + agents
+        agents -= min(agents, _bytes(there.get("subagents_size")))
+    return transcript + tools + agents
 
 
 def _within(kept, cap, subagents=True, mirrored=None):

@@ -78,10 +78,13 @@ and the [security model](../architecture/security-model.md) is how each is enfor
   transcripts hold whatever their tools printed, secrets among them, readable there by anything running as
   `dev`. Which sessions go is decided by the GitHub origins of the VM's checkouts, which the VM reports:
   one that makes up a checkout of another of your repositories gets that one's sessions too, so treat a
-  VM you open as able to read any of your recent sessions. `claude_sessions_sync: false` stops it.
+  VM you open as able to read any of your recent sessions. It reports too how much of each session its copy holds
+  already, which `claude_sessions_sync_max_size` counts out: one that says more than it holds can have more of those
+  sessions sent in one copy, never another's. `claude_sessions_sync: false` stops it.
 - It gives the VM this machine's auto memory of the same repositories ([Auto memory](vscode.md#auto-memory)):
   notes Claude wrote for itself, which can name your hosts, addresses and rules, readable on the VM as the sessions
-  are, and chosen by the same origins the VM reports. `claude_memory_sync: false` stops it.
+  are, and chosen by the same origins the VM reports - with the session copy off too: a VM that makes up a checkout
+  of another of your repositories gets that one's notes. `claude_memory_sync: false` stops it.
 - It gives every VM it opens your global instructions and your portable settings
   ([Your instructions and settings](vscode.md#your-instructions-and-settings)), your permission rules among them: an
   agent there runs unasked what they allow, as one here does. No credential and no program goes this way unless

@@ -420,8 +420,8 @@ every other setting that holds or makes a credential, this machine's folders (`p
 `autoMode.environment`, which describes this machine to auto mode, plugins (their own step), MCP trust, and a key the
 `claude_code` role writes - `claude_code_settings`' own, the update channel. `hooks`, `statusLine` and
 `fileSuggestion` run a program, here one of this machine's, so they stay too unless `claude_settings_sync_keys` names
-them, and one taken out of that list goes from the VM while it is still as carried; a setting just code does not know
-stays and is named. The run says what stayed, and why. While this machine's `settings.json` is no JSON object just
+them; any setting taken out of that list goes from the VM while it is still as carried, and one `claude_code_settings`
+names afterwards is the role's there; a setting just code does not know stays and is named. The run says what stayed, and why. While this machine's `settings.json` is no JSON object just
 code can read, nothing of the VM's changes.
 
 ### Plugins
@@ -438,7 +438,7 @@ rust-analyzer` puts in the toolchain a repository pins.
 
 The prompts typed in the sessions copied join the VM's prompt history (`claude_history_sync`), so the up arrow and
 Ctrl+R there find them, under the VM checkout's folder: each line once, by its session and time, however often
-`just code` runs. They ride with the sessions, so none go while `claude_sessions_sync` is off, and at most 8 MB of them
+`just code` runs. A session the copy left as it is - continued on the VM - keeps its prompts here. They ride with the sessions, so none go while `claude_sessions_sync` is off, and at most 8 MB of them
 go in one copy.
 
 ### Skills, agents and commands
@@ -446,8 +446,16 @@ go in one copy.
 Your own skills (`~/.claude/skills/`), subagents (`agents/`), commands (`commands/`), output styles, workflows, themes
 and `keybindings.json` go to the VM's `~/.claude` (`claude_extensions_sync`), by the same rule as a note: a file changed
 there stays. Not the skills your account syncs (`skills/synced/`), which Claude Code downloads at the VM's own
-sign-in. A skill's scripts run on the VM only where the skill runs them. Past 2000 files or 64 MB they stay here whole,
-and the run says so.
+sign-in. A skill's scripts run on the VM only where the skill runs them, and a script that can run here can there.
+Past 2000 files or 64 MB they stay here whole, and the run says so; `rules/` past 1000 files or 16 MB does too.
+
+### What is not read here
+
+`just code` follows no link in `~/.claude`: a `CLAUDE.md` kept with your dotfiles, or a skill installed as a link to
+where it lives, is not carried, and the run names it. Copy the file in, or link the other way round. Neither it nor a
+file `just code` may not read is ever taken for one you deleted: what an earlier run carried of it stays on the VM.
+Nor is anything taken from the VM while the Claude Code directory `just code` reads (`CLAUDE_CONFIG_DIR`, else
+`~/.claude`) is not there at all.
 
 ### Continuing one session
 

@@ -90,7 +90,7 @@ _EXTENSION = re.compile(
 INSTRUCTIONS = "CLAUDE.md"
 RULES = "rules/"
 # A path the note may name: absolute, and nothing that would end the Markdown code span it is set in or a line.
-_NOTE_PATH = re.compile(r"/[^`\x00-\x1f\x7f]{0,1023}")
+_NOTE_PATH = re.compile(r"/[^`\x00-\x1f\x7f\ud800-\udfff]{0,1023}")
 # A memory file's path under its folder, as claude_config_info lists them: components with no dot first and no
 # control character, at most 5 deep. Held again here: the writer is handed it as a path under the VM's ~/.claude.
 _FILE = re.compile(r"[^./\x00-\x1f\x7f][^/\x00-\x1f\x7f]{0,254}(?:/[^./\x00-\x1f\x7f][^/\x00-\x1f\x7f]{0,254}){0,4}")
@@ -153,7 +153,7 @@ def memory_note(here_checkout, there_checkout, here_memory, there_memory):
     )
 
 
-def claude_memory_plan(memory, here, there, here_dir, dest, note=True):
+def claude_memory_plan(memory, here, there, here_dir, dest, note=True, unread=()):
     """Which of this machine's auto memory folders go to which of the VM's checkouts, and the files that carries.
 
     ``memory`` is claude_config_info's: each folder under this machine's ``projects/`` whose ``memory/`` holds a
@@ -166,29 +166,46 @@ def claude_memory_plan(memory, here, there, here_dir, dest, note=True):
     Returns ``folders`` (repository, ``here`` folder, ``there`` folder, the checkout at each end), ``files`` (each
     file to carry: its path in the mirror, which is its path under ``here_dir``, and its path under ``dest``),
     ``scopes`` (the folders on the VM the writer manages, where a file gone here is removed there while it is as
-    written), ``generated`` (each folder's note when ``note``) and ``appended`` (MEMORY.md's line for it), and
-    ``ambiguous`` (a repository whose notes are in more than one folder here).
+    written), ``generated`` (each folder's note when ``note``) and ``appended`` (MEMORY.md's line for it),
+    ``ambiguous`` (a repository whose notes are in more than one folder here), ``shared`` (a repository whose folder
+    here is the one Claude Code names another checkout's by too, a path that differs only where it is no letter or
+    digit: whose notes they are is unclear, and neither goes) and ``held``, the paths on the VM nothing is removed at
+    or below: what of a folder carried claude_config_info could not read here (``unread``, paths under ``here_dir``).
     """
     vm_checkouts = _vm_checkouts(there)
-    candidates = {}
+    candidates, tops = {}, {}
     for item in here or []:
         if not item.get("exists") or not item.get("git") or not item.get("toplevel"):
-            continue
-        repo = git_repository(item.get("origin"))
-        if repo not in vm_checkouts:
             continue
         try:
             folder = claude_project_folder(item["toplevel"])
         except ValueError:
             continue
-        if folder in (memory or {}):
+        tops.setdefault(folder, set()).add(item["toplevel"])
+        repo = git_repository(item.get("origin"))
+        if repo in vm_checkouts and folder in (memory or {}):
             candidates.setdefault(repo, {})[folder] = item["toplevel"]
+    shared = []
+    for repo, found in candidates.items():
+        for folder in [folder for folder in found if len(tops.get(folder, ())) > 1]:
+            shared.append({"repository": repo, "folder": folder})
+            found.pop(folder)
+    candidates = {repo: found for repo, found in candidates.items() if found}
     # Of two folders here of one repository, the one that holds notes: an emptied one is no rival.
     for repo, found in candidates.items():
         holding = {folder: source for folder, source in found.items() if memory[folder]}
         if len(found) > 1 and len(holding) == 1:
             candidates[repo] = holding
-    plan = {"folders": [], "files": [], "scopes": [], "generated": [], "appended": {}, "ambiguous": []}
+    plan = {
+        "folders": [],
+        "files": [],
+        "scopes": [],
+        "generated": [],
+        "appended": {},
+        "ambiguous": [],
+        "shared": sorted(shared, key=lambda item: item["repository"]),
+        "held": [],
+    }
     for repo in sorted(candidates):
         found = candidates[repo]
         if len(found) > 1:
@@ -204,6 +221,8 @@ def claude_memory_plan(memory, here, there, here_dir, dest, note=True):
             {"repository": repo, "here": folder, "there": target, "source": source, "checkout": checkout["path"]}
         )
         plan["scopes"].append(scope)
+        mine = f"projects/{folder}/memory/"
+        plan["held"] += [f"{scope}{path[len(mine) :]}" for path in unread or [] if str(path).startswith(mine)]
         for entry in memory[folder]:
             if not _FILE.fullmatch(str(entry.get("path", ""))):
                 continue
@@ -247,10 +266,10 @@ def claude_settings_plan(found, managed=(), extra=()):
     manages, so that one gone here is removed there while still as carried.
 
     ``managed`` names the top-level settings the claude_code role writes (claude_code_settings' keys,
-    autoUpdatesChannel, env): never carried, so the person's own claude_code_settings wins. A setting that runs a
-    program and ``extra`` no longer names is an item with no value, so one an earlier run carried is removed there
-    while still as carried. Where this machine's file could not be read there are no items, so nothing there changes,
-    nor is removed for seeming gone here. ``left`` names what of
+    autoUpdatesChannel, env): never carried, so the person's own claude_code_settings wins, and handed to the writer,
+    which removes an item an earlier run carried that is no longer one of ``items`` - a setting ``extra`` no longer
+    names - while it is still as carried, but never one of ``managed``. Where this machine's file could not be read
+    there are no items, so nothing there changes, nor is removed for seeming gone here. ``left`` names what of
     this machine's settings stays here and why: ``role``, ``program`` (SETTINGS_PROGRAMS, unless named in ``extra``),
     ``never`` (SETTINGS_NEVER and the parts of SETTINGS_PARTS not carried) and ``other`` (a setting just code does
     not know).
@@ -260,7 +279,6 @@ def claude_settings_plan(found, managed=(), extra=()):
     managed = {str(key) for key in managed or []}
     items = [key for key in asked["keys"] if key not in managed]
     items += [f"{key}.{part}" for key, parts in asked["parts"].items() if key not in managed for part in parts]
-    items += [key for key in SETTINGS_PROGRAMS if key not in asked["keys"] and key not in managed]
     if found.get("unreadable"):
         items = []
     values = found.get("values") or {}
@@ -281,6 +299,7 @@ def claude_settings_plan(found, managed=(), extra=()):
     return {
         "values": {item: values[item] for item in items if item in values},
         "items": items,
+        "managed": sorted(managed),
         "left": {kind: sorted(names) for kind, names in left.items()},
         "unreadable": bool(found.get("unreadable")),
     }
@@ -350,19 +369,29 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
     ``plugins`` (claude_plugins_sync), with ``plugins_there``, the VM's reading, as claude_plugins_plan takes it;
     ``history`` (claude_history_sync), with ``history_projects``, the copied sessions' checkouts on the VM;
     ``extensions`` (claude_extensions_sync).
-    Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes`` and ``settings`` - and each
-    part's own record, for what the run says: ``memory``, its folders and ``ambiguous``; ``instructions``, the files
-    and the imports CLAUDE.md names; ``settings``' ``left``.
+    Returns the writer's inputs - ``files``, ``generated``, ``appended``, ``scopes``, ``held`` and ``settings`` - and
+    each part's own record, for what the run says: ``memory``, its folders, ``ambiguous`` and ``shared``;
+    ``instructions``, the files and the imports CLAUDE.md names; ``settings``' ``left``; ``unread``, what was not read
+    here.
+
+    What claude_config_info could not read here (``unread``: a link, a file or folder it could not open) is no file
+    gone here: each is ``held``, nothing at or below it removed on the VM. Where this machine's directory is not there
+    at all (``missing``), no part has a scope and no setting is an item, so nothing there is removed.
     """
     options = options or {}
     here = here or {}
+    missing = bool(here.get("missing"))
+    unread = [str(path) for path in here.get("unread") or []]
     plan = {
         "files": [],
         "generated": [],
         "appended": {},
         "scopes": [],
-        "memory": {"folders": [], "ambiguous": []},
-        "instructions": {"files": [], "imports": [], "owned": False},
+        "held": [],
+        "missing": missing,
+        "unread": unread,
+        "memory": {"folders": [], "ambiguous": [], "shared": []},
+        "instructions": {"files": [], "imports": [], "owned": False, "over": False},
         "settings": {"values": {}, "items": [], "left": {}, "unreadable": False},
         "plugins": {"install": [], "marketplaces": [], "left": [], "unread": False},
         "history": [],
@@ -370,12 +399,12 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
     }
     if options.get("memory"):
         memory = claude_memory_plan(
-            (here or {}).get("memory") or {}, here_checkouts, there, here_dir, dest, options.get("note", True)
+            (here or {}).get("memory") or {}, here_checkouts, there, here_dir, dest, options.get("note", True), unread
         )
-        for key in ("files", "generated", "scopes"):
+        for key in ("files", "generated", "scopes", "held"):
             plan[key] += memory[key]
         plan["appended"].update(memory["appended"])
-        plan["memory"] = {"folders": memory["folders"], "ambiguous": memory["ambiguous"]}
+        plan["memory"] = {"folders": memory["folders"], "ambiguous": memory["ambiguous"], "shared": memory["shared"]}
     if options.get("instructions"):
         owned = bool(options.get("instructions_owned"))
         files = [
@@ -385,11 +414,15 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         ]
         files = [path for path in files if path == INSTRUCTIONS or (path.startswith(RULES) and _FILE.fullmatch(path))]
         plan["files"] += [{"source": path, "target": path} for path in files]
-        plan["scopes"] += ([] if owned else [INSTRUCTIONS]) + [RULES]
+        # rules/ past its bound is listed with none: no scope then, or what an earlier run carried would read as gone.
+        over = bool(here.get("rules_over"))
+        plan["scopes"] += ([] if owned else [INSTRUCTIONS]) + ([] if over else [RULES])
+        plan["held"] += [path for path in unread if path in (INSTRUCTIONS, RULES.rstrip("/")) or path.startswith(RULES)]
         plan["instructions"] = {
             "files": files,
             "imports": [str(name) for name in here.get("imports") or []][:20],
             "owned": owned,
+            "over": over,
         }
     if options.get("settings"):
         plan["settings"] = claude_settings_plan(here.get("settings"), options.get("managed"), options.get("extra"))
@@ -405,7 +438,12 @@ def claude_config_plan(here, here_checkouts, there, here_dir, dest, options=None
         # Past the bound the reader lists none: no scope then, or what an earlier run carried would read as gone here.
         if not here.get("extensions_over"):
             plan["scopes"] += list(EXTENSIONS)
+        tops = tuple(scope.rstrip("/") for scope in EXTENSIONS)
+        plan["held"] += [path for path in unread if path.split("/")[0] in tops]
         plan["extensions"] = {"files": files, "over": bool(here.get("extensions_over"))}
+    if missing:
+        plan["scopes"] = []
+        plan["settings"] = dict(plan["settings"], items=[], values={}, unreadable=True)
     return plan
 
 

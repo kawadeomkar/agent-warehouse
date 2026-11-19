@@ -569,7 +569,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       on the VM is never overwritten, nor one a claude on the VM has open, nor an ID in two folders here. Its
       subagents' files go with it (`claude_sessions_sync_subagents`) by the same rule, and its tool results and
       subagents take its file time (Claude Code sweeps them by their own age). The bound counts what the VM's
-      mirror lacks of each session, never its whole size.
+      mirror lacks of each session, never its whole size, each part of the VM's report for no more than it holds
+      here; a session left out for now keeps its mirror copy (`keep`). A link of the VM's where just code's sessions
+      or carry directory, or its mirror, goes is never written through, nor a file where the directory goes:
+      `code_session_dir_ok`, `code_config_dir_ok`, and both modules refuse it.
     - Beside the sessions it carries the rest of this machine's Claude Code, each part behind a setting of its own
       and on by default (`tasks/claude_config_read.yml`, `claude_config_write.yml`): the auto memory of each
       repository the VM has, matched by origin as the sessions are, into that checkout's memory folder there
@@ -586,7 +589,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       writer, `claude_config_carry`, writes it all under `~/.claude` on the VM, only under scopes of a form it
       knows, never through a link, by the copy's rule under a manifest of its own in `claude-config/`: written
       where there is none or still as written, left where the VM changed it, removed once gone here while still
-      as written. Nothing of a file's content reaches a message.
+      as written - but never what this machine could not read (a link here, a file it may not open: `held`), nor
+      anything while its Claude Code directory is not there at all. Nothing of a file's content reaches a message.
     - `--session <id>` resumes with `claude --resume <id>`, never a fork and never a fresh `claude` after a
       failed resume, and the VM checkout reaches the same commit by fast-forward only, never over a path git
       does not track there - the one write `just code` makes in a repository.

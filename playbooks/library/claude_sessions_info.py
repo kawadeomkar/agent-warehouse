@@ -145,7 +145,8 @@ registered:
 mirrored:
   description:
     - With O(mirror), each session it holds, as C(<folder>/<id>.jsonl), to the bytes of its transcript
-      (C(transcript)), of that and its tool results (C(size)) and of its subagents (C(subagents_size)); {} without.
+      (C(transcript)), of that and its tool results (C(size)) and of its subagents (C(subagents_size)), each file
+      counting the bytes it holds on disk at most; {} without.
   returned: always
   type: dict
 repo_paths:
@@ -393,7 +394,8 @@ def list_sessions(path, days, ids, now=None, every=False, manifest=None, opened=
 
 def mirrored(path):
     """{"<folder>/<id>.jsonl": its bytes} of each session the mirror at ``path`` holds, rsync's copy of the other
-    machine's: the transcript's, the transcript's and its tool results', and its subagents'. {} without one."""
+    machine's: the transcript's, the transcript's and its tool results', and its subagents'. {} without one. A file
+    counts the bytes it holds on disk at most, so one made sparse to look large counts for little."""
     found = {}
     for folder in folders(path):
         try:
@@ -405,14 +407,14 @@ def mirrored(path):
             try:
                 if not SESSION_ID.fullmatch(session) or not item.is_file(follow_symlinks=False):
                     continue
-                size = item.stat(follow_symlinks=False).st_size
+                size = _held(item.stat(follow_symlinks=False))
             except OSError:
                 continue
             base = os.path.join(folder.path, session)
             found[manifest_key(folder.name, session)] = {
                 "transcript": size,
-                "size": size + tree_size(os.path.join(base, "tool-results")),
-                "subagents_size": tree_size(os.path.join(base, "subagents")),
+                "size": size + tree_size(os.path.join(base, "tool-results"), held=True),
+                "subagents_size": tree_size(os.path.join(base, "subagents"), held=True),
             }
     return found
 
@@ -422,9 +424,15 @@ def _real_dir(path):
     return os.path.isdir(path) and not os.path.islink(path)
 
 
-def tree_size(path):
+def _held(stat):
+    """The bytes a file holds: its size, but no more than the blocks it has on disk."""
+    blocks = getattr(stat, "st_blocks", None)
+    return stat.st_size if blocks is None else min(stat.st_size, blocks * 512)
+
+
+def tree_size(path, held=False):
     """The bytes of the plain files under ``path``, no link followed; 0 where there is no such folder, and a file that
-    goes as it is read counted as nothing."""
+    goes as it is read counted as nothing. With ``held``, each file's bytes on disk at most (_held)."""
     total = 0
     if os.path.islink(path):
         return total
@@ -435,7 +443,7 @@ def tree_size(path):
             except OSError:
                 continue
             if S_ISREG(stat.st_mode):
-                total += stat.st_size
+                total += _held(stat) if held else stat.st_size
     return total
 
 

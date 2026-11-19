@@ -91,10 +91,7 @@
   claude_sessions_info:
     path: "{{ code_session_there }}"
     mirror: "{{ code_session_mirror_read }}"
-    claude:
-      - "{{ code_session_there | dirname }}/.local/bin/claude"
-      - /usr/local/bin/claude
-      - /usr/bin/claude
+    claude: "{{ code_claude_candidates }}"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_session_vm
   no_log: true

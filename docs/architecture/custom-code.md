@@ -503,7 +503,8 @@ now) and whether it is still the copy as written (by digest); with `memory`, the
 memory folder holds a file; with `repo_paths`, `githubRepoPaths` from Claude Code's `.claude.json`, and
 nothing else of that file; with `claude`, the version of the first of those executables there is - only
 those, never `PATH`; with `mirror`, the bytes the session copy's mirror there holds of each session (its
-transcript's, with its tool results, and its subagents'), what the bound counts out. A manifest of another format than `claude_sessions_copy` writes reads as none. Run
+transcript's, with its tool results, and its subagents'), what the bound counts out, each file counting no more than
+it holds on disk, so a sparse one made to look large counts for little. A manifest of another format than `claude_sessions_copy` writes reads as none. Run
 here and on the VM.
 
 **`git_checkouts_info`** — for each directory asked about, or else each checkout directly inside one,
@@ -533,7 +534,8 @@ the time of writing otherwise, renewed at 14 days (Claude Code sweeps a transcri
 age, and rsync brings the other machine's - and compared by size and digest, never by time; with
 `subagents`, its `subagents/` too, each transcript there with the first two edits and neither appended
 entry, each file written by the same rule as the copy under the manifest's `subagents` record and at the
-copy's time. Claude Code's records of the requests it
+copy's time; the manifest's `made_from` record (below) holds what each such file was made from, and while all of
+it still is, the file is not read again. Claude Code's records of the requests it
 sent stay as they are: a resume sends the recorded prompt, never them. A copy is written where there is
 none, or where it is still what the manifest says the last run wrote; one that is already what would be
 written is left, and any other is the VM's and left too, said as continued when nothing new came from
@@ -548,8 +550,12 @@ While all of it is still so, the copy is taken as unchanged without either file 
 a run with nothing new, against reading, editing and digesting every copy twice. A key of its own keeps
 the manifest's format: an earlier version reads the digests as before, and one that writes the manifest
 leaves `made_from` out, so each copy is read once more. The same record holds, by its own path, what each file of
-a session's `tool-results/` was made from, so one unchanged at both ends is not read again. Sessions that are no
-longer asked for leave the mirror. Check mode writes nothing.
+a session's `tool-results/` and `subagents/` was made from, so one unchanged at both ends is neither read nor edited
+again. Sessions in neither `sessions` nor `keep` leave the
+mirror: `keep` names those left out for now - by a newer Claude Code, a claude there holding them, the bound - so
+that the next copy sends only what they gained. Where the mirror is a link, or the manifest's folder anything but a
+folder, nothing is read, written or pruned (`refused`), and a file or link of the VM's where a copy's folder goes
+leaves that copy, or that part of it, as it is. Check mode writes nothing.
 
 **`claude_config_info`** — what of a Claude Code configuration directory just code carries beside the
 sessions, by name, size and SHA-256, never what a file holds: with `memory`, each folder under `projects/` whose
@@ -563,7 +569,10 @@ each marketplace's GitHub repository, from Claude Code's files. Run here, under 
 `plugins_there`, where it asks the first of `claude`'s paths there is, `claude plugin list --json` and `claude plugin
 marketplace list --json`, for the user-scope plugins and the marketplaces it has. With `history`, the lines of
 `history.jsonl` of those sessions, at most 8 MB of them (`history_over`); with `extensions`, the files of the
-user-level extensions but `skills/synced/`, none past 2000 files or 64 MB (`extensions_over`).
+user-level extensions but `skills/synced/`, none past 2000 files or 64 MB (`extensions_over`); `rules/` likewise
+none past 1000 files or 16 MB (`rules_over`). A link where a file or folder would be carried, and a file or folder it
+could not read, is named in `unread` by its path, never taken for gone; where the directory is not there at all,
+`missing` says so and nothing is read.
 
 **`claude_config_carry`** — the one writer of what is carried beside the sessions, on the VM: each file of `files`
 from the mirror rsync left, and each of `generated`, at its path under `~/.claude`, which must be under one of the
@@ -572,29 +581,33 @@ extensions' folders and `keybindings.json`, never `skills/synced/`), by the copy
 rule under a manifest of
 its own (`claude-config/manifest.json`): written where there is none or where it is still what the last run wrote,
 left where it differs, and once it is no longer asked for under a scope of this run, removed while it is still as
-written. `appended` adds a line to a file as it is written, once. No link is followed on the way to a file or in its
-place; files are 0600 and folders made 0700, each file written through one beside it; the manifest is written after
-each, an item recorded only once it is written; an item whose write or removal fails is named in `not_written` and the rest
-go on, and the task never fails the run; a file planned that rsync did not bring is never removed; where the mirror or
-the manifest's folder is a link, nothing is read or written (`refused`). Check mode writes nothing, and nothing of a
+written - but at or below one of `held`, what this machine could not read. `appended` adds a line to a file as it is
+written, once. No link is followed on the way to a file or in its place; files are 0600, or 0700 where the mirror's
+can run (a skill's script), and folders made 0700, each file written through one beside it; the manifest is written
+after each, an item recorded only once it is written; an item whose write or removal fails is named in `not_written`
+and the rest go on, and the task never fails the run; a file planned that rsync did not bring is never removed; where
+the mirror is a link, or the manifest's folder anything but a folder, nothing is read or written (`refused`). Check mode writes nothing, and nothing of a
 file is returned. Sources that are no longer asked for leave the mirror. With `settings` (under `no_log`), each
 settings item by the same rule in `settings.json`, its digest in the manifest's `settings` record: every other key
 kept, the file replaced through one beside it as two-space JSON, 0600, and a file that is a link or no JSON object
-left whole. With `history`, each line `history.jsonl` lacks by its session and time, appended in one write of
-whole lines, never through a link.
+left whole; an item recorded that is no longer one of `items` is removed while still as written, unless the role
+writes its key now (`managed`), and nothing while this machine's file could not be read. With `history`, each line
+`history.jsonl` lacks by its session and time, appended in whole lines after ending a last line left unfinished,
+never through a link.
 
 **`lib/claude_vm/claude_config.py`** — the decision for both, pure as `sessions.py` is.
 **`claude_memory_plan(memory, here, there, here_dir, dest, note)`** pairs each repository the VM has a checkout of -
 by its GitHub origin there, of two the one named after it - with the memory folder here of the checkout here whose
 origin names it, Claude Code's folder for that checkout's top level, and of two such folders that hold notes neither
-(`ambiguous`); it returns the folders, the files with their paths in the mirror and under the VM's `~/.claude`, their
-scopes, and the note **`memory_note`** writes, where the other machine's checkout and memory folder are on the VM,
+(`ambiguous`), nor a folder Claude Code names two checkouts here by (`shared`: `my.app` and `my-app`); it returns the
+folders, the files with their paths in the mirror and under the VM's `~/.claude`, their scopes, what of them was not
+read here (`held`), and the note **`memory_note`** writes, where the other machine's checkout and memory folder are on the VM,
 with `NOTE_LINE` to append to `MEMORY.md`. The checkouts here are those **`claude_config_paths(repo_paths, there,
 more)`** names: the paths `githubRepoPaths` lists for the VM's repositories, then the copied sessions' first
 directories. **`claude_config_rsync(plan)`** is rsync's list. **`claude_settings_plan(found, managed, extra)`**
 carries the settings of `SETTINGS`, the parts of `SETTINGS_PARTS` and `extra` (`claude_settings_sync_keys`), never one
-the role manages (`managed`) and never one of `SETTINGS_NEVER`, a program's setting `extra` does not name an item
-with no value, and no item at all where the file here could not be read; and names what stays and why (`role`,
+the role manages (`managed`, handed to the writer, whose sweep removes an item an earlier run carried that is no
+longer one) and never one of `SETTINGS_NEVER`, and no item at all where the file here could not be read; and names what stays and why (`role`,
 `program`, `never`, `other`); **`claude_settings_asked`** is what the reader reads values of, and **`claude_settings_refused`**
 the names of `extra` never carried, which the read task refuses first. **`claude_plugins_plan(here, there)`** is
 which plugins to install on the VM and which marketplaces to add for them: one there already is left, one whose
@@ -603,7 +616,8 @@ left, and nothing where the VM's Claude Code did not answer (`unread`). **`claud
 projects)`** is the history lines to append: those of the sessions copied, `project` the VM checkout, in time
 order. **`claude_config_plan(here, here_checkouts,
 there, here_dir, dest, options)`** is the one entry point: the parts its options turn on, as one plan for the
-writer.
+writer, with `held`, each path the reader could not read, and, where this machine's directory is not there at all, no
+scope and no settings item, so that nothing on the VM reads as gone.
 
 **`claude_sessions_fetch`** — run on the controller, for `just destroy`'s save: `tar -cf - -T -` on the
 VM over SSH (`ssh` given as user, host, port, key and Ansible's SSH arguments, with `BatchMode`; none
@@ -629,7 +643,9 @@ and `open` (one a `claude` on the VM has open, given as `open_there`), one of no
 has in none, and `newer_version`, the newest version those left as newer were written by; under `cap` bytes (`claude_sessions_sync_max_size`, 0 for none) `--session`'s own and then
 the newest while they fit, each with its subagents' bytes while `subagents` (`claude_sessions_sync_subagents`)
 sends them, each counted by what the VM's mirror (`mirrored`) lacks of it - a transcript shorter here than
-there whole - the rest in `over`, with `bytes` and `over_bytes` what is sent and what is left; and with
+there whole, and each part of what the mirror reports counting for no more than that part holds here, a value that is
+no count for nothing - the rest in `over`, with `bytes` and `over_bytes` what is sent and what is left; `mirror`, each
+session of a repository the VM has, sent this time or not, whose copy in the mirror stays; and with
 `wanted` (`--session`), its entry and the `problem` that refuses it, or `""`. A session's repository is
 its first directory's origin, else its gone worktree's checkout's, else `githubRepoPaths`; the VM's
 checkout of it is the one whose GitHub origin names it, of two the one named after it. The plan reads

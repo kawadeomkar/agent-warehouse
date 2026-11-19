@@ -67,17 +67,6 @@
   register: code_config_checkouts_here
   when: code_config_memory | bool
 
-# The VM's Claude Code, as the installers put it there, asked what plugins it
-# has: read-only, and only where this machine has one to install.
-- name: claude_config_read | Read the plugins on the VM
-  claude_config_info:
-    path: "{{ code_session_there }}"
-    plugins_there: true
-    claude: "{{ code_config_claude_candidates }}"
-  delegate_to: "{{ claude_vm_names[0] }}"
-  register: code_config_there
-  when: code_config_plugins | bool and code_config_here.plugins.enabled | default([]) | length > 0
-
 - name: claude_config_read | Settle what is carried
   ansible.builtin.set_fact:
     code_config_plan: >-
@@ -89,8 +78,6 @@
                                'instructions_owned': code_config_instructions_owned | bool,
                                'settings': code_config_settings | bool,
                                'managed': code_config_managed, 'extra': code_config_extra,
-                               'plugins': code_config_plugins | bool,
-                               'plugins_there': code_config_there.plugins | default({}),
                                'history': code_config_history | bool,
                                'extensions': code_config_extensions | bool,
                                'history_projects': code_config_history_projects}) }}

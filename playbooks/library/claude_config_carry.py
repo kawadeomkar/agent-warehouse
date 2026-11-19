@@ -16,23 +16,25 @@ description:
     written where there is none, or where it is still what the last run wrote, as O(manifest) records by digest;
     one already as it would be is left; any other was changed on the VM, or was never just code's, and is left
     as it is and named. A file the manifest records under one of O(scopes) that is no longer asked for is removed
-    while it is still as written.
+    while it is still as written, unless it is at or below one of O(held), what the other machine could not read.
   - O(appended) adds a line to a file as it is written, once, where the file does not hold it already.
   - O(history) appends to C(history.jsonl) under O(dest) each line its file does not hold already, by the session
     and time it records, in one write of whole lines, so a claude appending there at the same time interleaves
     whole lines. A file that is a link is left.
   - O(settings) sets keys of C(settings.json) under O(dest) by the same rule, each key - or each part of a key carried
-    part by part, C(<key>.<part>) - an item of its own, its digest recorded in the manifest's C(settings) record.
+    part by part, C(<key>.<part>) - an item of its own, its digest recorded in the manifest's C(settings) record. An
+    item the manifest records that is no longer one of C(items) is removed while still as written, unless its key is
+    one of C(managed); nothing is removed while C(unreadable).
     Every other key of the file is kept as it is; the file is replaced through one beside it, 0600, written as
     Claude Code writes it, two-space JSON. A file that is a link or no JSON object is left whole, and said.
   - Every path is relative to O(dest), under one of O(scopes), each of a form just code carries; no link is
-    followed, on the way to a file or in its place. Files are 0600, folders made 0700, each written through a
-    file beside it.
+    followed, on the way to a file or in its place. Files are 0600, or 0700 where the mirror's can run, folders made
+    0700, each written through a file beside it.
   - O(manifest) is written after each item, so a run that stops part way still records what it wrote, and an item
     is recorded only once it is written. An item whose write or removal fails is named in C(not_written) and the rest go
     on: a part that fails never stops the window. A file planned that rsync did not bring is never removed. Where
-    O(mirror) or the manifest's folder is a link, nothing is written and C(refused) says so. Check mode writes
-    nothing. Nothing of a file's content is returned.
+    O(mirror) is a link, or the manifest's folder anything but a folder, nothing is written and C(refused) says so.
+    Check mode writes nothing. Nothing of a file's content is returned.
 options:
   dest:
     description: Claude Code's configuration directory here, C(~/.claude).
@@ -85,10 +87,19 @@ options:
     default: {}
   settings:
     description:
-      - C(values), each settings item to carry to its value, and C(items), every item this run manages, so that one
-        gone here is removed there while it is still as carried. Run under the task's no_log, never the option's:
-        Ansible would blank each of its strings wherever it stands in the result, a setting's name among them.
+      - C(values), each settings item to carry to its value; C(items), every item this run manages, so that one
+        gone here is removed there while it is still as carried; C(managed), the keys the claude_code role writes;
+        C(unreadable), where the other machine's file could not be read. Run under the task's no_log, never the
+        option's: Ansible would blank each of its strings wherever it stands in the result, a setting's name among
+        them.
     type: dict
+  held:
+    description:
+      - Paths under O(dest), each a file or a folder, that the other machine could not read - a link there, a file it
+        could not open: nothing at or below one is removed.
+    type: list
+    elements: str
+    default: []
   history:
     description: The prompt-history lines to append, each the object it holds. Run under the task's no_log.
     type: list
@@ -145,7 +156,7 @@ not_written:
   type: list
   elements: str
 refused:
-  description: Whether nothing was written because the mirror or the manifest's folder is a link.
+  description: Whether nothing was written because the mirror is a link or the manifest's folder is no folder.
   returned: always
   type: bool
 history:
@@ -264,6 +275,19 @@ def _directory(path, created):
     created.append(path)
 
 
+def _mode(source):
+    """The mode a file carried from ``source`` gets: 0700 where it can run there, as a skill's script can, else 0600."""
+    try:
+        return 0o700 if os.stat(source).st_mode & 0o111 else 0o600
+    except OSError:
+        return 0o600
+
+
+def _held(target, held):
+    """Whether ``target`` is at or below one of ``held``: what was not read here, so nothing there is removed."""
+    return any(target == path or target.startswith(path.rstrip("/") + "/") for path in held)
+
+
 def _write(path, data, mode=0o600):
     handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".agent-warehouse-")
     try:
@@ -354,9 +378,15 @@ def carry_history(dest, lines, check):
         new.append(json.dumps(line, separators=(",", ":")) + "\n")
     if new and not check:
         _directory(dest, [])
-        fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fd = os.open(path, os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         try:
-            os.write(fd, "".join(new).encode("utf-8"))
+            # A last line a claude left unfinished - it stopped part way through its write - is ended first, or the
+            # first line carried would join it and neither would read.
+            end = os.fstat(fd).st_size
+            data = ("\n" if end and os.pread(fd, 1, end - 1) != b"\n" else "") + "".join(new)
+            data = data.encode("utf-8")
+            while data:
+                data = data[os.write(fd, data) :]
         finally:
             os.close(fd)
     return len(new)
@@ -369,6 +399,18 @@ def carry_settings(dest, settings, recorded, check):
     copies, changed = dict(recorded), False
     values = settings.get("values") or {}
     items = [str(item) for item in settings.get("items") or []]
+    managed = {str(key) for key in settings.get("managed") or []}
+    # An item an earlier run carried that this one no longer manages - a setting claude_settings_sync_keys no longer
+    # names - is gone here: removed while still as carried. Never one the claude_code role writes now, whose record
+    # only goes; and none at all where this machine's file could not be read, which made no items.
+    if not settings.get("unreadable"):
+        for item in sorted(recorded):
+            if item in items:
+                continue
+            if item.partition(".")[0] in managed:
+                copies.pop(item)
+            else:
+                items.append(item)
     path = os.path.join(dest, "settings.json")
     data = {}
     if os.path.lexists(path):
@@ -397,7 +439,7 @@ def carry_settings(dest, settings, recorded, check):
                 _set(data, item, values[item])
                 changed = True
         elif item in recorded:
-            copies.pop(item)
+            copies.pop(item, None)
             if current is not None and current == recorded[item]:
                 result["removed"].append(item)
                 _unset(data, item)
@@ -451,9 +493,11 @@ def carry(
     check=False,
     settings=None,
     history=(),
+    held=(),
 ):
     """Write every item, and with ``settings`` the settings; return the result and whether anything changed."""
     appended = appended or {}
+    held = [str(path) for path in held or [] if str(path)]
     scopes = [scope for scope in scopes if any(form.fullmatch(scope) for form in SCOPES)]
     recorded, recorded_settings = read_manifest(manifest), read_manifest(manifest, "settings")
     copies, saved = dict(recorded), dict(recorded)
@@ -470,11 +514,14 @@ def carry(
         "history": 0,
     }
     created, changed = [], False
-    # just code's own folders on the VM, which only the VM could have made links: then nothing is read or written.
-    if os.path.islink(mirror) or os.path.islink(os.path.dirname(manifest)):
+    # just code's own folders on the VM, which only the VM could have made a link, or the manifest's anything but a
+    # folder: then nothing is read or written, and nothing is pruned through a link to somewhere else. A file where the
+    # mirror goes holds no file, each of which reads as rsync not having brought it.
+    folder = os.path.dirname(manifest)
+    if os.path.islink(mirror) or (os.path.lexists(folder) and (os.path.islink(folder) or not os.path.isdir(folder))):
         result["refused"] = True
         return result, False
-    wanted, planned = {}, set()
+    wanted, planned, modes = {}, set(), {}
     for item in files:
         target = str(item["target"])
         if not scope_of(target, scopes):
@@ -486,10 +533,14 @@ def carry(
             continue
         with open(source, "rb") as handle:
             wanted[target] = handle.read()
+        modes[target] = _mode(source)
     for item in generated:
         target = str(item["target"])
         if scope_of(target, scopes):
-            wanted[target] = str(item["content"]).encode("utf-8")
+            try:
+                wanted[target] = str(item["content"]).encode("utf-8")
+            except UnicodeEncodeError:
+                result["not_written"].append(target)
     for target, line in appended.items():
         if target in wanted:
             wanted[target] = _with_line(wanted[target], str(line))
@@ -504,13 +555,23 @@ def carry(
             if action == "left":
                 result["left"].append(target)
                 continue
+            mode = modes.get(target, 0o600)
             if action == "unchanged":
                 result["unchanged"] += 1
+                # A script that can run here can there, which a copy made before was not let do; a mode the VM gave
+                # one is its own.
+                if mode & 0o100 and not os.stat(path).st_mode & 0o100:
+                    changed = True
+                    if not check:
+                        try:
+                            os.chmod(path, mode)
+                        except OSError:
+                            result["not_written"].append(target)
             else:
                 if not check:
                     try:
                         _directory(os.path.dirname(path), created)
-                        _write(path, data)
+                        _write(path, data, mode)
                     except OSError:
                         result["not_written"].append(target)
                         continue
@@ -522,9 +583,10 @@ def carry(
             if copies != saved and not check:
                 _save_manifest(manifest, copies, created, settings_copies)
                 saved = dict(copies)
-        # Gone here: removed while still as written. A file planned that rsync did not bring is not gone here.
+        # Gone here: removed while still as written. A file planned that rsync did not bring is not gone here, nor one
+        # this machine could not read (held).
         for target in sorted(recorded):
-            if target in wanted or target in planned or not scope_of(target, scopes):
+            if target in wanted or target in planned or not scope_of(target, scopes) or _held(target, held):
                 continue
             path = os.path.join(dest, target)
             if _no_link_on_the_way(dest, target) and _current(path) == recorded[target]:
@@ -582,6 +644,7 @@ def main():
             "appended": {"type": "dict", "default": {}},
             "settings": {"type": "dict"},
             "history": {"type": "list", "elements": "dict", "default": []},
+            "held": {"type": "list", "elements": "str", "default": []},
             "prune": {"type": "bool", "default": True},
         },
         supports_check_mode=True,
@@ -599,6 +662,7 @@ def main():
         module.check_mode,
         params["settings"],
         params["history"],
+        params["held"],
     )
     module.exit_json(changed=changed, **result)
 
