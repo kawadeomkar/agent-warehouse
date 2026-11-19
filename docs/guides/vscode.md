@@ -492,6 +492,13 @@ things to know:
     branch out again. Remote Control's sessions start in `~/projects`, above the checkout, where the
     check for a `claude` working in it cannot see them; the run says when Remote Control is running.
 
+Started from the session's own checkout here, on the session's branch, with the repository sync on
+([This machine's repository on the VM](#this-machines-repository-on-the-vm)), nothing needs committing or pushing:
+the sync carries the branch, its commits never pushed and its changes not committed, and is the one thing that moves
+the VM's checkout, by its own rules - a change of the VM's own there keeps it as it is, and says so. `just code` then
+checks that the checkout is on the session's branch at its commit before the window opens, and refuses, naming why,
+where it is not.
+
 A transcript holds whatever its tools printed - command output, tokens, the contents of files - so
 every VM `just code` opens gets those of its repositories' sessions. `claude_sessions_sync: false` in
 `local.yml` keeps them here; `--session` still copies its one session.
@@ -503,7 +510,7 @@ carries that repository to the VM's checkout of it: every local branch and tag, 
 checkout there switched to the branch you are on here, with your changes not committed - tracked files changed or
 deleted, new files - all of them or none, unstaged there: `git diff HEAD` says the same at both ends. A new file the
 rules below leave stays here, said, and so does a vault you decrypted in place, whose change would carry its secrets;
-the rest go. The two must be one repository by their git origins, whatever
+the rest go. `just code <vm> --session <id>` from the session's checkout carries it the same way. The two must be one repository by their git origins, whatever
 the folders are called; started in another repository, the run says why it carried nothing. Later runs carry what
 changed, in seconds.
 

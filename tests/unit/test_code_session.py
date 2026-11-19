@@ -2097,16 +2097,18 @@ SHARED = {
 }
 
 
-def _tasks(items, imports_from=None):
+def _tasks(items, imports_from=None, here=None):
     # Every task, through block/rescue/always; a block itself has no action. With imports_from, the
-    # directory imports are relative to, through code.yml's own imports too, and theirs in turn.
+    # directory imports are relative to, through code.yml's own imports too, and theirs in turn - a task file's
+    # own imports beside it first (here), as Ansible looks for them.
     for item in items:
         if "block" in item:
             for section in ("block", "rescue", "always"):
-                yield from _tasks(item.get(section) or [], imports_from)
+                yield from _tasks(item.get(section) or [], imports_from, here)
         elif imports_from and item.get("ansible.builtin.import_tasks") not in (None, *SHARED):
-            path = imports_from / item["ansible.builtin.import_tasks"]
-            yield from _tasks(yaml.safe_load(path.read_text()), imports_from)
+            name = item["ansible.builtin.import_tasks"]
+            path = here / name if here is not None and (here / name).is_file() else imports_from / name
+            yield from _tasks(yaml.safe_load(path.read_text()), imports_from, path.parent)
         else:
             yield item
 
@@ -2439,9 +2441,16 @@ def test_git_on_the_vm_runs_only_for_session_and_moves_its_checkout_only_forward
         "branch",
         "rev-parse",
     ]
+    # And only where --session moves the checkout itself: where the repository sync carries its repository, the sync's
+    # apply is the one thing that does (code_session_moves).
     for task in git:
         when = task["when"] if isinstance(task["when"], list) else [task["when"]]
-        assert when[0] == "code_session_id | length > 0", task["name"]
+        assert when[0] == "code_session_moves | bool", task["name"]
+    assert _vars()["code_session_moves"].startswith("{{ code_session_id | length > 0 and not code_repo_carries_session")
+    # The sync carries it only where every condition its writes run under holds - a directory to keep it in among
+    # them - or --session would resume on a checkout nothing moved.
+    carries = _vars()["code_repo_carries_session"]
+    assert "code_repo_matched | bool and code_repo_dir_said | length == 0" in carries, carries
     merge = next(t for t in git if t["ansible.builtin.command"]["argv"][4] == "merge")
     assert "--ff-only" in merge["ansible.builtin.command"]["argv"]
 
@@ -2485,6 +2494,21 @@ def test_no_window_run_reads_or_writes_the_developer_s_claude_code(tmp_path):
     )
     source = inspect.getsource(_start)
     assert '"HOME": str(tmp_path)' in source and '"CLAUDE_CONFIG_DIR": str(config)' in source
+
+
+def test_no_run_carries_the_developer_s_repository(tmp_path):
+    # code.yml finds no source itself - no working directory, no environment - so a run given none carries nothing,
+    # and every run that syncs names a repository of its own world.
+    assert "vm_repo_from" not in _window_extra(tmp_path)
+    assert not [name for name, case in WINDOWS.items() if "vm_repo_from" in case]
+    assert "vm_repo_from=str(world[" in inspect.getsource(_read_runs)
+    assert "vm_repo_from=str(demo)" in inspect.getsource(_session_synced)
+    code = CODE.read_text()
+    assert "code_repo_from: \"{{ vm_repo_from | default('', true) | string }}\"" in code
+    assert "'PWD'" not in code and "'OLDPWD'" not in code
+    # The provision scenario's one sync, from a repository in its ephemeral directory.
+    scenario = (PROVISION / "just_code.yml").read_text()
+    assert scenario.count("'vm_repo_from':") == 1 and "'vm_repo_from': verify_ssh_dir ~ '/sync/here/demo'" in scenario
 
 
 # What the provision scenario pins into its ephemeral directory on every run of code.yml: the VS Code settings file,
@@ -3776,6 +3800,8 @@ def test_a_sync_whose_rsync_fails_says_so_and_still_opens_the_window(handoffs):
 # ------------------------------------------------------------------- the repository sync, in the window ---
 REPO_KEEP = [
     "Reach the VM the way just deploy --only configure does",
+    # Which reads the match too (tasks/repo_match.yml), before --session's refusals.
+    "Read the sessions to carry to the VM",
     "Settle the folder to open",
     "Read the repository to carry to the VM",
     "Look for just code's own directory on the VM",
@@ -3928,7 +3954,7 @@ def test_a_run_that_does_not_sync_says_nothing_of_it(repo_reads, name):
     assert _said(run["output"], REPO_SAID) is None and _said(run["output"], REPO_WHY) is None
     # Off, or with no source, nothing is read at all.
     if name != "this checkout":
-        assert _skipped(run["output"], "repo_read | Read the checkout just was started in"), run["output"]
+        assert _skipped(run["output"], "repo_match | Read the checkout just was started in"), run["output"]
 
 
 def test_a_sync_bound_that_is_no_size_is_refused_before_anything_is_read(repo_reads):
@@ -3954,3 +3980,51 @@ def _skipped(output: str, task: str) -> bool:
         if part.startswith(task + "]"):
             return "skipping:" in part and "ok:" not in part and "changed:" not in part
     return False
+
+
+# ------------------------------------------------------------------- --session through the repository sync ---
+SESSION_SYNC_KEEP = [*SESSION_KEEP[:3], "Read the repository to carry to the VM", *SESSION_KEEP[3:6]]
+SESSION_SYNC_KEEP += ["Carry the repository to the VM", FIND, SAID]
+
+
+def _session_synced(root: Path) -> dict:
+    """--session from the session's own checkout, its last commit never pushed and a change not committed: the sync
+    carries both, and --session asks for no push."""
+    world = _world(root)
+    demo = world["demo"]
+    unpushed = _commit(demo, "unpushed")
+    (demo / "README").write_text("not committed\n")
+    run = _window(
+        world["root"] / "run",
+        SESSION_SYNC_KEEP,
+        in_deploy=False,
+        vm_name="alpha",
+        code_reach="192.0.2.51",
+        ansible_connection="local",
+        vscode_claude_sessions=False,
+        vm_projects_dir=str(world["vm"] / "projects"),
+        code_session_source_dir=str(world["here"] / ".claude"),
+        code_session_dest_dir=str(world["vm"] / ".claude"),
+        code_claude_candidates=[str(world["vm"] / ".local" / "bin" / "claude")],
+        code_here=True,
+        claude_vm_addressed=ADDRESSED,
+        vm_session=SESSION_ID,
+        vm_repo_from=str(demo),
+        vm_repo_elsewhere=True,
+    )
+    return {"world": world, "run": run, "unpushed": unpushed}
+
+
+@pytest.fixture(scope="module")
+def session_synced(tmp_path_factory):
+    return _session_synced(tmp_path_factory.mktemp("session-synced"))
+
+
+def test_a_session_the_sync_carries_needs_no_push_and_continues_with_its_changes(session_synced):
+    world, run = session_synced["world"], session_synced["run"]
+    assert run["rc"] == 0 and run["reached"], run["output"]
+    assert _head(world["checkout"]) == (session_synced["unpushed"], "feat/x")
+    assert (world["checkout"] / "README").read_text() == "not committed\n"
+    # The sync's apply moved the checkout: --session's own fetch and fast-forward never ran.
+    assert _skipped(run["output"], "session_write | Fetch the session's branch on the VM"), run["output"]
+    assert not _skipped(run["output"], "repo_write | Fail unless the VM checkout is at the session's commit")

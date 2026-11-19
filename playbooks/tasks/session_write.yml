@@ -15,7 +15,9 @@
 #
 # With --session, the VM's checkout of its repository is then brought to the
 # commit the session's branch is at here, by fast-forward only: the one write
-# just code makes inside a repository.
+# just code makes inside a repository - but where the repository sync carries
+# the session's repository (code_repo_carries_session), whose apply is then the
+# one thing that moves the checkout, and tasks/repo_write.yml checks it after.
 
 # The VM user's alone, as what is in it is: 0700, the files rsync brings
 # keeping this machine's modes inside it.
@@ -137,7 +139,7 @@
   register: code_session_fetched
   changed_when: false
   failed_when: false
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 - name: session_write | Fail when the VM cannot fetch the branch
   ansible.builtin.assert:
@@ -148,7 +150,7 @@
       A private repository needs GitHub's sign-in there:
       just login {{ claude_vm_names[0] }} --only github{{ claude_host_flag | default('') }}.
     quiet: true
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 # git replaces an ignored file, which git status does not show, without
 # asking when the commit tracks one at its path: refused before anything is
@@ -159,7 +161,7 @@
     target: "{{ code_session_commit }}"
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_session_overwrites
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 - name: session_write | Refuse a move that would overwrite files git does not track
   vars:
@@ -172,7 +174,7 @@
       ' and ' ~ (code_paths | length - 5) ~ ' more' if code_paths | length > 5 else '' }}. Move them out of the way
       there, then run this again.
     quiet: true
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 # A VM branch of the same name moves only forward, to the commit: one with
 # commits of its own is left as it is, before anything is switched.
@@ -192,7 +194,7 @@
   changed_when: false
   failed_when: code_session_behind.rc not in [0, 1]
   when:
-    - code_session_id | length > 0
+    - code_session_moves | bool
     - code_session_git_there.checkouts[0].branch_head not in ['', code_session_commit]
 
 - name: session_write | Refuse a VM branch with commits of its own
@@ -202,7 +204,7 @@
       {{ code_session_plan.session.branch }} in {{ code_session_plan.session.checkout }} on {{ claude_vm_names[0] }}
       has commits that are not on this machine's, so it was left as it is. Push or drop them there, then run this again.
     quiet: true
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 - name: session_write | Switch the VM checkout to the session's branch
   ansible.builtin.command:
@@ -217,7 +219,7 @@
   delegate_to: "{{ claude_vm_names[0] }}"
   changed_when: true
   when:
-    - code_session_id | length > 0
+    - code_session_moves | bool
     - code_session_git_there.checkouts[0].branch_head | length > 0
     - code_session_git_there.checkouts[0].head_branch != code_session_plan.session.branch
 
@@ -235,7 +237,7 @@
   delegate_to: "{{ claude_vm_names[0] }}"
   changed_when: true
   when:
-    - code_session_id | length > 0
+    - code_session_moves | bool
     - code_session_git_there.checkouts[0].branch_head not in ['', code_session_commit]
 
 # A branch the VM does not have yet starts at the commit itself, then tracks
@@ -255,7 +257,7 @@
   delegate_to: "{{ claude_vm_names[0] }}"
   changed_when: true
   when:
-    - code_session_id | length > 0
+    - code_session_moves | bool
     - code_session_git_there.checkouts[0].branch_head | length == 0
 
 - name: session_write | Make the new branch track origin's
@@ -272,7 +274,7 @@
   delegate_to: "{{ claude_vm_names[0] }}"
   changed_when: true
   when:
-    - code_session_id | length > 0
+    - code_session_moves | bool
     - code_session_git_there.checkouts[0].branch_head | length == 0
 
 - name: session_write | Read where the VM checkout is now
@@ -281,7 +283,7 @@
   delegate_to: "{{ claude_vm_names[0] }}"
   register: code_session_head
   changed_when: false
-  when: code_session_id | length > 0
+  when: code_session_moves | bool
 
 - name: session_write | Fail unless the VM checkout is at the session's commit
   ansible.builtin.assert:
@@ -290,4 +292,4 @@
       {{ code_session_plan.session.checkout }} on {{ claude_vm_names[0] }} is at {{ code_session_head.stdout | plain_text | trim }},
       not at {{ code_session_commit }}, where {{ code_session_plan.session.branch }} is here.
     quiet: true
-  when: code_session_id | length > 0
+  when: code_session_moves | bool

@@ -50,7 +50,8 @@ With `--project`, `just code` and `just deploy` now carry the repository `just` 
 it when the two are one repository by origin ([VS Code](vscode.md#this-machines-repository-on-the-vm)). From the
 agent-warehouse checkout itself, `just code alpha --project agent-warehouse` is such a run, and is the one run an
 upgrade changes: it carries this checkout's branches to that VM. `repo_sync: false` in `local.yml` keeps the old
-behaviour.
+behaviour. `just code --session`, started from the session's own checkout on its branch, no longer asks for its work to
+be committed and pushed: the sync carries it.
 
 ## The VMs through the Proxmox host, from 2.7
 

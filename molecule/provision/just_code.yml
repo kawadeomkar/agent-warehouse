@@ -737,6 +737,71 @@
         that: not verify_ssh_user_config_final.stat.exists
         quiet: true
 
+    # The repository sync, both ends on this machine: a checkout of a repository here, with a branch never pushed, a
+    # change not committed and an ignored document, and the "VM"'s checkout of the same repository in alpha's projects
+    # directory - its origin GitHub's, as just deploy clones it, its own insteadOf alone sending git to the bare
+    # repository here. Synced twice: the second run changes nothing. Git as the scenario's own, never the developer's.
+    - name: Make a repository, its checkout here and alpha's of it
+      ansible.builtin.shell: >-
+        set -e;
+        export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1;
+        g() { git -c user.name=Dev -c user.email=dev@example.com "$@"; };
+        root={{ verify_ssh_dir | quote }}/sync; rm -rf "$root"; mkdir -p "$root";
+        g init -q --bare --initial-branch main "$root/octo/demo.git";
+        g init -q --initial-branch main "$root/seed"; echo seed > "$root/seed/README";
+        g -C "$root/seed" add -A; g -C "$root/seed" commit -qm seed; g -C "$root/seed" push -q "$root/octo/demo.git" main;
+        g clone -q "$root/octo/demo.git" "$root/here/demo";
+        printf 'plans/\n' > "$root/here/demo/.gitignore"; g -C "$root/here/demo" add .gitignore;
+        g -C "$root/here/demo" commit -qm ignore; g -C "$root/here/demo" switch -qc never-pushed;
+        echo work > "$root/here/demo/work"; g -C "$root/here/demo" add work; g -C "$root/here/demo" commit -qm work;
+        echo changed > "$root/here/demo/README"; mkdir "$root/here/demo/plans"; echo plan > "$root/here/demo/plans/a.md";
+        rm -rf {{ (verify_ssh_dir ~ '/projects/synced') | quote }};
+        g clone -q "$root/octo/demo.git" {{ (verify_ssh_dir ~ '/projects/synced') | quote }};
+        g -C {{ (verify_ssh_dir ~ '/projects/synced') | quote }} remote set-url origin https://github.com/octo/demo.git;
+        g -C {{ (verify_ssh_dir ~ '/projects/synced') | quote }} config "url.$root/octo/demo.git.insteadOf"
+        https://github.com/octo/demo.git
+      changed_when: false
+
+    - name: Sync the repository to alpha twice
+      ansible.builtin.command:
+        argv: >-
+          {{ verify_playbook_cmd + ['--extra-vars', verify_code_vars
+                                    | combine({'vm_project': 'synced', 'vm_repo_elsewhere': true,
+                                               'vm_repo_from': verify_ssh_dir ~ '/sync/here/demo'}) | to_json,
+                                    verify_code_playbook] }}
+      environment: "{{ verify_code_env | combine({'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1'}) }}"
+      register: verify_code_synced
+      changed_when: false
+      failed_when: false
+      loop: [first, second]
+
+    - name: Read alpha's checkout after the syncs
+      ansible.builtin.command:
+        argv: [git, -C, "{{ verify_ssh_dir }}/projects/synced", log, -1, --format=%s%n%D]
+      environment: {GIT_CONFIG_GLOBAL: /dev/null, GIT_CONFIG_NOSYSTEM: "1"}
+      register: verify_code_synced_head
+      changed_when: false
+
+    - name: Assert the branch, the change and the document arrived, and the second sync changed nothing
+      vars:
+        verify_first: "{{ verify_code_synced.results[0] }}"
+        verify_second: "{{ verify_code_synced.results[1] }}"
+        verify_there: "{{ verify_ssh_dir }}/projects/synced"
+      ansible.builtin.assert:
+        that:
+          - verify_code_synced.results | map(attribute='rc') | list == [0, 0]
+          - verify_code_synced_head.stdout_lines[0] == 'work'
+          - verify_code_synced_head.stdout_lines[1] is search('HEAD -> never-pushed')
+          - lookup('ansible.builtin.file', verify_there ~ '/README') == 'changed'
+          - lookup('ansible.builtin.file', verify_there ~ '/plans/a.md') == 'plan'
+          - verify_first.stdout is search('repo_write \| Bring the VM.s checkout to what was sent\] \*+\nchanged:')
+          - verify_second.stdout is not search('TASK \[repo_write[^]]*\] \*+\nchanged:')
+        fail_msg: >-
+          The syncs exited {{ verify_code_synced.results | map(attribute='rc') | list }}, alpha's checkout is at
+          {{ verify_code_synced_head.stdout_lines }}:
+          {{ verify_second.stdout | regex_findall('(\[ERROR\]: [^\n]*|TASK \[repo_write[^]]*\] \*+\nchanged:[^\n]*)') }}
+        quiet: true
+
     - name: Take the node down again
       ansible.builtin.uri:
         validate_certs: false

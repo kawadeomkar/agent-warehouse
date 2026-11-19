@@ -599,14 +599,16 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       anything while its Claude Code directory is not there at all. Nothing of a file's content reaches a message.
     - `--session <id>` resumes with `claude --resume <id>`, never a fork and never a fresh `claude` after a
       failed resume, and the VM checkout reaches the same commit by fast-forward only, never over a path git
-      does not track there - the one write `just code` makes in a repository.
+      does not track there - the one write `just code` makes in a repository, but where the repository sync carries the
+      session's repository (`code_repo_carries_session`: from its own checkout here, on its branch), whose apply then
+      moves the checkout with no commit or push asked for, and `--session` checks afterwards that it is at the commit.
     - The handoff reads this machine's `~/.claude` and checkout, with `git --no-optional-locks`, and writes
       nothing here; every task reading a transcript is `no_log`, and no message carries more than IDs, folders,
       branches and counts. Claude Code's trust question for a checkout stays the user's.
 - **The repository sync carries a local checkout to its VM, and never overwrites what the VM made.** Read
   [§7.18](docs/architecture/custom-code.md#718-libclaude_vmrepo_syncpy-and-git_sync_info--the-repository-sync) first.
-    - The source is where just was started (`STARTED_IN`), handed to `code.yml` as `vm_repo_from` only with `--project`,
-      never a path that opens a template (`{{`, `{%`, `{#`: Ansible renders an extra var);
+    - The source is where just was started (`STARTED_IN`), handed to `code.yml` as `vm_repo_from` only with `--project`
+      (or `code`'s `--session`), never a path that opens a template (`{{`, `{%`, `{#`: Ansible renders an extra var);
       `code.yml` never looks for one itself, the MCP server gives `STARTED_IN=` but to `deploy` and `code`, whose is the
       session's folder (`started_in`), and every test names a source of its own or none (`_just`'s `STARTED_IN=`), its
       git with `GIT_CONFIG_GLOBAL=/dev/null`.

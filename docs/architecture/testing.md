@@ -401,6 +401,20 @@ pytest over `tests/unit/`, file by file:
   machine, changed on both, unpushed, tracking another remote, gone, a fetch that fails, a detached `HEAD`,
   an ignored file in the way, an rsync that fails - leaving the VM's checkout where it was, and no run
   printing the marker the transcripts carry.
+- **The repository sync** (`test_repo_sync.py`): the match by origin and its one line, said only for a run
+  started in another repository; send-pack's lines from this machine's refs alone, a name that could be read as another
+  line or an option left out; the bound, git objects and files, the changes all or none; the selection over a made-up
+  checkout of 22 files, file by file at any depth by git's own matcher, `.worktreeinclude`, and tier 0 held to
+  `tests/check_no_local_files.sh` over 41 names and its count of patterns; the estimate, a VM's commit this machine
+  lacks left out. Then the send and the apply against scratch repositories, every row of the branch table - a branch
+  never pushed, one amended and one reset back here, one the VM is ahead on and one it committed to aside, a branch a
+  worktree there has out or bisects, a run that sent and died before its apply, a shallow clone's refusal (exit 1 from
+  git 2.56, 255 from 2.43) - `send-pack` writing nothing here and running no hook, the ignored files written only
+  where the VM has none of its own, removed only from the same folder, kept out of `git status` by the exclude block,
+  never through a link; the changes not committed, unstaged, the VM's own keeping its tree, a run stopped part way
+  finished by the next; and the apply's fixed git verbs. `test_code_session.py` runs the window's reads and writes,
+  `--session` through the sync, and holds that no run carries the developer's repository; the `provision` scenario
+  syncs one twice, the second run changing nothing.
 - **The session notes** (`test_session_notes.py`): `vm_session.md.j2` rendered as `code.yml`
   renders it - the placeholder, a live section carried over, the parts switched off, the same file
   from every window, and no time, template marker or token shape in it.

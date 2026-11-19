@@ -1047,10 +1047,10 @@ The branches and tags go by `git send-pack` into the VM checkout's own refs of t
 VM creates and moves its branches, and switches its checkout to the branch here, where nothing of the VM's own is in
 the way (`tasks/repo_write.yml`, after the session handoff's writes). Where just was started is the justfile's `STARTED_IN`, the folder it was started in unless the
 command line names another, handed to the playbook as `vm_repo_from` - with `vm_repo_elsewhere`, whether it is another
-repository than this checkout - only with `--project`, only from a folder in a repository, and never one whose path
-opens a template (`{{`, `{%`, `{#`), since Ansible renders an extra var's text as one: the justfile refuses it.
-`code.yml` never looks for a source itself, so without `vm_repo_from` there is none, and no test reads the developer's
-checkout. The two
+repository than this checkout - only with `--project`, or `just code`'s `--session`, whose checkout is the project,
+only from a folder in a repository, and never one whose path opens a template (`{{`, `{%`, `{#`), since Ansible
+renders an extra var's text as one: the justfile refuses it. `code.yml` never looks
+for a source itself, so without `vm_repo_from` there is none, and no test reads the developer's checkout. The two
 checkouts must name the same repository by their git origins, never by their folders' names: here any origin names
 one, on the VM only a GitHub one, as the session copy matches. Where they do not and just was started in another
 repository, one line says so; from this checkout, with another project's name, as every run is, nothing is said.
@@ -1070,6 +1070,14 @@ line of its list `./<path>`; then the apply, given each file's size and time to 
 which says a failed rsync with its last words, and whose NEXT STEPS record names a branch or a checkout left because
 the VM has work of its own there, by the apply's `reason`. `code_writes_its_directory` counts the sync; a directory of just code's that
 the refusal before the reads did not look at is one more reason not to sync, said as the one line.
+
+With `--session`, the match runs earlier, inside `tasks/session_read.yml` (`tasks/repo_match.yml`, after the session's
+checkout on the VM is found), since it decides one of `--session`'s refusals: where the sync carries the session's
+repository - from the session's own checkout here, on its branch, with a directory of just code's to keep it in
+(`code_repo_carries_session`) - the work need not be
+committed and pushed, `--session`'s own fetch and fast-forward are skipped (`code_session_moves`), the sync's apply is
+the one thing that moves the checkout, and `tasks/repo_write.yml` checks afterwards that it is on the session's branch
+at its commit. Otherwise `--session` keeps its branch and the tree, and the sync carries the rest.
 
 **The session handoff.** With `claude_sessions_sync` (the default) every run copies this machine's
 Claude Code sessions of the last 30 days - Claude Code's own `cleanupPeriodDays` by default, by their file

@@ -157,12 +157,13 @@ vault_args := 'set --; [ ! -f ' + quote(VAULT_PASS) + ' ] || set -- "$@" --vault
 # exported ANSIBLE_INVENTORY, which the editor and every other program the run
 # starts would inherit, and carry into a later run against another host.
 vm_args := vault_args + '; [ -z "$names" ] || set -- "$@" -e "{\"vm_name\": \"$names\"}"; [ -z "$host_extra" ] || set -- "$@" -e "$host_extra"; for source in $(printf %s "$host_sources" | tr , " "); do set -- "$@" -i "$source"; done'
-# With --project ($project), where just was started ($started, find_bin's) when that is in a repository: the folder
-# the repository sync carries from (STARTED_IN, as its real path), and whether it is another repository than this
-# checkout, which is when the sync says why it carried nothing. As JSON made by the environment's Python, since a
-# folder's name is free text - but never one that opens a template, {{, {% or {#: Ansible renders an extra var's text
-# as one, and would run what it says. playbooks/code.yml never looks for a source itself.
-repo_args := 'if [ -n "$project" ] && [ "$started" != none ]; then from=$(CDPATH= cd -- ' + quote(STARTED_IN) + ' && pwd -P); case "$from" in *"{{"* | *"{%"* | *"{#"*) echo "error: just was started in $from, whose path holds {{, {% or {#, which Ansible would run as a template: start it from another folder to carry nothing of it" >&2; exit 1 ;; esac; set -- "$@" -e "$("$bin/python" -I -c ' + quote('import json, sys; print(json.dumps({"vm_repo_from": sys.argv[1], "vm_repo_elsewhere": sys.argv[2] != "this"}))') + ' "$from" "$started")"; fi'
+# With --project ($project), or code's --session ($session), whose checkout is the project, where just was started
+# ($started, find_bin's) when that is in a repository: the folder the repository sync carries from (STARTED_IN, as its
+# real path), and whether it is another repository than this checkout, which is when the sync says why it carried
+# nothing. As JSON made by the environment's Python, since a folder's name is free text - but never one that opens a
+# template, {{, {% or {#: Ansible renders an extra var's text as one, and would run what it says.
+# playbooks/code.yml never looks for a source itself.
+repo_args := 'if [ -n "$project${session:-}" ] && [ "$started" != none ]; then from=$(CDPATH= cd -- ' + quote(STARTED_IN) + ' && pwd -P); case "$from" in *"{{"* | *"{%"* | *"{#"*) echo "error: just was started in $from, whose path holds {{, {% or {#, which Ansible would run as a template: start it from another folder to carry nothing of it" >&2; exit 1 ;; esac; set -- "$@" -e "$("$bin/python" -I -c ' + quote('import json, sys; print(json.dumps({"vm_repo_from": sys.argv[1], "vm_repo_elsewhere": sys.argv[2] != "this"}))') + ' "$from" "$started")"; fi'
 # A run with no terminal on stdin has nobody to approve a sign-in: no page
 # opens and nothing reaches the clipboard, since nobody is there to use them,
 # and just deploy skips its sign-ins, which would otherwise start by themselves
