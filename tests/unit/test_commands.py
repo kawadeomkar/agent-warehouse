@@ -260,7 +260,7 @@ def test_the_check_catches_what_it_is_for() -> None:
     assert _problem(recipes["test"], recipes, ["unit", "before", "pushing"]) is None
     assert (
         _problem(recipes["test"], recipes, ["integartion"])
-        == "integartion is none of unit, molecule, role, integration, provision"
+        == "integartion is none of unit, engine, molecule, role, integration, provision"
     )
     assert _problem(recipes["lint"], recipes, ["synatx"]) is not None
     assert _problem(recipes["docs"], recipes, ["serv"]) is not None
