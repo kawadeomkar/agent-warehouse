@@ -4,10 +4,11 @@ transport.py and proxy.py; docs/architecture/engine.md §16.7).
 Every request goes to TLS servers this test starts in its own process, on loopback: a ThreadingHTTPServer wrapped in
 TLS with the CA and the node's certificate tests/unit/pki.py makes, as tests/unit/test_proxmox_trust.py's _serve does,
 whose handlers answer, redirect, drop a connection, drip or wait, and keep every request they were asked; and a
-stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every byte it carried. The transport follows
-no redirect, reads no certificate variable, netrc or proxy variable, takes a proxy only as an argument, sends a write
-once, bounds every body and wait, and never says a header's value. proxy.choose works out today's proxy from the
-environment it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
+stand-in CONNECT proxy, on loopback too, which keeps what it was asked and every byte it carried, or answers the CONNECT
+itself, dripping. The transport follows no redirect, reads no certificate variable, netrc or proxy variable, takes a
+proxy only as an argument, sends a write once, bounds every body and wait and the whole call, making its connection
+included, and never says a header's value or a peer's words. proxy.choose works out today's proxy from the environment
+it is given, as requests does. The rules at the end hold the new engine's modules to one transport.
 """
 
 from __future__ import annotations
@@ -46,6 +47,7 @@ from claude_vm.vendors.transport import (
     Transport,
     Unknown,
     Unreachable,
+    Untrusted,
 )
 
 # The module's two certificate authorities: the server's, and one that signed nothing the server shows. Cheap enough
@@ -210,11 +212,15 @@ def _client(server, pki, **kwargs) -> Transport:
 
 class _Tunnel:
     """A CONNECT proxy on loopback: each request asked of it, every byte it carried from a client on, and how many
-    connections it took."""
+    connections it took. Given an answer, it answers every CONNECT with it and closes; with drip, it answers each a byte
+    every DRIP seconds, a 200's status line and then header lines without end, for as long as the client waits."""
 
-    def __init__(self) -> None:
+    DRIP = 0.05
+
+    def __init__(self, answer: bytes | None = None, drip: bool = False) -> None:
         self.listener = socket.create_server(("127.0.0.1", 0))
         self.url = f"http://127.0.0.1:{self.listener.getsockname()[1]}"
+        self.answer, self.drip = answer, drip
         self.asked: list[bytes] = []
         self.carried = bytearray()
         self.connections = 0
@@ -247,6 +253,18 @@ class _Tunnel:
         if len(words) != 3 or words[0] != b"CONNECT":
             client.sendall(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n")
             return
+        if self.answer is not None:
+            client.sendall(self.answer)
+            client.close()
+            return
+        if self.drip:
+            try:
+                for byte in b"HTTP/1.1 200 Connection established\r\n" + b"X-Drip: y\r\n" * 100_000:
+                    client.sendall(bytes([byte]))
+                    time.sleep(self.DRIP)
+            except OSError:
+                pass  # the client went, as it should
+            return
         host, _, port = words[1].decode().rpartition(":")
         upstream = socket.create_connection((host, int(port)))
         with self.lock:
@@ -278,8 +296,15 @@ class _Tunnel:
         except OSError:
             pass
         self.listener.close()
+        # Shut down before closing: a socket closed while a pump's recv waits on it sends no FIN on Linux, and the
+        # pump's own shutdown then finds it closed, so a server still in its TLS handshake (an Untrusted client's)
+        # would wait on the upstream connection for good, and its fixture's shutdown() with it.
         with self.lock:
             for sock in self.sockets:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
                 sock.close()
 
 
@@ -288,6 +313,20 @@ def tunnel():
     stand_in = _Tunnel()
     yield stand_in
     stand_in.close()
+
+
+@pytest.fixture
+def proxy_that():
+    """proxy_that(answer=..., drip=...) starts a stand-in proxy that answers every CONNECT itself."""
+    made = []
+
+    def start(**kwargs) -> _Tunnel:
+        made.append(_Tunnel(**kwargs))
+        return made[-1]
+
+    yield start
+    for stand_in in made:
+        stand_in.close()
 
 
 # ---------------------------------------------------------------- a request and its answer ----
@@ -364,7 +403,7 @@ def test_the_certificate_variables_and_netrc_change_nothing(serve, pki, other_pk
         monkeypatch.setenv("NETRC", str(netrc))
 
     trap(ca)
-    with _client(server, pki, context=_context(other_pki["ca"])) as client, pytest.raises(Unreachable) as refused:
+    with _client(server, pki, context=_context(other_pki["ca"])) as client, pytest.raises(Untrusted) as refused:
         client.request("GET", "version")
     assert "certificate does not verify" in str(refused.value) and server.asked == []
     trap(other)
@@ -423,6 +462,24 @@ def test_a_proxy_of_another_scheme_is_refused_by_name(pki, url) -> None:
 def test_an_address_that_is_not_https_is_refused(pki, url) -> None:
     with pytest.raises(ValueError):
         Transport(url, _context(pki["ca"]), AGENT)
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_certificate_that_does_not_verify_is_untrusted_an_unreachable_that_names_the_setting(
+    serve, pki, other_pki, tunnel, fast, method
+) -> None:
+    """Untrusted is an Unreachable, so a caller of the transport that catches the one catches the other; it is not
+    tried again, even for a GET (one connection through the proxy); and its sentence says what OpenSSL found and how a
+    root of the person's own is named."""
+    server = serve()
+    context = _context(other_pki["ca"])
+    with _client(server, pki, context=context, proxy=tunnel.url) as client, pytest.raises(Untrusted) as untrusted:
+        client.request(method, "version", headers={"Authorization": Secret(CANARY)})
+    assert isinstance(untrusted.value, Unreachable) and untrusted.value.reason
+    said = str(untrusted.value)
+    assert said.startswith(f"its certificate does not verify ({untrusted.value.reason}): ")
+    assert "tls_ca_file" in said and "PEM" in said and CANARY not in said
+    assert tunnel.connections == 1 and server.asked == []
 
 
 def test_a_peer_check_that_raises_sends_nothing(serve, pki) -> None:
@@ -507,7 +564,27 @@ def test_a_connection_nothing_answers_is_unreachable(pki, fast) -> None:
             with Transport(f"https://127.0.0.1:{port}", _context(pki["ca"]), AGENT) as client:
                 with pytest.raises(Unreachable) as unreachable:
                     client.request(method, "version")
-            assert "could not be made" in str(unreachable.value)
+            assert "could not be made" in str(unreachable.value) and not isinstance(unreachable.value, Untrusted)
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_tunnel_the_proxy_refuses_says_its_status_alone(serve, pki, proxy_that, fast, method) -> None:
+    """A proxy's words are never said, only its status: its reason here is a canary. A GET asks for a tunnel again, at
+    most three times in all; any other method once, with nothing sent."""
+    server = serve()
+    refusing = proxy_that(answer=f"HTTP/1.1 407 {CANARY}\r\nProxy-Authenticate: Basic {CANARY}\r\n\r\n".encode())
+    with _client(server, pki, proxy=refusing.url) as client, pytest.raises(Unreachable) as refused:
+        client.request(method, "version")
+    assert str(refused.value) == "the connection could not be made: the proxy answered 407 to the tunnel"
+    assert len(refusing.asked) == (3 if method == "GET" else 1) and server.asked == []
+
+
+def test_a_proxy_that_answers_no_http_is_said_so(serve, pki, proxy_that) -> None:
+    server = serve()
+    garbled = proxy_that(answer=f"{CANARY} 200\r\n\r\n".encode())
+    with _client(server, pki, proxy=garbled.url) as client, pytest.raises(Unreachable) as refused:
+        client.request("POST", "version")
+    assert str(refused.value) == "the connection could not be made: the proxy answered something that is no HTTP"
 
 
 def test_each_thread_has_a_connection_of_its_own_and_keeps_it(serve, pki) -> None:
@@ -590,6 +667,45 @@ def test_the_deadline_bounds_the_whole_call_though_every_wait_is_short(serve, pk
     assert 0.9 < took < 3 and "deadline of 1 s" in str(late.value)
 
 
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_the_deadline_bounds_making_the_connection_through_a_proxy_that_drips_its_answer(
+    pki, proxy_that, method
+) -> None:
+    """A proxy that answers the CONNECT a byte at a time, each well within the connect limit, a status line and then
+    headers without end: http.client's own CONNECT read that for minutes. Nothing was sent, so a POST is TimedOut too,
+    never Unknown."""
+    dripping = proxy_that(drip=True)
+    with Transport(URL, _context(pki["ca"]), AGENT, connect=0.5, read=0.5, proxy=dripping.url) as client:
+        started = time.monotonic()
+        with pytest.raises(TimedOut) as late:
+            client.request(method, "version", deadline=1.0)
+        took = time.monotonic() - started
+    assert 0.9 < took < 3 and "deadline of 1 s" in str(late.value)
+    assert len(dripping.asked) == 1 and dripping.asked[0].startswith(b"CONNECT pve.lan:8006 HTTP/1.1\r\n")
+
+
+def test_each_address_of_a_name_is_tried_but_none_past_the_deadline(pki, monkeypatch) -> None:
+    """socket.create_connection gives each of a name's addresses the whole connect limit, so six silent ones would hold
+    a call six times that. Here the addresses are stood in for, and each connect waits out its limit."""
+    limits: list[float] = []
+
+    def silent(sock, address) -> None:
+        limits.append(sock.gettimeout())
+        time.sleep(sock.gettimeout())
+        raise TimeoutError("timed out")
+
+    six = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("127.0.0.1", 8006))] * 6
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, *args, **kwargs: six)
+    monkeypatch.setattr(socket.socket, "connect", silent)
+    with Transport(URL, _context(pki["ca"]), AGENT, connect=0.4) as client:
+        started = time.monotonic()
+        with pytest.raises(TimedOut) as late:
+            client.request("POST", "pools", deadline=1.0)
+        took = time.monotonic() - started
+    assert took < 1.5 and "deadline of 1 s" in str(late.value)
+    assert 2 <= len(limits) <= 3 and all(limit <= 0.4 for limit in limits), limits
+
+
 # ---------------------------------------------------------------- a secret never said ----
 
 
@@ -619,8 +735,21 @@ def _said(error: BaseException, caplog, capsys, frames: bool = True) -> list[str
         {"Authorization": Secret(f"{CANARY}\x00")},
         {"Bad Name": CANARY},
         {"Authorization": Secret(f"{CANARY}é")},
+        {"Authorization": ("PVEAPIToken=engine@pve!aw=", Secret(f"{CANARY}\r\nX-Injected: 1"))},
+        {"Authorization": ("PVEAPIToken=", Secret(CANARY), 1)},
+        {"Authorization": ["Bearer ", Secret(CANARY), b"x"]},
     ],
-    ids=["secret with CRLF", "secret with LF", "plain folded", "secret with NUL", "a name with a space", "not ASCII"],
+    ids=[
+        "secret with CRLF",
+        "secret with LF",
+        "plain folded",
+        "secret with NUL",
+        "a name with a space",
+        "not ASCII",
+        "a secret part with CRLF",
+        "a part that is a number",
+        "a part that is bytes",
+    ],
 )
 def test_a_header_http_client_would_refuse_fails_and_says_nothing_of_it(serve, pki, caplog, capsys, headers) -> None:
     caplog.set_level(logging.DEBUG)
@@ -630,28 +759,102 @@ def test_a_header_http_client_would_refuse_fails_and_says_nothing_of_it(serve, p
     error = refused.value
     assert str(error) == NOT_MADE == "the request could not be made"
     assert error.__cause__ is None and error.__context__ is None
-    secret = any(isinstance(value, Secret) for value in headers.values())
+    secret = any(
+        isinstance(value, Secret) or (isinstance(value, tuple | list) and any(isinstance(v, Secret) for v in value))
+        for value in headers.values()
+    )
     assert not [text for text in _said(error, caplog, capsys, frames=secret) if CANARY in text]
     assert server.asked == []
 
 
-def test_a_secret_is_never_in_the_error_of_a_request_it_went_with(serve, pki, caplog, capsys, fast) -> None:
+# The ways a secret goes with a request: a header's whole value, a part of one, a form's value, one of a form's list.
+WITH_A_SECRET = {
+    "a header": lambda: {"headers": {"Authorization": Secret(CANARY)}, "form": {"poolid": "aw"}},
+    "a header's part": lambda: {"headers": {"Authorization": ("PVEAPIToken=engine@pve!aw=", Secret(CANARY))}},
+    "a form's value": lambda: {"form": {"client_id": "k", "client_secret": Secret(CANARY)}},
+    "one of a form's list": lambda: {"form": [("scope", ("devices", Secret(CANARY)))]},
+}
+
+
+def _went_whole(asked: Asked) -> bool:
+    return CANARY in asked.headers.get("authorization", "") or CANARY.encode() in asked.body
+
+
+def test_a_header_of_parts_and_a_form_s_secrets_reach_the_server_whole(serve, pki) -> None:
+    server = serve()
+    parts = ("PVEAPIToken=", "engine@pve!aw", "=", Secret(CANARY))
+    form = {"client_id": "k", "client_secret": Secret(CANARY), "scope": ["devices:core", Secret(CANARY)], "n": 2}
+    with _client(server, pki) as client:
+        got = client.request("POST", "oauth/token", headers={"Authorization": parts, "X-Parts": ["a", "b"]}, form=form)
+    assert got.status == 200
+    [asked] = server.asked
+    assert asked.headers["authorization"] == f"PVEAPIToken=engine@pve!aw={CANARY}" and asked.headers["x-parts"] == "ab"
+    assert asked.body == f"client_id=k&client_secret={CANARY}&scope=devices%3Acore&scope={CANARY}&n=2".encode()
+    assert asked.headers["content-length"] == str(len(asked.body))
+    assert asked.headers["content-type"] == "application/x-www-form-urlencoded"
+    # What was given keeps its Secrets: nothing of it was revealed in place.
+    assert CANARY not in repr(form) and CANARY not in repr(parts)
+
+
+@pytest.mark.parametrize("given", WITH_A_SECRET.values(), ids=WITH_A_SECRET.keys())
+def test_a_secret_is_never_in_the_error_of_a_request_it_went_with(serve, pki, caplog, capsys, fast, given) -> None:
     caplog.set_level(logging.DEBUG)
     server = serve(drop)
     with _client(server, pki) as client, pytest.raises(Unknown) as unknown:
-        client.request("POST", "pools", headers={"Authorization": Secret(CANARY)}, form={"poolid": "aw"})
+        client.request("POST", "pools", **given())
     assert unknown.value.__cause__ is None and unknown.value.__context__ is None
     assert not [text for text in _said(unknown.value, caplog, capsys) if CANARY in text]
-    assert server.asked[0].headers["authorization"] == CANARY
+    assert [_went_whole(one) for one in server.asked] == [True]
+
+
+@pytest.mark.parametrize("line", ["HTTP/1.1 4x0 {}", "HTTP/{} 200 OK"], ids=["status no number", "version no HTTP's"])
+@pytest.mark.parametrize("given", WITH_A_SECRET.values(), ids=WITH_A_SECRET.keys())
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_a_server_that_echoes_the_secret_in_its_status_line_has_none_of_it_said(
+    serve, pki, caplog, capsys, fast, line, given, method
+) -> None:
+    """A server, or a proxy that inspects TLS and that the context trusts, puts what it was sent in a status line
+    http.client cannot read: http.client's own error quotes that line, and the transport says what it means instead."""
+    caplog.set_level(logging.DEBUG)
+
+    def echo(handler, asked, nth):
+        sent = asked.headers.get("authorization") or asked.body.decode()
+        handler.wfile.write(line.format(sent).encode() + b"\r\n\r\n")
+        handler.wfile.flush()
+        handler.close_connection = True
+
+    server = serve(echo)
+    with _client(server, pki) as client, pytest.raises((Unreachable, Unknown)) as failed:
+        client.request(method, "pools", **given())
+    assert not [text for text in _said(failed.value, caplog, capsys) if CANARY in text]
+    assert "it answered something that is no HTTP" in str(failed.value)
+    assert server.asked and all(_went_whole(one) for one in server.asked)
 
 
 @pytest.mark.parametrize(
-    "given", [{"query": {"t": Secret(CANARY)}}, {"form": [("t", Secret(CANARY))]}, {"json": {"t": Secret(CANARY)}}]
+    "given",
+    [
+        {"query": {"t": Secret(CANARY)}},
+        {"query": [("t", ["a", Secret(CANARY)])]},
+        {"json": {"t": Secret(CANARY)}},
+        {"form": {"t": {Secret(CANARY)}}},
+    ],
+    ids=["a query's value", "one of a query's list", "JSON", "a form's set"],
 )
-def test_a_secret_goes_in_a_header_and_never_in_a_query_a_form_or_json(serve, pki, given) -> None:
+def test_a_secret_never_goes_in_a_query_or_json_nor_in_a_form_but_as_a_value(serve, pki, given) -> None:
     server = serve()
-    with _client(server, pki) as client, pytest.raises(TypeError):
+    with _client(server, pki) as client, pytest.raises(TypeError) as refused:
         client.request("POST", "pools", **given)
+    assert CANARY not in str(refused.value) and server.asked == []
+
+
+def test_a_form_s_secret_that_cannot_be_encoded_is_not_made_and_not_said(serve, pki, caplog, capsys) -> None:
+    caplog.set_level(logging.DEBUG)
+    server = serve()
+    with _client(server, pki) as client, pytest.raises(NotMade) as refused:
+        client.request("POST", "pools", form={"t": Secret(f"{CANARY}\ud800")})
+    assert refused.value.__cause__ is None and refused.value.__context__ is None
+    assert not [text for text in _said(refused.value, caplog, capsys) if CANARY in text]
     assert server.asked == []
 
 
