@@ -8,6 +8,8 @@ callback_plugins/agent_warehouse.py   the default output, the waits set apart, N
 .sessions/                        the Claude sessions just destroy saved from each VM (git-ignored, 0700, kept until deleted)
 hosts/                            the checkout's hosts but the first, one folder each - hosts.yml, group_vars/all/local.yml
                                   and vault.yml - and current, the current host's name (git-ignored; just host, §7.14)
+.aw/                              the new engine's home in this checkout (§16.9): client.yml, fleet/, state/ and
+                                  vault-key (git-ignored); nothing writes it before 3.0
 deploy.yml                        template (when missing) + provision + configure + the three sign-ins + the editor
 CLAUDE.md                         agent-facing operating rules
 README.md                         getting started; everything else is in docs/
@@ -237,7 +239,8 @@ lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host 
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest
 lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
-lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark
+lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
+                                  paths.py, the one resolver of a fleet's home, its state folder and its key file
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:

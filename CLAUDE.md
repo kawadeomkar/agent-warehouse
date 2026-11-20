@@ -136,8 +136,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   agent. Never add a VM to a committed inventory, and never hardcode a VM address in a default.
 - **No secrets in git.** Secrets go in `inventory/group_vars/all/vault.yml` (ansible-vault). CI runs
   gitleaks plus `tests/check_no_local_files.sh`, which blocks `hosts.yml`, `local.yml`, `vault.yml`,
-  `.vault_pass`, `host_vars/` and friends. `tests/unit/test_tracked_files.py` tests that guard both
-  ways — extend it when you change the patterns.
+  `.vault_pass`, `host_vars/`, the new engine's `.aw/` and friends. `tests/unit/test_tracked_files.py` tests that
+  guard both ways — extend it when you change the patterns.
 - **The ownership tag is the safety interlock.** Every VM this project creates carries
   `agent-warehouse` (`claude_vm_tag`). Discovery finds VMs by it, and both deletion and
   provisioning *refuse* an existing VM without it — provisioning also refuses a template. It is
@@ -643,6 +643,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `claude_ssh_config_file` and `claude_ssh_user_config` into `MOLECULE_EPHEMERAL_DIRECTORY` with
   the `Include` off, the Vagrantfile sets `claude_ssh_config: false`, and
   `tests/unit/test_ssh_config.py` fails if any of them stops.
+- **Tests never read or write the developer's fleet folder.** Read
+  [§16.9](docs/architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)
+  first. The new engine keeps a fleet where `lib/claude_vm/fleet/paths.py` alone says: `AGENT_WAREHOUSE_HOME`
+  where it is set, a checkout's own `.aw/` (git-ignored, refused by `tests/check_no_local_files.sh`), or for an
+  installed program `~/.config/agent-warehouse/`, its state in `~/.local/state/agent-warehouse/` and its key file in
+  `~/.local/share/agent-warehouse/`.
+    - An autouse fixture in `tests/unit/conftest.py` (`aw_home`) points `AGENT_WAREHOUSE_HOME` into each test's own
+      directory, and before it a directory of the session's own, for a module's run; `harness.PASSED_ON` passes it
+      to every run. Never a session-scoped autouse fixture: it would join every test into one xdist group.
+    - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in the
+      developer's three folders. It watches nothing else there: a sign-in on a machine the product configured
+      writes `RESERVED_ON_A_MACHINE`'s names into that same folder, and no file there is opened.
+    - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`, and only `paths.py` and `fleet/vaultkey.py`
+      the key file, so no cleanup, prune or sweep reaches it by name; each change that removes files holds the key byte
+      for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.

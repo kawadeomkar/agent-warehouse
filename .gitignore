@@ -35,6 +35,10 @@ vault*.json
 # The checkout's hosts but the first (just host, just init --host): each one's
 # address, settings and token, and which is current.
 /hosts/
+# The new engine's home in a checkout (lib/claude_vm/fleet/paths.py): the fleet's
+# files, its secrets and the key that opens them, the computer's own settings,
+# and the state of its runs.
+.aw/
 # The certificate just init trusts the Proxmox API's by, beside each host's hosts.yml.
 proxmox-trust.pem
 # Credentials.
