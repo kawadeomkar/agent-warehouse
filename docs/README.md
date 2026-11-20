@@ -56,7 +56,8 @@ Where things are in the repository is the [file map](architecture/file-map.md).
 
 [How it is built, and why](architecture/README.md): the identity model, each playbook and role, the
 variable layers, convergence, failure modes, the security model and the tests. Read it before
-changing behaviour.
+changing behaviour. The engine that replaces the playbooks at 3.0, built beside them until then, is
+[its own section](architecture/engine.md).
 
 ## Development
 
