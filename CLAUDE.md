@@ -656,9 +656,11 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in a fleet
       folder of the developer's (`developers_folders`): the installed program's three, the checkout's own `.aw/` -
       their real fleet, its key included, whenever they work from a checkout - and the main worktree's where the suite
-      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. It
-      watches nothing else there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s
-      names into that same folder, and no file there is opened, so no `fleet_home` is followed.
+      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. In a
+      checkout's `.aw/` it watches `client.yml`, `fleet/` and the key alone (`CHECKOUT`), never its `state/`, where
+      the developer's own `aw` run from that checkout writes its jobs while a suite runs. It watches nothing else
+      there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s names into that same
+      folder, and no file there is opened, so no `fleet_home` is followed.
     - A home is the installed program's by the real path of both, never their text, so its key never lands in the
       config folder through a link; a home inside the installed program's state folder is refused.
     - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
@@ -972,6 +974,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       context, so one made elsewhere could check nothing.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
       the vendors' trust and `CONTEXTS`.
+- **A job's state is derived from its record and its own kernel lock, never stored.** Read
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
+    - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`
+      takes `flock(LOCK_EX)` on the job's `lock` before `job.json` is written and keeps the descriptor, which no child
+      inherits, for the life of the process that made the job: the kernel lets the lock go when that process ends,
+      however it ends, and nothing is ever left to clear.
+    - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
+      and `lost` where it holds none and the lock is free; `lost` is never written. It asks the lock before it reads
+      the record, since a run writes its outcome before it ends, and never probes a job of its own process's: on NFS
+      Linux emulates `flock` with POSIX locks, and a probe's close would let the run's own lock go. No module of
+      `runs/` decides a state from a pid, a process's start or the process table; the record's `pid` and `started`
+      are information.
+    - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
+      anything is written or heard. A job dropped goes `job.json` first, then its lock, then its folder: removed with
+      the lock still open, NFS keeps the folder.
+    - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
 
 ## Architecture, and why it looks like this
 
