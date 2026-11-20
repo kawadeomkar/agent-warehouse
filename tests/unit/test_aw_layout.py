@@ -18,7 +18,9 @@ from aw_kit import run_aw
 from harness import repo_files, repo_texts
 from test_claude_vm import _core_modules
 
-from claude_vm.cli.main import NOT_BUILT
+from claude_vm.cli.dispatch import not_built
+from claude_vm.schema.check import NO_SUCH_COMMAND
+from claude_vm.schema.words import VERBS
 
 REPO = Path(__file__).resolve().parents[2]
 LIB = REPO / "lib"
@@ -266,11 +268,20 @@ def test_aw_version_names_this_checkout(tmp_path, home) -> None:
         assert (result.returncode, result.stdout, result.stderr) == (0, f"aw from the checkout {REPO}\n", ""), cwd
 
 
-@pytest.mark.parametrize("words", [(), ("deploy", "alpha"), ("--version", "--version"), ("help",), ("hunter2",)])
-def test_aw_refuses_anything_else_in_one_sentence_that_repeats_nothing(tmp_path, home, words) -> None:
+@pytest.mark.parametrize(
+    ("words", "said"),
+    [
+        ((), not_built(VERBS["help"])),
+        (("deploy", "alpha"), not_built(VERBS["deploy"])),
+        (("help",), not_built(VERBS["help"])),
+        (("hunter2",), NO_SUCH_COMMAND),
+    ],
+)
+def test_aw_refuses_what_is_not_built_in_one_sentence_that_repeats_nothing(tmp_path, home, words, said) -> None:
+    # Until a card builds a verb: its parser and dispatch are tests/unit/test_aw_cli_parse.py's.
     result = run_aw(*words, home=home, cwd=tmp_path)
-    assert (result.returncode, result.stdout, result.stderr) == (1, "", NOT_BUILT + "\n")
-    assert "just" in NOT_BUILT and "not built" in NOT_BUILT
+    assert (result.returncode, result.stdout, result.stderr) == (1, "", said + "\n")
+    assert "alpha" not in said and "hunter2" not in said
 
 
 # ---------------------------------------------------------------- the rule between the two engines ----

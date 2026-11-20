@@ -40,11 +40,10 @@ The rule is one-way, and `tests/unit/test_aw_layout.py` holds both halves of it.
 
 `tools/aw` is the program, on the model of `tools/mcp`. Run as `python -I`, it puts this checkout's `lib/` first on
 `sys.path`, checks with `plugin.own` that the `claude_vm` imported is this checkout's, and runs
-`lib/claude_vm/cli/main.py`'s `main` with its own path first and then the words typed. Until the parser and the
-first verb are built, `main` answers `--version` with one line, `aw from the checkout <path>`. The path is worked
-out from `tools/aw`'s own path and from nothing else, and a checkout has no version number of its own. Anything else
-is refused in one sentence, with exit status 1, which says that the engine is not built yet and that the commands are
-`just`'s. The sentence never repeats what was typed.
+`lib/claude_vm/cli/main.py`'s `main` with its own path first and then the words typed, which 16.3 reads. A person
+starts it with the launcher at the checkout's top, `aw` (16.3). `--version` alone answers with one line, `aw from the
+checkout <path>`. The path is worked out from `tools/aw`'s own path and from nothing else, and a checkout has no
+version number of its own.
 
 Beside the subpackages, `lib/claude_vm/secret.py` holds what the engine wraps a secret in as soon as it reads one: a
 `Secret`, which `repr`, `str`, an f-string, `format` and a log line show as a mark, which refuses to be pickled or
@@ -109,14 +108,78 @@ cutover. `tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates
 `lib/claude_vm/mcp/recipes.py`, until the cutover), the exit statuses and the module's imports;
 `tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the two maps.
 
+**The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of
+the command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and
+to the pattern the table names, with `full`, and returns nothing or the one sentence of the first value it refuses: an
+option the verb has not got, a value of the wrong type, or one outside its pattern, each naming the option and its help
+and never the value. It takes values as the parser gives them and as JSON with exact types, and coerces nothing: a
+value option's is a string, a flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, `--migrate`'s true
+or a string, the words a list where the verb takes several and a string where it takes one; `detach` is a flag of
+every verb whose run is a job. A word given to a verb that refuses any (`init`) is refused unsaid. `check_before`
+holds the words given before any verb the same way. The rules between options run after the patterns, in the order
+the verb's row names them, once they are built.
+
 ## 16.3 `cli/` — the `aw` program
 
-`lib/claude_vm/cli/` is where the program goes: reading the command line against the table of `schema/`, help, the
-dispatch of a verb to its workflow and the printer of a command. `main.py` is the entry `tools/aw` runs, as 16.1 says.
+`lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/` and the dispatch of a
+verb to its workflow, below, and help and the printer of a command, which go here when they are built. `main.py` is
+the entry `tools/aw` runs, as 16.1 says.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
 once it is built; that server runs `aw` as a child for every run.
+
+**Reading the words: `parse.py`.** `read(words)` takes the words typed after `aw`: first the words before the verb
+(`--no-lock`, `--attended`, the hidden `--detached-run`), then the verb, then its words and options, split by
+`argparse` into the table's slots for the one verb typed only. No verb is `help`, as `just` alone lists the recipes.
+`argparse` is set as the design requires: abbreviations off, so a prefix of an option is an option the verb has not
+got; its own help off; its errors raised rather than printed and exited on; and its colours off from Python 3.14. An
+option is taken as `--long value` and as `--long=value`, which is how a value that starts with `-` is given, and is
+given once, but for `--set`, given once for each setting, and `-v`, counted. Every verb whose run is a job gets
+`--detach`, from the table's column, and no other verb has it. The values, only those given, then go through the one
+check (16.2). Anything refused raises `Refused` with one sentence of the project's own, which names the option where
+one was wrong and never a value or a verb typed: no text of `argparse`'s, no usage block, no exit status of its own.
+
+**Today's habits: `habits.py`.** After the check, as ordinary code, a VM's name with `_` is taken with `-` and said in
+today's words, `alpha,beta` is two names as two words are, and a verb that takes one name refuses two. Where a verb
+that takes several names is given none, the two meanings of no names are one field, `default_vm`: true for a whole
+`deploy`, `deploy --only provision` and `destroy`, which act on the default VM; false for the rest, which act on every
+VM the fleet made. The default VM's name is the handler's to read from the settings; the parser reads no file of the
+fleet.
+
+**The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
+the `--set` words as typed, from after the verb; `--detach`; `--no-lock`, the one word for a run that takes no lock,
+at the person's own risk; `--attended=1`, the agents' server's word that someone is at the screen with no terminal;
+`--detached-run`; and `LOG_DIR` and `LOG_RETENTION_DAYS`, read from the environment as today. Nothing else is read from
+the environment: an exported `RUN_LOCK` or `ATTENDED` changes nothing.
+
+**The dispatch: `dispatch.py`.** The handler the verb's row names, `module:function` under `claude_vm`, is imported
+only when that verb runs and called with the run's own words and then the verb's values as keyword arguments; what it
+returns is the exit status. Before it, in this order: an environment that lacks the packages the engine needs is
+refused, naming `aw install`, for every verb but `install` and `help`; a verb no card has built yet is refused naming
+the card that builds it and, where today's `justfile` has a recipe of that name, `just <verb>`, which does its work
+until the cutover; and a verb whose run is a job, but `init` and `install`, which come before any fleet, is refused
+where the fleet's files do not exist, naming `aw init`, and says on standard error which fleet it drives where
+`AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose it. A refusal is one line on standard error and exit status 1.
+
+**The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
+link to it followed, and never from the working directory, so no `justfile` or checkout found upward runs in its
+place, and the checkout guard of today's recipes is not needed. It asks `tools/env-run --which` which environment the
+checkout runs, a virtualenv of the person's own or the checkout's own, and runs `tools/aw` with that Python under
+`-I`. `install`'s one home is its function `install_env`: what `just install` does to the environment, a sync of a
+virtualenv of the person's own with `--inexact` and no download after `tools/stale_scripts.py`'s reinstall, or of the
+checkout's own exactly the lock's on the Python version `managed_python` names, which the `justfile`'s holds equal;
+then git's pre-commit hook, as `just init` puts it, but nowhere where `core.hooksPath` is set. It installs no Galaxy
+collection and moves nothing of 1.x. It runs in three cases and no other: by itself, once, where the checkout's own
+environment does not exist yet, saying so on standard error before it runs the program; for `aw install --lock`, which
+writes `uv.lock` and needs no environment; and for its one word of its own, `--install-env`, which `aw install`'s run
+passes it as a child carrying the job's marker, `AGENT_WAREHOUSE_JOB`, and which is refused, naming `aw install`,
+without it. It never installs into a virtualenv of the person's own unasked: the program names `aw install` where one
+lacks the packages.
+
+`tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
+none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, the dispatch's refusals, what a refusal
+imports, and the launcher run in checkouts the test makes, with a stand-in `uv`.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 

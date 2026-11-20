@@ -20,6 +20,9 @@ syntax tree for one):
   `first_on_path`; stdin /dev/null unless a test gives one, a process group of its own, ended whole on a timeout; and a
   test that fails if the run reached a stand-in;
 - `aw_at_a_terminal(*words, home=...)`: the same at a pseudo-terminal of its own (`harness._at_a_pseudo_terminal`);
+- `run_launcher(*words, home=...)`: the launcher at the checkout's top, aw, which runs tools/aw, run by its path as a
+  person runs it, in run_aw's environment and with the suite's own Python as PYTHON unless a test names another: this
+  checkout's, a link to it, or a copy of it in a checkout a test made, and never this checkout's asked to install;
 - `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`; and with `module=`, what
   importing that one module of this checkout's lib/ loaded;
 - `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing.
@@ -48,6 +51,8 @@ from claude_vm.fleet import paths
 from claude_vm.secret import Secret
 
 AW = harness.REPO / "tools" / "aw"
+# The launcher at the checkout's top, which runs tools/aw with the Python of the environment the checkout runs.
+LAUNCHER = harness.REPO / "aw"
 # The module every run of tools/aw imports, whatever it was asked: a list of imports without it read nothing.
 ENTRY = "claude_vm.cli.main"
 # A module imports_of is asked about: a dotted name, each part an identifier, held whole before it goes into -c.
@@ -235,13 +240,15 @@ def _run(
     interpreter: Iterable[str] = (),
     code: str | None = None,
     first_on_path: Iterable[str | Path] = (),
+    argv: list[str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     assert stdin is not None, "a run of tools/aw never reads this terminal: give it /dev/null, a file or its text"
     where = Path(cwd) if cwd is not None else home
-    if code is not None:
+    # argv given is run_launcher's: the launcher, which runs tools/aw.
+    if argv is None and code is not None:
         # python runs code (-c) in tools/aw's place: imports_of's one module.
         argv = [sys.executable, "-I", *interpreter, "-c", code]
-    else:
+    elif argv is None:
         argv = _argv(words, program, where, interpreter)
     text = stdin if isinstance(stdin, str) else None
     process = subprocess.Popen(
@@ -294,6 +301,43 @@ def run_aw(
         program=program,
         timeout=timeout,
         first_on_path=first_on_path,
+    )
+
+
+def run_launcher(
+    *words: str,
+    home: Path,
+    launcher: str | Path = LAUNCHER,
+    stdin: int | IO | str = subprocess.DEVNULL,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+    timeout: float = 120,
+    first_on_path: Iterable[str | Path] = (),
+) -> subprocess.CompletedProcess[str]:
+    """Run the launcher with words from cwd (home unless given), by its path as a person runs it, and return its
+    status, stdout and stderr, as text: run_aw's environment (env and first_on_path as run_aw takes them), PYTHON the
+    suite's own Python unless env names another.
+
+    launcher is this checkout's, a link to it, or a copy of it byte for byte in a checkout a test made: never another
+    program. This checkout's is never asked to install (--install-env, install --lock), and always runs with the
+    suite's own Python as PYTHON, a virtualenv, so that it never makes an environment or puts a git hook here: a test
+    that installs makes a checkout of its own."""
+    path = Path(launcher) if Path(launcher).is_absolute() else (cwd or home) / launcher
+    assert path.read_bytes() == LAUNCHER.read_bytes(), f"{launcher} is not the launcher"
+    given = {"PYTHON": sys.executable, **(env or {})}
+    if path.resolve() == LAUNCHER.resolve():
+        assert words[:1] != ("--install-env",) and words[:2] != ("install", "--lock"), "this checkout never installs"
+        assert given["PYTHON"] == sys.executable, "this checkout's launcher runs the suite's own environment"
+    return _run(
+        words,
+        home=home,
+        stdin=stdin,
+        env=given,
+        cwd=cwd,
+        program=AW,
+        timeout=timeout,
+        first_on_path=first_on_path,
+        argv=[str(launcher), *words],
     )
 
 
