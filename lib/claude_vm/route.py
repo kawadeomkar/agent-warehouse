@@ -379,15 +379,19 @@ def vm_hop(route, address, given="", extra="") -> dict:
 
 
 # Every ssh _run has started and not yet waited for, so that a caller about to end at once (os._exit, which runs no
-# finally) can end them first (end_all).
+# finally) can end them first (end_all), and once it has, _OVER: none is started after. _run starts an ssh and adds it
+# in one step under the lock end_all takes, so that end_all never runs between the two.
 _LIVE: set = set()
 _LIVE_LOCK = threading.Lock()
+_OVER = threading.Event()
 
 
 def end_all() -> None:
-    """End every ssh this process runs for the hop, whatever thread waits on it: for a caller that ends at once, before
-    the threads' own ``finally`` could. Each is reaped by the thread that started it, or by init."""
+    """End every ssh this process runs for the hop, whatever thread waits on it, and start none after: for a caller that
+    ends at once, before the threads' own ``finally`` could. One being started meanwhile is waited for and ended with
+    the rest. Each is reaped by the thread that started it, or by init."""
     with _LIVE_LOCK:
+        _OVER.set()
         live = list(_LIVE)
     for process in live:
         try:
@@ -402,24 +406,29 @@ def _run(argv: list[str], limit: float, until: str = "", banner: bool = False, *
     ``{rc, said, killed, banner}``, ``said`` its standard error, ``rc`` None where it was killed. With ``banner``, its
     standard output is read as it comes and dropped, and only whether its first bytes are an SSH banner kept, as
     ``banner``: never more of what the far end wrote. A caller ended meanwhile (a Ctrl-C, any exception) ends it too,
-    and waits for it: no ssh is left to run on by itself. ``process_group``, Popen's: the new engine's 0 starts it in a
-    process group of its own, so that a terminal's Ctrl-C, which the engine takes as "finish the step", never reaches
-    it; None, today's callers', leaves it in this process's group."""
+    and waits for it: no ssh is left to run on by itself. Once end_all has run, nothing is started: ``rc`` 255, and
+    ``said`` says so. ``process_group``, Popen's: the new engine's 0 starts it in a process group of its own, so that a
+    terminal's Ctrl-C, which the engine takes as "finish the step", never reaches it; None, today's callers', leaves it
+    in this process's group."""
     import subprocess  # only where ssh is run: imported with the package, it would slow every run's start
 
     first = b""
     with tempfile.TemporaryFile() as errors:
-        try:
-            process = subprocess.Popen(
-                argv,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE if banner else subprocess.DEVNULL,
-                stderr=errors,
-                process_group=process_group,
-            )
-        except OSError as error:
-            return {"rc": 255, "said": f"{argv[0]}: {error.strerror or error}", "killed": False, "banner": False}
+        # Started and added in one step, under the lock end_all takes: an end_all meanwhile waits for the start and
+        # ends this ssh with the rest, and once one has run nothing is started.
         with _LIVE_LOCK:
+            if _OVER.is_set():
+                return {"rc": 255, "said": f"{argv[0]}: not started, the run ended", "killed": False, "banner": False}
+            try:
+                process = subprocess.Popen(
+                    argv,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE if banner else subprocess.DEVNULL,
+                    stderr=errors,
+                    process_group=process_group,
+                )
+            except OSError as error:
+                return {"rc": 255, "said": f"{argv[0]}: {error.strerror or error}", "killed": False, "banner": False}
             _LIVE.add(process)
         if process.stdout is not None:
             os.set_blocking(process.stdout.fileno(), False)
