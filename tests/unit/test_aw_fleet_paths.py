@@ -844,15 +844,21 @@ def _three(tmp_path: Path) -> tuple[Path, Path, Path]:
     return folders
 
 
-def _aged(folders) -> dict:
+def _whole(folders) -> dict:
+    """Each folder watched for every name paths owns, as the installed program's three are."""
+    return dict.fromkeys(folders, conftest.WHOLE)
+
+
+def _aged(watched) -> dict:
     """The footprint, every name in it given a time long past first: a write the same second still shows."""
-    for path in conftest.footprint(folders):
+    for path in conftest.footprint(watched):
         os.utime(path, ns=(10**9, 10**9), follow_symlinks=False)
-    return conftest.footprint(folders)
+    return conftest.footprint(watched)
 
 
 def test_the_footprint_sees_a_name_paths_owns_made_changed_or_removed(tmp_path) -> None:
-    config, state, data = folders = _three(tmp_path)
+    config, state, data = three = _three(tmp_path)
+    folders = _whole(three)
     (config / "fleet").mkdir()
     (config / "fleet" / "settings.yml").write_text("a: 1\n")
     (data / "vault-key").write_text("AGE-SECRET-KEY-1FAKE\n")
@@ -872,12 +878,39 @@ def test_the_footprint_sees_a_name_paths_owns_made_changed_or_removed(tmp_path) 
 
 def test_the_footprint_watches_nothing_else_there(tmp_path) -> None:
     config, state, data = _three(tmp_path)
-    before = conftest.footprint((config, state, data))
+    before = conftest.footprint(_whole((config, state, data)))
     # A sign-in on a machine the product configured, and today's per-checkout folder (tools/env-run --data).
     (config / "claude-login.out").write_text("")
     (config / "gh-login").write_text("digest\n")
     (data / "checkouts" / "agent-warehouse-1").mkdir(parents=True)
-    assert conftest.footprint((config, state, data)) == before
+    assert conftest.footprint(_whole((config, state, data))) == before
+
+
+def test_a_checkouts_state_folder_is_left_to_the_developers_own_runs(tmp_path) -> None:
+    # The developer's own aw, run from the checkout while a suite runs, writes its job into .aw/state/: state, which
+    # can be made again (review/code/D1.md, finding 11). Its fleet's files, client.yml and its key stay watched; the
+    # installed program's state folder stays watched whole until H14 decides for it.
+    config, state, data = _three(tmp_path)
+    checkout = _checkout(tmp_path / "checkout")
+    watched = conftest.developers_folders({"HOME": str(tmp_path / "developer")}, checkout)
+    assert watched[checkout / ".aw"] == conftest.CHECKOUT == ("client.yml", "fleet", "vault-key")
+    assert [watched[folder] for folder in (config, state, data)] == [conftest.WHOLE] * 3
+    (checkout / ".aw" / "fleet").mkdir(parents=True)
+    (checkout / ".aw" / "vault-key").write_text("AGE-SECRET-KEY-1FAKE\n")
+    before = _aged(watched)
+    (checkout / ".aw" / "state" / "jobs" / "0123456789abcdef").mkdir(parents=True)
+    (checkout / ".aw" / "state" / "jobs" / "0123456789abcdef" / "job.json").write_text("{}\n")
+    (checkout / ".aw" / "state" / "logs").mkdir()
+    assert conftest.footprint(watched) == before
+    for touch in (
+        lambda: (state / "jobs").mkdir(),
+        lambda: (checkout / ".aw" / "client.yml").write_text("editor: zed\n"),
+        lambda: (checkout / ".aw" / "fleet" / "settings.yml").write_text("a: 1\n"),
+        lambda: (checkout / ".aw" / "vault-key").chmod(0o644),
+    ):
+        touch()
+        assert conftest.footprint(watched) != before, touch
+        before = _aged(watched)
 
 
 def _session(tmp_path: Path, root: Path) -> SimpleNamespace:
@@ -937,6 +970,12 @@ def test_the_guard_watches_the_checkouts_fleet_the_main_worktrees_and_the_export
     # The home the developer exported, read as paths reads it; none it refuses, which the new engine never writes in.
     exported = conftest.developers_folders({**developer, VARIABLE: "~/fleets/work"}, main)
     assert _real(exported) == from_main + _real([tmp_path / "developer/fleets/work"])
+    assert list(exported.values()) == [conftest.WHOLE] * 3 + [conftest.CHECKOUT, conftest.WHOLE]
+    # Exported as the checkout's own .aw/, it is that folder still, its state left to the developer's own runs.
+    assert conftest.developers_folders({**developer, VARIABLE: str(main / ".aw")}, main) == {
+        **dict.fromkeys(installed, conftest.WHOLE),
+        main / ".aw": conftest.CHECKOUT,
+    }
     for refused in ("relative/fleet", str(installed[1] / "inside")):
         assert _real(conftest.developers_folders({**developer, VARIABLE: refused}, main)) == from_main
     # Where git cannot say, the checkout's own .aw/ is still watched.
@@ -959,7 +998,8 @@ def test_a_test_that_writes_in_the_checkouts_fleet_folder_fails_the_session(tmp_
     # The review's probe (review/code/D1.md, finding 1), in a child pytest whose checkout is a worktree of the test's
     # own: this conftest.py copied there, so that its ROOT is that worktree, and every other helper linked. The probe
     # writes client.yml in the worktree's .aw/, the main worktree's, and the home the developer exported; the session
-    # fails, naming each, though the probe's one test passed.
+    # fails, naming each, though the probe's one test passed. A job it writes in the worktree's .aw/state/, as the
+    # developer's own aw run from the checkout would, is not named.
     main, checkout = _worktree_of(tmp_path)
     unit = checkout / "tests" / "unit"
     unit.mkdir(parents=True)
@@ -973,7 +1013,8 @@ def test_a_test_that_writes_in_the_checkouts_fleet_folder_fails_the_session(tmp_
     (checkout / "justfile").write_text("")
     exported = tmp_path / "exported"
     written = [checkout / ".aw" / "client.yml", main / ".aw" / "client.yml", exported / "client.yml"]
-    (unit / "test_probe.py").write_text(PROBE.format(written=[str(path) for path in written]))
+    left = [checkout / ".aw" / "state" / "jobs" / "0123456789abcdef" / "job.json"]
+    (unit / "test_probe.py").write_text(PROBE.format(written=[str(path) for path in written + left]))
     env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
     env.update({"HOME": str(tmp_path / "developer"), VARIABLE: str(exported)})
     ran = subprocess.run(
@@ -991,5 +1032,6 @@ def test_a_test_that_writes_in_the_checkouts_fleet_folder_fails_the_session(tmp_
     assert ran.returncode == pytest.ExitCode.TESTS_FAILED and "1 passed" in said, said
     named = said.split("the developer's fleet folders", 1)[-1]
     assert [path for path in written if os.path.realpath(path) not in named and str(path) not in named] == [], said
-    for path in written:
+    assert [path for path in left if os.path.realpath(path) in named or str(path) in named] == [], said
+    for path in written + left:
         path.unlink()

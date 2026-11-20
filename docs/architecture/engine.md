@@ -271,6 +271,60 @@ modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each wi
 run's end on a signal, and a run detached as the same program in a session of its own. It imports
 `schema/` and `fleet/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
+**A job: `job.py`.** Every run is a job, at a terminal or detached. `create(jobs_dir, verb, command, host, machines,
+starter, attached)` makes `jobs/<id>/` in the state folder (`paths.jobs_dir`), with any folder above it that is
+missing, at mode 0700, the ID sixteen hex digits as today's MCP jobs have. Before anything else is written it opens the
+job's `lock` (0600) and takes `flock(LOCK_EX)` on it; then it writes `job.json` (0600). The descriptor stays open for
+the life of the process that made the job, and, as Python opens every descriptor, no child inherits it: the kernel lets
+the lock go when that process ends, however it ends, so nothing is ever left to clear. Every value is checked before
+anything is made, and the module is the standard library alone, with `store`, `text`, `secret` and the patterns.
+
+| Field of `job.json` | Holds |
+|---|---|
+| `id`, `verb`, `command` | The job's ID, the verb, and the command as typed, with no secret |
+| `inputs` | The run's resolved inputs, a typed `--set` value among them |
+| `starter` | What started it: `{"kind": "terminal"}`, `{"kind": "detach"}`, or `{"kind": "mcp", "server": <id>}`, that server's own ID |
+| `host`, `machines` | The host the run is on, and the machines it names, by identity |
+| `locks` | The names of the locks it holds |
+| `attached` | Whether it runs at a terminal |
+| `pid`, `started` | Its process and when it started: information for a person and for a machine's `job` line, never read to decide a state |
+| `deadline`, `stop` | When a detached run is stopped; a stop asked for, `{"by", "at"}` |
+| `directory`, `log` | The run's short-lived directory, and its plain-text log |
+| `waiting` | What it waits for, such as a page in the browser, or nothing |
+| `next` | NEXT STEPS, records `{machine, matter, line}`, a line removed once nothing is left |
+| `machine_outcomes` | Each machine's outcome, the stage it reached, and why |
+| `outcome`, `exit`, `ended`, `why` | At the end: `succeeded`, `failed` or `cancelled`, the exit status, when, and why |
+
+`update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
+`store.locked`, so the run and another process recording a stop lose neither change; a name `FIELDS` lacks, and `id`,
+are refused. The record has no schema of its own and no event file beside it: `events.jsonl` is the add-on's.
+
+**The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
+`LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
+and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
+killed outright, or one that ended without saying how. It asks the lock before it reads the record: a run writes its
+outcome before it ends, so a lock found free means any outcome is already there. A job the reading process made
+itself is read from what it holds and never probed: on NFS, Linux emulates `flock` with POSIX locks, which a process
+holds once per file, so closing a probe's descriptor would let the run's own lock go. No module of `runs/` keeps a pid
+to decide a state, reads a process's start or reads the process table for one, which a scan in the test holds.
+
+**Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
+with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
+`report`, `waiting`, `next`, `child` and `end`; another is refused. Every string an event carries goes through
+`text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
+`logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
+removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
+machine) with its outcome and exit status. Only the process that made a job emits its events, listens to them or drops
+it.
+
+**Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
+and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
+while it is read is never an error. A run refused at its locks leaves no job: `drop(job)` removes `job.json` first, so
+readers pass over the folder, then closes the lock, then removes the folder. Removed while the lock file is still open,
+the file would be renamed `.nfsXXXX` on NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each
+state made by a run in a child process: a SIGKILL reads `lost` with nothing written after it, and a child that outlives
+its killed run holds no lock.
+
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
@@ -337,8 +391,10 @@ for a module's run, and `harness.PASSED_ON` passes it to every run. The session 
 developer's fleet folders before the first test and after the last, from their metadata alone, and fails if one was
 made, changed or removed. Those folders (`developers_folders`) are the installed program's three, the checkout's own
 `.aw/` and, where the suite runs from a worktree, the main worktree's (git's common directory), and the
-`AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. No file there is opened, so no
-`fleet_home` is followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
+`AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. In a checkout's `.aw/` only
+`client.yml`, `fleet/` and the key are watched, never `state/`: the developer's own `aw` run from that checkout writes
+its jobs there while a suite runs, and state can be made again. No file there is opened, so no `fleet_home` is
+followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
 the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
