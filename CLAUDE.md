@@ -946,6 +946,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
   down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
   holds both.
+- **One transport sends every HTTPS request of the engine, follows no redirect, reads no certificate variable, and
+  takes a proxy only as an argument.** Read
+  [§16.7](docs/architecture/engine.md#167-vendors--one-https-transport-tailscales-calls-verified-downloads) first.
+    - `lib/claude_vm/vendors/transport.py` is the only module of the new engine that imports `http.client` or wraps a
+      socket. It builds no context and reads no variable or setting: the caller gives it the `ssl.SSLContext`, the
+      proxy (an `http://` URL or none, through a CONNECT tunnel) and `peer_check`, called with the peer's certificate
+      before anything is written. A 3xx is an answer.
+    - A GET or HEAD is tried at most three times; any other method is sent once, and is `Unknown` once it has left.
+      Every body is held to `most`, every wait to its limit and the whole call to its deadline.
+    - A header's value may be a `Secret`, revealed in `_put` alone, and no error says a header's value: one
+      `http.client` would refuse is `NotMade`, "the request could not be made".
+    - The proxy is `lib/claude_vm/vendors/proxy.py`'s `choose`: today's, from the environment under `requests`' rule,
+      at `network_proxy: environment`, with `none` the opt-in. It reads only the environment it is given, and of
+      `urllib.request` only `proxy_bypass_environment` and macOS's two readers of the system's settings.
+    - `tests/unit/test_aw_transport.py` holds all of it.
 
 ## Architecture, and why it looks like this
 
