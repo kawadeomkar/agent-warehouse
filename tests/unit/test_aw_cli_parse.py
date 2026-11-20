@@ -7,13 +7,17 @@ verb has not got are refused before the dispatch, in one sentence of the project
 with argparse's own text: no refusal has a usage block. A verb no card has built is refused naming that card, and just
 <verb> only where today's justfile has the recipe. --detach is on exactly the verbs whose run is a job. No names means
 the default VM or every VM as the reference says, with no fleet file read. An exported RUN_LOCK or ATTENDED changes
-nothing; --no-lock and --attended=1 before the verb do. A refusal imports no Ansible and no module of the engine.
+nothing, in run_words and in the program; --no-lock and --attended=1 before the verb do. A Python that is no
+virtualenv's is refused for every verb, naming PYTHON. A refusal imports no Ansible and no module of the engine.
 
-The launcher, run as a person runs it, through the kit: through a link in another folder and from inside another
-checkout it runs its own checkout's tools/aw; with no environment yet it makes the checkout's own, with the stand-in uv
-given today's just install's words, once, puts the git hook in place and then runs the program; aw install --lock is uv
-lock alone; core.hooksPath set, no hook; --install-env only from a job; a virtualenv of the person's own is never
-installed into unasked; and its Python version is the justfile's.
+The launcher, run as a person runs it, through the kit: through a link in another folder, through a relative link in a
+folder that is itself a link, and from inside another checkout it runs its own checkout's tools/aw; the Python is the
+one the checkout's folder picks, never the working folder's - not a version manager's choice there, not another
+project's virtualenv, not a module planted there; with no environment yet it makes the checkout's own, with the
+stand-in uv given today's just install's words, once, puts the git hook in place and then runs the program; aw install
+--lock is uv lock alone; core.hooksPath set, no hook; --install-env only from a job; a virtualenv of the person's own is
+never installed into unasked; a Python that cannot be run, no uv and a uv that made no Python are its own sentences;
+and its Python version is the justfile's.
 """
 
 from __future__ import annotations
@@ -338,6 +342,24 @@ def test_an_exported_run_lock_or_attended_changes_nothing_and_the_words_before_t
         run.no_lock = False  # type: ignore[misc]
 
 
+def test_an_exported_run_lock_or_attended_changes_nothing_in_the_program_either(monkeypatch) -> None:
+    # Held where it can break, in main, after run_words: the dispatch is a recorder of the run's own words it gets.
+    received: list[before.RunWords] = []
+
+    def recorder(program_root, verb, run, values) -> int:
+        received.append(run)
+        return EXITS["done"]
+
+    monkeypatch.setattr(dispatch, "dispatch", recorder)
+    for name in before.ENVIRONMENT:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ATTENDED", "1")
+    monkeypatch.setenv("RUN_LOCK", "")
+    assert main([str(REPO / "tools" / "aw"), "status"]) == EXITS["done"]
+    assert main([str(REPO / "tools" / "aw"), "--no-lock", "--attended=1", "status"]) == EXITS["done"]
+    assert received == [before.RunWords(), before.RunWords(no_lock=True, attended=True)]
+
+
 # ---------------------------------------------------------------- the dispatch ----
 
 
@@ -420,6 +442,18 @@ def test_an_environment_without_the_packages_names_aw_install_but_for_install_an
         assert refused.value.sentence == dispatch.not_built(VERBS[name])
 
 
+def test_a_python_that_is_no_virtualenv_s_is_refused_for_every_verb_before_anything_else(monkeypatch) -> None:
+    assert dispatch.in_a_virtualenv() is (sys.prefix != sys.base_prefix) is True
+    monkeypatch.setattr(dispatch, "in_a_virtualenv", lambda: False)
+    monkeypatch.setattr(dispatch, "lacking", lambda: pytest.fail("the environment's packages were asked about"))
+    for verb in VERBS.values():
+        with pytest.raises(parse.Refused) as refused:
+            dispatch.dispatch(REPO, _with_handler(verb.name), before.RunWords(), {})
+        sentence = refused.value.sentence
+        assert sentence == dispatch.NO_VIRTUALENV.format(python=sys.executable), verb.name
+    assert "PYTHON" in sentence and "aw install" not in sentence
+
+
 def test_main_exits_1_on_a_refusal_and_says_the_habit_first(monkeypatch, capsys) -> None:
     monkeypatch.setattr(dispatch, "lacking", lambda: [])
     assert main([str(REPO / "tools" / "aw"), "deploy", "my_vm"]) == EXITS["refused"] == 1
@@ -477,11 +511,13 @@ PROGRAM = """#!/usr/bin/env python3
 import json
 import sys
 
-print(json.dumps({{"checkout": {name!r}, "argv": sys.argv, "isolated": sys.flags.isolated}}))
+print(json.dumps({{"checkout": {name!r}, "argv": sys.argv, "isolated": sys.flags.isolated, "prefix": sys.prefix}}))
 """
 # A python3 first on PATH that is no virtualenv's: tools/env-run then names the checkout's own environment.
 NO_VIRTUALENV = "#!/bin/sh\nexit 1\n"
 JOB = "0123456789abcdef"
+# git that reads no config of the developer's.
+NO_GIT_CONFIG = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
 
 
 def _git(checkout: Path, *args: str) -> None:
@@ -551,8 +587,8 @@ def _managed(where: Path, **more: str) -> dict[str, object]:
     bin_dir.mkdir(exist_ok=True)
     (bin_dir / "python3").write_text(NO_VIRTUALENV)
     (bin_dir / "python3").chmod(0o755)
-    git = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-    return {"env": {"PYTHON": "", "UV": str(where / "uv-bin" / "uv"), **git, **more}, "first_on_path": (bin_dir,)}
+    env = {"PYTHON": "", "UV": str(where / "uv-bin" / "uv"), **NO_GIT_CONFIG, **more}
+    return {"env": env, "first_on_path": (bin_dir,)}
 
 
 def _ran(result: subprocess.CompletedProcess[str]) -> dict:
@@ -576,9 +612,112 @@ def test_the_launcher_runs_its_own_checkout_through_a_link_and_from_inside_anoth
             "checkout": "own",
             "argv": [str(own.resolve() / "tools" / "aw"), "status", "--json"],
             "isolated": 1,
+            "prefix": sys.prefix,
         }, launcher
     # Run by a relative path from its own folder, as ./aw.
     assert _ran(run_launcher("help", home=home, launcher="./aw", cwd=own))["checkout"] == "own"
+
+
+def test_through_a_relative_link_in_a_folder_that_is_a_link_the_target_s_checkout_runs(home, tmp_path) -> None:
+    # a/linkdir is a/deep/sub, where aw is ../../own/aw: the kernel reads that as a/own/aw. Read as text,
+    # a/linkdir/../.. is the test's own folder, where a decoy checkout stands at own/.
+    target = _checkout(tmp_path / "a", "own")
+    decoy = _checkout(tmp_path, "own")
+    (decoy / "tools" / "aw").write_text(PROGRAM.format(name="decoy"))
+    sub = tmp_path / "a" / "deep" / "sub"
+    sub.mkdir(parents=True)
+    (sub / "aw").symlink_to(Path("..") / ".." / "own" / "aw")
+    (tmp_path / "a" / "linkdir").symlink_to(sub, target_is_directory=True)
+    result = run_launcher("status", home=home, launcher=tmp_path / "a" / "linkdir" / "aw", cwd=tmp_path)
+    assert result.returncode == 0, result.stderr
+    said = _ran(result)
+    assert (said["checkout"], said["argv"][0]) == ("own", str(target.resolve() / "tools" / "aw"))
+
+
+def _virtualenv(where: Path) -> Path:
+    """A virtualenv the test makes, with no packages: its python."""
+    subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(where)], check=True, timeout=120)
+    return where / "bin" / "python"
+
+
+def _picks_by_folder(where: Path) -> Path:
+    """A folder holding a python3 that a version manager picks by the folder it runs in, as pyenv's shim does: the
+    Python a .python-version names, in that folder or the nearest above it up to where; else the suite's own Python's
+    base, which is no virtualenv's."""
+    base = Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    assert base.is_file(), base
+    bin_dir = where / "picks-by-folder"
+    bin_dir.mkdir()
+    shim = bin_dir / "python3"
+    shim.write_text(
+        "#!/bin/sh\n"
+        f"top='{where.resolve()}'\n"
+        "dir=$(pwd -P)\n"
+        "while :; do\n"
+        '  if [ -f "$dir/.python-version" ]; then exec "$(cat "$dir/.python-version")" "$@"; fi\n'
+        '  case $dir in "$top" | /) break ;; esac\n'
+        '  dir=$(dirname "$dir")\n'
+        "done\n"
+        f'exec "{base}" "$@"\n'
+    )
+    shim.chmod(0o755)
+    return bin_dir
+
+
+@pytest.mark.parametrize(
+    "how",
+    [
+        "python3 here is no virtualenv",
+        "python3 here is another project's",
+        "PYTHON a relative path",
+        "PYTHON a version manager's shim",
+    ],
+)
+def test_the_python_is_the_one_the_checkout_s_folder_picks_and_never_the_working_folder_s(home, tmp_path, how) -> None:
+    # The checkout's folder picks its virtualenv, venv/; the project's folder the launcher is run from has one of its
+    # own at the same relative path, which its version manager picks but in the first case. Neither is installed into.
+    checkout = _checkout(tmp_path, "picked")
+    ours = _virtualenv(checkout / "venv")
+    project = tmp_path / "project"
+    theirs = _virtualenv(project / "venv")
+    _uv(tmp_path)
+    env = {"PYTHON": "", "UV": str(tmp_path / "uv-bin" / "uv"), **NO_GIT_CONFIG}
+    shims = _picks_by_folder(tmp_path)
+    first_on_path: tuple[Path, ...] = (shims,)
+    (checkout / ".python-version").write_text(f"{ours}\n")
+    if how != "python3 here is no virtualenv":
+        (project / ".python-version").write_text(f"{theirs}\n")
+    if how == "PYTHON a relative path":
+        env["PYTHON"], first_on_path = "venv/bin/python", ()
+    elif how == "PYTHON a version manager's shim":
+        env["PYTHON"], first_on_path = str(shims / "python3"), ()
+    result = run_launcher(
+        "status", home=home, launcher=checkout / "aw", cwd=project, env=env, first_on_path=first_on_path
+    )
+    assert result.returncode == 0, result.stderr
+    assert Path(_ran(result)["prefix"]).resolve() == (checkout / "venv").resolve()
+    assert (result.stderr, _uv_runs(tmp_path)) == ("", [])
+    assert not (checkout / ".git" / "hooks" / "pre-commit").exists()
+
+
+@pytest.mark.parametrize("python_set", [True, False], ids=["PYTHON set", "python3 a virtualenv's"])
+def test_a_module_in_the_folder_it_is_run_from_never_runs(home, tmp_path, python_set) -> None:
+    # A repository a person cloned and runs aw in: python puts the folder it runs in first on sys.path, and sysconfig
+    # is not loaded at start, so a sysconfig.py there would run wherever that folder asks which Python it is.
+    checkout = _checkout(tmp_path, "planted")
+    cloned = tmp_path / "cloned"
+    cloned.mkdir()
+    mark = tmp_path / "planted-ran"
+    (cloned / "sysconfig.py").write_text(f"open({str(mark)!r}, 'w').write('planted sysconfig ran')\n")
+    bin_dir = tmp_path / "virtualenv-python3"
+    bin_dir.mkdir()
+    (bin_dir / "python3").write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
+    (bin_dir / "python3").chmod(0o755)
+    env = {} if python_set else {"PYTHON": ""}
+    result = run_launcher("status", home=home, launcher=checkout / "aw", cwd=cloned, env=env, first_on_path=(bin_dir,))
+    assert result.returncode == 0, result.stderr
+    assert (_ran(result)["checkout"], _ran(result)["prefix"]) == ("planted", sys.prefix)
+    assert not mark.exists(), mark.read_text()
 
 
 def test_with_no_environment_the_launcher_makes_the_checkout_s_own_then_the_hook_then_runs(home, tmp_path) -> None:
@@ -639,8 +778,7 @@ def test_install_env_is_refused_but_from_a_job(home, tmp_path, job) -> None:
 def test_install_env_from_a_job_syncs_your_virtualenv_as_just_install_does(home, tmp_path) -> None:
     checkout = _checkout(tmp_path, "job")
     _uv(tmp_path)
-    git = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-    env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), "AGENT_WAREHOUSE_JOB": JOB, **git}
+    env = {"PYTHON": sys.executable, "UV": str(tmp_path / "uv-bin" / "uv"), "AGENT_WAREHOUSE_JOB": JOB, **NO_GIT_CONFIG}
     result = run_launcher("--install-env", home=home, launcher=checkout / "aw", env=env)
     assert result.returncode == 0, result.stderr
     # --inexact: the environment is yours, and nothing in it the lock does not list is removed; no Python downloaded.
@@ -662,6 +800,55 @@ def test_your_virtualenv_without_the_packages_is_never_installed_into_unasked(ho
     [line] = result.stderr.splitlines()
     assert line.startswith("error: the Python environment") and line.endswith("run aw install"), line
     assert _uv_runs(tmp_path) == [] and not (checkout / ".git" / "hooks" / "pre-commit").exists()
+
+
+def test_a_python_that_is_no_virtualenv_s_is_refused_naming_python(home, tmp_path) -> None:
+    checkout = _checkout(tmp_path, "system", program="real")
+    _uv(tmp_path)
+    base = Path(sys.base_prefix) / "bin" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    # As it says itself: the path it was started by, which the launcher gave it.
+    executable = subprocess.run(
+        [base, "-I", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True, check=True, timeout=60
+    ).stdout.strip()
+    env = {"PYTHON": str(base), "UV": str(tmp_path / "uv-bin" / "uv")}
+    result = run_launcher("status", home=home, launcher=checkout / "aw", env=env)
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr == dispatch.NO_VIRTUALENV.format(python=executable) + "\n"
+    assert _uv_runs(tmp_path) == [] and not (checkout / ".git" / "hooks" / "pre-commit").exists()
+
+
+@pytest.mark.parametrize("named", ["/nonexistent/aw-test/python", "no-such-python-of-aw", "./tools", "tools/git-hook"])
+def test_a_python_that_cannot_be_run_is_the_launcher_s_sentence(home, tmp_path, named) -> None:
+    # Not there, a name no folder on PATH has, a folder, a file that is no program: each the checkout's where relative.
+    checkout = _checkout(tmp_path, "unrunnable")
+    (checkout / "tools" / "git-hook").chmod(0o644)
+    result = run_launcher("status", home=home, launcher=checkout / "aw", env={"PYTHON": named})
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr == (
+        f"error: the Python {named} cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes"
+        " this checkout's own\n"
+    )
+
+
+def test_the_launcher_says_where_there_is_no_uv_and_where_uv_made_no_python(home, tmp_path) -> None:
+    checkout = _checkout(tmp_path, "no-uv")
+    data = subprocess.check_output([checkout / "tools" / "env-run", "--data"], env=environment(home), text=True)
+    python = Path(data.strip()) / "venv" / "bin" / "python"
+    result = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path, UV="no-such-uv-of-aw"))
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr.splitlines()[-1] == (
+        "error: no no-such-uv-of-aw: install uv (https://docs.astral.sh/uv/getting-started/installation/), or name it"
+        " with UV="
+    )
+    makes_nothing = tmp_path / "makes-nothing" / "uv"
+    makes_nothing.parent.mkdir()
+    makes_nothing.write_text("#!/bin/sh\nexit 0\n")
+    makes_nothing.chmod(0o755)
+    result = run_launcher("status", home=home, launcher=checkout / "aw", **_managed(tmp_path, UV=str(makes_nothing)))
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr.splitlines()[-1] == (
+        f"error: uv made no Python at {python}: run aw install again, and read what it says"
+    )
 
 
 def test_the_launcher_s_python_version_is_the_justfile_s() -> None:
