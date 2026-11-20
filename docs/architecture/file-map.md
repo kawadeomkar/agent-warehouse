@@ -248,7 +248,8 @@ lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host 
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;
                                   transport.py, the one transport, over http.client: no redirect followed, no
                                   certificate variable read, a proxy only as an argument; proxy.py, today's proxy
-                                  from the environment it is given
+                                  from the environment it is given; trust.py, the vendors' one certificate file,
+                                  certifi's unless tls_ca_file names another, and the context made from it alone
 lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
 lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file

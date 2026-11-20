@@ -1,0 +1,276 @@
+"""The vendors' trust: one certificate file, certifi's by its path unless the setting tls_ca_file names another, and a
+client context that verifies against that file alone (lib/claude_vm/vendors/trust.py; docs/architecture/engine.md
+§16.7).
+
+Each server is a TLS server this test starts in its own process, on loopback, with a CA and the node's certificate
+tests/unit/pki.py makes, and it is reached through the one transport, as the vendors' calls are. The interpreter's own
+store is the one the variables below change, which a context made here never reads: a root put there and not in the
+file is refused. The rules at the end hold vendors/ to that and certifi to one importer.
+"""
+
+from __future__ import annotations
+
+import ast
+import datetime
+import http.server
+import ssl
+import sys
+import threading
+from pathlib import Path
+
+import certifi
+import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.x509.oid import NameOID
+from harness import REPO, repo_files
+from pki import proxmox_pki
+from test_aw_transport import _imports, _new_engine, _rel
+
+from claude_vm.vendors import trust
+from claude_vm.vendors.transport import Transport, Unreachable
+
+# The module's two certificate authorities: the server's, and one that signed nothing the server shows. Cheap enough
+# to make again on each worker (tests/unit/conftest.py).
+EACH_WORKER = {"pki", "other_pki"}
+AGENT = "agent-warehouse-test"
+TRUST = REPO / "lib" / "claude_vm" / "vendors" / "trust.py"
+# What would give a context the interpreter's own store: never called, nor named, in vendors/.
+DEFAULT_STORE = ("create_default_context", "load_default_certs", "set_default_verify_paths")
+# Every variable a client library or OpenSSL reads for a file of certificates: traps here, with SSL_CERT_DIR naming
+# their folder and SSLKEYLOGFILE a log of the session's keys.
+VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+
+
+@pytest.fixture(scope="module")
+def pki(tmp_path_factory):
+    return proxmox_pki(tmp_path_factory.mktemp("pki"), key_usage=True)
+
+
+@pytest.fixture(scope="module")
+def other_pki(tmp_path_factory):
+    return proxmox_pki(tmp_path_factory.mktemp("other-pki"), key_usage=True)
+
+
+class _Server(http.server.ThreadingHTTPServer):
+    def handle_error(self, request, client_address) -> None:
+        pass  # a client that refused the certificate went first: nothing to print
+
+
+class _Handler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *args) -> None:
+        pass
+
+
+@pytest.fixture
+def serve():
+    """start(pki) starts a TLS server on loopback with that pki's node certificate, and gives its address."""
+    servers = []
+
+    def start(pki: dict) -> str:
+        server = _Server(("127.0.0.1", 0), _Handler)
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(pki["cert"], pki["key"])
+        server.socket = context.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True).start()
+        servers.append(server)
+        return f"https://127.0.0.1:{server.server_address[1]}/api"
+
+    yield start
+    for server in servers:
+        server.shutdown()
+        server.server_close()
+
+
+def _get(url: str, context: ssl.SSLContext) -> int:
+    """A GET through the one transport with context: the status the server answered."""
+    with Transport(url, context=context, user_agent=AGENT) as client:
+        return client.request("GET", "version").status
+
+
+def _file(directory: Path, name: str, *pems: str) -> Path:
+    path = directory / name
+    path.write_text("".join(pems))
+    return path
+
+
+def _der(pem: str) -> bytes:
+    return ssl.PEM_cert_to_DER_cert(pem)
+
+
+def _trap(monkeypatch, directory: Path, pem: str) -> Path:
+    """Every variable a library reads for its certificates names a file of pem, and SSLKEYLOGFILE the log of keys this
+    gives."""
+    for name in VARIABLES:
+        monkeypatch.setenv(name, str(_file(directory, f"trap-{name}.pem", pem)))
+    monkeypatch.setenv("SSL_CERT_DIR", str(directory))
+    monkeypatch.setenv("SSLKEYLOGFILE", str(directory / "keys.log"))
+    return directory / "keys.log"
+
+
+# ---------------------------------------------------------------- the context ----
+
+
+def test_a_server_whose_root_is_in_the_file_verifies(serve, pki, tmp_path) -> None:
+    url = serve(pki)
+    assert _get(url, trust.context(_file(tmp_path, "ca.pem", pki["ca"]))) == 200
+
+
+def test_whatever_the_variables_name_a_server_whose_root_is_in_the_file_verifies_and_no_key_is_logged(
+    serve, pki, other_pki, tmp_path, monkeypatch
+) -> None:
+    url = serve(pki)
+    keys = _trap(monkeypatch, tmp_path, other_pki["ca"])
+    made = trust.context(_file(tmp_path, "ca.pem", pki["ca"]))
+    assert _get(url, made) == 200
+    assert made.keylog_filename is None and not keys.exists()
+
+
+def test_with_the_interpreter_s_store_variable_naming_an_empty_file_the_server_still_verifies(
+    serve, pki, tmp_path, monkeypatch
+) -> None:
+    url = serve(pki)
+    empty = _file(tmp_path, "empty.pem")
+    (tmp_path / "no-certificates").mkdir()
+    monkeypatch.setenv("SSL_CERT_FILE", str(empty))
+    monkeypatch.setenv("SSL_CERT_DIR", str(tmp_path / "no-certificates"))
+    assert _get(url, trust.context(_file(tmp_path, "ca.pem", pki["ca"]))) == 200
+
+
+@pytest.mark.parametrize("given", ["certifi", "other"])
+def test_a_server_whose_root_is_in_the_interpreter_s_store_and_not_in_the_file_is_refused(
+    serve, pki, other_pki, tmp_path, monkeypatch, given
+) -> None:
+    """The server's root is put in the interpreter's own store, which a default context then trusts; a context made
+    from certifi's file, or from a file of another root, still refuses the server."""
+    url = serve(pki)
+    _trap(monkeypatch, tmp_path, pki["ca"])
+    assert _get(url, ssl.create_default_context()) == 200  # the root is in the interpreter's store
+    path = trust.ca_file(None) if given == "certifi" else _file(tmp_path, "other.pem", other_pki["ca"])
+    with pytest.raises(Unreachable) as refused:
+        _get(url, trust.context(path))
+    assert "certificate does not verify" in str(refused.value)
+
+
+def test_a_server_whose_certificate_names_another_host_is_refused(serve, tmp_path) -> None:
+    misnamed = proxmox_pki(tmp_path / "pki", key_usage=True, address="127.0.0.2")
+    url = serve(misnamed)
+    with pytest.raises(Unreachable) as refused:
+        _get(url, trust.context(_file(tmp_path, "ca.pem", misnamed["ca"])))
+    assert "certificate does not verify" in str(refused.value)
+
+
+def test_the_context_checks_the_name_and_requires_a_certificate_strictly_on_every_python(pki, tmp_path) -> None:
+    made = trust.context(_file(tmp_path, "ca.pem", pki["ca"]))
+    assert made.check_hostname is True and made.verify_mode == ssl.CERT_REQUIRED
+    assert made.verify_flags & ssl.VERIFY_X509_STRICT and made.verify_flags & ssl.VERIFY_X509_PARTIAL_CHAIN
+    assert made.minimum_version >= ssl.TLSVersion.TLSv1_2
+
+
+def test_a_proxmox_ca_with_no_key_usage_is_refused_as_python_3_13_refuses_it(serve, tmp_path) -> None:
+    """The strict flags hold on every Python: a CA as Proxmox VE 8 makes one, with no keyUsage, does not verify, so an
+    interpreter before 3.13 is no looser than today's requests on 3.13."""
+    old = proxmox_pki(tmp_path / "pki", key_usage=False)
+    url = serve(old)
+    with pytest.raises(Unreachable):
+        _get(url, trust.context(_file(tmp_path, "ca.pem", old["ca"])))
+
+
+# ---------------------------------------------------------------- the file ----
+
+
+def test_with_no_setting_the_file_is_certifi_s_by_its_path_and_it_loads() -> None:
+    assert trust.ca_file(None) == trust.ca_file("") == certifi.where()
+    assert trust.context(trust.ca_file(None)).cert_store_stats()["x509_ca"] > 0
+
+
+def test_a_setting_names_the_file_and_that_file_alone_is_loaded(pki, other_pki, tmp_path, monkeypatch) -> None:
+    own = _file(tmp_path, "own.pem", pki["ca"])
+    _trap(monkeypatch, tmp_path, other_pki["ca"])
+    assert trust.ca_file(own) == trust.ca_file(str(own)) == str(own)
+    made = trust.context(trust.ca_file(own))
+    assert made.get_ca_certs(binary_form=True) == [_der(pki["ca"])]
+    assert made.cert_store_stats() == {"x509": 1, "crl": 0, "x509_ca": 1}
+
+
+def test_the_variables_change_neither_the_file_nor_what_it_loads(pki, other_pki, tmp_path, monkeypatch) -> None:
+    own = _file(tmp_path, "own.pem", pki["ca"])
+    before = [trust.ca_file(None), trust.ca_file(own)]
+    loaded = [trust.context(path).get_ca_certs(binary_form=True) for path in before]
+    _trap(monkeypatch, tmp_path, other_pki["ca"])
+    assert [trust.ca_file(None), trust.ca_file(own)] == before
+    assert [trust.context(path).get_ca_certs(binary_form=True) for path in before] == loaded
+
+
+def _crl() -> str:
+    """A certificate revocation list alone: a file OpenSSL loads, which holds no certificate."""
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "agent-warehouse test")])
+    now = datetime.datetime.now(datetime.UTC)
+    builder = x509.CertificateRevocationListBuilder().issuer_name(name).last_update(now)
+    crl = builder.next_update(now + datetime.timedelta(days=1)).sign(key, hashes.SHA256())
+    return crl.public_bytes(serialization.Encoding.PEM).decode()
+
+
+@pytest.mark.parametrize("held", ["nothing", "text", "a revocation list", "a folder"])
+def test_a_file_that_holds_no_certificate_is_unusable_and_names_the_setting(tmp_path, held) -> None:
+    if held == "a folder":
+        path = tmp_path / "certificates"
+        path.mkdir()
+    else:
+        text = _crl() if held == "a revocation list" else {"nothing": "", "text": "not a certificate\n"}[held]
+        path = _file(tmp_path, "ca.pem", text)
+    with pytest.raises(trust.Unusable) as unusable:
+        trust.context(trust.ca_file(path))
+    assert "holds no certificate" in str(unusable.value) and "tls_ca_file" in str(unusable.value)
+
+
+def test_a_setting_that_names_nothing_is_unusable_and_names_the_setting(tmp_path) -> None:
+    missing = tmp_path / "nowhere" / "ca.pem"
+    with pytest.raises(trust.Unusable) as unusable:
+        trust.context(trust.ca_file(missing))
+    assert "is not there" in str(unusable.value) and "tls_ca_file" in str(unusable.value)
+    assert repr(str(missing)) in str(unusable.value)
+
+
+def test_without_certifi_and_no_setting_the_file_is_unusable_and_names_the_setting(monkeypatch, tmp_path) -> None:
+    monkeypatch.setitem(sys.modules, "certifi", None)
+    with pytest.raises(trust.Unusable) as unusable:
+        trust.ca_file(None)
+    assert "tls_ca_file" in str(unusable.value)
+    own = _file(tmp_path, "own.pem", "")
+    assert trust.ca_file(own) == str(own)
+
+
+# ---------------------------------------------------------------- the rules ----
+
+
+def _vendors() -> list[Path]:
+    return [path for path in repo_files("lib/claude_vm/vendors", untracked=True) if path.suffix == ".py"]
+
+
+def test_the_rules_read_vendors_and_the_new_engine() -> None:
+    assert TRUST in _vendors() and TRUST in _new_engine()
+
+
+def test_vendors_never_asks_for_the_interpreter_s_own_store() -> None:
+    naming = {_rel(path): name for path in _vendors() for name in DEFAULT_STORE if name in path.read_text()}
+    assert naming == {}
+
+
+def test_certifi_is_imported_by_vendors_trust_alone() -> None:
+    importing = [
+        _rel(path)
+        for path in _new_engine()
+        if any(name == "certifi" or name.startswith("certifi.") for name in _imports(ast.parse(path.read_text())))
+    ]
+    assert importing == [_rel(TRUST)]
