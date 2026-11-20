@@ -666,20 +666,30 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       the key file; outside `fleet/` nothing names `paths.KEY` or `paths.OWN` or removes what reaches the key, and a
       module reads `key_file` only where `READ_THE_KEY` lists it with why. Each change that removes files holds the key
       byte for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
-- **Tests never touch the login keychain, and a test reaches `tools/aw` only through its kit.** Read
-  [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
-    - Every run of `tools/aw` a test makes goes through `tests/unit/aw_kit.py` (`run_aw`, `aw_at_a_terminal`,
-      `imports_of`): `python -I`, an environment built from `harness.PASSED_ON`'s names and the test's own home
-      (the `home` fixture, `aw_home`'s directory with `HOME` and the XDG folders in it), and failing stand-ins first
+- **Tests never touch the login keychain, an engine test's own process is guarded as a run is, and a test reaches
+  `tools/aw` only through its kit.** Read [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
+    - `tests/unit/aw_kit.py`'s `engine_guard`, which no test asks for, holds every test the `engine` marker selects,
+      and no other, in its own process: `HOME` and the XDG folders in `aw_home`'s directory, failing stand-ins first
       on `PATH` for the desktop's openers and clipboards, this machine's `tailscale`, `gh` and `claude`, and its
-      `ssh`, `ansible-playbook` and login keychain - macOS's `security`, Linux's `secret-tool` (`harness._refused`).
-      One that was reached fails the test (`harness._fail_if_the_desktop_was_reached`).
+      `ssh`, `ansible-playbook` and login keychain - macOS's `security`, Linux's `secret-tool` (`harness._refused`) -
+      with `BROWSER` one of them, no variable but `harness.PASSED_ON`'s, the locale's, the kit's own and pytest's
+      `PYTEST_CURRENT_TEST`, and `socket.getaddrinfo` and `connect` refused past loopback. A stand-in reached or a
+      connection refused fails the test once it ends. It holds by `PATH`: a program started by its absolute path is
+      not caught; and the network refusal is the test process's, so for a child it starts only the fakes hold it.
+    - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`):
+      `python -I`, an environment built from `harness.PASSED_ON`'s names and the test's own home (the `home` fixture
+      makes it), and the same stand-ins first on `PATH`. One that was reached fails the test
+      (`harness._fail_if_the_desktop_was_reached`). A test's `env=` never sets `PATH`, `HOME`, `BROWSER`,
+      `AGENT_WAREHOUSE_HOME` or an `XDG_` variable: a program of its own goes ahead of the stand-ins, which stay, by
+      `first_on_path`.
     - Every test of a file `tests/unit/test_aw_*.py` is marked `engine` by `tests/unit/conftest.py`'s `tryfirst` hook,
       and `just test engine` runs them alone; `just test unit` still runs every test.
     - A secret the new engine holds is a `Secret` (`lib/claude_vm/secret.py`): a mark wherever it is shown, never
       pickled or turned into JSON. Only the modules `REVEALS` names call `reveal()`, each with why.
-    - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, a
-      syntax-tree scan of every test file for a run of `tools/aw` outside the kit, the stand-ins, and `REVEALS`.
+    - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, the
+      guard of a test's own process (in a pytest of its own, so that the failure is the one asserted), a syntax-tree
+      scan of every test file for a run of `tools/aw` outside the kit, the suite's own launchers among the starters,
+      the stand-ins, `env=` and `first_on_path`, and `REVEALS`.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.
@@ -930,10 +940,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   names.** Read [§16.1](docs/architecture/engine.md#161-the-rule-between-the-two-engines) first. The engine that
   replaces the playbooks at 3.0 is built beside them, in the subpackages `schema`, `cli`, `engine`, `pve`, `ssh`,
   `vendors`, `runs`, `fleet`, `guest` and `control` of `lib/claude_vm/`, and run by `tools/aw`. Nothing of today's
-  product (the `justfile`, `deploy.yml`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`,
-  `inventory/`, `tools/` and today's modules of `lib/claude_vm/`) imports them or runs `tools/aw`. The new engine
-  imports of today's `lib/claude_vm/` only the modules `REUSED` names, each with its reason.
-  `tests/unit/test_aw_layout.py` holds both.
+  product (the `justfile`, `deploy.yml`, `ansible.cfg`, the `Vagrantfile`, `playbooks/`, `roles/`, `filter_plugins/`,
+  `callback_plugins/`, `inventory/`, `tools/` and today's modules of `lib/claude_vm/`) imports them or runs
+  `tools/aw`, and `ansible.cfg` never names the engine's Ansible folder. The new engine imports of today's
+  `lib/claude_vm/` only the modules `REUSED` names, each with its reason, and what those import in turn, all the way
+  down, is in `REUSED` or `REACHED`, with the reason it is brought in; never Ansible. `tests/unit/test_aw_layout.py`
+  holds both.
 
 ## Architecture, and why it looks like this
 
