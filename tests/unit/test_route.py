@@ -14,6 +14,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -497,26 +498,61 @@ def test_a_control_directory_that_cannot_be_made_is_said_never_raised(tmp_path, 
     assert not held["ok"] and held["said"].startswith(f"the control directory {short_dir}/file/cp: ")
 
 
-def test_every_ssh_of_the_hop_still_running_is_ended_for_a_caller_that_ends_at_once(tmp_path):
+def test_every_ssh_of_the_hop_still_running_is_ended_for_a_caller_that_ends_at_once(tmp_path, monkeypatch):
     # just status's Ctrl-C ends its process at once (os._exit), while a thread of its waits on the hop's login: the
-    # login's ssh is ended first, never left to run on under init.
-    import threading
-
+    # login's ssh is ended first, never left to run on under init - one whose start is still under way too. That start
+    # is held open here, its ssh running and Popen not yet returned, and let go only once end_all has run or must wait
+    # for it: the moment that, met by chance on a loaded machine, once left the ssh running.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
     pid_file = tmp_path / "pid"
     program = _program(tmp_path / "slow", f"#!/bin/sh\necho $$ > {pid_file}\nexec sleep 60\n")
+    started, go = threading.Event(), threading.Event()
+
+    class Held(subprocess.Popen):
+        def __init__(self, argv, *args, **kwargs):
+            super().__init__(argv, *args, **kwargs)
+            if argv == [program]:
+                started.set()
+                go.wait(10)
+
+    monkeypatch.setattr(subprocess, "Popen", Held)
     ended: list = []
     waiting = threading.Thread(target=lambda: ended.append(route._run([program], 60)), daemon=True)
     waiting.start()
-    deadline = time.monotonic() + 10
-    while not (pid_file.exists() and pid_file.read_text().strip()) and time.monotonic() < deadline:
-        time.sleep(0.05)
-    started = time.monotonic()
+    try:
+        deadline = time.monotonic() + 10
+        while not (started.is_set() and pid_file.exists() and pid_file.read_text().strip()):
+            assert time.monotonic() < deadline, "the stand-in ssh never started"
+            time.sleep(0.05)
+        ender = threading.Thread(target=route.end_all, daemon=True)
+        ender.start()
+        while ender.is_alive() and not route._LIVE_LOCK.locked():
+            assert time.monotonic() < deadline, "end_all neither ran nor waited"
+            time.sleep(0.01)
+        go.set()
+        let_go = time.monotonic()
+        waiting.join(10)
+        ender.join(10)
+        assert ended and ended[0]["rc"] is not None and time.monotonic() - let_go < 5
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pid_file.read_text()), 0)
+        assert not route._LIVE
+    finally:
+        go.set()
+        route.end_all()  # a run of this test that failed leaves no ssh behind it
+        waiting.join(10)
+
+
+def test_no_ssh_of_the_hop_s_is_started_once_the_run_has_ended(tmp_path, monkeypatch):
+    # A thread of just status's that came to start one after its Ctrl-C ended the others would start it just before
+    # os._exit, to run on by itself.
+    monkeypatch.setattr(route, "_OVER", threading.Event())
+    ran = tmp_path / "ran"
+    program = _program(tmp_path / "ssh", f"#!/bin/sh\ntouch {ran}\n")
     route.end_all()
-    waiting.join(10)
-    assert ended and ended[0]["rc"] is not None and time.monotonic() - started < 5
-    with pytest.raises(ProcessLookupError):
-        os.kill(int(pid_file.read_text()), 0)
-    assert not route._LIVE
+    said = f"{program}: not started, the run ended"
+    assert route._run([program], 5) == {"rc": 255, "said": said, "killed": False, "banner": False}
+    assert not ran.exists() and not route._LIVE
 
 
 def test_a_caller_ended_during_an_ssh_ends_it_and_waits_for_it(tmp_path, monkeypatch):
