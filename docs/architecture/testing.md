@@ -817,7 +817,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 | Fake | Stands in for | Notes |
 |---|---|---|
-| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks |
+| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks; pools, users, roles, ACL entries and tokens made through Proxmox's own routes, for the new engine |
 | `fake_qm.sh` | `qm` on the PVE node | stateful, one config file per VMID, logs every invocation |
 | `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - compact JSON, a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue |
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
@@ -868,6 +868,22 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   set (`VM.Clone:0` granted without Propagate), else the whole role `tools/proxmox-access.sh`
   makes, with the guest-agent privilege of the version `/version` reports - 8.2.4 until
   `PUT /api2/json/fake/version?version=` changes it - and for the `noagent` token, without it.
+- Pools are also made, read, changed and deleted through Proxmox's own routes, as pve-manager's `PVE/API2/Pool.pm`
+  answers them: `POST /pools` with a comment, `GET /pools` (with `poolid` and `type`, a pool's members), `PUT /pools`
+  (`vms`, `storage`, `delete`, `allow-move`, every one checked before any is written), `DELETE /pools?poolid=` of an
+  empty pool, and the deprecated `/pools/<poolid>` forms; a refusal is a 500 with Proxmox's sentence after its label.
+  A pool a guest is a member of exists made or not, as before; the fake refuses a VMID it holds no guest for, which
+  Proxmox would take, since it keeps a guest's pool on the guest.
+- Users, roles, ACL entries and tokens are made as pve-access-control's API answers: `POST /access/users`,
+  `POST /access/roles`, `PUT /access/acl` (no groups), and `POST /access/users/<userid>/token/<tokenid>`, with
+  `privsep` 1 unless given, answering `info`, `value` and `full-tokenid`; `PUT` on the same path changes it, and with
+  `regenerate=1` makes a new secret, the old one refused from then on. Such a token is accepted with its own secret
+  alone, until its `expire`, and `GET /access/permissions` answers it from the ACL entries as Proxmox computes them:
+  the deepest entries of the path win, one above it only where it propagates, a pool member takes the roles held on
+  its pool without propagate, and with `privsep=1` the token's own entries are cut to what its user holds. Today's
+  tokens are answered by the table and the whole role as above, and everything else a made token asks as theirs is:
+  nothing is refused for lack of a privilege. `harness.fake_fleet(engine=True)` makes the new engine's pool, role,
+  user and its one token, and `harness.engine_token` gives the token's ID and secret.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it

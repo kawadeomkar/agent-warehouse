@@ -1189,9 +1189,24 @@ def _pve_requests(directory: Path) -> list[dict]:
     return _json_lines(directory / "pve" / "calls.log")
 
 
-def fake_fleet(directory: Path, version: str = "9.2.21"):
+# What the new engine makes on a Proxmox host, by its own names: one pool, one role, one user and the user's one token,
+# made with privilege separation. fake_fleet(engine=True) makes them in the fake through Proxmox's own routes.
+ENGINE_POOL = "aw-fleet"
+ENGINE_ROLE = "AgentWarehouse"
+ENGINE_USER = "agent-warehouse@pve"
+ENGINE_TOKEN = "aw"
+# The role's privileges until the engine's own table of them names what it holds: what tools/proxmox-access.sh --pool
+# grants today's token on the pool, on Proxmox VE 9.
+ENGINE_PRIVILEGES = (
+    "VM.Allocate VM.Clone VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.Memory VM.Config.Network"
+    " VM.Config.Options VM.PowerMgmt VM.Audit VM.GuestAgent.Audit Pool.Audit"
+)
+
+
+def fake_fleet(directory: Path, version: str = "9.2.21", engine: bool = False):
     """The fake Proxmox, on VE 9 unless told, with alpha and beta running and their agents up, and gamma stopped;
-    its URL."""
+    its URL. With engine, also the new engine's pool, role, user and token, the role granted the user and the token on
+    the pool: engine_token(directory) gives the token's ID and secret."""
     for base in _fake_pve(directory):
         _pve(base, "PUT", "fake/version", version=version)
         for vmid, name, running in [(9010, "alpha", True), (9011, "beta", True), (9012, "gamma", False)]:
@@ -1199,4 +1214,26 @@ def fake_fleet(directory: Path, version: str = "9.2.21"):
             if name == "alpha":
                 # Made two days ago, so its day of history is its own; beta and gamma were made just now.
                 _pve(base, "PUT", "fake/disk-ctime", vmid=vmid, ctime=int(time.time()) - 2 * 86400)
+        if engine:
+            _pve_engine(base, directory)
         yield base
+
+
+def _pve_engine(base: str, directory: Path) -> None:
+    """The new engine's objects in the fake at base, made as an administrator makes them; the token's ID and secret,
+    which Proxmox says once, kept in directory/pve/engine-token.json for engine_token."""
+    full_id = f"{ENGINE_USER}!{ENGINE_TOKEN}"
+    _pve(base, "POST", "pools", poolid=ENGINE_POOL, comment="the fake fleet of the new engine")
+    _pve(base, "POST", "access/roles", roleid=ENGINE_ROLE, privs=ENGINE_PRIVILEGES.replace(" ", ","))
+    _pve(base, "POST", "access/users", userid=ENGINE_USER)
+    made = _pve(base, "POST", f"access/users/{ENGINE_USER}/token/{ENGINE_TOKEN}", privsep=1)["data"]
+    _pve(base, "PUT", "access/acl", path=f"/pool/{ENGINE_POOL}", roles=ENGINE_ROLE, users=ENGINE_USER, tokens=full_id)
+    (directory / "pve" / "engine-token.json").write_text(
+        json.dumps({"id": made["full-tokenid"], "secret": made["value"]})
+    )
+
+
+def engine_token(directory: Path) -> tuple[str, str]:
+    """The ID and the secret of the token fake_fleet(directory, engine=True) made."""
+    made = json.loads((directory / "pve" / "engine-token.json").read_text())
+    return made["id"], made["secret"]

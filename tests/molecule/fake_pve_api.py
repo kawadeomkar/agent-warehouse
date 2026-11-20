@@ -56,6 +56,41 @@ makes a guest one, as root does on the host. PUT
 /api2/json/fake/pool-scope?token=&pool= stands for a token granted the role on
 /pool/<name> alone: its listing holds that pool's members only.
 
+Pools are also made, read, changed and deleted through Proxmox's own routes, as
+pve-manager's PVE/API2/Pool.pm answers them: POST /pools (poolid, comment);
+GET /pools, the pools the token may audit, each with its comment, or with
+poolid (and type: qemu, lxc or storage) that pool with its members; PUT /pools
+(poolid, comment, vms, storage, delete, allow-move); DELETE /pools?poolid= of
+an empty pool; and the deprecated GET, PUT and DELETE /pools/<poolid>, answered
+the same way. A pool a guest is a member of exists too, made or not, as it did
+before these routes. A refusal is a 500 with Proxmox's sentence, after the
+label Proxmox gives it ("update pools failed: VM 9010 is already a pool
+member"). One difference, on purpose: the fake keeps a guest's pool on the
+guest, so it refuses a VMID it holds no guest for, which Proxmox would take.
+
+Users, roles, ACL entries and tokens are made as pve-access-control's API2
+modules make them: POST /access/users (userid, expire), POST /access/roles
+(roleid, privs), PUT /access/acl (path, roles, users, tokens, propagate,
+delete; the fake has no groups), and POST
+/access/users/<userid>/token/<tokenid> (privsep, 1 unless given; expire, the
+user's unless given; comment), which answers info, value - the token's
+secret, a UUID - and full-tokenid; PUT on the same path changes privsep,
+expire and comment, deletes the comment, and with regenerate=1 makes a new
+secret, answering the token's info with value and full-tokenid. A token made
+so is accepted with its own secret alone, until its expire if it has one.
+
+GET /access/permissions answers today's tokens - any token ID with the secret
+the fake was started with, the noagent one among them - as above, from the
+table and the whole role. A token made through /access is answered from the
+ACL entries, as PVE/RPCEnvironment.pm computes them: down from / to the path,
+the deepest entries naming it win, an entry above the path only where it
+propagates; a guest or a storage that is a pool's member also takes each role
+held on /pool/<name> that its own path lacks, without propagate, whatever the
+pool's entry says; a token with privsep=0 holds its user's privileges, one with
+privsep=1 its own entries' cut to what its user holds, propagating where both
+do. Everything else a made token asks is answered as a today's token's is:
+nothing is refused for lack of a privilege.
+
 A second token id, "noagent", stands for a token created without the
 guest-agent privilege (VM.Monitor on PVE 8, VM.GuestAgent.Audit on 9): every
 request is accepted except the agent's, which is refused with 403.
@@ -224,6 +259,20 @@ TOKENLESS = {"answer": "401"}
 PRIVILEGES = {}
 # Tokens granted the role on one pool alone, by token id: /cluster/resources lists that pool's members only.
 POOL_SCOPE = {}
+# The pools POST /pools made, by pool ID: each one's info - its comment, where it was given one - and its storages. A
+# guest's pool is its own "pool", as before, so a pool a guest is a member of exists made or not: pool_names() is every
+# pool.
+POOLS = {}
+# What /access made, as Proxmox keeps it in user.cfg: each user's expire; each role's privileges; each ACL entry,
+# (path, "user" or "token", its ID, the role) to its propagate flag; each token by its full ID, user@realm!tokenid, with
+# its secret (value), privsep, expire and comment.
+USERS = {}
+ROLES = {}
+ACL = {}
+TOKENS = {}
+# GET /access/permissions without a path, for a token made through /access: these paths, every path of an ACL entry and
+# its parents, and every pool member's, each where the token holds something (PVE/RPCEnvironment.pm).
+TOP_PATHS = ("/", "/access", "/access/groups", "/nodes", "/pool", "/sdn", "/storage", "/vms")
 # Each node's storages for VM disks, with their type and free bytes, and its bridges.
 STORAGES = {NODE: [{"storage": "local-lvm", "type": "lvmthin", "avail": 412 * 1024**3}]}
 BRIDGES = {NODE: ["vmbr0"]}
@@ -269,6 +318,101 @@ def privileges(token_id, path):
         name, _, flag = entry.partition(":")
         granted[name] = int(flag or "1")
     return granted
+
+
+def split_list(raw):
+    """A list parameter as Proxmox splits one (PVE::Tools::split_list): on commas, semicolons and white space."""
+    return [item for item in re.split(r"[,;\s]+", raw or "") if item]
+
+
+def truthy(raw):
+    """A boolean parameter as Proxmox reads one."""
+    return str(raw).lower() in ("1", "true", "yes", "on")
+
+
+def acl_path(raw):
+    """An ACL path as Proxmox keeps it: one / between its parts, none at the end."""
+    return "/" + "/".join(part for part in raw.split("/") if part)
+
+
+def pool_names():
+    """Every pool: those POST /pools made, and those a guest is a member of."""
+    return set(POOLS) | {vm["pool"] for vm in VMS.values() if vm.get("pool")}
+
+
+def acl_roles(kind, who, path):
+    """The roles who holds at path from the ACL entries, each with its propagate flag, as Proxmox reads them
+    (PVE::AccessControl::roles): from / down to path, the entries naming who at the deepest level that has any win, one
+    above path only where it propagates. A token's are its "token" entries, a user's its "user" entries."""
+    names = [part for part in path.split("/") if part]
+    held = {}
+    for depth in range(len(names) + 1):
+        here, final = "/" + "/".join(names[:depth]), depth == len(names)
+        found = {
+            role: flag for (at, k, w, role), flag in ACL.items() if (at, k, w) == (here, kind, who) and (final or flag)
+        }
+        if found:
+            held = found
+    return held
+
+
+def roles_at(kind, who, path):
+    """acl_roles, and where path is a pool member's - a guest's /vms/<id>, a storage's /storage/<id> - each role held on
+    the pool that path's own lack, without propagate and whatever the pool's entry says (PVE::RPCEnvironment,
+    compile_acl_path)."""
+    held = dict(acl_roles(kind, who, path))
+    guest = re.fullmatch(r"/vms/(\d+)", path)
+    storage = re.fullmatch(r"/storage/([^/]+)", path)
+    pools = []
+    if guest and VMS.get(int(guest[1]), {}).get("pool"):
+        pools = [VMS[int(guest[1])]["pool"]]
+    elif storage:
+        pools = [name for name, pool in POOLS.items() if storage[1] in pool["storage"]]
+    for pool in pools:
+        for role in acl_roles(kind, who, f"/pool/{pool}"):
+            held.setdefault(role, 0)
+    return held
+
+
+def role_privileges(roles):
+    """The privileges of roles, each propagating where a role that grants it does."""
+    granted = {}
+    for role, flag in roles.items():
+        for name in ROLES.get(role, ()):
+            granted[name] = granted.get(name, 0) or flag
+    return granted
+
+
+def acl_privileges(full_id, path):
+    """What a token made through /access holds at path, each privilege with its propagate flag, as Proxmox computes it
+    (PVE::RPCEnvironment::permissions): with privsep=0 its user's; with privsep=1 its own entries', cut to what its
+    user holds there, propagating only where both do."""
+    user = role_privileges(roles_at("user", full_id.split("!", 1)[0], path))
+    if not TOKENS[full_id]["privsep"]:
+        return user
+    own = role_privileges(roles_at("token", full_id, path))
+    return {name: int(bool(flag and user[name])) for name, flag in own.items() if name in user}
+
+
+def acl_permissions(full_id, path=None):
+    """GET /access/permissions for a token made through /access: the path asked for, a key even where nothing is held
+    there, as Proxmox answers; or each path of TOP_PATHS, of the ACL entries and their parents and of the pools' members
+    where the token holds something."""
+    if path is not None:
+        return {path: acl_privileges(full_id, acl_path(path))}
+    paths = set(TOP_PATHS)
+    for at, *_ in ACL:
+        names = [part for part in at.split("/") if part]
+        paths |= {"/" + "/".join(names[:depth]) for depth in range(len(names) + 1)}
+    paths |= {f"/vms/{vm['vmid']}" for vm in VMS.values() if vm.get("pool")}
+    paths |= {f"/storage/{storage}" for pool in POOLS.values() for storage in pool["storage"]}
+    held = {path: acl_privileges(full_id, path) for path in sorted(paths)}
+    return {path: privs for path, privs in held.items() if privs}
+
+
+def token_info(token):
+    """A token's info, as Proxmox answers it."""
+    return {"privsep": token["privsep"], "expire": token["expire"], **{k: token[k] for k in ("comment",) if k in token}}
 
 
 def normalise_tags(raw):
@@ -382,6 +526,35 @@ def resource_for(vm, token_id):
     return entry
 
 
+def storage_resource(node, entry):
+    """A storage of node's, as /cluster/resources?type=storage lists it, with its fill."""
+    return {
+        "id": f"storage/{node}/{entry['storage']}",
+        "type": "storage",
+        "storage": entry["storage"],
+        "node": node,
+        "plugintype": entry["type"],
+        "maxdisk": STORAGE_SIZE,
+        "disk": STORAGE_SIZE - entry["avail"],
+        "status": "available" if entry.get("active", 1) else "unknown",
+        "shared": 0,
+        "content": "images,rootdir",
+    }
+
+
+def pool_members(pool, kind=None):
+    """A pool's members, as GET /pools?poolid= lists them: its guests by VMID, as /cluster/resources lists each, then
+    its storages the cluster has, on this node where it has one; kind, qemu, lxc or storage, keeps that kind alone."""
+    guests = sorted((vm for vm in VMS.values() if vm.get("pool") == pool), key=lambda vm: vm["vmid"])
+    members = [resource(vm) for vm in guests if kind in (None, guest_type(vm))]
+    storages = sorted(POOLS.get(pool, {}).get("storage", ())) if kind in (None, "storage") else []
+    for storage in storages:
+        held = [(node, e) for node, entries in STORAGES.items() for e in entries if e["storage"] == storage]
+        held.sort(key=lambda found: found[0] != NODE)
+        members += [storage_resource(*held[0])] if held else []
+    return members
+
+
 def save_state():
     STATE_DIR.joinpath("state.json").write_text(json.dumps(VMS, indent=2, sort_keys=True))
 
@@ -417,6 +590,186 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
+    def _refused(self, label, why):
+        """Proxmox's refusal of a write: a 500, its sentence after the label the API gives it."""
+        return self._reply(500, None, f"{label}: {why}")
+
+    def _pools(self, method, poolid, params, token, deprecated):
+        """/pools, and the deprecated /pools/<poolid>, as pve-manager's PVE/API2/Pool.pm answers them."""
+        if method == "GET" and not poolid:
+            # The pools the token may read, as ?type=pool lists them.
+            audited = [
+                name for name in sorted(pool_names()) if "Pool.Audit" in privileges(token.group(2), f"/pool/{name}")
+            ]
+            return self._reply(200, [{"poolid": name, **POOLS.get(name, {}).get("info", {})} for name in audited])
+        if not poolid:
+            return self._reply(400, None, "Parameter verification failed.")
+        if method == "GET":
+            if poolid not in pool_names():
+                return self._reply(500, None, f"pool '{poolid}' does not exist")
+            info = POOLS.get(poolid, {}).get("info", {})
+            listed = {"poolid": poolid, **info, "members": pool_members(poolid, params.get("type"))}
+            # The deprecated form answers the one pool, not a list of it.
+            return self._reply(200, listed if deprecated else [listed])
+        if method == "POST":
+            if poolid in pool_names():
+                return self._refused("create pool failed", f"pool '{poolid}' already exists")
+            if not re.match(r"[A-Za-z]", poolid):
+                return self._refused("create pool failed", "pool name must start with a letter")
+            POOLS[poolid] = {"info": {"comment": params["comment"]} if params.get("comment") else {}, "storage": set()}
+            return self._reply(200, None)
+        if method == "PUT":
+            return self._pool_update(poolid, params)
+        if method == "DELETE":
+            if poolid not in pool_names():
+                return self._refused("delete pool failed", f"pool '{poolid}' does not exist")
+            guests = sorted(vm["vmid"] for vm in VMS.values() if vm.get("pool") == poolid)
+            if guests:
+                return self._refused("delete pool failed", f"pool '{poolid}' is not empty (contains VM {guests[0]})")
+            held = {e["storage"] for entries in STORAGES.values() for e in entries}
+            stored = sorted(POOLS[poolid]["storage"] & held)
+            if stored:
+                return self._refused(
+                    "delete pool failed", f"pool '{poolid}' is not empty (contains storage '{stored[0]}')"
+                )
+            del POOLS[poolid]
+            for entry in [entry for entry in ACL if entry[0] == f"/pool/{poolid}"]:
+                del ACL[entry]
+            return self._reply(200, None)
+        return self._reply(501, None)
+
+    def _pool_update(self, poolid, params):
+        """PUT /pools: a comment, guests and storages added or taken away, every one checked before any is written."""
+        label = "update pools failed"
+        if poolid not in pool_names():
+            return self._refused(label, f"pool '{poolid}' does not exist")
+        pool = POOLS.setdefault(poolid, {"info": {}, "storage": set()})
+        delete, move = truthy(params.get("delete")), truthy(params.get("allow-move"))
+        moved, storages = {}, set(pool["storage"])
+        for word in split_list(params.get("vms")):
+            if not word.isdigit():
+                return self._reply(400, None, "Parameter verification failed.")
+            vmid = int(word)
+            if vmid not in VMS:
+                # The fake's own refusal: it keeps a guest's pool on the guest, so a VMID with no guest has nowhere.
+                return self._refused(label, f"VM {vmid} does not exist")
+            member = moved.get(vmid, VMS[vmid].get("pool"))
+            if delete and member != poolid:
+                return self._refused(label, f"VM {vmid} is not a pool member")
+            if not delete and member == poolid:
+                return self._refused(label, f"VM {vmid} is already a pool member")
+            if not delete and member and not move:
+                return self._refused(label, f"VM {vmid} belongs already to pool '{member}' and 'allow-move' is not set")
+            moved[vmid] = None if delete else poolid
+        for storage in split_list(params.get("storage")):
+            if delete and storage not in storages:
+                return self._refused(label, f"Storage '{storage}' is not a pool member")
+            if not delete and storage in storages:
+                return self._refused(label, f"Storage '{storage}' is already a pool member")
+            (storages.discard if delete else storages.add)(storage)
+        if "comment" in params:
+            pool["info"]["comment"] = params["comment"]
+        pool["storage"] = storages
+        for vmid, member in moved.items():
+            if member:
+                VMS[vmid]["pool"] = member
+            else:
+                VMS[vmid].pop("pool", None)
+        save_state()
+        return self._reply(200, None)
+
+    def _access(self, method, rest, params):
+        """Users, roles, ACL entries and a user's tokens, as pve-access-control's API2 modules answer them. Every other
+        path under /access is unknown here, as before."""
+        if rest == ["users"] and method == "POST":
+            userid = params.get("userid", "")
+            if not userid:
+                return self._reply(400, None, "Parameter verification failed.")
+            if userid in USERS:
+                return self._refused("create user failed", f"user '{userid}' already exists")
+            groups = split_list(params.get("groups"))
+            if groups:
+                # The fake has no groups.
+                return self._refused("create user failed", f"no such group '{groups[0]}'")
+            USERS[userid] = {"expire": int(params.get("expire", "0"))}
+            return self._reply(200, None)
+        if rest == ["roles"] and method == "POST":
+            roleid = params.get("roleid", "")
+            if not roleid:
+                return self._reply(400, None, "Parameter verification failed.")
+            if roleid in ROLES:
+                return self._refused("create role failed", f"role '{roleid}' already exists")
+            ROLES[roleid] = set(split_list(params.get("privs")))
+            return self._reply(200, None)
+        if rest == ["acl"] and method == "PUT":
+            return self._acl(params)
+        if len(rest) == 4 and rest[0] == "users" and rest[2] == "token" and method in ("POST", "PUT"):
+            return self._token(method, rest[1], rest[3], params)
+        return self._reply(404, None)
+
+    def _acl(self, params):
+        """PUT /access/acl: each role given to, or with delete=1 taken from, each user and token named, at the path."""
+        label = "ACL update failed"
+        users, tokens, groups = (split_list(params.get(kind)) for kind in ("users", "tokens", "groups"))
+        if "path" not in params or "roles" not in params or not (users or tokens or groups):
+            return self._reply(400, None, "Parameter verification failed.")
+        roles = split_list(params["roles"])
+        for role in roles:
+            if role not in ROLES:
+                return self._refused(label, f"role '{role}' does not exist")
+        if groups:
+            return self._refused(label, f"group '{groups[0]}' does not exist")
+        for user in users:
+            if user not in USERS:
+                return self._refused(label, f"user '{user}' does not exist")
+        for full_id in tokens:
+            if full_id not in TOKENS:
+                user, _, tokenid = full_id.partition("!")
+                return self._refused(label, f"no such token '{tokenid}' for user '{user}'")
+        path, flag = acl_path(params["path"]), int(truthy(params.get("propagate", "1")))
+        for role in roles:
+            for kind, who in [("user", user) for user in users] + [("token", full_id) for full_id in tokens]:
+                if truthy(params.get("delete")):
+                    ACL.pop((path, kind, who, role), None)
+                else:
+                    ACL[(path, kind, who, role)] = flag
+        return self._reply(200, None)
+
+    def _token(self, method, userid, tokenid, params):
+        """A user's token: made (POST), or changed and its secret made again (PUT)."""
+        full_id = f"{userid}!{tokenid}"
+        if method == "POST":
+            if full_id in TOKENS:
+                return self._reply(400, None, "Parameter verification failed.")
+            if userid not in USERS:
+                return self._refused("generating token failed", f"no such user ('{userid}')")
+            TOKENS[full_id] = {
+                "value": str(uuid.uuid4()),
+                "privsep": int(truthy(params.get("privsep", "1"))),
+                "expire": int(params.get("expire", USERS[userid]["expire"])),
+                **({"comment": params["comment"]} if "comment" in params else {}),
+            }
+            made = TOKENS[full_id]
+            return self._reply(200, {"full-tokenid": full_id, "info": token_info(made), "value": made["value"]})
+        made = TOKENS.get(full_id)
+        if made is None:
+            return self._refused("updating token info failed", f"no such token '{tokenid}' for user '{userid}'")
+        deleted = split_list(params.get("delete"))
+        if any(key != "comment" for key in deleted):
+            return self._reply(400, None, "Parameter verification failed.")
+        if deleted:
+            made.pop("comment", None)
+        if "comment" in params:
+            made["comment"] = params["comment"]
+        for key in ("privsep", "expire"):
+            if key in params:
+                made[key] = int(truthy(params[key])) if key == "privsep" else int(params[key])
+        answer = token_info(made)
+        if truthy(params.get("regenerate")):
+            made["value"] = str(uuid.uuid4())
+            answer |= {"value": made["value"], "full-tokenid": full_id}
+        return self._reply(200, answer)
+
     def _handle(self, method):
         path = urlparse(self.path).path
         params = self._params()
@@ -439,7 +792,11 @@ class Handler(BaseHTTPRequestHandler):
             return None
         if method == "HEAD":
             return self._reply_empty(501, "method 'HEAD' not available")
-        if not token or token.group(3) != TOKEN_SECRET:
+        # A token made through /access is held to its own secret, until its expire; any other, to the fake's.
+        made = token and TOKENS.get(f"{token.group(1)}!{token.group(2)}")
+        if made and (token.group(3) != made["value"] or 0 < made["expire"] <= time.time()):
+            return self._reply_empty(401, "authentication failure")
+        if not token or (not made and token.group(3) != TOKEN_SECRET):
             # Real pveproxy sends 401 with an *empty* body, deliberately
             # withholding the reason; the detail survives only in the HTTP
             # reason phrase. A well-formed {"data": null} here would let the
@@ -465,6 +822,8 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: a fixture's privileges for one token at one path.
             PRIVILEGES[(params["token"], params["path"])] = [p for p in params.get("privs", "").split(",") if p]
             return self._reply(200, PRIVILEGES[(params["token"], params["path"])])
+        if parts == ["access", "permissions"] and made:
+            return self._reply(200, acl_permissions(f"{token.group(1)}!{token.group(2)}", params.get("path")))
         if parts == ["access", "permissions"]:
             fixed = [path for token_id, path in PRIVILEGES if token_id == token.group(2)]
             paths = [params["path"]] if "path" in params else ["/vms", *fixed]
@@ -515,27 +874,13 @@ class Handler(BaseHTTPRequestHandler):
                 for entry in entries:
                     if "Datastore.Audit" not in privileges(token.group(2), "/storage/" + entry["storage"]):
                         continue
-                    listed.append(
-                        {
-                            "id": f"storage/{node}/{entry['storage']}",
-                            "type": "storage",
-                            "storage": entry["storage"],
-                            "node": node,
-                            "plugintype": entry["type"],
-                            "maxdisk": STORAGE_SIZE,
-                            "disk": STORAGE_SIZE - entry["avail"],
-                            "status": "available" if entry.get("active", 1) else "unknown",
-                            "shared": 0,
-                            "content": "images,rootdir",
-                        }
-                    )
+                    listed.append(storage_resource(node, entry))
             return self._reply(200, listed)
         if parts == ["cluster", "resources"] and params.get("type") == "pool":
             # The pools the token may read the members of (Pool.Audit), as Proxmox lists them.
-            named = sorted({vm["pool"] for vm in VMS.values() if vm.get("pool")})
             listed = [
                 {"id": f"/pool/{name}", "type": "pool", "pool": name}
-                for name in named
+                for name in sorted(pool_names())
                 if "Pool.Audit" in privileges(token.group(2), f"/pool/{name}")
             ]
             return self._reply(200, listed)
@@ -564,6 +909,11 @@ class Handler(BaseHTTPRequestHandler):
             VMS[int(params["vmid"])]["pool"] = params["pool"]
             save_state()
             return self._reply(200, {"vmid": int(params["vmid"]), "pool": params["pool"]})
+        if parts[:1] == ["pools"] and len(parts) <= 2:
+            deprecated = len(parts) == 2
+            return self._pools(method, parts[1] if deprecated else params.get("poolid"), params, token, deprecated)
+        if parts[:1] == ["access"]:
+            return self._access(method, parts[1:], params)
         if parts == ["cluster", "resources"]:
             for vmid, listed in list(VANISH.items()):
                 VANISH[vmid] = True
