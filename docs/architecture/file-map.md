@@ -236,11 +236,12 @@ lib/claude_vm/schema/             the new engine (§16), built beside today's an
                                   verbs and options, literals written by hand; patterns.py, the one home of the
                                   patterns, and full, which holds a value to one; words.py, the table: each verb's
                                   words, options, rules, handler, locks and agents' tools, and the exit statuses;
-                                  check.py, the one check every entry runs on a verb's values
+                                  check.py, the one check every entry runs on a verb's values; rules.py, the rules
+                                  between options, each a function that says today's sentence
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
-                                  today's habits; before.py, RunWords, the run's own words; dispatch.py, a verb handed
-                                  to its handler or refused
+                                  today's habits, deploy's question among them; before.py, RunWords, the run's own
+                                  words; dispatch.py, a verb handed to its handler or refused
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control

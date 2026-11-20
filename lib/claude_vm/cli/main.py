@@ -3,9 +3,11 @@ by the one check, today's habits applied, and the verb handed to its handler or 
 
     aw [--no-lock] [--attended=1] <verb> [<word>...] [<option>...]
 
-A refusal is one line on standard error that says no value typed, and exits 1 (words.py's EXITS), before any of the
-words reach a handler: it imports no Ansible and no module of the engine. `--version` alone answers with the
-checkout aw runs from. Standard library only, and the modules of cli/, schema/ and fleet/paths.py.
+A refusal is one line on standard error, and exits 1 (words.py's EXITS), before any of the words reach a handler: it
+imports no Ansible and no module of the engine. Its sentence says no value typed but where today's does (the rules
+between options, lib/claude_vm/schema/rules.py). A Ctrl-C at deploy's question exits 130, as a cancelled run does.
+`--version` alone answers with the checkout aw runs from. Standard library only, and the modules of cli/, schema/ and
+fleet/paths.py, and of tui/ to ask deploy's question.
 """
 
 from __future__ import annotations
@@ -36,6 +38,11 @@ def main(argv: list[str]) -> int:
         values, said = habits.names(verb, reading.values)
         for line in said:
             print(line, file=sys.stderr)
+        try:
+            values = habits.stage(verb, values, sys.stdin, sys.stderr)
+        except KeyboardInterrupt:
+            # Ctrl-C at deploy's question, before anything ran: ended as today's recipe is, with nothing more said.
+            return EXITS["cancelled"]
         run, values = before.run_words(reading.before, values, os.environ)
         return dispatch.dispatch(checkout(program), verb, run, values)
     except parse.Refused as refused:

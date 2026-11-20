@@ -36,6 +36,7 @@ from claude_vm.cli import before, dispatch, habits, parse
 from claude_vm.cli.main import main
 from claude_vm.fleet import paths
 from claude_vm.schema import check as checks
+from claude_vm.schema import rules
 from claude_vm.schema.patterns import PATTERNS, full
 from claude_vm.schema.words import EXITS, VERBS, Verb
 
@@ -117,7 +118,10 @@ def test_every_pattern_has_a_sample_it_takes() -> None:
 
 
 @pytest.mark.parametrize(("verb", "option"), _options(), ids=lambda item: getattr(item, "name", None) or _spelled(item))
-def test_every_option_of_every_verb_parses_in_both_spellings(verb: Verb, option) -> None:
+def test_every_option_of_every_verb_parses_in_both_spellings(monkeypatch, verb: Verb, option) -> None:
+    # The parser alone: an option given on its own may break a rule between options (--tags with no name, --value with
+    # no setting), which tests/unit/test_aw_cli_rules.py holds.
+    monkeypatch.setattr(rules, "run", lambda codes, values: None)
     spelling, field = _spelled(option), option.field
     if option.kind == "flag":
         assert parse.read([verb.name, spelling]).values == {field: True}
@@ -192,9 +196,10 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         ["deploy", f"-v={TYPED}"],
         ["deploy", "--cores", "8", f"--cores={TYPED}"],
         ["deploy", "--check", "--check"],
-        ["code", "alpha", "beta"],
-        ["code", "alpha,beta"],
-        ["help", "deploy", "login"],
+        # A second name where one is taken, which no rule of today's says back (code's and help's do: H5's rules).
+        ["release", "alpha", "beta"],
+        ["release", "alpha,beta"],
+        ["logs", "0123456789abcdef", "fedcba9876543210"],
         ["init", TYPED],
         ["install", TYPED],
         ["control", TYPED],
@@ -221,8 +226,9 @@ def test_each_refusal_says_what_was_wrong() -> None:
     assert _refused(["deploy", "--Bogus"]) == checks.no_option("deploy", None)
     assert _refused([TYPED]) == checks.NO_SUCH_COMMAND
     assert _refused(["install", "x"]) == checks.only_options("install")
-    assert _refused(["init", "x"]) == checks.only_options("init")
-    assert _refused(["help", "deploy", "login"]) == checks.one_word("help", VERBS["help"].words)
+    # init's word, and help's second, are refused by today's rules, in today's sentences (H5's, schema/rules.py).
+    assert _refused(["init", "x"]) == rules.RULES["init.1"].sentence
+    assert _refused(["logs", "0123456789abcdef", "fedcba9876543210"]) == checks.one_word("logs", VERBS["logs"].words)
     assert "takes --cores once" in _refused(["deploy", "--cores=8", "--cores=9"])
     assert "--check takes no value" in _refused(["deploy", "--check=yes"])
     assert "--cores takes a value: --cores CORES, or --cores=CORES" in _refused(["deploy", "--cores"])
@@ -238,7 +244,9 @@ def test_no_verb_is_help() -> None:
     assert parse.read([]).verb == parse.read(["--no-lock"]).verb == "help"
 
 
-def test_detach_is_on_exactly_the_verbs_whose_run_is_a_job() -> None:
+def test_detach_is_on_exactly_the_verbs_whose_run_is_a_job(monkeypatch) -> None:
+    # The parser alone: code with no VM breaks a rule between options (code.1).
+    monkeypatch.setattr(rules, "run", lambda codes, values: None)
     for verb in VERBS.values():
         if verb.changes:
             assert parse.read([verb.name, "--detach"]).values == {"detach": True}, verb.name
@@ -247,7 +255,7 @@ def test_detach_is_on_exactly_the_verbs_whose_run_is_a_job() -> None:
 
 
 def test_the_check_takes_json_with_exact_types_and_coerces_nothing() -> None:
-    given = {"cores": "8", "names": ["alpha"], "check": True, "set": ["vm_cores=4"], "verbosity": 2, "detach": True}
+    given = {"cores": "8", "names": ["alpha"], "start": True, "set": ["vm_cores=4"], "verbosity": 2, "detach": True}
     assert checks.check("deploy", given) is None
     verb = "deploy"
     assert checks.check(verb, {"cores": 8}) == f"error: aw {verb} --cores takes a string"
@@ -299,6 +307,11 @@ def test_no_names_means_the_default_vm_or_every_vm_as_the_reference_says(monkeyp
     monkeypatch.setattr(paths, "_pointer", no_fleet)
     values, _ = habits.names(VERBS[words[0]], parse.read(words).values)
     assert values["default_vm"] is default_vm
+    if "template" in words:
+        # The template takes no names: a rule between options says so (deploy.9).
+        with pytest.raises(parse.Refused):
+            parse.read([*words, "alpha"])
+        return
     assert "default_vm" not in habits.names(VERBS[words[0]], parse.read([*words, "alpha"]).values)[0]
 
 
@@ -426,7 +439,7 @@ REFUSED = [
     ("deploy", BAD),
     ("deploy", f"--bogus={TYPED}"),
     ("deploy", f"--check={TYPED}"),
-    ("code", "alpha", TYPED),
+    ("release", "alpha", TYPED),
     ("init", TYPED),
     (TYPED,),
     (f"--attended={TYPED}", "status"),
