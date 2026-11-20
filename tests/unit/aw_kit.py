@@ -13,7 +13,8 @@ program through this kit and no other way (tests/unit/test_aw_guards.py reads ev
   ansible-playbook and login keychain (`harness._refused`); stdin /dev/null unless a test gives one, a process group of
   its own, ended whole on a timeout; and a test that fails if the run reached a stand-in;
 - `aw_at_a_terminal(*words, home=...)`: the same at a pseudo-terminal of its own (`harness._at_a_pseudo_terminal`);
-- `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`;
+- `imports_of(*words, home=...)`: the modules a run loaded, from python's `-X importtime`; and with `module=`, what
+  importing that one module of this checkout's lib/ loaded;
 - `searched_for(secrets, *paths)`: which files hold one of the secrets, failing a search that read nothing.
 
 docs/architecture/testing.md §11.1 says how the suite holds them.
@@ -22,6 +23,7 @@ docs/architecture/testing.md §11.1 says how the suite holds them.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from collections.abc import Iterable, Iterator, Mapping
@@ -37,6 +39,8 @@ from claude_vm.secret import Secret
 AW = harness.REPO / "tools" / "aw"
 # The module every run of tools/aw imports, whatever it was asked: a list of imports without it read nothing.
 ENTRY = "claude_vm.cli.main"
+# A module imports_of is asked about: a dotted name, each part an identifier, held whole before it goes into -c.
+MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
 
 
 def home_variables(home: Path) -> dict[str, str]:
@@ -99,10 +103,15 @@ def _run(
     program: str | Path,
     timeout: float,
     interpreter: Iterable[str] = (),
+    code: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     assert stdin is not None, "a run of tools/aw never reads this terminal: give it /dev/null, a file or its text"
     where = Path(cwd) if cwd is not None else home
-    argv = _argv(words, program, where, interpreter)
+    if code is not None:
+        # python runs code (-c) in tools/aw's place: imports_of's one module.
+        argv = [sys.executable, "-I", *interpreter, "-c", code]
+    else:
+        argv = _argv(words, program, where, interpreter)
     text = stdin if isinstance(stdin, str) else None
     process = subprocess.Popen(
         argv,
@@ -159,10 +168,22 @@ def aw_at_a_terminal(
     return rc, output
 
 
-def imports_of(*words: str, home: Path, env: Mapping[str, str] | None = None) -> frozenset[str]:
+def imports_of(
+    *words: str, home: Path, env: Mapping[str, str] | None = None, module: str | None = None
+) -> frozenset[str]:
     """Every module a run of tools/aw with words loaded, by its dotted name, from python's -X importtime: the
     interpreter's own start among them. Whatever the run's status. A list without the program's entry read nothing,
-    and fails the test."""
+    and fails the test.
+
+    With module, a dotted name and no words: every module that `python -I -X importtime -c "import <module>"` loaded,
+    with this checkout's lib/ first on its path, in the same environment; the interpreter's start among them, so a
+    test that wants what the module alone adds takes away what importing its package loaded. A name that is not a
+    dotted name of identifiers, an import that failed, or a list without the module fails the test."""
+    code, entry = None, ENTRY
+    if module is not None:
+        if words or not MODULE.fullmatch(module):
+            pytest.fail(f"imports_of takes one module by its dotted name, and no words with it: {module!r}, {words!r}")
+        code, entry = f"import sys; sys.path.insert(0, {str(harness.REPO / 'lib')!r}); import {module}", module
     result = _run(
         words,
         home=home,
@@ -172,14 +193,17 @@ def imports_of(*words: str, home: Path, env: Mapping[str, str] | None = None) ->
         program=AW,
         timeout=60,
         interpreter=("-X", "importtime"),
+        code=code,
     )
+    if code is not None and result.returncode != 0:
+        pytest.fail(f"importing {module} failed:\n{result.stderr}")
     loaded = frozenset(
         line.rsplit("|", 1)[1].strip()
         for line in result.stderr.splitlines()
         if line.startswith("import time:") and line.count("|") == 2 and not line.endswith("| imported package")
     )
-    if ENTRY not in loaded:
-        pytest.fail(f"-X importtime named no {ENTRY}, so nothing was read of what the run loaded:\n{result.stderr}")
+    if entry not in loaded:
+        pytest.fail(f"-X importtime named no {entry}, so nothing was read of what the run loaded:\n{result.stderr}")
     return loaded
 
 
