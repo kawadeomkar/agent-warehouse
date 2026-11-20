@@ -69,7 +69,37 @@ Until the cutover the `justfile` holds a person's values to its own copy of each
 recipe a person runs is in `PATTERNS` under a name with the same text; the developer's recipes (`lint`, `test`, `docs`,
 `vagrant`, `clean`) keep theirs, which are not the command line's. `tests/unit/test_aw_schema.py` holds the two equal,
 holds each pattern to the values today's tests of the `justfile` give the same pattern, each value it takes refused
-with a newline after it, and holds that importing the module loads nothing outside the standard library.
+with a newline after it, and holds that importing the module loads nothing outside the standard library. A pattern
+that only the new command line uses (`job_id`, `assignment` for `--set`, `secret_name`, `ssh_fingerprint`, `release`,
+`dependency_group`) is listed there with where it comes from.
+
+**The table: `words.py`.** `VERBS` is the one table of the command line: every verb a person types after `aw`, in
+the order help lists them, today's thirteen and `release`, `cancel` and `control`. Each row is a `Verb`: its group
+and its sentence; its `Words`, what the usage calls one, whether it takes several, the name the handler receives them
+by, their pattern and help; its `Option`s; the codes of the rules between its options, as the contract of today's
+command line names them (`deploy.4`, `check.names.1`), which the one check runs in that order; its handler, as
+`module:function`, or none while no change has built the verb, and then the card that builds it; the locks a run of
+it takes, one of `machines`, `fleet`, `none` or `words`, where the kind depends on the words given; whether a run of
+it is a job, with its own record, text log and locks; and the tools of the agents' server that run it, or why none
+does. An option has its spellings, its kind (`value`, `flag`, `repeatable` for `--set`, `counted` for `-v`,
+`optional-value` for `--migrate`), the name of its pattern, the name the handler receives it by (the long option in
+lowercase with `_` for `-`, as the agents' tools name it today, and `for_` for `host --for`), its help, the name help
+gives its value (`--host ON`, as `just --usage` prints it today), and its fate for an agent's tool: a property of the
+tool's schema, a value the server always gives, or refused with the reason; where two tools run one verb (`settings`
+and `settings_set`), a fate for each. `BEFORE` holds the words given before any verb: `--no-lock`, `--attended`, and
+`--detached-run`, which no person types. `--detach` is no row's option: the parser gives it, with the one sentence
+`DETACH`, to every verb whose run is a job, and the agents' server starts every such run detached.
+
+Today's verbs keep today's words and help, with `aw` where a sentence said `just`, and `mcp --vault-password-file`
+is `--vault-key-file`. Beside the table, `EXITS` names the exit status of every verb but `status` (0 done, 1 refused
+before anything ran, 130 cancelled) and `STATUS_EXITS` those of `status` (today's 0, 1, 2 and 3, and 130); within
+each, no meaning has two numbers and no number two meanings. The table holds no option whose value is a secret: a
+secret reaches a verb from a file it names or from the terminal. Nothing is generated from the table or into it, and
+it has no column for the migration: which words are new and which of today's it changes, each with its ruling, is
+`tests/unit/cli_contract_changes.py`'s, beside the contract (`tests/unit/cli_contract.json`), and goes with it at the
+cutover. `tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates for today's words (against
+`lib/claude_vm/mcp/recipes.py`, until the cutover), the exit statuses and the module's imports;
+`tests/unit/test_aw_cli_contract_words.py` holds every word of the contract to the table or to the two maps.
 
 ## 16.3 `cli/` — the `aw` program
 

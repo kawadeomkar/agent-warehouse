@@ -24,10 +24,10 @@ import re
 # Every pattern of the command line, by its name: its inner text, written by hand, which nothing generates or copies
 # into another file. Where today's justfile uses it is said above each.
 PATTERNS: dict[str, str] = {
-    # The VMs a verb is given as its words (deploy, login, status and destroy; code's one): a name starts with a letter
-    # or a digit, and one word may name several, comma-separated.
+    # The VMs a verb is given as its words (deploy, login, status and destroy; code's one, and aw's release): a name
+    # starts with a letter or a digit, and one word may name several, comma-separated.
     "vm_name": "[A-Za-z0-9][A-Za-z0-9._,-]*",
-    # VMs given to an option, comma-separated, or none: destroy's --confirm, host's --for.
+    # VMs given to an option, comma-separated, or none: destroy's --confirm (and aw's release's), host's --for.
     "vm_names": "([A-Za-z0-9][A-Za-z0-9._,-]*)?",
     # --host on every verb that takes it but init: a host of the fleet's, or none for the current one.
     "host_name": "([a-z0-9][a-z0-9-]{0,30})?",
@@ -65,26 +65,39 @@ PATTERNS: dict[str, str] = {
     # help's word: a verb.
     "verb": "[a-z]+",
     # One line of text, with no control character: settings' --value, mcp's --browser, and the words after mcp's
-    # options, which mcp refuses.
+    # options, which mcp refuses; and aw's init --migrate, a 2.x checkout's folder.
     "text": r"[^\x00-\x1f\x7f]*",
-    # A path from / or ~, with no control character, or none: mcp's --project-dir and --vault-password-file.
+    # A path from / or ~, with no control character, or none: mcp's --project-dir and --vault-password-file, which aw
+    # calls --vault-key-file.
     "path": r"([/~][^\x00-\x1f\x7f]*)?",
-    # mcp's --attended: whether someone is at the screen, or unset.
+    # mcp's --attended: whether someone is at the screen, or unset; and aw's --attended before a verb.
     "attended": "(0|1)?",
     # init's --address, and its --host, which through 2.x takes an address too.
     "address": "[A-Za-z0-9.:-]*",
-    # init's --storage, --bridge and --token-id: the names Proxmox gives a storage, a bridge and a token.
+    # init's --storage, --bridge and --token-id: the names Proxmox gives a storage, a bridge and a token; and aw's init
+    # --pool, a pool's.
     "proxmox_id": "[A-Za-z0-9._-]*",
     # init's --token-user: a user with its realm.
     "token_user": "[A-Za-z0-9._@-]*",
     # init's --github-user.
     "github_user": "[A-Za-z0-9-]*",
-    # init's --token-secret-file.
+    # init's --token-secret-file; and aw's vault --file, the file that holds one secret.
     "secret_file": "[A-Za-z0-9._/~+-]*",
     # init's --tailscale.
     "on_off": "(on|off)?",
     # init's --certificate: a SHA-256 fingerprint, as openssl prints it.
     "fingerprint": "(([0-9A-Fa-f]{2}:){31}[0-9A-Fa-f]{2})?",
+    # No recipe of the justfile takes one of these: they are aw's.
+    # --set's: a setting's name, =, and its value for one run, a line of text.
+    "assignment": r"[a-z][a-z0-9_]*=[^\x00-\x1f\x7f]*",
+    # vault's word: one of the vault's named secrets.
+    "secret_name": "[a-z][a-z0-9_]*",
+    # deploy's --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it.
+    "ssh_fingerprint": "(SHA256:[A-Za-z0-9+/]{43})?",
+    # install's --version: a release, as its tag names it, with or without its v.
+    "release": r"(v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9a-z]+(\.[0-9a-z]+)*)?)?",
+    # install's --without: the optional part an installed program goes without.
+    "dependency_group": "(mcp)?",
 }
 
 # Each pattern compiled, on its first use.
