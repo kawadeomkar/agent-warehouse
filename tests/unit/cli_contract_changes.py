@@ -13,7 +13,9 @@ A word is named as a person sees it:
 - one part of a verb, an option or a verb's words: `help: doc`, `deploy --tags: help`, `settings <name>: help` (a
   verb's group and doc; an option's short, kind, pattern, metavar and help; the words' name, plural, pattern and help);
 - a setting given before the recipe today: `RUN_LOCK=`;
-- a rule between options that the contract lacks: `rule <code>`.
+- a rule between options that the contract lacks: `rule <code>`;
+- an exit status that the table's `EXITS` gives another number than the contract measured today: `exit <its name in
+  EXITS>`.
 
 The sources name the rulings of the plan the new engine is built by: the owner's words and the trims and their
 verification (review/trim-rulings.md: T8, V2-5, V2-8), the rulings on words (N-23 section 4, N-22 section 4), the
@@ -48,6 +50,9 @@ CHANGED: dict[str, str] = {
     "the words",
     "RUN_LOCK=": "T8 and O16 item 15 as trimmed: a run with no lock is --no-lock before the verb, with no path",
     "ATTENDED=": "T8 and O16 item 15: --attended=1 before the verb, the agents' server's own word",
+    "exit cancelled": "the report's run ladder (C4): a run a person cancelled exits 130, where one Ctrl-C while "
+    "today's playbook runs exits ansible-playbook's 99, the recipe ending in it (the contract's case exit.ctrl-c-1); "
+    "before the playbook starts today's is 130 too (exit.ctrl-c-2)",
 }
 
 # The settings given before the recipe today that aw still takes from the environment, as today, and their source: the
