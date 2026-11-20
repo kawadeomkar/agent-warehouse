@@ -840,7 +840,7 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 
 | Fake | Stands in for | Notes |
 |---|---|---|
-| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks; pools, users, roles, ACL entries and tokens made through Proxmox's own routes, for the new engine |
+| `fake_pve_api.py` | the Proxmox REST API | TLS, token auth, stateful VMs, a guest agent, a request log; on request, a cluster listing that lags a start or stop, as a real one does; for `just status`, each VM's live figures, a day of `rrddata`, `pending`, the agent's `get-osinfo` and `get-fsinfo`, and the storages' fill and disks; pools, users, roles, ACL entries and tokens made through Proxmox's own routes, a VM's configuration written only with the digest a read gave and locked while its clone or deletion runs, and tasks by UPID that run, end and fail on cue, for the new engine |
 | `fake_qm.sh` | `qm` on the PVE node | stateful, one config file per VMID, logs every invocation |
 | `fake_pve_cli.py` | `pveum`, `pvesh`, `pveversion`, `hostname` and `id` on the PVE node | for `tools/proxmox-access.sh`: the roles, users, ACLs and tokens in one file, answering the calls the script makes as a Proxmox VE 9.2 host was seen to - compact JSON, a refusal for what exists, the version's own guest-agent privilege - with every call logged and a write refused on cue |
 | `fake_virt_customize.sh` | `virt-customize` | so `proxmox_template` runs in a container |
@@ -907,6 +907,25 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   tokens are answered by the table and the whole role as above, and everything else a made token asks as theirs is:
   nothing is refused for lack of a privilege. `harness.fake_fleet(engine=True)` makes the new engine's pool, role,
   user and its one token, and `harness.engine_token` gives the token's ID and secret.
+- A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
+  `digest` is refused, nothing written, unless that is the digest its `GET` gives now; one that sends none is taken, as
+  before, and `digest` is never kept. A clone takes `description` over its source's, `pool`, `storage` (one its node
+  has) and `target` (another node, where the disk's storage is shared there: `PUT /api2/json/fake/storages` marks one
+  with `:shared`), and is refused, its 500 now with Proxmox's words, onto a VMID that is taken. While a clone or a
+  deletion runs, the VM's configuration holds `lock` (`clone`, `destroyed`) and a write to it is refused as locked.
+  `PUT /api2/json/fake/notes-limit?bytes=` bounds a description, and
+  `PUT /api2/json/fake/clone-inherits?tags=&description=` stops a clone taking its source's tags and description. Each
+  refusal's status and words are constants at the top of the fake, read from Proxmox's source, for experiment 6 to
+  correct.
+- Every call that answers a UPID makes a task of it, recorded in the state directory's `tasks.json` with its type, the
+  token that made it and its VM, and what the call changes is changed when the task ends, but for a clone's VM, there
+  from the call and locked until then. A task ends at once, so today's callers see it stopped at their first poll,
+  until `PUT /api2/json/fake/task-polls?polls=N` has those made after it answer running to N polls first;
+  `PUT /api2/json/fake/task-fail?error=&type=` has the next task end with that error, changing nothing (a failed clone
+  leaves no VM), and its log, which `tasks/<upid>/log` gives as Proxmox numbers its lines, end `TASK ERROR:` and the
+  error. With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
+  byte but for the clone onto a taken VMID: `tests/unit/test_aw_fake_pve.py` sends the requests
+  `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
