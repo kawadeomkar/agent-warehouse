@@ -7,7 +7,9 @@ run again against today's task runner with stand-in tools, as test_justfile.py r
 and the sentence the contract holds; each example must be one test_commands.py's check accepts, a setting given empty
 before the recipe among them, and the examples are kept as held: none is dropped, and one is added only by --scan.
 Every line of the use recipes and the six word checks that exits with a status other than 0 is a rule's, or named as
-none. One Ctrl-C while the playbook runs exits as ansible-playbook does, which a stand-in measures: the stand-in is
+none. One Ctrl-C while a task runs, outside a prompt, exits as ansible-playbook does, which a stand-in measures: the
+stand-in is held to ansible-core's own. At one of the playbook's prompts one Ctrl-C asks Continue or Abort, and C goes
+on while A ends the run with 2: a real ansible-playbook measures it at a pseudo-terminal, and Ansible's words there are
 held to ansible-core's own.
 
 This tests today's justfile, not the new engine: it runs in the unit suite alone, and goes with today's engine.
@@ -258,16 +260,53 @@ def test_a_refusal_exits_1_and_the_report_as_the_contract_says() -> None:
     assert [cases[f"exit.report-{name}-1"]["status"] for name in ("ok", "problem", "unread", "failed")] == [0, 1, 2, 3]
 
 
-def test_one_ctrl_c_exits_99_while_the_playbook_runs_and_130_before_it_starts() -> None:
+def _exit_row(code: str) -> dict:
+    (row,) = [row for row in _held()["exits"] if f"(case {code})" in row["meaning"]]
+    return row
+
+
+def test_one_ctrl_c_exits_99_while_a_task_runs_outside_a_prompt_and_130_before_the_playbook_starts() -> None:
     # 99 is ansible-playbook's: the recipe ends in it. aw's 130 for a cancelled run is a change against it.
     from cli_contract_changes import CHANGED
 
     cases = {item["code"]: item for item in _held()["cases"]}
     assert (cases["exit.ctrl-c-1"]["status"], cases["exit.ctrl-c-2"]["status"]) == (99, 130)
     for code in ("exit.ctrl-c-1", "exit.ctrl-c-2"):
-        (row,) = [row for row in _held()["exits"] if f"(case {code})" in row["meaning"]]
-        assert row["status"] == cases[code]["status"], code
+        assert _exit_row(code)["status"] == cases[code]["status"], code
+    # Only while a task runs: at one of the playbook's prompts the same key ends nothing (the test below).
+    assert _exit_row("exit.ctrl-c-1")["meaning"].startswith("one Ctrl-C while a task runs, outside a prompt: ")
     assert "exit cancelled" in CHANGED
+
+
+def test_at_one_of_the_playbook_s_prompts_one_ctrl_c_asks_and_c_goes_on_and_a_ends_the_run_with_2() -> None:
+    # Ansible's question, in its own words; C goes on with the run, A fails the task. aw ends the run there, with a
+    # cancelled run's 130: a behaviour it has otherwise on purpose (BEHAVIOURS).
+    from cli_contract_changes import BEHAVIOURS
+
+    cases = {item["code"]: item for item in _held()["cases"]}
+    asked = f'the playbook asked "{contract.GO_ON}", and '
+    went_on, aborted = cases["exit.ctrl-c-3"], cases["exit.ctrl-c-4"]
+    assert (went_on["status"], went_on["sentence"]) == (0, asked + "said nothing of an abort")
+    assert (aborted["status"], aborted["sentence"]) == (2, asked + f'said "{contract.ABORTED}"')
+    for code in ("exit.ctrl-c-3", "exit.ctrl-c-4"):
+        assert cases[code]["terminal"] and cases[code]["words"] == ["deploy", "alpha"], code
+        assert _exit_row(code)["status"] == cases[code]["status"], code
+        assert _exit_row(code)["meaning"].startswith("one Ctrl-C at one of the playbook's prompts"), code
+    assert "exit cancelled at a prompt" in BEHAVIOURS
+
+
+def test_the_prompt_case_s_words_are_ansible_core_s_own_and_its_play_waits_at_one_prompt() -> None:
+    import ansible.plugins.action.pause
+    import yaml
+
+    # What pause asks once a Ctrl-C was typed at its prompt, and what it fails with when A answers.
+    source = inspect.getsource(ansible.plugins.action.pause)
+    assert re.search(rf"""prompt = (["']){re.escape(contract.GO_ON)} \\r\1""", source), "pause's question"
+    assert re.search(rf"""raise AnsibleError\((["']){re.escape(contract.ABORTED)}\1\)""", source), "pause's abort"
+    # The case's play is one task, a pause with a prompt and no time, which waits for a key at the terminal.
+    (play,) = yaml.safe_load(contract.PROMPT_PLAY)
+    (task,) = play["tasks"]
+    assert play["hosts"] == "localhost" and task["ansible.builtin.pause"] == {"prompt": contract.PROMPT}
 
 
 def test_the_ctrl_c_case_s_stand_in_does_what_ansible_playbook_does(tmp_path) -> None:

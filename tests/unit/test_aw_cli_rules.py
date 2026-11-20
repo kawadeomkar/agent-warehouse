@@ -94,8 +94,9 @@ TOOLS_CHECK = {
 INIT_4 = {"init.4-1": {"token_secret_file": "<tmp>/a b/secret"}}
 # How many cases are not yet run against aw: lower it as each is run. It rises only by cases newly added to the
 # contract that no built verb can run, each with its reason, in the commit that adds them (plan.md section 4; the
-# coordinator's ruling of 2026-11-20): H5's 29, and H19's exit.ctrl-c-2, setting.run-lock-1 and setting.run-lock-2.
-NOT_YET_MOST = 32
+# coordinator's ruling of 2026-11-20): H5's 29, H19's exit.ctrl-c-2, setting.run-lock-1 and setting.run-lock-2, and
+# H23's exit.ctrl-c-3 and exit.ctrl-c-4, a Ctrl-C at one of the playbook's prompts, which a run's end (C4's) answers.
+NOT_YET_MOST = 34
 
 
 def _aw(sentence: str) -> str:
