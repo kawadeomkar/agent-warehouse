@@ -4,6 +4,9 @@
 runs, so a refusal or another verb never loads it) with the run's own words first and then the verb's values as
 keyword arguments, and returns the exit status it returns. Before that, in this order:
 
+- A Python that is no virtualenv's is refused, naming PYTHON, for every verb: the project runs only from a virtualenv,
+  never a system-wide install, as tools/env-run says, and the launcher runs whatever PYTHON names. Told by sys.prefix,
+  in this process, at no second start of a Python.
 - An environment that lacks the packages the engine needs is refused, naming aw install, for every verb but install,
   which makes it, and help, which reads the table alone. The launcher at the checkout's top makes the checkout's own
   environment by itself on first use, and never installs into a virtualenv of the person's own unasked.
@@ -41,6 +44,11 @@ BEFORE_A_FLEET = {
     "init": "it makes the fleet's files",
     "install": "it makes the checkout's Python environment, before any fleet, as just install comes before just init",
 }
+# A Python that is no virtualenv's, said with its path: the PYTHON a person set is the one way the launcher runs one.
+NO_VIRTUALENV = (
+    "error: {python} is no virtualenv's Python, and aw runs only from a virtualenv, never a system-wide install: set"
+    " PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own"
+)
 # The top-level modules of the packages the engine needs, which an environment lacks until aw install has run there.
 NEEDS = ("ansible",)
 # The verbs that run in an environment that lacks them, each with why.
@@ -48,6 +56,11 @@ WITHOUT_PACKAGES = {
     "install": "it puts them there",
     "help": "it prints the table, which is the standard library's",
 }
+
+
+def in_a_virtualenv() -> bool:
+    """Whether this interpreter is a virtualenv's, as tools/env-run tells one: its prefix is not its base's."""
+    return sys.prefix != sys.base_prefix
 
 
 def lacking(needs: tuple[str, ...] = NEEDS) -> list[str]:
@@ -95,6 +108,8 @@ def dispatch(
     """Run verb's handler with run and values, and return its exit status; raises Refused before it where the verb
     cannot run here."""
     env = os.environ if environ is None else environ
+    if not in_a_virtualenv():
+        raise Refused(NO_VIRTUALENV.format(python=sys.executable))
     if verb.name not in WITHOUT_PACKAGES and (missing := lacking()):
         raise Refused(
             f"error: the Python environment {sys.prefix} lacks {', '.join(missing)}, which uv.lock pins: run aw install"

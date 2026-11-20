@@ -2,10 +2,12 @@
 # aw, the new engine's command line, from this checkout (docs/architecture/engine.md §16.3): ./aw <verb> ..., or aw
 # with a link to this file in a folder on PATH. Until 3.0 every command is still just's; aw help lists its own.
 #
-# It finds its checkout from its own path, every link to it followed, and never from the working directory, so no
-# justfile or checkout found upward ever runs in its place. It asks tools/env-run which Python environment the
-# checkout runs - a virtualenv of your own (PYTHON, or python3 where it is one), else the checkout's own, which uv
-# makes in the checkout's folder outside it - and runs tools/aw with it, isolated (-I), with the words as typed.
+# It finds its checkout from its own path, every link to it followed and every folder by its physical path, and never
+# from the working directory, so no justfile or checkout found upward ever runs in its place. It asks tools/env-run,
+# from the checkout's own folder as every caller of it does, which Python environment the checkout runs - a virtualenv
+# of your own (PYTHON, or python3 where it is one), else the checkout's own, which uv makes in the checkout's folder
+# outside it - and runs tools/aw with that Python by its absolute path, isolated (-I), with the words as typed. Nothing
+# of the folder you run it from decides which Python runs: not a version manager's choice there, nor a module there.
 #
 # install_env is install's one home: what just install does to the environment, from uv.lock, and git's pre-commit
 # hook, as just init puts it. It runs in three cases and no other: by itself, once, where the checkout's own
@@ -26,8 +28,26 @@ while [ -L "$self" ]; do
   link=$(readlink -- "$self")
   case $link in /*) self=$link ;; *) self=$(dirname -- "$self")/$link ;; esac
 done
-checkout=$(CDPATH='' cd -- "$(dirname -- "$self")" && pwd -P)
+# -P: a folder on the way that is a link is its target, as the kernel read the links above, so <link>/.. is the
+# target's parent and never the folder the text names.
+checkout=$(CDPATH='' cd -P -- "$(dirname -- "$self")" && pwd -P)
 uv=${UV:-uv}
+
+# Which environment the checkout runs, asked from the checkout's own folder - a version manager picks python3 by the
+# folder it is run in, and python puts that folder first on sys.path - as tools/env-run --which says it there: $kind,
+# own or managed, $named the Python it names, and $python that Python by its absolute path. A Python of your own is
+# asked there which interpreter it is, so that the one run is the one tools/env-run found there, whatever the folder
+# aw is run from: a bare name, a relative path (the checkout's, as for just) or a version manager's shim alike. Empty
+# where it cannot be run.
+pick() {
+  which=$(cd "$checkout" && tools/env-run --which)
+  kind=${which%% *}
+  named=${which#* }
+  python=$named
+  if [ "$kind" = own ]; then
+    python=$(cd "$checkout" && "$named" -I -c 'import sys; print(sys.executable)' 2>/dev/null) || python=
+  fi
+}
 
 # install's one home, from the checkout's top: with --lock uv.lock written again after a pin is edited, installing
 # nothing; else the locked packages into the environment tools/env-run finds - one of yours --inexact, with no
@@ -43,13 +63,12 @@ install_env() {
     UV_PYTHON_DOWNLOADS=never "$uv" lock
     return
   fi
-  which=$(tools/env-run --which)
-  case $which in
-  own\ *)
+  pick
+  case $kind in
+  own)
     # Refused, with how to make one, for a Python that is no virtualenv's.
     tools/env-run --bin >/dev/null
-    python=$("${which#own }" -c 'import sys; print(sys.executable)')
-    prefix=$("$python" -c 'import sys; print(sys.prefix)')
+    prefix=$("$python" -I -c 'import sys; print(sys.prefix)')
     reinstall=$("$python" -I tools/stale_scripts.py)
     # $reinstall is words: --reinstall-package <name>, for each.
     # shellcheck disable=SC2086
@@ -57,8 +76,7 @@ install_env() {
     [ -z "$reinstall" ] || "$python" -I tools/stale_scripts.py --check
     ;;
   *)
-    venv=${which#managed }
-    venv=${venv%/bin/python}
+    venv=${python%/bin/python}
     echo "Installing into this checkout's own environment, $venv: PYTHON is unset and python3 is no virtualenv."
     UV_PYTHON_DOWNLOADS=automatic UV_PROJECT_ENVIRONMENT="$venv" "$uv" sync --locked --managed-python --python "$managed_python"
     ;;
@@ -109,10 +127,9 @@ if [ "$#" -eq 2 ] && [ "$1" = install ] && [ "$2" = --lock ]; then
   exit 0
 fi
 
-which=$("$checkout/tools/env-run" --which)
-python=${which#* }
-case $which in
-managed\ *)
+pick
+case $kind in
+managed)
   if ! [ -x "$python" ]; then
     echo "This checkout has no Python environment yet: aw makes it first, from uv.lock, as aw install does." >&2
     (install_env) >&2
@@ -120,6 +137,14 @@ managed\ *)
       echo "error: uv made no Python at $python: run aw install again, and read what it says" >&2
       exit 1
     fi
+  fi
+  ;;
+*)
+  # A Python that cannot be run is said here, never in the shell's words for a failed exec; one that runs but is no
+  # virtualenv's is the program's to refuse, in its own sentence, at no second start.
+  if [ -z "$python" ] || ! [ -f "$python" ] || ! [ -x "$python" ]; then
+    echo "error: the Python $named cannot be run: set PYTHON to a virtualenv's python, or leave it unset and aw makes this checkout's own" >&2
+    exit 1
   fi
   ;;
 esac

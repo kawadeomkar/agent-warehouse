@@ -171,22 +171,30 @@ at the person's own risk; `--attended=1`, the agents' server's word that someone
 `--detached-run`; and `LOG_DIR` and `LOG_RETENTION_DAYS`, read from the environment as today. Nothing else is read from
 the environment: an exported `RUN_LOCK` or `ATTENDED` changes nothing.
 
-**The dispatch: `dispatch.py`.** The handler the verb's row names, `module:function` under `claude_vm`, is imported
-only when that verb runs and called with the run's own words and then the verb's values as keyword arguments; what it
-returns is the exit status. Before it, in this order: an environment that lacks the packages the engine needs is
-refused, naming `aw install`, for every verb but `install` and `help`; a verb no card has built yet is refused naming
-the card that builds it and, where today's `justfile` has a recipe of that name, `just <verb>`, which does its work
-until the cutover; and a verb whose run is a job, but `init` and `install`, which come before any fleet, is refused
-where the fleet's files do not exist, naming `aw init`, and says on standard error which fleet it drives where
-`AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose it. A refusal is one line on standard error and exit status 1.
+**The dispatch: `dispatch.py`.** The handler the verb's row names, `module:function` under `claude_vm`, is imported only
+when that verb runs and called with the run's own words and then the verb's values as keyword arguments; what it returns
+is the exit status. Before it, in this order: a Python that is no virtualenv's (`sys.prefix` is its base's) is refused
+for every verb, in a sentence that names `PYTHON`, since the project runs only from a virtualenv and the launcher runs
+whatever `PYTHON` names; an environment that lacks the packages the engine needs is refused, naming `aw install`, for
+every verb but `install` and `help`; a verb no card has built yet is refused naming the card that builds it and, where
+today's `justfile` has a recipe of that name, `just <verb>`, which does its work until the cutover; and a verb whose run
+is a job, but `init` and `install`, which come before any fleet, is refused where the fleet's files do not exist, naming
+`aw init`, and says on standard error which fleet it drives where `AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose
+it. A refusal is one line on standard error and exit status 1.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
-link to it followed, and never from the working directory, so no `justfile` or checkout found upward runs in its
-place, and the checkout guard of today's recipes is not needed. It asks `tools/env-run --which` which environment the
-checkout runs, a virtualenv of the person's own or the checkout's own, and runs `tools/aw` with that Python under
-`-I`. `install`'s one home is its function `install_env`: what `just install` does to the environment, a sync of a
-virtualenv of the person's own with `--inexact` and no download after `tools/stale_scripts.py`'s reinstall, or of the
-checkout's own exactly the lock's on the Python version `managed_python` names, which the `justfile`'s holds equal;
+link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
+itself a link lands in the target's checkout, and never from the working directory, so no `justfile` or checkout found
+upward runs in its place, and the checkout guard of today's recipes is not needed. It asks `tools/env-run --which` which
+environment the checkout runs, a virtualenv of the person's own or the checkout's own, from the checkout's own folder,
+as every other caller of `tools/env-run` does: nothing of the folder it is run from decides, neither a version manager's
+choice of `python3` there nor a module there that the question's Python would import. A Python of the person's own is
+asked in the checkout's folder which interpreter it is, so that the one run is the one found there, a bare name, a
+relative `PYTHON` (the checkout's, as for `just`) or a version manager's shim alike, and `tools/aw` runs with it by its
+absolute path under `-I`. A Python that cannot be run is the launcher's own sentence, never the shell's words for a
+failed `exec`. `install`'s one home is its function `install_env`: what `just install` does to the environment, a sync
+of a virtualenv of the person's own with `--inexact` and no download after `tools/stale_scripts.py`'s reinstall, or of
+the checkout's own exactly the lock's on the Python version `managed_python` names, which the `justfile`'s holds equal;
 then git's pre-commit hook, as `just init` puts it, but nowhere where `core.hooksPath` is set. It installs no Galaxy
 collection and moves nothing of 1.x. It runs in three cases and no other: by itself, once, where the checkout's own
 environment does not exist yet, saying so on standard error before it runs the program; for `aw install --lock`, which
@@ -196,13 +204,15 @@ without it. It never installs into a virtualenv of the person's own unasked: the
 lacks the packages.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
-none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, the dispatch's refusals, what a refusal
-imports, and the launcher run in checkouts the test makes, with a stand-in `uv`. `tests/unit/test_aw_cli_rules.py`
-holds the rules and `deploy`'s question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a
-habit with today's sentence, or named as another verb's own; each of the contract's cases of a rule or a habit is run
-against `aw` and gives today's status and sentence; the list of those not yet run only shrinks; the check answers
-alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and each test of today's
-options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
+none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, in `run_words` and in the program, the
+dispatch's refusals, what a refusal imports, and the launcher run in checkouts the test makes, with a stand-in `uv`,
+through links, from folders whose version manager picks another Python or that hold a planted module, and with a
+`PYTHON` that is no virtualenv's or cannot be run. `tests/unit/test_aw_cli_rules.py` holds the rules and `deploy`'s
+question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a habit with today's sentence, or
+named as another verb's own; each of the contract's cases of a rule or a habit is run against `aw` and gives today's
+status and sentence; the list of those not yet run only shrinks; the check answers alike as words and as JSON; the
+question is asked at a pseudo-terminal, typed and with none; and each test of today's options' rules in
+`tests/unit/test_justfile.py` has a twin there by its name.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
