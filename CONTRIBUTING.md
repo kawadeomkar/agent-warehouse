@@ -45,6 +45,11 @@ at a prompt. Use it rather than a `subprocess` call of your own: a run inherits 
 names, never reads your terminal, and fails its test if it calls a browser opener, a clipboard or this
 machine's `tailscale`, `gh` or `claude`.
 
+The new engine's tests, `tests/unit/test_aw_*.py`, share `tests/unit/aw_kit.py` the same way, and `just test engine`
+runs them alone, in seconds: the `home` fixture for the test's own home, and `run_aw` or `aw_at_a_terminal` for
+`tools/aw`, whose run also fails its test if it calls this machine's `ssh`, `ansible-playbook` or login keychain.
+`tests/unit/test_aw_guards.py` refuses a test that runs `tools/aw` any other way.
+
 Tests never talk to a real Proxmox, a real GitHub, a real Tailscale or a real hypervisor:
 `tests/molecule/` holds a fake or a stand-in for each, listed in
 [docs/architecture/testing.md](docs/architecture/testing.md#114-the-fakes--testsmolecule). If your change
@@ -59,6 +64,9 @@ run's output, module arguments injected, for every canned token (`test_no_token_
 searches every run and every file for every canned key; `tests/unit/test_release.py` searches destroy's
 release for every canned GitHub token and Tailscale API credential. A task that handles a new
 secret gets a canned value and a place in those searches.
+In the new engine a secret is a `Secret` (`lib/claude_vm/secret.py`), shown only as a mark and read by
+`reveal()` in the modules `test_aw_guards.py`'s `REVEALS` names; its tests look for a canned one with the kit's
+`searched_for`, which fails a search that read nothing.
 
 ## Conventions
 

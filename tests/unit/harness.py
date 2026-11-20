@@ -23,7 +23,9 @@ Nor this machine's tailscale: the developer's Mac may have the real CLI (at
 /usr/local/bin/tailscale, say), signed in to their own tailnet, and an `up` or a
 `logout` that reached it would act on it. A failing stand-in for it is first on
 every run's PATH too; tests/unit/test_tailscale.py puts
-tests/molecule/fake_tailscale.sh ahead of it, in a host's bin/.
+tests/molecule/fake_tailscale.sh ahead of it, in a host's bin/. A run of the new
+engine's tools/aw (tests/unit/aw_kit.py) gets failing stand-ins for this
+machine's ssh, ansible-playbook and login keychain too (REFUSED_TOOLS).
 
 stdin is /dev/null for every run but those at a pseudo-terminal of the
 harness's own, and each run has a process group of its own: with no terminal a
@@ -169,6 +171,12 @@ DESKTOP_STAND_IN = """#!/bin/sh
 printf '%s %s\\n' "${0##*/}" "$*" >> "$(dirname "$0")/calls.log"
 exit 1
 """
+# And what the new engine's program must never start on this machine in a test, beside those: this machine's ssh,
+# which reaches a real machine with the developer's keys; ansible-playbook outside a stand-in machine; and the login
+# keychain's two programs, macOS's security and Linux's secret-tool. tests/unit/aw_kit.py puts them first on the PATH
+# of every run of tools/aw, and nothing else does: a playbook's run checks its SSH config with this machine's ssh -G.
+# Each is DESKTOP_STAND_IN, in a directory of its own (_refused).
+REFUSED_TOOLS = ("ssh", "ansible-playbook", "security", "secret-tool")
 
 
 # What the stand-ins record, each in a file of its own: read as it is, empty while the file is missing - nothing
@@ -342,6 +350,21 @@ def _desktop_calls(root: Path) -> str:
     return _text(root / ".desktop" / "calls.log")
 
 
+def _refused(root: Path) -> Path:
+    """The directory of the new engine's refusing stand-ins (REFUSED_TOOLS) for runs under root, made on first use."""
+    refused = root / ".refused"
+    refused.mkdir(exist_ok=True)
+    for tool in REFUSED_TOOLS:
+        _executable(refused / tool, DESKTOP_STAND_IN)
+    return refused
+
+
+def _refused_calls(root: Path) -> str:
+    """What the new engine's refusing stand-ins under root were asked to do: nothing, in a test that keeps to its
+    rules."""
+    return _text(root / ".refused" / "calls.log")
+
+
 def _refusing_ssh(root: Path, env: dict | None = None) -> dict:
     """env with REFUSING_SSH first on PATH, from root/ssh-stand-in, and the desktop stand-ins after it: a run given
     it as its env reaches no real ssh."""
@@ -364,6 +387,12 @@ def _fail_if_the_desktop_was_reached(root: Path) -> None:
         pytest.fail(
             f"a run under {root} called this machine's browser or clipboard, or its tailscale, gh or claude"
             f" (a stand-in caught it):\n{calls}"
+        )
+    refused = _refused_calls(root)
+    if refused:
+        pytest.fail(
+            f"a run under {root} called this machine's ssh, ansible-playbook or login keychain"
+            f" (a stand-in caught it):\n{refused}"
         )
 
 

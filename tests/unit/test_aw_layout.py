@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import ast
 import re
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
+from aw_kit import run_aw
 from harness import repo_files, repo_texts
 from test_claude_vm import _core_modules
 
@@ -186,23 +185,17 @@ def test_the_import_cost_test_walks_every_new_subpackage() -> None:
     assert {f"claude_vm.{name}" for name in NEW} <= set(_core_modules())
 
 
-def _aw(*words: str, cwd: Path, program: str | Path = AW) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [sys.executable, "-I", str(program), *words], cwd=cwd, capture_output=True, text=True, timeout=60, check=False
-    )
-
-
-def test_aw_version_names_this_checkout(tmp_path) -> None:
+def test_aw_version_names_this_checkout(tmp_path, home) -> None:
     # From another working directory, by its absolute path, and from the checkout by a relative one: the line names
     # the checkout tools/aw is in, never the directory it was started from.
     for cwd, program in ((tmp_path, AW), (REPO, "tools/aw")):
-        result = _aw("--version", cwd=cwd, program=program)
+        result = run_aw("--version", home=home, cwd=cwd, program=program)
         assert (result.returncode, result.stdout, result.stderr) == (0, f"aw from the checkout {REPO}\n", ""), cwd
 
 
 @pytest.mark.parametrize("words", [(), ("deploy", "alpha"), ("--version", "--version"), ("help",), ("hunter2",)])
-def test_aw_refuses_anything_else_in_one_sentence_that_repeats_nothing(tmp_path, words) -> None:
-    result = _aw(*words, cwd=tmp_path)
+def test_aw_refuses_anything_else_in_one_sentence_that_repeats_nothing(tmp_path, home, words) -> None:
+    result = run_aw(*words, home=home, cwd=tmp_path)
     assert (result.returncode, result.stdout, result.stderr) == (1, "", NOT_BUILT + "\n")
     assert "just" in NOT_BUILT and "not built" in NOT_BUILT
 

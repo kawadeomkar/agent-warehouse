@@ -1171,7 +1171,7 @@ lint ALL_HOOKS='' *PARTS:
 [arg('JOBS', long='jobs', pattern='[1-9]?', help="Run the Molecule scenarios this many at a time, the longest first, each one's whole output in a log of its own and a line as each ends; one at a time without it, as their images share one disk (just test molecule --jobs 4)")]
 [arg('ROLES', long='role', pattern='[a-z_,]*', help="Only these roles' scenarios, comma-separated: on its own it means the role part (just test --role common,claude_code)")]
 [arg('SHARD', long='shard', pattern='([1-9][0-9]*/[1-9][0-9]*)?', help='Only the I-th of N shards of the unit tests, each group of tests whole, as CI splits them: on its own it means the unit part (just test unit --shard 2/3)')]
-[arg('PARTS', pattern='unit|molecule|role|integration|provision', help="unit (pytest over tests/unit/, a worker per CPU, no network), molecule (every Molecule scenario: role, integration, provision), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API)")]
+[arg('PARTS', pattern='unit|engine|molecule|role|integration|provision', help="unit (pytest over tests/unit/, a worker per CPU, no network), engine (only the new engine's tests, tests/unit/test_aw_*.py, which unit runs too: seconds, no Docker), molecule (every Molecule scenario: role, integration, provision), role (the roles' own scenarios), integration (the full configure playbook against a Docker container), provision (provision.yml and discover.yml against a fake Proxmox API)")]
 [doc('Lint, then every test: unit and Molecule (the local quality gate)')]
 [group('develop')]
 [no-exit-message]
@@ -1241,8 +1241,8 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     if [ -z {{ quote(live_run) }} ]; then
       stages=
       [ -z "$lint" ] || stages=lint
-      for part in unit role integration provision; do
-        if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ]; }; then stages="$stages $part"; fi
+      for part in unit engine role integration provision; do
+        if runs "$part" && { [ -z "$lanes" ] || [ "$part" = unit ] || [ "$part" = engine ]; }; then stages="$stages $part"; fi
       done
       [ -z "$lanes" ] || stages="$stages molecule"
       AGENT_WAREHOUSE_LIVE="test${roles:+ --role $roles}${shard:+ --shard $shard}${asked:+ $asked}"
@@ -1259,6 +1259,10 @@ test ROLES='' SHARD='' JOBS='' *PARTS:
     # named, so that conftest.py, which adds --shard, is read before the options are.
     if runs unit; then
       part unit --read pytest -- "$bin/pytest" -p live_pytest tests/unit -n auto --dist loadgroup ${shard:+--shard "$shard"}
+    fi
+    # The new engine's tests alone: those conftest.py marks engine, every test of tests/unit/test_aw_*.py.
+    if runs engine; then
+      part engine --read pytest -- "$bin/pytest" -p live_pytest tests/unit -m engine -n auto --dist loadgroup
     fi
     if [ -n "$lanes" ]; then
       # shellcheck disable=SC2086 # the scenarios' names, one word each

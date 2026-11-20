@@ -243,6 +243,8 @@ lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, th
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file
 lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
 lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
+lib/claude_vm/secret.py           the new engine's Secret: a value shown as a mark wherever it is shown, never pickled
+                                  or turned into JSON, read only by reveal() in the modules a test names (§16.1)
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:
@@ -301,7 +303,8 @@ tests/
                                   output - the model, each recipe drawn, tools/live's runs in parts (live_kit.py runs
                                   each at a terminal of its own; vt.py, a small terminal they read back through;
                                   interrupts.py, SIGTERM and SIGHUP taken as a Ctrl-C in every pytest process) -
-                                  and the wiki (test_docs.py)
+                                  and the wiki (test_docs.py); the new engine's tests, test_aw_*.py, marked engine,
+                                  with their kit, aw_kit.py, and their guards, test_aw_guards.py (§11.1)
   molecule/                       shared fakes (§11.4): fake_pve_api.py, the PVE API and its guest agent;
                                   fake_qm.sh, fake_virt_customize.sh and fake_virt_cat.sh, the template's tools; fake_pve_cli.py,
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and

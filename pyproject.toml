@@ -71,7 +71,10 @@ testpaths = ["tests/unit"]
 pythonpath = ["tests/unit", "lib"]
 addopts = "-ra -q"
 # Registered here too, so a run without xdist (-p no:xdist) knows the mark tests/unit/conftest.py sets.
-markers = ["xdist_group(name): run every test of the group on one xdist worker"]
+markers = [
+  "xdist_group(name): run every test of the group on one xdist worker",
+  "engine: a test of the new engine, every test of a file tests/unit/test_aw_*.py, which just test engine runs alone",
+]
 
 [tool.ruff]
 line-length = 120

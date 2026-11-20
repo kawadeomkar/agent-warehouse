@@ -44,6 +44,21 @@ cancel sends one, and Python's default ended the worker at once, its run and tha
 only, since a second - a hangup moments after a kill - would end the harness's kill half way; and one ignored
 on the way in stays ignored, so a suite under nohup still survives its terminal closing.
 
+`just test engine` runs the new engine's tests alone ([§16](engine.md)): every test of a file
+`tests/unit/test_aw_*.py`, which `conftest.py`'s hook marks `engine` before xdist's hook and pytest's `-m` see the
+tests, selected with `-m engine` on the same workers and groups as the unit part. They run no playbook and take
+seconds; `just test unit` still runs them with the rest. Such a test reaches `tools/aw` through
+`tests/unit/aw_kit.py` alone, which `conftest.py` registers. Its fixture `home` is the test's own fleet home, the
+directory `aw_home` names `AGENT_WAREHOUSE_HOME`, made, with `HOME` and the XDG folders in it too, in the test's
+process as well. `run_aw` runs the program under `python -I` in an environment built from `harness.PASSED_ON`'s
+names and the home's, never the test's whole one; with failing stand-ins first on `PATH`: a browser opener, a
+clipboard and this machine's `tailscale`, `gh` and `claude` (`harness._desktop`), and its `ssh`, `ansible-playbook`
+and login keychain, macOS's `security` and Linux's `secret-tool` (`harness._refused`), each of which fails the test
+once reached (`harness._fail_if_the_desktop_was_reached`); with `/dev/null` on its stdin unless the test gives a file
+or text, and a process group of its own, ended whole on a timeout. `aw_at_a_terminal` runs it at a pseudo-terminal
+of its own, `imports_of` lists the modules a run loaded (`-X importtime`), and `searched_for` is the canary search
+for a canned secret in what a run left, which fails when it read nothing.
+
 pytest over `tests/unit/`, file by file:
 
 - **The package** (`test_claude_vm.py`): `lib/` holds `claude_vm` alone; every core module imports in a fresh
@@ -55,6 +70,14 @@ pytest over `tests/unit/`, file by file:
   two writers through `store.py`, 300 changes each at once, lose none, and a replace keeps the file's mode;
   and every file in `filter_plugins/` is an adapter that loads nothing of the core when loaded, each of its filters
   the core's function of that name.
+- **The new engine's guards** (`test_aw_guards.py`): every test of a `test_aw_*.py` file, collected as the suite
+  collects it, is marked `engine` and set up with `conftest.py`'s own `aw_home`, made for it alone, and a 2.x file's
+  tests are not marked; no test file starts `tools/aw` but through the kit, each file read as a syntax tree for a
+  call that starts a program given a string, a path built of `tools` and `aw`, or a name bound to one; each stand-in
+  is first on a run's `PATH`, and one that was reached fails the test; a run inherits the listed names alone. A
+  `Secret` (`lib/claude_vm/secret.py`) never shows its value in a `repr`, a `str`, an f-string, `format`, `%` or a
+  log line, pickle and JSON refuse it, and a copy is itself; only the modules `REVEALS` names, none yet, call
+  `reveal()`.
 - **The hosts core** (`test_hosts_core.py`): the core in-process - which host, in its order, the names hyphenated, a
   refusal carrying the notes said before it; choosing and listing never open a vault or run a password script;
   `resolve` reads the environment it is given; the vault check decides and writes nothing; init, the switch and the
