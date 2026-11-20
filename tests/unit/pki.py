@@ -23,14 +23,17 @@ def _pem(certificate) -> str:
     return certificate.public_bytes(serialization.Encoding.PEM).decode()
 
 
-def proxmox_pki(directory: Path, *, key_usage: bool = False, address: str = "127.0.0.1") -> dict:
+def proxmox_pki(
+    directory: Path, *, key_usage: bool = False, address: str = "127.0.0.1", name: str = "Proxmox Virtual Environment"
+) -> dict:
     """A CA and a node certificate signed by it, naming ``address``: {"ca", "node"} as PEM text, and "cert" and "key",
-    the files a TLS server serves the node's certificate alone from, as pveproxy does."""
+    the files a TLS server serves the node's certificate alone from, as pveproxy does. ``name`` is the CA's common name,
+    Proxmox's own unless a test wants a CA of another subject."""
     now = datetime.datetime.now(datetime.UTC)
     ca_key, node_key = _key(), _key()
     ca_name = x509.Name(
         [
-            x509.NameAttribute(NameOID.COMMON_NAME, "Proxmox Virtual Environment"),
+            x509.NameAttribute(NameOID.COMMON_NAME, name),
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, "PVE Cluster Manager CA"),
         ]
     )

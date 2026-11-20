@@ -42,7 +42,7 @@ SECRET = "unit-test-aw-secret-value"
 
 # The modules that read a Secret's value, each with why: the one place it is sent on.
 REVEALS: dict[str, str] = {
-    "lib/claude_vm/vendors/transport.py": "a request's header, a token's above all, put on the request in _put alone",
+    "lib/claude_vm/vendors/transport.py": "a request's header or form value, a token's above all, read in _plain alone",
 }
 
 

@@ -253,24 +253,40 @@ builds no context and reads no setting.
 - **The peer's certificate.** `peer_check`, a function of the peer's certificate as DER, is called after each new
   connection's handshake and before anything is written on it. Its raising ends the call as `PeerRefused`, with
   nothing sent. This is the one way into the connection that the Proxmox client's pin uses.
+- **A certificate that does not verify** against the caller's context is `Untrusted`, an `Unreachable` of its own, so
+  that a caller can tell it from a connection refused, and one that catches `Unreachable` still catches it. It is not
+  tried again, and nothing was sent. Its `reason` is what OpenSSL said of the certificate, and its sentence says what
+  to do where a root of the person's own signed it, such as a company's: set `tls_ca_file` to a file of PEM
+  certificates that holds that root.
 - **A proxy** is an `http://host:port` URL or none, with a user and password where the URL holds them, sent as the
-  CONNECT's Basic credentials to the proxy alone. The connection is a CONNECT tunnel (`http.client`'s `set_tunnel`),
-  so TLS and the peer's check are end to end with the server, and the proxy sees the server's name and port and
-  nothing else. Another scheme, `socks5://` or `https://`, is refused by name, as `requests` refuses SOCKS today
-  without its extra package. No message quotes the URL, which may hold a password.
+  CONNECT's Basic credentials to the proxy alone. The connection is a CONNECT tunnel, asked for and read by the
+  transport itself, so TLS and the peer's check are end to end with the server, and the proxy sees the server's name
+  and port and nothing else. Of the proxy's answer only its status is ever said, never its words. Another scheme,
+  `socks5://` or `https://`, is refused by name, as `requests` refuses SOCKS today without its extra package. No
+  message quotes the URL, which may hold a password.
 - **Bounded.** An answer's body is held to `most` bytes and read no further (`TooLarge`). Every wait is held to
   `connect` or `read` seconds. A whole call, its tries and their pauses included, is held to `deadline` (120 s where
-  none is given), which every read and every send of the connection obeys, so a server that drips its answer is cut
-  off too.
+  none is given). Every step of making a connection obeys it: each of the name's addresses in turn, each for at most
+  `connect` (where `socket.create_connection` would give every address the whole limit), a proxy's CONNECT and the
+  head of its answer, read a byte at a time and held to 64 KiB, and the TLS handshake. So does every read and every
+  send of the connection, so a server or a proxy that drips its answer is cut off too. `http.client` is handed the
+  connection made, and never makes one itself. Only the name's lookup is not held to the deadline: the system's
+  resolver alone bounds it.
 - **Sent once.** A GET or HEAD is tried again, at most three times in all, after 0.5 s and then 1 s, when its
   connection could not be made or was dropped, or when the answer is 502, 503 or 504. Any other method is sent once.
   A failure once its request has left is `Unknown`, never a second send, and its caller reads the state to know.
   Before a request is written on a kept connection, one whose far end has closed it is put aside, which costs no try.
-- **A secret is never said.** A header's value may be a `Secret`, revealed in `_put` and nowhere else. Every header
-  is held to what `http.client` sends as it is (a name that is an HTTP token, a value of visible ASCII) before a byte of
-  the request is made, and anything else is `NotMade`, "the request could not be made", because `http.client`'s own
-  words quote the header. A `Secret` in a query or a form is refused, since it would be sent as its mark. Each error
-  (`Unreachable`, `TimedOut`, `TooLarge`, `Unknown`, `PeerRefused`, `NotMade`) is raised after the handler that caught
+- **A secret is never said.** A header's value may be a `Secret`, or a tuple or list of `str` and `Secret` parts, as
+  the Proxmox client's `PVEAPIToken=<id>=<secret>` is; and a form's value may be a `Secret`, or a list or tuple of
+  values that may be, as Tailscale's `client_secret` is. A `Secret` is revealed in `_plain` and nowhere else, for the
+  header it is put in or the form it is encoded in, and no frame an error is raised through holds the plain text in a
+  name. A `Secret` in a query is refused, since it would be sent in the request's line, and in JSON, which refuses it.
+  Every header is held to what `http.client` sends as it is (a name that is an HTTP token, a value of visible ASCII)
+  before a byte of the request is made, and anything else is `NotMade`, "the request could not be made", because
+  `http.client`'s own words quote the header. What `http.client` raised of an answer is said by what it means ("it
+  answered something that is no HTTP", "the answer was cut short"), never in its words, which quote the answer's
+  status line, and so a header a server or a proxy that inspects TLS echoed there. Each error (`Unreachable`,
+  `Untrusted`, `TimedOut`, `TooLarge`, `Unknown`, `PeerRefused`, `NotMade`) is raised after the handler that caught
   its cause has ended, so it carries no cause that could quote one.
 - **Threads.** The class is blocking and safe to call from several threads, with one connection kept for each thread.
   A caller on an `asyncio` loop uses `asyncio.to_thread`.
@@ -294,7 +310,9 @@ it is that proxy. Of `urllib.request` it calls only the readers that take what t
 environment, and it never uses an opener.
 
 `tests/unit/test_aw_transport.py` runs the transport against TLS servers it starts on loopback, with the certificates
-`tests/unit/pki.py` makes, and against a stand-in CONNECT proxy. It holds four rules over the new engine's modules.
+`tests/unit/pki.py` makes, and against a stand-in CONNECT proxy, which also refuses a tunnel, or drips its answer to the
+CONNECT a byte at a time. A server that echoes the token in a status line `http.client` cannot read shows no error
+saying it. It holds four rules over the new engine's modules.
 Only `transport.py` imports `http.client` or wraps a socket. Only `proxy.py` imports `urllib.request`, and only for
 those readers. No module names a certificate variable. And `reveal(` appears once in the transport. It also holds the
 modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each with why.
@@ -302,9 +320,11 @@ modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each wi
 **The vendors' trust: `trust.py`.** GitHub, Tailscale and the download servers are verified against one file of PEM
 certificates, named by its path: `certifi`'s bundle, the same on every system, unless the computer's setting
 `tls_ca_file` names another. `ca_file(setting)` gives that path, `certifi`'s where the setting is unset or empty, and
-`context(path)` makes the context the transport is given. That bundle is what today's `requests` verifies against
-where no variable names another, so the vendors are trusted as today; a root a person added to the system's own store
-and not to `certifi`'s is named with `tls_ca_file`, the opt-in.
+`context(path)` makes the context the transport is given. This is a recorded change from 2.x, whose vendor calls are
+Ansible's `uri`, verified against the system's own store of the machine that makes them, which `SSL_CERT_FILE` and
+`SSL_CERT_DIR` change. Neither the system's store nor `SSL_CERT_FILE`, `SSL_CERT_DIR` or `REQUESTS_CA_BUNDLE` is read:
+`tls_ca_file` is the one way to add a root, such as a company's, and the refusal of a certificate that does not verify
+(`Untrusted`) says what to set it to.
 
 - **That file, and nothing else.** The context is made by hand, a client context with the file loaded by
   `load_verify_locations`, and never the standard library's ready-made one, which loads the interpreter's own store
@@ -318,12 +338,21 @@ and not to `certifi`'s is named with `tls_ca_file`, the opt-in.
 - **A file that cannot be used** (not there, not readable, or holding no certificate, such as a revocation list alone)
   is `Unusable`, whose sentence names `tls_ca_file`; so is a missing `certifi` where no setting names a file.
 - **The proxy is not this module's.** `proxy.choose` gives it to the transport beside this context.
+- **The one context.** Of the new engine, only `trust.py` makes a TLS context, gives one roots or sets its checks:
+  the transport takes any `ssl.SSLContext`, so a module that made its own could hand it one that checks nothing. The
+  Proxmox client's pin joins it, with its reason, when it is built.
 
 `tests/unit/test_aw_vendor_trust.py` reaches TLS servers on loopback through the transport with such a context. It
-puts a server's root in the interpreter's own store to show that the context still refuses that server, and sets every
-certificate variable to a trap to show that neither the file chosen nor what it loads changes. It holds two rules: no
-module of `vendors/` names the standard library's ways to the interpreter's store (`create_default_context`,
-`load_default_certs`, `set_default_verify_paths`), and of the new engine only `trust.py` imports `certifi`.
+puts a server's root in either half of the interpreter's own store, the file `SSL_CERT_FILE` names or the folder
+`SSL_CERT_DIR` names, there under its subject's hash as OpenSSL reads a folder (`openssl x509 -subject_hash`, the case
+skipped where there is no `openssl`), with `REQUESTS_CA_BUNDLE` and `CURL_CA_BUNDLE` naming it too. It shows that
+the context, of `certifi`'s file or of a root of another subject, which OpenSSL would look past to any other source,
+still refuses that server, and that the refusal names `tls_ca_file`. It sets every certificate variable to a trap to
+show that neither the file chosen nor what it loads changes. It holds three rules: no module of `vendors/` names the
+standard library's ways to the interpreter's store or its paths (`create_default_context`, `load_default_certs`,
+`set_default_verify_paths`, `get_default_verify_paths`); of the new engine only `trust.py` imports `certifi`; and of
+the new engine only the modules `CONTEXTS` names, each with why, make a TLS context (`SSLContext`, the ready-made ones,
+`load_verify_locations`, by any spelling but as a type) or set its `check_hostname` or `verify_mode`.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 

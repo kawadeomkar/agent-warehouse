@@ -4,8 +4,10 @@ client context that verifies against that file alone (lib/claude_vm/vendors/trus
 
 Each server is a TLS server this test starts in its own process, on loopback, with a CA and the node's certificate
 tests/unit/pki.py makes, and it is reached through the one transport, as the vendors' calls are. The interpreter's own
-store is the one the variables below change, which a context made here never reads: a root put there and not in the
-file is refused. The rules at the end hold vendors/ to that and certifi to one importer.
+store is the one the variables below change, a file (SSL_CERT_FILE) and a folder read by subject hash (SSL_CERT_DIR),
+which a context made here never reads: a root put in either and not in the file is refused, and the refusal names
+tls_ca_file. The rules at the end hold vendors/ to that, certifi to one importer, and the new engine to one maker of a
+TLS context.
 """
 
 from __future__ import annotations
@@ -13,7 +15,10 @@ from __future__ import annotations
 import ast
 import datetime
 import http.server
+import re
+import shutil
 import ssl
+import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -29,18 +34,35 @@ from pki import proxmox_pki
 from test_aw_transport import _imports, _new_engine, _rel
 
 from claude_vm.vendors import trust
-from claude_vm.vendors.transport import Transport, Unreachable
+from claude_vm.vendors.transport import Transport, Unreachable, Untrusted
 
 # The module's two certificate authorities: the server's, and one that signed nothing the server shows. Cheap enough
 # to make again on each worker (tests/unit/conftest.py).
 EACH_WORKER = {"pki", "other_pki"}
 AGENT = "agent-warehouse-test"
 TRUST = REPO / "lib" / "claude_vm" / "vendors" / "trust.py"
-# What would give a context the interpreter's own store: never called, nor named, in vendors/.
-DEFAULT_STORE = ("create_default_context", "load_default_certs", "set_default_verify_paths")
+# What would give a context the interpreter's own store, or its paths: never called, nor named, in vendors/.
+DEFAULT_STORE = ("create_default_context", "load_default_certs", "set_default_verify_paths", "get_default_verify_paths")
 # Every variable a client library or OpenSSL reads for a file of certificates: traps here, with SSL_CERT_DIR naming
 # their folder and SSLKEYLOGFILE a log of the session's keys.
 VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+# The modules of the new engine that make a TLS context, give one roots or set its checks, each with why: the vendors'
+# context, made in one place; the Proxmox client's pin joins it (B2).
+CONTEXTS: dict[str, str] = {
+    "lib/claude_vm/vendors/trust.py": "the vendors' one context, made by hand from one certificate file, the server's"
+    " name checked and a certificate required",
+}
+# What makes a TLS context or gives one roots, by any spelling but as a type; and the checks a context is loosened by.
+MAKERS = frozenset(
+    {
+        "SSLContext",
+        "create_default_context",
+        "_create_unverified_context",
+        "_create_default_https_context",
+        "load_verify_locations",
+    }
+)
+CHECKS = frozenset({"check_hostname", "verify_mode"})
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +72,9 @@ def pki(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def other_pki(tmp_path_factory):
-    return proxmox_pki(tmp_path_factory.mktemp("other-pki"), key_usage=True)
+    """A CA of another subject than the server's: OpenSSL finds no issuer of the server's name in a file of it, and so
+    asks every other source a context has."""
+    return proxmox_pki(tmp_path_factory.mktemp("other-pki"), key_usage=True, name="Another Test CA")
 
 
 class _Server(http.server.ThreadingHTTPServer):
@@ -108,13 +132,36 @@ def _der(pem: str) -> bytes:
 
 
 def _trap(monkeypatch, directory: Path, pem: str) -> Path:
-    """Every variable a library reads for its certificates names a file of pem, and SSLKEYLOGFILE the log of keys this
-    gives."""
+    """Every variable a library reads for its certificates names a file of pem, SSL_CERT_DIR their folder, and
+    SSLKEYLOGFILE the log of keys this gives. OpenSSL reads a folder by subject hash alone, so that folder holds nothing
+    it reads: _hashed makes one that does."""
     for name in VARIABLES:
         monkeypatch.setenv(name, str(_file(directory, f"trap-{name}.pem", pem)))
     monkeypatch.setenv("SSL_CERT_DIR", str(directory))
     monkeypatch.setenv("SSLKEYLOGFILE", str(directory / "keys.log"))
     return directory / "keys.log"
+
+
+def _hashed(directory: Path, pem: str) -> Path:
+    """A folder that holds pem as OpenSSL reads a certificate folder: named <subject hash>.0, the hash as openssl x509
+    -subject_hash prints it. The test is skipped where there is no openssl."""
+    openssl = shutil.which("openssl")
+    if openssl is None:
+        pytest.skip("no openssl to name a certificate by its subject's hash")
+    folder = directory / "hashed"
+    folder.mkdir()
+    ca = _file(directory, "hashed-ca.pem", pem)
+    said = subprocess.run(
+        [openssl, "x509", "-subject_hash", "-noout", "-in", str(ca)],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    ).stdout.strip()
+    assert re.fullmatch(r"[0-9a-f]{8}", said), said
+    (folder / f"{said}.0").write_text(pem)
+    return folder
 
 
 # ---------------------------------------------------------------- the context ----
@@ -146,19 +193,27 @@ def test_with_the_interpreter_s_store_variable_naming_an_empty_file_the_server_s
     assert _get(url, trust.context(_file(tmp_path, "ca.pem", pki["ca"]))) == 200
 
 
+@pytest.mark.parametrize("half", ["file", "folder"])
 @pytest.mark.parametrize("given", ["certifi", "other"])
 def test_a_server_whose_root_is_in_the_interpreter_s_store_and_not_in_the_file_is_refused(
-    serve, pki, other_pki, tmp_path, monkeypatch, given
+    serve, pki, other_pki, tmp_path, monkeypatch, given, half
 ) -> None:
-    """The server's root is put in the interpreter's own store, which a default context then trusts; a context made
-    from certifi's file, or from a file of another root, still refuses the server."""
+    """The server's root is put in one half of the interpreter's own store, the file SSL_CERT_FILE names or the folder
+    SSL_CERT_DIR names (by its subject hash, as OpenSSL reads one), which a default context then trusts; and
+    REQUESTS_CA_BUNDLE and CURL_CA_BUNDLE name it too, as traps. A context made from certifi's file, or from a file of
+    a root of another subject, which OpenSSL would look past to any other source, still refuses the server: none of
+    them is read. The refusal is Untrusted, and says what to set tls_ca_file to."""
     url = serve(pki)
     _trap(monkeypatch, tmp_path, pki["ca"])
-    assert _get(url, ssl.create_default_context()) == 200  # the root is in the interpreter's store
+    if half == "folder":
+        monkeypatch.setenv("SSL_CERT_FILE", str(_file(tmp_path, "empty.pem")))
+        monkeypatch.setenv("SSL_CERT_DIR", str(_hashed(tmp_path, pki["ca"])))
+    assert _get(url, ssl.create_default_context()) == 200  # the root is in that half of the interpreter's store
     path = trust.ca_file(None) if given == "certifi" else _file(tmp_path, "other.pem", other_pki["ca"])
-    with pytest.raises(Unreachable) as refused:
+    with pytest.raises(Untrusted) as refused:
         _get(url, trust.context(path))
-    assert "certificate does not verify" in str(refused.value)
+    said = str(refused.value)
+    assert "certificate does not verify" in said and "set tls_ca_file to a file of PEM certificates" in said
 
 
 def test_a_server_whose_certificate_names_another_host_is_refused(serve, tmp_path) -> None:
@@ -265,6 +320,84 @@ def test_the_rules_read_vendors_and_the_new_engine() -> None:
 def test_vendors_never_asks_for_the_interpreter_s_own_store() -> None:
     naming = {_rel(path): name for path in _vendors() for name in DEFAULT_STORE if name in path.read_text()}
     assert naming == {}
+
+
+def _as_a_type(tree: ast.AST) -> set[int]:
+    """The nodes of tree that name a type and make nothing: an annotation, and what isinstance or issubclass test."""
+    typed: set[int] = set()
+    for node in ast.walk(tree):
+        shown = []
+        if isinstance(node, ast.arg | ast.AnnAssign) and node.annotation is not None:
+            shown.append(node.annotation)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.returns is not None:
+            shown.append(node.returns)
+        elif isinstance(node, ast.Call) and getattr(node.func, "id", "") in ("isinstance", "issubclass"):
+            shown += node.args[1:2]
+        typed |= {id(one) for part in shown for one in ast.walk(part)}
+    return typed
+
+
+def _makes_a_context(tree: ast.AST) -> list[str]:
+    """What of tree makes a TLS context or gives one roots, a name of MAKERS by any spelling (a call, an attribute, an
+    alias, an import, a string) but as a type; and what sets a context's checks, CHECKS assigned or named as a
+    string."""
+    typed = _as_a_type(tree)
+    found = []
+    for node in ast.walk(tree):
+        if id(node) in typed:
+            continue
+        if isinstance(node, ast.Name):
+            named = node.id
+        elif isinstance(node, ast.Attribute):
+            named = node.attr
+            if named in CHECKS and not isinstance(node.ctx, ast.Load):
+                found.append(named)
+        elif isinstance(node, ast.alias):
+            named = node.name
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            named = node.value
+            if named in CHECKS:
+                found.append(named)
+        else:
+            continue
+        if named in MAKERS:
+            found.append(named)
+    return found
+
+
+@pytest.mark.parametrize(
+    ("source", "makes"),
+    [
+        ("ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)", True),
+        ("make = ssl.SSLContext\nmake(2)", True),
+        ("from ssl import SSLContext as Made", True),
+        ("getattr(ssl, 'SSLContext')(2)", True),
+        ("ssl.create_default_context()", True),
+        ("ssl._create_unverified_context()", True),
+        ("context.load_verify_locations(cafile=path)", True),
+        ("context.check_hostname = False", True),
+        ("context.verify_mode = ssl.CERT_NONE", True),
+        ("setattr(context, 'verify_mode', 0)", True),
+        ("isinstance(context, ssl.SSLContext)", False),
+        ("def f(context: ssl.SSLContext) -> ssl.SSLContext:\n    return context", False),
+        ("made: 'ssl.SSLContext' = given", False),
+        ("strict = context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED", False),
+        ("tls = context.wrap_socket(sock, server_hostname=host)", False),
+    ],
+)
+def test_what_makes_a_tls_context_is_found_by_any_spelling(source, makes) -> None:
+    assert bool(_makes_a_context(ast.parse(source))) is makes
+
+
+def test_only_the_modules_contexts_names_make_a_tls_context() -> None:
+    """The vendors' context is trust.py's alone: no other module of the new engine makes one, gives one roots or loosens
+    one's checks, and hands it to the transport, which takes any context."""
+    making = {_rel(path): _makes_a_context(ast.parse(path.read_text())) for path in _new_engine()}
+    assert {rel for rel, found in making.items() if found} == set(CONTEXTS), (
+        "a module that makes a TLS context is named in CONTEXTS, with why: "
+        f"{ {rel: found for rel, found in making.items() if found and rel not in CONTEXTS} }"
+    )
+    assert all(reason.strip() for reason in CONTEXTS.values())
 
 
 def test_certifi_is_imported_by_vendors_trust_alone() -> None:

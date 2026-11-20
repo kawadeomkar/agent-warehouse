@@ -2,10 +2,11 @@
 (docs/architecture/engine.md §16.7).
 
 GitHub, Tailscale and the download servers are verified against one file of PEM certificates: certifi's bundle, by the
-path certifi gives, the same on every system, unless the computer's setting tls_ca_file names another. That bundle is
-what today's requests verifies against where no variable names another, so the vendors are trusted as today; a root a
-person added to the system's own store and not to certifi's is named with tls_ca_file, the opt-in. There is no table
-of each system's paths.
+path certifi gives, the same on every system, unless the computer's setting tls_ca_file names another. That is a
+recorded change from 2.x, whose vendor calls were Ansible's uri, verified against the system's own store of the machine
+that made them, which the interpreter's certificate variables change. Neither that store nor any certificate variable
+is read here: tls_ca_file is the one way to add a root, a company's say, and the refusal of a certificate that does not
+verify (the transport's Untrusted) says so. There is no table of each system's paths.
 
 context() loads that file and nothing else: not the interpreter's own store, nothing the environment names, not
 macOS's keychain. It makes the context by hand, since the standard library's ready-made one loads the interpreter's
