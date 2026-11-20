@@ -111,7 +111,6 @@ NEW: dict[str, str] = {
     "cancel": "N-23 section 4: cancel [<job>], a verb of its own as O10 records",
     "cancel <job>": "N-23 section 4: cancel [<job>], a verb of its own as O10 records",
     "mcp --vault-key-file": "V2-8: the agents' server's registration takes the vault key file's path",
-    "control": "the report's table of verbs, row control: the add-on's installer, its bootstrap alone in the base",
 }
 NEW |= {f"{verb} --set": SET for verb in ("init", "deploy", "code", "login", "status", "destroy", "release")}
 NEW |= {f"{verb} -v": VERBOSE for verb in ("init", "deploy", "code", "login", "destroy", "release")}
