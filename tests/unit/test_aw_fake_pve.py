@@ -267,6 +267,65 @@ def test_a_grant_reaches_below_its_path_only_where_it_propagates_and_a_pool_s_re
     assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
 
 
+# Four more rules of the answer, as PVE/RPCEnvironment.pm computes it, each held by a case of its own: the code that
+# enforces a token's privileges is built on them, and a change to acl_roles, roles_at or acl_privileges keeps them.
+def test_a_deeper_path_s_entries_replace_those_above_it_and_are_never_merged_with_them(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit,VM.PowerMgmt", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Above", privs="VM.PowerMgmt")
+    _ok(fleet, "POST", "access/roles", roleid="Below", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "PUT", "access/acl", path="/", roles="Above", tokens=token[0])
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Below", tokens=token[0])
+    # Both propagate and the user holds both, so only the rule takes Above away: from /vms down, /vms's entry alone.
+    assert _permissions(fleet, token, "/") == {"/": {"VM.PowerMgmt": 1}}
+    assert _permissions(fleet, token, "/vms") == {"/vms": {"VM.Audit": 1}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.Audit": 1}}
+    # Where no deeper entry names the token, /'s still reaches.
+    assert _permissions(fleet, token, "/nodes/pve") == {"/nodes/pve": {"VM.PowerMgmt": 1}}
+
+
+def test_a_separated_token_propagates_a_privilege_only_where_its_user_does_too(fleet: str) -> None:
+    _ok(fleet, "POST", "access/users", userid="engine@pve")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Reader", users="engine@pve", propagate=0)
+    token = _token(fleet, "engine@pve", "aw", privsep=1)
+    _ok(fleet, "PUT", "access/acl", path="/vms", roles="Reader", tokens=token[0], propagate=1)
+    # The token's own entry propagates and its user's does not: held at /vms without propagate, and nothing below.
+    assert _permissions(fleet, token, "/vms") == {"/vms": {"VM.Audit": 0}}
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {}}
+
+
+def test_a_pool_s_role_never_replaces_the_same_role_on_a_member_s_own_path(fleet: str) -> None:
+    _user(fleet, "engine@pve", "VM.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Reader", privs="VM.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "POST", "pools", poolid="fleet")
+    _ok(fleet, "PUT", "pools", poolid="fleet", vms="9010,9011")
+    _ok(fleet, "PUT", "access/acl", path="/vms/9010", roles="Reader", tokens=token[0], propagate=1)
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="Reader", tokens=token[0])
+    # The member's own entry propagates, and the pool's, which never propagates on a member, does not take its place.
+    assert _permissions(fleet, token, "/vms/9010") == {"/vms/9010": {"VM.Audit": 1}}
+    # A member with no entry of its own takes the pool's, without propagate.
+    assert _permissions(fleet, token, "/vms/9011") == {"/vms/9011": {"VM.Audit": 0}}
+
+
+def test_a_pool_s_role_reaches_a_storage_the_pool_holds_without_propagate(fleet: str) -> None:
+    _user(fleet, "engine@pve", "Datastore.AllocateSpace,Datastore.Audit", path="/")
+    _ok(fleet, "POST", "access/roles", roleid="Space", privs="Datastore.AllocateSpace,Datastore.Audit")
+    token = _token(fleet, "engine@pve", "aw")
+    _ok(fleet, "POST", "pools", poolid="fleet")
+    _ok(fleet, "PUT", "access/acl", path="/pool/fleet", roles="Space", tokens=token[0])
+    assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": {}}
+    # Once the pool holds the storage, the pool's role reaches it, propagating nothing, and is listed with no path too.
+    _ok(fleet, "PUT", "pools", poolid="fleet", storage="local-lvm")
+    held = {"Datastore.AllocateSpace": 0, "Datastore.Audit": 0}
+    assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": held}
+    assert _permissions(fleet, token)["/storage/local-lvm"] == held
+    # Out of the pool again, and the storage holds nothing.
+    _ok(fleet, "PUT", "pools", poolid="fleet", storage="local-lvm", delete=1)
+    assert _permissions(fleet, token, "/storage/local-lvm") == {"/storage/local-lvm": {}}
+
+
 def test_a_regenerated_token_s_old_secret_is_refused(fleet: str) -> None:
     _user(fleet, "engine@pve", "VM.Audit")
     full_id, old = _token(fleet, "engine@pve", "aw", comment="the engine's")
