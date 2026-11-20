@@ -889,6 +889,14 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       40 000 characters.
     - Tests never run the real `claude`, read `~/.claude.json` or reach a real Ansible: `test_mcp_server.py` runs a
       copy of the checkout with stand-ins, `test_mcp_register.py` a stand-in `claude`.
+- **Nothing of today's product reaches the new engine until the cutover, and the new engine reuses only what it
+  names.** Read [§16.1](docs/architecture/engine.md#161-the-rule-between-the-two-engines) first. The engine that
+  replaces the playbooks at 3.0 is built beside them, in the subpackages `schema`, `cli`, `engine`, `pve`, `ssh`,
+  `vendors`, `runs`, `fleet`, `guest` and `control` of `lib/claude_vm/`, and run by `tools/aw`. Nothing of today's
+  product (the `justfile`, `deploy.yml`, `playbooks/`, `roles/`, `filter_plugins/`, `callback_plugins/`,
+  `inventory/`, `tools/` and today's modules of `lib/claude_vm/`) imports them or runs `tools/aw`. The new engine
+  imports of today's `lib/claude_vm/` only the modules `REUSED` names, each with its reason.
+  `tests/unit/test_aw_layout.py` holds both.
 
 ## Architecture, and why it looks like this
 

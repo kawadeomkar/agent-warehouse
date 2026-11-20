@@ -32,6 +32,8 @@ tools/host                        the checkout's hosts (tools/check host): the h
                                   removal and just init --host's files (lib/claude_vm/hosts/, §7.14)
 tools/settings                    just settings: each setting's value and where it was set, from Ansible's own variables (§7.9)
 tools/mcp                         the MCP server just mcp registers with Claude Code: its tools the recipes (§7.12)
+tools/aw                          aw, the new engine's program until 3.0 (§16): this checkout's lib/ on the path, then
+                                  lib/claude_vm/cli/main.py; nothing of today's product runs it (test_aw_layout.py)
 tools/stale_scripts.py            just install: the locked packages whose commands start another Python, to reinstall
 tools/unit_durations.py           tests/unit/durations.json from a run's JUnit report: what the unit tests' shards balance by
 tools/molecule-lanes              just test molecule --jobs 4: the scenarios that many at a time, each in a log of its own
@@ -224,6 +226,20 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   more than one family uses, the helpers' directory and the marker among it; vscode.py
                                   and zed.py, each family's plan of its window; registry.py, which every plan passes
                                   (§7.10)
+lib/claude_vm/schema/             the new engine (§16), built beside today's and reached through tools/aw alone until
+                                  3.0, one subpackage each below: the command line's patterns and its one table of
+                                  verbs and options, literals written by hand
+lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
+                                  main.py, the entry tools/aw runs, which answers --version until the parser is built
+lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
+lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege
+lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
+                                  directory, the children a run holds
+lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest
+lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
+lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark
+lib/claude_vm/guest/              inside a machine: the helper, the system layer's inputs, layer 2
+lib/claude_vm/control/            the add-on's, with a control VM only: nothing of the base writes here
 filter_plugins/proxmox.py         the adapter of lib/claude_vm/proxmox.py and checks.py, reading guest agent output:
                                   net_mac, guest_ipv4, guest_addresses;
                                   a VM's tailnet address: tailnet_ipv4; a refused token told from a slow boot:

@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""aw, the program of the engine that replaces the playbooks at 3.0, built beside them and reached through this file
+alone until then (docs/architecture/engine.md §16.1). Nothing of today's product runs it.
+
+    <python> -I tools/aw --version
+
+Run with -I, so that no PYTHONPATH or user site-packages reaches it: it puts this checkout's lib/ on sys.path itself,
+checks that the claude_vm imported is this checkout's, and runs lib/claude_vm/cli/main.py with its own path first.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO / "lib"))  # the controller's package (docs/architecture/custom-code.md §7.10)
+
+from claude_vm import plugin  # noqa: E402
+
+plugin.own(str(REPO / "lib"))  # this checkout's package, never another's that sys.path had first
+
+from claude_vm.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    # This file's own path in argv[0], whatever name it was started by: aw's checkout is worked out from it alone.
+    sys.exit(main.main([__file__, *sys.argv[1:]]))
