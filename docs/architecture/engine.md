@@ -388,16 +388,20 @@ anything is made, and the module is the standard library alone, with `store`, `t
 
 `update(**fields)` reads the record, merges the fields and replaces it whole with `store.replace` under
 `store.locked`, so the run and another process recording a stop lose neither change; a name `FIELDS` lacks, and `id`,
-are refused. The record has no schema of its own and no event file beside it: `events.jsonl` is the add-on's.
+are refused. Only `create` writes a record from nothing: a change to a job whose record is gone (the job dropped) or
+cannot be read raises `Gone`, and nothing is written. The record has no schema of its own and no event file beside it:
+`events.jsonl` is the add-on's.
 
 **The states are derived, never stored.** `state(job)` reads `running` while the job's lock is held, which a
 `LOCK_SH | LOCK_NB` attempt on the file finds (let go at once where it was taken), and `cancelling` while it is held
 and a stop is recorded; the outcome where the record has one; and `lost` where it has none and the lock is free: a run
 killed outright, or one that ended without saying how. It asks the lock before it reads the record: a run writes its
-outcome before it ends, so a lock found free means any outcome is already there. A job the reading process made
-itself is read from what it holds and never probed: on NFS, Linux emulates `flock` with POSIX locks, which a process
-holds once per file, so closing a probe's descriptor would let the run's own lock go. No module of `runs/` keeps a pid
-to decide a state, reads a process's start or reads the process table for one, which a scan in the test holds.
+outcome before it ends, so a lock found free means any outcome is already there, and a run that ends just after its
+record is read reads `running`, never `lost`, which a test holds. A job the reading process made itself is read from
+what it holds and never probed, as a shortcut. A probe would be safe: a `flock` belongs to its open file description,
+and closing a second descriptor of a lock file does not let the first's lock go, measured on NFSv3 and NFSv4.2, where
+Linux emulates `flock` with POSIX locks, as on a local disk. No module of `runs/` keeps a pid to decide a state, reads a
+process's start or reads the process table for one, which a scan in the test holds.
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
@@ -410,11 +414,13 @@ it.
 
 **Reading and dropping.** `find(jobs_dir, job_id)` takes only what the pattern `job_id` holds, sixteen hex digits,
 and `listed(jobs_dir)` gives every job newest first. Each passes over a folder whose `job.json` is not there yet, or is gone, and a job that vanishes
-while it is read is never an error. A run refused at its locks leaves no job: `drop(job)` removes `job.json` first, so
-readers pass over the folder, then closes the lock, then removes the folder. Removed while the lock file is still open,
-the file would be renamed `.nfsXXXX` on NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each
-state made by a run in a child process: a SIGKILL reads `lost` with nothing written after it, and a child that outlives
-its killed run holds no lock.
+while it is read is never an error. A run refused at its locks leaves no job, and its drop never fails the refusal it
+comes before: `drop(job)` removes `job.json` first, under `store.locked` as every change is, so a writer that holds the
+record (a `cancel` recording a stop) lands its change before it and one that comes after is refused, and readers pass
+over the folder from then on; then it closes the lock; then it removes the folder, leaving what it cannot remove, since
+a folder with no record is no job. Removed while the lock file is still open, the file would be renamed `.nfsXXXX` on
+NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a
+SIGKILL reads `lost` with nothing written after it, and a child that outlives its killed run holds no lock.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
