@@ -152,6 +152,9 @@ PASSED_ON = frozenset(
         "LANGUAGE",
         "ANSIBLE_COLLECTIONS_PATH",
         "ANSIBLE_COLLECTIONS_PATHS",
+        # The new engine's home, which tests/unit/conftest.py puts in each test's own directory: never the
+        # developer's fleet folder (fleet/paths.py). Nothing of today's product reads it.
+        "AGENT_WAREHOUSE_HOME",
     }
 )
 

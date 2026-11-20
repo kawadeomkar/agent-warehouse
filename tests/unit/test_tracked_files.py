@@ -115,6 +115,18 @@ MUST_BLOCK = [
     ".cache/golden/known_hosts-0123456789ab",
     # A certificate a run of just init was checked against names the host's address.
     ".cache/init/proxmox-trust.pem",
+    # The new engine's home in a checkout: the fleet's files and secrets, the key that opens them, the computer's own
+    # settings, the state of its runs; at any depth.
+    ".aw/vault-key",
+    ".aw/client.yml",
+    ".aw/fleet/settings.yml",
+    ".aw/fleet/vault.age",
+    ".aw/fleet/fleet.json",
+    ".aw/fleet/machines.yml",
+    ".aw/fleet/hosts/nuc/settings.yml",
+    ".aw/state/jobs/0123456789abcdef/job.json",
+    ".aw/state/locks/fleet.lock",
+    "tests/unit/.aw/vault-key",
     # Working documents beside the wiki name the Proxmox host and the VMs,
     # whatever they are called, and so does a review's source directory.
     "docs/plan-github-auth-2026-10-08.md",
@@ -162,6 +174,10 @@ MUST_ALLOW = [
     "deploy.yml",
     "tox.ini",
     "README.md",
+    # The new engine's program and the module that says where its home is: no .aw/ folder.
+    "tools/aw",
+    "lib/claude_vm/fleet/paths.py",
+    "tests/unit/test_aw_fleet_paths.py",
     # The wiki.
     "docs/README.md",
     "docs/guides/vms.md",

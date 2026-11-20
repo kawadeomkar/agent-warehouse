@@ -23,6 +23,14 @@ just vagrant                  # configure.yml on a real VirtualBox VM (just vagr
 What each unit test file holds is in [§11.1](../architecture/testing.md#111-unit--just-test-unit), and how
 CI splits them into shards beside it.
 
+No test reads or writes your own fleet folder. The engine being built for 3.0 keeps a fleet where
+`lib/claude_vm/fleet/paths.py` says ([§16.9](../architecture/engine.md#169-fleet--the-fleets-files-the-settings-the-secrets-and-the-fleets-mark)):
+`.aw/` in a checkout, or `~/.config/agent-warehouse/` with its state in `~/.local/state/agent-warehouse/` and its
+key file in `~/.local/share/agent-warehouse/` for an installed program, and `AGENT_WAREHOUSE_HOME` moves all of it.
+Every unit test runs with `AGENT_WAREHOUSE_HOME` in a directory of its own (the `aw_home` fixture in
+`tests/unit/conftest.py`), every run the harness starts is given it, and a run of the suite fails, naming each path,
+if a test made, changed or removed one of the names `paths.py` owns in those three folders of yours.
+
 At a terminal, `just lint` is drawn live, a row for each check, the running one's last line beside it and the
 ones to come listed; a check that fails prints its last lines above, and the summary names the checks it left
 unrun. Every line the checks print goes to `.logs/<stamp>-lint.log`. `just test` is drawn the same way, as one run:

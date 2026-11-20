@@ -40,6 +40,11 @@ patterns=(
   # address, its settings and its vault, and hosts/current. Whatever a folder
   # holds, and the folder of that name only at the top, where just looks for it.
   '^hosts/'
+  # The new engine's home in a checkout (lib/claude_vm/fleet/paths.py): the
+  # fleet's hosts, settings and encrypted secrets, the key that opens them, the
+  # computer's own settings and the state of its runs, which name every machine
+  # by address. At any depth, as .gitignore has it.
+  '(^|/)\.aw/'
   # The certificate just init trusts the Proxmox API's by, beside each host's
   # hosts.yml: it names the host and its address.
   '(^|/)proxmox-trust\.pem$'

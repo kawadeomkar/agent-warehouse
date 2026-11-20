@@ -92,6 +92,55 @@ holds, the run's end on a signal, and a run detached as the same program in a se
 typed table of settings and its overrides, the one encrypted file of secrets, and the fleet's ID and mark. It imports
 `schema/`, and nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
+**Where a fleet is: `paths.py`.** `home(program_root, environ)` works out the fleet's home for the program at
+`program_root`, and returns it with the state folder and the key file derived from it. It is standard library only,
+reads at most two `client.yml` files, and creates, writes and removes nothing: the code that writes makes folders at
+`DIR_MODE` (0700) and files at `FILE_MODE` (0600). The home is the first of these.
+
+| Program | Home | State folder | Key file |
+|---|---|---|---|
+| `AGENT_WAREHOUSE_HOME` set | that folder | `<home>/state/` | `<home>/vault-key` |
+| A checkout (a `justfile` and a `.git`, a folder or a worktree's file) | `.aw/` at its top | `.aw/state/` | `.aw/vault-key` |
+| An installed release (`release.json`, told before its `.git`, since a release is a clone of its tag) | `${XDG_CONFIG_HOME:-~/.config}/agent-warehouse/` | `${XDG_STATE_HOME:-~/.local/state}/agent-warehouse/` | `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/vault-key` |
+
+A program that is neither is refused, and told to set `AGENT_WAREHOUSE_HOME`: a copy with no `.git` never drives the
+installed program's fleet by default. A checkout drives a fleet of its own, so a new worktree has none and changes
+nothing until `init` runs in it, which is the isolation the checkout guard keeps today
+([§15.3](decisions.md#153-the-command-line-is-just-not-make)).
+
+Under the home, `client.yml` is the computer's own settings and never travels, and `fleet/` is what a person copies to
+a second computer: `hosts/<name>/`, `settings.yml`, `machines.yml`, `vault.age` and `fleet.json`. `OWN` names the four
+names at the top, `client.yml`, `fleet`, `state` and `vault-key`, and `BENEATH_STATE` the names beneath the state
+folder that `jobs_dir`, `locks_dir`, `logs_dir` and `status_cache` return: `jobs`, `locks`, `logs` and `status`.
+`control_dir()` is the one shared control directory of every SSH connection, Ansible's `~/.ansible/cp`, which today's
+hop and `just status` use, and the same for every fleet on the computer.
+
+**One way from one home to the other.** A line `fleet_home: <path>` in the default home's `client.yml` points a
+checkout at the installed program's home, or the reverse. It is followed once: a `client.yml` there that points again
+is refused, and under `AGENT_WAREHOUSE_HOME` no pointer is read. The returned home names the `client.yml` it followed,
+so a changing run can say which fleet it drives. The value is one absolute path, plain or quoted, or `~/`; anything else
+YAML would read as more than a string is refused.
+
+**The state and the key go with the home.** Whichever way the installed program's home is reached, by the variable or
+by a pointer, its state folder and its key file are the installed program's own. Two programs that drive one fleet
+share its jobs and its locks and open its vault with one key, and two fleets share neither. The key file is never in
+`fleet/`, which a person copies and may publish, nor in the state folder, which can be made again and which a cleanup
+may remove. In a checkout it is at the top of `.aw/`, and for the installed program in the data folder, never in the
+config folder that people keep in a public repository. What a person backs up is `fleet/` and, apart from it, the key.
+Only `paths.py` and `vaultkey.py` name the key file, so no cleanup, prune or sweep reaches it by its name.
+
+**The folder the roles share.** On a machine the product configured, today's roles keep a sign-in's files in
+`~/.config/agent-warehouse/`, the installed program's home by the same name. Their names are reserved in
+`RESERVED_ON_A_MACHINE` (`claude-login.*`, `gh-login*`, `gh-device-login`), which share nothing with `OWN`, and
+`paths.py` never reads, writes or names one as its own.
+
+**Tests never reach the developer's.** An autouse fixture in `tests/unit/conftest.py`, `aw_home`, sets
+`AGENT_WAREHOUSE_HOME` to a folder in each test's own directory, a directory of the session's own stands in before it
+for a module's run, and `harness.PASSED_ON` passes it to every run. The session reads the names `paths` owns in the
+developer's three folders before the first test and after the last, from their metadata alone, and fails if one was
+made, changed or removed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
+the scans for who names the folders and the key, and the guard.
+
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 
 `lib/claude_vm/guest/` is what the engine does inside a machine. It holds the helper, which is sent to the machine and
