@@ -9,11 +9,14 @@ folder is `${XDG_STATE_HOME:-~/.local/state}/agent-warehouse/` and whose key fil
 `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/vault-key`. A line `fleet_home: <path>` in the default home's
 `client.yml` points a checkout at the installed program's home, or the reverse, once and never through a second one.
 
-The state folder and the key file are derived from the home, whichever way it was reached, so that two programs that
-drive one fleet share its jobs and its locks and open its vault with one key, and two fleets share neither. The key
-file is in neither the fleet's folder, which a person copies or publishes, nor the state folder, which can be made
-again and which a cleanup may remove: no folder `state`, `jobs_dir`, `locks_dir`, `logs_dir` or `status_cache`
-returns holds it. Only this module and `fleet/vaultkey.py` name it (tests/unit/test_aw_fleet_paths.py).
+The state folder and the key file are derived from the home, whichever way it was reached and however its path is
+spelled (a home is the installed program's by its real path, links read), so that two programs that drive one fleet
+share its jobs and its locks and open its vault with one key, and two fleets share neither. The key file is in neither
+the fleet's folder, which a person copies or publishes, nor the state folder, which can be made again and which a
+cleanup may remove: no folder `state`, `jobs_dir`, `locks_dir`, `logs_dir` or `status_cache` returns holds it, and a
+home inside the installed program's state folder is refused. Only this module and `fleet/vaultkey.py` name it; outside
+`fleet/` no module names `KEY` or `OWN` or removes what reaches the key, and one reads `key_file` there only where
+tests/unit/test_aw_fleet_paths.py lists it with its reason.
 
 Standard library only, and it creates, writes and removes nothing: it says where. The folders are made at `DIR_MODE`
 and the files at `FILE_MODE` by the code that writes them.
@@ -47,6 +50,9 @@ JOBS, LOCKS, LOGS, STATUS = BENEATH_STATE
 # this module never reads, writes or names one as its own. Code that writes a new file into that folder on a machine
 # adds its name here.
 RESERVED_ON_A_MACHINE = ("claude-login.*", "gh-login*", "gh-device-login")
+# That folder on a machine, as the code that runs there names it: in lib/claude_vm/guest/ alone, and always followed by
+# one of the reserved names (tests/unit/test_aw_fleet_paths.py).
+ON_A_MACHINE = "~/.config/agent-warehouse"
 # The modes the code that writes a fleet's files makes them at.
 DIR_MODE = 0o700
 FILE_MODE = 0o600
@@ -80,12 +86,22 @@ class Home:
 
 
 def _user_home(environ: Mapping[str, str]) -> Path:
+    """HOME where it is an absolute path, else the account's home from the password database."""
     given = environ.get("HOME", "")
     if os.path.isabs(given):
         return Path(given)
     import pwd
 
-    return Path(pwd.getpwuid(os.getuid()).pw_dir)
+    try:
+        found = pwd.getpwuid(os.getuid()).pw_dir
+    except KeyError:
+        found = ""
+    if not os.path.isabs(found):
+        raise Refused(
+            f"HOME is {given!r}, not an absolute path, and this account (uid {os.getuid()}) has no home in the password"
+            " database, so the fleet's folders are not known: set HOME to the account's home folder"
+        )
+    return Path(found)
 
 
 def _xdg(environ: Mapping[str, str], variable: str, default: str) -> Path:
@@ -137,15 +153,27 @@ def _pointer(client: Path, environ: Mapping[str, str]) -> Path | None:
     return _absolute(named, environ, f"{client}'s fleet_home")
 
 
+def _real(path: Path) -> Path:
+    """path as the file system resolves it, every link read: one folder has one answer however it is spelled. It
+    only reads, and a part that does not exist yet is kept as written."""
+    return Path(os.path.realpath(path))
+
+
 def _same(a: Path, b: Path) -> bool:
-    return os.path.normpath(a) == os.path.normpath(b)
+    return _real(a) == _real(b)
 
 
-def _derived(root: Path, how: str, environ: Mapping[str, str], pointer: Path | None = None) -> Home:
+def _derived(root: Path, how: str, environ: Mapping[str, str], named: str, pointer: Path | None = None) -> Home:
     config, state, data = installed(environ)
+    if _real(root).is_relative_to(_real(state)):
+        # The state folder can be made again and a cleanup may remove it: a fleet's files and its key never live there.
+        raise Refused(
+            f"{named} is {root}, inside {state}, the installed program's state folder, which a cleanup may remove:"
+            f" give the fleet a folder outside it ({VARIABLE}, or fleet_home in client.yml)"
+        )
     if _same(root, config):
-        # The installed program's own home, however it was reached: its state and its key are its own folders',
-        # never inside the config folder, which people publish.
+        # The installed program's own home, however it was reached or spelled: its state and its key are its own
+        # folders', never inside the config folder, which people publish.
         return Home(root, state, data / KEY, how, pointer)
     return Home(root, root / STATE, root / KEY, how, pointer)
 
@@ -154,7 +182,7 @@ def kind(program_root: str | os.PathLike) -> str | None:
     """What the program running is: ``"installed"``, a release whose tree holds `release.json` - a release is
     a clone of its tag, so it is told by that file before its `.git`; ``"checkout"``, a tree with a `justfile` and a
     `.git` (a folder, or a worktree's file); None for anything else."""
-    program = Path(program_root)
+    program = Path(os.path.abspath(program_root))
     if (program / "release.json").is_file():
         return "installed"
     if (program / "justfile").is_file() and (program / ".git").exists():
@@ -168,24 +196,25 @@ def home(program_root: str | os.PathLike, environ: Mapping[str, str] | None = No
     env = os.environ if environ is None else environ
     given = env.get(VARIABLE, "")
     if given:
-        return _derived(_absolute(given, env, VARIABLE), "variable", env)
-    how = kind(program_root)
+        return _derived(_absolute(given, env, VARIABLE), "variable", env, VARIABLE)
+    program = Path(os.path.abspath(program_root))
+    how = kind(program)
     if how is None:
         raise Refused(
-            f"{program_root} is neither a checkout of agent-warehouse (a justfile and a .git) nor an installed release"
+            f"{program} is neither a checkout of agent-warehouse (a justfile and a .git) nor an installed release"
             f" (release.json), so the fleet's home is not known: set {VARIABLE} to its folder"
         )
-    default = Path(program_root) / CHECKOUT_HOME if how == "checkout" else installed(env)[0]
+    default = program / CHECKOUT_HOME if how == "checkout" else installed(env)[0]
     client = default / CLIENT
     target = _pointer(client, env)
     if target is None or _same(target, default):
-        return _derived(default, how, env)
+        return _derived(default, how, env, "the fleet's home")
     if _pointer(target / CLIENT, env) is not None:
         raise Refused(
             f"{client} points at {target}, whose client.yml points again: fleet_home is followed once, so take one of"
             " the two lines out"
         )
-    return _derived(target, how, env, pointer=client)
+    return _derived(target, how, env, f"{client}'s fleet_home", pointer=client)
 
 
 def fleet_dir(where: Home) -> Path:
