@@ -278,8 +278,10 @@ STARTS = {
 }
 # os.execv and its kind, os.spawnv and its kind.
 STARTS_LIKE = ("exec", "spawn")
-# The kit's ways to the program, which a test calls.
-KIT = {"run_aw", "aw_at_a_terminal", "imports_of"}
+# The kit's ways to the program, which a test calls: the launcher at the checkout's top runs tools/aw too.
+KIT = {"run_aw", "aw_at_a_terminal", "imports_of", "run_launcher"}
+# The kit's names of the program, and of the launcher that runs it.
+KIT_NAMES = ("AW", "LAUNCHER")
 # tools/aw in a string: alone, at the end of a path, or in a command line.
 NAMES_AW = re.compile(r"(?<![\w-])tools/aw(?![\w.-])")
 
@@ -303,7 +305,7 @@ def _two(parts: list[str | None]) -> bool:
 
 def _names_aw(node: ast.AST, bound: set[str]) -> bool:
     """Whether node, or anything in it, names tools/aw: a string, a path built of its parts with / or as a call's
-    arguments (Path("tools", "aw")), a name bound to one, or the kit's AW."""
+    arguments (Path("tools", "aw")), a name bound to one, or the kit's AW or LAUNCHER."""
     for inner in ast.walk(node):
         if isinstance(inner, ast.Constant) and isinstance(inner.value, str) and NAMES_AW.search(inner.value):
             return True
@@ -313,20 +315,20 @@ def _names_aw(node: ast.AST, bound: set[str]) -> bool:
             return True
         if isinstance(inner, ast.Name) and inner.id in bound:
             return True
-        if isinstance(inner, ast.Attribute) and inner.attr == "AW" and getattr(inner.value, "id", "") == "aw_kit":
+        if isinstance(inner, ast.Attribute) and inner.attr in KIT_NAMES and getattr(inner.value, "id", "") == "aw_kit":
             return True
     return False
 
 
 def _bound(tree: ast.AST) -> set[str]:
     """The names a file binds to tools/aw's path, wherever: an assignment, a loop's target, a parameter's default, the
-    kit's AW imported; and so on, through names bound to those."""
+    kit's AW or LAUNCHER imported; and so on, through names bound to those."""
     bound: set[str] = set()
     while True:
         before = set(bound)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module == "aw_kit":
-                bound |= {alias.asname or alias.name for alias in node.names if alias.name == "AW"}
+                bound |= {alias.asname or alias.name for alias in node.names if alias.name in KIT_NAMES}
             elif isinstance(node, (ast.Assign, ast.AnnAssign, ast.For)):
                 value = node.iter if isinstance(node, ast.For) else node.value
                 targets = [node.target] if isinstance(node, (ast.AnnAssign, ast.For)) else node.targets
@@ -384,6 +386,9 @@ def test_no_test_runs_tools_aw_but_through_the_kit() -> None:
         ('program = REPO / "tools/aw"\nwhere = program\nsubprocess.run([where])', True),
         ('for program in (AW_PATH, "tools/aw"):\n    subprocess.run([program])', True),
         ('runpy.run_path(str(REPO / "tools" / "aw"))', True),
+        ('from aw_kit import LAUNCHER\nsubprocess.run([LAUNCHER, "status"])', True),
+        ("import aw_kit\nsubprocess.Popen([str(aw_kit.LAUNCHER), 'help'])", True),
+        ('run_launcher("status", home=home, launcher=checkout / "aw")', False),
         ('live_kit.at_a_terminal([sys.executable, "-I", str(REPO / "tools" / "aw"), "deploy"], root, env)', True),
         ('live_kit.piped([sys.executable, "-I", str(REPO / "tools" / "aw"), "status"], root, env)', True),
         ('harness._start(REPO / "tools" / "aw", "--version")', True),

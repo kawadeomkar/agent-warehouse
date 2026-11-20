@@ -69,7 +69,9 @@ each of which fails the test once reached (`harness._fail_if_the_desktop_was_rea
 unless the test gives a file or text, and a process group of its own, ended whole on a timeout. A test's `env=` never
 sets `PATH`, `HOME`, `BROWSER`, `AGENT_WAREHOUSE_HOME` or an `XDG_` variable, which would lift a guard unsaid: a program
 of the test's own, a stand-in `ssh` say, goes first on `PATH` by `first_on_path=(dir, ...)`, ahead of the stand-ins,
-which stay. `aw_at_a_terminal` runs it at a pseudo-terminal of its own, `imports_of` lists the modules a run loaded
+which stay. `aw_at_a_terminal` runs it at a pseudo-terminal of its own; `run_launcher` runs the launcher at the
+checkout's top, `aw`, by its path in the same environment: this checkout's with the suite's own Python as `PYTHON` and
+never asked to install, or a copy of it in a checkout the test made; `imports_of` lists the modules a run loaded
 (`-X importtime`), or with `module=` what importing that one module of the checkout's `lib/` loaded, and
 `searched_for` is the canary search for a canned secret in what a run left, which fails when it read nothing.
 

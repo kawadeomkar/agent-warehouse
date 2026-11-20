@@ -1,14 +1,21 @@
-"""aw's entry, which tools/aw runs (docs/architecture/engine.md §16.3). Until the parser and the first verb are built it
-answers --version, and refuses anything else in one sentence. Standard library only.
+"""aw's entry, which tools/aw runs (docs/architecture/engine.md §16.3): the words typed read against the one table, held
+by the one check, today's habits applied, and the verb handed to its handler or refused in one sentence.
+
+    aw [--no-lock] [--attended=1] <verb> [<word>...] [<option>...]
+
+A refusal is one line on standard error that says no value typed, and exits 1 (words.py's EXITS), before any of the
+words reach a handler: it imports no Ansible and no module of the engine. `--version` alone answers with the
+checkout aw runs from. Standard library only, and the modules of cli/, schema/ and fleet/paths.py.
 """
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-# Said for anything but --version, whatever was typed, which it never repeats: a word typed may be a secret.
-NOT_BUILT = "The new engine behind aw is not built yet: until it is, the commands are just's (just --list names them)."
+from claude_vm.cli import before, dispatch, habits, parse
+from claude_vm.schema.words import EXITS, VERBS
 
 
 def checkout(program: str) -> Path:
@@ -19,8 +26,18 @@ def checkout(program: str) -> Path:
 
 def main(argv: list[str]) -> int:
     """argv as tools/aw hands it on: its own path, then the words typed. Returns the exit status."""
-    if argv[1:] == ["--version"]:
-        print(f"aw from the checkout {checkout(argv[0])}")
-        return 0
-    print(NOT_BUILT, file=sys.stderr)
-    return 1
+    program, words = argv[0], argv[1:]
+    if words == ["--version"]:
+        print(f"aw from the checkout {checkout(program)}")
+        return EXITS["done"]
+    try:
+        reading = parse.read(words)
+        verb = VERBS[reading.verb]
+        values, said = habits.names(verb, reading.values)
+        for line in said:
+            print(line, file=sys.stderr)
+        run, values = before.run_words(reading.before, values, os.environ)
+        return dispatch.dispatch(checkout(program), verb, run, values)
+    except parse.Refused as refused:
+        print(refused.sentence, file=sys.stderr)
+        return EXITS["refused"]

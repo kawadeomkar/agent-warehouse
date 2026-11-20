@@ -676,10 +676,10 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       `PYTEST_CURRENT_TEST`, and `socket.getaddrinfo` and `connect` refused past loopback. A stand-in reached or a
       connection refused fails the test once it ends. It holds by `PATH`: a program started by its absolute path is
       not caught; and the network refusal is the test process's, so for a child it starts only the fakes hold it.
-    - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`):
-      `python -I`, an environment built from `harness.PASSED_ON`'s names and the test's own home (the `home` fixture
-      makes it), and the same stand-ins first on `PATH`. One that was reached fails the test
-      (`harness._fail_if_the_desktop_was_reached`). A test's `env=` never sets `PATH`, `HOME`, `BROWSER`,
+    - Every run of `tools/aw` a test makes goes through the kit (`run_aw`, `aw_at_a_terminal`, `imports_of`, and
+      `run_launcher` for the launcher at the checkout's top, `aw`): `python -I`, an environment built from
+      `harness.PASSED_ON`'s names and the test's own home (the `home` fixture makes it), and the same stand-ins first
+      on `PATH`. One that was reached fails the test (`harness._fail_if_the_desktop_was_reached`). A test's `env=` never sets `PATH`, `HOME`, `BROWSER`,
       `AGENT_WAREHOUSE_HOME` or an `XDG_` variable: a program of its own goes ahead of the stand-ins, which stay, by
       `first_on_path`.
     - Every test of a file `tests/unit/test_aw_*.py` is marked `engine` by `tests/unit/conftest.py`'s `tryfirst` hook,
