@@ -653,12 +653,19 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - An autouse fixture in `tests/unit/conftest.py` (`aw_home`) points `AGENT_WAREHOUSE_HOME` into each test's own
       directory, and before it a directory of the session's own, for a module's run; `harness.PASSED_ON` passes it
       to every run. Never a session-scoped autouse fixture: it would join every test into one xdist group.
-    - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in the
-      developer's three folders. It watches nothing else there: a sign-in on a machine the product configured
-      writes `RESERVED_ON_A_MACHINE`'s names into that same folder, and no file there is opened.
-    - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`, and only `paths.py` and `fleet/vaultkey.py`
-      the key file, so no cleanup, prune or sweep reaches it by name; each change that removes files holds the key byte
-      for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
+    - The session fails if a name `paths` owns (`OWN`, `BENEATH_STATE`) was made, changed or removed in a fleet
+      folder of the developer's (`developers_folders`): the installed program's three, the checkout's own `.aw/` -
+      their real fleet, its key included, whenever they work from a checkout - and the main worktree's where the suite
+      runs from another, and the `AGENT_WAREHOUSE_HOME` they exported, read before the session replaces it. It
+      watches nothing else there: a sign-in on a machine the product configured writes `RESERVED_ON_A_MACHINE`'s
+      names into that same folder, and no file there is opened, so no `fleet_home` is followed.
+    - A home is the installed program's by the real path of both, never their text, so its key never lands in the
+      config folder through a link; a home inside the installed program's state folder is refused.
+    - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`; code on a machine names the folder there as
+      `paths.ON_A_MACHINE`, in `guest/` alone, joined to a reserved name. Only `paths.py` and `fleet/vaultkey.py` name
+      the key file; outside `fleet/` nothing names `paths.KEY` or `paths.OWN` or removes what reaches the key, and a
+      module reads `key_file` only where `READ_THE_KEY` lists it with why. Each change that removes files holds the key
+      byte for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
 - **Tests never touch the login keychain, and a test reaches `tools/aw` only through its kit.** Read
   [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
     - Every run of `tools/aw` a test makes goes through `tests/unit/aw_kit.py` (`run_aw`, `aw_at_a_terminal`,

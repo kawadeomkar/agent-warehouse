@@ -178,6 +178,9 @@ MUST_ALLOW = [
     "tools/aw",
     "lib/claude_vm/fleet/paths.py",
     "tests/unit/test_aw_fleet_paths.py",
+    # Near misses of .aw/: a pattern any broader blocks these.
+    ".awx/README.md",
+    "lib/claude_vm/fleet/notes.aw",
     # The wiki.
     "docs/README.md",
     "docs/guides/vms.md",

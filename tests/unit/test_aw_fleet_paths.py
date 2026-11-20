@@ -17,7 +17,9 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -35,15 +37,26 @@ REPO = Path(__file__).resolve().parents[2]
 GUARD = REPO / "tests" / "check_no_local_files.sh"
 VARIABLE = paths.VARIABLE
 
-# The modules that may name the key file, and the one that may name the folders: no cleanup, prune or sweep elsewhere
-# can then reach the key by its name (docs/architecture/engine.md §16.9).
-NAME_THE_KEY = ("lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py")
+# The one module that may name the fleet's folders, and the modules that may name the key file: no cleanup, prune or
+# sweep elsewhere can then reach the key by its name (docs/architecture/engine.md §16.9).
 NAME_THE_FOLDERS = ("lib/claude_vm/fleet/paths.py",)
+NAME_THE_KEY = ("lib/claude_vm/fleet/paths.py", "lib/claude_vm/fleet/vaultkey.py")
 FOLDERS = re.compile(
     r"XDG_CONFIG_HOME|XDG_STATE_HOME|AGENT_WAREHOUSE_HOME"
     r"|\.config\W{1,6}agent-warehouse(?![\w-])|\.local\W{1,6}state\W{1,6}agent-warehouse(?![\w-])"
 )
-KEY_NAMED = re.compile(r"vault-key")
+# The code that runs on a machine, the one place the folder there is named: paths.ON_A_MACHINE, or its literal,
+# followed by a name RESERVED_ON_A_MACHINE reserves, and nothing else.
+GUEST = "lib/claude_vm/guest/"
+ON_A_MACHINE_NAMED = re.compile(re.escape(paths.ON_A_MACHINE) + r"/(?P<name>[\w.-]+)(?![\w./{$*-])")
+# The key file's name, which --vault-key-file is not; the fleet's own package, the one place KEY and OWN are named and
+# a removal may reach the key; and the ways a removal is called.
+KEY_NAMED = re.compile(r"\bvault-key\b(?!-)")
+FLEET = "lib/claude_vm/fleet/"
+REMOVES = frozenset({"unlink", "remove", "rmtree", "rmdir"})
+# Each module outside fleet/ that reads key_file, with why. A card that writes one adds it here in the same commit
+# (E4's engine/init.py, G8's engine/controller_writes.py, K4's migration, and D5 where its reader is outside fleet/).
+READ_THE_KEY: dict[str, str] = {}
 
 
 def _checkout(where: Path, *, worktree: bool = False) -> Path:
@@ -153,6 +166,80 @@ def test_a_program_that_is_neither_is_refused_with_the_way_out(tmp_path) -> None
     (tmp_path / "copy" / "justfile").write_text("")
     with pytest.raises(paths.Refused, match=f"neither a checkout .* nor an installed release .* set {VARIABLE}"):
         paths.home(tmp_path / "copy", _environ(tmp_path))
+
+
+def test_a_relative_program_root_is_made_absolute(tmp_path, monkeypatch) -> None:
+    program = _checkout(tmp_path / "checkout")
+    monkeypatch.chdir(program)
+    where = paths.home(".", _environ(tmp_path))
+    assert where.root == program / ".aw" and where.root.is_absolute() and paths.kind(".") == "checkout"
+    # It stays where it was worked out, whatever the process's folder is later.
+    monkeypatch.chdir(tmp_path)
+    assert paths.home("checkout", _environ(tmp_path)).root == where.root
+
+
+def test_no_home_and_no_account_entry_is_refused_not_a_traceback(monkeypatch) -> None:
+    # A container run as a uid the password database lacks, with HOME unset or relative.
+    import pwd
+
+    def unknown(uid: int):
+        raise KeyError(f"getpwuid(): uid not found: {uid}")
+
+    monkeypatch.setattr(pwd, "getpwuid", unknown)
+    for environ in ({}, {"HOME": "relative/home"}):
+        with pytest.raises(paths.Refused, match="not an absolute path, and this account .* set HOME"):
+            paths.installed(environ)
+
+
+def test_the_installed_home_spelled_through_a_link_keeps_its_state_and_key(tmp_path) -> None:
+    # ~/.config is a link into a dotfiles folder, as dotfiles managers make it: the installed program's home spelled
+    # by its real path, or a link to it, is still that home, never a fleet whose key sits in the published folder.
+    config, state, data = _installed(tmp_path)
+    dotfiles = tmp_path / "dotfiles" / "config"
+    dotfiles.mkdir(parents=True)
+    (tmp_path / "user").mkdir()
+    (tmp_path / "user" / ".config").symlink_to(dotfiles)
+    (tmp_path / "linked").symlink_to(tmp_path / "user" / ".config")
+    program = _checkout(tmp_path / "checkout")
+    for spelled in (dotfiles / "agent-warehouse", tmp_path / "linked" / "agent-warehouse"):
+        where = paths.home(program, _environ(tmp_path, **{VARIABLE: str(spelled)}))
+        assert (where.root, where.state, where.key_file) == (spelled, state, data / "vault-key")
+        (program / ".aw").mkdir(exist_ok=True)
+        (program / ".aw" / "client.yml").write_text(f"fleet_home: {spelled}\n")
+        where = paths.home(program, _environ(tmp_path))
+        assert (where.root, where.state, where.key_file) == (spelled, state, data / "vault-key")
+    # The run's XDG_CONFIG_HOME spelled otherwise than the shell's that wrote the pointer.
+    environ = _environ(tmp_path, XDG_CONFIG_HOME=str(dotfiles))
+    (program / ".aw" / "client.yml").write_text(f"fleet_home: {config}\n")
+    assert (paths.home(program, environ).state, paths.home(program, environ).key_file) == (state, data / "vault-key")
+
+
+def test_a_home_inside_the_installed_state_folder_is_refused(tmp_path) -> None:
+    # A cleanup may remove the state folder: a fleet's files and its key are never kept there (O21).
+    config, state, data = _installed(tmp_path)
+    program = _checkout(tmp_path / "checkout")
+    for inside in (state, state / "second", tmp_path / "user/.local/state/../state/agent-warehouse/third"):
+        with pytest.raises(paths.Refused, match=f"{VARIABLE} is .*, inside .*, the installed program's state folder"):
+            paths.home(program, _environ(tmp_path, **{VARIABLE: str(inside)}))
+    # Through a link, and by fleet_home, too.
+    state.mkdir(parents=True)
+    (tmp_path / "linked-state").symlink_to(state)
+    with pytest.raises(paths.Refused, match=f"{VARIABLE} is .*linked-state/second, inside"):
+        paths.home(program, _environ(tmp_path, **{VARIABLE: str(tmp_path / "linked-state" / "second")}))
+    (program / ".aw").mkdir()
+    (program / ".aw" / "client.yml").write_text(f"fleet_home: {state / 'second'}\n")
+    with pytest.raises(paths.Refused, match="client.yml's fleet_home is .*, inside .* state folder"):
+        paths.home(program, _environ(tmp_path))
+    # A folder beside it is not inside it.
+    beside = state.parent / "agent-warehouse-work"
+    assert paths.home(program, _environ(tmp_path, **{VARIABLE: str(beside)})).key_file == beside / "vault-key"
+
+
+def test_a_named_home_keeps_its_key_at_its_top(tmp_path) -> None:
+    # V2-2: a person who names a home chooses where its key lives, a second fleet's beside the config folder included.
+    work = tmp_path / "user" / ".config" / "aw-work"
+    where = paths.home(_checkout(tmp_path / "checkout"), _environ(tmp_path, **{VARIABLE: "~/.config/aw-work"}))
+    assert (where.root, where.state, where.key_file) == (work, work / "state", work / "vault-key")
 
 
 # ---------------------------------------------------------------- fleet_home ----
@@ -365,7 +452,7 @@ def test_every_file_a_role_writes_into_the_folder_on_a_machine_is_reserved() -> 
     written = {}
     for role, folder in (("claude_code", "claude_code_login_dir"), ("github_projects", "github_projects_state_dir")):
         values = yaml.safe_load((REPO / "roles" / role / "vars" / "main.yml").read_text())
-        assert values[folder].endswith("/.config/agent-warehouse"), (role, values[folder])
+        assert values[folder].endswith(paths.ON_A_MACHINE.removeprefix("~")), (role, values[folder])
         written[role] = {
             name
             for _, text in repo_texts("roles", "playbooks")
@@ -400,33 +487,190 @@ def _engine_texts() -> list[tuple[str, str]]:
     return found
 
 
-def _calls_key_file(text: str) -> bool:
-    """A call of key_file, or its value read as an attribute (a Home's .key_file), in Python's syntax tree."""
+def _reserved(name: str) -> bool:
+    return any(fnmatch.fnmatchcase(name, reserved) for reserved in paths.RESERVED_ON_A_MACHINE)
+
+
+def _parents(tree: ast.AST) -> dict[int, ast.AST]:
+    return {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+
+def _text(node: ast.AST | None) -> str | None:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _joined_to(node: ast.AST, up: dict[int, ast.AST]) -> str | None:
+    """The one name joined to the folder node stands for, in the four ways to join one: folder + "/name",
+    f"{folder}/name", PurePosixPath(folder) / "name", or a join(folder, "name"); None for any other use."""
+    parent = up.get(id(node))
+    if isinstance(parent, ast.BinOp) and isinstance(parent.op, ast.Add) and parent.left is node:
+        joined = _text(parent.right)
+        return joined[1:] if joined and joined.startswith("/") else None
+    if isinstance(parent, ast.FormattedValue) and parent.conversion == -1 and parent.format_spec is None:
+        whole = up.get(id(parent))
+        if isinstance(whole, ast.JoinedStr) and len(whole.values) == 2 and whole.values[0] is parent:
+            joined = _text(whole.values[1])
+            return joined[1:] if joined and joined.startswith("/") else None
+        return None
+    if isinstance(parent, ast.Call) and parent.args and parent.args[0] is node and not parent.keywords:
+        called = parent.func.attr if isinstance(parent.func, ast.Attribute) else getattr(parent.func, "id", None)
+        if called == "join" and len(parent.args) == 2:
+            return _text(parent.args[1])
+        divided = up.get(id(parent))
+        if len(parent.args) == 1 and isinstance(divided, ast.BinOp) and isinstance(divided.op, ast.Div):
+            return _text(divided.right) if divided.left is parent else None
+    return None
+
+
+def _on_a_machine_misused(text: str) -> list[int]:
+    """The lines where paths.ON_A_MACHINE is used other than joined to one reserved name, by Python's syntax tree;
+    in a file that is not Python, every line that names it."""
     try:
         tree = ast.parse(text)
     except SyntaxError:
-        return bool(re.search(r"(?<![\w.])key_file\s*\(|\.key_file\b", text))
+        return [number for number, line in enumerate(text.splitlines(), 1) if "ON_A_MACHINE" in line]
+    up = _parents(tree)
+    names = {"ON_A_MACHINE"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == "ON_A_MACHINE" and alias.asname
+    }
+    lines = []
     for node in ast.walk(tree):
+        if (isinstance(node, ast.Name) and node.id in names) or (
+            isinstance(node, ast.Attribute) and node.attr == "ON_A_MACHINE"
+        ):
+            joined = _joined_to(node, up)
+            if joined is None or "/" in joined or not _reserved(joined):
+                lines.append(node.lineno)
+    return lines
+
+
+def _folder_problems(rel: str, text: str) -> list[str]:
+    """What a file of the new engine names of the fleet's folders, where only paths.py names them, and of the folder
+    on a machine other than as guest/ may."""
+    if rel in NAME_THE_FOLDERS:
+        return []
+    problems, rest = [], text
+    if rel.startswith(GUEST):
+        rest = ON_A_MACHINE_NAMED.sub(lambda found: "" if _reserved(found["name"]) else found[0], text)
+        problems += [f"line {line}: ON_A_MACHINE not before one reserved name" for line in _on_a_machine_misused(text)]
+    elif re.search(r"\bON_A_MACHINE\b", text):
+        problems.append("ON_A_MACHINE outside guest/")
+    if FOLDERS.search(rest):
+        problems.append(f"names {FOLDERS.search(rest)[0]!r}")
+    return problems
+
+
+def _key_problems(rel: str, text: str, readers: Mapping[str, str] = READ_THE_KEY) -> set[str]:
+    """What a file of the new engine does that could reach the key file: "the name", which only paths.py and
+    vaultkey.py say; and outside fleet/, "KEY or OWN" named, "a removal" that reaches key_file, KEY or OWN, and "a
+    read" of key_file by a module readers does not list."""
+    found = set() if rel in NAME_THE_KEY or not KEY_NAMED.search(text) else {"the name"}
+    if rel.startswith(FLEET):
+        return found
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        found |= {"KEY or OWN"} if re.search(r"\bpaths\.(?:KEY|OWN)\b", text) else set()
+        found |= {"a read"} if re.search(r"\bkey_file\b", text) and rel not in readers else set()
+        return found
+    # The names the paths module, its KEY and OWN, and its key_file are known by here, as imported.
+    modules, constants, readings = {"paths"}, set(), set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules |= {alias.asname for alias in node.names if alias.asname and alias.name.endswith("paths")}
+        elif isinstance(node, ast.ImportFrom):
+            from_paths = (node.module or "").endswith("paths")
+            for alias in node.names:
+                if alias.name == "paths":
+                    modules.add(alias.asname or alias.name)
+                elif from_paths and alias.name in ("KEY", "OWN"):
+                    constants.add(alias.asname or alias.name)
+                    found.add("KEY or OWN")
+                elif from_paths and alias.name == "key_file":
+                    readings.add(alias.asname or alias.name)
+                    found.add("a read")
+
+    def direct(node: ast.AST) -> str | None:
+        """ "KEY or OWN" for the paths module's, "a read" for a key_file (a Home's, the paths module's, a call of
+        one), each also by the name it was imported as; None for anything else."""
         if isinstance(node, ast.Attribute) and node.attr == "key_file":
-            return True
+            return "a read"
+        if isinstance(node, ast.Attribute) and node.attr in ("KEY", "OWN"):
+            value = node.value
+            if (isinstance(value, ast.Name) and value.id in modules) or (
+                isinstance(value, ast.Attribute) and value.attr == "paths"
+            ):
+                return "KEY or OWN"
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "key_file":
-            return True
-        if isinstance(node, ast.ImportFrom) and any(alias.name == "key_file" for alias in node.names):
-            return True
-    return False
+            return "a read"
+        if isinstance(node, ast.Name):
+            return "KEY or OWN" if node.id in constants else "a read" if node.id in readings else None
+        return None
+
+    found |= {kind for node in ast.walk(tree) if (kind := direct(node))}
+    # What reaches the key: those, and every name bound from them, through an assignment, a loop or a with.
+    tainted: set[str] = set()
+
+    def reaches(node: ast.AST | None) -> bool:
+        return node is not None and any(
+            direct(part) or (isinstance(part, ast.Name) and part.id in tainted) for part in ast.walk(node)
+        )
+
+    bindings = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            bindings += [(target, node.value) for target in node.targets]
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign, ast.NamedExpr)):
+            bindings.append((node.target, node.value))
+        elif isinstance(node, (ast.For, ast.AsyncFor, ast.comprehension)):
+            bindings.append((node.target, node.iter))
+        elif isinstance(node, ast.withitem) and node.optional_vars is not None:
+            bindings.append((node.optional_vars, node.context_expr))
+    while True:
+        more = {
+            part.id
+            for target, value in bindings
+            if reaches(value)
+            for part in ast.walk(target)
+            if isinstance(part, ast.Name) and part.id not in tainted
+        }
+        if not more:
+            break
+        tainted |= more
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            called = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", None)
+            receiver = node.func.value if isinstance(node.func, ast.Attribute) else None
+            given = [*node.args, *(keyword.value for keyword in node.keywords), receiver]
+            if called in REMOVES and any(reaches(part) for part in given):
+                found.add("a removal")
+    if "a read" in found and rel in readers:
+        found.discard("a read")
+    return found
 
 
 def test_only_paths_names_the_fleets_folders() -> None:
     texts = _engine_texts()
     assert len(texts) > 80 and "tools/aw" in dict(texts), len(texts)
-    found = sorted(rel for rel, text in texts if FOLDERS.search(text))
-    assert found == list(NAME_THE_FOLDERS), "ask fleet/paths.py where they are"
+    assert FOLDERS.search(dict(texts)[NAME_THE_FOLDERS[0]]), "the scan finds the folders where they are named"
+    found = {rel: problems for rel, text in texts if (problems := _folder_problems(rel, text))}
+    assert found == {}, "ask fleet/paths.py where they are; on a machine, paths.ON_A_MACHINE + a reserved name"
 
 
-def test_only_paths_and_vaultkey_name_the_key_file() -> None:
-    texts = _engine_texts()
-    named = sorted(rel for rel, text in texts if KEY_NAMED.search(text) or _calls_key_file(text))
-    assert named and set(named) <= set(NAME_THE_KEY), "no module but these two may reach the key file by its name"
+def test_only_paths_and_vaultkey_name_the_key_file_and_nothing_outside_fleet_removes_it() -> None:
+    texts = dict(_engine_texts())
+    assert KEY_NAMED.search(texts[NAME_THE_KEY[0]]), "the scan finds the key's name where it is named"
+    found = {rel: problems for rel, text in texts.items() if (problems := _key_problems(rel, text))}
+    assert found == {}, "the key file is reached through fleet/ alone, or by a reader READ_THE_KEY lists"
+    # Each reader listed is outside fleet/, exists, and reads the key: the list holds no stale line.
+    assert {rel: _key_problems(rel, texts.get(rel, ""), readers={}) for rel in READ_THE_KEY} == {
+        rel: {"a read"} for rel in READ_THE_KEY
+    }
+    assert all(reason.strip() for reason in READ_THE_KEY.values())
 
 
 @pytest.mark.parametrize(
@@ -445,21 +689,88 @@ def test_only_paths_and_vaultkey_name_the_key_file() -> None:
 )
 def test_the_scan_for_the_folders_sees_each_way_to_name_one(source, names) -> None:
     assert bool(FOLDERS.search(source)) is names
+    assert bool(_folder_problems("lib/claude_vm/engine/deploy.py", source)) is names
+
+
+ON_A_MACHINE_CASES = [
+    # paths.ON_A_MACHINE joined to a reserved name, each way to join one, or its literal so followed.
+    ('MARKER = paths.ON_A_MACHINE + "/gh-login"', True),
+    ('PAGE = f"{paths.ON_A_MACHINE}/claude-login.page"', True),
+    ('PID = PurePosixPath(paths.ON_A_MACHINE) / "claude-login.pid"', True),
+    ('CODE = posixpath.join(paths.ON_A_MACHINE, "gh-device-login")', True),
+    ('from claude_vm.fleet.paths import ON_A_MACHINE\nOUT = ON_A_MACHINE + "/gh-login.out"', True),
+    ('MARKER = "~/.config/agent-warehouse/gh-login"', True),
+    ('"""The marker, `~/.config/agent-warehouse/gh-login`, holds the digest."""', True),
+    # Anything else: a name of the fleet's, a name made at run time, the folder alone, a way out of it.
+    ('MARKER = paths.ON_A_MACHINE + "/elsewhere"', False),
+    ('SETTINGS = paths.ON_A_MACHINE + "/client.yml"', False),
+    ('PAGE = f"{paths.ON_A_MACHINE}/{name}"', False),
+    ("FOLDER = paths.ON_A_MACHINE", False),
+    ('MARKER = paths.ON_A_MACHINE + "/gh-login/../client.yml"', False),
+    ('from claude_vm.fleet.paths import ON_A_MACHINE as THERE\nOUT = THERE + "/vault-key"', False),
+    ('MARKER = "~/.config/agent-warehouse/client.yml"', False),
+    ("MARKER = f'~/.config/agent-warehouse/{name}'", False),
+    ('MARKER = "~/.config/agent-warehouse/claude-login.out/x"', False),
+    ("os.environ['XDG_CONFIG_HOME']", False),
+]
+
+
+@pytest.mark.parametrize(("source", "allowed"), ON_A_MACHINE_CASES)
+def test_guest_names_the_folder_on_a_machine_only_before_a_reserved_name(source, allowed) -> None:
+    assert (_folder_problems("lib/claude_vm/guest/layer2/github.py", source) == []) is allowed
+    # Outside guest/, never: the computer's folders are paths.py's to say.
+    assert _folder_problems("lib/claude_vm/engine/status.py", source) != []
 
 
 @pytest.mark.parametrize(
-    ("source", "names"),
+    ("rel", "source", "found"),
     [
-        ("paths.key_file(where)", True),
-        ("from claude_vm.fleet.paths import key_file", True),
-        ("key = where.key_file", True),
-        ("key_file(where)", True),
-        ("ssh_key_file = '~/.ssh/id_ed25519'", False),
-        ("'ansible_ssh_private_key_file'", False),
+        ("lib/claude_vm/engine/init.py", "paths.key_file(where)", {"a read"}),
+        ("lib/claude_vm/engine/init.py", "from claude_vm.fleet.paths import key_file", {"a read"}),
+        ("lib/claude_vm/engine/init.py", "key = where.key_file", {"a read"}),
+        ("lib/claude_vm/engine/init.py", "key_file(where)", {"a read"}),
+        ("lib/claude_vm/engine/init.py", "ssh_key_file = '~/.ssh/id_ed25519'", set()),
+        ("lib/claude_vm/engine/init.py", "'ansible_ssh_private_key_file'", set()),
+        # I6's option, and D4's setting, are not the file's name.
+        ("lib/claude_vm/mcp/register.py", 'parser.add_argument("--vault-key-file")', set()),
+        ("lib/claude_vm/schema/words.py", "'vault_key_file'", set()),
+        ("lib/claude_vm/fleet/overrides.py", "KEY = 'vault-key'", {"the name"}),
+        ("lib/claude_vm/runs/sweep.py", "where.root / 'vault-key'", {"the name"}),
+        # The forms a cleanup would use.
+        ("lib/claude_vm/runs/sweep.py", "shutil.rmtree(where.root / paths.KEY)", {"KEY or OWN", "a removal"}),
+        (
+            "lib/claude_vm/runs/sweep.py",
+            "for name in paths.OWN:\n    shutil.rmtree(where.root / name)",
+            {"KEY or OWN", "a removal"},
+        ),
+        (
+            "lib/claude_vm/runs/sweep.py",
+            "from claude_vm.fleet import paths as p\nfor name in p.OWN:\n    (where.root / name).unlink()",
+            {"KEY or OWN", "a removal"},
+        ),
+        (
+            "lib/claude_vm/runs/sweep.py",
+            "from claude_vm.fleet.paths import KEY\nos.remove(KEY)",
+            {"KEY or OWN", "a removal"},
+        ),
+        ("lib/claude_vm/runs/prune.py", "where.key_file.unlink(missing_ok=True)", {"a read", "a removal"}),
+        ("lib/claude_vm/runs/prune.py", "key = paths.key_file(where)\nos.remove(path=key)", {"a read", "a removal"}),
+        ("lib/claude_vm/runs/prune.py", "shutil.rmtree(paths.logs_dir(where))", set()),
+        ("lib/claude_vm/runs/prune.py", "for name in paths.BENEATH_STATE:\n    print(name)", set()),
+        # The fleet's own package reads and writes its key.
+        ("lib/claude_vm/fleet/overrides.py", "default = paths.key_file(where)", set()),
+        ("lib/claude_vm/fleet/vaultkey.py", "KEY = paths.KEY\nos.replace(new, where.root / KEY)", set()),
     ],
 )
-def test_the_scan_for_the_key_sees_each_way_to_reach_it(source, names) -> None:
-    assert (bool(KEY_NAMED.search(source)) or _calls_key_file(source)) is names
+def test_the_scan_for_the_key_sees_each_way_to_reach_it(rel, source, found) -> None:
+    assert _key_problems(rel, source) == found
+
+
+def test_a_listed_reader_may_read_the_key_and_never_remove_it() -> None:
+    readers = {"lib/claude_vm/engine/init.py": "init makes the key file at its place"}
+    assert _key_problems("lib/claude_vm/engine/init.py", "key = paths.key_file(where)", readers) == set()
+    removes = "key = paths.key_file(where)\nkey.unlink()"
+    assert _key_problems("lib/claude_vm/engine/init.py", removes, readers) == {"a removal"}
 
 
 # ---------------------------------------------------------------- the checkout's folder in git ----
@@ -569,17 +880,116 @@ def test_the_footprint_watches_nothing_else_there(tmp_path) -> None:
     assert conftest.footprint((config, state, data)) == before
 
 
+def _session(tmp_path: Path, root: Path) -> SimpleNamespace:
+    """A session that read the developer's folders, its home in the test's own directory, run from the checkout root."""
+    session = SimpleNamespace(config=SimpleNamespace(stash=pytest.Stash()), exitstatus=pytest.ExitCode.OK)
+    conftest.watch_the_developers_folders(session.config, {"HOME": str(tmp_path / "developer")}, root)
+    return session
+
+
 def test_the_session_fails_when_a_test_touched_the_developers_folders(tmp_path) -> None:
     config, state, data = _three(tmp_path)
-    session = SimpleNamespace(config=SimpleNamespace(stash=pytest.Stash()), exitstatus=pytest.ExitCode.OK)
-    conftest.watch_the_developers_folders(session.config, {"HOME": str(tmp_path / "developer")})
+    checkout = _checkout(tmp_path / "checkout")
+    session = _session(tmp_path, checkout)
     conftest.pytest_sessionfinish(session, 0)
     assert session.exitstatus == pytest.ExitCode.OK
     (data / "vault-key").write_text("made by a test\n")
     conftest.pytest_sessionfinish(session, 0)
     assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
     assert session.config.stash[conftest.TOUCHED] == [str(data / "vault-key")]
+    # The checkout's own .aw/: the developer's fleet, its key included, whenever they work from a checkout.
+    session = _session(tmp_path, checkout)
+    (checkout / ".aw").mkdir()
+    (checkout / ".aw" / "client.yml").write_text("editor: zed\n")
+    conftest.pytest_sessionfinish(session, 0)
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+    assert session.config.stash[conftest.TOUCHED] == [str(checkout / ".aw" / "client.yml")]
     # An xdist worker watches nothing: the process that ends the session does, once all are done.
     worker = SimpleNamespace(stash=pytest.Stash(), workerinput={})
-    conftest.watch_the_developers_folders(worker, {"HOME": str(tmp_path / "developer")})
+    conftest.watch_the_developers_folders(worker, {"HOME": str(tmp_path / "developer")}, checkout)
     assert conftest.DEVELOPERS not in worker.stash
+
+
+def _worktree_of(tmp_path: Path) -> tuple[Path, Path]:
+    """A main checkout and a worktree of it, made by git in the test's own directory."""
+    main, checkout = tmp_path / "main", tmp_path / "checkout"
+    main.mkdir()
+    _git(main, "init", "-q", "-b", "main")
+    _git(main, "commit", "-q", "--allow-empty", "-m", "first")
+    _git(main, "worktree", "add", "-q", str(checkout))
+    return main, checkout
+
+
+def _real(folders) -> list[str]:
+    return [os.path.realpath(folder) for folder in folders]
+
+
+def test_the_guard_watches_the_checkouts_fleet_the_main_worktrees_and_the_exported_home(tmp_path) -> None:
+    main, checkout = _worktree_of(tmp_path)
+    developer = {"HOME": str(tmp_path / "developer")}
+    installed = paths.installed(developer)
+    from_main = _real([*installed, main / ".aw"])
+    # From a worktree, its own .aw/ and the main worktree's, where the developer's fleet is; from the main, one.
+    assert (
+        _real(conftest.developers_folders(developer, checkout)) == _real([*installed, checkout / ".aw"]) + from_main[3:]
+    )
+    assert _real(conftest.developers_folders(developer, main)) == from_main
+    # The home the developer exported, read as paths reads it; none it refuses, which the new engine never writes in.
+    exported = conftest.developers_folders({**developer, VARIABLE: "~/fleets/work"}, main)
+    assert _real(exported) == from_main + _real([tmp_path / "developer/fleets/work"])
+    for refused in ("relative/fleet", str(installed[1] / "inside")):
+        assert _real(conftest.developers_folders({**developer, VARIABLE: refused}, main)) == from_main
+    # Where git cannot say, the checkout's own .aw/ is still watched.
+    plain = _checkout(tmp_path / "plain")
+    assert _real(conftest.developers_folders(developer, plain)) == _real([*installed, plain / ".aw"])
+
+
+PROBE = """
+from pathlib import Path
+
+
+def test_writes_where_the_developers_fleet_is():
+    for name in {written!r}:
+        Path(name).parent.mkdir(parents=True, exist_ok=True)
+        Path(name).write_text("editor: zed\\n")
+"""
+
+
+def test_a_test_that_writes_in_the_checkouts_fleet_folder_fails_the_session(tmp_path) -> None:
+    # The review's probe (review/code/D1.md, finding 1), in a child pytest whose checkout is a worktree of the test's
+    # own: this conftest.py copied there, so that its ROOT is that worktree, and every other helper linked. The probe
+    # writes client.yml in the worktree's .aw/, the main worktree's, and the home the developer exported; the session
+    # fails, naming each, though the probe's one test passed.
+    main, checkout = _worktree_of(tmp_path)
+    unit = checkout / "tests" / "unit"
+    unit.mkdir(parents=True)
+    shutil.copy(REPO / "tests" / "unit" / "conftest.py", unit / "conftest.py")
+    for helper in (REPO / "tests" / "unit").glob("*.py"):
+        if helper.name != "conftest.py" and not helper.name.startswith("test_"):
+            (unit / helper.name).symlink_to(helper)
+    shutil.copy(REPO / "pyproject.toml", checkout / "pyproject.toml")
+    for name in ("lib", "tools"):
+        (checkout / name).symlink_to(REPO / name)
+    (checkout / "justfile").write_text("")
+    exported = tmp_path / "exported"
+    written = [checkout / ".aw" / "client.yml", main / ".aw" / "client.yml", exported / "client.yml"]
+    (unit / "test_probe.py").write_text(PROBE.format(written=[str(path) for path in written]))
+    env = {name: value for name, value in os.environ.items() if name in PASSED_ON or name.startswith("LC_")}
+    env.update({"HOME": str(tmp_path / "developer"), VARIABLE: str(exported)})
+    ran = subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-c", str(checkout / "pyproject.toml")]
+        + ["--rootdir", str(checkout), str(unit / "test_probe.py")],
+        cwd=checkout,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    said = ran.stdout + ran.stderr
+    assert ran.returncode == pytest.ExitCode.TESTS_FAILED and "1 passed" in said, said
+    named = said.split("the developer's fleet folders", 1)[-1]
+    assert [path for path in written if os.path.realpath(path) not in named and str(path) not in named] == [], said
+    for path in written:
+        path.unlink()

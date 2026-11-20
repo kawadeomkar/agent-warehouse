@@ -107,7 +107,7 @@ reads at most two `client.yml` files, and creates, writes and removes nothing: t
 
 | Program | Home | State folder | Key file |
 |---|---|---|---|
-| `AGENT_WAREHOUSE_HOME` set | that folder | `<home>/state/` | `<home>/vault-key` |
+| `AGENT_WAREHOUSE_HOME` set | that folder | `<home>/state/` (the installed program's own home: as below) | `<home>/vault-key` (the same) |
 | A checkout (a `justfile` and a `.git`, a folder or a worktree's file) | `.aw/` at its top | `.aw/state/` | `.aw/vault-key` |
 | An installed release (`release.json`, told before its `.git`, since a release is a clone of its tag) | `${XDG_CONFIG_HOME:-~/.config}/agent-warehouse/` | `${XDG_STATE_HOME:-~/.local/state}/agent-warehouse/` | `${XDG_DATA_HOME:-~/.local/share}/agent-warehouse/vault-key` |
 
@@ -130,24 +130,39 @@ so a changing run can say which fleet it drives. The value is one absolute path,
 YAML would read as more than a string is refused.
 
 **The state and the key go with the home.** Whichever way the installed program's home is reached, by the variable or
-by a pointer, its state folder and its key file are the installed program's own. Two programs that drive one fleet
-share its jobs and its locks and open its vault with one key, and two fleets share neither. The key file is never in
-`fleet/`, which a person copies and may publish, nor in the state folder, which can be made again and which a cleanup
-may remove. In a checkout it is at the top of `.aw/`, and for the installed program in the data folder, never in the
-config folder that people keep in a public repository. What a person backs up is `fleet/` and, apart from it, the key.
-Only `paths.py` and `vaultkey.py` name the key file, so no cleanup, prune or sweep reaches it by its name.
+by a pointer, and however its path is spelled, its state folder and its key file are the installed program's own: a
+home is told to be that one by the real path of both, every link read, never by their text, so a `~/.config` that
+is a link into a dotfiles folder changes nothing. Two programs that drive one fleet share its jobs and its locks and
+open its vault with one key, and two fleets share neither. The key file is never in `fleet/`, which a person copies
+and may publish, nor in the state folder, which can be made again and which a cleanup may remove. In a checkout it is
+at the top of `.aw/`, and for the installed program in the data folder, never in the config folder that people keep
+in a public repository. Any other home keeps its key at its top, `<home>/vault-key`: a person who names a home
+chooses where its key lives. A home inside the installed program's state folder is refused, naming
+`AGENT_WAREHOUSE_HOME` (or the `fleet_home` that named it), since a cleanup may remove it. What a person backs up is
+`fleet/` and, apart from it, the key.
+
+**No cleanup reaches the key.** Only `paths.py` and `vaultkey.py` name the key file, `vault-key` (an option such as
+`--vault-key-file` is not its name). Outside `fleet/` no module names `paths.KEY` or `paths.OWN`, no removal
+(`unlink`, `remove`, `rmtree`, `rmdir`) reaches `key_file`, `KEY` or `OWN`, and a module reads `key_file` only where
+the literal list `READ_THE_KEY` in `tests/unit/test_aw_fleet_paths.py` names it with its reason. The rest is held where
+it can be: each change that removes files keeps the key byte for byte in its own test.
 
 **The folder the roles share.** On a machine the product configured, today's roles keep a sign-in's files in
 `~/.config/agent-warehouse/`, the installed program's home by the same name. Their names are reserved in
 `RESERVED_ON_A_MACHINE` (`claude-login.*`, `gh-login*`, `gh-device-login`), which share nothing with `OWN`, and
-`paths.py` never reads, writes or names one as its own.
+`paths.py` never reads, writes or names one as its own. The code that runs on a machine names that folder as
+`paths.ON_A_MACHINE`, or its literal, in `guest/` alone and always joined to one reserved name; nowhere else names the
+fleet's folders but `paths.py`.
 
 **Tests never reach the developer's.** An autouse fixture in `tests/unit/conftest.py`, `aw_home`, sets
 `AGENT_WAREHOUSE_HOME` to a folder in each test's own directory, a directory of the session's own stands in before it
 for a module's run, and `harness.PASSED_ON` passes it to every run. The session reads the names `paths` owns in the
-developer's three folders before the first test and after the last, from their metadata alone, and fails if one was
-made, changed or removed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
-the scans for who names the folders and the key, and the guard.
+developer's fleet folders before the first test and after the last, from their metadata alone, and fails if one was
+made, changed or removed. Those folders (`developers_folders`) are the installed program's three, the checkout's own
+`.aw/` and, where the suite runs from a worktree, the main worktree's (git's common directory), and the
+`AGENT_WAREHOUSE_HOME` the developer exported, read before the session replaces it. No file there is opened, so no
+`fleet_home` is followed. `tests/unit/test_aw_fleet_paths.py` holds the homes, the pointer, the key's place, the names,
+the scans for who names the folders and the key, and the guard, a child `pytest` among its tests.
 
 ## 16.10 `guest/` — the helper, the system layer's inputs, layer 2
 

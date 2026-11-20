@@ -106,11 +106,47 @@ def footprint(folders) -> dict[str, tuple]:
     return found
 
 
-def watch_the_developers_folders(config, environ) -> None:
-    """Read the developer's three default folders (the config, the state and the data folder's agent-warehouse/)
-    before any test runs: once, in the process that ends the session, never in an xdist worker."""
+def _main_worktree(root: Path) -> Path | None:
+    """The main worktree of the checkout at root, which differs from it where the suite runs from another worktree:
+    the folder of git's common directory. None where git cannot say."""
+    try:
+        found = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            env={name: value for name, value in os.environ.items() if not name.startswith("GIT_")},
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    common = Path(found.stdout.strip())
+    return common.parent if found.returncode == 0 and common.is_absolute() and common.name == ".git" else None
+
+
+def developers_folders(environ, root: Path = ROOT) -> tuple[Path, ...]:
+    """The developer's own fleet folders, which no test touches: the installed program's three (the config, the state
+    and the data folder's agent-warehouse/), this checkout's .aw/ and the main worktree's, and the folder
+    AGENT_WAREHOUSE_HOME names where the developer exported it. Each by its name alone: no file of theirs is opened,
+    so no fleet_home is followed."""
+    folders = [*paths.installed(environ), root / paths.CHECKOUT_HOME]
+    main = _main_worktree(root)
+    if main is not None:
+        folders.append(main / paths.CHECKOUT_HOME)
+    if environ.get(paths.VARIABLE):
+        try:
+            folders.append(paths.home(root, environ).root)
+        except paths.Refused:
+            pass  # A home paths refuses is one the new engine never writes in.
+    return tuple(dict.fromkeys(folders))
+
+
+def watch_the_developers_folders(config, environ, root: Path = ROOT) -> None:
+    """Read the developer's fleet folders (developers_folders) before any test runs, with what environ exported: once,
+    in the process that ends the session, never in an xdist worker."""
     if not hasattr(config, "workerinput"):
-        folders = paths.installed(environ)
+        folders = developers_folders(environ, root)
         config.stash[DEVELOPERS] = (folders, footprint(folders))
 
 
@@ -119,6 +155,7 @@ def pytest_configure(config):
     # gets a KeyboardInterrupt, its run and everything under it ended by the harness on the way out, where the default
     # ended the process at once and left them (tests/unit/interrupts.py).
     interrupts.install()
+    # First, while AGENT_WAREHOUSE_HOME is still what the developer exported: a folder of theirs to watch.
     watch_the_developers_folders(config, os.environ)
     # Before a test's own directory (aw_home), what runs first - a module's playbook run, made once for its tests -
     # gets a directory of the session's own, never the developer's fleet, whatever their shell exported.

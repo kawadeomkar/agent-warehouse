@@ -30,7 +30,9 @@ No test reads or writes your own fleet folder. The engine being built for 3.0 ke
 key file in `~/.local/share/agent-warehouse/` for an installed program, and `AGENT_WAREHOUSE_HOME` moves all of it.
 Every unit test runs with `AGENT_WAREHOUSE_HOME` in a directory of its own (the `aw_home` fixture in
 `tests/unit/conftest.py`), every run the harness starts is given it, and a run of the suite fails, naming each path,
-if a test made, changed or removed one of the names `paths.py` owns in those three folders of yours.
+if a test made, changed or removed one of the names `paths.py` owns in a fleet folder of yours: the installed
+program's three, this checkout's `.aw/`, the main worktree's `.aw/` when the suite runs from another worktree, and the
+folder your own `AGENT_WAREHOUSE_HOME` names, if you exported one. It reads their names alone and opens no file there.
 
 The new engine's tests are the files `tests/unit/test_aw_*.py`, every test of which is marked `engine`, and
 `just test engine` runs them alone, in seconds. Write one with `tests/unit/aw_kit.py`: the `home` fixture for the
