@@ -138,11 +138,10 @@ def _flag(long: str, help: str | None, agent: Agent = PROPERTY) -> Option:
 
 # ---------------------------------------------------------------- the fates an agent's tool gives ----
 
-# Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL), and the add-on's.
+# Why no tool runs a verb: today's, word for word (lib/claude_vm/mcp/recipes.py's NO_TOOL).
 NO_TOOL_HELP = "the tools' own descriptions say what just help says"
 NO_TOOL_VAULT = "the vault is edited at a terminal, by the person: no tool takes or returns a secret"
 NO_TOOL_MCP = "it registers this server: the person's command"
-NO_TOOL_CONTROL = "the add-on's"
 
 # Why a tool does not take an option: today's, word for word (lib/claude_vm/mcp/recipes.py's LEFT_OUT).
 LOCK_LEFT_OUT = "it rewrites uv.lock after a pin is edited: a contributor's, at a terminal"
@@ -896,22 +895,10 @@ _VERBS: tuple[Verb, ...] = (
         changes=False,
         tools=NO_TOOL_MCP,
     ),
-    Verb(
-        name="control",
-        group="use",
-        doc="Make a control VM that runs this fleet's work from then on: the add-on, which the base does not build",
-        words=None,
-        options=(),
-        rules=(),
-        handler=None,
-        card="L18",
-        locks="none",
-        changes=True,
-        tools=NO_TOOL_CONTROL,
-    ),
 )
 
-# Every verb, by its name, in the order help lists them.
+# Every verb, by its name, in the order help lists them: the base's alone. The add-on's verb, control, is no row
+# here: the add-on adds its row, with the fleet's lock, when it is built.
 VERBS: dict[str, Verb] = {verb.name: verb for verb in _VERBS}
 
 # ---------------------------------------------------------------- the exit statuses ----
@@ -930,7 +917,9 @@ EXITS: dict[str, int] = {
 
 # What status exits with, by meaning, as today: its report's code (lib/claude_vm/status/model.py's status_report), the
 # read that failed, and a read a person cancelled. A refusal of status before it reads anything exits 1, as today, and
-# says so in its one sentence.
+# says so in its one sentence. Today's status gives 3 for a read that failed and for one a person cancelled
+# (lib/claude_vm/status/engine.py's _end_for_an_interrupt, and status/hosts.py's run with several hosts), and a script
+# may read it: so 3 keeps both meanings here, the one number of these two mappings that has two.
 STATUS_EXITS: dict[str, int] = {
     # The report: nothing is wrong.
     "nothing_wrong": 0,
@@ -940,6 +929,6 @@ STATUS_EXITS: dict[str, int] = {
     "unread": 2,
     # The read itself failed.
     "failed": 3,
-    # A read a person cancelled.
-    "cancelled": 130,
+    # A read a person cancelled: 3, as a read that failed, as today.
+    "cancelled": 3,
 }

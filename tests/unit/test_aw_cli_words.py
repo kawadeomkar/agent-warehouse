@@ -3,13 +3,15 @@
 Every verb has its handler or the card that builds it, the locks a run of it takes, whether a run of it is a job, and
 the tools of the agents' server that run it or why none does; every option a kind, a pattern of schema/patterns.py
 unless it takes no value, and a fate for an agent's tool, by tool where two tools run its verb. Today's words keep
-today's fates (lib/claude_vm/mcp/recipes.py), held until the cutover. No option's value is a secret, no sentence says
-just, each meaning of an exit status has one number and each number one meaning, and the module imports the standard
-library alone.
+today's fates (lib/claude_vm/mcp/recipes.py), held until the cutover. No verb of the add-on is a verb of the base's
+table. No option's value is a secret, no sentence says just, each meaning of an exit status has one number and each
+number one meaning but status's 3, which today gives a read that failed and one a person cancelled, and the module
+imports the standard library alone.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import keyword
 import re
@@ -40,8 +42,19 @@ from claude_vm.schema.words import (
 
 MODULE = "claude_vm.schema.words"
 CONTRACT = json.loads((Path(__file__).resolve().parent / "cli_contract.json").read_text())
+# Today's status, whose end on a Ctrl-C the table keeps.
+STATUS_ENGINE = Path(__file__).resolve().parents[2] / "lib" / "claude_vm" / "status" / "engine.py"
 # The verbs whose run is a job, with its own record, text log and locks.
-JOBS = {"deploy", "login", "code", "destroy", "release", "init", "install", "control"}
+JOBS = {"deploy", "login", "code", "destroy", "release", "init", "install"}
+# The add-on's verbs, which the base's table never has, and why: the add-on adds each row when it is built.
+ADD_ON = {
+    "control": "the owner's answer 3 of 2026-11-20 (the plan's log): control is the add-on's, out of the base's table; "
+    "the add-on's card that builds it (L18) adds its row, with the fleet's lock",
+}
+# The one number of a mapping of exit statuses that has two meanings, and why: today's status exits 3 for a read that
+# failed and for one a person cancelled (lib/claude_vm/status/engine.py's _end_for_an_interrupt, held by
+# tests/unit/test_status_live.py), and a script may read it. The owner's answer 2 of 2026-11-20 keeps it.
+SHARED = {("STATUS_EXITS", 3): {"failed", "cancelled"}}
 # The locks a run of each verb takes, as the locks are ruled: one machine's by its name, the fleet's for what changes
 # the whole fleet, and for three verbs a kind worked out from the words given.
 LOCKS_OF = {
@@ -60,7 +73,6 @@ LOCKS_OF = {
     "logs": "none",
     "cancel": "none",
     "mcp": "none",
-    "control": "none",
 }
 # The verbs that read the fleet's settings to do their work, which take --set; and those of them that run the system
 # layer, which take -v.
@@ -186,8 +198,15 @@ def test_every_verb_has_a_handler_or_its_card_its_locks_and_its_tools() -> None:
     assert len(tools) == len(set(tools)), "a tool runs one verb"
 
 
-def test_the_verbs_whose_run_is_a_job_are_the_eight_ruled() -> None:
+def test_the_verbs_whose_run_is_a_job_are_the_seven_ruled() -> None:
     assert {name for name, verb in VERBS.items() if verb.changes} == JOBS
+
+
+def test_no_verb_of_the_add_on_is_a_verb_of_the_base_s_table() -> None:
+    assert all(why.strip() for why in ADD_ON.values())
+    assert sorted(set(ADD_ON) & set(VERBS)) == []
+    # Nor any verb's card the add-on's own, a row that would wait in the base for the add-on: L is its workstream.
+    assert [name for name, verb in VERBS.items() if verb.card.startswith("L")] == []
 
 
 def test_each_verb_takes_the_locks_ruled() -> None:
@@ -296,12 +315,28 @@ def test_every_sentence_is_one_line_and_says_aw_never_just() -> None:
         assert not sentence.endswith("."), sentence
 
 
-def test_each_exit_status_has_one_meaning_and_each_meaning_one_status() -> None:
-    for statuses in (EXITS, STATUS_EXITS):
-        assert len(set(statuses.values())) == len(statuses)
+def test_each_exit_status_has_one_meaning_and_each_meaning_one_status_but_the_one_pair_named() -> None:
+    # A meaning is a key, so it has one number; a number has one meaning but where SHARED names the pair, with why.
+    assert all(why for why in SHARED.values())
+    shared = {}
+    for name, statuses in (("EXITS", EXITS), ("STATUS_EXITS", STATUS_EXITS)):
         assert all(isinstance(status, int) and 0 <= status <= 255 for status in statuses.values())
+        for status in set(statuses.values()):
+            meanings = {meaning for meaning, given in statuses.items() if given == status}
+            if len(meanings) > 1:
+                shared[name, status] = meanings
+    assert shared == SHARED
     assert (EXITS["done"], EXITS["refused"], EXITS["cancelled"]) == (0, 1, 130)
-    assert list(STATUS_EXITS.values()) == [0, 1, 2, 3, 130]
+    assert STATUS_EXITS == {"nothing_wrong": 0, "problem": 1, "unread": 2, "failed": 3, "cancelled": 3}
+
+
+def test_a_cancelled_status_exits_as_today_s_does() -> None:
+    # Today's status ends a read a person cancelled in _end_for_an_interrupt, by os._exit
+    # (tests/unit/test_status_live.py holds it to 3 at a terminal): the table's cancelled status is that number.
+    tree = ast.parse(STATUS_ENGINE.read_text())
+    [end] = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_end_for_an_interrupt"]
+    calls = [node for node in ast.walk(end) if isinstance(node, ast.Call) and ast.unparse(node.func) == "os._exit"]
+    assert [ast.literal_eval(call.args[0]) for call in calls] == [STATUS_EXITS["cancelled"]]
 
 
 def test_the_table_imports_nothing_outside_the_standard_library(home) -> None:

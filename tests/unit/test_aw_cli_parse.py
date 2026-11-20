@@ -207,6 +207,7 @@ def test_a_word_outside_its_pattern_is_refused_unsaid(verb: Verb) -> None:
         ["init", TYPED],
         ["install", TYPED],
         ["control", TYPED],
+        ["control", "--detach"],
         [TYPED],
         ["--bogus", "deploy"],
         [f"--attended={TYPED}", "deploy"],
@@ -237,6 +238,17 @@ def test_each_refusal_says_what_was_wrong() -> None:
     assert "--check takes no value" in _refused(["deploy", "--check=yes"])
     assert "--cores takes a value: --cores CORES, or --cores=CORES" in _refused(["deploy", "--cores"])
     assert checks.no_option("", "--bogus").endswith("has no --bogus option before its command (aw help lists them)")
+
+
+def test_control_is_an_unknown_verb_since_the_add_on_s_verbs_are_not_the_base_s(capsys) -> None:
+    # The owner's answer 3 of 2026-11-20: control is the add-on's, and aw control is refused as a word that is no
+    # command is, before anything runs and whatever follows it: never "not built yet", which would name a card.
+    for words in (["control"], ["control", "--detach"], ["control", TYPED], ["--no-lock", "control"]):
+        assert _refused(words) == checks.NO_SUCH_COMMAND, words
+    assert checks.check("control", {}) == checks.NO_SUCH_COMMAND
+    assert main([str(REPO / "tools" / "aw"), "control"]) == EXITS["refused"]
+    said = capsys.readouterr()
+    assert (said.out, said.err) == ("", checks.NO_SUCH_COMMAND + "\n")
 
 
 def test_a_word_that_starts_with_a_dash_is_given_with_equals() -> None:
@@ -380,7 +392,7 @@ def test_a_verb_no_card_has_built_names_its_card_and_just_only_where_today_has_i
 
 def test_the_recipes_named_are_today_s_by_the_contract() -> None:
     assert dispatch.JUST_RECIPES == TODAYS
-    assert {"cancel", "release", "control"} <= set(VERBS) - TODAYS
+    assert {"cancel", "release"} <= set(VERBS) - TODAYS
 
 
 def test_a_changing_verb_with_no_fleet_names_aw_init_and_says_which_fleet_it_drives(monkeypatch, home, capsys) -> None:

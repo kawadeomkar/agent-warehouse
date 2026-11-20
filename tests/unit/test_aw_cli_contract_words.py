@@ -242,3 +242,6 @@ def test_the_exit_statuses_are_today_s_numbers() -> None:
     assert (EXITS["refused"], tuple(sorted(every))) in rows
     status = {row["status"] for row in CONTRACT["exits"] if row["recipes"] == ["status"]}
     assert status == {STATUS_EXITS[name] for name in ("nothing_wrong", "problem", "unread", "failed")}
+    # A status a person cancelled exits as one whose read failed, today's 3 (lib/claude_vm/status/engine.py's
+    # _end_for_an_interrupt): a number of the contract's for status, so nothing of status's exit statuses is changed.
+    assert STATUS_EXITS["cancelled"] == STATUS_EXITS["failed"] == 3
