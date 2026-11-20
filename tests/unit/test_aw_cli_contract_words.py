@@ -133,6 +133,12 @@ def _differences() -> dict[str, tuple]:
                     "help": option.help,
                 }
             found |= {f"{key}: {part}": (today[part], table[part]) for part in today if today[part] != table[part]}
+    # The exit statuses the contract measured that the table names by meaning: a run a person cancelled, which today is
+    # one Ctrl-C while the playbook runs, and one before it starts.
+    for case, meaning in (("exit.ctrl-c-1", "cancelled"), ("exit.ctrl-c-2", "cancelled")):
+        (row,) = [row for row in CONTRACT["exits"] if f"(case {case})" in row["meaning"]]
+        if row["status"] != EXITS[meaning]:
+            found[f"exit {meaning}"] = (row["status"], EXITS[meaning])
     return found
 
 
@@ -200,8 +206,10 @@ def test_every_rule_a_verb_names_is_the_contract_s_or_new() -> None:
 
 
 def test_the_exit_statuses_are_today_s_numbers() -> None:
-    # A Ctrl-C's status, and that of a run that reached its playbook, are not numbers this check compares: today's are
-    # the playbook's, and aw's cancelled run and failed run are new, each said where it is settled.
+    # A run that reached its playbook exits with the playbook's status today, which this check does not compare: aw's
+    # failed run is new, said where it is settled. A Ctrl-C's is compared in _differences: aw's cancelled run exits 130,
+    # which today is the status before the playbook starts and not while it runs (99), as CHANGED says.
+    assert CONTRACT["exits"] and _differences()["exit cancelled"] == (99, EXITS["cancelled"])
     every = {name for name in RECIPES}
     rows = {(row["status"], tuple(sorted(row["recipes"]))) for row in CONTRACT["exits"]}
     assert (EXITS["done"], tuple(sorted(every))) in rows

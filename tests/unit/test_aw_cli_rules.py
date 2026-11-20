@@ -70,8 +70,11 @@ REPOSITORYS_WHY = "a recipe of the repository's own, which stays just's (the own
 JUSTS = {
     "just.unknown-option": "aw names the option the verb has not got in its own sentence (H4)",
     "just.pattern": "aw holds a value to its pattern in its own sentence, which never says the value (A8, H4)",
+    "just.repeated-option": "aw refuses an option given twice in its own sentence, which names the option (H4)",
 }
 EXITS_WHY = "a run's exit status, no refusal: a run's end is C4's, status's G16's"
+# The contract's cases of a setting given before the recipe today: RUN_LOCK= given empty takes no lock.
+SETTINGS_WHY = "a setting given before the recipe today, RUN_LOCK=, which aw spells --no-lock (CHANGED): C6's lock"
 # The habits' sentences of today's rules.
 HABITS = {"deploy.1": habits.NO_TERMINAL, "deploy.2": habits.ONE_STAGE, "deploy.3": habits.NOTHING_RUN}
 
@@ -89,8 +92,10 @@ TOOLS_CHECK = {
 # makes the file absolute from the folder just was started in, as init's own handler will (E4). The rule is given that
 # path; the contract writes the test's folder as <tmp>, a value the rule refuses as it refused the real one.
 INIT_4 = {"init.4-1": {"token_secret_file": "<tmp>/a b/secret"}}
-# How many cases are not yet run against aw: lower it as each is run; never raise it.
-NOT_YET_MOST = 29
+# How many cases are not yet run against aw: lower it as each is run. It rises only by cases newly added to the
+# contract that no built verb can run, each with its reason, in the commit that adds them (plan.md section 4; the
+# coordinator's ruling of 2026-11-20): H5's 29, and H19's exit.ctrl-c-2, setting.run-lock-1 and setting.run-lock-2.
+NOT_YET_MOST = 32
 
 
 def _aw(sentence: str) -> str:
@@ -111,6 +116,8 @@ def _not_yet() -> dict[str, str]:
             found[code] = ELSEWHERE[rule]
         elif rule.startswith("exit."):
             found[code] = EXITS_WHY
+        elif rule.startswith("setting."):
+            found[code] = SETTINGS_WHY
         elif TODAY_RULES[rule]["recipe"] in REPOSITORYS:
             found[code] = REPOSITORYS_WHY
     return found

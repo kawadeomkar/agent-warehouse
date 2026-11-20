@@ -4,7 +4,11 @@ Every later parity test reads the contract and never the justfile, so until the 
 line - a recipe, an option, its pattern or its help, a setting, a refusal's sentence or the line it is on - changes the
 contract in the same commit, made again by tests/unit/cli_contract.py (its docstring says how). Each runnable case is
 run again against today's task runner with stand-in tools, as test_justfile.py runs a recipe, and must give the status
-and the sentence the contract holds; each example must be one test_commands.py's check accepts.
+and the sentence the contract holds; each example must be one test_commands.py's check accepts, a setting given empty
+before the recipe among them, and the examples are kept as held: none is dropped, and one is added only by --scan.
+Every line of the use recipes and the six word checks that exits with a status other than 0 is a rule's, or named as
+none. One Ctrl-C while the playbook runs exits as ansible-playbook does, which a stand-in measures: the stand-in is
+held to ansible-core's own.
 
 This tests today's justfile, not the new engine: it runs in the unit suite alone, and goes with today's engine.
 """
@@ -12,13 +16,20 @@ This tests today's justfile, not the new engine: it runs in the unit suite alone
 from __future__ import annotations
 
 import functools
+import hashlib
+import inspect
 import json
+import os
 import re
+import signal
+import subprocess
+import sys
+import time
 
 import cli_contract as contract
 import pytest
-from harness import just_settings, public_recipes
-from test_commands import _matches, _problem
+from harness import _default_signals, just_settings, public_recipes
+from test_commands import _problem
 
 AGAIN = (
     "make it again in the same commit: tools/env-run python tests/unit/cli_contract.py --write "
@@ -26,6 +37,13 @@ AGAIN = (
 )
 # The lines of the justfile that print error:, each a rule's: one more fails here, naming it.
 ERROR_LINES = 52
+# The examples the contract was first written with (H1, at 16b32074): how many, and the SHA-256 of their lines, one to a
+# line, in their order. They stay first and as they are: --write keeps every example held, and only --scan adds a line,
+# after them.
+FIRST_EXAMPLES = (1175, "6b9369438c625e2b5a4b0ce511e98ae10b5ed82dd6cec04767e90ffeaa34ee3f")
+# What a setting's case saw, for RUN_LOCK= and without it: today's run takes no lock with it, and is refused without.
+NO_LOCK_TAKEN = "the playbook ran, and the lock another run holds is as it was"
+LOCK_REFUSED = "the playbook did not run, and the lock another run holds is as it was"
 
 
 @functools.cache
@@ -48,8 +66,8 @@ def test_the_file_is_its_six_parts_in_order_as_the_builder_writes_it() -> None:
 
 
 def test_a_change_to_today_s_command_line_changes_the_contract_in_the_same_commit() -> None:
-    # Everything but the examples, which are where a command is told, not the command line itself.
-    for part in ("recipes", "settings", "rules", "cases", "exits"):
+    # The examples too, which --write keeps as held.
+    for part in contract.PARTS:
         assert _made()[part] == _held()[part], f"the contract's {part} are not the justfile's: {AGAIN}"
 
 
@@ -97,11 +115,26 @@ def test_a_help_string_changed_in_the_justfile_is_named_by_its_recipe_and_option
     assert len(said) == 1 and said[0].startswith("deploy --tags: its help is "), said
 
 
+def test_each_option_s_default_is_held_and_a_changed_one_is_named(tmp_path) -> None:
+    # Every option of today's defaults to '' (not given), and its words to none.
+    for recipe in _held()["recipes"]:
+        for option in recipe["options"]:
+            assert option["default"] == (None if option["words"] else ""), (recipe["name"], option["name"])
+    copy = tmp_path / "justfile"
+    text = contract.JUSTFILE.read_text()
+    assert text.count("\nlogin ON='' SIGN_IN='' *NAMES:\n") == 1
+    copy.write_text(text.replace("\nlogin ON='' SIGN_IN='' *NAMES:\n", "\nlogin ON='' SIGN_IN='claude' *NAMES:\n"))
+    said = contract.differences(_held()["recipes"], contract.recipes(copy))
+    assert said == ["login --only: its default is 'claude' in the justfile, '' in the contract"], said
+
+
 def test_words_and_plural_follow_the_mcp_server_s_rule() -> None:
     from claude_vm.mcp import recipes
 
     for held in _held()["recipes"]:
         parameters = public_recipes()[held["name"]]["parameters"]
+        names = [parameter["name"] for parameter in parameters]
+        assert [option["name"] for option in held["options"]] == names, (held["name"], names, AGAIN)
         for option, parameter in zip(held["options"], parameters, strict=True):
             assert option["words"] == (parameter["kind"] in ("star", "plus")), (held["name"], option["name"])
             assert option["plural"] == recipes.words(parameter), (held["name"], option["name"])
@@ -144,17 +177,65 @@ def test_every_error_line_of_the_justfile_is_a_rule_s() -> None:
     assert len(printed) == ERROR_LINES, f"the justfile has {len(printed)} lines that print error:: {AGAIN}"
 
 
-def test_codes_are_one_each_and_every_rule_has_a_case() -> None:
+def test_codes_are_one_each_never_given_again_and_every_rule_has_a_case() -> None:
     codes = [rule["code"] for rule in _held()["rules"]]
     assert len(codes) == len(set(codes))
+    # A rule taken out keeps its code in RETIRED, and a recipe's rules are numbered from 1 with none missing: so a
+    # code taken out without a word, which a later rule could be given, fails here.
+    written = [code for code, *_ in contract.RULES] + contract.RETIRED
+    assert len(written) == len(set(written)) and set(codes) == {code for code, *_ in contract.RULES}
+    numbered: dict[str, set[int]] = {}
+    for code in written:
+        prefix, _, number = code.rpartition(".")
+        if number.isdigit():
+            numbered.setdefault(prefix, set()).add(int(number))
+    assert {prefix: n for prefix, n in numbered.items() if n != set(range(1, max(n) + 1))} == {}
     cases = [item["code"] for item in _held()["cases"]]
     assert len(cases) == len(set(cases))
     for code in codes:
         assert any(contract._rule_of(item) == code for item in cases), code
     for code in cases:
-        assert contract._rule_of(code) in codes or code.startswith("exit."), code
+        assert contract._rule_of(code) in codes or code.startswith(("exit.", "setting.")), code
     # deploy.1 is the refusal of a stage word with no terminal to ask, as the card that made the contract has it.
-    assert next(rule for rule in _held()["rules"] if rule["code"] == "deploy.1")["line"] == 570
+    deploy_1 = next(rule for rule in _held()["rules"] if rule["code"] == "deploy.1")
+    assert "and there is no terminal to ask which was meant" in deploy_1["sentence"], deploy_1
+
+
+def test_every_line_that_exits_non_zero_in_the_use_recipes_and_the_word_checks_is_a_rule_s() -> None:
+    names = [recipe["name"] for recipe in _held()["recipes"]]
+    for where in ("justfile", "tools/check"):
+        unruled = contract.unruled_exits(where, names)
+        assert unruled == [], (
+            f"{where}: a refusal no rule holds: a rule and a case for each in cli_contract.py, {AGAIN}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("where", "after", "refusal"),
+    [
+        # A refusal in a recipe that prints no error:, as deploy.2, deploy.3 and host.6 print none.
+        ("justfile", "\nlogs:\n", '    [ -d "$1" ] || { echo "No such folder: nothing was listed." >&2; exit 1; }\n'),
+        # One that does, said on the line above its exit.
+        (
+            "justfile",
+            "\nlogs:\n",
+            '    if [ -n "${1:-}" ]; then\n      echo "error: logs takes no word" >&2\n      exit 1\n    fi\n',
+        ),
+        # A refusal in one of the word checks.
+        (
+            "tools/check",
+            "\nnames)\n",
+            '  [ "$2" != forbidden ] || { echo "error: forbidden is no VM name" >&2; exit 1; }\n',
+        ),
+    ],
+)
+def test_a_new_refusal_no_rule_holds_is_found(where, after, refusal) -> None:
+    names = [recipe["name"] for recipe in _held()["recipes"]]
+    text = (contract.REPO / where).read_text()
+    assert text.count(after) == 1
+    # Found alone: every other exit is still its rule's, though the lines below the new one moved.
+    (found,) = contract.unruled_exits(where, names, text.replace(after, after + refusal))
+    assert found[1].endswith("exit 1; }") or found[1] == "exit 1", found
 
 
 # ---------------------------------------------------------------------------------------------------- the cases ----
@@ -166,20 +247,114 @@ def test_each_case_gives_the_status_and_the_sentence_the_contract_holds(tmp_path
     held = next(item for item in _held()["cases"] if item["code"] == code)
     status, sentence, output = contract.measure(item, tmp_path)
     assert (status, sentence) == (held["status"], held["sentence"]), output
-    if not code.startswith("exit."):
+    if not code.startswith(("exit.", "setting.")):
         assert status != 0 and sentence, output
 
 
-def test_a_refusal_exits_1_and_a_ctrl_c_as_the_contract_says() -> None:
+def test_a_refusal_exits_1_and_the_report_as_the_contract_says() -> None:
     cases = {item["code"]: item for item in _held()["cases"]}
-    refused = {item["status"] for code, item in cases.items() if not code.startswith("exit.")}
+    refused = {item["status"] for code, item in cases.items() if not code.startswith(("exit.", "setting."))}
     assert refused == {1}, refused
     assert [cases[f"exit.report-{name}-1"]["status"] for name in ("ok", "problem", "unread", "failed")] == [0, 1, 2, 3]
-    (ctrl_c,) = [item for item in _held()["exits"] if "Ctrl-C" in item["meaning"]]
-    assert ctrl_c["status"] == cases["exit.ctrl-c-1"]["status"] and isinstance(ctrl_c["status"], int)
+
+
+def test_one_ctrl_c_exits_99_while_the_playbook_runs_and_130_before_it_starts() -> None:
+    # 99 is ansible-playbook's: the recipe ends in it. aw's 130 for a cancelled run is a change against it.
+    from cli_contract_changes import CHANGED
+
+    cases = {item["code"]: item for item in _held()["cases"]}
+    assert (cases["exit.ctrl-c-1"]["status"], cases["exit.ctrl-c-2"]["status"]) == (99, 130)
+    for code in ("exit.ctrl-c-1", "exit.ctrl-c-2"):
+        (row,) = [row for row in _held()["exits"] if f"(case {code})" in row["meaning"]]
+        assert row["status"] == cases[code]["status"], code
+    assert "exit cancelled" in CHANGED
+
+
+def test_the_ctrl_c_case_s_stand_in_does_what_ansible_playbook_does(tmp_path) -> None:
+    import ansible.cli
+    from ansible.errors import ExitCode
+    from test_justfile import _stand_in
+
+    from claude_vm.ansible.parts import ANSIBLE_INTERRUPTED
+
+    status, says = contract.PLAYBOOK_INTERRUPTED
+    # What ansible-core does on one Ctrl-C, read from its own source: says this as an error, and exits that.
+    source = inspect.getsource(ansible.cli.CLI.cli_executor)
+    handler = r"except KeyboardInterrupt:\s+display\.error\(\"(.+?)\"\)\s+exit_code = ExitCode\.KEYBOARD_INTERRUPT\s"
+    (sentence,) = re.findall(handler, source)
+    assert status == ExitCode.KEYBOARD_INTERRUPT == ANSIBLE_INTERRUPTED
+    # And what its display prints for that error, at no terminal.
+    printed = subprocess.run(
+        [sys.executable, "-I", "-c", f"from ansible.utils.display import Display; Display().error({sentence!r})"],
+        cwd=tmp_path,
+        env={"PATH": os.defpath, "HOME": str(tmp_path), "LANG": "en_US.UTF-8"},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert printed.stderr.splitlines() == [says], printed.stderr
+    # The stand-in, given one Ctrl-C as the case gives it, to its process group while it waits: the same.
+    started = tmp_path / "started"
+    _stand_in(tmp_path / "bin", "ansible-playbook", contract.playbook_interrupted(started))
+    process = subprocess.Popen(
+        [str(tmp_path / "bin" / "ansible-playbook")],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+        preexec_fn=_default_signals,  # noqa: PLW1509 - only signal calls, safe beside xdist's thread
+    )
+    deadline = time.monotonic() + 30
+    while not started.exists() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    os.killpg(process.pid, signal.SIGINT)
+    _, stderr = process.communicate(timeout=30)
+    assert (process.returncode, stderr.splitlines()) == (status, [says]), stderr
+
+
+def test_run_lock_given_empty_is_an_example_and_its_case_takes_no_lock() -> None:
+    assert "just RUN_LOCK= deploy" in {example["line"] for example in _held()["examples"]}
+    cases = {item["code"]: item for item in _held()["cases"]}
+    given, without = cases["setting.run-lock-1"], cases["setting.run-lock-2"]
+    assert given["words"] == ["RUN_LOCK=", *without["words"]]
+    assert (given["status"], given["sentence"]) == (0, NO_LOCK_TAKEN)
+    assert (without["status"], without["sentence"]) == (1, LOCK_REFUSED)
+
+
+def test_an_option_given_twice_is_refused_by_just_itself() -> None:
+    cases = {item["code"]: item for item in _held()["cases"]}
+    for code, option in (("just.repeated-option-1", "--cores"), ("just.repeated-option-2", "--check")):
+        assert cases[code]["sentence"] == f"error: recipe `deploy` option `{option}` cannot be passed more than once"
 
 
 # ------------------------------------------------------------------------------------------------- the examples ----
+
+
+def test_the_examples_are_held_the_first_ones_first_and_none_dropped() -> None:
+    lines = [example["line"] for example in _held()["examples"]]
+    count, digest = FIRST_EXAMPLES
+    assert len(lines) >= count and len(set(lines)) == len(lines)
+    assert hashlib.sha256("\n".join(lines[:count]).encode()).hexdigest() == digest, (
+        "an example the contract was first written with is gone or moved: put it back where it was; a new one comes "
+        "after them, by --scan"
+    )
+
+
+def test_a_write_keeps_an_example_a_page_no_longer_has_and_takes_a_new_one_only_with_scan(monkeypatch) -> None:
+    held = _held()["examples"]
+    new = {"line": "just status --only vms", "source": "README.md"}
+    assert new["line"] not in {example["line"] for example in held}
+    scans = []
+
+    def scan() -> list[dict]:
+        # A fresh scan in which a page no longer has the first example, and another has a new one.
+        scans.append(1)
+        return [*held[1:], new]
+
+    monkeypatch.setattr(contract, "scan", scan)
+    assert contract.build(_held())["examples"] == held and scans == []
+    assert contract.build(_held(), scanned=True)["examples"] == [*held, new] and scans == [1]
 
 
 def test_each_example_is_one_today_s_justfile_accepts() -> None:
@@ -189,7 +364,7 @@ def test_each_example_is_one_today_s_justfile_accepts() -> None:
         before = re.match(r"((?:[A-Z][A-Z_]*=(?:'[^']*'|\S+) )*)just ", example["line"])
         assert before, example
         unknown = set(re.findall(r"([A-Z][A-Z_]*)=(?:'[^']*'|\S+)", before.group(1))) - just_settings()
-        found = list(_matches(example["line"]))
+        found = list(contract.matches(example["line"]))
         if unknown or not found:
             problems.append(f"{example}: {unknown or 'no command'}")
             continue
