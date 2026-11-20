@@ -230,7 +230,8 @@ lib/claude_vm/                    the controller's Python as one package (§7.10
                                   (§7.10)
 lib/claude_vm/schema/             the new engine (§16), built beside today's and reached through tools/aw alone until
                                   3.0, one subpackage each below: the command line's patterns and its one table of
-                                  verbs and options, literals written by hand
+                                  verbs and options, literals written by hand; patterns.py, the one home of the
+                                  patterns, and full, which holds a value to one
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
                                   main.py, the entry tools/aw runs, which answers --version until the parser is built
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks

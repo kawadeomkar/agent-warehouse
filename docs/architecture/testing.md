@@ -56,7 +56,8 @@ clipboard and this machine's `tailscale`, `gh` and `claude` (`harness._desktop`)
 and login keychain, macOS's `security` and Linux's `secret-tool` (`harness._refused`), each of which fails the test
 once reached (`harness._fail_if_the_desktop_was_reached`); with `/dev/null` on its stdin unless the test gives a file
 or text, and a process group of its own, ended whole on a timeout. `aw_at_a_terminal` runs it at a pseudo-terminal
-of its own, `imports_of` lists the modules a run loaded (`-X importtime`), and `searched_for` is the canary search
+of its own, `imports_of` lists the modules a run loaded (`-X importtime`), or with `module=` what importing that one
+module of the checkout's `lib/` loaded, and `searched_for` is the canary search
 for a canned secret in what a run left, which fails when it read nothing.
 
 pytest over `tests/unit/`, file by file:

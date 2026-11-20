@@ -309,6 +309,28 @@ def test_imports_of_lists_what_a_run_loaded(home) -> None:
     assert not {name for name in loaded if name.split(".")[0] in ("ansible", "yaml", "asyncio", "subprocess")}
 
 
+def test_imports_of_lists_what_importing_one_module_loaded(home) -> None:
+    loaded = imports_of(module="claude_vm.fleet.paths", home=home)
+    assert {"claude_vm", "claude_vm.fleet", "claude_vm.fleet.paths", "dataclasses"} <= loaded, sorted(loaded)
+    assert ENTRY not in loaded and "claude_vm.secret" not in loaded
+
+
+@pytest.mark.parametrize(
+    ("module", "words"),
+    [
+        pytest.param("claude_vm.fleet; import os", (), id="code-after-the-name"),
+        pytest.param("claude_vm..fleet", (), id="an-empty-part"),
+        pytest.param("claude_vm.fleet\n", (), id="a-newline"),
+        pytest.param("", (), id="empty"),
+        pytest.param("claude_vm.fleet", ("--version",), id="words-beside-it"),
+        pytest.param("claude_vm.no_such_module", (), id="an-import-that-fails"),
+    ],
+)
+def test_imports_of_fails_a_module_it_cannot_list(home, module: str, words: tuple[str, ...]) -> None:
+    with pytest.raises(pytest.fail.Exception):
+        imports_of(*words, module=module, home=home)
+
+
 # ---------------------------------------------------------------- the canary search ----
 
 

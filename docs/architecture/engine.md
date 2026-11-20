@@ -54,6 +54,23 @@ schemas all read. They are literals written by hand, and nothing is generated fr
 the standard library and its own modules and nothing else, because every command reads it, a refusal and help among
 them. Any part of the new engine may import it.
 
+**The patterns: `patterns.py`.** `PATTERNS` is the one home of every pattern the command line holds a value to: one
+literal mapping from a name (`vm_name`, `host_name`, `cores`, `repos`, `session`, `job_id` and the rest) to the
+pattern's inner text, with no anchor. The table of verbs and options names a pattern for each option and for a verb's
+words, and nothing else in the new engine writes one. `full(name, value)` is the one way to hold a value to a pattern:
+it holds the value whole, with `re.fullmatch` of the named pattern compiled once on its first use, so a value with a
+newline after it is refused, and a name `PATTERNS` does not have raises `KeyError`. An option's pattern takes the empty
+value where today's does, since an empty value is no value given. A rule that is more than one pattern is the check's,
+never this module's: two values together, a word that starts with `-`, the cap of 2000 characters on `--repos`, the
+`.` and `..` that `--project`'s pattern takes and a rule refuses. There are no records, no registry of operations and
+no coded refusals.
+
+Until the cutover the `justfile` holds a person's values to its own copy of each pattern, so every pattern of a
+recipe a person runs is in `PATTERNS` under a name with the same text; the developer's recipes (`lint`, `test`, `docs`,
+`vagrant`, `clean`) keep theirs, which are not the command line's. `tests/unit/test_aw_schema.py` holds the two equal,
+holds each pattern to the values today's tests of the `justfile` give the same pattern, each value it takes refused
+with a newline after it, and holds that importing the module loads nothing outside the standard library.
+
 ## 16.3 `cli/` — the `aw` program
 
 `lib/claude_vm/cli/` is the program. It reads the command line against the table of `schema/`, prints help,
