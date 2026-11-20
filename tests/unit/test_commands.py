@@ -13,6 +13,11 @@ them is checked against `just --json`:
 A command split by Jinja (`'just deploy ' ~ name ~ ' --tags x'`), an f-string or a shell variable is read
 with a placeholder for what it splices in.
 
+Each `aw <verb> ...` the same files and the new engine's code name is checked the same way against the new engine's
+one table of verbs and options (lib/claude_vm/schema/words.py): every word before the verb is one aw takes there,
+every option is one of its verb's own (--detach on a verb whose run is a job), and every value is one its pattern
+takes.
+
 And no `make <recipe>` is left anywhere but in the pages that tell the history - nor a make run, nor a name
 after a make command (`make-code`) - no variable the Makefile read (`TAGS=`) but on a line that says it
 was make's, no `just <target>` of a target only the Makefile had, and no misspelt recipe.
@@ -27,6 +32,9 @@ from pathlib import Path
 from harness import just_settings as _settings
 from harness import public_recipes as _recipes
 from harness import repo_files
+
+from claude_vm.schema.patterns import full
+from claude_vm.schema.words import BEFORE, VERBS, Option, Verb
 
 REPO = Path(__file__).resolve().parents[2]
 # Where a command is told to a person.
@@ -286,6 +294,157 @@ def test_the_check_catches_what_it_is_for() -> None:
     [(_, _, settings, recipe, words)] = _matches("just ANSIBLE_ARGS='-f 30' LOG_DIR=x deploy alpha")
     assert (settings, recipe, words) == (["ANSIBLE_ARGS", "LOG_DIR"], "deploy", ["alpha"])
     assert {"ANSIBLE_ARGS", "LOG_DIR", "PYTHON", "BIN"} <= _settings() and "TYPE" not in _settings()
+
+
+# aw, the words before its verb, the verb, and its words, which run as a just command's do: to the end of their code
+# span, string or line. A word before the verb is an option, with its value after =.
+AW_COMMAND = re.compile(
+    r"\baw((?:[ \t]+--[a-z][a-z-]*(?:=[^\s`'\"|)(;\\]*)?)*)[ \t]+([a-z][a-z-]*)\b(?![-\w])"
+    r"((?:[ \t]+(?!aw\b|just\b)[^\s`'\"|)(;\\]+)*)"
+)
+# Where an aw command is told: where a just command is, and the new engine's code.
+AW_SOURCES = [*SOURCES, "lib/**/*.py"]
+
+
+def _aw_sources():
+    """Each file an aw command is told in, by its name, with its text: but those that refuse on purpose."""
+    listed = set(repo_files(untracked=True))
+    for path in sorted({path for pattern in AW_SOURCES for path in REPO.glob(pattern) if path in listed}):
+        name = str(path.relative_to(REPO))
+        if name in REFUSED_ON_PURPOSE:
+            continue
+        try:
+            yield name, path.read_text()
+        except UnicodeDecodeError:
+            continue
+
+
+def _aw_commands_in(text: str, name: str = ""):
+    """Each aw command in text whose verb is one of the table's: the file, its line, the words before the verb, the
+    verb, and its words."""
+    text = _normalized(text)
+    for match in AW_COMMAND.finditer(text):
+        if match.group(2) in VERBS:
+            line = text[: match.start()].count("\n") + 1
+            yield name, line, match.group(1).split(), match.group(2), match.group(3).split()
+
+
+def _spelled(option: Option) -> str:
+    return f"--{option.long}" if option.long else f"-{option.short}"
+
+
+def _aw_takes(option: Option, value: str) -> str | None:
+    """Why a value is not one the option takes: outside its pattern."""
+    if option.pattern is None or _placeholder(value) or full(option.pattern, value):
+        return None
+    return f"{value} is not what {_spelled(option)} takes ({option.pattern})"
+
+
+def _aw_problem(before: list[str], verb: Verb, words: list[str]) -> str | None:
+    """Why a command, aw <before> <verb> <words>, is not one the table accepts; None where it is, or where its words
+    turn to prose."""
+    befores = {_spelled(option): option for option in BEFORE}
+    for word in before:
+        name, given, value = word.partition("=")
+        if name not in befores:
+            return f"no word {name} before a verb"
+        if given and befores[name].kind == "flag":
+            return f"{name} takes no value"
+        refused = _aw_takes(befores[name], value)
+        if refused:
+            return refused
+    longs: dict[str, Option | None] = {option.long: option for option in verb.options if option.long}
+    if verb.changes:
+        longs["detach"] = None  # the parser gives it to a verb whose run is a job: a flag
+    shorts = {option.short: option for option in verb.options if option.short}
+    took_its_one_word = False
+    i = 0
+    while i < len(words):
+        raw = words[i]
+        word = raw.rstrip(".,:;")
+        if word.startswith("#"):
+            return None  # a comment
+        if word.startswith("--"):
+            name, given, value = word[2:].partition("=")
+            if name not in longs:
+                return f"no option --{name}"
+            option = longs[name]
+            if option is None or option.kind in ("flag", "counted"):
+                if given:
+                    return f"--{name} takes no value"
+            else:
+                if not given and option.kind != "optional-value" and i + 1 < len(words):
+                    i += 1
+                    raw = words[i]
+                    value = raw.rstrip(".,:;")
+                refused = _aw_takes(option, value)
+                if refused:
+                    return refused
+        elif re.fullmatch(r"-[a-z]+", word):
+            option = shorts.get(word[1])
+            if option is None or (len(word) > 2 and (option.kind != "counted" or set(word[1:]) != {option.short})):
+                return f"no option {word}"
+            if option.kind != "counted" and i + 1 < len(words):
+                i += 1
+                raw = words[i]
+                refused = _aw_takes(option, raw.rstrip(".,:;"))
+                if refused:
+                    return refused
+        elif re.fullmatch(r"[A-Z][A-Z_]*=\S*", word):
+            return f"{word} after the verb: a setting for one run is --set name=value"
+        elif verb.words is None or verb.words.field == "extra" or took_its_one_word:
+            # A word after a verb that takes none, refuses any, or has its one: a second verb, or prose.
+            if word in VERBS:
+                return f"{word} is a second word, which aw {verb.name} refuses: run one verb at a time"
+            return None
+        elif _placeholder(word) or full(verb.words.pattern or "text", word):
+            took_its_one_word = not verb.words.plural
+        else:
+            return None  # prose
+        # A word that ends a sentence or a clause ends the command: what follows is prose.
+        if raw != raw.rstrip(".,:;"):
+            return None
+        i += 1
+    return None
+
+
+def test_every_aw_command_named_is_one_the_table_accepts() -> None:
+    problems = [
+        f"{source}:{line}: aw {' '.join([*before, verb, *words])} - {problem}"
+        for name, text in _aw_sources()
+        for source, line, before, verb, words in _aw_commands_in(text, name)
+        if (problem := _aw_problem(before, VERBS[verb], words))
+    ]
+    assert problems == [], "\n".join(problems)
+
+
+def test_the_aw_check_catches_what_it_is_for() -> None:
+    deploy, status, help_, init = VERBS["deploy"], VERBS["status"], VERBS["help"], VERBS["init"]
+    assert _aw_problem([], deploy, ["alpha", "--tags", "claude_code", "--check"]) is None
+    assert _aw_problem([], deploy, ["alpha", "-t", "claude_code", "-vvv", "--set", "vm_cores=4", "--detach"]) is None
+    assert _aw_problem(["--no-lock", "--attended=1"], deploy, ["alpha"]) is None
+    assert _aw_problem([], deploy, ["alpha", "--type", "configure"]) == "no option --type"
+    assert _aw_problem([], status, ["--detach"]) == "no option --detach"
+    assert _aw_problem(["--run-lock=x"], deploy, []) == "no word --run-lock before a verb"
+    assert _aw_problem(["--no-lock=1"], deploy, []) == "--no-lock takes no value"
+    assert _aw_problem(["--attended=2"], deploy, []) is not None
+    assert _aw_problem([], deploy, ["--only", "configre"]) is not None
+    assert _aw_problem([], deploy, ["--cores=0"]) is not None
+    assert _aw_problem([], deploy, ["--check=yes"]) == "--check takes no value"
+    assert _aw_problem([], deploy, ["-x"]) == "no option -x"
+    assert _aw_problem([], deploy, ["-vt"]) == "no option -vt"
+    assert "--set name=value" in _aw_problem([], deploy, ["alpha", "TAGS=claude_code"])
+    assert _aw_problem([], deploy, ["--tags", "<role>"]) is None
+    assert "second word" in _aw_problem([], help_, ["deploy", "login"])
+    assert _aw_problem([], help_, ["deploy", "then"]) is None
+    assert _aw_problem([], VERBS["logs"], ["0123456789abcdef", "--follow"]) is None
+    assert _aw_problem([], init, ["--migrate", "--finish"]) is None
+    assert _aw_problem([], init, ["--export=x"]) == "no option --export"
+    assert _aw_problem([], init, ["--address", "pve.lan", "and", "then"]) is None
+    [(_, _, before, verb, words)] = _aw_commands_in("run `aw --no-lock deploy alpha --only configure` once")
+    assert (before, verb, words) == (["--no-lock"], "deploy", ["alpha", "--only", "configure"])
+    assert list(_aw_commands_in("the new engine behind aw is not built; aw from the checkout")) == []
+    assert [verb for *_, verb, _ in _aw_commands_in("tools/aw status and aw help deploy")] == ["status", "help"]
 
 
 RECIPES = "init|install|vault|deploy|code|login|list|destroy|logs|lint|test|docs|vagrant|clean|help"

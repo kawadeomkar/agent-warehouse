@@ -72,11 +72,20 @@ TODAY = {
     ("mcp", "VAULT_PASSWORD_FILE"): "path",
 }
 # A pattern no recipe of the justfile has, and where it is from.
-NEW = {"job_id": "a job's ID, which logs and cancel take: sixteen hex digits, as lib/claude_vm/mcp/jobs.py's find"}
+NEW = {
+    "job_id": "a job's ID, which logs and cancel take: sixteen hex digits, as lib/claude_vm/mcp/jobs.py's find",
+    "assignment": "--set name=value, a setting's value for one run, on the verbs that read the settings",
+    "secret_name": "vault's word: one of the vault's named secrets, a lowercase name as the settings' are",
+    "ssh_fingerprint": "deploy --remove-key: one SSH key's SHA256 fingerprint, as ssh-keygen -l prints it",
+    "release": "install --version: a release, as its signed tag names it (v3.0.0, v3.0.0-rc.1), with or without the v",
+    "dependency_group": "install --without: the optional part of the installed program it goes without, mcp",
+}
 DEVELOP = {"lint", "test", "docs", "vagrant", "clean"}
 
 SESSION_ID = "0a608ad8-1b2c-4d3e-8f90-123456789abc"
 FINGERPRINT = ":".join(["AB"] * 32)
+# An SSH key's SHA256 fingerprint as ssh-keygen -l prints it: SHA256: and 43 characters of base64, with no padding.
+SSH_FINGERPRINT = "SHA256:" + "uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s"
 # test_justfile.py's test_a_given_value_outside_its_characters_is_refused_before_anything_runs, for each of init's
 # options with a pattern of characters: --address, --host, --token-user, --token-id, --token-secret-file,
 # --github-user, --storage and --bridge.
@@ -277,6 +286,32 @@ CASES: dict[str, tuple[list[str], list[str]]] = {
             ":".join(["AG"] * 32),
         ],
     ),
+    # This file's own, as for every pattern below: no recipe of the justfile takes these.
+    "assignment": (
+        ["vm_cores=4", "editor=zed", "github_projects=a,b", "vm_default_name=", "tailscale_hostname=$(x) `y`"],
+        ["", "=4", "vm_cores", "Vm_cores=4", "vm-cores=4", "1x=4", "vm_cores=4\n5", "vm_cores=a\tb", "-e=1"],
+    ),
+    "secret_name": (
+        ["token", "vm_password", "anthropic_api_key", "tailscale_oauth_client_secret"],
+        ["", "Token", "1x", "vault-token", "-x", "a b", "token.x"],
+    ),
+    "ssh_fingerprint": (
+        [SSH_FINGERPRINT, ""],
+        [
+            SSH_FINGERPRINT[:-1],
+            SSH_FINGERPRINT + "A",
+            SSH_FINGERPRINT + "=",
+            SSH_FINGERPRINT.replace("SHA256", "sha256"),
+            "MD5:" + SSH_FINGERPRINT[7:],
+            SSH_FINGERPRINT[7:],
+            SSH_FINGERPRINT[:-1] + "-",
+        ],
+    ),
+    "release": (
+        ["3.0.0", "v3.0.0", "v3.0.0-rc.1", "2.7.0", "v10.20.30", ""],
+        ["3.0", "v3", "latest", "3.0.0-", "v3.0.0-RC.1", "V3.0.0", "../3.0.0", "3.0.0;x", "-3.0.0", "3.0.0.1"],
+    ),
+    "dependency_group": (["mcp", ""], ["dev", "docs", "MCP", "mcp,dev", "-x"]),
 }
 
 TAKEN = [
