@@ -313,13 +313,15 @@ RECIPES = {
         raises={"Fail when a check found a problem": Causes(checklist=True)},
         marks={"ok": "g", "!!": "r", "--": "d", "NOTICE": "y"},
     ),
-    # just test: lint, nested; pytest, each test a task as live_pytest.py reports it; then each Molecule scenario a
-    # step, its actions its tasks - or, with --jobs, the scenarios side by side as one part, tools/molecule-lanes, the
-    # line it says as each ends its task's. Every part a command through tools/live.
+    # just test: lint, nested; pytest, each test a task as live_pytest.py reports it - the unit tests, or the new
+    # engine's alone (engine); then each Molecule scenario a step, its actions its tasks - or, with --jobs, the
+    # scenarios side by side as one part, tools/molecule-lanes, the line it says as each ends its task's. Every part a
+    # command through tools/live.
     "test": Recipe(
         stages=[
             Stage("lint", steps=[Step(check) for check in LINT]),
             Stage("unit"),
+            Stage("engine"),
             Stage("role"),
             Stage("integration"),
             Stage("provision"),

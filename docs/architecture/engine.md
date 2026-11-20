@@ -38,6 +38,14 @@ out from `tools/aw`'s own path and from nothing else, and a checkout has no vers
 is refused in one sentence, with exit status 1, which says that the engine is not built yet and that the commands are
 `just`'s. The sentence never repeats what was typed.
 
+Beside the subpackages, `lib/claude_vm/secret.py` holds what the engine wraps a secret in as soon as it reads one: a
+`Secret`, which `repr`, `str`, an f-string, `format` and a log line show as a mark, which refuses to be pickled or
+turned into JSON, and whose plain value only `reveal()` reads, at the one place that sends it on.
+`tests/unit/test_aw_guards.py` holds the modules that call `reveal()` to its `REVEALS`, each with the reason it sends
+the secret on; the list is empty until the first one does. The engine's tests, `tests/unit/test_aw_*.py`, run alone
+with `just test engine`, and reach `tools/aw` only through their kit
+([§11.1](testing.md#111-unit--just-test-unit)).
+
 ## 16.2 `schema/` — the command line's patterns and its table of verbs and options
 
 `lib/claude_vm/schema/` holds the command line as data. That is the patterns a typed value is held to, and the one

@@ -39,6 +39,7 @@ just lint syntax                     # some of them: lock, yaml, ansible, python
 just test                            # lint, then every test: unit and every Molecule scenario — the CI gate
 just test unit                       # pytest over tests/unit/, a worker per CPU (pytest-xdist loadgroup)
 just test unit --shard 2/6           # one of the six shards CI runs (tests/unit/durations.json balances them)
+just test engine                     # only the new engine's tests (tests/unit/test_aw_*.py, marked engine): seconds
 just test --role proxmox_vm          # one role scenario (role: every role; molecule: every scenario)
 just test molecule --jobs 4          # the scenarios four at a time, the longest first, each in .logs/<stamp>-test-<scenario>.log
 just test provision                  # one playbook scenario (integration is the configure scenario)
@@ -658,6 +659,20 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - Only `paths.py` names those folders and `AGENT_WAREHOUSE_HOME`, and only `paths.py` and `fleet/vaultkey.py`
       the key file, so no cleanup, prune or sweep reaches it by name; each change that removes files holds the key byte
       for byte in its own test. `tests/unit/test_aw_fleet_paths.py` holds all of it.
+- **Tests never touch the login keychain, and a test reaches `tools/aw` only through its kit.** Read
+  [§11.1](docs/architecture/testing.md#111-unit--just-test-unit) first.
+    - Every run of `tools/aw` a test makes goes through `tests/unit/aw_kit.py` (`run_aw`, `aw_at_a_terminal`,
+      `imports_of`): `python -I`, an environment built from `harness.PASSED_ON`'s names and the test's own home
+      (the `home` fixture, `aw_home`'s directory with `HOME` and the XDG folders in it), and failing stand-ins first
+      on `PATH` for the desktop's openers and clipboards, this machine's `tailscale`, `gh` and `claude`, and its
+      `ssh`, `ansible-playbook` and login keychain - macOS's `security`, Linux's `secret-tool` (`harness._refused`).
+      One that was reached fails the test (`harness._fail_if_the_desktop_was_reached`).
+    - Every test of a file `tests/unit/test_aw_*.py` is marked `engine` by `tests/unit/conftest.py`'s `tryfirst` hook,
+      and `just test engine` runs them alone; `just test unit` still runs every test.
+    - A secret the new engine holds is a `Secret` (`lib/claude_vm/secret.py`): a mark wherever it is shown, never
+      pickled or turned into JSON. Only the modules `REVEALS` names call `reveal()`, each with why.
+    - `tests/unit/test_aw_guards.py` holds all of it: the marker and the home over every `test_aw_*.py` file, a
+      syntax-tree scan of every test file for a run of `tools/aw` outside the kit, the stand-ins, and `REVEALS`.
 - **Every live output draws through one region and one way of drawing.** Read
   [§7.8](docs/architecture/custom-code.md#78-libclaude_vmtuilive_regionpy-and-screenpy--every-live-output)
   first.

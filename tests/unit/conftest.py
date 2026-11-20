@@ -22,6 +22,10 @@ from ansible.module_utils.testing import patch_module_args
 from claude_vm.fleet import paths
 
 ROOT = Path(__file__).resolve().parents[2]
+# The new engine's test kit, whose fixture `home` every test may ask for (tests/unit/aw_kit.py).
+pytest_plugins = ("aw_kit",)
+# The new engine's tests: every test of a file named so, which `just test engine` runs alone (-m engine).
+ENGINE_FILES = "test_aw_"
 # What the modules in playbooks/library/ share, for the tests that load one by its path: Ansible puts a playbook's
 # module_utils folder on the path it builds the playbook's modules from, and nothing does in this process.
 ansible.module_utils.__path__.append(str(ROOT / "playbooks" / "module_utils"))
@@ -212,8 +216,12 @@ def pytest_collection_modifyitems(config, items):
     a test that asks for a fixture by name any other way than a `fixture` parameter stays whole. A module's
     EACH_WORKER names the fixtures cheap enough to make again on each worker that needs one - a fake server - which
     join nothing. Only this project's fixtures count: pytest's own tmp_path rests on a session-scoped one, made per
-    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them.
+    worker anyway. First, so that xdist's own hook, which turns the marks into groups, sees them, and pytest's own,
+    which selects by -m, sees the new engine's tests marked `engine` (every test of a file ENGINE_FILES names).
     """
+    for item in items:
+        if item.path.name.startswith(ENGINE_FILES):
+            item.add_marker(pytest.mark.engine)
     reached = {id(item): _shared(item) for item in items}
     whole = {item.module.__name__ for item in items if reached[id(item)] is None}
     parent: dict[str, str] = {}
