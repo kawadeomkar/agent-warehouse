@@ -982,13 +982,17 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       however it ends, and nothing is ever left to clear.
     - `state` reads `running` while that lock is held (`cancelling` with a stop recorded), the outcome the record holds,
       and `lost` where it holds none and the lock is free; `lost` is never written. It asks the lock before it reads
-      the record, since a run writes its outcome before it ends, and never probes a job of its own process's: on NFS
-      Linux emulates `flock` with POSIX locks, and a probe's close would let the run's own lock go. No module of
-      `runs/` decides a state from a pid, a process's start or the process table; the record's `pid` and `started`
-      are information.
+      the record, since a run writes its outcome before it ends: asked the other way round, a run that ends just after
+      its record was read would read `lost`. A job the reading process made itself is read from what it holds, as a
+      shortcut, not a need: closing a second descriptor of a lock file does not let the first's lock go, on NFSv3 and
+      NFSv4.2 as on a local disk, since a `flock` belongs to its open file description. No module of `runs/` decides a
+      state from a pid, a process's start or the process table; the record's `pid` and `started` are information.
     - Every string the record and an event hold is made plain (`text.plain_text`), and a `Secret` is refused before
-      anything is written or heard. A job dropped goes `job.json` first, then its lock, then its folder: removed with
-      the lock still open, NFS keeps the folder.
+      anything is written or heard. Only `create` writes a record from nothing: a change to a job whose record is gone
+      or cannot be read raises `Gone`. A job dropped goes `job.json` first, unlinked under `store.locked` as every
+      change is, so a writer lands before it or is refused; then its lock; then its folder, what cannot be removed
+      left as it is, so that a refused run's refusal is never lost to a traceback. Removed with the lock still open,
+      NFS keeps the folder.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
 
 ## Architecture, and why it looks like this
