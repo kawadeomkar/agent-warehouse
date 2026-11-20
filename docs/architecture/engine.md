@@ -204,8 +204,66 @@ the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
 `lib/claude_vm/vendors/` is where the vendors' side goes: one HTTPS transport, which the Proxmox client uses too,
-Tailscale's calls, and downloads held to their vendor's signature or digest. It imports `schema/`, and nothing of
-`engine/`, `cli/` or `control/`, and no pydantic.
+Tailscale's calls, and downloads held to their vendor's signature or digest. It imports `schema/`, `secret.py` and, of
+today's modules, what `REUSED` names (`text`, to make what a peer said one line). It imports nothing of `engine/`,
+`cli/` or `control/`, and no pydantic.
+
+**One transport: `transport.py`.** Every HTTPS request the engine sends goes through
+`Transport(base_url, context, user_agent, connect=5, read=30, most=16 MiB, proxy=None, peer_check=None)`, and its
+`request(method, path, headers, query, form, json, stream, deadline)` returns an `Answer(status, headers, body)`. It
+is written over `http.client` and `ssl` alone, so three things hold by construction. It follows no redirect: a 3xx is
+an answer. It reads no certificate variable, no netrc and no proxy variable, because the caller builds the
+`ssl.SSLContext` its connections verify with and gives it the proxy too. And it takes an `https://` address only. It
+builds no context and reads no setting.
+
+- **The peer's certificate.** `peer_check`, a function of the peer's certificate as DER, is called after each new
+  connection's handshake and before anything is written on it. Its raising ends the call as `PeerRefused`, with
+  nothing sent. This is the one way into the connection that the Proxmox client's pin uses.
+- **A proxy** is an `http://host:port` URL or none, with a user and password where the URL holds them, sent as the
+  CONNECT's Basic credentials to the proxy alone. The connection is a CONNECT tunnel (`http.client`'s `set_tunnel`),
+  so TLS and the peer's check are end to end with the server, and the proxy sees the server's name and port and
+  nothing else. Another scheme, `socks5://` or `https://`, is refused by name, as `requests` refuses SOCKS today
+  without its extra package. No message quotes the URL, which may hold a password.
+- **Bounded.** An answer's body is held to `most` bytes and read no further (`TooLarge`). Every wait is held to
+  `connect` or `read` seconds. A whole call, its tries and their pauses included, is held to `deadline` (120 s where
+  none is given), which every read and every send of the connection obeys, so a server that drips its answer is cut
+  off too.
+- **Sent once.** A GET or HEAD is tried again, at most three times in all, after 0.5 s and then 1 s, when its
+  connection could not be made or was dropped, or when the answer is 502, 503 or 504. Any other method is sent once.
+  A failure once its request has left is `Unknown`, never a second send, and its caller reads the state to know.
+  Before a request is written on a kept connection, one whose far end has closed it is put aside, which costs no try.
+- **A secret is never said.** A header's value may be a `Secret`, revealed in `_put` and nowhere else. Every header
+  is held to what `http.client` sends as it is (a name that is an HTTP token, a value of visible ASCII) before a byte of
+  the request is made, and anything else is `NotMade`, "the request could not be made", because `http.client`'s own
+  words quote the header. A `Secret` in a query or a form is refused, since it would be sent as its mark. Each error
+  (`Unreachable`, `TimedOut`, `TooLarge`, `Unknown`, `PeerRefused`, `NotMade`) is raised after the handler that caught
+  its cause has ended, so it carries no cause that could quote one.
+- **Threads.** The class is blocking and safe to call from several threads, with one connection kept for each thread.
+  A caller on an `asyncio` loop uses `asyncio.to_thread`.
+
+**Today's proxy: `proxy.py`.** `choose(setting, environ, url)` gives the proxy for one URL, reading only the `environ`
+it is given. With the setting `network_proxy` at `environment`, its default, it is the proxy today's clients take,
+under `requests`' rule, which is the wider of today's two: whatever went direct or through the proxy under either
+still does.
+
+- It takes the `https` entry of the environment's proxies, else the `all` entry: `HTTPS_PROXY`, `ALL_PROXY` and their
+  lower-case forms, the lower-case one first. A value with no scheme is an `http://` proxy.
+- It takes none where `no_proxy` or `NO_PROXY` names the host: by its name, by a suffix at a dot, by `*`, or, for an
+  IPv4 address, by the address or a CIDR range that holds it.
+- Where the environment names no proxy at all, it reads macOS's network settings as the standard library reads them,
+  with their exceptions. Linux has no such settings.
+
+With `none` there is no proxy, whatever the environment says: the stricter form, and an opt-in. With an `http://` URL,
+it is that proxy. Of `urllib.request` it calls only the readers that take what they read as an argument
+(`proxy_bypass_environment`) or read the system's settings (macOS's `getproxies_macosx_sysconf` and
+`proxy_bypass_macosx_sysconf`). It never calls `getproxies` or `proxy_bypass` themselves, which read the process's own
+environment, and it never uses an opener.
+
+`tests/unit/test_aw_transport.py` runs the transport against TLS servers it starts on loopback, with the certificates
+`tests/unit/pki.py` makes, and against a stand-in CONNECT proxy. It holds four rules over the new engine's modules.
+Only `transport.py` imports `http.client` or wraps a socket. Only `proxy.py` imports `urllib.request`, and only for
+those readers. No module names a certificate variable. And `reveal(` appears once in the transport. It also holds the
+modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each with why.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
