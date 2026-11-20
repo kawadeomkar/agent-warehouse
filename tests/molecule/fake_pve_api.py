@@ -50,7 +50,7 @@ pve, local-lvm (lvmthin) and vmbr0 until a fixture replaces them with PUT
 /api2/json/fake/bridges?node=&bridges=<name>,... A fixture moves a VM to
 another node with PUT /api2/json/fake/vm-node?vmid=&node=.
 
-Pools: a clone given pool= is a member of that pool, which /cluster/resources
+Pools: a clone given pool= is a member of that pool once its task ends, which /cluster/resources
 lists as its "pool", as Proxmox does; PUT /api2/json/fake/pool-member?vmid=&pool=
 makes a guest one, as root does on the host. PUT
 /api2/json/fake/pool-scope?token=&pool= stands for a token granted the role on
@@ -115,21 +115,31 @@ has another, as Proxmox gives them: what the runs file a VM's SSH host key under
 
 A VM's configuration is written as qemu-server's PVE/API2/Qemu.pm writes it. A PUT or POST of it that sends digest is
 refused, nothing written, unless that is the digest its GET gives now; one that sends none is taken, and digest is never
-kept in the configuration. While a clone or a deletion runs, the VM's configuration holds lock ("clone",
-"destroyed"), and a write to it is refused as locked; a deletion of a VM whose configuration holds one starts a task
-that fails so. A description is kept as sent and given back by GET, and refused past a limit a fixture sets with
-PUT /api2/json/fake/notes-limit?bytes=N, in bytes (none until then). A clone takes description, over its source's,
-pool, target - another node, where the source's disk is on a storage shared there - and storage, its disk's storage,
-one the node has; it never lands on a VMID that is taken. Whether a clone takes its source's tags and description is
-PUT /api2/json/fake/clone-inherits?tags=&description= (1, as the fake always had it, until then); a storage a fixture
-lists as <name>:<type>:shared is shared. Each refusal's status and words are the constants below the imports, for
-experiment 6 to correct (card A21).
+kept in the configuration. A POST's task checks the digest and the lock again when it ends, as Proxmox's worker does
+under the VM's lock, and fails, writing nothing, where a write made since changed the one or set the other. While a
+clone or a deletion runs, the VM's configuration holds lock ("clone", "destroyed"), and a write to it is refused as
+locked; a deletion of a VM whose configuration holds one starts a task that fails so. A description is kept as sent,
+but for its trailing white space, which Proxmox drops when it reads one back, and given back by GET; a configuration
+write's is refused past a limit a fixture sets with PUT /api2/json/fake/notes-limit?bytes=N, in bytes (none until then).
+A clone takes description, over its source's and held to no limit, pool, which it joins when its task ends, target -
+another node, where the source's disk is on a storage shared there - and storage, its disk's storage, one the node has;
+it never lands on a VMID that is taken. One onto a VMID this node's VM holds is refused at the call; one onto a VMID a
+container or another node's VM holds passes it, as Proxmox's check reads this node's files alone, and fails in its
+task. Whether a clone takes its source's tags and description is PUT /api2/json/fake/clone-inherits?tags=&description=
+(1, as the fake always had it, until then); a storage a fixture lists as <name>:<type>:shared is shared. Each
+refusal's status and words are the constants below the imports, for experiment 6 to correct (card A21).
+
+Where Proxmox takes two calls and fails the loser in its worker, PUT /api2/json/fake/clone-race has the next clone onto
+a VMID this node's VM holds, and the next configuration POST with a stale digest, each pass the call as the loser of a
+race did, answer a UPID and fail in its task, changing nothing: the clone with the words its worker finds, the lock's
+timeout while the winner's clone runs, else that the file exists; the POST with the digest's refusal.
 
 Every call that answers a UPID makes a task of it, recorded by its UPID in <state_dir>/tasks.json - its type, the
 token that made it, its VM - and what the call changes is changed when its task ends, but for a clone's VM, there
 from the call and locked until then, and a deletion's, locked until it goes. A task ends at once, until a fixture has
 those made after it run with PUT /api2/json/fake/task-polls?polls=N: then its status says running to its first N
-polls and ends at the next. It ends OK, its log "TASK OK"; or with the error PUT
+polls and ends at the next, or when PUT /api2/json/fake/task-end?upid= ends it, or with no upid every running task,
+as its worker ends whether or not anyone asks. It ends OK, its log "TASK OK"; or with the error PUT
 /api2/json/fake/task-fail?error=&type= planted for the next task (of that type, where one is given), changing nothing
 - a failed clone leaves no VM - its log "TASK ERROR: <error>". A UPID the fake never made is answered as stopped and
 OK, with an empty log, as before.
@@ -164,8 +174,22 @@ LOCKED = "VM is locked ({lock})"
 # The lock a running clone leaves in its VM's configuration, and the one a running deletion does.
 CLONE_LOCK = "clone"
 DELETION_LOCK = "destroyed"
-# A clone onto a VMID that is taken: a 500, as the fake always answered it.
+# A clone onto a VMID that is taken: a 500, as the fake always answered it. The call's check reads this node's
+# qemu-server/ files alone, and its task reads them again under the new VM's lock, which says the same.
 CLONE_EXISTS = "unable to create VM {newid}: config file already exists"
+# Whether a clone onto a VMID that a container or another node's VM holds passes the call, which reads this node's
+# qemu-server/ files alone, and fails in its task, where create_and_lock_config makes the VM's configuration; off, the
+# call refuses it as one onto this node's VM.
+CLONE_TAKEN_IN_TASK = True
+# The task of a clone that lost a race for its VMID to one whose task still runs: it waits a second for the new VM's
+# lock, which the winner's task holds until it ends (PVE::Tools::lock_file_full).
+CLONE_LOCK_TIMEOUT = "can't lock file '/var/lock/qemu-server/lock-{newid}.conf' - got timeout"
+# The task of a clone onto a VMID that a container (CT) or another node's VM holds: create_and_lock_config's words, from
+# PVE::Cluster::check_vmid_unused. A draft: read from the source alone.
+CLONE_TAKEN = "{kind} {newid} already exists on node '{node}'"
+# What Proxmox takes off the end of a description when it reads one back (qemu-server's parse_vm_config,
+# $descr =~ s/\s+$//), "" for nothing.
+NOTES_TRAILING = r"\s+\Z"
 # A description longer than the notes limit (PUT /api2/json/fake/notes-limit): a parameter the schema refuses, the
 # words in the answer's errors under the parameter's name.
 NOTES_REFUSED_STATUS = 400
@@ -282,9 +306,11 @@ TASKS = 0
 # Each task a call made, by its UPID, as tasks.json in the state directory shows them: its type, the token that made
 # it, its VM - the one its call names, a clone's source as Proxmox's UPID names it - whether it is running or stopped,
 # how many more polls of its status it answers running to, and the error it ends with, "" for none. With each running
-# task, what it does when it ends, given whether it ended OK.
+# task, what it does when it ends, given whether it ended OK, and for some what its worker finds when it ends: the error
+# that fails it, "" for none.
 TASK_RECORDS = {}
 TASK_ENDS = {}
+TASK_CHECKS = {}
 # How many polls of its status a task made from now on answers running to: PUT /api2/json/fake/task-polls?polls=N.
 TASK_POLLS = {"polls": 0}
 # Errors planted for tasks to come, each ending the next task made - of its type, where it names one - once:
@@ -292,6 +318,10 @@ TASK_POLLS = {"polls": 0}
 TASK_FAIL = []
 # Whether a clone takes its source's tags and its description: PUT /api2/json/fake/clone-inherits?tags=&description=
 CLONE_INHERITS = {"tags": 1, "description": 1}
+# Whether the next clone onto a VMID this node's VM holds, and the next configuration POST with a stale digest, each
+# lost a race: its call's checks passed before the winner's change landed, and its task fails.
+# PUT /api2/json/fake/clone-race
+RACE = {"clone": 0, "config": 0}
 # The most bytes a VM's description may hold, 0 for no limit: PUT /api2/json/fake/notes-limit?bytes=N.
 NOTES_LIMIT = {"bytes": 0}
 # The guest agent is not up the moment a VM starts. Fail this many polls first
@@ -624,9 +654,10 @@ def save_tasks():
     STATE_DIR.joinpath("tasks.json").write_text(json.dumps(TASK_RECORDS, indent=2, sort_keys=True))
 
 
-def new_task(kind, vmid, owner, end=None, error=None):
+def new_task(kind, vmid, owner, end=None, error=None, check=None):
     """A task of kind for VM vmid, made by the token owner, its UPID as the fake always made them: it runs for the polls
-    TASK_POLLS says, then ends with error, or the one planted for it, or OK; end(ok) is what it does when it ends."""
+    TASK_POLLS says, then ends with error, or the one planted for it, or what check() finds when it ends, or OK; end(ok)
+    is what it does when it ends."""
     global TASKS
     TASKS += 1
     upid = f"UPID:{NODE}:0000{TASKS:04X}:00000000:00000000:qmtask:{TASKS}:root@pam!ansible:"
@@ -642,6 +673,7 @@ def new_task(kind, vmid, owner, end=None, error=None):
         "error": error,
     }
     TASK_ENDS[upid] = end
+    TASK_CHECKS[upid] = check
     if not TASK_POLLS["polls"]:
         end_task(upid)
     save_tasks()
@@ -649,9 +681,13 @@ def new_task(kind, vmid, owner, end=None, error=None):
 
 
 def end_task(upid):
-    """The task stops, and does what it does when it ends."""
+    """The task stops, failing with what its worker finds where nothing failed it before, and does what it does when it
+    ends."""
     record = TASK_RECORDS[upid]
     record["status"] = "stopped"
+    check = TASK_CHECKS.pop(upid, None)
+    if check and not record["error"]:
+        record["error"] = check()
     end = TASK_ENDS.pop(upid, None)
     if end:
         end(not record["error"])
@@ -671,11 +707,17 @@ def config_digest(config):
 
 
 def notes_refusal(params):
-    """NOTES_REFUSED, where a description sent is longer than the limit a fixture set; else ""."""
+    """NOTES_REFUSED, where a description sent to a VM's configuration is longer than the limit a fixture set; else "".
+    A clone's description is not held to it: clone_vm's own parameter has no limit."""
     limit = NOTES_LIMIT["bytes"]
     if limit and len(params.get("description", "").encode()) > limit:
         return NOTES_REFUSED.format(limit=limit)
     return ""
+
+
+def notes_kept(description):
+    """A description as Proxmox reads it back, NOTES_TRAILING taken off its end."""
+    return re.sub(NOTES_TRAILING, "", description) if NOTES_TRAILING else description
 
 
 def shared(node, storage):
@@ -747,9 +789,10 @@ class Handler(BaseHTTPRequestHandler):
         """A description past the notes limit, refused as Proxmox's schema refuses a parameter."""
         return self._reply(NOTES_REFUSED_STATUS, None, "Parameter verification failed.", {"description": why})
 
-    def _task(self, kind, vmid, change):
-        """A task of kind for vmid, made by the token of this request, that makes change when it ends OK."""
-        return new_task(kind, vmid, self.owner, lambda ok: ok and change())
+    def _task(self, kind, vmid, change, check=None):
+        """A task of kind for vmid, made by the token of this request, that makes change when it ends OK: when check()
+        finds nothing to fail it, where there is one."""
+        return new_task(kind, vmid, self.owner, lambda ok: ok and change(), check=check)
 
     def _pools(self, method, poolid, params, token, deprecated):
         """/pools, and the deprecated /pools/<poolid>, as pve-manager's PVE/API2/Pool.pm answers them."""
@@ -1032,6 +1075,23 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: the error the next task, of the type given or any, ends with.
             TASK_FAIL.append((params.get("type", ""), params["error"]))
             return self._reply(200, len(TASK_FAIL))
+        if parts[:2] == ["fake", "task-end"] and method == "PUT":
+            # Not a PVE endpoint: running tasks end as their workers would, polled or not - the one upid names, or
+            # every one; the UPIDs ended.
+            ended = [
+                upid
+                for upid, record in TASK_RECORDS.items()
+                if record["status"] == "running" and params.get("upid") in (None, upid)
+            ]
+            for upid in ended:
+                TASK_RECORDS[upid]["polls"] = 0
+                end_task(upid)
+            return self._reply(200, ended)
+        if parts[:2] == ["fake", "clone-race"] and method == "PUT":
+            # Not a PVE endpoint: the next clone onto a VMID this node's VM holds, and the next configuration POST with
+            # a stale digest, each lose a race in their tasks.
+            RACE.update(clone=1, config=1)
+            return self._reply(200, dict(RACE))
         if parts[:2] == ["fake", "clone-inherits"] and method == "PUT":
             # Not a PVE endpoint: whether a clone takes its source's tags and description.
             for key in CLONE_INHERITS:
@@ -1231,9 +1291,12 @@ class Handler(BaseHTTPRequestHandler):
             # As Proxmox: the config's digest, which changes with any change to it.
             return self._reply(200, {**vm["config"], "digest": config_digest(vm["config"])})
         if sub == ["config"] and method in ("PUT", "POST"):
-            # As Proxmox: a digest sent is the one a GET gives now, or nothing is written; it is never kept.
+            # As Proxmox: a digest sent is the one a GET gives now, or nothing is written; it is never kept. A POST
+            # that lost a race (RACE) passed this check before the winner's write, and its task fails instead.
             digest = params.pop("digest", None)
-            if digest is not None and digest != config_digest(vm["config"]):
+            stale = digest is not None and digest != config_digest(vm["config"])
+            raced = stale and method == "POST" and RACE["config"] > 0
+            if stale and not raced:
                 return self._reply(DIGEST_REFUSED_STATUS, None, DIGEST_REFUSED)
             if vm["config"].get("lock"):
                 return self._reply(LOCKED_STATUS, None, LOCKED.format(lock=vm["config"]["lock"]))
@@ -1254,25 +1317,53 @@ class Handler(BaseHTTPRequestHandler):
                 vm["config"].update(params)
                 if "tags" in params and not verbatim:
                     vm["config"]["tags"] = normalise_tags(params["tags"])
+                if "description" in params:
+                    vm["config"]["description"] = notes_kept(params["description"])
                 if "name" in params:
                     vm["name"] = params["name"]
                 save_state()
 
+            def found():
+                # As Proxmox: the task's worker loads the configuration again under its lock and checks the digest
+                # and the lock again (update_vm_api's $load_and_check_config), so a write made since stands.
+                if VMS.get(vmid) is not vm:
+                    return f"Configuration file 'nodes/{node}/qemu-server/{vmid}.conf' does not exist"
+                if digest is not None and digest != config_digest(vm["config"]):
+                    return DIGEST_REFUSED
+                return LOCKED.format(lock=vm["config"]["lock"]) if vm["config"].get("lock") else ""
+
             if method == "POST":
-                return self._reply(200, self._task("qmconfig", vmid, written))
+                RACE["config"] -= int(raced)
+                return self._reply(200, self._task("qmconfig", vmid, written, found))
             written()
             return self._reply(200, None)
         if sub == ["clone"] and method == "POST":
             newid = int(params["newid"])
-            if newid in VMS:
+            # As Proxmox: the call refuses a VMID whose configuration file this node holds; one a container or
+            # another node's VM holds, and one a race's winner took after the loser's call was checked (RACE), pass it,
+            # and fail in the task.
+            held = VMS.get(newid)
+            here = held is not None and guest_type(held) == "qemu" and held["node"] == node
+            at_the_call = held is not None and (here or not CLONE_TAKEN_IN_TASK)
+            if at_the_call and not RACE["clone"]:
                 return self._reply(500, None, CLONE_EXISTS.format(newid=newid))
             # As Proxmox: a linked clone shares its template's storage, and names none.
             if str(params.get("full", "")) == "0" and "storage" in params:
                 return self._reply(400, None, "Parameter verification failed")
             if refused := clone_refusal(vm, node, params):
                 return self._reply(500, None, refused)
-            if refused := notes_refusal(params):
-                return self._notes_refused(refused)
+            if held is not None:
+                # As Proxmox's worker: it waits on the new VM's lock while the winner's task holds it, then reads this
+                # node's files again; create_and_lock_config finds a VMID held anywhere else. Nothing is made.
+                RACE["clone"] -= int(at_the_call)
+                if not here:
+                    kind = "VM" if guest_type(held) == "qemu" else "CT"
+                    error = CLONE_TAKEN.format(kind=kind, newid=newid, node=held["node"])
+                elif held["config"].get("lock") == CLONE_LOCK:
+                    error = CLONE_LOCK_TIMEOUT.format(newid=newid)
+                else:
+                    error = CLONE_EXISTS.format(newid=newid)
+                return self._reply(200, new_task("qmclone", vmid, self.owner, error=error))
             # Its source's whole config, as Proxmox copies it, but the tags and description where a fixture says not.
             taken = {k: v for k, v in vm["config"].items() if k != "template" and CLONE_INHERITS.get(k, 1)}
             disk = on_storage(vm["config"]["scsi0"].replace(f"base-{vmid}", f"vm-{newid}"), params.get("storage"))
@@ -1290,20 +1381,21 @@ class Handler(BaseHTTPRequestHandler):
                     # As Proxmox: every clone a SMBIOS UUID of its own, a VM made again at the same ID another.
                     "smbios1": f"uuid={uuid.uuid4()}",
                     # As Proxmox: the description given, in place of its source's.
-                    **({"description": params["description"]} if "description" in params else {}),
+                    **({"description": notes_kept(params["description"])} if "description" in params else {}),
                     # Locked until its task ends.
                     "lock": CLONE_LOCK,
                 },
                 # Its config keeps the template's meta; its disk is made now.
                 "disk_ctime": int(time.time()),
-                # As Proxmox: pool= makes the clone a member of that pool, a pool the token may allocate in.
-                **({"pool": params["pool"]} if params.get("pool") else {}),
             }
 
             def cloned(ok):
-                # As Proxmox: its lock taken off when it ends; a clone that fails leaves no VM.
+                # As Proxmox: its lock taken off when it ends, then pool= makes it a member of that pool, a pool the
+                # token may allocate in; a clone that fails leaves no VM.
                 if ok:
                     made["config"].pop("lock", None)
+                    if params.get("pool"):
+                        made["pool"] = params["pool"]
                 elif VMS.get(newid) is made:
                     del VMS[newid]
                 save_state()
@@ -1453,6 +1545,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 save_state()
+# One request at a time, on purpose: each check and the write after it - a digest, a VMID, a lock - is atomic only so,
+# and a threaded server would make every one racy. tests/unit/test_aw_fake_pve.py sends requests at once to hold it.
 server = HTTPServer(("0.0.0.0", PORT), Handler)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(CERT, KEY)

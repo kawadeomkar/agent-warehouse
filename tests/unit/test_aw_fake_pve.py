@@ -3,7 +3,10 @@ against, as Proxmox VE 9 answers: its pools, users, roles, ACL entries and token
 a token made with or without privilege separation answered from the ACL entries as Proxmox answers it, and today's
 tokens answered as before; a VM's configuration written only with the digest a read gave, its description kept and
 bounded, its clones carrying a pool and a description and never landing on a VMID that is taken, each locked while
-its clone or deletion runs; and every task a record that runs, ends and can fail.
+its clone or deletion runs; and every task a record that runs, ends and can fail. Where Proxmox takes two calls and
+fails the loser in its task, the fake does too: a clone that lost a race for its VMID, or onto one a container or
+another node's VM holds, and a POST whose task finds a write made since; a clone joins its pool when its task ends; a
+description is read back without its trailing white space; and a running task ends though nobody polls it.
 
 Two rules with a test of their own: a run of today's sends the fake what it sent before these routes, as recorded in
 tests/unit/fake_pve_requests.json from the fake as it was (its methods, paths and parameter names, nothing else); and
@@ -18,7 +21,9 @@ import hashlib
 import http.client
 import json
 import re
+import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -436,32 +441,40 @@ def test_of_two_writers_that_read_the_same_configuration_the_second_is_refused(f
 
 
 def test_a_description_is_kept_as_sent_and_refused_past_the_limit_a_fixture_sets(fleet: str) -> None:
-    record = "agent-warehouse: vm\nstage: finished\n"
+    record = "agent-warehouse: vm\nstage: finished"
     _ok(fleet, "PUT", CONFIG, description=record)
     assert _ok(fleet, "GET", CONFIG)["description"] == record
     # Eight bytes: four two-byte letters fit, and one more byte is over.
     assert _pve(fleet, "PUT", "fake/notes-limit", bytes=8)["data"] == {"bytes": 8}
     _ok(fleet, "PUT", CONFIG, description="éééé")
     said = {"description": SAID["NOTES_REFUSED"].format(limit=8)}
-    for method, endpoint, params in [
-        ("PUT", CONFIG, {}),
-        ("POST", CONFIG, {}),
-        ("POST", CLONE, {"newid": "9020", "name": "noted"}),
-    ]:
-        answer = _answer(fleet, method, endpoint, description="éééé.", **params)
+    for method in ("PUT", "POST"):
+        answer = _answer(fleet, method, CONFIG, description="éééé.")
         assert (answer["status"], answer["reason"]) == (SAID["NOTES_REFUSED_STATUS"], "Parameter verification failed.")
         assert json.loads(answer["body"]) == {"data": None, "errors": said}
     assert _ok(fleet, "GET", CONFIG)["description"] == "éééé"
-    assert _call(fleet, "GET", "nodes/pve/qemu/9020/config")[0] == 500
+    # A clone's description is held to no limit: clone_vm's parameter has none, unlike the configuration's.
+    _ok(fleet, "POST", CLONE, newid=9020, name="noted", description="éééé.")
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9020/config")["description"] == "éééé."
     # No limit again: 8 KiB and more taken.
     _pve(fleet, "PUT", "fake/notes-limit", bytes=0)
     _ok(fleet, "PUT", CONFIG, description="x" * 9000)
     assert len(_ok(fleet, "GET", CONFIG)["description"]) == 9000
 
 
+def test_a_description_is_read_back_without_its_trailing_white_space(fleet: str) -> None:
+    record = "agent-warehouse: vm\nstage: finished"
+    for method, ending in (("PUT", "\n"), ("POST", " \n\t\n")):
+        _ok(fleet, method, CONFIG, description=record + ending)
+        assert _ok(fleet, "GET", CONFIG)["description"] == record
+    # A clone's too, and white space inside it stays.
+    _ok(fleet, "POST", CLONE, newid=9020, name="noted", description=" two\n\nlines\n")
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9020/config")["description"] == " two\n\nlines"
+
+
 def test_a_clone_carries_a_pool_and_a_description_and_by_default_its_source_s_tags(fleet: str) -> None:
     _ok(fleet, "POST", "pools", poolid="fleet")
-    record = "agent-warehouse: vm\nstage: cloning\n"
+    record = "agent-warehouse: vm\nstage: cloning"
     _ok(fleet, "POST", "nodes/pve/qemu/9010/clone", newid=9020, name="recorded", pool="fleet", description=record)
     config = _ok(fleet, "GET", "nodes/pve/qemu/9020/config")
     assert (config["description"], config["tags"], "lock" in config) == (record, "agent-warehouse", False)
@@ -483,10 +496,209 @@ def test_a_clone_never_lands_on_a_vmid_that_is_taken_nor_one_a_running_clone_hol
     before = _ok(fleet, "GET", "nodes/pve/qemu/9020/config")
     assert _call(fleet, "POST", CLONE, newid=9020, name="second") == (500, SAID["CLONE_EXISTS"].format(newid=9020))
     assert _ok(fleet, "GET", "nodes/pve/qemu/9020/config") == before
+    # A running clone's worker has made the VM's configuration file, which the call's check reads.
     _pve(fleet, "PUT", "fake/task-polls", polls=1)
     _ok(fleet, "POST", CLONE, newid=9021, name="running")
     assert _call(fleet, "POST", CLONE, newid=9021, name="behind") == (500, SAID["CLONE_EXISTS"].format(newid=9021))
     assert _ok(fleet, "GET", "nodes/pve/qemu/9021/config")["name"] == "running"
+
+
+def _vms(base: str) -> dict:
+    """Every guest the cluster lists, by its VMID: its type, its node and its name, where it is listed with one."""
+    return {vm["vmid"]: (vm["type"], vm["node"], vm.get("name")) for vm in _ok(base, "GET", "cluster/resources")}
+
+
+def test_of_two_clones_onto_one_vmid_in_a_race_both_get_a_task_and_only_the_loser_s_fails(fleet: str) -> None:
+    # The loser's call was checked before the winner's worker made the VM: both answered a UPID.
+    _pve(fleet, "PUT", "fake/task-polls", polls=1)
+    assert _pve(fleet, "PUT", "fake/clone-race")["data"] == {"clone": 1, "config": 1}
+    winner = _ok(fleet, "POST", CLONE, newid=9020, name="winner")
+    loser = _ok(fleet, "POST", CLONE, newid=9020, name="loser")
+    # While the winner's clone runs, the loser's worker waits for the new VM's lock, and gives up.
+    timeout = SAID["CLONE_LOCK_TIMEOUT"].format(newid=9020)
+    assert [_task(fleet, loser)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert _task(fleet, loser) == {"status": "stopped", "exitstatus": timeout, "upid": loser}
+    assert _task(fleet, loser, "log") == [{"n": 1, "t": f"TASK ERROR: {timeout}"}]
+    assert [_task(fleet, winner)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert _task(fleet, winner)["exitstatus"] == "OK"
+    # Once the winner's clone has ended, the loser's worker finds its file: the call's words, in the task.
+    _pve(fleet, "PUT", "fake/task-polls", polls=0)
+    _pve(fleet, "PUT", "fake/clone-race")
+    late = _ok(fleet, "POST", CLONE, newid=9020, name="late")
+    assert _task(fleet, late)["exitstatus"] == SAID["CLONE_EXISTS"].format(newid=9020)
+    # Exactly one VM at 9020, the winner's, as it was made; and the switch is spent.
+    assert _vms(fleet)[9020] == ("qemu", "pve", "winner")
+    config = _ok(fleet, "GET", "nodes/pve/qemu/9020/config")
+    assert (config["name"], "lock" in config) == ("winner", False)
+    assert _call(fleet, "POST", CLONE, newid=9020, name="refused") == (500, SAID["CLONE_EXISTS"].format(newid=9020))
+
+
+def test_a_clone_onto_a_vmid_a_container_or_another_node_s_vm_holds_passes_the_call_and_fails_in_its_task(
+    fleet: str, tmp_path: Path
+) -> None:
+    assert SAID["CLONE_TAKEN_IN_TASK"] is True
+    before = _vms(fleet)
+    for newid, kind, node in [(9003, "CT", "pve"), (8000, "VM", "pve2")]:
+        upid = _ok(fleet, "POST", CLONE, newid=newid, name="elsewhere")
+        taken = SAID["CLONE_TAKEN"].format(kind=kind, newid=newid, node=node)
+        assert _task(fleet, upid) == {"status": "stopped", "exitstatus": taken, "upid": upid}
+        assert _tasks(tmp_path)[upid]["type"] == "qmclone"
+    assert _vms(fleet) == before
+    # The clone-race switch is no part of it, and stays for the clone it is for.
+    _pve(fleet, "PUT", "fake/clone-race")
+    upid = _ok(fleet, "POST", CLONE, newid=9003, name="elsewhere")
+    assert _task(fleet, upid)["exitstatus"] == SAID["CLONE_TAKEN"].format(kind="CT", newid=9003, node="pve")
+    raced = _ok(fleet, "POST", CLONE, newid=9010, name="raced")
+    assert _task(fleet, raced)["exitstatus"] == SAID["CLONE_EXISTS"].format(newid=9010)
+
+
+def test_a_post_that_lost_a_race_is_answered_a_task_that_fails_and_writes_nothing(fleet: str) -> None:
+    stale = _ok(fleet, "GET", CONFIG)["digest"]
+    _ok(fleet, "PUT", CONFIG, cores=3)
+    _pve(fleet, "PUT", "fake/clone-race")
+    upid = _ok(fleet, "POST", CONFIG, digest=stale, cores=5)
+    assert _task(fleet, upid) == {"status": "stopped", "exitstatus": SAID["DIGEST_REFUSED"], "upid": upid}
+    assert _ok(fleet, "GET", CONFIG)["cores"] == "3"
+    # The switch is spent, and a PUT is never taken so: it is written in the call.
+    refused = (SAID["DIGEST_REFUSED_STATUS"], SAID["DIGEST_REFUSED"])
+    assert _call(fleet, "POST", CONFIG, digest=stale, cores=5) == refused
+    _pve(fleet, "PUT", "fake/clone-race")
+    assert _call(fleet, "PUT", CONFIG, digest=stale, cores=5) == refused
+
+
+def test_a_post_s_task_checks_the_digest_and_the_lock_again_when_it_ends_so_a_write_made_since_stands(
+    fleet: str,
+) -> None:
+    _pve(fleet, "PUT", "fake/task-polls", polls=1)
+    digest = _ok(fleet, "GET", CONFIG)["digest"]
+    upid = _ok(fleet, "POST", CONFIG, digest=digest, description="the POST's")
+    # While its task runs, a read gives the configuration as it was, and a PUT with that digest is taken.
+    assert _ok(fleet, "GET", CONFIG)["digest"] == digest
+    _ok(fleet, "PUT", CONFIG, digest=digest, description="the PUT's")
+    assert _task(fleet, upid)["status"] == "running"
+    assert _task(fleet, upid) == {"status": "stopped", "exitstatus": SAID["DIGEST_REFUSED"], "upid": upid}
+    assert _ok(fleet, "GET", CONFIG)["description"] == "the PUT's"
+    # One that sends no digest meets a lock a deletion took since.
+    cores = _ok(fleet, "GET", CONFIG)["cores"]
+    unchecked = _ok(fleet, "POST", CONFIG, cores=4)
+    _ok(fleet, "DELETE", "nodes/pve/qemu/9012")
+    _task(fleet, unchecked)
+    locked = SAID["LOCKED"].format(lock=SAID["DELETION_LOCK"])
+    assert _task(fleet, unchecked) == {"status": "stopped", "exitstatus": locked, "upid": unchecked}
+    assert _ok(fleet, "GET", CONFIG)["cores"] == cores
+    # With nothing in between, it writes when it ends, its digest still the configuration's.
+    beta = "nodes/pve/qemu/9011/config"
+    upid = _ok(fleet, "POST", beta, digest=_ok(fleet, "GET", beta)["digest"], cores=6)
+    assert _ok(fleet, "GET", beta)["cores"] == cores
+    assert [_task(fleet, upid)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert (_task(fleet, upid)["exitstatus"], _ok(fleet, "GET", beta)["cores"]) == ("OK", "6")
+
+
+def test_a_clone_joins_its_pool_when_its_task_ends_and_a_failed_one_never_does(fleet: str) -> None:
+    _ok(fleet, "POST", "pools", poolid="fleet")
+    _pve(fleet, "PUT", "fake/task-polls", polls=1)
+    upid = _ok(fleet, "POST", CLONE, newid=9020, name="pooled", pool="fleet")
+
+    def members() -> list[int]:
+        return [m["vmid"] for m in _ok(fleet, "GET", "pools", poolid="fleet")[0]["members"]]
+
+    def listed() -> dict:
+        return {vm["vmid"]: vm for vm in _ok(fleet, "GET", "cluster/resources")}[9020]
+
+    assert members() == [] and "pool" not in listed()
+    assert [_task(fleet, upid)["status"] for _ in range(2)] == ["running", "stopped"]
+    assert members() == [9020] and listed()["pool"] == "fleet"
+    _pve(fleet, "PUT", "fake/task-fail", error="clone failed: no space left on device", type="qmclone")
+    failed = _ok(fleet, "POST", CLONE, newid=9021, name="failing", pool="fleet")
+    assert _pve(fleet, "PUT", "fake/task-end", upid=failed)["data"] == [failed]
+    assert members() == [9020]
+
+
+def test_task_end_ends_running_tasks_nobody_polls_as_their_workers_would(fleet: str, tmp_path: Path) -> None:
+    _pve(fleet, "PUT", "fake/task-polls", polls=5)
+    clone = _ok(fleet, "POST", CLONE, newid=9020, name="orphaned")
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9020/config")["lock"] == SAID["CLONE_LOCK"]
+    # The run that made it is gone; its clone ends on the host all the same, and its lock goes.
+    assert _pve(fleet, "PUT", "fake/task-end", upid=clone)["data"] == [clone]
+    assert "lock" not in _ok(fleet, "GET", "nodes/pve/qemu/9020/config")
+    assert _task(fleet, clone) == {"status": "stopped", "exitstatus": "OK", "upid": clone}
+    assert _tasks(tmp_path)[clone]["polls"] == 0
+    # With no upid, every running task: a start and a deletion, each with what it does when it ends.
+    start = _ok(fleet, "POST", "nodes/pve/qemu/9012/status/start")
+    deletion = _ok(fleet, "DELETE", "nodes/pve/qemu/9020")
+    assert sorted(_pve(fleet, "PUT", "fake/task-end")["data"]) == sorted([start, deletion])
+    assert _ok(fleet, "GET", "nodes/pve/qemu/9012/status/current")["status"] == "running"
+    assert 9020 not in _vms(fleet)
+    assert _pve(fleet, "PUT", "fake/task-end")["data"] == []
+
+
+def test_a_deletion_that_fails_lets_its_lock_go(fleet: str) -> None:
+    _pve(fleet, "PUT", "fake/task-fail", error="disk busy", type="qmdestroy")
+    upid = _ok(fleet, "DELETE", "nodes/pve/qemu/9012")
+    assert _task(fleet, upid) == {"status": "stopped", "exitstatus": "disk busy", "upid": upid}
+    assert "lock" not in _ok(fleet, "GET", CONFIG)
+    _ok(fleet, "PUT", CONFIG, cores=4)
+    assert _ok(fleet, "GET", CONFIG)["cores"] == "4"
+
+
+def _at_once(base: str, method: str, endpoint: str, sent: list[dict]) -> list[tuple[int, object]]:
+    """Each of sent, the parameters of one request, sent to the fake at base from a thread of its own, every thread
+    released at one moment; their answers, in sent's order."""
+    start, answers = threading.Barrier(len(sent)), [(0, None)] * len(sent)
+
+    def send(i: int) -> None:
+        start.wait()
+        answers[i] = _call(base, method, endpoint, **sent[i])
+
+    racers = [threading.Thread(target=send, args=(i,)) for i in range(len(sent))]
+    for racer in racers:
+        racer.start()
+    for racer in racers:
+        racer.join(timeout=60)
+    return answers
+
+
+def test_the_fake_answers_one_request_at_a_time(fleet: str) -> None:
+    """While one request is still being read, another is not answered: the fake's server is single-threaded."""
+    address = urllib.parse.urlsplit(fleet)
+    unverified = ssl.create_default_context()
+    unverified.check_hostname = False
+    unverified.verify_mode = ssl.CERT_NONE
+    raw = socket.create_connection((address.hostname, address.port), timeout=30)
+    with unverified.wrap_socket(raw, server_hostname=address.hostname) as first:
+        # Its request line sent, its headers not yet ended.
+        first.sendall(b"GET /api2/json/version HTTP/1.0\r\n")
+        answered = threading.Event()
+        second = threading.Thread(target=lambda: _ok(fleet, "GET", "version") and answered.set())
+        second.start()
+        assert not answered.wait(2), "a second request was answered while the first was still being read"
+        first.sendall(f"Authorization: PVEAPIToken={TODAYS[0]}={TODAYS[1]}\r\n\r\n".encode())
+        reply = b""
+        while chunk := first.recv(65536):
+            reply += chunk
+    assert reply.startswith(b"HTTP/1.0 200 "), reply[:80]
+    second.join(timeout=30)
+    assert answered.is_set()
+
+
+def test_requests_sent_at_once_are_answered_one_at_a_time_so_each_race_has_one_winner(fleet: str) -> None:
+    """The fake serves one request at a time, which is what makes each check and the write after it atomic: four
+    clones onto one VMID, and four writes that read one digest, released together, have one winner each round."""
+    for newid in range(9020, 9025):
+        clones = _at_once(fleet, "POST", CLONE, [{"newid": newid, "name": f"racer-{i}"} for i in range(4)])
+        refused = (500, SAID["CLONE_EXISTS"].format(newid=newid))
+        won = [i for i, (status, _) in enumerate(clones) if status == 200]
+        assert len(won) == 1 and all(clones[i] == refused for i in range(4) if i not in won), clones
+        assert _ok(fleet, "GET", f"nodes/pve/qemu/{newid}/config")["name"] == f"racer-{won[0]}"
+
+        # Each round's own words: a write that changes nothing leaves the digest as it was.
+        digest = _ok(fleet, "GET", CONFIG)["digest"]
+        sent = [{"digest": digest, "description": f"racer-{newid}-{i}"} for i in range(4)]
+        writes = _at_once(fleet, "PUT", CONFIG, sent)
+        won = [i for i, (status, _) in enumerate(writes) if status == 200]
+        refused = (SAID["DIGEST_REFUSED_STATUS"], SAID["DIGEST_REFUSED"])
+        assert len(won) == 1 and all(writes[i] == refused for i in range(4) if i not in won), writes
+        assert _ok(fleet, "GET", CONFIG)["description"] == f"racer-{newid}-{won[0]}"
 
 
 def test_while_a_clone_runs_its_vm_is_locked_and_a_write_to_it_refused(fleet: str) -> None:
@@ -679,7 +891,9 @@ def _today_s_other_requests(base: str) -> list[dict]:
     storage and one into a pool (the role, with proxmox_vm_pool), each waited for as proxmox_kvm waits; the notes
     written (the role's settings call, test_golden_play.py); a template made of a VM (test_vm_repos.py); a VM started
     and stopped again (destroy.yml, tasks/vm_stop.yml); a deletion refused for protection, then made (proxmox_kvm,
-    test_golden_play.py); and the listings after."""
+    test_golden_play.py); the listings after; a node's storages and the cluster's, before and after a fixture lists one
+    Proxmox cannot reach (init_check.yml, just status); and a VM started, then shut down as proxmox_kvm stops one
+    (the role's absent.yml)."""
     sent: list[dict] = []
 
     def send(method: str, path: str, **params) -> object:
@@ -709,6 +923,14 @@ def _today_s_other_requests(base: str) -> list[dict]:
     send("GET", "cluster/nextid")
     send("GET", "cluster/resources")
     send("GET", "nodes/pve/qemu")
+    send("GET", "nodes/pve/storage")
+    send("GET", "cluster/resources", type="storage")
+    send("PUT", "fake/storages", node="pve", storages="local-lvm:lvmthin,slow:dir:inactive")
+    send("GET", "nodes/pve/storage")
+    send("GET", "cluster/resources", type="storage")
+    waited("POST", "nodes/pve/qemu/9022/status/start")
+    waited("POST", "nodes/pve/qemu/9022/status/shutdown", forceStop="1", timeout="30")
+    send("GET", "nodes/pve/qemu/9022/status/current")
     return sent
 
 
