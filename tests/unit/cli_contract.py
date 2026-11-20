@@ -22,14 +22,17 @@ Six parts, in this order:
 - cases: at least one runnable case for each rule, the exit statuses, and a setting given empty before the recipe
   (CASES below): the words typed (or, for a check no recipe's words reach, the check's own command line, from
   tools/check), whether a terminal is on standard input, what else the run was given, and the status and the sentence a
-  run gave, measured. A setting's case has for its sentence what the run was seen to do (OBSERVED).
+  run gave, measured. A setting's case, and a Ctrl-C's at a prompt, has for its sentence what the run was seen to do
+  (OBSERVED): at a prompt, in Ansible's own words.
 - examples: every example command line of docs/reference/commands.md, and every command test_commands.py's scan finds
   in the sources it lists, with its file. They are kept as held, the 1,175 the contract was first written with first,
   in their order: only --scan adds a line, after them, and none is ever dropped, so a page edited later leaves them as
   they are.
-- exits: the statuses a person can rely on; the two a Ctrl-C gives are the ones their cases measured. One Ctrl-C while
-  the playbook runs is ansible-playbook's own status for it (99), since the recipe ends in the playbook; before the
-  playbook starts it is the script's own (130).
+- exits: the statuses a person can rely on; those a Ctrl-C gives are the ones their cases measured. One Ctrl-C while a
+  task runs, outside a prompt, is ansible-playbook's own status for it (99), since the recipe ends in the playbook;
+  before the playbook starts it is the script's own (130). At one of the playbook's prompts a Ctrl-C ends nothing:
+  Ansible asks Continue or Abort, C goes on with the run (0, where the prompt was its last task) and A ends it as a
+  failed task (2), measured with a real ansible-playbook at a pseudo-terminal, the keys typed there.
 
 Made again with the project's Python:
 
@@ -381,6 +384,26 @@ CASES = [
         terminal=True,
         given="one Ctrl-C (SIGINT to the run's process group) before the playbook starts, while the last check reads "
         "the settings (<tmp>/local.yml) with the environment's Python, a stand-in that dies of it as Python does",
+    ),
+    case(
+        "exit.ctrl-c-3",
+        "deploy",
+        "alpha",
+        setup="prompt",
+        terminal=True,
+        key="c",
+        given="one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real "
+        "ansible-playbook on a local one-task play, PROMPT_PLAY), then C typed at Ansible's question",
+    ),
+    case(
+        "exit.ctrl-c-4",
+        "deploy",
+        "alpha",
+        setup="prompt",
+        terminal=True,
+        key="a",
+        given="one Ctrl-C typed at the terminal while the playbook waits at a prompt, a pause's (a real "
+        "ansible-playbook on a local one-task play, PROMPT_PLAY), then A typed at Ansible's question",
     ),
     case(
         "setting.run-lock-1",
@@ -920,6 +943,51 @@ def _interrupt_before(item: dict, words: list[str], tmp: Path) -> tuple[int, str
     return tj._interrupted(started, *settings, *words)
 
 
+# What Ansible says at one of its prompts once a Ctrl-C was typed there (ansible-core's pause action, which the
+# sign-ins' prompts are): the question it asks, and what the task fails with when A answers it. test_cli_contract.py
+# holds both to ansible-core's own source.
+GO_ON = "Press 'C' to continue the play or 'A' to abort"
+ABORTED = "user requested abort!"
+# The one task of the play the prompt's cases run: a pause that waits for a key, as Claude's sign-in waits for its code.
+PROMPT = "alpha: paste the code here, or press Enter to skip"
+PROMPT_PLAY = f"""- name: Wait at one of the playbook's prompts
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Ask for the code
+      ansible.builtin.pause:
+        prompt: "{PROMPT}"
+"""
+
+
+def _prompt(item: dict, words: list[str], tmp: Path) -> tuple[int, str]:
+    """One Ctrl-C typed at one of the playbook's prompts, then the case's key typed at Ansible's question: just at a
+    pseudo-terminal of its own whose controlling terminal it is, as a person runs it, drawn as today's runs are; its
+    ansible-playbook the real one, on a local one-task play with a pause (PROMPT_PLAY) in a HOME of the run's own, the
+    Galaxy collections found where the recipe says. Says, in Ansible's own words, what it asked, and whether it said the
+    run was aborted."""
+    import live_kit as kit
+    import test_justfile as tj
+    from harness import ANSIBLE_PLAYBOOK
+
+    home, play, inventory = tmp / "home", tmp / "prompt.yml", tmp / "inventory.yml"
+    home.mkdir()
+    play.write_text(PROMPT_PLAY)
+    inventory.write_text(
+        "all:\n  hosts:\n    localhost:\n      ansible_connection: local\n"
+        f'      ansible_python_interpreter: "{sys.executable}"\n'
+    )
+    body = f'HOME="{home}"; export HOME; exec "{ANSIBLE_PLAYBOOK}" -i "{inventory}" "{play}"'
+    argv = [JUST, f"--justfile={JUSTFILE}", "RUN_LOCK=", *tj._recording(tmp, playbook_body=body), *words]
+    # A terminal a run is drawn at: its type set, as a person's is.
+    ran = kit.at_a_terminal(
+        argv, tmp, tj._env({"TERM": "xterm-256color"}), prompts={PROMPT: b"\x03", GO_ON: item["key"].encode()}
+    )
+    asked = f'asked "{GO_ON}"' if GO_ON in ran.text else "asked nothing"
+    said = f'said "{ABORTED}"' if ABORTED in ran.text else "said nothing of an abort"
+    return ran.rc, f"{ran.text}\n{OBSERVED}the playbook {asked}, and {said}\n"
+
+
 # A setting's case says what the run was seen to do, on a line of its own that starts so: its sentence in the file.
 OBSERVED = "observed: "
 
@@ -978,6 +1046,7 @@ SETUPS = {
     "check": _check,
     "interrupt": _interrupt,
     "interrupt-before": _interrupt_before,
+    "prompt": _prompt,
     "lock": _lock,
     "report": _report,
 }
@@ -1133,9 +1202,23 @@ def exits(all_cases: list[dict]) -> list[dict]:
         },
         {
             "status": status.get("exit.ctrl-c-1"),
-            "meaning": "one Ctrl-C while the playbook runs: ansible-playbook's own status for it, which the recipe "
-            "ends in (case exit.ctrl-c-1). aw's 130 for a cancelled run is a change against it, which "
+            "meaning": "one Ctrl-C while a task runs, outside a prompt: ansible-playbook's own status for it, which "
+            "the recipe ends in (case exit.ctrl-c-1). aw's 130 for a cancelled run is a change against it, which "
             "tests/unit/cli_contract_changes.py's CHANGED names",
+            "recipes": ["deploy"],
+        },
+        {
+            "status": status.get("exit.ctrl-c-3"),
+            "meaning": "one Ctrl-C at one of the playbook's prompts ends nothing: Ansible asks Continue or Abort, and "
+            "C goes on with the run, which ends as it would have without the Ctrl-C (case exit.ctrl-c-3). aw ends the "
+            "run there with 130, as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names",
+            "recipes": ["deploy"],
+        },
+        {
+            "status": status.get("exit.ctrl-c-4"),
+            "meaning": "one Ctrl-C at one of the playbook's prompts, then A at Ansible's question: the task fails, and "
+            "the run ends with ansible-playbook's status for it (case exit.ctrl-c-4). aw ends the run there with 130, "
+            "as anywhere else, which tests/unit/cli_contract_changes.py's BEHAVIOURS names",
             "recipes": ["deploy"],
         },
         {

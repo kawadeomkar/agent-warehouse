@@ -5,7 +5,9 @@ contract of today's (tests/unit/cli_contract.json), through the two maps beside 
 Every verb, option, short form, flag and help sentence of the contract is in the table as it is, or CHANGED says why
 not; every setting given before a recipe today is kept from the environment (KEPT) or changed; every word the table has
 and the contract lacks is in NEW with its source, so that no word nobody ruled on comes in unseen; no map names a word
-that is not so; and each word the trims took out of the base is absent. It goes with the contract at the cutover.
+that is not so; and each word the trims took out of the base is absent. A Ctrl-C at one of the playbook's prompts, where
+today asks Continue or Abort and aw ends the run, is a behaviour BEHAVIOURS names, found as the exit statuses are. It
+goes with the contract at the cutover.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ import json
 from pathlib import Path
 
 import pytest
-from cli_contract_changes import CHANGED, KEPT, NEW
+from cli_contract_changes import BEHAVIOURS, CHANGED, KEPT, NEW
 
 from claude_vm.schema.patterns import PATTERNS
 from claude_vm.schema.words import BEFORE, EXITS, STATUS_EXITS, VERBS, Option
@@ -136,15 +138,25 @@ def _differences() -> dict[str, tuple]:
     # The exit statuses the contract measured that the table names by meaning: a run a person cancelled, which today is
     # one Ctrl-C while the playbook runs, and one before it starts.
     for case, meaning in (("exit.ctrl-c-1", "cancelled"), ("exit.ctrl-c-2", "cancelled")):
-        (row,) = [row for row in CONTRACT["exits"] if f"(case {case})" in row["meaning"]]
-        if row["status"] != EXITS[meaning]:
-            found[f"exit {meaning}"] = (row["status"], EXITS[meaning])
+        if _exit_row(case)["status"] != EXITS[meaning]:
+            found[f"exit {meaning}"] = (_exit_row(case)["status"], EXITS[meaning])
+    # And at one of the playbook's prompts, where today's one Ctrl-C asks Continue or Abort, C going on and A ending the
+    # run: aw ends it there as anywhere else, a cancelled run.
+    at_a_prompt = tuple(_exit_row(case)["status"] for case in ("exit.ctrl-c-3", "exit.ctrl-c-4"))
+    if any(status != EXITS["cancelled"] for status in at_a_prompt):
+        found["exit cancelled at a prompt"] = (at_a_prompt, EXITS["cancelled"])
     return found
 
 
+def _exit_row(case: str) -> dict:
+    """The contract's row of the exit statuses that a case measured."""
+    (row,) = [row for row in CONTRACT["exits"] if f"(case {case})" in row["meaning"]]
+    return row
+
+
 def _changed_by(key: str) -> str | None:
-    """The entry of CHANGED that says why a difference is one: its own, or its word's whole."""
-    return CHANGED.get(key) or CHANGED.get(key.split(": ", 1)[0])
+    """The entry that says why a difference is one: CHANGED's or BEHAVIOURS' own, or CHANGED's of its word's whole."""
+    return CHANGED.get(key) or BEHAVIOURS.get(key) or CHANGED.get(key.split(": ", 1)[0])
 
 
 def test_every_word_of_the_contract_is_in_the_table_as_it_is_or_changed_with_its_source() -> None:
@@ -156,6 +168,19 @@ def test_changed_names_only_what_the_table_changes() -> None:
     differences = _differences()
     stale = [key for key in CHANGED if key not in differences and key.removesuffix("=") not in SETTINGS]
     assert stale == [], "CHANGED names a word the table has as the contract has it, or no word of the contract"
+
+
+def test_a_ctrl_c_at_a_prompt_is_a_behaviour_aw_has_otherwise_on_purpose() -> None:
+    # Today C goes on (0) and A ends the run as a failed task (2); aw asks no question there, and ends the run with a
+    # cancelled run's status. A behaviour of the same words, not a word changed: BEHAVIOURS names it, CHANGED does not.
+    assert _differences()["exit cancelled at a prompt"] == ((0, 2), EXITS["cancelled"])
+    assert "exit cancelled at a prompt" in BEHAVIOURS and set(BEHAVIOURS) & set(CHANGED) == set()
+
+
+def test_behaviours_names_only_an_exit_status_the_table_changes() -> None:
+    differences = _differences()
+    stale = [key for key in BEHAVIOURS if key.startswith("exit ") and key not in differences]
+    assert stale == [], "BEHAVIOURS names an exit status the table has as the contract measured it"
 
 
 def test_every_setting_given_before_a_recipe_today_is_kept_or_changed() -> None:
@@ -173,7 +198,7 @@ def test_every_word_the_table_has_and_the_contract_lacks_is_new_with_its_source(
 
 
 def test_every_source_is_said() -> None:
-    assert [key for key, source in (CHANGED | KEPT | NEW | TAKEN_OUT).items() if not source.strip()] == []
+    assert [key for key, source in (CHANGED | BEHAVIOURS | KEPT | NEW | TAKEN_OUT).items() if not source.strip()] == []
 
 
 @pytest.mark.parametrize("word", sorted(TAKEN_OUT))
@@ -208,7 +233,8 @@ def test_every_rule_a_verb_names_is_the_contract_s_or_new() -> None:
 def test_the_exit_statuses_are_today_s_numbers() -> None:
     # A run that reached its playbook exits with the playbook's status today, which this check does not compare: aw's
     # failed run is new, said where it is settled. A Ctrl-C's is compared in _differences: aw's cancelled run exits 130,
-    # which today is the status before the playbook starts and not while it runs (99), as CHANGED says.
+    # which today is the status before the playbook starts and not while a task runs (99), as CHANGED says, nor at one
+    # of its prompts, as BEHAVIOURS says.
     assert CONTRACT["exits"] and _differences()["exit cancelled"] == (99, EXITS["cancelled"])
     every = {name for name in RECIPES}
     rows = {(row["status"], tuple(sorted(row["recipes"]))) for row in CONTRACT["exits"]}

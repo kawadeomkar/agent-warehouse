@@ -17,9 +17,14 @@ A word is named as a person sees it:
 - an exit status that the table's `EXITS` gives another number than the contract measured today: `exit <its name in
   EXITS>`.
 
+Beside them, BEHAVIOURS: what today's words do that aw does otherwise on purpose, not a word of the contract changed but
+what the same words do, each with the ruling that decided it; the parity suite (H7) lists each in its ROWS_CHANGED and
+measures it. One the check of the words finds is named as the check finds it: where today asks a question aw does not
+ask, so that no number of today's stands for aw's, `exit <its name in EXITS> at a prompt`.
+
 The sources name the rulings of the plan the new engine is built by: the owner's words and the trims and their
 verification (review/trim-rulings.md: T8, V2-5, V2-8), the rulings on words (N-23 section 4, N-22 section 4), the
-owner's answers (O16) and the design report's table of verbs.
+owner's answers (O16, and those of 2026-11-20 in the plan's log) and the design report's table of verbs.
 """
 
 from __future__ import annotations
@@ -50,9 +55,18 @@ CHANGED: dict[str, str] = {
     "the words",
     "RUN_LOCK=": "T8 and O16 item 15 as trimmed: a run with no lock is --no-lock before the verb, with no path",
     "ATTENDED=": "T8 and O16 item 15: --attended=1 before the verb, the agents' server's own word",
-    "exit cancelled": "the report's run ladder (C4): a run a person cancelled exits 130, where one Ctrl-C while "
-    "today's playbook runs exits ansible-playbook's 99, the recipe ending in it (the contract's case exit.ctrl-c-1); "
-    "before the playbook starts today's is 130 too (exit.ctrl-c-2)",
+    "exit cancelled": "the report's run ladder (C4): a run a person cancelled exits 130, where one Ctrl-C while a "
+    "task of today's playbook runs, outside a prompt, exits ansible-playbook's 99, the recipe ending in it (the "
+    "contract's case exit.ctrl-c-1); before the playbook starts today's is 130 too (exit.ctrl-c-2); at one of its "
+    "prompts, BEHAVIOURS",
+}
+
+# Each behaviour of today's words that aw has otherwise on purpose, and the ruling that decided it.
+BEHAVIOURS: dict[str, str] = {
+    "exit cancelled at a prompt": "the owner's answer 4 (2026-11-20; the plan's log): one Ctrl-C at a prompt ends the "
+    "run, as it does anywhere else in aw, with a cancelled run's 130 (the report's run ladder, C4), where today "
+    "Ansible asks Continue or Abort there, C going on with the run (the contract's case exit.ctrl-c-3) and A ending "
+    "it as a failed task, 2 (exit.ctrl-c-4); an empty answer stays the way to skip a sign-in, as today",
 }
 
 # The settings given before the recipe today that aw still takes from the environment, as today, and their source: the
