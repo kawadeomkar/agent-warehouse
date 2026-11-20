@@ -110,14 +110,28 @@ cutover. `tests/unit/test_aw_cli_words.py` holds the table's rows, today's fates
 
 **The one check: `check.py`.** `check(verb, values)` is the check every entry runs on a verb's values: the parser of
 the command line, the agents' server through `aw`, and the add-on's broker on JSON. It holds each value to its kind and
-to the pattern the table names, with `full`, and returns nothing or the one sentence of the first value it refuses: an
-option the verb has not got, a value of the wrong type, or one outside its pattern, each naming the option and its help
-and never the value. It takes values as the parser gives them and as JSON with exact types, and coerces nothing: a
-value option's is a string, a flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, `--migrate`'s true
-or a string, the words a list where the verb takes several and a string where it takes one; `detach` is a flag of
-every verb whose run is a job. A word given to a verb that refuses any (`init`) is refused unsaid. `check_before`
-holds the words given before any verb the same way. The rules between options run after the patterns, in the order
-the verb's row names them, once they are built.
+to the pattern the table names, with `full`; then runs the rules between options the verb's row names, in that order;
+then holds the verb's words to their number. It returns nothing or the one sentence of the first refusal: an option the
+verb has not got, a value of the wrong type, or one outside its pattern, each naming the option and its help and never
+the value; then a rule's sentence; then a second word where the verb takes one, or any word where it takes none. It
+takes values as the parser gives them and as JSON with exact types, and coerces nothing: a value option's is a string, a
+flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, `--migrate`'s true or a string, the words a list
+where the verb takes several and a string where it takes one, or a list where the parser was given more than one, which
+the rules see before the number is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the
+words given before any verb the same way.
+
+**The rules between options: `rules.py`.** Each rule between options of today's command line is one plain function
+with the code the contract of today's command line gives it (`deploy.4`, `check.names.1`) and today's sentence, word
+for word, with `aw` where it said `just`: `Rule(code, verbs, sentence, breaks)`, where `breaks` takes a verb's values
+and returns nothing where they keep the rule, or what fills the sentence's values where they break it, and
+`Rule.check` gives nothing or the sentence. They are today's rules of `deploy`, `code`, `settings`, `destroy`, `host`,
+`help`, `init` and `mcp`, said before any check or tool, and `tools/check`'s argument checks of VM names, the size, the
+repositories, the project, the session and status's sections; `RULES` holds them by code, and `run` runs the codes a row
+names in order and stops at the first sentence. A sentence says a value back only where today's does, and then a value
+that has met its pattern first, as `just` holds a value to its pattern before a recipe's script runs; some of
+`tools/check`'s checks, as today's, refuse nothing their pattern has not refused first. What reads more than the values
+is no rule here but its verb's own: the fleet's files (`vault`'s, and `deploy`'s VM name another host's alias
+records), the file system, `claude` and the branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
 ## 16.3 `cli/` — the `aw` program
 
@@ -145,7 +159,11 @@ today's words, `alpha,beta` is two names as two words are, and a verb that takes
 that takes several names is given none, the two meanings of no names are one field, `default_vm`: true for a whole
 `deploy`, `deploy --only provision` and `destroy`, which act on the default VM; false for the rest, which act on every
 VM the fleet made. The default VM's name is the handler's to read from the settings; the parser reads no file of the
-fleet.
+fleet. A stage of `deploy` given where the names go, and neither `--only` nor `--check`, is asked about at a terminal,
+read from the standard input the command was given: a menu of `lib/claude_vm/tui/choose.py` where the terminal can draw
+one (the stage, the VMs so named, or nothing, which is marked as it is drawn), and today's typed question where it
+cannot. The answer meets the rules as if typed, the one check run again on what it comes to; with no terminal, and for
+any answer but the stage or the VMs, it is refused in today's sentences, and a Ctrl-C there exits 130.
 
 **The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
 the `--set` words as typed, from after the verb; `--detach`; `--no-lock`, the one word for a run that takes no lock,
@@ -179,7 +197,12 @@ lacks the packages.
 
 `tests/unit/test_aw_cli_parse.py` holds all of it: every option of every verb in both spellings, the refusals and that
 none says a value or has a usage block, `--detach`, `default_vm`, `RunWords`, the dispatch's refusals, what a refusal
-imports, and the launcher run in checkouts the test makes, with a stand-in `uv`.
+imports, and the launcher run in checkouts the test makes, with a stand-in `uv`. `tests/unit/test_aw_cli_rules.py`
+holds the rules and `deploy`'s question: every rule of the contract (`tests/unit/cli_contract.json`) is a rule or a
+habit with today's sentence, or named as another verb's own; each of the contract's cases of a rule or a habit is run
+against `aw` and gives today's status and sentence; the list of those not yet run only shrinks; the check answers
+alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; and each test of today's
+options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
