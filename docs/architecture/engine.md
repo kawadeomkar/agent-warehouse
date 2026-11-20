@@ -307,9 +307,10 @@ the `ssh` children a run holds. It imports `schema/`, and nothing of `engine/`, 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
 `lib/claude_vm/vendors/` is where the vendors' side goes: one HTTPS transport, which the Proxmox client uses too,
-Tailscale's calls, and downloads held to their vendor's signature or digest. It imports `schema/`, `secret.py` and, of
-today's modules, what `REUSED` names (`text`, to make what a peer said one line). It imports nothing of `engine/`,
-`cli/` or `control/`, and no pydantic.
+the vendors' one certificate file, Tailscale's calls, and downloads held to their vendor's signature or digest. It
+imports `schema/`, `secret.py` and, of today's modules, what `REUSED` names (`text`, to make what a peer said one
+line); of other packages, `certifi`, in `trust.py` alone. It imports nothing of `engine/`, `cli/` or `control/`, and no
+pydantic.
 
 **One transport: `transport.py`.** Every HTTPS request the engine sends goes through
 `Transport(base_url, context, user_agent, connect=5, read=30, most=16 MiB, proxy=None, peer_check=None)`, and its
@@ -367,6 +368,32 @@ environment, and it never uses an opener.
 Only `transport.py` imports `http.client` or wraps a socket. Only `proxy.py` imports `urllib.request`, and only for
 those readers. No module names a certificate variable. And `reveal(` appears once in the transport. It also holds the
 modules that hand the transport a `peer_check` to a list, `PEER_CHECKS`, each with why.
+
+**The vendors' trust: `trust.py`.** GitHub, Tailscale and the download servers are verified against one file of PEM
+certificates, named by its path: `certifi`'s bundle, the same on every system, unless the computer's setting
+`tls_ca_file` names another. `ca_file(setting)` gives that path, `certifi`'s where the setting is unset or empty, and
+`context(path)` makes the context the transport is given. That bundle is what today's `requests` verifies against
+where no variable names another, so the vendors are trusted as today; a root a person added to the system's own store
+and not to `certifi`'s is named with `tls_ca_file`, the opt-in.
+
+- **That file, and nothing else.** The context is made by hand, a client context with the file loaded by
+  `load_verify_locations`, and never the standard library's ready-made one, which loads the interpreter's own store
+  where it is given no file (a store the environment's variables change) and reads the environment for a file to log
+  the session's keys to. Nothing of the environment is read, macOS's keychain is never asked, and there is no table of
+  each system's paths.
+- **Checked as Python 3.13 checks.** The server's name is checked and a certificate required. The flags that Python
+  3.13's own context, and today's `requests` on it, set are set on every Python: strict checking, and a chain that may
+  end at an intermediate the file holds. So an interpreter before 3.13 is no looser, and a CA with no keyUsage, as
+  Proxmox VE 8 makes one, does not verify.
+- **A file that cannot be used** (not there, not readable, or holding no certificate, such as a revocation list alone)
+  is `Unusable`, whose sentence names `tls_ca_file`; so is a missing `certifi` where no setting names a file.
+- **The proxy is not this module's.** `proxy.choose` gives it to the transport beside this context.
+
+`tests/unit/test_aw_vendor_trust.py` reaches TLS servers on loopback through the transport with such a context. It
+puts a server's root in the interpreter's own store to show that the context still refuses that server, and sets every
+certificate variable to a trap to show that neither the file chosen nor what it loads changes. It holds two rules: no
+module of `vendors/` names the standard library's ways to the interpreter's store (`create_default_context`,
+`load_default_certs`, `set_default_verify_paths`), and of the new engine only `trust.py` imports `certifi`.
 
 ## 16.8 `runs/` — a run's record and text log, the locks, a detached run
 
