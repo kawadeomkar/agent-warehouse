@@ -241,7 +241,8 @@ lib/claude_vm/schema/             the new engine (§16), built beside today's an
 lib/claude_vm/cli/                aw, the program: the command line read against the table, help, the dispatch;
                                   main.py, the entry tools/aw runs; parse.py, the words read with argparse; habits.py,
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
-                                  words; dispatch.py, a verb handed to its handler or refused
+                                  words; dispatch.py, a verb handed to its handler or refused; inverse.py, the printer
+                                  of a command, the one way a line a person types is written
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads; answers.py, each read's

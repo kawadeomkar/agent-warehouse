@@ -126,7 +126,8 @@ takes values as the parser gives them and as JSON with exact types, and coerces 
 flag's a boolean, `--set`'s a list of strings, `-v`'s a whole number, `--migrate`'s true or a string, the words a list
 where the verb takes several and a string where it takes one, or a list where the parser was given more than one, which
 the rules see before the number is held; `detach` is a flag of every verb whose run is a job. `check_before` holds the
-words given before any verb the same way.
+words given before any verb the same way, and `formed` is the check but for the rules between options, which the
+printer of a command (16.3) holds a line to.
 
 **The rules between options: `rules.py`.** Each rule between options of today's command line is one plain function
 with the code the contract of today's command line gives it (`deploy.4`, `check.names.1`) and today's sentence, word
@@ -147,9 +148,9 @@ branch (`mcp`'s), and a terminal (`host --remove`'s question).
 
 ## 16.3 `cli/` — the `aw` program
 
-`lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/` and the dispatch of a
-verb to its workflow, below, and help and the printer of a command, which go here when they are built. `main.py` is
-the entry `tools/aw` runs, as 16.1 says.
+`lib/claude_vm/cli/` is the program: reading the command line against the table of `schema/`, the dispatch of a verb
+to its workflow and the printer of a command, below, and help, which goes here when it is built. `main.py` is the
+entry `tools/aw` runs, as 16.1 says.
 It imports `schema/` and what it needs to answer at once. It imports `engine/` only inside the function that dispatches
 a verb that changes something, so a refusal, help or a read never loads it. It never imports Ansible, which the engine
 only ever runs as a child, nor `control/` or pydantic. `tools/aw` imports it, and so does the agents' server's own entry
@@ -177,8 +178,10 @@ VM the fleet made. The default VM's name is the handler's to read from the setti
 fleet. A stage of `deploy` given where the names go, and neither `--only` nor `--check`, is asked about at a terminal,
 read from the standard input the command was given: a menu of `lib/claude_vm/tui/choose.py` where the terminal can draw
 one (the stage, the VMs so named, or nothing, which is marked as it is drawn), and today's typed question where it
-cannot. The answer meets the rules as if typed, the one check run again on what it comes to; with no terminal, and for
-any answer but the stage or the VMs, it is refused in today's sentences, and a Ctrl-C there exits 130.
+cannot. Each answer names the command line it runs as the printer writes it, a value of `--set` never said back, since
+nothing has taken it yet. The answer meets the rules as if typed, the one check run again on what it comes to; with no
+terminal, and for any answer but the stage or the VMs, it is refused in today's sentences, and a Ctrl-C there exits
+130.
 
 **The run's own words: `before.py`.** `RunWords` is one frozen record every handler receives first: `-v`'s count and
 the `--set` words as typed, from after the verb; `--detach`; `--no-lock`, the one word for a run that takes no lock,
@@ -196,6 +199,24 @@ today's `justfile` has a recipe of that name, `just <verb>`, which does its work
 is a job, but `init` and `install`, which come before any fleet, is refused where the fleet's files do not exist, naming
 `aw init`, and says on standard error which fleet it drives where `AGENT_WAREHOUSE_HOME` or a `fleet_home` line chose
 it. A refusal is one line on standard error and exit status 1.
+
+**The printer of a command: `inverse.py`.** The one way the new engine writes a command line a person types, for NEXT
+STEPS, `status`'s repair lines, a refusal's way out, the lines a detached run's start prints and the session notes on a
+machine: `argv(verb, values)` gives its words and `line(verb, values)` the one string a person pastes, each value
+quoted with `shlex.quote` where a shell would read it otherwise. Both read the one table and nothing else. The program
+is `aw`, always; then the words given before the verb, in the table's order; the verb, `deploy`'s whole chain as its
+one verb; its options in the table's order, `--detach` last as the parser gives it, a value as `--long=value`, so that
+one that starts with `-` is read as a value, a flag bare, `-v` repeated in one word, `--set` once for each value; the
+verb's words as given; and last the host flag, ` --host <name>` as today's lines end with it, on a verb that takes
+`--host` and was not given one. The values are the parser's or a handler's: `default_vm` is said by naming no VM. Each
+is held as the one check holds it but for the rules between options (`formed`), and one it refuses, or a word that
+starts with `-`, raises `ValueError` with the check's sentence, which never says the value; a rule is the run's to say,
+so a line may name a run that one refuses, as `deploy`'s question names the stage before its answer meets the rules.
+The table holds no option whose value is a secret, so nothing is masked but `--set`'s and `settings --value`'s, the
+two values of free text a person may paste one into: a line made from values no run has taken, a refused run's or a
+question's, prints each as the name help gives it. The one check's own refusals name the command refused and its help
+themselves, since `schema/` imports nothing of `cli/`, and are held equal to the printer's; no other module of the new
+engine builds a string that starts with a command. It imports the standard library and `schema/` alone.
 
 **The launcher: `aw`.** At the checkout's top, in POSIX `sh`, the launcher finds its checkout from its own path, every
 link to it followed and the folder made by its physical path (`cd -P`), so that a relative link in a folder that is
@@ -230,6 +251,12 @@ status and sentence; the cases not yet run are named one by one, and a code come
 answers alike as words and as JSON; the question is asked at a pseudo-terminal, typed and with none; each behaviour of
 today's words that `aw` has otherwise on purpose, and that is no exit status, has a test of its own there; and each
 test of today's options' rules in `tests/unit/test_justfile.py` has a twin there by its name.
+`tests/unit/test_aw_cli_inverse.py` holds the printer: for every verb, its words, each option alone and beside them and
+each pair of options the rules allow come back from the line through the parser and the one check, and no verb or
+option lacks such a case; every example of the contract that `aw` takes comes back from its line, before today's habits
+and after; an awkward value, an empty one and a name that starts with a digit survive `/bin/sh`; a value of free text
+is never said back from values no run took; a value the check refuses is never printed; and, by a scan of their
+syntax, that no other module of the new engine's subpackages builds a command.
 
 ## 16.4 `engine/` — the workflows, one module a verb
 
