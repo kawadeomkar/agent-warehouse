@@ -994,6 +994,22 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       left as it is, so that a refused run's refusal is never lost to a traceback. Removed with the lock still open,
       NFS keeps the folder.
     - `tests/unit/test_aw_job.py` holds it, each state made by a run in a child process, with a scan of `runs/`.
+- **Every process a run starts carries the job's marker, but a shared SSH master; no child is handed a lock.** Read
+  [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
+    - A child of the new engine is started by `lib/claude_vm/runs/children.py`'s `start`, or by the SSH runner, which
+      marks its children with `children.env` and enters them with `register`: never another `Popen`,
+      `create_subprocess_exec` or any other of Python's ways. `start` gives the child `AGENT_WAREHOUSE_JOB`, the job's
+      ID, whatever environment it is handed, and takes it from a shared master, which other runs may ride after this
+      one ends; a process group or a session of its own; SIGINT, SIGTERM, SIGHUP and SIGQUIT at their defaults and
+      unblocked, since a run started under `nohup` ignores SIGINT; and standard input named, `/dev/null` in a session.
+    - Every descriptor is closed in a child but its standard streams and those `pass_fds` names, which is how a pipe
+      goes over on purpose; one of a lock the run holds, or a duplicate of it, is refused by the lock's name before
+      anything starts, since a child that held it would keep it past the run. A module of `runs/` that takes a lock
+      gives `children.HOLDERS` a function that lists them. Never `close_fds=False`, and never a fork with no exec
+      (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method of `multiprocessing`): a forked child keeps every lock
+      until it execs. `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+    - `tests/unit/test_aw_children.py` holds it, with real children that report what they were given, and scans of the
+      new engine's code for each rule.
 
 ## Architecture, and why it looks like this
 

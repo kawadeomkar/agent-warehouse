@@ -490,6 +490,36 @@ a folder with no record is no job. Removed while the lock file is still open, th
 NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each state made by a run in a child process: a
 SIGKILL reads `lost` with nothing written after it, and a child that outlives its killed run holds no lock.
 
+**A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
+name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `env(base, job)`
+is a copy of `base` with it, for the SSH runner, which starts its own children; `unmarked(env)` takes it away, for the
+one kind of child that must not carry it, a shared SSH master, which other runs may ride after this one ends. Only the
+process that made a job marks a child with it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
+is the one way the rest of the engine starts a child, a coroutine over asyncio's own:
+
+- `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
+  session of its own, its standard input `/dev/null`. Standard input is always named: a child in a group of its own
+  that read the terminal would be stopped, and one in a session of its own would take what the person types.
+- The child gets the marker whatever environment it is handed, and a master loses it. Before it runs, SIGINT, SIGTERM,
+  SIGHUP and SIGQUIT are put back to their defaults and unblocked: a process starts with what its parent ignored still
+  ignored, and a run started under `nohup` or with `&` ignores SIGINT.
+- Every descriptor is closed in the child but its standard streams and those `pass_fds` names, which is how a pipe is
+  handed over on purpose. A descriptor of one of the run's locks, or any duplicate of one (the same file), is refused
+  with the lock's name before anything starts: the kernel lets a lock go only once every descriptor of it is closed,
+  so a child that held one would keep it past its run's end. The locks are read from `HOLDERS`, one function of each
+  module of `runs/` that takes a lock, which gives the descriptors it holds them by.
+- The kinds are `ssh`, the SSH runner's bounded and held children, a forward among them; `ansible`, layer 1's
+  `ansible-playbook`; `program`, a program of the computer's own (`rsync`, an opener, the editor); and `master`.
+
+The children a run started are kept by kind, in memory, for the run's end: `start` enters each, `register(job, kind,
+process)` enters one a module started itself (the SSH runner's, through its `started` callback), and `live(job,
+kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever ends one.
+Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
+children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
+started only through this module and the SSH runner, by any of Python's ways; `close_fds=False` appears nowhere; no
+process is forked without an exec (`os.fork`, `os.forkpty`, `pty.fork`, a `fork` start method or context), since a
+forked child keeps every lock until it execs; and `pass_fds` and `set_inheritable(..., True)` appear only in `start`.
+
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
 `lib/claude_vm/fleet/` is where a fleet's files and its state go. `paths.py`, below, says where they are; the hosts as
