@@ -1215,7 +1215,12 @@ if apt fails to resolve a mirror, that is the machine, not the change.
   anything is signalled (`lib/claude_vm/proc.py`), as `harness._end` and a part's second Ctrl-C
   (`lib/claude_vm/ansible/parts.py`) do; every pytest process takes SIGTERM and SIGHUP as a Ctrl-C, once
   (`tests/unit/interrupts.py`). `test_processes.py` holds all three, under xdist too
-  ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)).
+  ([§11.1](docs/architecture/testing.md#111-unit--just-test-unit)). The new engine's run ends its own tree with
+  `proc.end_under`, which signals everything under a process and what was remembered of it, and never the process, its
+  group or the caller's: `lib/claude_vm/runs/attached.py`'s ladder, on Ctrl-C, a hangup, a kill and an error, before
+  its loop closes, since asyncio kills an `ansible-playbook` it still holds and leaves its task workers
+  ([§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run));
+  `tests/unit/test_aw_attached.py` holds it.
 - **A scenario's container is still booting when Molecule's create returns.** The boot empties `/tmp`
   (`systemd-tmpfiles-setup.service`, from `D /tmp` in the image's `tmp.conf`), where a module's payload is unpacked
   and read from while it runs: on a busy CI round five scenarios failed at their first fact gathering,

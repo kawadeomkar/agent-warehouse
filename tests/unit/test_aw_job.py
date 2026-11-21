@@ -43,8 +43,10 @@ RUNS = LIB / "claude_vm" / "runs"
 SECRET = "unit-test-aw-job-secret"
 
 # The modules of runs/ that may import claude_vm.proc, the walk of the process table, each with why: to end a run's
-# tree, never to decide a state. Empty until a card needs one (C4's runs/attached.py, which ends the tree on Ctrl-C).
-PROCESS_TABLE: dict[str, str] = {}
+# tree, never to decide a state.
+PROCESS_TABLE: dict[str, str] = {
+    "claude_vm/runs/attached.py": "a run's end: the tree under the run remembered at a Ctrl-C, and ended by end_under",
+}
 # What reads a process's start or the process table, in any module of runs/: ps's start column, Linux's /proc, a
 # library of processes, today's MCP jobs' reading of a start (mcp/jobs.py's started, desktop.py's PS_ENV), a pidfd.
 READS_A_PROCESS = re.compile(r"lstart|/proc\b|\bpsutil\b|\bPS_ENV\b|\bpidfd")
@@ -427,7 +429,6 @@ def test_a_listener_hears_each_event_in_order_and_the_record_keeps_what_an_agent
         "text": "Approve the sign-in in your browser",
         "since": waiting["since"],
     }
-    made.emit("child", "alpha", "ansible-playbook")
     made.emit("next", "alpha", "aw login alpha --only claude", matter="claude")
     made.emit("stage", "alpha", "configure")
     made.emit("waiting", "alpha", "")
@@ -443,7 +444,7 @@ def test_a_listener_hears_each_event_in_order_and_the_record_keeps_what_an_agent
     made.emit("end", "beta", "the clone failed", outcome="failed", stage="provision")
     made.emit("report", None, "alpha is ready")
     made.emit("end", None, "one machine failed", outcome="failed", exit=1)
-    kinds = ["stage", "step", "waiting", "child", "next", "stage", "waiting", "next", "next", "next", "end", "end"]
+    kinds = ["stage", "step", "waiting", "next", "stage", "waiting", "next", "next", "next", "end", "end"]
     kinds += ["report", "end"]
     assert [event.kind for who, event in heard if who == "view"] == kinds
     # Each event to each listener, in the order they registered.
@@ -518,6 +519,8 @@ def test_a_secret_given_to_emit_raises_and_nothing_is_written_or_heard(made, eve
     ("kind", "machine", "data", "said"),
     [
         ("progress", "alpha", {}, "no kind of event"),
+        # A child the run started is its registry's, never an event (runs/children.py).
+        ("child", "alpha", {}, "no kind of event"),
         ("end", "alpha", {}, "outcome"),
         ("end", "alpha", {"outcome": "lost"}, "outcome"),
         ("end", None, {"outcome": "failed"}, "exit status"),

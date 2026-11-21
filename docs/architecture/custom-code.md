@@ -909,7 +909,9 @@ is drawn as one run, its parts in turn:
   prints, each process with its start, so a pid another process has by then is left alone), since one in a
   session of its own - ansible-core's task worker, detached by `WorkerProcess._detach`; a nested run's part -
   outlives the group, and a child that ended at the first leaves them under PID 1 or a subreaper, where no walk
-  from it finds them. SIGTERM or SIGHUP - a kill, a timeout, the tab closing - is sent on to the child's session,
+  from it finds them; `proc.end_under`, which ends what is under a process and never the process, is the new engine's
+  ([§16.8](engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run)), and nothing of today's product
+  calls it. SIGTERM or SIGHUP - a kill, a timeout, the tab closing - is sent on to the child's session,
   which no terminal signals, and to everything under it, since a playbook sends its task worker a SIGTERM on but
   not a SIGHUP, which would leave the worker behind; the region goes,
   the echo comes back, the state is saved said stopped, and the part dies of the same signal. A child a signal ended
