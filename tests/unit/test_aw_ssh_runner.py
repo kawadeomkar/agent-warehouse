@@ -418,6 +418,10 @@ def test_a_first_use_takes_the_key_into_its_scratch_file_under_the_identity_and_
         [str(scratch)],
         [IDENTITY],
     )
+    # A connection of its own: a master of the identity and the address that still lives would carry it, and ssh would
+    # write no key. ControlPath=none is no socket at all, which ssh -G leaves unsaid.
+    assert [word for word in options if word.startswith("ControlPath=")] == ["ControlPath=none"]
+    assert "controlpath" not in shown
 
 
 @pytest.mark.parametrize("kept", ["~/.ssh/agent-warehouse.known_hosts", "~/.ssh/known_hosts", "~/.ssh/known_hosts2"])

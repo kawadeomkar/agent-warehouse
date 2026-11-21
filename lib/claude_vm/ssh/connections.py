@@ -1,0 +1,394 @@
+"""The one shared control directory, and the route to a host's machines: through the Proxmox host's sshd, or straight
+to each machine's address (docs/architecture/engine.md §16.6).
+
+Every shared connection - a machine's master and the hop's - lives in one control directory that every run on the
+computer shares: Ansible's own (`fleet/paths.py`'s `control_dir()`, `~/.ansible/cp`), which today's hop and `just
+status` write already, short, the account's alone and outside every repository. It is given to `Connections`, made once
+a run, as an argument, so that a test gives one of its own. A machine's socket is named by `checks.vm_control_name`
+from its identity, its address and its hop, so that a machine that reports a sibling's address never rides the
+sibling's master, on which no host key is checked again, and two hosts with one VM range never share one; its path is
+held to `route.SOCKET_MOST` by the runner's `Target`.
+
+Three rules hold every master here. A master is opened only by `ensure`, or by `route.py` for the hop (`ensure_hop`),
+and `ensure` starts it with `children.MASTER`, the one kind of child that carries no job's marker, in a session of its
+own: other runs may ride it after this one ends, and nothing that ends a run's children by its marker may end it. No
+run ever ends a master, the hop's or a machine's: it ends by itself, `PERSIST` after its last client, as today's do;
+two runs never ride one machine's master at once, since each holds that machine's lock (`runs/locks.py`). And no `-O
+exit` is ever sent, which would cut another run's sessions, nor `-O stop` but where `route.py` sends it for the hop.
+`ensure` never opens a master for a first use: its key is not filed yet, and a master opened then would carry later
+runs with no key checked; a first use is a connection of its own (`ControlPath=none`, the runner's). `first_use` makes
+a machine's Target one where the product's file holds no key for its identity, its scratch file fresh in the run's own
+directory: what a changing verb's first connection to a machine calls, and `status`, which takes no key, never.
+
+The route is `route.py`'s, called as it stands: `route` settles it by today's rule, `target_for` gives a machine the
+hop's `ProxyCommand` to its own address (`-W <address>:%p`) unless it brings a jump of its own, `held` asks the
+machine's own `ssh` which proxy it would take and refuses any other before anything connects, and `ensure_hop` makes
+sure of the hop's shared connection. Nothing here ever dials a machine where the rule goes through the host. Until the
+engine settles its route once a run and holds every connection to it, `direct_only` refuses every settled route but
+`direct`.
+
+Standard library only; asyncio is imported inside the coroutines that start a child.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import dataclasses
+import os
+import shlex
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import IO, TYPE_CHECKING
+
+from claude_vm import route, text
+from claude_vm.fleet import paths
+from claude_vm.runs import children, rundir
+from claude_vm.ssh import hostkeys, runner
+
+if TYPE_CHECKING:
+    from claude_vm.runs.job import Job
+
+# How long a machine's master lives past its last client: today's, ansible.cfg's ControlPersist for a VM. The hop's is
+# route.py's own (route.PERSIST).
+PERSIST = "60s"
+# What a master opened beside a live one says as it goes on as a connection of its own: it is ended then, as route.py
+# ends the hop's.
+ALREADY = "already exists, disabling multiplexing"
+# What -O check says of a socket file that nothing listens at: removed before the open, never one whose check ran out
+# its time.
+DEAD = "Connection refused"
+# How often a child that has not ended is looked at, in seconds, and the most of its output that is kept.
+POLL = 0.05
+MOST = 64 * 1024
+# What direct_only says after where the VMs are reached: the route through the Proxmox host is not built yet.
+NOT_BUILT = (
+    "and the new engine does not reach a VM through the Proxmox host yet, nor ever dials one that route would take:"
+    " nothing was dialled. Set vm_ssh_route: direct where this computer reaches the VMs' network."
+)
+
+
+class NotBuilt(runner.Refused):
+    """A settled route that is not direct, before the engine holds its connections to one: nothing was dialled."""
+
+
+class Unheld(runner.Refused):
+    """A machine whose own ssh would not go where the route says: nothing connected to it."""
+
+
+class Unusable(Exception):
+    """The hop through the Proxmox host cannot be used: the sentence says why, and what to change."""
+
+
+@dataclasses.dataclass(frozen=True)
+class Master:
+    """A master made sure of: `ok` where one answers at its socket, `opened` where this call opened it, and `said`,
+    why not, plain, where none answers."""
+
+    ok: bool
+    opened: bool
+    said: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _Ended:
+    status: int | None
+    said: str
+    out: str
+    killed: bool
+
+
+def socket_path(target: runner.Target) -> Path:
+    """Where a machine's master listens: the shared directory, its control name, and ssh's -%r-%p made of its account
+    and port, as the runner names it."""
+    if target.is_host:
+        raise runner.Refused("the Proxmox host's socket is the hop's, which route.hop_settings names")
+    return target.control_dir / f"{runner._control_name(target)}-{target.account}-{target.port}"
+
+
+def first_use(job: Job, target: runner.Target) -> runner.Target:
+    """target as its run's first use where the known-hosts file it names, the product's, holds no key under its
+    identity (hostkeys.kept): its key then taken on a connection of its own into a fresh scratch file in the run's own
+    directory (rundir.made), never by its address; target as it is where a key is filed. What a changing verb's first
+    connection to a machine calls, and status, which takes no key, never. The caller files the key it took
+    (hostkeys.taken, then hostkeys.file), and only then makes sure of the machine's master (ensure)."""
+    if not isinstance(target, runner.Target) or target.is_host or target.first_use:
+        raise runner.Refused("a first use is decided for a machine's Target that checks the product's known-hosts file")
+    if hostkeys.kept(target.known_hosts, str(target.identity)):
+        return target
+    directory = rundir.made(job)
+    if directory is None:
+        raise runner.Refused(f"job {job.id} has no run directory, where a first use's scratch file goes: rundir.make")
+    scratch = hostkeys.fresh(directory, str(target.identity))
+    return dataclasses.replace(target, known_hosts=scratch, first_use=True)
+
+
+def direct_only(settled: Mapping[str, object]) -> None:
+    """NotBuilt for every settled route but direct, by name, with the sentence that names vm_ssh_route: direct: what
+    the engine's workflows call before their first connection to a machine until the route is settled once a run and
+    every connection held to it. Starts nothing."""
+    if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
+        raise runner.Refused("a settled route is what Connections.route returns")
+    if settled["route"] == "direct":
+        return
+    hop = settled.get("hop")
+    label = hop.get("label") if isinstance(hop, Mapping) else None
+    where = f"through {label}" if label else "through the Proxmox host"
+    raise NotBuilt(f"VMs are reached {where} (vm_ssh_route: {settled.get('setting', 'auto')}), {NOT_BUILT}")
+
+
+def _read(stream: IO[bytes]) -> str:
+    # pread, which moves no offset: ssh writes through the same open file.
+    return os.pread(stream.fileno(), MOST, 0).decode("utf-8", "replace")
+
+
+def _shown(lines: str) -> str:
+    """The jump ssh -G shows, as `Option value`: its ProxyJump, else a ProxyCommand that is not none; "" for none."""
+    shown = {}
+    for line in lines.splitlines():
+        word, _, value = line.strip().partition(" ")
+        if word.lower() in ("proxycommand", "proxyjump"):
+            shown[word.lower()] = value.strip()
+    if shown.get("proxyjump", "none").lower() != "none":
+        return f"ProxyJump {shown['proxyjump']}"
+    if shown.get("proxycommand", "none").lower() != "none":
+        return f"ProxyCommand {shown['proxycommand']}"
+    return ""
+
+
+class Connections:
+    """A run's connections: the one shared control directory, and the environment its children are started with.
+    Made once a run."""
+
+    def __init__(self, control_dir: Path | str, env: Mapping[str, str]) -> None:
+        self.control_dir = runner._directory(control_dir)
+        if not isinstance(env, Mapping):
+            raise runner.Refused("a run's environment is a mapping of names to values")
+        self.env = dict(env)
+        # What each machine's own ssh configuration gives it, read once a run: its jump, or "".
+        self._configured: dict[tuple[object, ...], str] = {}
+
+    direct_only = staticmethod(direct_only)
+
+    def _own(self, target: runner.Target) -> None:
+        if not isinstance(target, runner.Target):
+            raise runner.Refused("a connection is made from a runner.Target")
+        if target.control_dir != self.control_dir:
+            raise runner.Refused(
+                f"every shared connection lives in the run's one control directory, {self.control_dir}, and this"
+                f" target names {target.control_dir}"
+            )
+
+    # ------------------------------------------------------------ the route ----
+
+    def route(self, setting: str, host: runner.Target, *, jump: str = "", name: str = "") -> dict:
+        """The run's route to host's machines, `{route, setting, hop, policy, addresses}` as route.py's callers keep
+        it: route.hop_settings of the Proxmox host's own Target - its account, or the account `jump` (vm_ssh_jump)
+        names, its port, key and ssh, its socket in the shared directory, labelled with the host's `name` - and
+        route.route_settle's answer for `setting`. route.HopRefused, as it is, for a setting of the hop that is not one
+        plain word, which names vm_ssh_route: direct; under auto, only where the rule would go through the host."""
+        self._own(host)
+        if not host.is_host:
+            raise runner.Refused("the route is settled for the Proxmox host's own Target (runner.proxmox_host)")
+        setting = "auto" if setting in (None, "") else setting
+        if setting not in route.ROUTES:
+            raise runner.Refused(f"vm_ssh_route is one of {', '.join(route.ROUTES)}, not {setting!r}")
+        # The hop's host key is the Proxmox host's own, taken at first use into the person's own known_hosts.
+        none = {"route": "direct", "setting": setting, "hop": {}, "policy": runner._policy(host), "addresses": []}
+        if setting == "direct":
+            return none
+        try:
+            account = route.account(jump)
+            hop = route.hop_settings(
+                ssh=host.ssh,
+                user=account or host.account,
+                host=host.address,
+                port=host.port,
+                key=str(host.identity_file or ""),
+                control_dir=str(self.control_dir),
+                name=name,
+            )
+        except route.HopRefused:
+            # Under auto, a hop that could not be made matters only where the rule would go through it.
+            if setting == "auto" and route.route_rule("auto", route.addresses_of(host.address)) == "direct":
+                return none
+            raise
+        settled = route.route_settle(setting, hop)
+        if settled["route"] != "host":
+            return {**none, "addresses": settled["addresses"]}
+        return {**none, "route": "host", "hop": hop, "addresses": settled["addresses"]}
+
+    def ensure_hop(self, settled: Mapping[str, object]) -> Master:
+        """The hop's shared connection made sure of, route.hop_held as it stands: `-O check` first, a dead socket file
+        removed, the open of its master or nothing. Unusable, with route.login_said's sentence, where it cannot be
+        made: the run stops, and nothing dials a machine. Nothing to make sure of where the route is direct. route.py
+        starts the hop's ssh with this process's own environment, which carries no job's marker: a run marks only its
+        children (children.start)."""
+        if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
+            raise runner.Refused("a settled route is what Connections.route returns")
+        if settled["route"] != "host":
+            return Master(ok=True, opened=False, said="")
+        hop = settled["hop"]
+        if not isinstance(hop, Mapping) or os.path.dirname(str(hop.get("socket"))) != str(self.control_dir):
+            raise runner.Refused(f"the hop's socket lives in the run's one control directory, {self.control_dir}")
+        held = route.hop_held(dict(hop), str(settled["policy"]))
+        if not held["ok"]:
+            raise Unusable(route.login_said(dict(settled), held["said"]))
+        return Master(ok=True, opened=bool(held["opened"]), said="")
+
+    # ------------------------------------------------------------ a machine's target ----
+
+    async def target_for(
+        self,
+        job: Job,
+        machine: runner.Target,
+        settled: Mapping[str, object],
+        given: Mapping[str, str] | Sequence[tuple[str, str]] = (),
+    ) -> runner.Target:
+        """machine's Target for the settled route, with the person's own options for it (`given`, vm_ssh_options): the
+        hop's ProxyCommand to its own address where the route goes through the host (route.vm_hop), and none where it
+        is direct or where the machine brings a jump of its own - a ProxyJump, a -J or a ProxyCommand other than none
+        in `given`, or in what ssh -G resolves for its address from the person's own ~/.ssh/config, read once a run for
+        each machine. `machine` is a machine's Target with neither a hop nor options of its own: they are given here."""
+        self._own(machine)
+        if machine.is_host or machine.hop is not None or machine.given:
+            raise runner.Refused("target_for takes a machine's Target with no hop and no vm_ssh_options: it gives both")
+        if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
+            raise runner.Refused("a settled route is what Connections.route returns")
+        pairs = tuple(given.items()) if isinstance(given, Mapping) else tuple(given)
+        candidate = dataclasses.replace(machine, given=pairs)
+        if settled["route"] != "host":
+            return candidate
+        found = route.vm_hop(dict(settled), candidate.address, runner.given_words(candidate))
+        if found["jump"] or await self._configured_jump(job, candidate):
+            return candidate
+        [_, option] = shlex.split(found["option"])
+        return dataclasses.replace(candidate, hop=runner.Hop(option.removeprefix("ProxyCommand="), found["name"]))
+
+    def _key(self, target: runner.Target) -> tuple[object, ...]:
+        return (target.ssh, target.address, target.account, target.port, target.given)
+
+    async def _configured_jump(self, job: Job, target: runner.Target) -> str:
+        """The jump the person's own ssh configuration gives target's address, as ssh -G resolves it with the person's
+        own options for it on the line, -l and -p: read once a run for each machine. runner.Refused, with ssh's words,
+        where ssh could not read it: the connection would read the same configuration."""
+        key = self._key(target)
+        if key not in self._configured:
+            words = [target.ssh, "-G", *runner.given_words(target), "-l", target.account, "-p", str(target.port)]
+            ended = await self._child(job, [*words, "--", target.address], route.LIMITS["config"])
+            if ended.status != 0:
+                why = ended.said or (f"no answer within {route.LIMITS['config']} s" if ended.killed else "")
+                raise runner.Refused(
+                    f"ssh -G could not read your ssh configuration for {target.address}: "
+                    f"{why or f'it exited {ended.status}'}"
+                )
+            self._configured[key] = _shown(ended.out)
+        return self._configured[key]
+
+    def held(self, target: runner.Target, settled: Mapping[str, object]) -> None:
+        """Unheld where target's own ssh, asked with its whole line and no configuration file (route.ssh_shown, -G -F
+        /dev/null), would not go where the route says: through the host, the hop's command word for word to its own
+        address and nothing else; with a jump of its own, that jump - on the line, or where only the person's own
+        configuration gives it, as target_for read it this run. Under direct, a target that takes the hop. Asked before
+        anything connects to it; nothing is dialled here."""
+        self._own(target)
+        if target.is_host:
+            raise runner.Refused("the Proxmox host is the hop: held asks a machine's ssh")
+        if not isinstance(settled, Mapping) or settled.get("route") not in route.ROUTES:
+            raise runner.Refused("a settled route is what Connections.route returns")
+        name = f"{target.identity} at {target.address}"
+        if settled["route"] != "host":
+            if target.hop is not None:
+                raise Unheld(f"{name} takes the hop through the Proxmox host, where the route is direct")
+            return
+        takes_hop = target.hop is not None
+        words = [*runner.options(target), "-l", target.account, "-p", str(target.port), "--"]
+        shown = route.ssh_shown(target.ssh, words, target.address)
+        why = route.vm_route_refusal(dict(settled), target.address, takes_hop, shown)
+        if why and shown["ok"] and not takes_hop and self._configured.get(self._key(target)):
+            # The jump is the person's own configuration's, which the line does not name and so cannot outrank.
+            why = ""
+        if why:
+            hop = settled["hop"]
+            label = hop.get("label") if isinstance(hop, Mapping) else "the Proxmox host"
+            raise Unheld(
+                f"VMs are reached through {label}, and {name}: {why}. Nothing was dialled: give a jump of your own in"
+                " vm_ssh_options, or set vm_ssh_route: direct."
+            )
+
+    # ------------------------------------------------------------ a machine's master ----
+
+    async def ensure(self, job: Job, target: runner.Target) -> Master:
+        """target's master made sure of before anything rides it: `-O check` on its socket; where nothing answers, a
+        socket file that nothing listens at removed, and the master opened - `ControlMaster=yes`, `ControlPersist`,
+        `-N` and the rest of the runner's options - in a session of its own and without the job's marker
+        (`children.MASTER`), once, and checked once more. Never for a first use, whose key is not filed yet: a master
+        opened then would carry later runs with no key checked. A machine through the hop rides the hop's master, made
+        sure of first (ensure_hop). Nothing here ends a master."""
+        self._own(target)
+        if target.is_host:
+            raise runner.Refused("the Proxmox host's master is the hop's: ensure_hop")
+        if target.first_use:
+            raise runner.Refused(
+                "a first use is a connection of its own: no master is opened for a machine until its key is filed"
+            )
+        socket = socket_path(target)
+        place = ["-l", target.account, "-p", str(target.port), "--", target.address]
+        check = [target.ssh, *runner.options(target), "-O", "check", *place]
+        try:
+            # Ansible's control directory, as Ansible and route.py make it: 0700, its owner's alone.
+            os.makedirs(self.control_dir, mode=paths.DIR_MODE, exist_ok=True)
+        except OSError as error:
+            return Master(False, False, f"the control directory {self.control_dir}: {error.strerror or error}")
+        checked = await self._child(job, check, route.LIMITS["check"])
+        if checked.status == 0:
+            return Master(True, False, "")
+        if not checked.killed and DEAD in checked.said:
+            try:
+                socket.unlink()
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                return Master(False, False, f"{socket}: {error.strerror or error}")
+        options = runner.options(target)
+        at = options.index("ControlMaster=no")
+        options[at : at + 1] = ["ControlMaster=yes", "-o", f"ControlPersist={PERSIST}"]
+        opened = await self._child(
+            job, [target.ssh, *options, "-N", *place], route.LIMITS["open"], master=True, until=ALREADY
+        )
+        if (await self._child(job, check, route.LIMITS["check"])).status == 0:
+            return Master(True, opened.status == 0, "")
+        said = (
+            opened.said
+            or (f"no answer within {route.LIMITS['open']} s" if opened.killed else "")
+            or f"no connection answered at {socket} after ssh made one there (it exited {opened.status})"
+        )
+        return Master(False, False, said)
+
+    async def _child(self, job: Job, argv: list[str], limit: float, *, master: bool = False, until: str = "") -> _Ended:
+        """argv run as a child of job's run under a hard limit: an ssh of the runner's kind in a group of its own, or,
+        for a master, the one kind with no marker, in a session of its own. Its standard input /dev/null, its output and
+        standard error kept in files, so that a master or a ProxyCommand that keeps them open never holds a pipe; its
+        group killed at `limit` seconds, or once its standard error holds `until`. A master leaves that group as it goes
+        to the background, so nothing that is killed here is a master."""
+        import asyncio
+        import tempfile
+
+        with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as errors:
+            own, kind = (children.SESSION, children.MASTER) if master else (children.GROUP, children.SSH)
+            process = await children.start(job, argv, own, self.env, asyncio.subprocess.DEVNULL, out, errors, kind)
+            killed = False
+            try:
+                loop = asyncio.get_running_loop()
+                end = loop.time() + limit
+                while process.returncode is None:
+                    left = end - loop.time()
+                    if left <= 0 or (until and until in _read(errors)):
+                        killed = True
+                        break
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(process.wait(), min(POLL, left))
+            finally:
+                runner._kill(process)
+                await process.wait()
+            said = text.plain_text(_read(errors)).replace("\r", "").strip()
+            return _Ended(None if killed else process.returncode, said, _read(out), killed)

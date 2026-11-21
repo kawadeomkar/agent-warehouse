@@ -517,6 +517,15 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       scenarios' vars and the Vagrantfile: `auto` would ask this machine's ssh, through the developer's own config,
       where it dials a test's host. `test_vm_route.py` reads back what each writes and fails if one stops; a test of
       the route sets its own, its sockets in a directory of the test's.
+    - The new engine calls `route.py` as it stands (`lib/claude_vm/ssh/connections.py`) and keeps every shared master, a
+      machine's and the hop's, in the one control directory every run shares (`fleet/paths.py`'s `control_dir()`,
+      Ansible's `~/.ansible/cp`). No master it opens carries a job's marker: a machine's is opened only by `ensure`, as
+      `children.MASTER` in a session of its own, and never for a first use (`first_use`: no key filed under the
+      identity), which is a connection of its own (`ControlPath=none`) until its key is filed; the hop's only by
+      `route.py`, with the engine's own environment, which a run never marks. No run ends a master, the engine sends no
+      control command but `-O check`, and nothing in `ssh/` tries a connection again. Until the engine settles its route
+      once a run, `direct_only` refuses every settled route but `direct`, naming `vm_ssh_route: direct`.
+      `tests/unit/test_aw_ssh_connections.py` holds it, the rules by scans.
 - **`just code` writes in one directory of its own on the VM, the session copies, the rest of Claude Code it
   carries and one fast-forward aside, and never answers VS Code's, Zed's or Claude Code's security questions.** Read
   [§4.9](docs/architecture/lifecycle.md#49-playbookscodeyml),
@@ -1088,7 +1097,8 @@ if apt fails to resolve a mirror, that is the machine, not the change.
     - `tests/unit/test_aw_ssh_runner.py` holds it against a stand-in `ssh` that records its words, environment and
       standard input, with this machine's `ssh -G -F /dev/null` for the values the options hold, and scans: a child
       named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a machine's value but its
-      address; `accept-new` only in its two forms; no `ControlMaster` but `no`.
+      address; `accept-new` only in its two forms; no `ControlMaster` but `no` in the runner, whose first use rides no
+      master (`ControlPath=none`).
 
 ## Architecture, and why it looks like this
 
