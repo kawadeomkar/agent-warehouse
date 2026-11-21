@@ -98,11 +98,13 @@ def test_vs_code_is_named_outside_its_own_files_no_more_than_it_is_now() -> None
     _held(_lines_naming(VSCODE_TERMS, VSCODE_OWN, VSCODE_PROMISED), VSCODE_ELSEWHERE, "VS Code")
 
 
-# Proxmox's own: its two roles, its filters and the script just init runs on the host as root. Anywhere else, a line
-# that names its API's settings, its collection or its raw cluster listing reads Proxmox directly - the reads a
-# second hypervisor would have to be put behind (docs/architecture/decisions.md §15.4).
+# Proxmox's own: its two roles, its filters, the script just init runs on the host as root, and the new engine's
+# subpackage of Proxmox's API, lib/claude_vm/pve/. Anywhere else, a line that names its API's settings, its collection
+# or its raw cluster listing reads Proxmox directly - the reads a second hypervisor would have to be put behind
+# (docs/architecture/decisions.md §15.4).
 PROXMOX_OWN = re.compile(
-    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$|tools/proxmox-access\.sh$)"
+    r"^(roles/proxmox_vm/|roles/proxmox_template/|filter_plugins/proxmox\.py$|lib/claude_vm/proxmox\.py$"
+    r"|tools/proxmox-access\.sh$|lib/claude_vm/pve/)"
 )
 # From 2.6 every request to the API checks its certificate by one value, proxmox_api_validate, against
 # proxmox_api_ca_path (custom-code.md §7.16): each validate_certs line read proxmox_validate_certs before, which named

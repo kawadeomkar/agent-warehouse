@@ -974,6 +974,21 @@ if apt fails to resolve a mirror, that is the machine, not the change.
       context, so one made elsewhere could check nothing.
     - `tests/unit/test_aw_transport.py` holds the transport and the proxy, and `tests/unit/test_aw_vendor_trust.py`
       the vendors' trust and `CONTEXTS`.
+- **One class sends the Proxmox token, on a connection whose certificate verified.** Read
+  [§16.5](docs/architecture/engine.md#165-pve--the-typed-proxmox-client-and-the-one-table-of-privileges) first.
+    - `lib/claude_vm/pve/client.py`'s `Proxmox` is the only place of the new engine that writes the `PVEAPIToken`
+      header: the engine's one `Token`, its secret a `Secret`, handed to the transport as parts and revealed there. No
+      method returns it, and no error says it.
+    - It goes only on `lib/claude_vm/pve/pin.py`'s connection: the host's anchor alone where it keeps one, made by
+      today's `trust.anchored_context` (strict, a partial chain, the name checked, on every Python), else the
+      computer's one certificate file (`lib/claude_vm/vendors/trust.py`); and where the anchor is the node's own
+      certificate, its recorded fingerprint checked through `peer_check` before a byte is written. A certificate that
+      is not what the host keeps is `Unverified` (with no anchor, the transport's `Untrusted`), and nothing was sent.
+    - The first request is `GET /version`: a host below Proxmox VE 9 is refused before any other. A 401 or a 403 is
+      `Denied` by its status alone, never by its words; a 3xx is an answer, never followed. A listing's status is never
+      read for what the same run changed: `current` reads the VM.
+    - `tests/unit/test_aw_pve_reads.py` holds it against the fake, with the rules that `PVEAPIToken` is named in one
+      module of the new engine, that no method returns the token and that no error says it.
 - **A job's state is derived from its record and its own kernel lock, never stored.** Read
   [§16.8](docs/architecture/engine.md#168-runs--a-runs-record-and-text-log-the-locks-a-detached-run) first.
     - Every run of the new engine is a job, `jobs/<id>/` in the state folder (`lib/claude_vm/runs/job.py`). `create`

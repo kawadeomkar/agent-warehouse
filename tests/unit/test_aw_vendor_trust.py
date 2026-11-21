@@ -6,8 +6,8 @@ Each server is a TLS server this test starts in its own process, on loopback, wi
 tests/unit/pki.py makes, and it is reached through the one transport, as the vendors' calls are. The interpreter's own
 store is the one the variables below change, a file (SSL_CERT_FILE) and a folder read by subject hash (SSL_CERT_DIR),
 which a context made here never reads: a root put in either and not in the file is refused, and the refusal names
-tls_ca_file. The rules at the end hold vendors/ to that, certifi to one importer, and the new engine to one maker of a
-TLS context.
+tls_ca_file. The rules at the end hold vendors/ to that, certifi to one importer, and the new engine to the makers of a
+TLS context CONTEXTS names, by what a module writes and by which of today's modules that make one it imports.
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 from harness import REPO, repo_files
 from pki import proxmox_pki
+from test_aw_layout import _imported, _module_files, _package, _reached, _reused_modules, _within
 from test_aw_transport import _imports, _new_engine, _rel
 
 from claude_vm.vendors import trust
@@ -46,11 +47,13 @@ DEFAULT_STORE = ("create_default_context", "load_default_certs", "set_default_ve
 # Every variable a client library or OpenSSL reads for a file of certificates: traps here, with SSL_CERT_DIR naming
 # their folder and SSLKEYLOGFILE a log of the session's keys.
 VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
-# The modules of the new engine that make a TLS context, give one roots or set its checks, each with why: the vendors'
-# context, made in one place; the Proxmox client's pin joins it (B2).
+# The modules of the new engine that make a TLS context, give one roots or set its checks, or import one of today's
+# modules that does, each with why: the vendors' context, made in one place; and the Proxmox client's pin.
 CONTEXTS: dict[str, str] = {
     "lib/claude_vm/vendors/trust.py": "the vendors' one context, made by hand from one certificate file, the server's"
     " name checked and a certificate required",
+    "lib/claude_vm/pve/pin.py": "the Proxmox client's context: the host's anchor alone, made by today's trust.py"
+    " (anchored_context), the one way a context is made from a certificate the host gave; else the vendors' one",
 }
 # What makes a TLS context or gives one roots, by any spelling but as a type; and the checks a context is loosened by.
 MAKERS = frozenset(
@@ -62,6 +65,13 @@ MAKERS = frozenset(
         "load_verify_locations",
     }
 )
+# Today's modules of lib/claude_vm/ that the new engine may import (test_aw_layout.py's REUSED) and that make a TLS
+# context, give one roots or set its checks, or import one that does, each with why: a module of the new engine that
+# imports one can have a context made where no name above is written, so it is one CONTEXTS names.
+TODAYS_CONTEXTS = {
+    "trust": "the certificate init keeps for the Proxmox API, tried in contexts made as the run's clients make theirs",
+    "status": "just status's engine, whose reads of the Proxmox API verify against the certificate kept, or not",
+}
 CHECKS = frozenset({"check_hostname", "verify_mode"})
 
 
@@ -389,10 +399,69 @@ def test_what_makes_a_tls_context_is_found_by_any_spelling(source, makes) -> Non
     assert bool(_makes_a_context(ast.parse(source))) is makes
 
 
+def _todays_making() -> set[str]:
+    """Each module of today's that the new engine reaches through REUSED and that names a maker or a check, or imports
+    one that does, all the way up."""
+    reached = sorted(_reached(_reused_modules()))
+    trees = {
+        module: (ast.parse(_module_files(module)[0].read_text()), _package(_module_files(module)[0]))
+        for module in reached
+    }
+    making = {module for module, (tree, _) in trees.items() if _makes_a_context(tree)}
+    grown = True
+    while grown:
+        grown = False
+        for module, (tree, package) in trees.items():
+            if module not in making and making & set(_imported(tree, package)):
+                making.add(module)
+                grown = True
+    return making
+
+
+def test_todays_contexts_names_every_module_of_today_that_makes_one() -> None:
+    making = _todays_making()
+    assert {"claude_vm.trust", "claude_vm.status.engine"} <= making, sorted(making)
+    assert sorted(module for module in making if not _within(module, TODAYS_CONTEXTS)) == []
+    assert [name for name in TODAYS_CONTEXTS if not any(_within(module, (name,)) for module in making)] == []
+    assert all(reason.strip() for reason in TODAYS_CONTEXTS.values())
+
+
+def _imports_todays_context(path: Path) -> list[str]:
+    """The modules of TODAYS_CONTEXTS a file of the new engine imports, relative imports resolved."""
+    tree = ast.parse(path.read_text())
+    return sorted(
+        {module for module in _imported(tree, _package(path), every=True) if _within(module, TODAYS_CONTEXTS)}
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "imports"),
+    [
+        ("from .. import trust", True),
+        ("from ..trust import _context as made", True),
+        ("import claude_vm.status.engine", True),
+        ("from ..status import engine", True),
+        ("importlib.import_module('claude_vm.trust')", True),
+        ("from ..vendors import trust", False),
+        ("from .. import proxmox", False),
+    ],
+)
+def test_an_import_of_todays_contexts_is_found_relative_or_whole(source, imports) -> None:
+    path = REPO / "lib" / "claude_vm" / "pve" / "probe.py"
+    assert _package(path) == "claude_vm.pve"
+    tree = ast.parse(source)
+    found = {module for module in _imported(tree, _package(path), every=True) if _within(module, TODAYS_CONTEXTS)}
+    assert bool(found) is imports
+
+
 def test_only_the_modules_contexts_names_make_a_tls_context() -> None:
-    """The vendors' context is trust.py's alone: no other module of the new engine makes one, gives one roots or loosens
-    one's checks, and hands it to the transport, which takes any context."""
-    making = {_rel(path): _makes_a_context(ast.parse(path.read_text())) for path in _new_engine()}
+    """The vendors' context is trust.py's alone, and the Proxmox client's pin.py's: no other module of the new engine
+    makes one, gives one roots or loosens one's checks, or imports one of today's that does, and hands it to the
+    transport, which takes any context."""
+    making = {
+        _rel(path): _makes_a_context(ast.parse(path.read_text())) + _imports_todays_context(path)
+        for path in _new_engine()
+    }
     assert {rel for rel, found in making.items() if found} == set(CONTEXTS), (
         "a module that makes a TLS context is named in CONTEXTS, with why: "
         f"{ {rel: found for rel, found in making.items() if found and rel not in CONTEXTS} }"

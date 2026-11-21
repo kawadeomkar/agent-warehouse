@@ -243,7 +243,10 @@ lib/claude_vm/cli/                aw, the program: the command line read against
                                   today's habits, deploy's question among them; before.py, RunWords, the run's own
                                   words; dispatch.py, a verb handed to its handler or refused
 lib/claude_vm/engine/             the workflows, one module a verb, in place of the playbooks
-lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege
+lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
+                                  Proxmox, the one class that sends the token, and its reads; answers.py, each read's
+                                  frozen record and its parsing function; pin.py, the connection the token goes on,
+                                  verified against the host's anchor or the computer's certificate file
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;

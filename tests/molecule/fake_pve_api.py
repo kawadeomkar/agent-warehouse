@@ -146,7 +146,13 @@ OK, with an empty log, as before.
 
 A HEAD is answered 501, as pveproxy answers it, token or not. PUT /api2/json/fake/tokenless?answer=none has every
 request with no token go unanswered from then on, the connection closed with nothing said: something answering in the
-host's place, which can tell the probes just init sends with no token from the request that carries one.
+host's place, which can tell the probes just init sends with no token from the request that carries one. PUT
+/api2/json/fake/redirect?location= has the next request that carries a token answered 302, to location, once: a
+client that followed it would carry the token there.
+
+GET /nodes/<node>/status answers a node's CPU threads, memory and uptime as Proxmox VE 9 does (NODE_STATS's figures,
+the shape read from the API's schema and not yet from a real host), to a token with Sys.Audit on /nodes/<node>, which
+PUT /api2/json/fake/privileges grants; to any other, 403, as Proxmox refuses it.
 
 Usage: fake_pve_api.py <port> <certfile> <keyfile> <state_dir> <expected_token_secret>
 """
@@ -347,6 +353,8 @@ STALE = {}
 # set them: {(token id, path): [privilege, ...]}.
 VERSION = {"version": "8.2.4"}
 TOKENLESS = {"answer": "401"}
+# Where the next requests that carry a token are redirected, one each: PUT /api2/json/fake/redirect?location=
+REDIRECT_NEXT = []
 PRIVILEGES = {}
 # Tokens granted the role on one pool alone, by token id: /cluster/resources lists that pool's members only.
 POOL_SCOPE = {}
@@ -630,6 +638,21 @@ def storage_resource(node, entry):
         "status": "available" if entry.get("active", 1) else "unknown",
         "shared": entry.get("shared", 0),
         "content": "images,rootdir",
+    }
+
+
+def node_status():
+    """GET /nodes/<node>/status, as Proxmox VE 9 answers it (the shape read from the API's schema, a draft until a real
+    host corrects it): NODE_STATS's threads, memory and uptime, the rest of its keys made up."""
+    total, used = NODE_STATS["maxmem"], NODE_STATS["mem"]
+    return {
+        "uptime": NODE_STATS["uptime"],
+        "cpu": NODE_STATS["cpu"],
+        "wait": 0,
+        "loadavg": ["0.50", "0.40", "0.30"],
+        "cpuinfo": {"cpus": NODE_STATS["maxcpu"], "cores": NODE_STATS["maxcpu"] // 2, "sockets": 1, "hvm": "1"},
+        "memory": {"total": total, "used": used, "free": total - used, "available": total - used},
+        "pveversion": f"pve-manager/{VERSION['version']}/fake",
     }
 
 
@@ -1013,6 +1036,16 @@ class Handler(BaseHTTPRequestHandler):
             # Not a PVE endpoint: a fixture's answer to a request with no token.
             TOKENLESS["answer"] = params["answer"]
             return self._reply(200, dict(TOKENLESS))
+        if parts[:2] == ["fake", "redirect"] and method == "PUT":
+            # Not a PVE endpoint: the next request that carries a token is sent elsewhere.
+            REDIRECT_NEXT.append(params["location"])
+            return self._reply(200, len(REDIRECT_NEXT))
+        if REDIRECT_NEXT:
+            self.send_response(302, "Found")
+            self.send_header("Location", REDIRECT_NEXT.pop(0))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return None
         if parts[:2] == ["fake", "version"] and method == "PUT":
             # Not a PVE endpoint: a fixture's Proxmox version.
             VERSION["version"] = params["version"]
@@ -1238,6 +1271,10 @@ class Handler(BaseHTTPRequestHandler):
         if parts[:1] != ["nodes"] or len(parts) < 2 or parts[1] not in (NODE, DOWN_NODE):
             return self._reply(404, None)
         node, rest = parts[1], parts[2:]
+        if rest == ["status"] and method == "GET":
+            if "Sys.Audit" not in privileges(token.group(2), f"/nodes/{node}"):
+                return self._reply(403, None, f"Permission check failed (/nodes/{node}, Sys.Audit)")
+            return self._reply(200, node_status())
         if rest == ["qemu"]:
             return self._reply(
                 200, [resource(vm) for vm in VMS.values() if vm["node"] == node and guest_type(vm) == "qemu"]

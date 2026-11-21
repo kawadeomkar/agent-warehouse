@@ -1,0 +1,623 @@
+"""The Proxmox client's reads (lib/claude_vm/pve/client.py, answers.py and pin.py; docs/architecture/engine.md §16.5).
+
+Every read goes to the fake Proxmox (tests/molecule/fake_pve_api.py) through harness.fake_fleet, serving a node's
+certificate that tests/unit/pki.py made, with the new engine's pool and its one token: the client sends nothing until
+the certificate verifies against what the host keeps - its anchor, the node's own certificate (with its fingerprint
+recorded) or its CA, or with no anchor the computer's one certificate file - and a certificate that is not what the
+host keeps leaves the fake's request log without one request of the client's. The first request is GET /version, and a
+host below 9 is refused before any other. A redirect is an answer; a 401 or a 403 is Denied by its status alone; a
+node that is down fails its own reads alone. The rules at the end hold the token to one class: PVEAPIToken is written
+in one module of the new engine, no method returns the token, and no error says it.
+"""
+
+from __future__ import annotations
+
+import ast
+import dataclasses
+import logging
+import ssl
+import types
+from pathlib import Path
+
+import pytest
+from harness import ENGINE_POOL, ENGINE_PRIVILEGES, ENGINE_TOKEN, REPO, _pve, _pve_requests, engine_token, fake_fleet
+from pki import proxmox_pki
+from test_aw_transport import _new_engine, _rel, _said, _Tunnel
+
+from claude_vm import proxmox, trust
+from claude_vm.pve import answers, pin
+from claude_vm.pve.client import Denied, Malformed, Proxmox, Refused, Token, TooOld, Unverified
+from claude_vm.secret import Secret
+from claude_vm.vendors import proxy
+from claude_vm.vendors.transport import Answer, NotMade, Untrusted
+
+# The module's two certificate authorities: the fake's, and one that signed nothing the fake shows. Cheap enough to make
+# again on each worker (tests/unit/conftest.py).
+EACH_WORKER = {"pki", "other_pki"}
+CLIENT = REPO / "lib" / "claude_vm" / "pve" / "client.py"
+# A token's secret no output may show: low in entropy, so that gitleaks takes it for no key.
+CANARY = "unit-test-pve-client-canary-value"
+GIB = 1024**3
+
+
+@pytest.fixture(scope="module")
+def pki(tmp_path_factory):
+    return proxmox_pki(tmp_path_factory.mktemp("pki"), key_usage=True)
+
+
+@pytest.fixture(scope="module")
+def other_pki(tmp_path_factory):
+    return proxmox_pki(tmp_path_factory.mktemp("other-pki"), key_usage=True, name="Another Test CA")
+
+
+@dataclasses.dataclass
+class Fleet:
+    """The fake at base, its state in directory, the engine's token, and the certificates it serves (pki)."""
+
+    base: str
+    directory: Path
+    token: Token
+    pki: dict
+
+    def asked(self) -> list[dict]:
+        """Every request the client sent the fake: those of its user agent, in order."""
+        return [entry for entry in _pve_requests(self.directory) if entry["agent"] == pin.USER_AGENT]
+
+    def paths(self) -> list[str]:
+        return [entry["path"].removeprefix("/api2/json/") for entry in self.asked()]
+
+    def client(self, pinned: pin.Pin | None = None, token: Token | None = None, **kwargs) -> Proxmox:
+        return Proxmox(self.base, pinned or pin.kept(self.pki["ca"]), token or self.token, **kwargs)
+
+
+def _fleet(directory: Path, served: dict, **kwargs):
+    for base in fake_fleet(directory, engine=True, certificate=(served["cert"], served["key"]), **kwargs):
+        token_id, secret = engine_token(directory)
+        yield Fleet(base, directory, Token(token_id, Secret(secret)), served)
+
+
+@pytest.fixture
+def fleet(tmp_path, pki):
+    yield from _fleet(tmp_path, pki)
+
+
+def _members(fleet: Fleet, *vmids: int) -> None:
+    """vmids made members of the engine's pool, as init's migration or a clone into it makes them."""
+    _pve(fleet.base, "PUT", "pools", poolid=ENGINE_POOL, vms=",".join(map(str, vmids)))
+
+
+def _file(directory: Path, name: str, text: str) -> Path:
+    path = directory / name
+    path.write_text(text)
+    return path
+
+
+# ------------------------------------------------------------------------------------------------ the reads ----
+
+
+def test_the_first_request_is_the_version_asked_once_with_the_engine_s_token(fleet) -> None:
+    with fleet.client() as client:
+        assert client.version() == answers.Version("9.2.21", "9.2", 9)
+        client.resources("vm")
+        client.next_id()
+    assert fleet.paths() == ["version", "cluster/resources", "cluster/nextid"]
+    assert {entry["token"] for entry in fleet.asked()} == {ENGINE_TOKEN}
+
+
+def test_the_listing_reads_each_guest_with_its_pool_and_frozen(fleet) -> None:
+    _members(fleet, 9010, 9011)
+    with fleet.client() as client:
+        listed = {entry.vmid: entry for entry in client.resources("vm")}
+    alpha = listed[9010]
+    assert (alpha.type, alpha.node, alpha.name, alpha.status, alpha.pool) == (
+        "qemu",
+        "pve",
+        "alpha",
+        "running",
+        "aw-fleet",
+    )
+    assert alpha.tags == ("agent-warehouse",) and not alpha.template and alpha.maxmem and alpha.maxcpu
+    assert listed[9012].status == "stopped" and listed[9012].pool == ""
+    assert listed[9000].template and listed[9003].type == "lxc"
+    # A node that is down: its guests listed with neither name nor template, their status unknown.
+    assert (listed[8001].node, listed[8001].status, listed[8001].name) == ("pve2", "unknown", "")
+    assert isinstance(alpha.entry, types.MappingProxyType) and alpha.entry["vmid"] == 9010
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        alpha.status = "stopped"  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        alpha.entry["status"] = "stopped"  # type: ignore[index]
+
+
+def test_the_listing_of_each_other_kind(fleet) -> None:
+    with fleet.client() as client:
+        pools = client.resources("pool")
+        storages = client.resources("storage")
+        nodes = client.resources("node")
+    assert ("pool", ENGINE_POOL) in {(entry.type, entry.id.removeprefix("/pool/")) for entry in pools}
+    assert [(entry.type, entry.node, entry.storage) for entry in storages] == [("storage", "pve", "local-lvm")]
+    assert {(entry.node, entry.status) for entry in nodes} == {("pve", "online"), ("pve2", "offline")}
+    assert [entry["params"] for entry in fleet.asked()][1:] == [{"type": "pool"}, {"type": "storage"}, {"type": "node"}]
+
+
+def test_the_engine_s_pool_with_its_members(fleet) -> None:
+    _members(fleet, 9010, 9011)
+    with fleet.client() as client:
+        pool = client.pool(ENGINE_POOL)
+    assert pool.poolid == ENGINE_POOL and pool.comment == "the fake fleet of the new engine"
+    assert [(member.vmid, member.name) for member in pool.members] == [(9010, "alpha"), (9011, "beta")]
+    assert fleet.asked()[-1]["params"] == {"poolid": ENGINE_POOL}
+
+
+def test_a_vm_s_config_with_its_digest_identity_and_mac(fleet) -> None:
+    raw = _pve(fleet.base, "GET", "nodes/pve/qemu/9010/config")["data"]
+    with fleet.client() as client:
+        config = client.config("pve", 9010)
+    assert (config.node, config.vmid, config.name, config.tags) == ("pve", 9010, "alpha", ("agent-warehouse",))
+    assert config.digest == raw["digest"] and len(config.digest) == 40 and "digest" not in config.values
+    assert config.identity == proxmox.smbios_uuid(raw) != ""
+    assert config.mac == proxmox.net_mac(raw["net0"]) and config.lock == "" and not config.template
+    assert config.values["ciuser"] == "dev"
+
+
+def test_a_vm_whose_clone_still_runs_is_read_locked_and_another_nic_has_no_mac(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=2)
+    _pve(fleet.base, "POST", "nodes/pve/qemu/9000/clone", newid=9020, name="delta")
+    with fleet.client() as client:
+        assert client.config("pve", 9020).lock == "clone"
+        assert client.config("pve", 9010, "net1").mac == "" and client.config("pve", 9000).template
+
+
+def test_a_vm_s_own_state_now(fleet) -> None:
+    with fleet.client() as client:
+        running, stopped = client.current("pve", 9010), client.current("pve", 9012)
+    assert (running.status, running.qmpstatus, running.name) == ("running", "running", "alpha") and running.uptime
+    assert (stopped.status, stopped.uptime) == ("stopped", 0)
+
+
+def test_the_next_free_vmid(fleet) -> None:
+    with fleet.client() as client:
+        found = client.next_id()
+    assert found == int(_pve(fleet.base, "GET", "cluster/nextid")["data"]) == 9001
+
+
+def test_a_node_s_status_with_sys_audit_and_denied_without(fleet) -> None:
+    with fleet.client() as client:
+        with pytest.raises(Denied) as denied:
+            client.node_status("pve")
+        assert denied.value.status == 403
+        _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/nodes/pve", privs="Sys.Audit")
+        node = client.node_status("pve")
+    assert (node.node, node.cpus, node.memory_total, node.memory_used, node.uptime) == (
+        "pve",
+        16,
+        64 * GIB,
+        24 * GIB,
+        86400,
+    )
+
+
+def test_a_task_s_status_and_log_ended_running_and_failed(fleet) -> None:
+    ended = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=1)
+    running = _pve(fleet.base, "POST", "nodes/pve/qemu/9011/status/shutdown")["data"]
+    _pve(fleet.base, "PUT", "fake/task-polls", polls=0)
+    _pve(fleet.base, "PUT", "fake/task-fail", error="start failed: \x1b[31mno\x1b[0m\x07 room")
+    failed = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
+    with fleet.client() as client:
+        assert client.task_status("pve", ended).ok and client.task_log("pve", ended).lines == ("TASK OK",)
+        assert client.task_status("pve", running).running and client.task_log("pve", running).lines == ()
+        status, log = client.task_status("pve", failed), client.task_log("pve", failed)
+    assert (status.status, status.ok, status.exitstatus) == ("stopped", False, "start failed: no room")
+    assert log.lines == ("TASK ERROR: start failed: no room",) and log.start == 0
+    assert fleet.asked()[-1]["params"] == {"start": "0", "limit": "50"}
+
+
+def test_a_node_s_storages_and_bridges_as_init_asks_them(fleet) -> None:
+    with fleet.client() as client:
+        (storage,) = client.storages("pve")
+        (bridge,) = client.bridges("pve")
+    assert (storage.storage, storage.type, storage.content) == ("local-lvm", "lvmthin", ("images", "rootdir"))
+    assert storage.active and storage.enabled and not storage.shared and storage.avail == 412 * GIB
+    assert (bridge.iface, bridge.type, bridge.active, bridge.autostart) == ("vmbr0", "bridge", True, True)
+    assert [entry["params"] for entry in fleet.asked()][1:] == [
+        {"content": "images", "enabled": "1"},
+        {"type": "any_local_bridge"},
+    ]
+
+
+def test_the_token_s_permissions_on_the_pool(fleet) -> None:
+    with fleet.client() as client:
+        held = client.permissions(f"/pool/{ENGINE_POOL}")
+    assert held.path == f"/pool/{ENGINE_POOL}" and set(held.privileges) == set(ENGINE_PRIVILEGES.split())
+    assert all(held.privileges.values())
+
+
+def test_any_other_read_status_adds_its_data_frozen(fleet) -> None:
+    with fleet.client() as client:
+        history = client.read("nodes/pve/qemu/9010/rrddata", {"timeframe": "day", "cf": "AVERAGE"})
+    assert history.path == "nodes/pve/qemu/9010/rrddata" and len(history.data) == 1440
+    assert isinstance(history.data, tuple) and isinstance(history.data[0], types.MappingProxyType)
+    assert fleet.asked()[-1]["params"] == {"timeframe": "day", "cf": "AVERAGE"}
+
+
+@pytest.mark.parametrize(
+    ("read", "args"),
+    [
+        ("config", ("../pve", 9010)),
+        ("config", ("pve", 99)),
+        ("config", ("pve", True)),
+        ("config", ("pve", 9010, "eth0")),
+        ("current", ("pve/qemu", 9010)),
+        ("pool", ("../access",)),
+        ("resources", ("all",)),
+        ("task_status", ("pve", "UPID:pve:1/../../version")),
+        ("task_log", ("pve", "UPID:pve:00000001:00000000:00000000:qm?x:1:root@pam:")),
+        ("storages", ("pve", "images&enabled=0")),
+        ("permissions", ("vms",)),
+        ("read", ("../version",)),
+        ("read", ("nodes/pve/qemu/9010/rrddata?cf=MAX",)),
+        ("read", ("nodes//pve",)),
+    ],
+)
+def test_a_name_or_id_that_is_not_one_proxmox_gives_is_refused_before_anything_is_sent(fleet, read, args) -> None:
+    with fleet.client() as client, pytest.raises((ValueError, TypeError)):
+        getattr(client, read)(*args)
+    assert fleet.asked() == []
+
+
+# ------------------------------------------------------------------------------------ what the host keeps ----
+
+
+def _anchored(fleet: Fleet, which: str) -> pin.Pin:
+    pem = fleet.pki[which]
+    return pin.kept(pem, trust.pem_fingerprint(pem) if which == "node" else "")
+
+
+@pytest.mark.parametrize("which", ["node", "ca"])
+def test_an_anchor_of_the_node_s_certificate_or_of_its_ca_verifies_the_host(fleet, which) -> None:
+    pinned = _anchored(fleet, which)
+    assert pinned.anchored and bool(pinned.fingerprint) is (which == "node")
+    with fleet.client(pinned) as client:
+        assert client.next_id() == 9001
+    assert fleet.paths() == ["version", "cluster/nextid"]
+
+
+def test_with_no_anchor_the_computer_s_file_that_holds_the_host_s_root_verifies_it(fleet, tmp_path) -> None:
+    pinned = pin.kept(None, tls_ca_file=_file(tmp_path, "computer.pem", fleet.pki["ca"]))
+    assert not pinned.anchored and not pinned.fingerprint
+    with fleet.client(pinned) as client:
+        assert client.version().major == 9
+
+
+def test_the_context_checks_the_name_strictly_on_every_python(pki, tmp_path) -> None:
+    for made in (
+        pin.context(pki["node"]),
+        pin.context(pki["ca"]),
+        pin.context(None, _file(tmp_path, "c.pem", pki["ca"])),
+    ):
+        assert made.check_hostname is True and made.verify_mode == ssl.CERT_REQUIRED
+        assert made.verify_flags & ssl.VERIFY_X509_STRICT and made.verify_flags & ssl.VERIFY_X509_PARTIAL_CHAIN
+    with pytest.raises(ValueError):
+        pin.context("no certificate here")
+
+
+def _wrong(fleet: Fleet, other: dict, tmp_path: Path, kept: str) -> pin.Pin:
+    """A pin of what the host does not keep: another node's certificate or CA as the anchor, the right certificate
+    with another's fingerprint recorded, or no anchor and a computer's file that holds no root of the host's."""
+    if kept == "another node's certificate":
+        return pin.kept(other["node"], trust.pem_fingerprint(other["node"]))
+    if kept == "another CA":
+        return pin.kept(other["ca"])
+    if kept == "another fingerprint":
+        return pin.kept(fleet.pki["node"], trust.pem_fingerprint(other["node"]))
+    if kept == "certifi's file":
+        return pin.kept(None)
+    return pin.kept(None, tls_ca_file=_file(tmp_path, "computer.pem", other["ca"]))
+
+
+WRONG = ["another node's certificate", "another CA", "another fingerprint", "certifi's file", "a file of another CA"]
+
+
+@pytest.mark.parametrize("kept", WRONG)
+def test_a_certificate_that_is_not_what_the_host_keeps_has_nothing_sent(fleet, other_pki, tmp_path, kept) -> None:
+    pinned = _wrong(fleet, other_pki, tmp_path, kept)
+    with fleet.client(pinned) as client:
+        with pytest.raises((Unverified, Untrusted)) as refused:
+            client.config("pve", 9010)
+        with pytest.raises((Unverified, Untrusted)):
+            client.resources("vm")
+    assert fleet.asked() == []
+    said = str(refused.value)
+    if pinned.anchored:
+        # The anchor's sentence: init's, which asks before it trusts another.
+        assert isinstance(refused.value, Unverified) and "not the one kept for it" in said and "aw init" in said
+        assert "tls_ca_file" not in said
+    else:
+        # The computer's file: the transport's sentence, which names the setting that adds a root.
+        assert isinstance(refused.value, Untrusted) and "tls_ca_file" in said
+
+
+@pytest.mark.parametrize("kept", WRONG)
+def test_with_the_fake_answering_no_request_without_a_token_a_wrong_certificate_still_has_the_token_never_leave(
+    fleet, other_pki, tmp_path, kept
+) -> None:
+    """What answers in the host's place may tell a probe with no token from the request that carries one, and say
+    nothing to the probe: the client sends no probe, and the token goes only once the certificate verified."""
+    _pve(fleet.base, "PUT", "fake/tokenless", answer="none")
+    with fleet.client(_wrong(fleet, other_pki, tmp_path, kept)) as client, pytest.raises((Unverified, Untrusted)):
+        client.version()
+    assert [entry for entry in _pve_requests(fleet.directory) if entry["token"] == ENGINE_TOKEN] == []
+    assert fleet.asked() == []
+
+
+def test_a_ca_with_no_key_usage_is_refused_on_every_python_and_its_node_s_certificate_verifies(tmp_path) -> None:
+    """A CA as Proxmox VE 8 made one, and VE 9 before pve-cluster 9.1.8, has no keyUsage: strict on every Python, it is
+    no anchor, and the host's anchor is its node's own certificate, with its fingerprint (init's to keep, card E3)."""
+    old = proxmox_pki(tmp_path / "old-pki", key_usage=False)
+    for fleet in _fleet(tmp_path / "fleet", old):
+        with fleet.client(pin.kept(old["ca"])) as client, pytest.raises(Unverified):
+            client.version()
+        with fleet.client(pin.kept(old["node"], trust.pem_fingerprint(old["node"]))) as client:
+            assert client.version().major == 9
+        assert fleet.paths() == ["version"]
+
+
+def test_a_fingerprint_is_kept_only_beside_an_anchor_and_only_as_openssl_prints_one(pki) -> None:
+    with pytest.raises(ValueError):
+        pin.kept(None, trust.pem_fingerprint(pki["node"]))
+    for given in ("AB" * 32, "ab:cd", trust.pem_fingerprint(pki["node"]) + "\n"):
+        with pytest.raises(ValueError):
+            pin.kept(pki["node"], given)
+        with pytest.raises(ValueError):
+            pin.check(given)
+    lower = trust.pem_fingerprint(pki["node"]).lower()
+    assert pin.kept(pki["node"], lower).fingerprint == lower.upper()
+    held = pin.check(lower)
+    held(ssl.PEM_cert_to_DER_cert(pki["node"]))
+    with pytest.raises(pin.Mismatch):
+        held(ssl.PEM_cert_to_DER_cert(pki["ca"]))
+
+
+def test_through_the_proxy_today_s_rule_chooses_the_token_stays_in_the_tunnel(fleet) -> None:
+    tunnel = _Tunnel()
+    try:
+        url = f"{fleet.base}/api2/json"
+        chosen = proxy.choose("environment", {"HTTPS_PROXY": tunnel.url}, url)
+        assert chosen == tunnel.url
+        with fleet.client(_anchored(fleet, "node"), proxy=chosen) as client:
+            assert client.next_id() == 9001
+        port = fleet.base.rsplit(":", 1)[1]
+        assert {asked.split(b"\r\n")[0] for asked in tunnel.asked} == {f"CONNECT 127.0.0.1:{port} HTTP/1.1".encode()}
+        assert tunnel.carried[:1] == b"\x16" and fleet.token.secret.reveal().encode() not in tunnel.carried
+        assert b"PVEAPIToken" not in tunnel.carried
+    finally:
+        tunnel.close()
+    assert fleet.paths() == ["version", "cluster/nextid"]
+
+
+# ----------------------------------------------------------------------------------- what Proxmox answers ----
+
+
+def test_a_redirect_is_an_answer_and_its_address_is_never_asked(fleet) -> None:
+    _pve(fleet.base, "PUT", "fake/redirect", location=f"{fleet.base}/api2/json/fake/elsewhere")
+    with fleet.client() as client, pytest.raises(Refused) as refused:
+        client.version()
+    assert refused.value.status == 302 and "never followed" in str(refused.value)
+    assert fleet.paths() == ["version"]
+    assert [entry for entry in _pve_requests(fleet.directory) if entry["path"].endswith("/elsewhere")] == []
+
+
+def test_a_host_below_9_is_refused_before_any_other_request(tmp_path, pki) -> None:
+    for fleet in _fleet(tmp_path, pki, version="8.2.4"):
+        with fleet.client() as client:
+            with pytest.raises(TooOld) as old:
+                client.resources("vm")
+            with pytest.raises(TooOld):
+                client.config("pve", 9010)
+            with pytest.raises(TooOld):
+                client.version()
+        assert "Proxmox VE 8.2.4" in str(old.value) and old.value.version == "8.2.4"
+        assert fleet.paths() == ["version"]
+
+
+def test_a_node_that_is_down_fails_its_own_reads_alone_and_the_listing_still_answers(fleet) -> None:
+    with fleet.client() as client:
+        for read, args in [("config", ("pve2", 8001)), ("current", ("pve2", 8001)), ("node_status", ("pve2",))]:
+            with pytest.raises(Refused) as refused:
+                getattr(client, read)(*args)
+            assert refused.value.status == 595 and "No route to host" in str(refused.value)
+        listed = {entry.vmid: entry for entry in client.resources("vm")}
+        assert listed[8001].node == "pve2" and listed[9010].status == "running"
+        assert client.config("pve", 9010).name == "alpha"
+
+
+def test_a_401_and_a_403_are_denied(fleet) -> None:
+    wrong = Token(fleet.token.id, Secret(CANARY))
+    with fleet.client(token=wrong) as client, pytest.raises(Denied) as unknown:
+        client.version()
+    assert unknown.value.status == 401
+    _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/storage/local-lvm", privs="")
+    with fleet.client() as client, pytest.raises(Denied) as refused:
+        client.read("nodes/pve/storage/local-lvm/content")
+    assert refused.value.status == 403
+
+
+def test_a_500_whose_reason_holds_401_is_refused_not_denied(fleet) -> None:
+    with fleet.client() as client, pytest.raises(Refused) as refused:
+        client.config("pve", 401)
+    assert refused.value.status == 500 and "401" in refused.value.reason
+    assert not isinstance(refused.value, Denied)
+
+
+class _Answers:
+    """A transport that answers each request with the next of answers, for the cases the fake does not make."""
+
+    def __init__(self, *given: Answer) -> None:
+        self.given = list(given)
+
+    def request(self, *args, **kwargs) -> Answer:
+        return self.given.pop(0)
+
+
+VERSION = Answer(200, (), b'{"data": {"version": "9.2.21", "release": "9.2"}}', "OK")
+
+
+@pytest.mark.parametrize(
+    ("given", "raised"),
+    [
+        (Answer(401, (), b"", "anything at all"), Denied),
+        (Answer(403, (), b'{"data": null}', "no privilege named"), Denied),
+        (Answer(500, (), b'{"data": null}', "401 Unauthorized: Permission check failed"), Refused),
+        (Answer(500, (), b'{"data": null}', "authentication failure"), Refused),
+        (Answer(404, (), b"", ""), Refused),
+        (Answer(301, (("Location", "https://elsewhere/"),), b"", "Moved"), Refused),
+        (Answer(200, (), b"no JSON", "OK"), Malformed),
+        (Answer(200, (), b'{"nodata": 1}', "OK"), Malformed),
+        (Answer(200, (), b'{"data": NaN}', "OK"), Malformed),
+        (Answer(200, (), b'{"data": ' + b"[" * 100000 + b"]" * 100000 + b"}", "OK"), Malformed),
+        (Answer(200, (), b'{"data": {"name": "alpha"}}', "OK"), Malformed),
+    ],
+    ids=[
+        "401",
+        "403",
+        "500 naming 401",
+        "500 naming authentication",
+        "404",
+        "301",
+        "no JSON",
+        "no data",
+        "NaN",
+        "too deep",
+        "a config with no digest",
+    ],
+)
+def test_what_an_answer_is_decided_by_its_status_alone(fleet, given, raised) -> None:
+    client = fleet.client()
+    client._transport = _Answers(VERSION, given)
+    with pytest.raises(raised) as error:
+        client.config("pve", 9010)
+    assert type(error.value) is raised
+
+
+@pytest.mark.parametrize(
+    ("parse", "value"),
+    [
+        (lambda v: answers.version(v), {"version": "nine"}),
+        (lambda v: answers.next_id(v), "99"),
+        (lambda v: answers.next_id(v), "abc"),
+        (lambda v: answers.task_status(v, "pve", "UPID"), {"status": "done"}),
+        (lambda v: answers.current(v, "pve", 9010), {"qmpstatus": "running"}),
+        (lambda v: answers.resources(v), {"not": "a list"}),
+        (lambda v: answers.pool(v, "aw-fleet"), [{"poolid": "another"}]),
+    ],
+)
+def test_an_answer_without_what_its_record_needs_is_malformed(parse, value) -> None:
+    with pytest.raises(Malformed):
+        parse(value)
+
+
+def test_proxmox_s_loose_json_is_read_as_it_comes() -> None:
+    entry = answers.resource({"vmid": "9010", "template": "1", "maxmem": "1024", "tags": "b;a,c", "uptime": 5.0})
+    assert (entry.vmid, entry.template, entry.maxmem, entry.tags, entry.uptime) == (
+        9010,
+        True,
+        1024,
+        ("b", "a", "c"),
+        5,
+    )
+    assert answers.resource({"vmid": True, "template": 0}).vmid is None
+    assert answers.next_id(9013) == answers.next_id("9013") == 9013
+
+
+# ------------------------------------------------------------------------------------------- the token ----
+
+
+def test_pveapitoken_is_written_in_one_module_of_the_new_engine() -> None:
+    writing = [_rel(path) for path in _new_engine() if "PVEAPIToken" in path.read_text()]
+    assert writing == [_rel(CLIENT)]
+
+
+def _returns_the_token(tree: ast.AST) -> list[int]:
+    """The lines of tree's returns that name the token, or its secret."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Return | ast.Yield | ast.YieldFrom)
+        and node.value is not None
+        and any(isinstance(n, ast.Attribute) and n.attr in ("_token", "secret") for n in ast.walk(node.value))
+    ]
+
+
+def test_no_method_of_the_client_returns_the_token() -> None:
+    assert _returns_the_token(ast.parse(CLIENT.read_text())) == []
+    assert _returns_the_token(ast.parse("def f(self):\n    return self._token.secret")) == [2]
+
+
+def _holds_a_secret(value, seen=None) -> bool:
+    """Whether value, a read's record, holds a Secret or a Token anywhere."""
+    if isinstance(value, Secret | Token):
+        return True
+    if dataclasses.is_dataclass(value):
+        return any(_holds_a_secret(getattr(value, field.name)) for field in dataclasses.fields(value))
+    if isinstance(value, dict | types.MappingProxyType):
+        return any(_holds_a_secret(one) for one in value.values())
+    if isinstance(value, tuple | list):
+        return any(_holds_a_secret(one) for one in value)
+    return False
+
+
+def test_no_read_returns_the_token_or_its_secret(fleet) -> None:
+    secret = fleet.token.secret.reveal()
+    _members(fleet, 9010)
+    _pve(fleet.base, "PUT", "fake/privileges", token=ENGINE_TOKEN, path="/nodes/pve", privs="Sys.Audit")
+    upid = _pve(fleet.base, "POST", "nodes/pve/qemu/9012/status/start")["data"]
+    with fleet.client() as client:
+        got = [
+            client.version(),
+            client.resources("vm"),
+            client.pool(ENGINE_POOL),
+            client.config("pve", 9010),
+            client.current("pve", 9010),
+            client.next_id(),
+            client.node_status("pve"),
+            client.task_status("pve", upid),
+            client.task_log("pve", upid),
+            client.storages("pve"),
+            client.bridges("pve"),
+            client.permissions("/vms/9010"),
+            client.read("nodes/pve/qemu/9010/pending"),
+        ]
+        shown = repr(client) + repr(fleet.token) + str(fleet.token)
+    assert not any(_holds_a_secret(one) for one in got)
+    assert secret not in repr(got) and secret not in shown and fleet.token.id in shown
+
+
+def _errors(fleet: Fleet, other: dict, tmp_path: Path) -> list[BaseException]:
+    """One error of each kind the client raises, each from a request that carried the token or would have."""
+    raised = []
+
+    def caught(token: Token, read, *args, pinned: pin.Pin | None = None) -> None:
+        with Proxmox(fleet.base, pinned or pin.kept(fleet.pki["ca"]), token) as client:
+            try:
+                getattr(client, read)(*args)
+            except Exception as error:  # noqa: BLE001 - each is what the test reads
+                raised.append(error)
+
+    caught(Token(fleet.token.id, Secret(CANARY)), "version")
+    caught(Token(fleet.token.id, Secret(f"{CANARY}\r\nX-Injected: 1")), "version")
+    caught(fleet.token, "config", "pve", 401)
+    caught(fleet.token, "node_status", "pve")
+    caught(fleet.token, "version", pinned=pin.kept(other["ca"]))
+    caught(fleet.token, "version", pinned=pin.kept(fleet.pki["node"], trust.pem_fingerprint(other["node"])))
+    caught(fleet.token, "version", pinned=pin.kept(None, tls_ca_file=_file(tmp_path, "other.pem", other["ca"])))
+    return raised
+
+
+def test_no_error_of_the_client_says_the_token(fleet, other_pki, tmp_path, caplog, capsys) -> None:
+    caplog.set_level(logging.DEBUG)
+    errors = _errors(fleet, other_pki, tmp_path)
+    assert [type(error) for error in errors] == [Denied, NotMade, Refused, Denied, Unverified, Unverified, Untrusted]
+    for error in errors:
+        said = "\n".join(_said(error, caplog, capsys))
+        assert CANARY not in said and fleet.token.secret.reveal() not in said, type(error)
+        assert error.__cause__ is None and error.__context__ is None
