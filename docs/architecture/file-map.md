@@ -257,7 +257,9 @@ lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downlo
                                   transport.py, the one transport, over http.client: no redirect followed, no
                                   certificate variable read, a proxy only as an argument; proxy.py, today's proxy
                                   from the environment it is given; trust.py, the computer's certificates,
-                                  certifi's list with the file tls_ca_file names added, and the context made from them
+                                  certifi's list with the file tls_ca_file names added, and the context made from them;
+                                  keys.py, the vendored signing keys by their fingerprints; downloads.py, Claude Code's
+                                  release and an Ubuntu image's digest, each held to its vendor's signature
 lib/claude_vm/runs/               a run's record and text log, the kernel's file locks, a detached run
 lib/claude_vm/fleet/              a fleet's files: where they are, the hosts, the settings table, the secrets, its mark;
                                   paths.py, the one resolver of a fleet's home, its state folder and its key file
@@ -330,7 +332,8 @@ tests/
                                   the host's commands tools/proxmox-access.sh runs; fake_github_api.py and
                                   fake_gh.sh; fake_claude.sh; fake_tailscale.sh and fake_tailscale_api.py;
                                   fake_anthropic_api.py, the Messages API for the real claude in configure;
-                                  fake_downloads.py, a vendor's download server for the signed downloads' tests.
+                                  fake_downloads.py, a vendor's download server for the signed downloads' tests,
+                                  over HTTP or, given a certificate, HTTPS.
                                   And the scenarios' shared task files: prepare_pve.yml and prepare_github.yml
                                   start the fake APIs, pve_vm.yml makes fixture VMs through the PVE one, and
                                   refused.yml runs a role where it must refuse and asserts why; and boot_wait.yml,
