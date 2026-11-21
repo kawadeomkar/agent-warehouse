@@ -409,8 +409,11 @@ def create(
     job = Job(folder)
     try:
         job._change(lambda _: {**record, "id": job.id}, first=True)
-    except BaseException:
-        drop(job)
+    except BaseException as error:
+        left = drop(job)
+        if left is not None:
+            # A record written and then left: the error says where, as a refusal says it.
+            error.add_note(left)
         raise
     return job
 
