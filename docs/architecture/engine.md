@@ -595,9 +595,9 @@ call writes a pool and that the role on the pool holds no `Pool.*` privilege but
 
 `lib/claude_vm/ssh/` is where the runner over OpenSSH goes. It runs `ssh` as a child under hard limits, takes a
 machine's host key at first use and files it under the machine's identity, keeps one shared control directory, and holds
-the `ssh` children a run holds. It imports `schema/`, `runs/` for the one way a child is started, and `secret.py`; of
-today's modules what `REUSED` names (`checks`, `route` and `text`), and nothing of `status/`, which makes TLS contexts;
-nothing of `engine/`, `cli/` or `control/`, and no pydantic.
+the `ssh` children a run holds. It imports `schema/`, `runs/` for the one way a child is started, `fleet/` for the modes
+of a file it makes, and `secret.py`; of today's modules what `REUSED` names (`checks`, `route`, `store` and `text`), and
+nothing of `status/`, which makes TLS contexts; nothing of `engine/`, `cli/` or `control/`, and no pydantic.
 
 **A target: `runner.py`'s `Target`.** A frozen record of everything a connection is made from, each value held before
 any child starts: the machine's identity (`checks.HOST_KEY_ALIAS_RE`, `agent-warehouse-<its SMBIOS UUID>`); the one IPv4
@@ -625,6 +625,24 @@ hop is made by, whose socket's name it shares.
   the product's file or the person's own; the caller files the key it took, and every later connection checks the
   product's file with `yes`. The Proxmox host's key is taken at first use into the person's own `known_hosts`, as
   `ansible.cfg`'s `ssh_args` take it today.
+
+**A host key: `hostkeys.py`.** A machine's key is filed under its identity in the product's own known-hosts file, and no
+function there takes an address. `parse` holds one line of a public key: its type one of `checks.KNOWN_KEY_TYPES`, its
+body the base64 (`checks.KNOWN_KEY_RE`) of a key of that very type, its comment left off; an option or a name before
+the type, a second line and a control character are refused, and nothing of the line is said back. `line` is the
+known-hosts line under the identity. `kept` reads the product's file as `ssh` reads it - a name, names and patterns
+split by commas with `*`, `?` and `!`, or a name `ssh` hashed under `HashKnownHosts` - and returns the keys filed under
+the identity, passing over a comment, a marker's line and a key of a type it does not file. `file` adds the line under
+`store.locked`, the lock on the file's folder that every writer through `store` takes, reading the file only once it
+holds it, so that two writers at once lose neither line: only where no key of the key's type is filed for the identity
+(the three ECDSA curves count as one), and where another is, it raises `Changed`, which names both fingerprints and the
+`ssh-keygen -R` that takes the old one out, the file left byte for byte. It never replaces or removes a line, so a
+deleted machine's key stays under an identity no machine made later has. For a first use, `fresh` makes an empty
+scratch file, 0600, in the run's own directory, named for the identity, which is the file a first use's `Target`
+names; `taken` reads back the one line `ssh` wrote there - three words, under the identity by name or hashed - and
+refuses a file with no line, two, or one under another name, an address among them, with nothing filed. The caller
+shows the key where it asks a person (an adopted machine's question) and files it with `file`, by name, never by the
+hash `ssh` wrote. Neither ever reads or writes the person's own `known_hosts`.
 
 **The command line.** `argv(target, command)` is `ssh`, then the product's options, then the hop's, then the person's,
 then `-l <account> -p <port> -- <address>` and the command joined with `shlex.join`; every value is one word and none
@@ -671,7 +689,12 @@ standard input: the options and their order, word for word, for every form; the 
 and nothing left in the process table; a held child's lines while it runs and a line sent later; and four rules by
 scans: a child named `ssh` is started in the new subpackages only from `ssh/`; no option is made of a value a machine
 supplied but its address; `accept-new` is written in `ssh/` only for a first use and the Proxmox host; and the runner
-carries no `ControlMaster` but `no`.
+carries no `ControlMaster` but `no`. `tests/unit/test_aw_hostkeys.py` holds `hostkeys.py`, with blobs of every type it
+files and real keys of this machine's own `ssh-keygen`, whose `-l` gives each fingerprint, `-F` a name as `ssh` reads
+one and `-H` one hashed: a key filed once and found, a second of its type refused with the file unchanged byte for byte,
+two writers at once, a deleted machine's line kept through every call, a first use's scratch file taken and filed or
+refused with nothing filed, the person's own files never read or written, and, by the signatures, no function that
+takes an address.
 
 ## 16.7 `vendors/` — one HTTPS transport, Tailscale's calls, verified downloads
 
