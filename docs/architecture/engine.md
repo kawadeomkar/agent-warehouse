@@ -356,9 +356,27 @@ revealed there alone. No method returns it, and no error says it.
   node, a pool, a VMID from 100, a UPID, an ACL path, a network card, a path below the API with no `.` or `..` part
   and no query), so that none can reach another path or a query.
 
+**The one table of privileges: `privileges.py`.** `CALLS` is a literal tuple of `Call(name, method, route, privilege,
+on)`: one row for each privilege of each call the engine makes, its route below `/api2/json` with each name in braces
+(`/nodes/{node}/qemu/{vmid}/config`), and `on` the kind of ACL path Proxmox checks it on - `vm` (`/vms/<vmid>`, which a
+member of a pool also takes from the pool's roles), `pool`, `storage`, `bridge` (`/sdn/zones/localnetwork/<bridge>`)
+or `node` - or no privilege and no kind for a call that needs none (the version, the next VMID, the token's own
+permissions). A call that needs several privileges has a row for each, and needs every one. The rows are Proxmox VE
+9's names alone, read for each call from Proxmox's source and API viewer, until a real host is read for them.
+Two functions read it: `needed(on)`, the privileges the table needs on one kind of path, which `init` makes the
+engine's role of and grants, and the permission check compares with what the token holds (on a pool, with every
+privilege checked on a VM, which the pool's members take from it); and `for_request(method, path)`, the rows of one
+request with the concrete ACL path each is checked on where the request's path names it - none where the call names it
+in its parameters, or lists such objects, each listed only where the row's privilege is held on it. It imports only
+the standard library: the fake Proxmox reads it with nothing but `lib/` on its path, enforces it when a test turns
+that on, and keeps no table of its own, so a test proves what the token can and cannot do from the table `init`
+grants. `tests/unit/test_aw_pve_privileges.py` holds every privilege to a list of Proxmox VE 9's, the module to the
+standard library, the rows' shape, and the fake and the harness to no privilege name of their own but today's.
+
 Reads only: the writes are card B4's, the guest agent's calls card B6's, and `status` moves onto the client in its own
 workstream. `tests/unit/test_aw_pve_reads.py` runs every read against the fake Proxmox, which serves a node's
-certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token. For an
+certificate from `tests/unit/pki.py` (`harness.fake_fleet`'s `certificate`), with the engine's pool and token, granted
+as `init` grants them and held to the table, so every read is a call the table has a row for. For an
 anchor of another node's certificate, of another CA, the right certificate with another fingerprint recorded, and no
 anchor with a computer's file that holds no root of the fake's, the fake's request log holds no request of the client's,
 also with the fake answering no request without a token. It holds that `PVEAPIToken` is written in one module of the

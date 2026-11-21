@@ -248,7 +248,8 @@ lib/claude_vm/engine/             the workflows, one module a verb, in place of 
 lib/claude_vm/pve/                the typed Proxmox VE client, and the one table of each call's privilege; client.py,
                                   Proxmox, the one class that sends the token, and its reads; answers.py, each read's
                                   frozen record and its parsing function; pin.py, the connection the token goes on,
-                                  verified against the host's anchor or the computer's certificate file
+                                  verified against the host's anchor or the computer's certificate file; privileges.py,
+                                  the table init grants from and the fake enforces
 lib/claude_vm/ssh/                the runner over OpenSSH: ssh as a child, host keys taken at first use, the control
                                   directory, the children a run holds
 lib/claude_vm/vendors/            one HTTPS transport, Tailscale's calls, downloads held to a signature or a digest;

@@ -924,15 +924,32 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   `privsep` 1 unless given, answering `info`, `value` and `full-tokenid`; `PUT` on the same path changes it, and with
   `regenerate=1` makes a new secret, the old one refused from then on. Such a token is accepted with its own secret
   alone, until its `expire`, and `GET /access/permissions` answers it from the ACL entries as Proxmox computes them:
-  the deepest entries of the path win, one above it only where it propagates, a pool member takes the roles held on
-  its pool without propagate, and with `privsep=1` the token's own entries are cut to what its user holds. Today's
-  tokens are answered by the table and the whole role as above, and everything else a made token asks as theirs is:
-  nothing is refused for lack of a privilege. `harness.fake_fleet(engine=True)` makes the new engine's pool, role,
-  user and its one token, and `harness.engine_token` gives the token's ID and secret; with `certificate`, a node's
-  certificate and key of `tests/unit/pki.py`'s, the fake serves that, which a client can verify, in place of one of its
-  own.
+  the deepest entries of the path win, one above it only where it propagates, and `NoAccess` among them stands alone;
+  a pool member (a storage of every pool that holds it) takes the roles held on its pools without propagate, never
+  over a `NoAccess` of its own path, and a pool's `NoAccess` leaves it nothing; with `privsep=1` the token's own
+  entries are cut to what its user holds. The roles Proxmox has from the start are there to grant and never made
+  again: `NoAccess`, and those of `fake_pve_cli.py` (`PVEAuditor`); a role takes only the privileges Proxmox VE 9
+  defines, as that stand-in knows them, the rest refused with Proxmox's sentence; and a made token's clone into a pool
+  that does not exist is refused, as `check_pool_exist` refuses it. Today's tokens are answered by the table and the
+  whole role as above. `harness.fake_fleet(engine=True)` makes the new engine's pool, its role holding what the
+  engine's one table of privileges needs on a pool (`lib/claude_vm/pve/privileges.py`'s `needed`), its user and its
+  one token, and `harness.engine_token` gives the token's ID and secret; `harness.engine_grant` grants it what `init`
+  grants beside the pool; with `certificate`, a node's certificate and key of `tests/unit/pki.py`'s, the fake serves
+  that, which a client can verify, in place of one of its own.
+- Everything a made token asks is answered as a today's token's is, nothing refused for lack of a privilege, until
+  `PUT /api2/json/fake/enforce?on=1` (`fake_fleet(enforce=True)`; no scenario turns it on): then each request of a
+  made token is held to the engine's table, which the fake reads from the checkout's `lib/` and keeps no copy of. It
+  is refused, a 403 with Proxmox's words, where the token lacks on its path the privilege a row of its call names - the
+  path the request's path names, or its parameters (a clone's pool, or with none the new VM's own path, and its
+  storage, or with none its source's disk's; a pool's `poolid`) - decided by the same function that answers
+  `GET /access/permissions`; a task's owner reads it with no privilege; a listing (the cluster's, a node's storages
+  and bridges, the pools) shows each entry only where the token holds what its row names on it, and a node's figures
+  only so. A call no row names is refused the same way and recorded in the state directory's `unmatched.log`, and
+  `fake_fleet(enforce=True)` fails the test at its end on one: so a call the client adds without its row fails its own
+  test. A request to a node that is down still gets its 595, as pveproxy answers it before that node's own check.
 - `GET /nodes/<node>/status` answers a node's CPU threads, memory and uptime as Proxmox VE 9 does, to a token
-  `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node, and 403 to any other.
+  `PUT /api2/json/fake/privileges` granted `Sys.Audit` on the node (under enforcement, a made token holding it there),
+  and 403 to any other.
   `PUT /api2/json/fake/redirect?location=` has the next request that carries a token answered with a redirect there,
   once: a client that followed it would carry the token to another address.
 - A VM's configuration is written as qemu-server's `PVE/API2/Qemu.pm` writes it. A `PUT` or `POST` of it that sends
@@ -952,9 +969,10 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
 - Where Proxmox takes two calls and fails the loser in its worker, the fake can too: `PUT /api2/json/fake/clone-race`
   has the next clone onto a VMID this node's VM holds, and the next configuration `POST` with a stale digest, pass the
   call as a race's loser did, answer a UPID and fail in the task, changing nothing - the clone with the lock's timeout
-  while the winner's clone runs, else that the file exists; the `POST` with the digest's refusal. The fake answers one
-  request at a time, which is what makes each check and the write after it atomic; a test sends requests at once to
-  hold that.
+  while the winner's clone runs, else that the file exists; the `POST` with the digest's refusal. Each is armed unless
+  given 0 (`clone=0`, `config=0`, which also disarms one armed before), and spent once it has changed an outcome. The
+  fake answers one request at a time, which is what makes each check and the write after it atomic; a test whose first
+  request stalls half sent while a second waits holds that.
 - Every call that answers a UPID makes a task of it, recorded in the state directory's `tasks.json` with its type, the
   token that made it and its VM, and what the call changes is changed when the task ends, but for a clone's VM, there
   from the call and locked until then. A task ends at once, so today's callers see it stopped at their first poll,
@@ -965,7 +983,9 @@ stdout and stderr for a failure message (Molecule prints task failures to stderr
   leaves no VM), and its log, which `tasks/<upid>/log` gives as Proxmox numbers its lines, end `TASK ERROR:` and the
   error. With no fixture set, every answer today's requests get is what it was before the tasks and digests, byte for
   byte but for the clone onto a taken VMID: `tests/unit/test_aw_fake_pve.py` sends the requests
-  `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares.
+  `tests/unit/fake_pve_replies.json` recorded from the fake before then, and compares; among them the reads of today's
+  whose branches the pools and tokens changed (`GET /access/permissions`, the pools and storages the cluster lists),
+  recorded from the fake before those.
 - What `just status` reads is shaped by that version, as Proxmox VE's own: from 9 the listing carries
   `memhost` and `rrddata` the `pressure*` fields, and a day is 1440 points; on 8 it is 70. A clone's config
   carries the template's meta `ctime`, as a real one does; its disk's `ctime` in the storage's content is when it
