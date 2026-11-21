@@ -5,7 +5,8 @@ its variables - for as long as the run lives (docs/architecture/engine.md §16.8
 0700, under the per-user temporary directory (`tempfile.gettempdir()`: `TMPDIR` where it is set, as on macOS, else
 `/tmp`), and writes its path into the job's record. Never inside `XDG_RUNTIME_DIR`: systemd removes that directory at
 the person's last logout while a detached run may still live, so where the temporary directory lies inside it, `/tmp`
-is used. `path_for(job, name)` names a file in it and writes nothing. `remove(job)` deletes it, and is safe to call
+is used. `made(job)` gives it back to the process that made it, and `path_for(job, name)` names a file in it and
+writes nothing. `remove(job)` deletes it, and is safe to call
 twice; a process that did not make the job removes only the directory the record names, held to the form `make`
 gives it, and only once the run no longer holds the job's lock.
 
@@ -81,6 +82,12 @@ def make(job: jobs.Job) -> Path:
         raise
     _MADE[key] = made
     return made
+
+
+def made(job: jobs.Job) -> Path | None:
+    """The directory this process made for the job's run, which its body is given (runs/attached.py); None where it made
+    none."""
+    return _MADE.get(jobs._key(job.folder))
 
 
 def path_for(job: jobs.Job, name: str) -> Path:

@@ -46,8 +46,8 @@ ID_HEX = 16
 RECORD = "job.json"
 LOCK = "lock"
 # The kinds of event a run emits: its declared stages and their steps, a report, what it waits for, a NEXT STEPS line,
-# a child it started, and an end (a machine's, or with no machine the run's).
-KINDS = ("stage", "step", "report", "waiting", "next", "child", "end")
+# and an end (a machine's, or with no machine the run's). A child the run started is its registry's (runs/children.py).
+KINDS = ("stage", "step", "report", "waiting", "next", "end")
 # The outcomes a run or a machine ends with, written; and every state a reader tells, derived.
 OUTCOMES = ("succeeded", "failed", "cancelled")
 STATES = ("running", "cancelling", *OUTCOMES, "lost")

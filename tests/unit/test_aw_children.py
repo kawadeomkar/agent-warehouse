@@ -125,20 +125,16 @@ def nothing_starts(monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
 # ---------------------------------------------------------------- the environment ----
 
 
-def test_env_gives_the_job_s_marker_and_unmarked_takes_it_away(made) -> None:
+def test_unmarked_takes_the_job_s_marker_away(made) -> None:
     assert children.MARKER == "AGENT_WAREHOUSE_JOB" and patterns.full("job_id", made.id)
-    base = {"PATH": "/usr/bin", children.MARKER: OTHER_JOB}
-    marked = children.env(base, made)
-    assert marked == {"PATH": "/usr/bin", children.MARKER: made.id}
+    marked = {"PATH": "/usr/bin", children.MARKER: made.id}
     assert children.unmarked(marked) == {"PATH": "/usr/bin"}
-    # Copies, each: what was given is left as it was.
-    assert base == {"PATH": "/usr/bin", children.MARKER: OTHER_JOB} and children.MARKER in marked
+    # A copy: what was given is left as it was.
+    assert marked == {"PATH": "/usr/bin", children.MARKER: made.id}
 
 
 def test_only_the_run_that_made_a_job_marks_a_child_with_it(made, nothing_starts) -> None:
     other = jobs.Job(made.folder.parent / OTHER_JOB)
-    with pytest.raises(RuntimeError, match="not this process's"):
-        children.env({}, other)
     with pytest.raises(RuntimeError, match="not this process's"):
         asyncio.run(children.start(other, ["true"], children.GROUP, {}, DEVNULL, DEVNULL, DEVNULL, children.PROGRAM))
     assert nothing_starts == [] and children.live(other) == []
@@ -166,11 +162,10 @@ def test_a_child_in_a_session_of_its_own_carries_the_job_s_marker(made, kind) ->
 
 @pytest.mark.parametrize("own", children.OWN)
 def test_a_shared_master_carries_no_marker_and_is_entered_in_no_registry(made, own) -> None:
-    found = _probe(made, own, kind=children.MASTER, env=children.env(os.environ, made))
+    # Even handed an environment that carries the run's marker.
+    found = _probe(made, own, kind=children.MASTER, env={**os.environ, children.MARKER: made.id})
     assert found["marker"] is None
     assert children.live(made) == []
-    with pytest.raises(ValueError, match="no registry"):
-        children.register(made, children.MASTER, object())  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("own", children.OWN)
@@ -305,12 +300,9 @@ def test_the_registry_holds_the_run_s_live_children_by_kind_until_each_ends(made
         held = await children.start(
             made, waits, children.GROUP, dict(os.environ), PIPE, DEVNULL, DEVNULL, children.PROGRAM
         )
-        # One started another way, entered by hand.
-        runner = await asyncio.create_subprocess_exec(
-            sys.executable, "-I", "-c", WAITS, stdin=PIPE, env=children.env(os.environ, made), process_group=0
+        runner = await children.start(
+            made, waits, children.GROUP, dict(os.environ), PIPE, DEVNULL, DEVNULL, children.SSH
         )
-        entered = children.register(made, children.SSH, runner)
-        assert (entered.kind, entered.pid) == (children.SSH, runner.pid)
         try:
             # A session child with /dev/null for its input has ended already, or soon will.
             await asyncio.wait_for(started.wait(), 60)
@@ -330,14 +322,6 @@ def test_the_registry_holds_the_run_s_live_children_by_kind_until_each_ends(made
         assert children.live(made) == []
 
     asyncio.run(run())
-
-
-def test_register_takes_only_a_kind_it_knows_and_a_job_of_this_process_s(made) -> None:
-    with pytest.raises(ValueError, match="no kind of child"):
-        children.register(made, "editor", object())  # type: ignore[arg-type]
-    with pytest.raises(RuntimeError, match="not this process's"):
-        children.register(jobs.Job(made.folder.parent / OTHER_JOB), children.SSH, object())  # type: ignore[arg-type]
-    assert children.live(made) == []
 
 
 # ---------------------------------------------------------------- the rules ----

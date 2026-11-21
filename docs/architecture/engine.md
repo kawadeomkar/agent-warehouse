@@ -591,7 +591,8 @@ process's start or reads the process table for one, which a scan in the test hol
 
 **Events.** `emit(kind, machine, text, **data)` hands one event, with its time, to each listener the run registered
 with `listen` (the live view and the text log), in order and in the run's own process. The kinds are `stage`, `step`,
-`report`, `waiting`, `next`, `child` and `end`; another is refused. Every string an event carries goes through
+`report`, `waiting`, `next` and `end`; another is refused, `child` among them, since a child the run started is its
+registry's (`children.py`). Every string an event carries goes through
 `text.plain_text`, and a `Secret` anywhere in one is refused before anything is written or heard. What an agent and
 `logs` read is also kept in the record: a `waiting` (empty text: nothing), a `next` with its `matter` (an empty line
 removes it), a machine's `end` with its outcome and the stage its last `stage` event named, and the run's `end` (no
@@ -609,10 +610,10 @@ NFS and the folder would stay. `tests/unit/test_aw_job.py` holds it all, each st
 SIGKILL reads `lost` with nothing written after it, and a child that outlives its killed run holds no lock.
 
 **A run's children: `children.py`.** Every process a run starts carries the job's marker, `AGENT_WAREHOUSE_JOB`, the
-name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `env(base, job)`
-is a copy of `base` with it; `unmarked(env)` takes it away, for the
-one kind of child that must not carry it, a shared SSH master, which other runs may ride after this one ends. Only the
-process that made a job marks a child with it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
+name today's MCP jobs set, with the job's ID: whatever reads it matches the ID, never the name alone. `start` gives it
+whatever environment it is handed; `unmarked(env)` takes it away, for the one kind of child that must not carry it, a
+shared SSH master, which other runs may ride after this one ends. Only the process that made a job marks a child with
+it. `start(job, argv, own, env, stdin, stdout, stderr, kind, pass_fds=())`
 is the one way the engine starts a child, the SSH runner's `ssh` children among them, a coroutine over asyncio's own:
 
 - `own` is `group`, a process group of its own, so that the terminal's Ctrl-C reaches the run alone; or `session`, a
@@ -629,8 +630,9 @@ is the one way the engine starts a child, the SSH runner's `ssh` children among 
 - The kinds are `ssh`, the SSH runner's bounded and held children, a forward among them; `ansible`, layer 1's
   `ansible-playbook`; `program`, a program of the computer's own (`rsync`, an opener, the editor); and `master`.
 
-The children a run started are kept by kind, in memory, for the run's end: `start` enters each with `register(job,
-kind, process)`, and `live(job, kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever ends one.
+The children a run started are kept by kind, in memory, for the run's end (`attached.py`): `start` enters each, and
+`live(job, kind)` gives those still running, in the order they started. A master is entered nowhere, since no run ever
+ends one.
 Nothing is written to a file, and nothing reads the process table. `tests/unit/test_aw_children.py` holds it, with real
 children that report what they were given, and holds four rules by scans of the new engine's code: a child process is
 started only through this module, by any of Python's ways; `close_fds=False` appears nowhere; no
@@ -645,7 +647,8 @@ where the record cannot take it, the job dropped, the directory is removed again
 `XDG_RUNTIME_DIR`, compared by the real paths of both: systemd removes that directory at the person's last logout
 while a detached run may still live, so where the temporary directory lies inside it, the run's goes in `/tmp`. The ID
 in the name tells which job left a directory, and is in the command line of every child that reads a file there.
-`path_for(job, name)` gives the path of one plain file name there and writes nothing: the module makes and removes
+`made(job)` gives it back to the process that made it, and `path_for(job, name)` the path of one plain file name there,
+each writing nothing: the module makes and removes
 the directory and writes no file in it. Only the process that made a job makes its directory, one a run, or names a
 file in it. `remove(job)` deletes the directory with what it holds, says whether anything was left, and is safe to
 call twice: the run removes the one it made, even once its job is dropped; any other process removes only the one the
@@ -654,6 +657,41 @@ and not a link), and never while the job's lock is held, since a living run's di
 written there: a secret travels on standard input or stays in memory, as today, and every workflow's tests search the
 directory for the secrets they gave (`aw_kit.searched_for`). No socket is made there either: a shared connection lives
 in the one control directory. `tests/unit/test_aw_rundir.py` holds it, with a scan that finds no write in the module.
+
+**A run, and its end: `run` and `attached.py`.** `runs.run(draft, body)` is the one entry a verb calls, at a terminal
+or detached: it makes the job its `Draft` describes (`create`'s arguments), which takes the job's own lock, makes the
+run's directory, and hands both to `attached.run(job, body)`; a directory that cannot be made drops the job, as a run
+that never began. It takes no other lock: the locks a run is given go between the job and the body, once the locks
+exist. `attached.run` runs the body, a coroutine function, in the command's own process on one `asyncio` loop, and
+gives it a `Context`: the job, for the SSH runner and `children.start`; `cancelled`, an event a workflow checks
+between its steps or waits on; `shield(reason)`, for a phase that cannot be cancelled, such as a deletion already
+sent; `emit`; `live(kind)`, the children it still holds; and the run's directory. Its handlers take SIGINT, SIGTERM
+and SIGHUP, but one ignored on the way in, as `nohup` or a shell's `&` leaves one, which stays ignored. The ladder:
+
+| The end | What happens | The record | The process |
+|---|---|---|---|
+| Ctrl-C, once | `cancelled` set; the tree under the run remembered with `proc.snapshot`, the interrupts held off while the table is read; SIGINT to each Ansible child's group; a line on standard error that the run is stopping, or that it stops once the shielded phase is finished. Once the body and every child it started have ended, what is left is ended at once; 30 seconds after the Ctrl-C (`STOP_GRACE`, today's MCP jobs' grace) whatever still runs is ended and the body cancelled, but a shielded phase is waited for | `cancelled`, `Ctrl-C` | exits 130 |
+| Ctrl-C, twice | the tree ended at once from the signal's handler itself, then `Abandoned`, a `KeyboardInterrupt`, raised there while the loop runs, so that a step stuck in it cannot hold the end | `cancelled`, `Ctrl-C twice` | exits 130 |
+| SIGHUP or SIGTERM | the tree ended with that signal from the handler, as above; what ignores it is killed after five seconds | `cancelled`, the signal's name, exit 128 and its number | its handler put back to the default, and dies of it |
+| An error the body did not handle | the tree ended | `failed`, the error | the error raised again |
+| The body returns | what it still holds of its children ended | `succeeded` for 0, `cancelled` for 130, else `failed` with the status | exits with the status |
+| SIGKILL | nothing | none: the job reads `lost` once its lock is free | killed |
+
+On every path but SIGKILL, the terminal's settings are put back as the run found them, its echo among them (where
+anything changed them, SIGTTOU held off); every child of the registry has ended or been ended before the loop closes,
+since asyncio kills an `ansible-playbook` it still holds when its loop closes and leaves the playbook's detached task
+workers running; the run's directory is removed; and the exit record is written last, with the signals held off and
+then taken as notes only, so that a late one changes nothing but what the process dies of. "The tree" is everything
+under the run's process, ended by `proc.end_under(pid, remembered, signum)`, which signals every process under a process
+and what was remembered of it, by each one's start, with their groups, and never the process, its group or the
+caller's: today's `end` signals the root too, which here is the run. A shared SSH master daemonises out of the tree, so
+no end reaches it; no child subreaper and no systemd scope are adopted, since under a subreaper one run's end would cut
+another run's connection through the host. The ladder is built against stand-ins; experiment 37 tries it with real
+children, and if a foreground run cannot end its tree by itself, `runs.run` is where a small watcher would go.
+`tests/unit/test_aw_attached.py` holds it, with runs in child processes whose bodies start three stand-in Ansible
+children (one that ends on SIGINT, one that ignores it, one with a grandchild in a session of its own): every way out but
+SIGKILL leaves its exit record, its status and nothing running, and the ways walk every signal the run takes and every
+outcome; the grace, a shielded phase, a signal ignored on the way in, and the echo at a pseudo-terminal after each end.
 
 ## 16.9 `fleet/` — the fleet's files, the settings, the secrets and the fleet's mark
 
